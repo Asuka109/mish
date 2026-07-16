@@ -22,10 +22,13 @@ import {
   Pulse,
   SlidersHorizontal,
   Stack,
+  WifiHigh,
+  WifiSlash,
   X,
 } from "@phosphor-icons/react";
 import { StatusShimmer } from "./components/status-shimmer";
 import { TrafficSparkline } from "./components/traffic-sparkline";
+import { ProxyPickerDialog } from "./components/proxy-picker-dialog";
 import { ButtonGroup } from "./components/ui/button-group";
 
 const navigation = [
@@ -46,10 +49,10 @@ const viewTitles = {
 };
 
 const proxies = [
-  { id: "hkg-02", name: "HKG-02", location: "Hong Kong", protocol: "Hysteria2", latency: 38 },
-  { id: "hkg-01", name: "HKG-01", location: "Hong Kong", protocol: "Hysteria2", latency: 52 },
-  { id: "nrt-03", name: "NRT-03", location: "Tokyo", protocol: "VLESS", latency: 71 },
-  { id: "sin-01", name: "SIN-01", location: "Singapore", protocol: "Trojan", latency: 83 },
+  { id: "hkg-02", name: "HKG-02", protocol: "Hysteria2", latency: 38 },
+  { id: "hkg-01", name: "HKG-01", protocol: "Hysteria2", latency: 52 },
+  { id: "nrt-03", name: "NRT-03", protocol: "VLESS", latency: 71 },
+  { id: "sin-01", name: "SIN-01", protocol: "Trojan", latency: 83 },
 ];
 
 const sidebarRates = [
@@ -63,17 +66,15 @@ const trafficSeries = {
 };
 
 const policyGroups = [
-  { connectionCount: 12842, id: "proxy", name: "Proxy", selectedProxyId: "hkg-02" },
-  { connectionCount: 4906, id: "streaming", name: "Streaming", selectedProxyId: "sin-01" },
-  { connectionCount: 2741, id: "ai-services", name: "AI services", selectedProxyId: "nrt-03" },
-  { connectionCount: 986, id: "messaging", name: "Messaging", selectedProxyId: "hkg-01" },
+  { connectionCount: 12842, id: "proxy", name: "Proxy", proxyIds: ["hkg-02", "hkg-01", "nrt-03", "sin-01"], selectedProxyId: "hkg-02" },
+  { connectionCount: 4906, id: "streaming", name: "Streaming", proxyIds: ["sin-01", "hkg-02", "nrt-03"], selectedProxyId: "sin-01" },
+  { connectionCount: 2741, id: "ai-services", name: "AI services", proxyIds: ["nrt-03", "hkg-02"], selectedProxyId: "nrt-03" },
+  { connectionCount: 986, id: "messaging", name: "Messaging", proxyIds: ["hkg-01", "sin-01"], selectedProxyId: "hkg-01" },
 ];
 
-const compactNumberFormatter = new Intl.NumberFormat("en", {
-  compactDisplay: "short",
-  maximumFractionDigits: 1,
-  notation: "compact",
-});
+const initialGroupSelections = Object.fromEntries(
+  policyGroups.map((group) => [group.id, group.selectedProxyId]),
+);
 
 const placeholderCopy = {
   profiles: "Import, update, and organize local and remote profiles.",
@@ -129,10 +130,18 @@ function Sidebar({ connected, onToggle, proxy }) {
           className="sidebar-status"
           data-status={connectionStatus}
           onClick={() => onToggle(!connected)}
+          style={connected ? { backgroundColor: "var(--status-water-base, #2f82dc)" } : undefined}
           type="button"
         >
-          <StatusShimmer active={connected} />
-          <span className="sidebar-status-node">{proxy.name}</span>
+          {connected ? <StatusShimmer active /> : null}
+          <span className="sidebar-status-identity">
+            {connected ? (
+              <WifiHigh aria-hidden="true" size={14} weight="bold" />
+            ) : (
+              <WifiSlash aria-hidden="true" size={14} weight="regular" />
+            )}
+            <span className="sidebar-status-node">{proxy.name}</span>
+          </span>
           {connected ? (
             <span className="sidebar-status-rate" data-direction={rate.direction} key={rate.direction}>
               <span aria-hidden="true">{rate.symbol}</span>
@@ -224,10 +233,25 @@ function ConnectionSwitch({ connected, onToggle }) {
   );
 }
 
-function Overview({ connected, mode, proxy, onModeChange, onOpenProxies, onOpenTraffic, onToggle }) {
+function Overview({
+  connected,
+  groupSelections,
+  mode,
+  onModeChange,
+  onOpenProxies,
+  onOpenTraffic,
+  onSelectGroupProxy,
+  onToggle,
+  proxy,
+}) {
+  const [pickerGroupId, setPickerGroupId] = useState(null);
   const frequentGroups = [...policyGroups]
     .sort((first, second) => second.connectionCount - first.connectionCount)
     .slice(0, 3);
+  const pickerGroup = policyGroups.find((group) => group.id === pickerGroupId) ?? null;
+  const pickerOptions = pickerGroup
+    ? proxies.filter((candidate) => pickerGroup.proxyIds.includes(candidate.id))
+    : [];
 
   return (
     <Tabs.Panel className="page-scroll" value="overview">
@@ -246,7 +270,7 @@ function Overview({ connected, mode, proxy, onModeChange, onOpenProxies, onOpenT
               <span className="status-dot connection-dot" data-active={connected} />
               <div>
                 <strong>{connected ? "Connected" : "Connection paused"}</strong>
-                <span>{connected ? `Traffic is routed through ${proxy.location} · ${proxy.name}` : "Traffic is not using the system proxy"}</span>
+                <span>{connected ? `Traffic is routed through ${proxy.name}` : "Traffic is not using the system proxy"}</span>
               </div>
             </div>
             <ConnectionSwitch connected={connected} onToggle={onToggle} />
@@ -255,7 +279,7 @@ function Overview({ connected, mode, proxy, onModeChange, onOpenProxies, onOpenT
           <div className="connection-details">
             <button className="detail-block detail-action" onClick={onOpenProxies} type="button">
               <span>Route</span>
-              <strong>{proxy.location} · {proxy.name}</strong>
+              <strong>{proxy.name}</strong>
               <CaretRight size={14} />
             </button>
             <div className="detail-block">
@@ -274,34 +298,32 @@ function Overview({ connected, mode, proxy, onModeChange, onOpenProxies, onOpenT
         </section>
 
         <div className="content-grid">
-          <section className="flat-section" aria-label="Most used policy groups">
+          <section className="flat-section" aria-label="Frequently used policy groups">
             <div className="section-heading">
-              <div>
-                <h2>Most used groups</h2>
-                <p>Ranked by cumulative connections.</p>
+              <div className="section-heading-copy">
+                <h2>Groups</h2>
+                <p>Most used first.</p>
               </div>
               <button className="text-button" onClick={onOpenProxies} type="button">View all <CaretRight size={13} /></button>
             </div>
 
             <div className="policy-group-list">
               {frequentGroups.map((group, index) => {
-                const selectedProxy = group.id === "proxy"
-                  ? proxy
-                  : proxies.find((candidate) => candidate.id === group.selectedProxyId) ?? proxies[0];
+                const selectedProxyId = groupSelections[group.id] ?? group.selectedProxyId;
+                const selectedProxy = proxies.find((candidate) => candidate.id === selectedProxyId) ?? proxies[0];
 
                 return (
-                  <Button className="policy-group-row" key={group.id} onClick={onOpenProxies} type="button">
+                  <Button className="policy-group-row" key={group.id} onClick={() => setPickerGroupId(group.id)} type="button">
                     <span className="policy-group-rank tabular">{index + 1}</span>
                     <span className="policy-group-copy">
                       <strong>{group.name}</strong>
-                      <span>{selectedProxy.name} · {selectedProxy.location}</span>
+                      <span>{selectedProxy.name} · {selectedProxy.latency} ms</span>
                     </span>
                     <span
-                      aria-label={`${group.connectionCount.toLocaleString()} cumulative connections`}
-                      className="policy-group-count tabular"
-                      title={`${group.connectionCount.toLocaleString()} cumulative connections`}
+                      aria-label={`${group.proxyIds.length} available nodes`}
+                      className="policy-group-badge tabular"
                     >
-                      {compactNumberFormatter.format(group.connectionCount)}
+                      {group.proxyIds.length}
                     </span>
                     <CaretRight aria-hidden="true" size={13} />
                   </Button>
@@ -310,9 +332,9 @@ function Overview({ connected, mode, proxy, onModeChange, onOpenProxies, onOpenT
             </div>
           </section>
 
-          <section className="flat-section" aria-label="Current session">
+          <section className="flat-section session-section" aria-label="Current session">
             <div className="section-heading">
-              <div>
+              <div className="section-heading-copy">
                 <h2>Session</h2>
                 <p>Live activity at a glance.</p>
               </div>
@@ -321,12 +343,12 @@ function Overview({ connected, mode, proxy, onModeChange, onOpenProxies, onOpenT
               <div className="session-row traffic-session-row">
                 <span className="traffic-session-label"><ArrowDown size={14} /> Download</span>
                 <TrafficSparkline color="var(--traffic-download)" data={trafficSeries.download} id="download" />
-                <strong className="tabular">2.45 MB/s</strong>
+                <strong className="traffic-rate-value tabular">2.45 MB/s</strong>
               </div>
               <div className="session-row traffic-session-row">
                 <span className="traffic-session-label"><ArrowUp size={14} /> Upload</span>
                 <TrafficSparkline color="var(--traffic-upload)" data={trafficSeries.upload} id="upload" />
-                <strong className="tabular">1.18 MB/s</strong>
+                <strong className="traffic-rate-value tabular">1.18 MB/s</strong>
               </div>
               <div className="session-row"><span>Connections</span><strong className="tabular">24</strong></div>
               <div className="session-row"><span>Uptime</span><strong className="tabular">01:24:07</strong></div>
@@ -335,6 +357,19 @@ function Overview({ connected, mode, proxy, onModeChange, onOpenProxies, onOpenT
           </section>
         </div>
       </div>
+      <ProxyPickerDialog
+        groupName={pickerGroup?.name}
+        onOpenChange={(open) => {
+          if (!open) setPickerGroupId(null);
+        }}
+        onSelect={(proxyId) => {
+          if (!pickerGroup) return;
+          onSelectGroupProxy(pickerGroup.id, proxyId);
+        }}
+        open={pickerGroup !== null}
+        options={pickerOptions}
+        selectedProxyId={pickerGroup ? groupSelections[pickerGroup.id] : undefined}
+      />
     </Tabs.Panel>
   );
 }
@@ -344,7 +379,7 @@ function ProxyWorkspace({ activeProxyId, onSelect, onUse }) {
   const visibleProxies = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return proxies;
-    return proxies.filter((proxy) => `${proxy.name} ${proxy.location} ${proxy.protocol}`.toLowerCase().includes(normalizedQuery));
+    return proxies.filter((proxy) => `${proxy.name} ${proxy.protocol}`.toLowerCase().includes(normalizedQuery));
   }, [query]);
 
   return (
@@ -370,7 +405,7 @@ function ProxyWorkspace({ activeProxyId, onSelect, onUse }) {
             return (
               <button className="proxy-row" data-selected={selected} key={proxy.id} onClick={() => onSelect(proxy.id)} type="button">
                 <span className="proxy-check">{selected && <Check size={14} weight="bold" />}</span>
-                <span className="proxy-copy"><strong>{proxy.name}</strong><span>{proxy.location} · {proxy.protocol}</span></span>
+                <span className="proxy-copy"><strong>{proxy.name}</strong><span>{proxy.protocol} · {proxy.latency} ms</span></span>
                 <span className="latency tabular">{proxy.latency} ms</span>
               </button>
             );
@@ -392,7 +427,7 @@ function ProxyInspector({ onUse, proxy }) {
           <Tooltip.Portal><Tooltip.Positioner sideOffset={6}><Tooltip.Popup className="tooltip">Route settings</Tooltip.Popup></Tooltip.Positioner></Tooltip.Portal>
         </Tooltip.Root>
       </div>
-      <p className="inspector-subtitle">{proxy.location}</p>
+      <p className="inspector-subtitle">{proxy.protocol}</p>
       <div className="inspector-rows">
         <div className="data-row"><span>Status</span><span className="status-pair"><span className="status-dot" data-active /> Available</span></div>
         <div className="data-row"><span>Latency</span><span className="latency tabular">{proxy.latency} ms</span></div>
@@ -432,7 +467,13 @@ export function App() {
   const [connected, setConnected] = useState(true);
   const [mode, setMode] = useState("Rule");
   const [activeProxyId, setActiveProxyId] = useState("hkg-02");
+  const [groupSelections, setGroupSelections] = useState(initialGroupSelections);
   const activeProxy = proxies.find((proxy) => proxy.id === activeProxyId) ?? proxies[0];
+
+  const handleSelectGroupProxy = (groupId, proxyId) => {
+    setGroupSelections((current) => ({ ...current, [groupId]: proxyId }));
+    if (groupId === "proxy") setActiveProxyId(proxyId);
+  };
 
   return (
     <Tooltip.Provider delay={500}>
@@ -442,10 +483,12 @@ export function App() {
           <Toolbar activeProxy={activeProxy} onSelectProxy={() => setActiveView("proxies")} title={viewTitles[activeView]} />
           <Overview
             connected={connected}
+            groupSelections={groupSelections}
             mode={mode}
             onModeChange={setMode}
             onOpenProxies={() => setActiveView("proxies")}
             onOpenTraffic={() => setActiveView("connections")}
+            onSelectGroupProxy={handleSelectGroupProxy}
             onToggle={setConnected}
             proxy={activeProxy}
           />

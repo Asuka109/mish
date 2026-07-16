@@ -29,7 +29,19 @@ const fragmentShaderSource = `
     return vec2(wave, -derivative);
   }
 
-  float waterHeight(vec2 position, float time) {
+  vec2 softWaveWithDerivative(
+    vec2 position,
+    vec2 direction,
+    float frequency,
+    float phase
+  ) {
+    float x = dot(direction, position) * frequency + phase;
+    float wave = 0.5 + 0.5 * sin(x);
+    float derivative = 0.5 * cos(x);
+    return vec2(wave, -derivative);
+  }
+
+  float primaryWaterHeight(vec2 position, float time) {
     float iterator = 0.0;
     float frequency = 1.48;
     float speed = 0.12;
@@ -59,33 +71,112 @@ const fragmentShaderSource = `
     return height / weightSum;
   }
 
+  float secondaryWaterHeight(vec2 position, float time) {
+    float iterator = 713.731;
+    float frequency = 2.16;
+    float speed = 0.07;
+    float weight = 1.0;
+    float height = 0.0;
+    float weightSum = 0.0;
+
+    for (int octave = 0; octave < 5; octave++) {
+      vec2 randomDirection = normalize(vec2(sin(iterator), cos(iterator)));
+      vec2 direction = normalize(mix(vec2(-0.82, 0.56), randomDirection, 0.34));
+      vec2 wave = softWaveWithDerivative(
+        position,
+        direction,
+        frequency,
+        time * speed
+      );
+
+      position += direction * wave.y * weight * 0.22;
+      height += wave.x * weight;
+      weightSum += weight;
+      weight *= 0.68;
+      frequency *= 1.34;
+      speed *= 1.11;
+      iterator += 931.197;
+    }
+
+    return height / weightSum;
+  }
+
+  float fastDiagonalHighlight(vec2 uv, float time) {
+    float travel = fract(time * 0.24);
+    float center = mix(-0.48, 1.48, travel);
+    float diagonalCoordinate = uv.x - (uv.y - 0.5) * 0.52;
+    float distanceToBand = abs(diagonalCoordinate - center);
+    float halo = 1.0 - smoothstep(0.06, 0.40, distanceToBand);
+    float core = 1.0 - smoothstep(0.02, 0.20, distanceToBand);
+    return halo * 0.62 + core * 0.38;
+  }
+
   void main() {
     float aspect = u_resolution.x / max(u_resolution.y, 1.0);
-    vec2 surfacePoint = (v_uv - 0.5) * vec2(aspect, 1.0) * 1.40;
-    surfacePoint.x -= u_time * 0.42;
+    vec2 centeredUv = (v_uv - 0.5) * vec2(aspect, 1.0);
+    vec2 primaryPoint = centeredUv * 1.40;
+    vec2 secondaryPoint = centeredUv * 2.08;
+    primaryPoint.x -= u_time * 0.63;
+    secondaryPoint.x -= u_time * 0.31;
     float gradientStep = 0.018;
-    float height = waterHeight(surfacePoint, u_time);
-    float heightX = waterHeight(surfacePoint + vec2(gradientStep, 0.0), u_time);
-    float heightY = waterHeight(surfacePoint + vec2(0.0, gradientStep), u_time);
-    vec2 gradient = vec2(heightX - height, heightY - height) / gradientStep;
+    float primaryHeight = primaryWaterHeight(primaryPoint, u_time);
+    float primaryHeightX = primaryWaterHeight(
+      primaryPoint + vec2(gradientStep, 0.0),
+      u_time
+    );
+    float primaryHeightY = primaryWaterHeight(
+      primaryPoint + vec2(0.0, gradientStep),
+      u_time
+    );
+    float secondaryHeight = secondaryWaterHeight(secondaryPoint, u_time);
+    float secondaryHeightX = secondaryWaterHeight(
+      secondaryPoint + vec2(gradientStep, 0.0),
+      u_time
+    );
+    float secondaryHeightY = secondaryWaterHeight(
+      secondaryPoint + vec2(0.0, gradientStep),
+      u_time
+    );
+    vec2 primaryGradient = vec2(
+      primaryHeightX - primaryHeight,
+      primaryHeightY - primaryHeight
+    ) / gradientStep;
+    vec2 secondaryGradient = vec2(
+      secondaryHeightX - secondaryHeight,
+      secondaryHeightY - secondaryHeight
+    ) / gradientStep;
+    vec2 gradient = primaryGradient * 0.84 + secondaryGradient * 0.16;
 
     vec3 normal = normalize(vec3(-gradient.x * 1.15, -gradient.y * 1.15, 1.0));
+    vec3 secondaryNormal = normalize(
+      vec3(-secondaryGradient.x * 0.56, -secondaryGradient.y * 0.56, 1.0)
+    );
     vec3 lightDirection = normalize(vec3(-0.58, 0.34, 0.74));
     vec3 halfVector = normalize(lightDirection + vec3(0.0, 0.0, 1.0));
-    float refraction = clamp(0.5 + dot(normal.xy, vec2(-0.78, 0.46)) * 0.76, 0.0, 1.0);
+    vec3 secondaryHalfVector = normalize(vec3(0.38, 0.46, 0.80));
+    float refraction = clamp(0.5 + dot(normal.xy, vec2(-0.78, 0.46)) * 0.68, 0.0, 1.0);
     float crestLight = pow(max(dot(normal, halfVector), 0.0), 7.0);
+    float secondarySheen = pow(max(dot(secondaryNormal, secondaryHalfVector), 0.0), 6.0);
+    float diagonalHighlight = fastDiagonalHighlight(v_uv, u_time);
     float fold = smoothstep(0.34, 0.92, length(gradient));
     float trough = clamp(0.5 - dot(normal, lightDirection) * 0.62, 0.0, 1.0);
 
     vec3 deepBlue = vec3(0.04, 0.16, 0.52);
     vec3 clearBlue = vec3(0.35, 0.62, 0.98);
-    vec3 reflectedWhite = vec3(0.66, 0.80, 0.98);
+    vec3 reflectedWhite = vec3(0.54, 0.70, 0.95);
     vec3 surfaceColor = mix(deepBlue, clearBlue, refraction);
-    surfaceColor = mix(surfaceColor, reflectedWhite, crestLight * 0.50);
-    surfaceColor = mix(surfaceColor, deepBlue, trough * 0.30);
+    surfaceColor = mix(surfaceColor, reflectedWhite, crestLight * 0.30);
+    surfaceColor = mix(surfaceColor, deepBlue, trough * 0.22);
+    surfaceColor = mix(surfaceColor, vec3(0.24, 0.72, 1.0), secondarySheen * 0.16);
+    surfaceColor = mix(surfaceColor, vec3(0.64, 0.85, 1.0), diagonalHighlight * 0.52);
 
     float alpha = clamp(
-      0.16 + abs(refraction - 0.5) * 0.52 + crestLight * 0.22 + fold * 0.08,
+      0.16
+        + abs(refraction - 0.5) * 0.42
+        + crestLight * 0.16
+        + secondarySheen * 0.025
+        + diagonalHighlight * 0.16
+        + fold * 0.08,
       0.16,
       0.58
     );
@@ -126,6 +217,34 @@ function createProgram(gl) {
   console.warn("Status shimmer program failed to link", gl.getProgramInfoLog(program));
   gl.deleteProgram(program);
   return null;
+}
+
+function getTargetFrameRate() {
+  const hardwareConcurrency = navigator.hardwareConcurrency;
+  const deviceMemory = navigator.deviceMemory;
+  const savesData = navigator.connection?.saveData === true;
+  const hasSlowUpdate = window.matchMedia("(update: slow)").matches;
+  const hasKnownCoreCount = Number.isFinite(hardwareConcurrency);
+  const hasKnownMemory = Number.isFinite(deviceMemory);
+
+  if (
+    savesData
+    || hasSlowUpdate
+    || (hasKnownCoreCount && hardwareConcurrency <= 4)
+    || (hasKnownMemory && deviceMemory <= 4)
+  ) {
+    return 30;
+  }
+
+  if (
+    hasKnownCoreCount
+    && hardwareConcurrency >= 8
+    && (!hasKnownMemory || deviceMemory >= 8)
+  ) {
+    return 60;
+  }
+
+  return 45;
 }
 
 export function StatusShimmer({ active }) {
@@ -172,7 +291,9 @@ export function StatusShimmer({ active }) {
     gl.clearColor(0, 0, 0, 0);
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const targetFrameInterval = 1000 / getTargetFrameRate();
     let animationFrame = null;
+    let lastDrawTime = null;
 
     const resize = () => {
       const bounds = canvas.getBoundingClientRect();
@@ -192,18 +313,31 @@ export function StatusShimmer({ active }) {
       gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
       gl.uniform1f(timeLocation, reducedMotion ? 2.8 : timestamp / 1000);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    };
+
+    const tick = (timestamp) => {
+      animationFrame = null;
+
+      if (lastDrawTime === null) {
+        lastDrawTime = timestamp;
+        draw(timestamp);
+      } else {
+        const elapsed = timestamp - lastDrawTime;
+        if (elapsed >= targetFrameInterval) {
+          const elapsedIntervals = Math.floor(elapsed / targetFrameInterval);
+          lastDrawTime += elapsedIntervals * targetFrameInterval;
+          draw(timestamp);
+        }
+      }
 
       if (!reducedMotion && !document.hidden) {
-        animationFrame = window.requestAnimationFrame(draw);
+        animationFrame = window.requestAnimationFrame(tick);
       }
     };
 
     const start = () => {
       if (animationFrame !== null) return;
-      animationFrame = window.requestAnimationFrame((timestamp) => {
-        animationFrame = null;
-        draw(timestamp);
-      });
+      animationFrame = window.requestAnimationFrame(tick);
     };
 
     const handleVisibilityChange = () => {
@@ -213,7 +347,10 @@ export function StatusShimmer({ active }) {
         return;
       }
 
-      if (!document.hidden && !reducedMotion) start();
+      if (!document.hidden && !reducedMotion) {
+        lastDrawTime = null;
+        start();
+      }
     };
 
     const resizeObserver = new ResizeObserver(resize);
