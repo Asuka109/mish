@@ -46,9 +46,10 @@ When implementing from a selected generated mock, treat that image as the source
   Routes, Profiles, Traffic, and Events. Each 36px row pairs an icon with a
   visible 14px label.
 - The Status view is a compact network workbench, not a centered configuration
-  form. Use one white primary status surface for connection state, active route,
-  routing mode, current throughput, and the power switch. Put quick route
-  switching and session activity in flat, adjacent work sections beneath it.
+  form. The sidebar proxy control owns connection state and the primary
+  start/stop action. Keep the page itself flat: profile selection belongs in the
+  toolbar, routing mode uses one compact control row, and policy groups sit next
+  to session activity when width permits.
 - Avoid the common proxy-client pattern of Connection, Routing, and Session as a
   long vertical stack of labeled rows. Lead with the user's network outcome and
   progressively disclose implementation details.
@@ -58,21 +59,20 @@ When implementing from a selected generated mock, treat that image as the source
   hairline boundary and internal separators. Do not present them as unbounded
   rows that each gain a large gray hover block. Sidebar active tabs use a thin
   neutral border in addition to their white selected surface.
-- The main connection surface is the page's single primary element. Use a white
-  canvas, complete 1px hairline, and very low ambient shadow rather than a gray
-  tonal fill. Active sidebar tabs use the ordinary hairline and only a nearly
-  imperceptible shadow, so the outline carries the selected state.
+- Do not repeat the connection outcome in a large main-page status card. Active
+  sidebar tabs use the ordinary hairline and only a nearly imperceptible shadow,
+  so the outline carries the selected state.
 - Use the lighter `surface-soft` token for the sidebar base. Routing mode uses
   the shadcn Button Group composition with joined Base UI buttons, shared
   hairlines, and an `aria-pressed` selected state.
-- Treat the bottom proxy status as an action, not a passive label. Its Base UI
-  button is transparent with a quiet gray hairline when inactive and uses the
-  brand blue when healthy. Healthy copy shows the active
-  connection-state icon and node plus a rotating download or upload rate; hide
-  the rate with a sidebar container query before it crowds the node. Reserve
-  warning and error surfaces for matching non-healthy states. When disconnected,
-  keep the button fully transparent with a quiet gray border and do not mount
-  the decorative canvas.
+- Name the bottom action `ProxyControlButton` ("proxy control button" in design
+  discussion). Align its icon and copy to the exact icon and text columns used by
+  the navigation rows. When inactive it shows a power icon and "启动代理" on a
+  transparent surface with a quiet gray hairline. When healthy it shows the Wi-Fi
+  icon and selected node on the animated brand surface. Healthy hover and keyboard
+  focus keep the surface unchanged while crossfading in place to a circle-X icon
+  and "关闭代理". Reserve warning and error surfaces for matching non-healthy
+  states. Do not mount the decorative canvas while disconnected.
 - Session download and upload rows may use a compact Recharts area sparkline
   between label and value. Keep it axisless, gridless, markerless, backgroundless,
   softly filled to the baseline, and faded on all four edges. Group the Session
@@ -81,7 +81,7 @@ When implementing from a selected generated mock, treat that image as the source
   De-emphasize the textual rate and hide the sparkline when its section becomes
   too narrow. Keep the adjacent section title and description on one line when
   space permits.
-- Replace the context-free Quick routes list with the three policy groups that
+- Replace the context-free Quick routes list with the five policy groups that
   have the highest cumulative connection counts for the active profile. Count
   each Mihomo connection ID once, intersect its chain with known groups, and
   keep the resulting shortcut group-scoped. Use the counts only for ranking;
@@ -91,6 +91,15 @@ When implementing from a selected generated mock, treat that image as the source
   reusable Base UI `ProxyPickerDialog` from each row to select a child for that
   specific group rather than navigating away or implying one globally active
   node.
+- Preserve emoji supplied in node and policy-group names. Mock data should model
+  them as a separate field: regional flags for nodes and semantic emoji for
+  groups. Apply saturation to the complete user-authored label layer so mixed
+  text and emoji work in any order without rewriting input; neutral text remains
+  visually unchanged. Use 40% saturation for all user-authored labels. Render
+  mock markers in fixed columns with an explicit 5px visual gap: 15px for
+  semantic group markers and a lower-contrast 11px for regional flags.
+  Keep a clean no-emoji fallback and never infer geography when the
+  configuration does not provide it.
 - The healthy sidebar action may use a restrained full-area WebGL water
   distortion to signal live state. Build exponential sine waves with analytical
   derivatives and use each octave's derivative to drag the domain of the next
@@ -102,8 +111,9 @@ When implementing from a selected generated mock, treat that image as the source
   deep-blue disturbance, a static watercolor layer, and a sky-shifted blue
   DOM background fallback. Build the static layer from overlapping, softly
   bleeding blue fields with visible tonal contrast: deep blue at the edge and
-  a brighter sky-blue inner field. Healthy hover should darken the complete
-  animated material clearly rather than relying on its border alone. The broad
+  a brighter sky-blue inner field. Healthy hover keeps the animated material at
+  its resting brightness because the icon and copy already communicate the
+  destructive action. The broad
   highlight may travel horizontally faster than both water fields, but it must
   remain blue, soft-edged, and independent from the surface normal. Do not expose FBM, noise
   density, white glare, a moving highlight blob, a narrow laser stripe, or
@@ -114,3 +124,45 @@ When implementing from a selected generated mock, treat that image as the source
 - Decorative traffic sparklines must not expose Recharts' application focus
   layer. Fade all four edges visibly and soften the adjacent direction labels
   so the textual rate remains dominant.
+- The Session group shows live upload and download rates, cumulative uploaded and
+  downloaded bytes, active connection count, Mihomo memory in use, and uptime.
+  Integrate cumulative bytes beneath the Downloaded and Uploaded labels instead
+  of allocating another pair of cells. Give the direction arrows the same blue
+  and green semantic colors as their sparklines and slightly increase the live
+  traffic row height to preserve breathing room.
+  Model live and total traffic after `/traffic` (`up`, `down`, `upTotal`,
+  `downTotal`) and memory after `/memory` (`inuse`). Pair compact stable metrics
+  within the grouped outline instead of creating a dashboard card grid.
+- Include active rules in the paired Session metrics. Read `/rules` in the real
+  client and ignore entries explicitly marked disabled when presenting the
+  effective count.
+- Fill the remaining Status-page space with one full-width grouped service
+  latency list rather than KPI tiles or a bento grid. Default to Google, GitHub,
+  Cloudflare, Baidu, Apple, and Microsoft, showing a borderless semantically colored icon, title,
+  and latency. Use three columns at comfortable desktop widths and one column
+  when constrained. Keep the probe URL in
+  the editor instead of showing it during normal monitoring. Users can
+  add, edit, or delete entries through one reusable Base UI Dialog and restore
+  the complete default set from a Base UI Menu. A result describes the configured
+  endpoint probe only; do not imply it is the latency of a globally active node.
+- Build repeated grouped surfaces with reusable `SectionGrid` and
+  `SectionGridItem` components. The container owns a real 1px hairline, 8px
+  clipped radius, and stable 1px internal gaps using `hairline-soft`. Items may
+  span columns or rows so the
+  same primitive covers vertical lists, horizontal partitions, and mixed
+  grids. Do not simulate the outer border with padding and a background because
+  child backgrounds flatten the visible corners.
+- Put traffic-capture configuration and Routing mode in the same two-row
+  `SectionGrid`. Traffic capture uses independent Base UI pressed-state buttons
+  labeled exactly “系统代理” and “增强模式（TUN）”; the adjacent question button
+  is the final item in the same button group and opens a Base UI Dialog
+  explaining the difference. Stack the two control rows vertically, but keep
+  each row's label and controls on one line. Let labels use their natural width,
+  then left-align controls with a consistent 24px gap. `ProxyControlButton`
+  remains the aggregate master control: stop disables both, and a fresh start
+  enables System Proxy by default.
+- The Status toolbar contains one Base UI profile menu showing the active
+  configuration. Keep it visually quiet because profile switching is infrequent.
+  Do not use that position for a supposedly global active node or a persistent
+  diagnostics action. Normal health stays quiet; surface diagnostics only from
+  Events or contextual failure states.

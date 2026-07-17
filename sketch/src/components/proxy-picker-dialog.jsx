@@ -41,7 +41,7 @@ export function ProxyPickerDialog({
                     onClick={() => onSelect(option.id)}
                   >
                     <span className="proxy-picker-option-copy">
-                      <strong>{option.name}</strong>
+                      <strong className="user-authored-label user-authored-label-node"><span className="node-flag" aria-hidden="true">{option.emoji}</span>{option.name}</strong>
                       <span>{option.protocol}</span>
                     </span>
                     <span className="proxy-picker-latency tabular">{option.latency} ms</span>

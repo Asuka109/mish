@@ -52,7 +52,7 @@ spacing:
   xxl: "32px"
 components:
   app-shell:
-    backgroundColor: "{colors.hairline-soft}"
+    backgroundColor: "{colors.surface-soft}"
     textColor: "{colors.ink}"
     padding: "0px"
   workspace:
@@ -190,16 +190,18 @@ spacing.
 
 The application has exactly two visual layers: a lightly tinted window base containing
 the navigation and one inset white workspace containing the toolbar and active
-page. The default status screen presents the user's outcome first, then
-frequently used policy groups and session activity.
+page. The default status screen presents the user's outcome through the sidebar
+proxy control, then exposes the active profile, routing mode, frequently used
+policy groups, and session activity without repeating status in a dashboard card.
 
 ## Colors
 
 Use ink and neutral gray for almost all structure. Use the accent blue for focus
 and the deeper brand blue for the compact proxy-active control. Success,
 warning, and error colors communicate network state; they must always be paired
-with text. The sidebar uses the lighter surface-soft neutral rather than a
-darker utility rail or colored panel.
+with text. The sidebar and exposed app-shell margin share the lighter
+surface-soft neutral rather than splitting into two nearby gray fields. Avoid a
+vertical color seam at the workspace edge.
 
 ## Typography
 
@@ -219,10 +221,21 @@ related values remain visually connected on large windows.
 ## Elevation & Depth
 
 The workspace uses a hairline and a faint panel shadow. Ordinary sections stay
-flat and use whitespace plus single-pixel separators. The main status surface
-is the page's single primary element: it uses the canvas color, one complete
-hairline, and a very low ambient shadow. Only popovers and tooltips use a
-noticeable floating shadow.
+flat and use whitespace plus single-pixel separators. Grouped policy and session
+rows use one complete hairline without elevation. Only menus, dialogs, popovers,
+and tooltips use a noticeable floating shadow.
+
+On macOS, the exposed sidebar may use the system's native vibrancy material so
+the desktop or windows behind the application contribute to the surface. This
+is a native window-compositor effect, not CSS glassmorphism: the Tauri shell
+must apply an appropriate macOS window effect and make only the matching WebView
+region transparent. Keep the foreground workspace opaque. The ordinary browser
+client and unsupported platforms use the existing `surface-soft` sidebar as the
+deterministic fallback; never simulate desktop translucency with a decorative
+gradient or a captured wallpaper. Defer this material until the real Tauri
+window exists, because the standalone Web preview cannot validate behind-window
+sampling, window activation, accessibility transparency settings, or energy
+behavior.
 
 ## Shapes
 
@@ -235,11 +248,14 @@ and tooltips. Full rounding is limited to switches and status dots.
 Use Base UI primitives for stateful, accessible behavior:
 
 - `Tabs` owns primary workspace navigation and panels.
-- `Switch` owns the connection control.
 - Base UI `Button` owns each ranked policy-group shortcut.
 - `ButtonGroup` composition with Base UI `Button` owns routing mode.
-- Base UI `Button` owns the sidebar proxy status action.
-- `Popover` owns diagnostics disclosure.
+- Base UI `Button` owns the sidebar `ProxyControlButton` start/stop action.
+- Base UI `Menu` owns active-profile switching in the toolbar.
+- A `ButtonGroup` composition owns the independent System Proxy and TUN capture
+  toggles; an adjacent Base UI `Dialog` explains their tradeoffs.
+- Base UI `Menu` and `Dialog` own service-monitor management and editing.
+- Base UI `Dialog` owns the group-scoped proxy picker.
 - `Tooltip` labels icon-only expert controls.
 
 Keep static rows, metrics, headings, and layout as semantic HTML. Base UI owns
@@ -256,17 +272,27 @@ reveal the hairline border in the active state so selection does not shift the
 layout. Use the ordinary hairline for this active border and keep its shadow
 almost imperceptible; the border, not elevation, should carry selection.
 
+Build grouped surfaces with the reusable `SectionGrid` and `SectionGridItem`
+components. `SectionGrid` owns one real 1px hairline border, an 8px clipped
+radius, and stable 1px internal gaps using the softer hairline token; never
+simulate the outer border with padding or
+a background because child surfaces will visually flatten the corners. The
+grid accepts one or more columns, while items can span rows or columns, so the
+same anatomy supports vertical lists, horizontal divisions, and mixed layouts.
+
 Compact routing choices use the shadcn Button Group composition with Base UI
 buttons. The three outline buttons form one joined 30px control, share internal
 hairlines, and expose the current mode with `aria-pressed`. Hover uses
 surface-soft; the selected button uses hairline-soft and stronger ink.
 
-The sidebar status action is a 36px Base UI button. Healthy proxy state uses the
-brand surface and shows the active node plus a rotating download or upload
-rate. A sidebar container query removes the rate before it crowds the node.
-Inactive state is transparent and borderless until hover reveals a hairline.
-Connecting and error states use the warning and error surfaces with matching
-text labels, so color never carries meaning alone.
+The sidebar `ProxyControlButton` is a 36px Base UI button aligned to the same icon
+and text columns as navigation. Healthy proxy state uses the brand surface and
+shows a Wi-Fi icon plus the selected node. Hover and keyboard focus keep the
+material unchanged and crossfade in place to a circle-X icon plus "关闭代理". Inactive state
+shows a power icon plus "启动代理" on a transparent surface with a quiet hairline.
+Connecting and error states use the warning and error surfaces with matching text
+labels, so color never carries meaning alone. Healthy state may add one restrained,
+diffuse blue shadow; keep it weaker than menu and dialog elevation.
 
 When healthy, the status action may render a low-alpha water-like WebGL
 distortion across the entire brand surface. Build it from exponential sine
@@ -283,12 +309,21 @@ frame-random flicker. The effect remains clipped to the button, uses a low-power
 context, pauses while hidden, and falls back cleanly when WebGL is unavailable.
 Reduced-motion users receive a static frame rather than continuous animation.
 
-The Status page ranks the three most-used visible policy groups by cumulative
+The Status page ranks the five most-used visible policy groups by cumulative
 connection count. Counts are derived by deduplicating Mihomo connection IDs and
 matching each connection chain against the current profile's known groups.
 Rows always show both group name and currently selected child; they open a
 group-scoped selector and never imply that a node is globally active. Persist
 rankings per profile so switching configurations cannot mix unrelated groups.
+Preserve user-supplied emoji as a leading part of node and group labels. Keep
+the emoji and label as separate data fields, then render them in fixed marker
+columns with an explicit 5px visual gap. Apply saturation to the complete
+user-authored label layer so arbitrary text and emoji ordering works without
+rewriting input; neutral text remains visually unchanged. Use 40% saturation
+for all user-authored labels. Semantic group emoji use a restrained 15px
+marker; regional flags use a smaller, lower-contrast 11px marker so they
+do not turn labels into decorative prose. The client must not invent geography
+when a name does not provide it.
 
 Download and upload session rows may include a compact area sparkline between
 the label and value. It has no chart background, axes, grid, markers, or text.
@@ -297,6 +332,45 @@ a clearly visible mask that fades all four edges into the row. Decorative
 sparklines stay out of the accessibility tree and never receive a focus
 outline; their adjacent textual rate labels remain the accessible source of
 truth.
+
+The Session grouped list integrates cumulative bytes below the Downloaded and
+Uploaded labels, beside the live rate and sparkline. Their arrow icons use the
+same semantic blue and green as the corresponding charts. It also shows Mihomo
+memory in use, active connections, and uptime. Pair stable secondary metrics in
+two-column rows to preserve density. Map the values to `/traffic`
+(`up`, `down`, `upTotal`, `downTotal`) and `/memory` (`inuse`); `/connections`
+may supply the same totals and memory alongside the active connection list.
+Show the active rule count as another compact paired metric. Derive it from
+`/rules` and exclude entries explicitly marked disabled instead of treating the
+raw array length as universally effective.
+
+Place configurable service-latency monitors in one full-width grouped list
+below the policy-group and session columns. Use three columns at comfortable
+desktop widths and one column when constrained. Each row contains a borderless,
+semantically colored service icon, title, and measured latency; the probe URL
+is shown only in the reusable editor dialog. Ship Google, GitHub, Cloudflare,
+Baidu, Apple, and Microsoft as defaults, while
+allowing add, edit, delete, and Restore defaults. Treat these values as endpoint
+probe results, not proof of a globally active proxy route; the application layer
+must choose and disclose the Mihomo probe target explicitly.
+
+The toolbar profile selector is an infrequent configuration control. Keep its
+icon, label, and caret muted until hover or focus so it does not compete with
+Status-page controls.
+
+Traffic capture uses two independent pressed-state buttons labeled “系统代理”
+and “增强模式（TUN）”, because the capabilities are not mutually exclusive.
+Use a nearly white pressed fill so state remains visible without turning the
+compact group into a heavy gray control.
+Place its button group and Routing mode as two vertically stacked rows in the
+same `SectionGrid`. Within each row, keep the label and control on one line.
+Let each row use the label's natural width, then left-align its controls with a
+consistent 24px gap instead of reserving a fixed label column.
+Include the question button as the final item in the traffic-capture button
+group; it opens a concise explanation dialog.
+The sidebar `ProxyControlButton`
+remains the aggregate everyday control: stopping it disables both capture
+paths, while starting from fully inactive enables System Proxy by default.
 
 ## Do's and Don'ts
 

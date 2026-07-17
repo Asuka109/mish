@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@base-ui/react/button";
-import { Popover } from "@base-ui/react/popover";
-import { Switch } from "@base-ui/react/switch";
+import { Menu } from "@base-ui/react/menu";
 import { Tabs } from "@base-ui/react/tabs";
 import { Tooltip } from "@base-ui/react/tooltip";
 import {
@@ -15,21 +14,22 @@ import {
   FileText,
   Gauge,
   GearSix,
-  Globe,
   ListBullets,
   MagnifyingGlass,
   PlugsConnected,
-  Pulse,
+  Power,
   SlidersHorizontal,
   Stack,
   WifiHigh,
-  WifiSlash,
-  X,
+  XCircle,
 } from "@phosphor-icons/react";
 import { StatusShimmer } from "./components/status-shimmer";
 import { TrafficSparkline } from "./components/traffic-sparkline";
 import { ProxyPickerDialog } from "./components/proxy-picker-dialog";
+import { ServiceMonitorSection } from "./components/service-monitor-section";
+import { TrafficCaptureControl } from "./components/traffic-capture-control";
 import { ButtonGroup } from "./components/ui/button-group";
+import { SectionGrid, SectionGridItem } from "./components/ui/section-grid";
 
 const navigation = [
   { id: "overview", label: "Status", icon: Gauge },
@@ -48,16 +48,17 @@ const viewTitles = {
   settings: "Settings",
 };
 
-const proxies = [
-  { id: "hkg-02", name: "HKG-02", protocol: "Hysteria2", latency: 38 },
-  { id: "hkg-01", name: "HKG-01", protocol: "Hysteria2", latency: 52 },
-  { id: "nrt-03", name: "NRT-03", protocol: "VLESS", latency: 71 },
-  { id: "sin-01", name: "SIN-01", protocol: "Trojan", latency: 83 },
+const profiles = [
+  { id: "home", name: "Home" },
+  { id: "work", name: "Work" },
+  { id: "travel", name: "Travel" },
 ];
 
-const sidebarRates = [
-  { direction: "download", symbol: "↓", value: "2.45 MB/s" },
-  { direction: "upload", symbol: "↑", value: "1.18 MB/s" },
+const proxies = [
+  { emoji: "🇭🇰", id: "hkg-02", name: "HKG-02", protocol: "Hysteria2", latency: 38 },
+  { emoji: "🇭🇰", id: "hkg-01", name: "HKG-01", protocol: "Hysteria2", latency: 52 },
+  { emoji: "🇯🇵", id: "nrt-03", name: "NRT-03", protocol: "VLESS", latency: 71 },
+  { emoji: "🇸🇬", id: "sin-01", name: "SIN-01", protocol: "Trojan", latency: 83 },
 ];
 
 const trafficSeries = {
@@ -65,11 +66,27 @@ const trafficSeries = {
   upload: [12, 15, 14, 18, 17, 21, 19, 24, 22, 27, 25, 29, 26, 31, 28, 33],
 };
 
+const mihomoSnapshot = {
+  connections: 24,
+  memory: {
+    inuse: 90_177_536,
+  },
+  traffic: {
+    down: 2_568_192,
+    downTotal: 13_781_123_072,
+    up: 1_237_074,
+    upTotal: 4_144_644_096,
+  },
+  rules: 12_846,
+  uptime: "01:24:07",
+};
+
 const policyGroups = [
-  { connectionCount: 12842, id: "proxy", name: "Proxy", proxyIds: ["hkg-02", "hkg-01", "nrt-03", "sin-01"], selectedProxyId: "hkg-02" },
-  { connectionCount: 4906, id: "streaming", name: "Streaming", proxyIds: ["sin-01", "hkg-02", "nrt-03"], selectedProxyId: "sin-01" },
-  { connectionCount: 2741, id: "ai-services", name: "AI services", proxyIds: ["nrt-03", "hkg-02"], selectedProxyId: "nrt-03" },
-  { connectionCount: 986, id: "messaging", name: "Messaging", proxyIds: ["hkg-01", "sin-01"], selectedProxyId: "hkg-01" },
+  { connectionCount: 12842, emoji: "🌐", id: "proxy", name: "Proxy", proxyIds: ["hkg-02", "hkg-01", "nrt-03", "sin-01"], selectedProxyId: "hkg-02" },
+  { connectionCount: 4906, emoji: "🎬", id: "streaming", name: "Streaming", proxyIds: ["sin-01", "hkg-02", "nrt-03"], selectedProxyId: "sin-01" },
+  { connectionCount: 2741, emoji: "🤖", id: "ai-services", name: "AI services", proxyIds: ["nrt-03", "hkg-02"], selectedProxyId: "nrt-03" },
+  { connectionCount: 986, emoji: "💬", id: "messaging", name: "Messaging", proxyIds: ["hkg-01", "sin-01"], selectedProxyId: "hkg-01" },
+  { connectionCount: 742, emoji: "🛠️", id: "development", name: "Development", proxyIds: ["hkg-02", "nrt-03", "sin-01"], selectedProxyId: "hkg-02" },
 ];
 
 const initialGroupSelections = Object.fromEntries(
@@ -83,21 +100,66 @@ const placeholderCopy = {
   settings: "Configure startup, system proxy, TUN, DNS, and appearance.",
 };
 
-function Sidebar({ connected, onToggle, proxy }) {
+function formatBytes(value) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let amount = value;
+  let unitIndex = 0;
+
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+
+  const maximumFractionDigits = amount < 10 ? 2 : 1;
+  return `${new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(amount)} ${units[unitIndex]}`;
+}
+
+function formatRate(value) {
+  return `${formatBytes(value)}/s`;
+}
+
+function formatCount(value) {
+  return new Intl.NumberFormat().format(value);
+}
+
+function ProxyControlButton({ connected, onToggle, proxy }) {
   const connectionStatus = connected ? "healthy" : "inactive";
-  const [rateIndex, setRateIndex] = useState(0);
-  const rate = sidebarRates[rateIndex];
 
-  useEffect(() => {
-    if (!connected) return undefined;
+  return (
+    <Button
+      aria-label={connected ? "关闭代理" : "启动代理"}
+      className="proxy-control-button"
+      data-status={connectionStatus}
+      onClick={() => onToggle(!connected)}
+      style={connected ? { backgroundColor: "var(--status-water-base, #2f82dc)" } : undefined}
+      type="button"
+    >
+      {connected ? <StatusShimmer active /> : null}
+      {connected ? (
+        <>
+          <span className="proxy-control-state proxy-control-default">
+            <WifiHigh aria-hidden="true" size={16} weight="bold" />
+            <span className="proxy-control-label user-authored-label user-authored-label-node">
+              <span className="proxy-control-flag" aria-hidden="true">{proxy.emoji}</span>
+              <span>{proxy.name}</span>
+            </span>
+          </span>
+          <span className="proxy-control-state proxy-control-hover" aria-hidden="true">
+            <XCircle size={17} weight="regular" />
+            <span className="proxy-control-label">关闭代理</span>
+          </span>
+        </>
+      ) : (
+        <span className="proxy-control-state proxy-control-default">
+          <Power aria-hidden="true" size={17} weight="regular" />
+          <span className="proxy-control-label">启动代理</span>
+        </span>
+      )}
+    </Button>
+  );
+}
 
-    const interval = window.setInterval(() => {
-      setRateIndex((current) => (current + 1) % sidebarRates.length);
-    }, 3200);
-
-    return () => window.clearInterval(interval);
-  }, [connected]);
-
+function Sidebar({ connected, onToggle, proxy }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
       <div className="traffic-lights" aria-hidden="true">
@@ -125,77 +187,49 @@ function Sidebar({ connected, onToggle, proxy }) {
       </Tabs.List>
 
       <div className="sidebar-status-area">
-        <Button
-          aria-label={connected ? "Disable system proxy" : "Enable system proxy"}
-          className="sidebar-status"
-          data-status={connectionStatus}
-          onClick={() => onToggle(!connected)}
-          style={connected ? { backgroundColor: "var(--status-water-base, #2f82dc)" } : undefined}
-          type="button"
-        >
-          {connected ? <StatusShimmer active /> : null}
-          <span className="sidebar-status-identity">
-            {connected ? (
-              <WifiHigh aria-hidden="true" size={14} weight="bold" />
-            ) : (
-              <WifiSlash aria-hidden="true" size={14} weight="regular" />
-            )}
-            <span className="sidebar-status-node">{proxy.name}</span>
-          </span>
-          {connected ? (
-            <span className="sidebar-status-rate" data-direction={rate.direction} key={rate.direction}>
-              <span aria-hidden="true">{rate.symbol}</span>
-              {rate.value}
-            </span>
-          ) : null}
-        </Button>
+        <ProxyControlButton connected={connected} onToggle={onToggle} proxy={proxy} />
       </div>
     </aside>
   );
 }
 
-function DiagnosticsPopover() {
+function ProfileMenu({ activeProfileId, onProfileChange }) {
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
+
   return (
-    <Popover.Root>
-      <Popover.Trigger className="toolbar-button">
-        <Pulse size={17} />
-        <span>Diagnostics</span>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner sideOffset={8} align="end">
-          <Popover.Popup className="diagnostics-popover">
-            <div className="popover-header">
-              <Popover.Title>Diagnostics</Popover.Title>
-              <Popover.Close className="icon-button" aria-label="Close diagnostics">
-                <X size={16} />
-              </Popover.Close>
-            </div>
-            <Popover.Description className="popover-description">
-              Core services are responding normally.
-            </Popover.Description>
-            <div className="diagnostic-item"><Globe size={17} /><span>DNS resolution</span><em>Healthy</em></div>
-            <div className="diagnostic-item"><Pulse size={17} /><span>Mihomo core</span><em>Running</em></div>
-            <div className="diagnostic-item"><PlugsConnected size={17} /><span>System proxy</span><em>Enabled</em></div>
-            <button className="secondary-button popover-action" type="button">Run diagnostics</button>
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+    <Menu.Root>
+      <Menu.Trigger className="toolbar-button profile-menu-trigger" aria-label="Switch profile">
+        <FileText aria-hidden="true" size={15} />
+        <span className="user-authored-label">{activeProfile.name}</span>
+        <CaretDown aria-hidden="true" size={12} weight="bold" />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Positioner align="end" className="profile-menu-positioner" sideOffset={8}>
+          <Menu.Popup className="profile-menu">
+            <Menu.RadioGroup onValueChange={onProfileChange} value={activeProfile.id}>
+              <Menu.GroupLabel className="profile-menu-label">Profiles</Menu.GroupLabel>
+              {profiles.map((profile) => (
+                <Menu.RadioItem className="profile-menu-item" key={profile.id} value={profile.id}>
+                  <Menu.RadioItemIndicator className="profile-menu-indicator">
+                    <Check aria-hidden="true" size={13} weight="bold" />
+                  </Menu.RadioItemIndicator>
+                  <span className="user-authored-label">{profile.name}</span>
+                </Menu.RadioItem>
+              ))}
+            </Menu.RadioGroup>
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
   );
 }
 
-function Toolbar({ activeProxy, onSelectProxy, title }) {
+function Toolbar({ activeProfileId, onProfileChange, title }) {
   return (
     <header className="toolbar">
       <span className="toolbar-title">{title}</span>
       <div className="toolbar-actions">
-        <button className="toolbar-button" onClick={onSelectProxy} type="button">
-          <CirclesFour size={17} />
-          <span>{activeProxy.name}</span>
-          <CaretDown size={12} weight="bold" />
-        </button>
-        <span className="toolbar-divider" />
-        <DiagnosticsPopover />
+        <ProfileMenu activeProfileId={activeProfileId} onProfileChange={onProfileChange} />
       </div>
     </header>
   );
@@ -204,7 +238,7 @@ function Toolbar({ activeProxy, onSelectProxy, title }) {
 function ModeControl({ mode, onChange }) {
   return (
     <ButtonGroup aria-label="Routing mode" className="routing-mode-group">
-      {['Rule', 'Global', 'Direct'].map((item) => (
+      {["Rule", "Global", "Direct"].map((item) => (
         <Button
           aria-pressed={mode === item}
           className="routing-mode-button"
@@ -219,35 +253,22 @@ function ModeControl({ mode, onChange }) {
   );
 }
 
-function ConnectionSwitch({ connected, onToggle }) {
-  return (
-    <Switch.Root
-      checked={connected}
-      className="switch"
-      nativeButton
-      onCheckedChange={onToggle}
-      render={<button aria-label={connected ? "Disconnect" : "Connect"} type="button" />}
-    >
-      <Switch.Thumb className="switch-thumb" />
-    </Switch.Root>
-  );
-}
-
 function Overview({
-  connected,
   groupSelections,
   mode,
   onModeChange,
   onOpenProxies,
   onOpenTraffic,
   onSelectGroupProxy,
-  onToggle,
-  proxy,
+  onSystemProxyChange,
+  onTunChange,
+  systemProxyEnabled,
+  tunEnabled,
 }) {
   const [pickerGroupId, setPickerGroupId] = useState(null);
   const frequentGroups = [...policyGroups]
     .sort((first, second) => second.connectionCount - first.connectionCount)
-    .slice(0, 3);
+    .slice(0, 5);
   const pickerGroup = policyGroups.find((group) => group.id === pickerGroupId) ?? null;
   const pickerOptions = pickerGroup
     ? proxies.filter((candidate) => pickerGroup.proxyIds.includes(candidate.id))
@@ -256,48 +277,78 @@ function Overview({
   return (
     <Tabs.Panel className="page-scroll" value="overview">
       <div className="status-page">
-        <div className="page-heading">
-          <div>
-            <h1>Network status</h1>
-            <p>Connection, route, and live session details.</p>
-          </div>
-          <span className="health-summary"><span className="status-dot" data-active /> All systems normal</span>
+        <h1 className="sr-only">Status</h1>
+        <div className="status-controls">
+          <SectionGrid className="status-control-card">
+            <SectionGridItem className="status-control-cell">
+              <span className="status-control-label">Routing mode</span>
+              <ModeControl mode={mode} onChange={onModeChange} />
+            </SectionGridItem>
+            <SectionGridItem className="status-control-cell status-capture-cell">
+              <span className="status-control-label">Traffic capture</span>
+              <TrafficCaptureControl
+                onSystemProxyChange={onSystemProxyChange}
+                onTunChange={onTunChange}
+                systemProxyEnabled={systemProxyEnabled}
+                tunEnabled={tunEnabled}
+              />
+            </SectionGridItem>
+          </SectionGrid>
         </div>
 
-        <section className="connection-card" aria-label="Current network status">
-          <div className="connection-header">
-            <div className="connection-state">
-              <span className="status-dot connection-dot" data-active={connected} />
-              <div>
-                <strong>{connected ? "Connected" : "Connection paused"}</strong>
-                <span>{connected ? `Traffic is routed through ${proxy.name}` : "Traffic is not using the system proxy"}</span>
-              </div>
-            </div>
-            <ConnectionSwitch connected={connected} onToggle={onToggle} />
-          </div>
-
-          <div className="connection-details">
-            <button className="detail-block detail-action" onClick={onOpenProxies} type="button">
-              <span>Route</span>
-              <strong>{proxy.name}</strong>
-              <CaretRight size={14} />
-            </button>
-            <div className="detail-block">
-              <span>Profile</span>
-              <strong>Home</strong>
-            </div>
-            <div className="detail-block mode-block">
-              <span>Mode</span>
-              <ModeControl mode={mode} onChange={onModeChange} />
-            </div>
-            <div className="detail-block throughput-block">
-              <span>Current traffic</span>
-              <strong className="tabular">↓ 2.45&nbsp;&nbsp;↑ 1.18 MB/s</strong>
-            </div>
-          </div>
-        </section>
-
         <div className="content-grid">
+          <section className="flat-section session-section" aria-label="Current session">
+            <div className="section-heading">
+              <div className="section-heading-copy">
+                <h2>Session</h2>
+                <p>Live activity at a glance.</p>
+              </div>
+              <button className="text-button" onClick={onOpenTraffic} type="button">
+                Open live traffic <CaretRight size={13} />
+              </button>
+            </div>
+            <SectionGrid className="session-list" columns={2}>
+              <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
+                <span className="traffic-session-label" data-direction="download">
+                  <ArrowDown aria-hidden="true" size={14} />
+                  <span className="traffic-session-copy">
+                    <span>Downloaded</span>
+                    <small>{formatBytes(mihomoSnapshot.traffic.downTotal)}</small>
+                  </span>
+                </span>
+                <TrafficSparkline color="var(--traffic-download)" data={trafficSeries.download} id="download" />
+                <strong className="traffic-rate-value tabular">{formatRate(mihomoSnapshot.traffic.down)}</strong>
+              </SectionGridItem>
+              <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
+                <span className="traffic-session-label" data-direction="upload">
+                  <ArrowUp aria-hidden="true" size={14} />
+                  <span className="traffic-session-copy">
+                    <span>Uploaded</span>
+                    <small>{formatBytes(mihomoSnapshot.traffic.upTotal)}</small>
+                  </span>
+                </span>
+                <TrafficSparkline color="var(--traffic-upload)" data={trafficSeries.upload} id="upload" />
+                <strong className="traffic-rate-value tabular">{formatRate(mihomoSnapshot.traffic.up)}</strong>
+              </SectionGridItem>
+              <SectionGridItem className="session-metric">
+                <span>Connections</span>
+                <strong className="tabular">{mihomoSnapshot.connections}</strong>
+              </SectionGridItem>
+              <SectionGridItem className="session-metric">
+                <span>Active rules</span>
+                <strong className="tabular">{formatCount(mihomoSnapshot.rules)}</strong>
+              </SectionGridItem>
+              <SectionGridItem className="session-metric">
+                <span>Memory</span>
+                <strong className="tabular">{formatBytes(mihomoSnapshot.memory.inuse)}</strong>
+              </SectionGridItem>
+              <SectionGridItem className="session-metric">
+                <span>Uptime</span>
+                <strong className="tabular">{mihomoSnapshot.uptime}</strong>
+              </SectionGridItem>
+            </SectionGrid>
+          </section>
+
           <section className="flat-section" aria-label="Frequently used policy groups">
             <div className="section-heading">
               <div className="section-heading-copy">
@@ -307,17 +358,29 @@ function Overview({
               <button className="text-button" onClick={onOpenProxies} type="button">View all <CaretRight size={13} /></button>
             </div>
 
-            <div className="policy-group-list">
+            <SectionGrid className="policy-group-list">
               {frequentGroups.map((group, index) => {
                 const selectedProxyId = groupSelections[group.id] ?? group.selectedProxyId;
                 const selectedProxy = proxies.find((candidate) => candidate.id === selectedProxyId) ?? proxies[0];
 
                 return (
-                  <Button className="policy-group-row" key={group.id} onClick={() => setPickerGroupId(group.id)} type="button">
+                  <SectionGridItem
+                    as={Button}
+                    className="policy-group-row"
+                    key={group.id}
+                    onClick={() => setPickerGroupId(group.id)}
+                    type="button"
+                  >
                     <span className="policy-group-rank tabular">{index + 1}</span>
                     <span className="policy-group-copy">
-                      <strong>{group.name}</strong>
-                      <span>{selectedProxy.name} · {selectedProxy.latency} ms</span>
+                      <span className="policy-group-primary user-authored-label">
+                        <span className="policy-group-emoji" aria-hidden="true">{group.emoji}</span>
+                        <strong>{group.name}</strong>
+                      </span>
+                      <span className="policy-group-secondary user-authored-label user-authored-label-node">
+                        <span className="node-flag" aria-hidden="true">{selectedProxy.emoji}</span>
+                        <span>{selectedProxy.name} · {selectedProxy.latency} ms</span>
+                      </span>
                     </span>
                     <span
                       aria-label={`${group.proxyIds.length} available nodes`}
@@ -326,36 +389,14 @@ function Overview({
                       {group.proxyIds.length}
                     </span>
                     <CaretRight aria-hidden="true" size={13} />
-                  </Button>
+                  </SectionGridItem>
                 );
               })}
-            </div>
-          </section>
-
-          <section className="flat-section session-section" aria-label="Current session">
-            <div className="section-heading">
-              <div className="section-heading-copy">
-                <h2>Session</h2>
-                <p>Live activity at a glance.</p>
-              </div>
-            </div>
-            <div className="session-list">
-              <div className="session-row traffic-session-row">
-                <span className="traffic-session-label"><ArrowDown size={14} /> Download</span>
-                <TrafficSparkline color="var(--traffic-download)" data={trafficSeries.download} id="download" />
-                <strong className="traffic-rate-value tabular">2.45 MB/s</strong>
-              </div>
-              <div className="session-row traffic-session-row">
-                <span className="traffic-session-label"><ArrowUp size={14} /> Upload</span>
-                <TrafficSparkline color="var(--traffic-upload)" data={trafficSeries.upload} id="upload" />
-                <strong className="traffic-rate-value tabular">1.18 MB/s</strong>
-              </div>
-              <div className="session-row"><span>Connections</span><strong className="tabular">24</strong></div>
-              <div className="session-row"><span>Uptime</span><strong className="tabular">01:24:07</strong></div>
-            </div>
-            <button className="text-button section-link" onClick={onOpenTraffic} type="button">Open live traffic <CaretRight size={13} /></button>
+            </SectionGrid>
           </section>
         </div>
+
+        <ServiceMonitorSection />
       </div>
       <ProxyPickerDialog
         groupName={pickerGroup?.name}
@@ -405,7 +446,10 @@ function ProxyWorkspace({ activeProxyId, onSelect, onUse }) {
             return (
               <button className="proxy-row" data-selected={selected} key={proxy.id} onClick={() => onSelect(proxy.id)} type="button">
                 <span className="proxy-check">{selected && <Check size={14} weight="bold" />}</span>
-                <span className="proxy-copy"><strong>{proxy.name}</strong><span>{proxy.protocol} · {proxy.latency} ms</span></span>
+                <span className="proxy-copy">
+                  <strong className="user-authored-label user-authored-label-node"><span className="node-flag" aria-hidden="true">{proxy.emoji}</span>{proxy.name}</strong>
+                  <span>{proxy.protocol} · {proxy.latency} ms</span>
+                </span>
                 <span className="latency tabular">{proxy.latency} ms</span>
               </button>
             );
@@ -421,7 +465,7 @@ function ProxyInspector({ onUse, proxy }) {
   return (
     <aside className="inspector">
       <div className="inspector-title-row">
-        <h1>{proxy.name}</h1>
+        <h1 className="user-authored-label user-authored-label-node"><span className="inspector-node-flag" aria-hidden="true">{proxy.emoji}</span>{proxy.name}</h1>
         <Tooltip.Root>
           <Tooltip.Trigger className="icon-button" aria-label="Route settings"><SlidersHorizontal size={17} /></Tooltip.Trigger>
           <Tooltip.Portal><Tooltip.Positioner sideOffset={6}><Tooltip.Popup className="tooltip">Route settings</Tooltip.Popup></Tooltip.Positioner></Tooltip.Portal>
@@ -464,36 +508,54 @@ function PlaceholderView({ view }) {
 
 export function App() {
   const [activeView, setActiveView] = useState("overview");
-  const [connected, setConnected] = useState(true);
   const [mode, setMode] = useState("Rule");
+  const [activeProfileId, setActiveProfileId] = useState("home");
   const [activeProxyId, setActiveProxyId] = useState("hkg-02");
   const [groupSelections, setGroupSelections] = useState(initialGroupSelections);
+  const [systemProxyEnabled, setSystemProxyEnabled] = useState(true);
+  const [tunEnabled, setTunEnabled] = useState(false);
   const activeProxy = proxies.find((proxy) => proxy.id === activeProxyId) ?? proxies[0];
+  const connected = systemProxyEnabled || tunEnabled;
 
   const handleSelectGroupProxy = (groupId, proxyId) => {
     setGroupSelections((current) => ({ ...current, [groupId]: proxyId }));
     if (groupId === "proxy") setActiveProxyId(proxyId);
   };
 
+  const handleToggleProxy = (nextConnected) => {
+    if (nextConnected) {
+      setSystemProxyEnabled(true);
+      return;
+    }
+
+    setSystemProxyEnabled(false);
+    setTunEnabled(false);
+  };
+
   return (
     <Tooltip.Provider delay={500}>
       <Tabs.Root className="app-shell" onValueChange={setActiveView} orientation="vertical" value={activeView}>
-        <Sidebar connected={connected} onToggle={setConnected} proxy={activeProxy} />
+        <Sidebar connected={connected} onToggle={handleToggleProxy} proxy={activeProxy} />
         <section className="workspace">
-          <Toolbar activeProxy={activeProxy} onSelectProxy={() => setActiveView("proxies")} title={viewTitles[activeView]} />
+          <Toolbar
+            activeProfileId={activeProfileId}
+            onProfileChange={setActiveProfileId}
+            title={viewTitles[activeView]}
+          />
           <Overview
-            connected={connected}
             groupSelections={groupSelections}
             mode={mode}
             onModeChange={setMode}
             onOpenProxies={() => setActiveView("proxies")}
             onOpenTraffic={() => setActiveView("connections")}
             onSelectGroupProxy={handleSelectGroupProxy}
-            onToggle={setConnected}
-            proxy={activeProxy}
+            onSystemProxyChange={setSystemProxyEnabled}
+            onTunChange={setTunEnabled}
+            systemProxyEnabled={systemProxyEnabled}
+            tunEnabled={tunEnabled}
           />
           <ProxyWorkspace activeProxyId={activeProxyId} onSelect={setActiveProxyId} onUse={() => setActiveView("overview")} />
-          {['profiles', 'connections', 'logs', 'settings'].map((view) => <PlaceholderView key={view} view={view} />)}
+          {["profiles", "connections", "logs", "settings"].map((view) => <PlaceholderView key={view} view={view} />)}
         </section>
       </Tabs.Root>
     </Tooltip.Provider>
