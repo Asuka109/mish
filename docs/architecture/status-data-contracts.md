@@ -117,6 +117,14 @@ bounded recent set of connection IDs for group-usage de-duplication. Invalid
 catalog relationships reject the batch transactionally instead of inventing a
 selected child.
 
+The Controller traffic DTO preserves Mihomo's signed 64-bit wire fields. At the
+Controller-to-Status boundary, the mapper checked-converts each rate and total
+to the non-negative Rust Status representation used by the product contract.
+Negative values return a typed `StatusMappingError`; the entire observation
+batch is rejected transactionally, including rate-series updates, so the last
+valid Status state remains available. Every non-negative signed value, including
+`i64::MAX`, is accepted without clamping, wrapping, or changing its magnitude.
+
 Mihomo APIs can vary across versions. Pin the supported core revision and
 validate response schemas at the local-bridge boundary rather than leaking version
 differences into React components.
