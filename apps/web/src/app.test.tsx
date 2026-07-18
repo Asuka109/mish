@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { toast } from "sonner";
@@ -70,6 +70,29 @@ class FailingCaptureClient extends FixtureStatusClient {
   }
 }
 
+class EmptyStatusClient extends FixtureStatusClient {
+  override async getSnapshot(): Promise<StatusSnapshotDto> {
+    const snapshot = await super.getSnapshot();
+    snapshot.groups = [];
+    snapshot.groupUsage = [];
+    snapshot.metrics = {
+      activeConnections: 0,
+      effectiveRules: 0,
+      memoryBytes: 0,
+      uptimeSeconds: 0,
+    };
+    snapshot.traffic = {
+      downloadBytesPerSecond: 0,
+      downloadSeries: [],
+      downloadedBytes: 0,
+      uploadBytesPerSecond: 0,
+      uploadSeries: [],
+      uploadedBytes: 0,
+    };
+    return snapshot;
+  }
+}
+
 describe("production routes", () => {
   it("presents Mish as the product brand", () => {
     renderRoute("/status");
@@ -120,6 +143,17 @@ describe("Status fixture experience", () => {
     expect(screen.getByText("Demo mode")).toBeInTheDocument();
     expect(screen.getByText("🌐 Proxy")).toBeInTheDocument();
     expect(screen.getByText("Messaging")).toBeInTheDocument();
+  });
+
+  it("renders explicit placeholders for policy groups and unavailable session samples", async () => {
+    renderRoute("/status", "en", new EmptyStatusClient());
+
+    expect(await screen.findByText("No policy groups available.")).toBeInTheDocument();
+    const session = screen.getByRole("region", { name: "Current session" });
+    expect(within(session).getAllByText("- B/s")).toHaveLength(2);
+    expect(within(session).getAllByText("-")).toHaveLength(6);
+    expect(within(session).queryByText("0 B/s")).not.toBeInTheDocument();
+    expect(within(session).queryByText("00:00:00")).not.toBeInTheDocument();
   });
 
   it("changes routing and one group child through the typed fixture adapter", async () => {

@@ -83,6 +83,8 @@ async fn runtime_drives_an_injected_core_and_publishes_status() {
     let snapshot = runtime.snapshot_from_status(&update, StatusAdapterKind::Native);
     assert_eq!(snapshot["adapterKind"], "native");
     assert_eq!(snapshot["runtime"]["phase"], "healthy");
+    assert_eq!(snapshot["services"].as_array().unwrap().len(), 6);
+    assert_eq!(snapshot["services"][0]["id"], "google");
 }
 
 #[tokio::test]

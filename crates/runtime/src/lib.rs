@@ -160,7 +160,48 @@ fn status_snapshot(core: &CoreStatus, adapter_kind: StatusAdapterKind) -> Value 
             "systemProxyEnabled": false,
             "tunEnabled": false
         },
-        "services": [],
+        "services": default_services(),
         "traffic": {"downloadBytesPerSecond": 0, "downloadSeries": [], "downloadedBytes": 0, "uploadBytesPerSecond": 0, "uploadSeries": [], "uploadedBytes": 0}
     })
+}
+
+fn default_services() -> Value {
+    json!([
+        {
+            "icon": "google",
+            "id": "google",
+            "label": "Google",
+            "url": "https://www.google.com/generate_204"
+        },
+        {
+            "icon": "github",
+            "id": "github",
+            "label": "GitHub",
+            "url": "https://github.com"
+        },
+        {
+            "icon": "cloudflare",
+            "id": "cloudflare",
+            "label": "Cloudflare",
+            "url": "https://cp.cloudflare.com/generate_204"
+        },
+        {
+            "icon": "baidu",
+            "id": "baidu",
+            "label": "Baidu",
+            "url": "https://www.baidu.com"
+        },
+        {
+            "icon": "apple",
+            "id": "apple",
+            "label": "Apple",
+            "url": "https://www.apple.com/library/test/success.html"
+        },
+        {
+            "icon": "microsoft",
+            "id": "microsoft",
+            "label": "Microsoft",
+            "url": "https://www.msftconnecttest.com/connecttest.txt"
+        }
+    ])
 }
