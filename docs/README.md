@@ -13,6 +13,7 @@ decisions from chat history.
 | How should the Status experience behave?                                   | [`product/status-experience.md`](product/status-experience.md)                             |
 | What are the implementation-ready product requirements and release slices? | [`product/prds/README.md`](product/prds/README.md)                                         |
 | What belongs in the web app, local agent, Tauri shell, or native layer?    | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md) |
+| How does the desktop bundle and authenticated local startup work?          | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                   |
 | Where do Status values come from and how are they derived?                 | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)           |
 | How should recurring UI structures be composed?                            | [`design/component-patterns.md`](design/component-patterns.md)                             |
 | What is real, mocked, verified, or still pending?                          | [`quality/prototype-validation.md`](quality/prototype-validation.md)                       |
@@ -32,8 +33,11 @@ decisions from chat history.
 - [`../sketch/`](../sketch/) is the interactive reference implementation. Its
   mock data must not be mistaken for a production API contract.
 - [`../apps/web/`](../apps/web/) is the production Mish browser/WebView entry.
-  Its current fixture adapter is replaceable infrastructure, not evidence of a
-  working Mihomo core integration.
+  Browser startup remains fixture-backed; desktop startup explicitly composes
+  the RPC adapter and is not evidence of Mihomo controller reconciliation.
+- [`../apps/desktop/`](../apps/desktop/) is the thin Tauri shell. It owns only
+  the desktop window, embedded asset startup, local-agent composition, and the
+  private bootstrap seam.
 
 ## Maintenance rules
 
