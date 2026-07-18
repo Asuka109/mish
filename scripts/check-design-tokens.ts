@@ -40,9 +40,11 @@ function parseFrontmatter(source: string): TokenTree {
 }
 
 function readCssVariables(source: string): Map<string, string> {
-  return new Map(
-    [...source.matchAll(/--([A-Za-z0-9-]+):\s*([^;]+);/g)].map((match) => [match[1], match[2]]),
-  );
+  const variables = new Map<string, string>();
+  for (const match of source.matchAll(/--([A-Za-z0-9-]+):\s*([^;]+);/g)) {
+    if (!variables.has(match[1])) variables.set(match[1], match[2]);
+  }
+  return variables;
 }
 
 function normalize(value: string | number): string {

@@ -5,6 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f8f9fa" />
     <title>Mish</title>
+    <script>
+      (() => {
+        let preference = "system";
+        try {
+          const storedPreference = localStorage.getItem("mish.appearance");
+          if (["light", "dark", "system"].includes(storedPreference)) {
+            preference = storedPreference;
+          }
+        } catch {}
+
+        const appearance =
+          preference === "system"
+            ? matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
+        document.documentElement.dataset.theme = appearance;
+        document.documentElement.style.colorScheme = appearance;
+        document
+          .querySelector('meta[name="theme-color"]')
+          .setAttribute("content", appearance === "dark" ? "#111113" : "#f8f9fa");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
