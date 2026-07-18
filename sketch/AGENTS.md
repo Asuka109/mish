@@ -15,11 +15,14 @@ When implementing from a selected generated mock, treat that image as the source
 - Use the Cal.com design system at `https://getdesign.md/cal/design-md` as the
   selected token and component-language reference. Adapt its neutral product UI
   patterns to macOS; do not copy its marketing layouts or branding.
-- Use Base UI primitives for stateful behavior wherever they fit. The current
-  mappings are Tabs for workspace navigation, Switch for the primary connection
-  state, Button for the sidebar proxy action and routing-mode actions,
-  ToggleGroup and Toggle for quick-route selection, Popover for diagnostics,
-  and Tooltip for icon-only controls.
+- Prefer shadcn components backed by Base UI for stateful behavior. The current
+  Status mappings are ToggleGroup for routing, standalone Toggle controls for
+  capture state, Button for
+  rows and actions, DropdownMenu for profiles and management, Dialog plus
+  Command for proxy selection, Field and Input for service editing, AlertDialog
+  for deletion, Badge for child counts, and Tooltip for icon-only controls.
+  Keep direct Base UI Tabs for workspace navigation until that non-Status scope
+  is redesigned.
 - Aim for a restrained, native-feeling macOS utility instead of a generic
   dashboard.
 - Use only three visible type sizes: 13px metadata, 14px product UI, and 22px
@@ -63,7 +66,7 @@ When implementing from a selected generated mock, treat that image as the source
   sidebar tabs use the ordinary hairline and only a nearly imperceptible shadow,
   so the outline carries the selected state.
 - Use the lighter `surface-soft` token for the sidebar base. Routing mode uses
-  the shadcn Button Group composition with joined Base UI buttons, shared
+  shadcn ToggleGroup backed by Base UI, with joined buttons, shared
   hairlines, and an `aria-pressed` selected state.
 - Name the bottom action `ProxyControlButton` ("proxy control button" in design
   discussion). Align its icon and copy to the exact icon and text columns used by
@@ -88,18 +91,15 @@ When implementing from a selected generated mock, treat that image as the source
   they are not meaningful display data. Show the selected child and measured
   latency beneath the group name, plus a small badge containing the number of
   available nodes. Do not infer or display a node's geographic location. Open a
-  reusable Base UI `ProxyPickerDialog` from each row to select a child for that
+  reusable shadcn/Base UI `ProxyPickerDialog` from each row to select a child for that
   specific group rather than navigating away or implying one globally active
   node.
-- Preserve emoji supplied in node and policy-group names. Mock data should model
-  them as a separate field: regional flags for nodes and semantic emoji for
-  groups. Apply saturation to the complete user-authored label layer so mixed
-  text and emoji work in any order without rewriting input; neutral text remains
-  visually unchanged. Use 40% saturation for all user-authored labels. Render
-  mock markers in fixed columns with an explicit 5px visual gap: 15px for
-  semantic group markers and a lower-contrast 11px for regional flags.
-  Keep a clean no-emoji fallback and never infer geography when the
-  configuration does not provide it.
+- Treat real node, group, profile, and service names as opaque user-authored
+  Unicode strings. Do not parse emoji prefixes or design a production contract
+  with separate emoji and text fields. The prototype may keep separate fixture
+  properties only to construct mock labels, but it must exercise rendering the
+  complete label layer. Apply 40% saturation to that whole layer, keep a clean
+  no-emoji case, and never infer geography from a label.
 - The healthy sidebar action may use a restrained full-area WebGL water
   distortion to signal live state. Build exponential sine waves with analytical
   derivatives and use each octave's derivative to drag the domain of the next
@@ -142,26 +142,28 @@ When implementing from a selected generated mock, treat that image as the source
   and latency. Use three columns at comfortable desktop widths and one column
   when constrained. Keep the probe URL in
   the editor instead of showing it during normal monitoring. Users can
-  add, edit, or delete entries through one reusable Base UI Dialog and restore
-  the complete default set from a Base UI Menu. A result describes the configured
+  add, edit, or delete entries through one reusable shadcn Dialog and restore
+  the complete default set from a shadcn DropdownMenu. A result describes the configured
   endpoint probe only; do not imply it is the latency of a globally active node.
 - Build repeated grouped surfaces with reusable `SectionGrid` and
   `SectionGridItem` components. The container owns a real 1px hairline, 8px
-  clipped radius, and stable 1px internal gaps using `hairline-soft`. Items may
+  radius, and stable 1px internal gaps using `hairline-soft`, but leaves
+  overflow visible. Each item constrains its own content and respects the outer
+  corner geometry. Items may
   span columns or rows so the
   same primitive covers vertical lists, horizontal partitions, and mixed
   grids. Do not simulate the outer border with padding and a background because
   child backgrounds flatten the visible corners.
 - Put traffic-capture configuration and Routing mode in the same two-row
-  `SectionGrid`. Traffic capture uses independent Base UI pressed-state buttons
-  labeled exactly “系统代理” and “增强模式（TUN）”; the adjacent question button
-  is the final item in the same button group and opens a Base UI Dialog
-  explaining the difference. Stack the two control rows vertically, but keep
+  `SectionGrid`. Traffic capture uses standalone shadcn Toggle controls labeled
+  exactly “系统代理” and “增强模式（TUN）”. Each toggle owns a complete outline
+  and radius. The adjacent question button is a separate outline button and opens a shadcn
+  Dialog explaining the difference. Stack the two control rows vertically, but keep
   each row's label and controls on one line. Let labels use their natural width,
   then left-align controls with a consistent 24px gap. `ProxyControlButton`
   remains the aggregate master control: stop disables both, and a fresh start
   enables System Proxy by default.
-- The Status toolbar contains one Base UI profile menu showing the active
+- The Status toolbar contains one shadcn DropdownMenu showing the active
   configuration. Keep it visually quiet because profile switching is infrequent.
   Do not use that position for a supposedly global active node or a persistent
   diagnostics action. Normal health stays quiet; surface diagnostics only from

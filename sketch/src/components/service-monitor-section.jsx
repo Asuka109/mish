@@ -1,6 +1,3 @@
-import { Button } from "@base-ui/react/button";
-import { Dialog } from "@base-ui/react/dialog";
-import { Menu } from "@base-ui/react/menu";
 import {
   AppleLogo,
   ArrowCounterClockwise,
@@ -12,9 +9,37 @@ import {
   PawPrint,
   Plus,
   WindowsLogo,
-  X,
 } from "@phosphor-icons/react";
 import { useState } from "react";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { SectionGrid, SectionGridItem } from "./ui/section-grid";
 
 const DEFAULT_SERVICES = [
@@ -50,75 +75,108 @@ function isValidProbeUrl(value) {
 }
 
 function ServiceEditorDialog({ draft, onDelete, onOpenChange, onSave, open, setDraft }) {
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
   if (!draft) return null;
 
-  const canSave = draft.name.trim().length > 0 && isValidProbeUrl(draft.url);
+  const nameInvalid = draft.name.trim().length === 0;
+  const urlInvalid = !isValidProbeUrl(draft.url);
+  const canSave = !nameInvalid && !urlInvalid;
   const existingService = Boolean(draft.id);
 
   return (
-    <Dialog.Root onOpenChange={onOpenChange} open={open}>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="modal-backdrop" />
-        <Dialog.Viewport className="modal-viewport">
-          <Dialog.Popup className="service-editor-dialog">
-            <div className="dialog-header">
-              <div>
-                <Dialog.Title className="dialog-title">
-                  {existingService ? "Edit service" : "Add service"}
-                </Dialog.Title>
-                <Dialog.Description className="dialog-description">
-                  Define the endpoint used for this availability probe.
-                </Dialog.Description>
-              </div>
-              <Dialog.Close aria-label="Close service editor" className="icon-button">
-                <X aria-hidden="true" size={16} />
-              </Dialog.Close>
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="service-editor-dialog" showCloseButton>
+        <div className="dialog-header">
+          <div>
+            <DialogTitle className="dialog-title">
+              {existingService ? "Edit service" : "Add service"}
+            </DialogTitle>
+            <DialogDescription className="dialog-description">
+              Define the endpoint used for this availability probe.
+            </DialogDescription>
+          </div>
+        </div>
+
+        <form
+          className="service-editor-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canSave) onSave(draft);
+          }}
+        >
+          <FieldGroup>
+            <Field data-invalid={nameInvalid}>
+              <FieldLabel htmlFor="service-title">Title</FieldLabel>
+              <Input
+                aria-invalid={nameInvalid}
+                autoFocus
+                id="service-title"
+                onValueChange={(value) => setDraft({ ...draft, name: value })}
+                placeholder="Service name"
+                value={draft.name}
+              />
+              {nameInvalid ? <FieldError>Enter a title.</FieldError> : null}
+            </Field>
+            <Field data-invalid={urlInvalid}>
+              <FieldLabel htmlFor="service-probe-url">Probe URL</FieldLabel>
+              <Input
+                aria-invalid={urlInvalid}
+                id="service-probe-url"
+                onValueChange={(value) => setDraft({ ...draft, url: value })}
+                placeholder="https://example.com/generate_204"
+                type="url"
+                value={draft.url}
+              />
+              <FieldDescription>Use an HTTP or HTTPS endpoint that responds quickly and reliably.</FieldDescription>
+              {urlInvalid ? <FieldError>Enter a valid HTTP or HTTPS URL.</FieldError> : null}
+            </Field>
+          </FieldGroup>
+
+          <div className="dialog-footer service-editor-footer">
+            {existingService ? (
+              <Button
+                className="danger-text-button"
+                onClick={() => setDeleteConfirmOpen(true)}
+                type="button"
+                variant="destructive"
+              >
+                Delete
+              </Button>
+            ) : <span />}
+            <div className="dialog-footer-actions">
+              <DialogClose render={<Button className="secondary-button" type="button" variant="outline" />}>
+                Cancel
+              </DialogClose>
+              <Button className="primary-action-button" disabled={!canSave} type="submit">Save</Button>
             </div>
+          </div>
+        </form>
+      </DialogContent>
 
-            <form
-              className="service-editor-form"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (canSave) onSave(draft);
+      <AlertDialog onOpenChange={setDeleteConfirmOpen} open={deleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {draft.name || "this service"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the monitor from the Status page. You can add it again later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onDelete(draft.id);
+                setDeleteConfirmOpen(false);
               }}
+              variant="destructive"
             >
-              <label className="form-field">
-                <span>Title</span>
-                <input
-                  autoFocus
-                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                  placeholder="Service name"
-                  value={draft.name}
-                />
-              </label>
-              <label className="form-field">
-                <span>Probe URL</span>
-                <input
-                  aria-invalid={draft.url.length > 0 && !isValidProbeUrl(draft.url)}
-                  onChange={(event) => setDraft({ ...draft, url: event.target.value })}
-                  placeholder="https://example.com/generate_204"
-                  type="url"
-                  value={draft.url}
-                />
-                <small>Use an HTTP or HTTPS endpoint that responds quickly and reliably.</small>
-              </label>
-
-              <div className="dialog-footer service-editor-footer">
-                {existingService ? (
-                  <Button className="danger-text-button" onClick={() => onDelete(draft.id)} type="button">
-                    Delete
-                  </Button>
-                ) : <span />}
-                <div className="dialog-footer-actions">
-                  <Dialog.Close className="secondary-button" type="button">Cancel</Dialog.Close>
-                  <Button className="primary-action-button" disabled={!canSave} type="submit">Save</Button>
-                </div>
-              </div>
-            </form>
-          </Dialog.Popup>
-        </Dialog.Viewport>
-      </Dialog.Portal>
-    </Dialog.Root>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
   );
 }
 
@@ -148,11 +206,13 @@ export function ServiceMonitorSection() {
     }
 
     closeEditor();
+    toast.success(nextService.id ? "Service updated" : "Service added");
   };
 
   const deleteService = (serviceId) => {
     setServices((current) => current.filter((service) => service.id !== serviceId));
     closeEditor();
+    toast.success("Service removed");
   };
 
   return (
@@ -162,48 +222,52 @@ export function ServiceMonitorSection() {
           <h2>Services</h2>
           <p>Endpoint latency.</p>
         </div>
-        <Menu.Root>
-          <Menu.Trigger className="service-manage-trigger" type="button">
+        <DropdownMenu>
+          <DropdownMenuTrigger className="service-manage-trigger" type="button">
             Manage
             <CaretDown aria-hidden="true" size={12} weight="bold" />
-          </Menu.Trigger>
-          <Menu.Portal>
-            <Menu.Positioner align="end" sideOffset={7}>
-              <Menu.Popup className="service-manage-menu">
-                <Menu.Item
-                  className="service-manage-item"
-                  onClick={() => setDraft({ icon: "globe", latency: null, name: "", url: "https://" })}
-                >
-                  <Plus aria-hidden="true" size={15} />
-                  Add service
-                </Menu.Item>
-                <Menu.Separator className="service-manage-separator" />
-                <Menu.Item className="service-manage-item" onClick={() => setServices(cloneDefaults())}>
-                  <ArrowCounterClockwise aria-hidden="true" size={15} />
-                  Restore defaults
-                </Menu.Item>
-              </Menu.Popup>
-            </Menu.Positioner>
-          </Menu.Portal>
-        </Menu.Root>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="service-manage-menu" sideOffset={7}>
+            <DropdownMenuItem
+              className="service-manage-item"
+              onClick={() => setDraft({ icon: "globe", latency: null, name: "", url: "https://" })}
+            >
+              <Plus aria-hidden="true" data-icon="inline-start" size={15} />
+              Add service
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="service-manage-separator" />
+            <DropdownMenuItem
+              className="service-manage-item"
+              onClick={() => {
+                setServices(cloneDefaults());
+                toast.success("Default services restored");
+              }}
+            >
+              <ArrowCounterClockwise aria-hidden="true" data-icon="inline-start" size={15} />
+              Restore defaults
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      <SectionGrid className="service-monitor-list" columns={3}>
-        {services.map((service) => {
+      {services.length > 0 ? (
+        <SectionGrid className="service-monitor-list" columns={3}>
+          {services.map((service) => {
           const Icon = serviceIcons[service.icon] ?? GlobeSimple;
 
           return (
             <SectionGridItem
               as={Button}
-              aria-label={`Edit ${service.name} monitor`}
               className="service-monitor-row"
               data-service-icon={service.icon}
               key={service.id}
               onClick={() => setDraft({ ...service })}
               type="button"
+              variant="ghost"
             >
+              <span className="sr-only">Edit monitor: </span>
               <span className="service-monitor-icon">
-                <Icon aria-hidden="true" size={18} weight="fill" />
+                <Icon aria-hidden="true" data-icon="inline-start" size={18} weight="fill" />
               </span>
               <span className="service-monitor-copy">
                 <strong className="user-authored-label">{service.name}</strong>
@@ -213,8 +277,20 @@ export function ServiceMonitorSection() {
               </span>
             </SectionGridItem>
           );
-        })}
-      </SectionGrid>
+          })}
+        </SectionGrid>
+      ) : (
+        <Empty className="service-monitor-empty">
+          <EmptyHeader>
+            <EmptyTitle>No service monitors</EmptyTitle>
+            <EmptyDescription>Add a service to track endpoint latency here.</EmptyDescription>
+          </EmptyHeader>
+          <Button onClick={() => setDraft({ icon: "globe", latency: null, name: "", url: "https://" })} variant="outline">
+            <Plus data-icon="inline-start" />
+            Add service
+          </Button>
+        </Empty>
+      )}
 
       <ServiceEditorDialog
         draft={draft}

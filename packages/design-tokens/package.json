@@ -1,0 +1,15 @@
+{
+  "name": "@mihomo/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "src/tokens.css"
+  ],
+  "type": "module",
+  "sideEffects": [
+    "./src/tokens.css"
+  ],
+  "exports": {
+    "./tokens.css": "./src/tokens.css"
+  }
+}

@@ -1,5 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const projectDirectory = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   optimizeDeps: {
@@ -14,5 +19,10 @@ export default defineConfig({
       clientFiles: ["./src/main.jsx"],
     },
   },
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(projectDirectory, "src"),
+    },
+  },
 });

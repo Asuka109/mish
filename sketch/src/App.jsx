@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button } from "@base-ui/react/button";
-import { Menu } from "@base-ui/react/menu";
+import { Button as BaseButton } from "@base-ui/react/button";
 import { Tabs } from "@base-ui/react/tabs";
 import { Tooltip } from "@base-ui/react/tooltip";
 import {
@@ -28,8 +27,19 @@ import { TrafficSparkline } from "./components/traffic-sparkline";
 import { ProxyPickerDialog } from "./components/proxy-picker-dialog";
 import { ServiceMonitorSection } from "./components/service-monitor-section";
 import { TrafficCaptureControl } from "./components/traffic-capture-control";
-import { ButtonGroup } from "./components/ui/button-group";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SectionGrid, SectionGridItem } from "./components/ui/section-grid";
+import { Toaster } from "@/components/ui/sonner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const navigation = [
   { id: "overview", label: "Status", icon: Gauge },
@@ -138,20 +148,20 @@ function ProxyControlButton({ connected, onToggle, proxy }) {
       {connected ? (
         <>
           <span className="proxy-control-state proxy-control-default">
-            <WifiHigh aria-hidden="true" size={16} weight="bold" />
+            <WifiHigh aria-hidden="true" data-icon="inline-start" size={16} weight="bold" />
             <span className="proxy-control-label user-authored-label user-authored-label-node">
               <span className="proxy-control-flag" aria-hidden="true">{proxy.emoji}</span>
               <span>{proxy.name}</span>
             </span>
           </span>
           <span className="proxy-control-state proxy-control-hover" aria-hidden="true">
-            <XCircle size={17} weight="regular" />
+            <XCircle data-icon="inline-start" size={17} weight="regular" />
             <span className="proxy-control-label">关闭代理</span>
           </span>
         </>
       ) : (
         <span className="proxy-control-state proxy-control-default">
-          <Power aria-hidden="true" size={17} weight="regular" />
+          <Power aria-hidden="true" data-icon="inline-start" size={17} weight="regular" />
           <span className="proxy-control-label">启动代理</span>
         </span>
       )}
@@ -197,30 +207,26 @@ function ProfileMenu({ activeProfileId, onProfileChange }) {
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? profiles[0];
 
   return (
-    <Menu.Root>
-      <Menu.Trigger className="toolbar-button profile-menu-trigger" aria-label="Switch profile">
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={`Switch profile. Current profile: ${activeProfile.name}`}
+        className="toolbar-button profile-menu-trigger"
+      >
         <FileText aria-hidden="true" size={15} />
         <span className="user-authored-label">{activeProfile.name}</span>
         <CaretDown aria-hidden="true" size={12} weight="bold" />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner align="end" className="profile-menu-positioner" sideOffset={8}>
-          <Menu.Popup className="profile-menu">
-            <Menu.RadioGroup onValueChange={onProfileChange} value={activeProfile.id}>
-              <Menu.GroupLabel className="profile-menu-label">Profiles</Menu.GroupLabel>
-              {profiles.map((profile) => (
-                <Menu.RadioItem className="profile-menu-item" key={profile.id} value={profile.id}>
-                  <Menu.RadioItemIndicator className="profile-menu-indicator">
-                    <Check aria-hidden="true" size={13} weight="bold" />
-                  </Menu.RadioItemIndicator>
-                  <span className="user-authored-label">{profile.name}</span>
-                </Menu.RadioItem>
-              ))}
-            </Menu.RadioGroup>
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="profile-menu" sideOffset={8}>
+        <DropdownMenuRadioGroup onValueChange={onProfileChange} value={activeProfile.id}>
+          <DropdownMenuLabel className="profile-menu-label">Profiles</DropdownMenuLabel>
+          {profiles.map((profile) => (
+            <DropdownMenuRadioItem className="profile-menu-item" key={profile.id} value={profile.id}>
+              <span className="user-authored-label">{profile.name}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -237,19 +243,27 @@ function Toolbar({ activeProfileId, onProfileChange, title }) {
 
 function ModeControl({ mode, onChange }) {
   return (
-    <ButtonGroup aria-label="Routing mode" className="routing-mode-group">
+    <ToggleGroup
+      aria-label="Routing mode"
+      className="routing-mode-group"
+      onValueChange={(nextValue) => {
+        const selectedMode = nextValue[0];
+        if (selectedMode) onChange(selectedMode);
+      }}
+      spacing={0}
+      value={[mode]}
+      variant="outline"
+    >
       {["Rule", "Global", "Direct"].map((item) => (
-        <Button
-          aria-pressed={mode === item}
+        <ToggleGroupItem
           className="routing-mode-button"
           key={item}
-          onClick={() => onChange(item)}
-          type="button"
+          value={item}
         >
           {item}
-        </Button>
+        </ToggleGroupItem>
       ))}
-    </ButtonGroup>
+    </ToggleGroup>
   );
 }
 
@@ -303,9 +317,9 @@ function Overview({
                 <h2>Session</h2>
                 <p>Live activity at a glance.</p>
               </div>
-              <button className="text-button" onClick={onOpenTraffic} type="button">
-                Open live traffic <CaretRight size={13} />
-              </button>
+              <Button className="text-button" onClick={onOpenTraffic} size="sm" type="button" variant="ghost">
+                Open live traffic <CaretRight data-icon="inline-end" size={13} />
+              </Button>
             </div>
             <SectionGrid className="session-list" columns={2}>
               <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
@@ -316,7 +330,7 @@ function Overview({
                     <small>{formatBytes(mihomoSnapshot.traffic.downTotal)}</small>
                   </span>
                 </span>
-                <TrafficSparkline color="var(--traffic-download)" data={trafficSeries.download} id="download" />
+                <TrafficSparkline color="var(--color-traffic-download)" data={trafficSeries.download} id="download" />
                 <strong className="traffic-rate-value tabular">{formatRate(mihomoSnapshot.traffic.down)}</strong>
               </SectionGridItem>
               <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
@@ -327,7 +341,7 @@ function Overview({
                     <small>{formatBytes(mihomoSnapshot.traffic.upTotal)}</small>
                   </span>
                 </span>
-                <TrafficSparkline color="var(--traffic-upload)" data={trafficSeries.upload} id="upload" />
+                <TrafficSparkline color="var(--color-traffic-upload)" data={trafficSeries.upload} id="upload" />
                 <strong className="traffic-rate-value tabular">{formatRate(mihomoSnapshot.traffic.up)}</strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
@@ -355,7 +369,9 @@ function Overview({
                 <h2>Groups</h2>
                 <p>Most used first.</p>
               </div>
-              <button className="text-button" onClick={onOpenProxies} type="button">View all <CaretRight size={13} /></button>
+              <Button className="text-button" onClick={onOpenProxies} size="sm" type="button" variant="ghost">
+                View all <CaretRight data-icon="inline-end" size={13} />
+              </Button>
             </div>
 
             <SectionGrid className="policy-group-list">
@@ -370,6 +386,7 @@ function Overview({
                     key={group.id}
                     onClick={() => setPickerGroupId(group.id)}
                     type="button"
+                    variant="ghost"
                   >
                     <span className="policy-group-rank tabular">{index + 1}</span>
                     <span className="policy-group-copy">
@@ -382,13 +399,14 @@ function Overview({
                         <span>{selectedProxy.name} · {selectedProxy.latency} ms</span>
                       </span>
                     </span>
-                    <span
+                    <Badge
                       aria-label={`${group.proxyIds.length} available nodes`}
                       className="policy-group-badge tabular"
+                      variant="outline"
                     >
                       {group.proxyIds.length}
-                    </span>
-                    <CaretRight aria-hidden="true" size={13} />
+                    </Badge>
+                    <CaretRight aria-hidden="true" data-icon="inline-end" size={13} />
                   </SectionGridItem>
                 );
               })}
@@ -434,7 +452,7 @@ function ProxyWorkspace({ activeProxyId, onSelect, onUse }) {
         <div className="list-heading">
           <span>Available routes</span>
           <Tooltip.Root>
-            <Tooltip.Trigger className="icon-button" aria-label="Test latency"><Gauge size={17} /></Tooltip.Trigger>
+          <Tooltip.Trigger className="icon-button" aria-label="Test latency"><Gauge size={17} /></Tooltip.Trigger>
             <Tooltip.Portal>
               <Tooltip.Positioner sideOffset={6}><Tooltip.Popup className="tooltip">Test latency</Tooltip.Popup></Tooltip.Positioner>
             </Tooltip.Portal>
@@ -479,7 +497,7 @@ function ProxyInspector({ onUse, proxy }) {
         <div className="data-row"><span>Provider</span><span>Home</span></div>
         <div className="data-row"><span>Last tested</span><span>Just now</span></div>
       </div>
-      <button className="primary-button" onClick={onUse} type="button">Use this route</button>
+      <BaseButton className="primary-button" onClick={onUse} type="button">Use this route</BaseButton>
       <h2>Diagnostics</h2>
       <div className="inspector-rows diagnostics-rows">
         <div className="data-row"><span>Outbound IP</span><span className="tabular">203.0.113.45</span></div>
@@ -558,6 +576,7 @@ export function App() {
           {["profiles", "connections", "logs", "settings"].map((view) => <PlaceholderView key={view} view={view} />)}
         </section>
       </Tabs.Root>
+      <Toaster position="bottom-right" />
     </Tooltip.Provider>
   );
 }
