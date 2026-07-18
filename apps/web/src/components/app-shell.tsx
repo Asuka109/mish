@@ -31,6 +31,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
+import { handleDesktopWindowDrag } from "../platform/desktop-window";
 import { StatusShimmer } from "./status-shimmer";
 
 const destinations = [
@@ -129,14 +130,19 @@ function Sidebar() {
 
   return (
     <aside aria-label={LL.navigation.primary()} className="sidebar">
-      <div aria-hidden="true" className="traffic-lights">
-        <Circle color="#ff5f57" weight="fill" />
-        <Circle color="#febc2e" weight="fill" />
-        <Circle color="#28c840" weight="fill" />
-      </div>
-      <div aria-label="Mish" className="brand-row">
-        <Stack aria-hidden="true" />
-        <span>Mish</span>
+      <div className="sidebar-window-header" data-tauri-drag-region="deep">
+        <div className="window-controls-slot">
+          <div aria-hidden="true" className="traffic-lights">
+            <Circle color="#ff5f57" weight="fill" />
+            <Circle color="#febc2e" weight="fill" />
+            <Circle color="#28c840" weight="fill" />
+          </div>
+          <div aria-hidden="true" className="window-drag-region" />
+        </div>
+        <div aria-label="Mish" className="brand-row">
+          <Stack aria-hidden="true" />
+          <span>Mish</span>
+        </div>
       </div>
 
       <nav aria-label={LL.navigation.sections()} className="nav-list">
@@ -287,7 +293,7 @@ function Toolbar() {
   const title = getPageTitle(LL, location.pathname);
 
   return (
-    <header className="toolbar">
+    <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
       <span className="toolbar-title">{title}</span>
       <div className="toolbar-actions">
         <Tooltip>

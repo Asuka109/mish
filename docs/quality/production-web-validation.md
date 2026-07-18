@@ -7,16 +7,17 @@ desktop WebView. It consumes shared components from `packages/ui/` and CSS
 tokens from `packages/design-tokens/`. It does not import source, fixtures, or
 runtime assets from `sketch/`.
 
-The default app uses `FixtureStatusClient`, an implementation of the shared
-typed `StatusClient` boundary. Its commands update detached in-memory DTO
+Ordinary browser startup uses `FixtureStatusClient`, an implementation of the
+shared typed `StatusClient` boundary. Its commands update detached in-memory DTO
 snapshots only. The toolbar and aggregate capture action identify this as demo
 data; no System Proxy, TUN, Mihomo core operation, probe, capture, WebSocket, or
 network request is executed.
 
 `RpcStatusClient` is available only for explicit composition with an injected
 `RpcClient`. Runtime schemas reject malformed results and notifications before
-they enter product state. No endpoint, authentication token, or browser
-transport factory is wired into default application startup.
+they enter product state. The Tauri WebView composes it from the validated
+process-only desktop bootstrap. An ordinary browser has no endpoint or token
+bootstrap and remains fixture-backed.
 
 English and Simplified Chinese UI dictionaries are bundled with the production
 artifact and exposed through generated `typesafe-i18n` functions. Locale changes
@@ -37,9 +38,10 @@ The six stable destinations are:
 | `/settings` | Structured capability/settings ownership and fixture-only state |
 
 React Router owns these client routes. Development and Vite preview use SPA
-fallback behavior. Any future static server or local agent must return the same
-bundled `index.html` for an unknown non-asset path so a direct URL or browser
-refresh resolves before React Router takes over.
+fallback behavior. Tauri's embedded-asset resolver also returns the bundled
+`index.html` for unknown paths. Any future local HTTP asset host must preserve
+that behavior for unknown non-asset paths so a direct URL or browser refresh
+resolves before React Router takes over.
 
 ## Required commands
 
@@ -94,7 +96,11 @@ Automated tests cover:
   binding, explicit sidecar start/stop, version reporting, and child cleanup.
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
-  failures, and suppression of false success events.
+  failures, and suppression of false success events;
+- browser startup isolation from desktop IPC, strict loopback endpoint
+  validation, and separation of the authentication token from the WebSocket
+  URL; and
+- desktop token generation plus development/production Origin allowlists.
 
 ## Manual browser checks
 
@@ -114,15 +120,14 @@ Before a visible production change is accepted, verify:
 
 ## Local-agent replacement gate
 
-The validated DTO/RPC client boundary, reconnect behavior, pending and typed
-failure semantics, and fake-transport integration coverage now exist. Replacing
-the startup fixture still requires the local agent to implement and test strict
-Host/Origin checks, loopback binding, authentication-secret bootstrap, message
-and subscription limits, matching schemas, and real command reconciliation.
-The initial agent now covers loopback binding, strict Host/Origin checks,
+The desktop bootstrap now provides an explicit endpoint and ephemeral secret,
+while the initial agent covers loopback binding, strict Host/Origin checks,
 authentication, message and subscription bounds, JSON-RPC framing, a sparse
-validated Status snapshot, and explicit process lifecycle. The replacement gate
-remains closed until the agent serves the offline bundle from its origin,
-bootstraps the browser endpoint and secret, reconciles state against the pinned
-Mihomo controller API, and implements the required commands. A fixture or mock
-interaction must never be relabeled as a successful system or network action.
+validated Status snapshot, and explicit process lifecycle. Tauri embeds and
+serves the offline bundle from its own application protocol; a future same-origin
+HTTP host remains an agent-owned interface change.
+
+The browser replacement gate remains closed, and the desktop state remains
+sparse, until the agent reconciles against the pinned Mihomo controller API and
+implements the required commands. A fixture or mock interaction must never be
+relabeled as a successful system or network action.

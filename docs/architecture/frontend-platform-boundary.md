@@ -138,6 +138,14 @@ screen styles. Core surfaces should not depend on a CDN or appear behind runtime
 download placeholders. Code splitting remains acceptable for maintainability,
 but it is not required merely to optimize a hosted-web cold start.
 
+`apps/desktop` implements the first shell slice. Tauri embeds `apps/web/dist`,
+uses its application-protocol `index.html` fallback for React Router paths, and
+starts the existing loopback agent on an ephemeral port. One permission-scoped
+IPC command passes a process-only token and validated endpoint to the main
+WebView. Ordinary browser startup remains fixture-backed. The detailed resource
+flow and threat model are documented in
+[`desktop-bootstrap.md`](desktop-bootstrap.md).
+
 ## macOS status-bar behavior
 
 The macOS application normally remains available from the status bar. The
