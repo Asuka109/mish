@@ -57,6 +57,7 @@ const zh = {
     fixtureUnavailable: "演示数据不可用。",
     groups: "策略组",
     groupsAria: "常用策略组",
+    groupsEmpty: "暂无可用的策略组。",
     loading: "正在加载类型化演示数据…",
     memory: "内存",
     modeDirect: "直连",

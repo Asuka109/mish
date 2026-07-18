@@ -83,7 +83,12 @@ Requests that were in flight when the transport disconnects are rejected and
 are not replayed automatically. Replaying a consequential command without
 knowing whether the server applied it would be unsafe. Subscription ownership
 stays with an adapter, which resubscribes after authentication on a new
-connection. Cancellation removes local correlation state and emits
+connection. Each successful Status subscription response includes its current
+validated snapshot, so resubscription restores authoritative state even if no
+later notification occurs. The bridge establishes the event cursor before
+sampling that snapshot and sends the response before subsequent notifications,
+preventing an older queued lifecycle event from overwriting the reconciliation
+snapshot. Cancellation removes local correlation state and emits
 `rpc.cancel` metadata when the authenticated transport is still available.
 
 `apps/web/src/data/rpc-status-client.ts` maps this generic transport to the
@@ -113,8 +118,11 @@ desktop bridge's startup configuration. Browser RPC calls cannot choose an
 executable or arbitrary file.
 The process manager checks the configured executable's version before launch,
 tracks PID and process liveness, sends `SIGTERM` on stop, applies a bounded wait,
-and reaps or kills the child before bridge shutdown completes. It does not start
-Mihomo automatically.
+and reaps or kills the child before bridge shutdown completes. A background
+process monitor also detects termination outside an explicit stop command,
+updates `CoreStatus`, and reports the transition through the shared runtime event
+sink so RPC and native subscribers cannot retain a false healthy state. It does
+not start Mihomo automatically.
 
 `crates/mihomo-controller` implements a transport-neutral, read-only client for
 the pinned Mihomo Controller surface. It validates bounded unary and streaming
@@ -146,6 +154,14 @@ The Tauri client ships the complete UI bundle, icons, fonts, charts, and core
 screen styles. Core surfaces should not depend on a CDN or appear behind runtime
 download placeholders. Code splitting remains acceptable for maintainability,
 but it is not required merely to optimize a hosted-web cold start.
+
+`apps/desktop` implements the first shell slice. Tauri embeds `apps/web/dist`,
+uses its application-protocol `index.html` fallback for React Router paths, and
+starts the existing loopback desktop bridge on an ephemeral port. One permission-scoped
+IPC command passes a process-only token and validated endpoint to the main
+WebView. Ordinary browser startup remains fixture-backed. The detailed resource
+flow and threat model are documented in
+[`desktop-bootstrap.md`](desktop-bootstrap.md).
 
 ## macOS status-bar behavior
 

@@ -43,6 +43,17 @@ confirmed `StatusSnapshotDto`; a JSON-RPC success envelope with an invalid resul
 is a validation failure, not command success. RPC snapshots must identify their
 adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 
+`status.subscribe` returns both the subscription ID and a current validated
+snapshot. The server resets that socket's lifecycle-event cursor before reading
+the snapshot, then sends the subscription response before it can send a
+notification for the new subscription. This creates an ordering barrier: events
+older than the snapshot are discarded, while an event racing after the snapshot
+is delivered after the response. The Status adapter applies the response snapshot
+on every initial subscription and resubscription, and clears stale state only
+after contract validation succeeds. A reconnect therefore becomes authoritative
+without depending on a later lifecycle change. This response-shape change is
+bridge protocol version 2.
+
 Capture selection is device-level intent and is distinct from confirmed runtime
 state. The capture command carries the complete selection plus an aggregate
 active flag. Stopping may therefore disable both runtime paths without erasing
@@ -59,6 +70,10 @@ The Rust `CoreRuntime` interface mirrors these lifecycle semantics without
 depending on JSON-RPC. Its typed `unavailable`, `start-failed`, and
 `stop-failed` outcomes are mapped by the desktop transport and can be mapped by
 future Kotlin or Swift adapters without parsing English error text.
+`MishRuntime` also attaches a transport-neutral status-event sink to the core
+adapter. Desktop child-process monitoring and future embedded mobile adapters can
+report lifecycle changes that occur outside an explicit start or stop command
+through the same runtime event stream.
 
 ## Mihomo core source mapping
 

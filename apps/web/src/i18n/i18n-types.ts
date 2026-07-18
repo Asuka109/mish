@@ -204,6 +204,10 @@ type RootTranslation = {
 		 */
 		groupsAria: string
 		/**
+		 * N​o​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​a​v​a​i​l​a​b​l​e​.
+		 */
+		groupsEmpty: string
+		/**
 		 * L​o​a​d​i​n​g​ ​t​y​p​e​d​ ​f​i​x​t​u​r​e​ ​d​a​t​a​…
 		 */
 		loading: string
@@ -871,6 +875,10 @@ export type TranslationFunctions = {
 		 * Frequently used policy groups
 		 */
 		groupsAria: () => LocalizedString
+		/**
+		 * No policy groups available.
+		 */
+		groupsEmpty: () => LocalizedString
 		/**
 		 * Loading typed fixture data…
 		 */

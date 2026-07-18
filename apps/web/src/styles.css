@@ -1,5 +1,45 @@
 @import "tailwindcss";
 @import "@mish/design-tokens/tokens.css";
+
+.startup-failure {
+  align-items: center;
+  background: var(--mish-color-surface-soft);
+  color: var(--mish-color-ink);
+  display: flex;
+  font-family: var(--mish-typography-body-font-family);
+  inset: 0;
+  justify-content: center;
+  padding: var(--mish-spacing-xl);
+  position: fixed;
+}
+
+.startup-failure section {
+  background: var(--mish-color-canvas);
+  border: 1px solid var(--mish-color-hairline);
+  border-radius: var(--mish-radius-lg);
+  box-shadow: var(--mish-shadow-panel);
+  max-width: 480px;
+  padding: var(--mish-spacing-xl);
+}
+
+.startup-failure h1 {
+  font-size: var(--mish-typography-title-font-size);
+  font-weight: var(--mish-typography-title-font-weight);
+  line-height: var(--mish-typography-title-line-height);
+  margin: var(--mish-spacing-xs) 0 var(--mish-spacing-sm);
+}
+
+.startup-failure p {
+  color: var(--mish-color-body);
+  font-size: var(--mish-typography-body-font-size);
+  line-height: var(--mish-typography-body-line-height);
+  margin: 0;
+}
+
+.startup-failure .startup-failure__eyebrow {
+  color: var(--mish-color-muted);
+  font-size: var(--mish-typography-metadata-font-size);
+}
 @source "../../../packages/ui/src";
 
 :root {
@@ -114,17 +154,43 @@ h2 {
   color: var(--color-body);
 }
 
+.sidebar-window-header {
+  flex: 0 0 auto;
+  margin: -14px -10px 0;
+  padding: 14px 10px 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.window-controls-slot {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  flex: 0 0 auto;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .traffic-lights {
   display: flex;
   align-items: center;
   gap: 7px;
-  height: 22px;
+  flex: 0 0 auto;
   padding-left: 4px;
 }
 
 .traffic-lights svg {
   width: 12px;
   height: 12px;
+}
+
+.window-drag-region {
+  align-self: stretch;
+  flex: 1;
+}
+
+:root[data-runtime="desktop"] .traffic-lights {
+  visibility: hidden;
 }
 
 .brand-row {
@@ -314,6 +380,8 @@ h2 {
   justify-content: space-between;
   padding: 0 16px 0 24px;
   border-bottom: 1px solid var(--color-hairline);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .toolbar-title {

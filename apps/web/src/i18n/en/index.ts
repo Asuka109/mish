@@ -59,6 +59,7 @@ const en = {
     fixtureUnavailable: "Fixture data is unavailable.",
     groups: "Groups",
     groupsAria: "Frequently used policy groups",
+    groupsEmpty: "No policy groups available.",
     loading: "Loading typed fixture data…",
     memory: "Memory",
     modeDirect: "Direct",

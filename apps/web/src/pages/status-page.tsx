@@ -4,6 +4,9 @@ import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import {
   Badge,
   Button,
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
   SectionGrid,
   SectionGridItem,
   ToggleGroup,
@@ -96,6 +99,14 @@ export function StatusPage() {
     : [];
   const captureRuntime = snapshot.runtime;
   const captureActive = captureRuntime.systemProxyEnabled || captureRuntime.tunEnabled;
+  const hasTrafficData =
+    snapshot.traffic.downloadSeries.length > 0 ||
+    snapshot.traffic.uploadSeries.length > 0 ||
+    snapshot.traffic.downloadBytesPerSecond > 0 ||
+    snapshot.traffic.downloadedBytes > 0 ||
+    snapshot.traffic.uploadBytesPerSecond > 0 ||
+    snapshot.traffic.uploadedBytes > 0;
+  const hasMetricsData = Object.values(snapshot.metrics).some((value) => value > 0);
 
   function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
@@ -183,7 +194,9 @@ export function StatusPage() {
                   <ArrowDown aria-hidden="true" />
                   <span className="traffic-session-copy">
                     <span>{LL.status.downloaded()}</span>
-                    <small>{formatBytes(snapshot.traffic.downloadedBytes, locale)}</small>
+                    <small>
+                      {hasTrafficData ? formatBytes(snapshot.traffic.downloadedBytes, locale) : "-"}
+                    </small>
                   </span>
                 </span>
                 <TrafficSparkline
@@ -192,7 +205,9 @@ export function StatusPage() {
                   id="download"
                 />
                 <strong className="traffic-rate-value tabular">
-                  {formatRate(snapshot.traffic.downloadBytesPerSecond, locale)}
+                  {hasTrafficData
+                    ? formatRate(snapshot.traffic.downloadBytesPerSecond, locale)
+                    : "- B/s"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
@@ -200,7 +215,9 @@ export function StatusPage() {
                   <ArrowUp aria-hidden="true" />
                   <span className="traffic-session-copy">
                     <span>{LL.status.uploaded()}</span>
-                    <small>{formatBytes(snapshot.traffic.uploadedBytes, locale)}</small>
+                    <small>
+                      {hasTrafficData ? formatBytes(snapshot.traffic.uploadedBytes, locale) : "-"}
+                    </small>
                   </span>
                 </span>
                 <TrafficSparkline
@@ -209,30 +226,38 @@ export function StatusPage() {
                   id="upload"
                 />
                 <strong className="traffic-rate-value tabular">
-                  {formatRate(snapshot.traffic.uploadBytesPerSecond, locale)}
+                  {hasTrafficData
+                    ? formatRate(snapshot.traffic.uploadBytesPerSecond, locale)
+                    : "- B/s"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.connections()}</span>
-                <strong className="tabular">{snapshot.metrics.activeConnections}</strong>
+                <strong className="tabular">
+                  {hasMetricsData ? snapshot.metrics.activeConnections : "-"}
+                </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.activeRules()}</span>
                 <strong className="tabular">
-                  {new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en").format(
-                    snapshot.metrics.effectiveRules,
-                  )}
+                  {hasMetricsData
+                    ? new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en").format(
+                        snapshot.metrics.effectiveRules,
+                      )
+                    : "-"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.memory()}</span>
                 <strong className="tabular">
-                  {formatBytes(snapshot.metrics.memoryBytes, locale)}
+                  {hasMetricsData ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.uptime()}</span>
-                <strong className="tabular">{formatUptime(snapshot.metrics.uptimeSeconds)}</strong>
+                <strong className="tabular">
+                  {hasMetricsData ? formatUptime(snapshot.metrics.uptimeSeconds) : "-"}
+                </strong>
               </SectionGridItem>
             </SectionGrid>
           </section>
@@ -247,48 +272,56 @@ export function StatusPage() {
                 {LL.status.viewAll()} <CaretRight aria-hidden="true" />
               </Link>
             </div>
-            <SectionGrid className="policy-group-list">
-              {frequentGroups.map((group, index) => {
-                const selectedNode = snapshot.nodes.find(
-                  (node) => node.id === group.selectedChildId,
-                );
-                return (
-                  <Button
-                    className="section-grid-item policy-group-row"
-                    disabled={groupPending}
-                    key={group.id}
-                    onClick={() => openPicker(group)}
-                    type="button"
-                    variant="ghost"
-                  >
-                    <span className="policy-group-leading">
-                      <span className="policy-group-rank tabular">{index + 1}</span>
-                      <span className="policy-group-copy">
-                        <strong className="policy-group-primary user-authored-label">
-                          {group.label}
-                        </strong>
-                        <span className="policy-group-secondary user-authored-label">
-                          {selectedNode?.label ?? LL.status.noSelection()}
-                          {selectedNode?.latencyMilliseconds === null ||
-                          selectedNode?.latencyMilliseconds === undefined
-                            ? ""
-                            : ` · ${selectedNode.latencyMilliseconds} ms`}
+            {frequentGroups.length > 0 ? (
+              <SectionGrid className="policy-group-list">
+                {frequentGroups.map((group, index) => {
+                  const selectedNode = snapshot.nodes.find(
+                    (node) => node.id === group.selectedChildId,
+                  );
+                  return (
+                    <Button
+                      className="section-grid-item policy-group-row"
+                      disabled={groupPending}
+                      key={group.id}
+                      onClick={() => openPicker(group)}
+                      type="button"
+                      variant="ghost"
+                    >
+                      <span className="policy-group-leading">
+                        <span className="policy-group-rank tabular">{index + 1}</span>
+                        <span className="policy-group-copy">
+                          <strong className="policy-group-primary user-authored-label">
+                            {group.label}
+                          </strong>
+                          <span className="policy-group-secondary user-authored-label">
+                            {selectedNode?.label ?? LL.status.noSelection()}
+                            {selectedNode?.latencyMilliseconds === null ||
+                            selectedNode?.latencyMilliseconds === undefined
+                              ? ""
+                              : ` · ${selectedNode.latencyMilliseconds} ms`}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                    <span className="policy-group-trailing">
-                      <Badge
-                        aria-label={LL.status.availableChildren({ count: group.childIds.length })}
-                        variant="outline"
-                      >
-                        {group.childIds.length}
-                      </Badge>
-                      <CaretRight aria-hidden="true" />
-                    </span>
-                  </Button>
-                );
-              })}
-            </SectionGrid>
+                      <span className="policy-group-trailing">
+                        <Badge
+                          aria-label={LL.status.availableChildren({ count: group.childIds.length })}
+                          variant="outline"
+                        >
+                          {group.childIds.length}
+                        </Badge>
+                        <CaretRight aria-hidden="true" />
+                      </span>
+                    </Button>
+                  );
+                })}
+              </SectionGrid>
+            ) : (
+              <Empty className="policy-group-empty">
+                <EmptyHeader>
+                  <EmptyTitle>{LL.status.groupsEmpty()}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+            )}
           </section>
         </div>
 

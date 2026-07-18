@@ -228,7 +228,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         const values = params as Record<string, unknown>;
         switch (method) {
           case "bridge.getInfo":
-            return { bridgeVersion: "mock", coreConfigured: true, protocolVersion: 1 };
+            return { bridgeVersion: "mock", coreConfigured: true, protocolVersion: 2 };
           case "core.getStatus":
             return core;
           case "core.start":
@@ -295,7 +295,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
           case "status.subscribe": {
             const subscriptionId = `status-${crypto.randomUUID()}`;
             subscriptions.get(socket)?.add(subscriptionId);
-            return { subscriptionId };
+            return { snapshot: structuredClone(snapshot), subscriptionId };
           }
           case "status.unsubscribe":
             return subscriptions.get(socket)?.delete(String(values.subscriptionId)) ?? false;
