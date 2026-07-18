@@ -118,10 +118,10 @@ pub struct DelaySample {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrafficSnapshot {
-    pub up: u64,
-    pub down: u64,
-    pub up_total: u64,
-    pub down_total: u64,
+    pub up: i64,
+    pub down: i64,
+    pub up_total: i64,
+    pub down_total: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -133,8 +133,9 @@ pub struct MemorySnapshot {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionSnapshot {
-    pub download_total: u64,
-    pub upload_total: u64,
+    pub download_total: i64,
+    pub upload_total: i64,
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub connections: Vec<Connection>,
     pub memory: u64,
 }
@@ -144,8 +145,8 @@ pub struct ConnectionSnapshot {
 pub struct Connection {
     pub id: String,
     pub metadata: ConnectionMetadata,
-    pub upload: u64,
-    pub download: u64,
+    pub upload: i64,
+    pub download: i64,
     pub start: String,
     pub chains: Vec<String>,
     #[serde(default)]
@@ -212,6 +213,14 @@ where
         PortWire::String(value) => value.parse().map_err(serde::de::Error::custom),
         PortWire::Number(value) => Ok(value),
     }
+}
+
+fn deserialize_null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -138,8 +138,14 @@ unknown version is supported.
   fingerprint rather than treating a label as globally unique.
 - Traffic and memory integers are preserved as Controller values. Unit display
   and time-series retention belong to the product mapping layer.
+- Mihomo declares traffic totals, traffic rates, and connection byte counters
+  as signed 64-bit integers. The adapter preserves that wire type instead of
+  imposing an unsigned interpretation.
 - v1.19.29 deliberately emits zero for the first `/memory` sample. The adapter
   preserves that sample rather than replacing it with a fabricated value.
+- An idle v1.19.29 core serializes the connection list as `null`. The adapter
+  normalizes that value to an empty collection for both HTTP snapshots and
+  WebSocket samples.
 - Connection IDs are unique within an active snapshot. Chain order, rule type,
   rule payload, process fields, and destination metadata are preserved without
   interpretation.
@@ -172,10 +178,30 @@ The synthetic loopback integration test is test infrastructure only. It does
 not implement Mihomo routing or proxy traffic and contains no real endpoints,
 configuration, credentials, subscription data, or node names.
 
+## Opt-in pinned-core verification
+
+The real-core integration test is disabled unless `MIHOMO_BIN` is set. Ordinary
+tests and CI therefore do not download or execute Mihomo and do not require
+network access. On Apple Silicon macOS, prepare and run the pinned core with:
+
+```sh
+pnpm mihomo:prepare
+MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  cargo test -p mish-mihomo-controller --test real_core -- --nocapture
+```
+
+The harness writes a synthetic configuration under ignored `.scratch` storage,
+binds the Controller only to an ephemeral loopback port, disables proxy ingress,
+LAN access, DNS, and TUN, and uses no providers or remote proxy endpoints. It
+reads `/version`, `/configs`, `/proxies`, `/rules`, `/traffic`, `/memory`, and
+`/connections`; it does not call delay tests or generate routed traffic.
+
 ## Upstream references
 
 - [Mihomo Controller API](https://wiki.metacubex.one/en/api/)
 - [v1.19.29 Controller routes](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/server.go)
 - [v1.19.29 connection endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/connections.go)
+- [v1.19.29 connection snapshot](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/tunnel/statistic/manager.go)
+- [v1.19.29 connection tracker](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/tunnel/statistic/tracker.go)
 - [v1.19.29 proxy endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/proxies.go)
 - [v1.19.29 rule endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/rules.go)
