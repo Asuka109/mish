@@ -141,6 +141,50 @@ async fn authenticates_and_serves_contract_compatible_status() {
 }
 
 #[tokio::test]
+async fn rejects_all_network_changing_status_commands_without_fake_success() {
+    let bridge = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let before = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    for (id, method, params) in [
+        (3, "status.setRoutingMode", json!({"mode": "global"})),
+        (
+            4,
+            "status.setCapture",
+            json!({"active": true, "selection": {"systemProxy": true, "tun": true}}),
+        ),
+        (
+            5,
+            "status.selectGroupChild",
+            json!({"groupId": "group:synthetic", "childId": "proxy:synthetic"}),
+        ),
+    ] {
+        let response = request(
+            &mut ws,
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], -32020);
+        assert!(response.get("result").is_none());
+    }
+
+    let after = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":6, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(after["result"], before["result"]);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn rejects_an_untrusted_websocket_origin() {
     let bridge = start_loopback_server(config(), runtime(no_core()))
         .await

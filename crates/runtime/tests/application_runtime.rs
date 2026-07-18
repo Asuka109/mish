@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
     CoreError, CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, MishRuntime,
-    StatusAdapterKind,
+    ProfileSummary, StatusAdapterKind, StatusDataSource, StatusSnapshot,
 };
 use tokio::time::{Duration, timeout};
 
@@ -43,6 +43,20 @@ impl CoreRuntime for EmbeddedCore {
 }
 
 struct UnavailableCore;
+
+struct SuppliedStatusSource;
+
+impl StatusDataSource for SuppliedStatusSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        let mut snapshot = StatusSnapshot::lifecycle_only(core, adapter_kind);
+        snapshot.active_profile_id = "supplied-profile".into();
+        snapshot.profiles = vec![ProfileSummary {
+            id: "supplied-profile".into(),
+            label: "Supplied profile".into(),
+        }];
+        snapshot
+    }
+}
 
 impl CoreRuntime for UnavailableCore {
     fn configured(&self) -> bool {
@@ -152,6 +166,17 @@ async fn runtime_preserves_typed_core_failures_without_publishing_success() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn runtime_uses_an_injected_transport_neutral_status_source() {
+    let runtime =
+        MishRuntime::with_status_source(Arc::new(EmbeddedCore), Arc::new(SuppliedStatusSource));
+    let snapshot = runtime.status_snapshot(StatusAdapterKind::Native).await;
+
+    assert_eq!(snapshot["activeProfileId"], "supplied-profile");
+    assert_eq!(snapshot["profiles"][0]["label"], "Supplied profile");
+    assert_eq!(snapshot["adapterKind"], "native");
 }
 
 #[tokio::test]
