@@ -8,7 +8,6 @@ import { ListBullets } from "@phosphor-icons/react/ListBullets";
 import { Moon } from "@phosphor-icons/react/Moon";
 import { PlugsConnected } from "@phosphor-icons/react/PlugsConnected";
 import { Power } from "@phosphor-icons/react/Power";
-import { Stack } from "@phosphor-icons/react/Stack";
 import { Sun } from "@phosphor-icons/react/Sun";
 import { Translate } from "@phosphor-icons/react/Translate";
 import { WifiHigh } from "@phosphor-icons/react/WifiHigh";
@@ -135,8 +134,13 @@ function Sidebar() {
         <Circle color="#28c840" weight="fill" />
       </div>
       <div aria-label="Mish" className="brand-row">
-        <Stack aria-hidden="true" />
-        <span>Mish</span>
+        <img alt="" aria-hidden="true" className="brand-image-light" src="/brand/mish-brand.svg" />
+        <img
+          alt=""
+          aria-hidden="true"
+          className="brand-image-dark"
+          src="/brand/mish-brand-dark.svg"
+        />
       </div>
 
       <nav aria-label={LL.navigation.sections()} className="nav-list">

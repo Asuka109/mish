@@ -73,7 +73,10 @@ class FailingCaptureClient extends FixtureStatusClient {
 describe("production routes", () => {
   it("presents Mish as the product brand", () => {
     renderRoute("/status");
-    expect(screen.getByLabelText("Mish")).toHaveTextContent("Mish");
+    const brandImages = screen.getByLabelText("Mish").querySelectorAll("img");
+    expect(brandImages).toHaveLength(2);
+    expect(brandImages[0]).toHaveAttribute("src", "/brand/mish-brand.svg");
+    expect(brandImages[1]).toHaveAttribute("src", "/brand/mish-brand-dark.svg");
   });
 
   it.each([
