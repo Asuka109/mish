@@ -202,6 +202,7 @@ packages/
   ui/                  Shared accessible components
   design-tokens/       Generated or shared token exports
 crates/
+  profile/             Profile source, preflight, persistence, and activation seam
   runtime/             Transport-neutral application runtime and core seam
   desktop-bridge/      Desktop bridge and managed-process adapter
   platform-macos/      macOS capability implementation

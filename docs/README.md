@@ -15,6 +15,7 @@ decisions from chat history.
 | What belongs in the web app, desktop bridge, Tauri shell, or native layer?  | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       |
 | How does the desktop bundle and authenticated local startup work?           | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                         |
 | How do the desktop bridge, Controller adapter, and Mihomo process interact? | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) |
+| How are profile sources preflighted, redacted, and stored?                  | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               |
 | Where do Status values come from and how are they derived?                  | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)                 |
 | How should recurring UI structures be composed?                             | [`design/component-patterns.md`](design/component-patterns.md)                                   |
 | What is real, mocked, verified, or still pending?                           | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
