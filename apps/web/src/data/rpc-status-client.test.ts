@@ -83,6 +83,37 @@ afterEach(() => {
 });
 
 describe("RpcStatusClient", () => {
+  it("sends remembered capture selection separately from aggregate active state", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: statusRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+
+    const selection = { systemProxy: false, tun: true };
+    const command = client.setCapture(selection, false);
+    await authenticate(transport);
+    const request = await waitForRequest(transport, 1);
+    expect(request).toMatchObject({
+      method: "status.setCapture",
+      params: { active: false, selection },
+    });
+
+    const snapshot = await createRpcSnapshot();
+    snapshot.runtime.captureSelection = selection;
+    snapshot.runtime.systemProxyEnabled = false;
+    snapshot.runtime.tunEnabled = false;
+    snapshot.runtime.phase = "inactive";
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: snapshot });
+
+    await expect(command).resolves.toMatchObject({
+      runtime: { captureSelection: selection, phase: "inactive" },
+    });
+    client.dispose();
+  });
+
   it("drives snapshots, subscriptions, reconnect, commands, and typed failure end to end", async () => {
     vi.useFakeTimers();
     const snapshot = await createRpcSnapshot();

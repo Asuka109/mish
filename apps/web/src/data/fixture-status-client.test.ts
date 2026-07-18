@@ -25,11 +25,13 @@ describe("FixtureStatusClient", () => {
 
   it("models capture actions as fixture state only", async () => {
     const client = new FixtureStatusClient();
-    const stopped = await client.setCapture(false, false);
+    const selection = { systemProxy: true, tun: false };
+    const stopped = await client.setCapture(selection, false);
     expect(stopped.runtime.phase).toBe("inactive");
+    expect(stopped.runtime.captureSelection).toEqual(selection);
     expect(stopped.capabilities.systemProxy).toBe("fixture-only");
 
-    const started = await client.setCapture(true, false);
+    const started = await client.setCapture(selection, true);
     expect(started.runtime).toMatchObject({
       phase: "healthy",
       systemProxyEnabled: true,

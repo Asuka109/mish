@@ -1,8 +1,4 @@
-import {
-  Desktop,
-  Question,
-  ShieldCheck,
-} from "@phosphor-icons/react";
+import { Desktop, Question, ShieldCheck } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,10 +37,10 @@ export function TrafficCaptureControl({
           variant="outline"
         >
           <ShieldCheck aria-hidden="true" data-icon="inline-start" size={15} weight="fill" />
-          <span>增强模式（TUN）</span>
+          <span>虚拟网卡</span>
         </Toggle>
         <Button
-          aria-label="了解系统代理和增强模式的区别"
+          aria-label="了解系统代理和虚拟网卡的区别与启动记忆行为"
           className="capture-help-button"
           onClick={() => setHelpOpen(true)}
           size="icon-sm"
@@ -59,7 +55,7 @@ export function TrafficCaptureControl({
         <DialogContent className="info-dialog" showCloseButton>
           <div className="dialog-header">
             <div>
-              <DialogTitle className="dialog-title">系统代理与增强模式</DialogTitle>
+              <DialogTitle className="dialog-title">系统代理与虚拟网卡</DialogTitle>
               <DialogDescription className="dialog-description">
                 两种方式可以独立开启，也可以同时使用。
               </DialogDescription>
@@ -76,13 +72,17 @@ export function TrafficCaptureControl({
             <section className="capture-explanation">
               <ShieldCheck aria-hidden="true" size={18} />
               <div>
-                <h2>增强模式（TUN）</h2>
-                <p>通过虚拟网络接口接管更完整的 TCP/UDP 流量，需要额外权限，也可能影响少数网络工具。</p>
+                <h2>虚拟网卡</h2>
+                <p>
+                  通过虚拟网络接口接管更完整的 TCP/UDP 流量，需要额外权限，也可能影响少数网络工具。
+                </p>
               </div>
             </section>
           </div>
           <div className="dialog-footer">
-            <DialogClose render={<Button className="secondary-button" type="button" variant="outline" />}>
+            <DialogClose
+              render={<Button className="secondary-button" type="button" variant="outline" />}
+            >
               知道了
             </DialogClose>
           </div>

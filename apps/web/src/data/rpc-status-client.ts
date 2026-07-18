@@ -2,6 +2,7 @@ import {
   StatusClientError,
   statusRpcMethods,
   statusRpcNotifications,
+  type CaptureSelectionDto,
   type RoutingMode,
   type ServiceMonitorDraft,
   type StatusClient,
@@ -80,8 +81,8 @@ export class RpcStatusClient implements StatusClient {
     return this.requestSnapshot("status.setActiveProfile", { profileId }, options);
   }
 
-  setCapture(systemProxyEnabled: boolean, tunEnabled: boolean, options?: RpcRequestOptions) {
-    return this.requestSnapshot("status.setCapture", { systemProxyEnabled, tunEnabled }, options);
+  setCapture(selection: CaptureSelectionDto, active: boolean, options?: RpcRequestOptions) {
+    return this.requestSnapshot("status.setCapture", { active, selection }, options);
   }
 
   setRoutingMode(mode: RoutingMode, options?: RpcRequestOptions) {

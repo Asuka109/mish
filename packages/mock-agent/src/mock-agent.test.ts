@@ -47,6 +47,22 @@ describe("mock agent", () => {
     expect(changed.routingMode).toBe("direct");
     await expect(notification).resolves.toBe("direct");
 
+    const selection = { systemProxy: false, tun: true };
+    const paused = await rpc.request("status.setCapture", { active: false, selection });
+    expect(paused.runtime).toMatchObject({
+      captureSelection: selection,
+      phase: "inactive",
+      systemProxyEnabled: false,
+      tunEnabled: false,
+    });
+    const resumed = await rpc.request("status.setCapture", { active: true, selection });
+    expect(resumed.runtime).toMatchObject({
+      captureSelection: selection,
+      phase: "healthy",
+      systemProxyEnabled: false,
+      tunEnabled: true,
+    });
+
     const core = await rpc.request("core.start", {});
     expect(core).toMatchObject({ phase: "running", pid: 4242 });
     rpc.dispose();

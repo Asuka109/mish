@@ -113,6 +113,10 @@ async fn authenticates_and_serves_contract_compatible_status() {
     .await;
     assert_eq!(snapshot["result"]["adapterKind"], "rpc");
     assert_eq!(snapshot["result"]["runtime"]["phase"], "inactive");
+    assert_eq!(
+        snapshot["result"]["runtime"]["captureSelection"],
+        json!({"systemProxy": true, "tun": false})
+    );
 
     let unavailable = request(
         &mut ws,

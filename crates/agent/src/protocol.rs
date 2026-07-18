@@ -254,7 +254,13 @@ fn status_snapshot(core: &CoreStatus) -> Value {
         "nodes": [], "probeResults": [],
         "profiles": [{"id": "local", "label": "Local Mihomo"}],
         "routingMode": "rule",
-        "runtime": {"message": message, "phase": phase, "systemProxyEnabled": false, "tunEnabled": false},
+        "runtime": {
+            "captureSelection": {"systemProxy": true, "tun": false},
+            "message": message,
+            "phase": phase,
+            "systemProxyEnabled": false,
+            "tunEnabled": false
+        },
         "services": [],
         "traffic": {"downloadBytesPerSecond": 0, "downloadSeries": [], "downloadedBytes": 0, "uploadBytesPerSecond": 0, "uploadSeries": [], "uploadedBytes": 0}
     })

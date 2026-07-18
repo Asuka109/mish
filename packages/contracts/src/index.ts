@@ -19,8 +19,14 @@ export type RuntimePhase = z.infer<typeof RuntimePhaseSchema>;
 export const ProbeStatusSchema = z.enum(["pending", "healthy", "error"]);
 export type ProbeStatus = z.infer<typeof ProbeStatusSchema>;
 
+export const CaptureSelectionSchema = z
+  .object({ systemProxy: z.boolean(), tun: z.boolean() })
+  .strict();
+export interface CaptureSelectionDto extends z.infer<typeof CaptureSelectionSchema> {}
+
 export const RuntimeStatusSchema = z
   .object({
+    captureSelection: CaptureSelectionSchema,
     message: z.string(),
     phase: RuntimePhaseSchema,
     systemProxyEnabled: z.boolean(),
@@ -175,7 +181,7 @@ export const SetRoutingModeCommandSchema = z.object({ mode: RoutingModeSchema })
 export interface SetRoutingModeCommand extends z.infer<typeof SetRoutingModeCommandSchema> {}
 
 export const SetCaptureCommandSchema = z
-  .object({ systemProxyEnabled: z.boolean(), tunEnabled: z.boolean() })
+  .object({ active: z.boolean(), selection: CaptureSelectionSchema })
   .strict();
 export interface SetCaptureCommand extends z.infer<typeof SetCaptureCommandSchema> {}
 
@@ -333,8 +339,8 @@ export interface StatusClient {
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   setCapture(
-    systemProxyEnabled: boolean,
-    tunEnabled: boolean,
+    selection: CaptureSelectionDto,
+    active: boolean,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   setRoutingMode(mode: RoutingMode, options?: { signal?: AbortSignal }): Promise<StatusSnapshotDto>;

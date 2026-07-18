@@ -1,4 +1,5 @@
 import type {
+  CaptureSelectionDto,
   ServiceMonitorDto,
   ServiceMonitorDraft,
   StatusClient,
@@ -151,6 +152,7 @@ const initialSnapshot: StatusSnapshotDto = {
   ],
   routingMode: "rule",
   runtime: {
+    captureSelection: { systemProxy: true, tun: false },
     message: "Fixture capture is active",
     phase: "healthy",
     systemProxyEnabled: true,
@@ -222,19 +224,20 @@ export class FixtureStatusClient implements StatusClient {
   }
 
   async setCapture(
-    systemProxyEnabled: boolean,
-    tunEnabled: boolean,
+    selection: CaptureSelectionDto,
+    active: boolean,
     options?: { signal?: AbortSignal },
   ) {
     if (options?.signal?.aborted) {
       throw new StatusClientError("cancelled", "The fixture command was cancelled");
     }
+    const systemProxyEnabled = active && selection.systemProxy;
+    const tunEnabled = active && selection.tun;
+    const captureActive = systemProxyEnabled || tunEnabled;
     this.snapshot.runtime = {
-      message:
-        systemProxyEnabled || tunEnabled
-          ? "Fixture capture is active"
-          : "Fixture capture is inactive",
-      phase: systemProxyEnabled || tunEnabled ? "healthy" : "inactive",
+      captureSelection: { ...selection },
+      message: captureActive ? "Fixture capture is active" : "Fixture capture is inactive",
+      phase: captureActive ? "healthy" : "inactive",
       systemProxyEnabled,
       tunEnabled,
     };

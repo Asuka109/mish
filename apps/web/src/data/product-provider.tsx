@@ -1,5 +1,6 @@
 import {
   StatusClientError,
+  type CaptureSelectionDto,
   type RoutingMode,
   type ServiceMonitorDraft,
   type StatusClient,
@@ -39,7 +40,7 @@ interface ProductContextValue {
   restoreDefaultServices(): Promise<ProductCommandResult>;
   selectGroupChild(groupId: string, childId: string): Promise<ProductCommandResult>;
   setActiveProfile(profileId: string): Promise<ProductCommandResult>;
-  setCapture(systemProxyEnabled: boolean, tunEnabled: boolean): Promise<ProductCommandResult>;
+  setCapture(selection: CaptureSelectionDto, active: boolean): Promise<ProductCommandResult>;
   setRoutingMode(mode: RoutingMode): Promise<ProductCommandResult>;
   snapshot: StatusSnapshotDto | null;
   upsertServiceMonitor(draft: ServiceMonitorDraft): Promise<ProductCommandResult>;
@@ -153,8 +154,8 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         runCommand("group", () => resolvedClient.selectGroupChild(groupId, childId)),
       setActiveProfile: (profileId) =>
         runCommand("profile", () => resolvedClient.setActiveProfile(profileId)),
-      setCapture: (systemProxyEnabled, tunEnabled) =>
-        runCommand("capture", () => resolvedClient.setCapture(systemProxyEnabled, tunEnabled)),
+      setCapture: (selection, active) =>
+        runCommand("capture", () => resolvedClient.setCapture(selection, active)),
       setRoutingMode: (mode) => runCommand("routing", () => resolvedClient.setRoutingMode(mode)),
       snapshot,
       upsertServiceMonitor: (draft) =>

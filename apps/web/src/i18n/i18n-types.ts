@@ -157,6 +157,11 @@ type RootTranslation = {
 		 */
 		enableAria: string
 		/**
+		 * S​t​a​r​t​ ​p​r​o​x​y​ ​w​i​t​h​ ​{​m​o​d​e​s​}
+		 * @param {string} modes
+		 */
+		enableWithModes: RequiredParams<'modes'>
+		/**
 		 * E​n​a​b​l​e​ ​p​r​o​x​y
 		 */
 		enable: string
@@ -231,7 +236,7 @@ type RootTranslation = {
 		 */
 		routingMode: string
 		/**
-		 * R​e​c​o​n​n​e​c​t​i​n​g​ ​t​o​ ​t​h​e​ ​l​o​c​a​l​ ​a​g​e​n​t​.​ ​L​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​d​a​t​a​ ​i​s​ ​s​t​a​l​e​.
+		 * R​e​c​o​n​n​e​c​t​i​n​g​ ​t​o​ ​t​h​e​ ​M​i​s​h​ ​b​a​c​k​g​r​o​u​n​d​ ​s​e​r​v​i​c​e​.​ ​L​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​d​a​t​a​ ​i​s​ ​s​t​a​l​e​.
 		 */
 		reconnecting: string
 		/**
@@ -243,7 +248,7 @@ type RootTranslation = {
 		 */
 		services: string
 		/**
-		 * T​h​e​ ​l​o​c​a​l​ ​a​g​e​n​t​ ​i​s​ ​d​i​s​c​o​n​n​e​c​t​e​d​.​ ​L​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​d​a​t​a​ ​i​s​ ​s​t​a​l​e​.
+		 * T​h​e​ ​M​i​s​h​ ​b​a​c​k​g​r​o​u​n​d​ ​s​e​r​v​i​c​e​ ​i​s​ ​d​i​s​c​o​n​n​e​c​t​e​d​.​ ​L​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​d​a​t​a​ ​i​s​ ​s​t​a​l​e​.
 		 */
 		staleData: string
 		/**
@@ -278,13 +283,36 @@ type RootTranslation = {
 		 */
 		acknowledge: string
 		/**
-		 * T​h​i​s​ ​c​h​a​n​g​e​s​ ​f​i​x​t​u​r​e​ ​s​t​a​t​e​ ​o​n​l​y​ ​a​n​d​ ​d​o​e​s​ ​n​o​t​ ​m​o​d​i​f​y​ ​t​h​e​ ​s​y​s​t​e​m​ ​n​e​t​w​o​r​k​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
+		 * A​ ​p​r​e​s​s​e​d​ ​c​o​n​t​r​o​l​ ​m​e​a​n​s​ ​t​h​e​ ​m​o​d​e​ ​i​s​ ​s​e​l​e​c​t​e​d​ ​a​n​d​ ​r​e​m​e​m​b​e​r​e​d​;​ ​a​ ​g​r​e​e​n​ ​i​c​o​n​ ​m​e​a​n​s​ ​i​t​ ​i​s​ ​r​u​n​n​i​n​g​.​ ​T​h​e​ ​b​o​t​t​o​m​ ​c​o​n​t​r​o​l​ ​p​a​u​s​e​s​ ​w​i​t​h​o​u​t​ ​f​o​r​g​e​t​t​i​n​g​ ​a​n​d​ ​r​e​s​t​o​r​e​s​ ​t​h​e​ ​r​e​m​e​m​b​e​r​e​d​ ​c​o​m​b​i​n​a​t​i​o​n​ ​o​n​ ​t​h​e​ ​n​e​x​t​ ​s​t​a​r​t​.​ ​T​h​i​s​ ​d​e​m​o​ ​d​o​e​s​ ​n​o​t​ ​m​o​d​i​f​y​ ​s​y​s​t​e​m​ ​n​e​t​w​o​r​k​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
 		 */
 		description: string
 		/**
-		 * L​e​a​r​n​ ​t​h​e​ ​d​i​f​f​e​r​e​n​c​e​ ​b​e​t​w​e​e​n​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​n​d​ ​E​n​h​a​n​c​e​d​ ​M​o​d​e
+		 * L​e​a​r​n​ ​a​b​o​u​t​ ​S​y​s​t​e​m​ ​P​r​o​x​y​,​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​,​ ​a​n​d​ ​r​e​m​e​m​b​e​r​e​d​ ​s​t​a​r​t​ ​o​p​t​i​o​n​s
 		 */
 		helpAria: string
+		/**
+		 * {​m​o​d​e​}​,​ ​{​s​e​l​e​c​t​i​o​n​}​,​ ​{​r​u​n​t​i​m​e​}
+		 * @param {string} mode
+		 * @param {string} runtime
+		 * @param {string} selection
+		 */
+		modeAria: RequiredParams<'mode' | 'runtime' | 'selection'>
+		/**
+		 * n​o​t​ ​r​u​n​n​i​n​g
+		 */
+		notRunning: string
+		/**
+		 * n​o​t​ ​s​e​l​e​c​t​e​d
+		 */
+		notSelected: string
+		/**
+		 * r​u​n​n​i​n​g
+		 */
+		running: string
+		/**
+		 * s​e​l​e​c​t​e​d
+		 */
+		selected: string
 		/**
 		 * S​y​s​t​e​m​ ​P​r​o​x​y
 		 */
@@ -294,15 +322,15 @@ type RootTranslation = {
 		 */
 		systemProxyDescription: string
 		/**
-		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​n​d​ ​E​n​h​a​n​c​e​d​ ​M​o​d​e
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​n​d​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e
 		 */
 		title: string
 		/**
-		 * E​n​h​a​n​c​e​d​ ​M​o​d​e​ ​(​T​U​N​)
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e
 		 */
 		tun: string
 		/**
-		 * A​ ​f​u​t​u​r​e​ ​c​o​n​t​r​o​l​l​e​d​ ​n​a​t​i​v​e​ ​c​a​p​a​b​i​l​i​t​y​ ​w​i​l​l​ ​c​a​p​t​u​r​e​ ​b​r​o​a​d​e​r​ ​t​r​a​f​f​i​c​.​ ​P​a​r​t​ ​1​ ​i​n​s​t​a​l​l​s​ ​n​o​ ​p​e​r​m​i​s​s​i​o​n​ ​a​n​d​ ​p​e​r​f​o​r​m​s​ ​n​o​ ​n​e​t​w​o​r​k​ ​o​p​e​r​a​t​i​o​n​.
+		 * U​s​e​s​ ​a​ ​T​U​N​ ​v​i​r​t​u​a​l​ ​n​e​t​w​o​r​k​ ​i​n​t​e​r​f​a​c​e​ ​t​o​ ​c​a​p​t​u​r​e​ ​b​r​o​a​d​e​r​ ​t​r​a​f​f​i​c​.​ ​P​a​r​t​ ​2​ ​w​i​l​l​ ​p​r​o​v​i​d​e​ ​t​h​e​ ​r​e​a​l​ ​c​a​p​a​b​i​l​i​t​y​ ​t​h​r​o​u​g​h​ ​a​ ​c​o​n​t​r​o​l​l​e​d​ ​n​a​t​i​v​e​ ​c​o​m​p​o​n​e​n​t​.
 		 */
 		tunDescription: string
 	}
@@ -470,7 +498,7 @@ type RootTranslation = {
 			 */
 			itemTwoLabel: string
 			/**
-			 * W​a​i​t​i​n​g​ ​f​o​r​ ​t​y​p​e​d​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​D​T​O​s​ ​f​r​o​m​ ​t​h​e​ ​P​a​r​t​ ​2​ ​l​o​c​a​l​ ​a​g​e​n​t​.
+			 * W​a​i​t​i​n​g​ ​f​o​r​ ​t​y​p​e​d​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​D​T​O​s​ ​f​r​o​m​ ​t​h​e​ ​P​a​r​t​ ​2​ ​M​i​s​h​ ​b​a​c​k​g​r​o​u​n​d​ ​s​e​r​v​i​c​e​.
 			 */
 			prerequisite: string
 			/**
@@ -798,6 +826,10 @@ export type TranslationFunctions = {
 		 */
 		enableAria: () => LocalizedString
 		/**
+		 * Start proxy with {modes}
+		 */
+		enableWithModes: (arg: { modes: string }) => LocalizedString
+		/**
 		 * Enable proxy
 		 */
 		enable: () => LocalizedString
@@ -872,7 +904,7 @@ export type TranslationFunctions = {
 		 */
 		routingMode: () => LocalizedString
 		/**
-		 * Reconnecting to the local agent. Last confirmed data is stale.
+		 * Reconnecting to the Mish background service. Last confirmed data is stale.
 		 */
 		reconnecting: () => LocalizedString
 		/**
@@ -884,7 +916,7 @@ export type TranslationFunctions = {
 		 */
 		services: () => LocalizedString
 		/**
-		 * The local agent is disconnected. Last confirmed data is stale.
+		 * The Mish background service is disconnected. Last confirmed data is stale.
 		 */
 		staleData: () => LocalizedString
 		/**
@@ -918,13 +950,33 @@ export type TranslationFunctions = {
 		 */
 		acknowledge: () => LocalizedString
 		/**
-		 * This changes fixture state only and does not modify the system network configuration.
+		 * A pressed control means the mode is selected and remembered; a green icon means it is running. The bottom control pauses without forgetting and restores the remembered combination on the next start. This demo does not modify system network configuration.
 		 */
 		description: () => LocalizedString
 		/**
-		 * Learn the difference between System Proxy and Enhanced Mode
+		 * Learn about System Proxy, Virtual Interface, and remembered start options
 		 */
 		helpAria: () => LocalizedString
+		/**
+		 * {mode}, {selection}, {runtime}
+		 */
+		modeAria: (arg: { mode: string, runtime: string, selection: string }) => LocalizedString
+		/**
+		 * not running
+		 */
+		notRunning: () => LocalizedString
+		/**
+		 * not selected
+		 */
+		notSelected: () => LocalizedString
+		/**
+		 * running
+		 */
+		running: () => LocalizedString
+		/**
+		 * selected
+		 */
+		selected: () => LocalizedString
 		/**
 		 * System Proxy
 		 */
@@ -934,15 +986,15 @@ export type TranslationFunctions = {
 		 */
 		systemProxyDescription: () => LocalizedString
 		/**
-		 * System Proxy and Enhanced Mode
+		 * System Proxy and Virtual Interface
 		 */
 		title: () => LocalizedString
 		/**
-		 * Enhanced Mode (TUN)
+		 * Virtual Interface
 		 */
 		tun: () => LocalizedString
 		/**
-		 * A future controlled native capability will capture broader traffic. Part 1 installs no permission and performs no network operation.
+		 * Uses a TUN virtual network interface to capture broader traffic. Part 2 will provide the real capability through a controlled native component.
 		 */
 		tunDescription: () => LocalizedString
 	}
@@ -1109,7 +1161,7 @@ export type TranslationFunctions = {
 			 */
 			itemTwoLabel: () => LocalizedString
 			/**
-			 * Waiting for typed policy-group DTOs from the Part 2 local agent.
+			 * Waiting for typed policy-group DTOs from the Part 2 Mish background service.
 			 */
 			prerequisite: () => LocalizedString
 			/**

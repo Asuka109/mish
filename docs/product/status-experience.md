@@ -33,12 +33,12 @@ global status and the most frequent command. It is named `ProxyControlButton`.
 `ProxyControlButton` is the single everyday start/stop control. Its icon and
 label align with the sidebar navigation columns.
 
-| State | Surface | Default content | Hover or keyboard focus | Action |
-| --- | --- | --- | --- | --- |
-| Inactive | Transparent, quiet gray hairline | Power icon, “启动代理” | Same surface | Enable System Proxy |
-| Connecting | Warning treatment | Progress wording and icon | Same meaning | No duplicate start |
-| Healthy | Blue water material with static DOM fallback | Wi-Fi icon, selected display label | Circle-X icon, “关闭代理”; material brightness stays stable | Disable System Proxy and TUN |
-| Error | Error treatment | Failure wording and icon | Preserve error meaning | Open contextual recovery or retry |
+| State      | Surface                                      | Default content                    | Hover or keyboard focus                                     | Action                            |
+| ---------- | -------------------------------------------- | ---------------------------------- | ----------------------------------------------------------- | --------------------------------- |
+| Inactive   | Transparent, quiet gray hairline             | Power icon, “启动代理”             | Explain the remembered combination or System Proxy fallback | Resume the remembered combination |
+| Connecting | Warning treatment                            | Progress wording and icon          | Same meaning                                                | No duplicate start                |
+| Healthy    | Blue water material with static DOM fallback | Wi-Fi icon, selected display label | Circle-X icon, “关闭代理”; material brightness stays stable | Pause every selected capture path |
+| Error      | Error treatment                              | Failure wording and icon           | Preserve error meaning                                      | Open contextual recovery or retry |
 
 The healthy material is decorative. The button must remain usable before WebGL
 initializes, when WebGL fails, under reduced motion, and on low-power devices.
@@ -47,10 +47,16 @@ The DOM element owns the fallback blue surface and text contrast.
 ## Routing and capture
 
 - Routing mode is a mutually exclusive choice: Rule, Global, or Direct.
-- System Proxy and enhanced TUN mode are independent pressed-state buttons.
+- System Proxy and Virtual Interface are independent weak-checkbox controls;
+  the help dialog explains that Virtual Interface uses TUN.
 - The adjacent help button explains the two capture paths in a dialog.
-- Stopping through `ProxyControlButton` disables both capture paths.
-- Starting from a fully inactive state enables System Proxy by default.
+- Stopping through the aggregate control preserves the selected System Proxy
+  and Virtual Interface combination, and starting resumes that combination.
+- When neither capture mode is selected, starting selects and enables System
+  Proxy as the compatibility default.
+- Selected capture controls use the same pressed treatment as Routing mode.
+  A remembered-but-stopped selection remains muted, while a running selection
+  uses a restrained green icon.
 - The profile menu is intentionally muted because profile switching is less
   frequent than changing a group or capture state.
 

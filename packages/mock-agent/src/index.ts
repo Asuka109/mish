@@ -73,8 +73,9 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
     ],
     routingMode: "rule",
     runtime: {
+      captureSelection: { systemProxy: true, tun: false },
       message: "Mock transport is connected",
-      phase: "healthy",
+      phase: "inactive",
       systemProxyEnabled: false,
       tunEnabled: false,
     },
@@ -241,12 +242,18 @@ export async function startMockAgent(options: MockAgentOptions): Promise<MockAge
             snapshot.routingMode = values.mode as RpcStatusSnapshotDto["routingMode"];
             return structuredClone(snapshot);
           case "status.setCapture": {
-            const active = Boolean(values.systemProxyEnabled || values.tunEnabled);
+            const active = Boolean(values.active);
+            const selection =
+              values.selection as RpcStatusSnapshotDto["runtime"]["captureSelection"];
+            const systemProxyEnabled = active && selection.systemProxy;
+            const tunEnabled = active && selection.tun;
+            const captureActive = systemProxyEnabled || tunEnabled;
             snapshot.runtime = {
-              message: active ? "Mock capture is active" : "Mock capture is inactive",
-              phase: active ? "healthy" : "inactive",
-              systemProxyEnabled: Boolean(values.systemProxyEnabled),
-              tunEnabled: Boolean(values.tunEnabled),
+              captureSelection: { ...selection },
+              message: captureActive ? "Mock capture is active" : "Mock capture is inactive",
+              phase: captureActive ? "healthy" : "inactive",
+              systemProxyEnabled,
+              tunEnabled,
             };
             return structuredClone(snapshot);
           }

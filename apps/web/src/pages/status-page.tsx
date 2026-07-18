@@ -94,6 +94,14 @@ export function StatusPage() {
   const pickerNodes = pickerGroup
     ? snapshot.nodes.filter((node) => pickerGroup.childIds.includes(node.id))
     : [];
+  const captureRuntime = snapshot.runtime;
+  const captureActive = captureRuntime.systemProxyEnabled || captureRuntime.tunEnabled;
+
+  function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
+    const selection = { ...captureRuntime.captureSelection, [mode]: selected };
+    const active = captureActive ? selection.systemProxy || selection.tun : selected;
+    void setCapture(selection, active);
+  }
 
   function openPicker(group: PolicyGroupDto) {
     setPickerGroupId(group.id);
@@ -144,14 +152,12 @@ export function StatusPage() {
               <span className="status-control-label">{LL.status.trafficCapture()}</span>
               <TrafficCaptureControl
                 disabled={capturePending}
-                onSystemProxyChange={(enabled) =>
-                  void setCapture(enabled, snapshot.runtime.tunEnabled)
-                }
-                onTunChange={(enabled) =>
-                  void setCapture(snapshot.runtime.systemProxyEnabled, enabled)
-                }
-                systemProxyEnabled={snapshot.runtime.systemProxyEnabled}
-                tunEnabled={snapshot.runtime.tunEnabled}
+                onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
+                onTunChange={(selected) => changeCaptureMode("tun", selected)}
+                systemProxyEnabled={captureRuntime.systemProxyEnabled}
+                systemProxySelected={captureRuntime.captureSelection.systemProxy}
+                tunEnabled={captureRuntime.tunEnabled}
+                tunSelected={captureRuntime.captureSelection.tun}
               />
             </SectionGridItem>
           </SectionGrid>
