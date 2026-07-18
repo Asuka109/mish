@@ -3,6 +3,7 @@ members = [
   "apps/desktop/src-tauri",
   "crates/desktop-bridge",
   "crates/mihomo-controller",
+  "crates/profile",
   "crates/runtime",
 ]
 resolver = "2"
