@@ -84,14 +84,16 @@ Automated tests cover:
 - validated subscriptions, disconnect/reconnect state, bounded retry,
   cancellation, disposal, and cleanup;
 - an end-to-end fake-transport Status adapter flow across snapshots,
-  subscriptions, commands, reconnect, and typed failure; and
+  subscriptions, commands, reconnect without a follow-up event, and typed
+  failure; and
 - pending command deduplication plus suppression of success UI after failure.
 - a real WebSocket client/server flow against the TypeScript mock agent,
   including authentication, snapshots, subscriptions, commands, core state,
   typed failure, non-mutation after failure, and cleanup; and
 - Rust local-agent integration coverage for malformed and unauthenticated RPC,
-  contract-compatible Status snapshots, hostile Origin rejection, loopback-only
-  binding, explicit sidecar start/stop, version reporting, and child cleanup.
+  contract-compatible Status snapshots, subscription snapshot ordering, hostile
+  Origin rejection, loopback-only binding, explicit sidecar start/stop,
+  independent child exit publication, version reporting, and child cleanup.
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events.

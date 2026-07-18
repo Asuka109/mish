@@ -240,7 +240,7 @@ export const AgentInfoSchema = z
   .object({
     agentVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(1),
+    protocolVersion: z.literal(2),
   })
   .strict();
 export interface AgentInfoDto extends z.infer<typeof AgentInfoSchema> {}
@@ -252,7 +252,10 @@ export const agentRpcMethods = {
   "core.stop": { params: EmptyCommandSchema, result: CoreStatusSchema },
 } as const;
 
-export const StatusSubscriptionSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const StatusSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const StatusSubscriptionSchema = StatusSubscriptionIdSchema.extend({
+  snapshot: RpcStatusSnapshotSchema,
+}).strict();
 export interface StatusSubscriptionDto extends z.infer<typeof StatusSubscriptionSchema> {}
 
 export const StatusSnapshotNotificationSchema = z
@@ -283,7 +286,7 @@ export const statusRpcMethods = {
   "status.setCapture": { params: SetCaptureCommandSchema, result: RpcStatusSnapshotSchema },
   "status.setRoutingMode": { params: SetRoutingModeCommandSchema, result: RpcStatusSnapshotSchema },
   "status.subscribe": { params: EmptyCommandSchema, result: StatusSubscriptionSchema },
-  "status.unsubscribe": { params: StatusSubscriptionSchema, result: z.boolean() },
+  "status.unsubscribe": { params: StatusSubscriptionIdSchema, result: z.boolean() },
   "status.upsertServiceMonitor": {
     params: UpsertServiceMonitorCommandSchema,
     result: RpcStatusSnapshotSchema,

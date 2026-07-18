@@ -82,7 +82,12 @@ Requests that were in flight when the transport disconnects are rejected and
 are not replayed automatically. Replaying a consequential command without
 knowing whether the server applied it would be unsafe. Subscription ownership
 stays with an adapter, which resubscribes after authentication on a new
-connection. Cancellation removes local correlation state and emits
+connection. Each successful Status subscription response includes its current
+validated snapshot, so resubscription restores authoritative state even if no
+later notification occurs. The agent establishes the event cursor before
+sampling that snapshot and sends the response before subsequent notifications,
+preventing an older queued lifecycle event from overwriting the reconciliation
+snapshot. Cancellation removes local correlation state and emits
 `rpc.cancel` metadata when the authenticated transport is still available.
 
 `apps/web/src/data/rpc-status-client.ts` maps this generic transport to the
@@ -111,8 +116,11 @@ paths belong to the desktop agent's startup
 configuration. Browser RPC calls cannot choose an executable or arbitrary file.
 The process manager checks the configured executable's version before launch,
 tracks PID and process liveness, sends `SIGTERM` on stop, applies a bounded wait,
-and reaps or kills the child before agent shutdown completes. It does not start
-Mihomo automatically.
+and reaps or kills the child before agent shutdown completes. A background
+process monitor also detects termination outside an explicit stop command,
+updates `CoreStatus`, and reports the transition through the shared runtime event
+sink so RPC and native subscribers cannot retain a false healthy state. It does
+not start Mihomo automatically.
 
 The current Status snapshot from Rust is deliberately sparse and reports
 System Proxy and TUN as unavailable. Commands not backed by real controller or

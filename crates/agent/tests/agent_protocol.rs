@@ -10,6 +10,7 @@ use mish_agent::{
 };
 use mish_runtime::MishRuntime;
 use serde_json::{Value, json};
+use tokio::time::{Duration, timeout};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const TOKEN: &str = "test-token-123456789";
@@ -114,7 +115,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"agent.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 1);
+    assert_eq!(info["result"]["protocolVersion"], 2);
     assert_eq!(info["result"]["coreConfigured"], false);
 
     let snapshot = request(
@@ -176,6 +177,10 @@ async fn manages_an_explicit_sidecar_and_stops_it_during_shutdown() {
         json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
     )
     .await;
+    assert_eq!(
+        subscription["result"]["snapshot"]["runtime"]["phase"],
+        "inactive"
+    );
     let subscription_id = subscription["result"]["subscriptionId"]
         .as_str()
         .unwrap()
@@ -207,6 +212,117 @@ async fn manages_an_explicit_sidecar_and_stops_it_during_shutdown() {
     )
     .await;
     assert_eq!(stopped["result"]["phase"], "stopped");
+    agent.shutdown().await;
+}
+
+#[tokio::test]
+async fn subscription_snapshot_is_a_barrier_against_older_lifecycle_events() {
+    let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-mihomo.sh");
+    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let agent = start_loopback_server(
+        config(),
+        runtime(DesktopSidecarConfig {
+            binary: Some(binary),
+            config_directory: Some(directory),
+            config_file: None,
+        }),
+    )
+    .await
+    .unwrap();
+    let mut ws = socket(agent.address).await;
+    authenticate(&mut ws).await;
+
+    let running = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"core.start", "params":{}}),
+    )
+    .await;
+    assert_eq!(running["result"]["phase"], "running");
+    let stopped = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":3, "method":"core.stop", "params":{}}),
+    )
+    .await;
+    assert_eq!(stopped["result"]["phase"], "stopped");
+
+    let subscription = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.subscribe", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        subscription["result"]["snapshot"]["runtime"]["phase"],
+        "inactive"
+    );
+    assert!(
+        timeout(Duration::from_millis(150), ws.next())
+            .await
+            .is_err(),
+        "pre-subscription lifecycle events must not be replayed after the snapshot barrier"
+    );
+    agent.shutdown().await;
+}
+
+#[tokio::test]
+async fn publishes_status_when_the_sidecar_exits_without_a_stop_command() {
+    let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-mihomo.sh");
+    let config_file =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/unexpected-exit.yaml");
+    let agent = start_loopback_server(
+        config(),
+        runtime(DesktopSidecarConfig {
+            binary: Some(binary),
+            config_directory: None,
+            config_file: Some(config_file),
+        }),
+    )
+    .await
+    .unwrap();
+    let mut ws = socket(agent.address).await;
+    authenticate(&mut ws).await;
+
+    request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
+    )
+    .await;
+    let running = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":3, "method":"core.start", "params":{}}),
+    )
+    .await;
+    assert!(running["result"]["pid"].as_u64().is_some());
+
+    let Message::Text(running_notification) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected running status notification")
+    };
+    let running_notification: Value = serde_json::from_str(&running_notification).unwrap();
+    assert_eq!(
+        running_notification["params"]["snapshot"]["runtime"]["phase"],
+        "healthy"
+    );
+
+    let Message::Text(exit_notification) = timeout(Duration::from_secs(2), ws.next())
+        .await
+        .expect("unexpected exit was not published")
+        .unwrap()
+        .unwrap()
+    else {
+        panic!("expected exit status notification")
+    };
+    let exit_notification: Value = serde_json::from_str(&exit_notification).unwrap();
+    assert_eq!(
+        exit_notification["params"]["snapshot"]["runtime"]["phase"],
+        "error"
+    );
+
+    let failed = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":4, "method":"core.getStatus", "params":{}}),
+    )
+    .await;
+    assert_eq!(failed["result"]["phase"], "failed");
+    assert_eq!(failed["result"]["pid"], Value::Null);
     agent.shutdown().await;
 }
 

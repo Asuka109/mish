@@ -9,7 +9,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
-use mish_runtime::{CoreError, CoreErrorKind, MishRuntime, StatusAdapterKind};
+use mish_runtime::{CoreError, CoreErrorKind, CoreStatus, MishRuntime, StatusAdapterKind};
+use tokio::sync::broadcast;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -53,7 +54,13 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     if matches!(message, Message::Close(_)) { break; }
                     continue;
                 };
-                let response = handle_message(&text, &state, &mut authenticated, &mut subscriptions).await;
+                let response = handle_message(
+                    &text,
+                    &state,
+                    &mut authenticated,
+                    &mut subscriptions,
+                    &mut updates,
+                ).await;
                 if let Some(response) = response
                     && sender.send(Message::Text(response.to_string().into())).await.is_err()
                 {
@@ -83,6 +90,7 @@ async fn handle_message(
     state: &ProtocolState,
     authenticated: &mut bool,
     subscriptions: &mut HashSet<String>,
+    updates: &mut broadcast::Receiver<CoreStatus>,
 ) -> Option<Value> {
     let request: Request = match serde_json::from_str(text) {
         Ok(request) => request,
@@ -150,7 +158,7 @@ async fn handle_message(
         "agent.getInfo" => json!({
             "agentVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 1,
+            "protocolVersion": 2,
         }),
         "core.getStatus" => {
             serde_json::to_value(state.runtime.core_status().await).expect("serializable status")
@@ -173,12 +181,14 @@ async fn handle_message(
                     None,
                 ));
             }
+            *updates = state.runtime.subscribe_status();
             let subscription_id = format!(
                 "status-{}",
                 NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
             );
             subscriptions.insert(subscription_id.clone());
-            json!({"subscriptionId": subscription_id})
+            let snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+            json!({"snapshot": snapshot, "subscriptionId": subscription_id})
         }
         "status.unsubscribe" => {
             let Some(subscription_id) =
