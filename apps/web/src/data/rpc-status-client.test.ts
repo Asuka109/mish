@@ -91,6 +91,7 @@ describe("RpcStatusClient", () => {
       transportFactory: () => transport,
     });
     const client = new RpcStatusClient(rpc);
+    expect(client.supportsCommand("capture")).toBe(false);
 
     const selection = { systemProxy: false, tun: true };
     const command = client.setCapture(selection, false);

@@ -7,6 +7,7 @@ import {
   type ServiceMonitorDraft,
   type StatusClient,
   type StatusConnectionState,
+  type StatusCommand,
   type StatusSnapshotDto,
   type StatusSnapshotNotificationDto,
 } from "@mish/contracts";
@@ -106,6 +107,10 @@ export class RpcStatusClient implements StatusClient {
       this.remoteSubscriptionId = null;
       void this.rpc.request("status.unsubscribe", { subscriptionId }).catch(() => undefined);
     };
+  }
+
+  supportsCommand(_command: StatusCommand) {
+    return false;
   }
 
   upsertServiceMonitor(draft: ServiceMonitorDraft, options?: RpcRequestOptions) {

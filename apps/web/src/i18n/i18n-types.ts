@@ -118,6 +118,14 @@ type RootTranslation = {
 	}
 	toolbar: {
 		/**
+		 * S​t​a​t​u​s​ ​i​s​ ​r​e​a​d​ ​f​r​o​m​ ​t​h​i​s​ ​d​e​v​i​c​e​.
+		 */
+		deviceDescription: string
+		/**
+		 * D​e​v​i​c​e​ ​s​t​a​t​u​s
+		 */
+		deviceMode: string
+		/**
 		 * T​h​e​ ​c​u​r​r​e​n​t​ ​s​c​r​e​e​n​ ​u​s​e​s​ ​s​i​m​u​l​a​t​e​d​ ​d​a​t​a​.​ ​N​o​ ​a​c​t​i​o​n​ ​c​h​a​n​g​e​s​ ​s​y​s​t​e​m​ ​o​r​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​.
 		 */
 		demoDescription: string
@@ -130,9 +138,21 @@ type RootTranslation = {
 		 */
 		fixtureActionDescription: string
 		/**
+		 * L​o​a​d​i​n​g​ ​l​o​c​a​l​ ​s​t​a​t​u​s​…
+		 */
+		loadingDesktop: string
+		/**
 		 * L​o​a​d​i​n​g​ ​f​i​x​t​u​r​e​…
 		 */
 		loadingFixture: string
+		/**
+		 * L​o​c​a​l​ ​s​e​r​v​i​c​e
+		 */
+		localService: string
+		/**
+		 * S​t​a​t​u​s​ ​i​s​ ​r​e​a​d​ ​f​r​o​m​ ​M​i​s​h​'​s​ ​p​r​i​v​a​t​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.
+		 */
+		localServiceDescription: string
 		/**
 		 * P​r​o​f​i​l​e​s
 		 */
@@ -145,7 +165,7 @@ type RootTranslation = {
 	}
 	proxyControl: {
 		/**
-		 * D​i​s​a​b​l​e​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
+		 * D​i​s​a​b​l​e​ ​p​r​o​x​y
 		 */
 		disableAria: string
 		/**
@@ -153,9 +173,17 @@ type RootTranslation = {
 		 */
 		disable: string
 		/**
-		 * E​n​a​b​l​e​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
+		 * D​i​s​a​b​l​e​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
+		 */
+		disableFixtureAria: string
+		/**
+		 * E​n​a​b​l​e​ ​p​r​o​x​y
 		 */
 		enableAria: string
+		/**
+		 * E​n​a​b​l​e​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
+		 */
+		enableFixtureAria: string
 		/**
 		 * S​t​a​r​t​ ​p​r​o​x​y​ ​w​i​t​h​ ​{​m​o​d​e​s​}
 		 * @param {string} modes
@@ -184,6 +212,18 @@ type RootTranslation = {
 		 */
 		currentSessionAria: string
 		/**
+		 * L​i​v​e​ ​s​t​a​t​u​s​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 */
+		desktopActivity: string
+		/**
+		 * D​e​s​k​t​o​p​ ​s​t​a​t​u​s​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		desktopUnavailable: string
+		/**
+		 * L​i​v​e​ ​s​t​a​t​u​s​ ​f​r​o​m​ ​t​h​i​s​ ​d​e​v​i​c​e​.
+		 */
+		deviceActivity: string
+		/**
 		 * D​o​w​n​l​o​a​d​e​d
 		 */
 		downloaded: string
@@ -208,9 +248,13 @@ type RootTranslation = {
 		 */
 		groupsEmpty: string
 		/**
+		 * C​o​n​n​e​c​t​i​n​g​ ​t​o​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​…
+		 */
+		loadingDesktop: string
+		/**
 		 * L​o​a​d​i​n​g​ ​t​y​p​e​d​ ​f​i​x​t​u​r​e​ ​d​a​t​a​…
 		 */
-		loading: string
+		loadingFixture: string
 		/**
 		 * M​e​m​o​r​y
 		 */
@@ -287,9 +331,17 @@ type RootTranslation = {
 		 */
 		acknowledge: string
 		/**
+		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.​ ​A​ ​c​o​n​t​r​o​l​ ​s​t​a​y​s​ ​d​i​s​a​b​l​e​d​ ​w​h​e​n​ ​i​t​s​ ​c​a​p​a​b​i​l​i​t​y​ ​o​r​ ​a​c​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		desktopDescription: string
+		/**
+		 * T​h​e​s​e​ ​c​o​n​t​r​o​l​s​ ​s​h​o​w​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​i​s​ ​d​e​v​i​c​e​.​ ​A​ ​c​o​n​t​r​o​l​ ​s​t​a​y​s​ ​d​i​s​a​b​l​e​d​ ​w​h​e​n​ ​i​t​s​ ​c​a​p​a​b​i​l​i​t​y​ ​o​r​ ​a​c​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		deviceDescription: string
+		/**
 		 * A​ ​p​r​e​s​s​e​d​ ​c​o​n​t​r​o​l​ ​m​e​a​n​s​ ​t​h​e​ ​m​o​d​e​ ​i​s​ ​s​e​l​e​c​t​e​d​ ​a​n​d​ ​r​e​m​e​m​b​e​r​e​d​;​ ​a​ ​g​r​e​e​n​ ​i​c​o​n​ ​m​e​a​n​s​ ​i​t​ ​i​s​ ​r​u​n​n​i​n​g​.​ ​T​h​e​ ​b​o​t​t​o​m​ ​c​o​n​t​r​o​l​ ​p​a​u​s​e​s​ ​w​i​t​h​o​u​t​ ​f​o​r​g​e​t​t​i​n​g​ ​a​n​d​ ​r​e​s​t​o​r​e​s​ ​t​h​e​ ​r​e​m​e​m​b​e​r​e​d​ ​c​o​m​b​i​n​a​t​i​o​n​ ​o​n​ ​t​h​e​ ​n​e​x​t​ ​s​t​a​r​t​.​ ​T​h​i​s​ ​d​e​m​o​ ​d​o​e​s​ ​n​o​t​ ​m​o​d​i​f​y​ ​s​y​s​t​e​m​ ​n​e​t​w​o​r​k​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
 		 */
-		description: string
+		fixtureDescription: string
 		/**
 		 * L​e​a​r​n​ ​a​b​o​u​t​ ​S​y​s​t​e​m​ ​P​r​o​x​y​,​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​,​ ​a​n​d​ ​r​e​m​e​m​b​e​r​e​d​ ​s​t​a​r​t​ ​o​p​t​i​o​n​s
 		 */
@@ -322,9 +374,13 @@ type RootTranslation = {
 		 */
 		systemProxy: string
 		/**
-		 * F​o​r​ ​a​p​p​l​i​c​a​t​i​o​n​s​ ​t​h​a​t​ ​f​o​l​l​o​w​ ​s​y​s​t​e​m​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​.​ ​P​a​r​t​ ​2​ ​w​i​l​l​ ​p​r​o​v​i​d​e​ ​t​h​e​ ​r​e​a​l​ ​c​a​p​a​b​i​l​i​t​y​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​p​l​a​t​f​o​r​m​ ​a​d​a​p​t​e​r​.
+		 * R​o​u​t​e​s​ ​a​p​p​l​i​c​a​t​i​o​n​s​ ​t​h​a​t​ ​f​o​l​l​o​w​ ​t​h​e​ ​s​y​s​t​e​m​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​.
 		 */
 		systemProxyDescription: string
+		/**
+		 * S​i​m​u​l​a​t​e​s​ ​r​o​u​t​i​n​g​ ​a​p​p​l​i​c​a​t​i​o​n​s​ ​t​h​a​t​ ​f​o​l​l​o​w​ ​t​h​e​ ​s​y​s​t​e​m​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​.
+		 */
+		systemProxyFixtureDescription: string
 		/**
 		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​n​d​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e
 		 */
@@ -334,9 +390,43 @@ type RootTranslation = {
 		 */
 		tun: string
 		/**
-		 * U​s​e​s​ ​a​ ​T​U​N​ ​v​i​r​t​u​a​l​ ​n​e​t​w​o​r​k​ ​i​n​t​e​r​f​a​c​e​ ​t​o​ ​c​a​p​t​u​r​e​ ​b​r​o​a​d​e​r​ ​t​r​a​f​f​i​c​.​ ​P​a​r​t​ ​2​ ​w​i​l​l​ ​p​r​o​v​i​d​e​ ​t​h​e​ ​r​e​a​l​ ​c​a​p​a​b​i​l​i​t​y​ ​t​h​r​o​u​g​h​ ​a​ ​c​o​n​t​r​o​l​l​e​d​ ​n​a​t​i​v​e​ ​c​o​m​p​o​n​e​n​t​.
+		 * U​s​e​s​ ​a​ ​T​U​N​ ​v​i​r​t​u​a​l​ ​n​e​t​w​o​r​k​ ​i​n​t​e​r​f​a​c​e​ ​t​o​ ​c​a​p​t​u​r​e​ ​b​r​o​a​d​e​r​ ​t​r​a​f​f​i​c​.
 		 */
 		tunDescription: string
+		/**
+		 * S​i​m​u​l​a​t​e​s​ ​a​ ​T​U​N​ ​v​i​r​t​u​a​l​ ​n​e​t​w​o​r​k​ ​i​n​t​e​r​f​a​c​e​ ​f​o​r​ ​b​r​o​a​d​e​r​ ​t​r​a​f​f​i​c​.
+		 */
+		tunFixtureDescription: string
+	}
+	capabilities: {
+		/**
+		 * A​ ​t​r​a​f​f​i​c​-​c​a​p​t​u​r​e​ ​c​a​p​a​b​i​l​i​t​y​ ​r​e​q​u​i​r​e​s​ ​p​e​r​m​i​s​s​i​o​n​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​c​h​a​n​g​e​.
+		 */
+		capturePermission: string
+		/**
+		 * T​r​a​f​f​i​c​ ​c​a​p​t​u​r​e​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​l​a​t​f​o​r​m​.
+		 */
+		captureUnavailable: string
+		/**
+		 * T​h​i​s​ ​a​c​t​i​o​n​ ​i​s​ ​n​o​t​ ​s​u​p​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 */
+		localActionUnavailable: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​r​e​q​u​i​r​e​s​ ​p​e​r​m​i​s​s​i​o​n​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​c​h​a​n​g​e​.
+		 */
+		systemProxyPermission: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​l​a​t​f​o​r​m​.
+		 */
+		systemProxyUnavailable: string
+		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​r​e​q​u​i​r​e​s​ ​p​e​r​m​i​s​s​i​o​n​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​c​h​a​n​g​e​.
+		 */
+		tunPermission: string
+		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​l​a​t​f​o​r​m​.
+		 */
+		tunUnavailable: string
 	}
 	proxyPicker: {
 		/**
@@ -362,10 +452,6 @@ type RootTranslation = {
 		 */
 		add: string
 		/**
-		 * A​d​d​ ​a​ ​l​o​c​a​l​ ​d​e​m​o​ ​m​o​n​i​t​o​r​.​ ​N​o​ ​r​e​q​u​e​s​t​ ​w​i​l​l​ ​b​e​ ​s​e​n​t​.
-		 */
-		addDescription: string
-		/**
 		 * D​e​m​o​ ​s​e​r​v​i​c​e​ ​a​d​d​e​d
 		 */
 		addedToast: string
@@ -387,17 +473,29 @@ type RootTranslation = {
 		 */
 		edit: string
 		/**
-		 * E​d​i​t​ ​f​i​x​t​u​r​e​ ​m​o​n​i​t​o​r​:
+		 * S​e​r​v​i​c​e​ ​d​e​t​a​i​l​s​:
 		 */
 		editAria: string
 		/**
-		 * N​o​ ​f​i​x​t​u​r​e​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s
+		 * T​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​ ​r​e​p​o​r​t​s​ ​n​o​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​.
+		 */
+		desktopEmptyDescription: string
+		/**
+		 * E​n​d​p​o​i​n​t​ ​s​t​a​t​u​s​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​.
+		 */
+		desktopEndpointDescription: string
+		/**
+		 * N​o​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s
 		 */
 		empty: string
 		/**
+		 * A​d​d​ ​a​ ​l​o​c​a​l​ ​d​e​m​o​ ​m​o​n​i​t​o​r​.​ ​N​o​ ​r​e​q​u​e​s​t​ ​w​i​l​l​ ​b​e​ ​s​e​n​t​.
+		 */
+		fixtureEmptyDescription: string
+		/**
 		 * F​i​x​t​u​r​e​ ​e​n​d​p​o​i​n​t​ ​l​a​t​e​n​c​y​.
 		 */
-		endpointDescription: string
+		fixtureEndpointDescription: string
 		/**
 		 * E​n​t​e​r​ ​a​ ​t​i​t​l​e​.
 		 */
@@ -677,6 +775,20 @@ type RootTranslation = {
 		 */
 		title: string
 	}
+	startupFailure: {
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​e​s​t​a​b​l​i​s​h​ ​i​t​s​ ​p​r​i​v​a​t​e​ ​l​o​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​.​ ​N​o​ ​s​y​s​t​e​m​ ​o​r​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​ ​i​s​ ​b​e​i​n​g​ ​s​h​o​w​n​.
+		 */
+		description: string
+		/**
+		 * M​i​s​h​ ​d​e​s​k​t​o​p
+		 */
+		eyebrow: string
+		/**
+		 * L​o​c​a​l​ ​s​e​r​v​i​c​e​ ​u​n​a​v​a​i​l​a​b​l​e
+		 */
+		title: string
+	}
 	errors: {
 		/**
 		 * T​h​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.
@@ -792,6 +904,14 @@ export type TranslationFunctions = {
 	}
 	toolbar: {
 		/**
+		 * Status is read from this device.
+		 */
+		deviceDescription: () => LocalizedString
+		/**
+		 * Device status
+		 */
+		deviceMode: () => LocalizedString
+		/**
 		 * The current screen uses simulated data. No action changes system or network state.
 		 */
 		demoDescription: () => LocalizedString
@@ -804,9 +924,21 @@ export type TranslationFunctions = {
 		 */
 		fixtureActionDescription: () => LocalizedString
 		/**
+		 * Loading local status…
+		 */
+		loadingDesktop: () => LocalizedString
+		/**
 		 * Loading fixture…
 		 */
 		loadingFixture: () => LocalizedString
+		/**
+		 * Local service
+		 */
+		localService: () => LocalizedString
+		/**
+		 * Status is read from Mish's private local desktop service.
+		 */
+		localServiceDescription: () => LocalizedString
 		/**
 		 * Profiles
 		 */
@@ -818,7 +950,7 @@ export type TranslationFunctions = {
 	}
 	proxyControl: {
 		/**
-		 * Disable the proxy demo state
+		 * Disable proxy
 		 */
 		disableAria: () => LocalizedString
 		/**
@@ -826,9 +958,17 @@ export type TranslationFunctions = {
 		 */
 		disable: () => LocalizedString
 		/**
-		 * Enable the proxy demo state
+		 * Disable the proxy demo state
+		 */
+		disableFixtureAria: () => LocalizedString
+		/**
+		 * Enable proxy
 		 */
 		enableAria: () => LocalizedString
+		/**
+		 * Enable the proxy demo state
+		 */
+		enableFixtureAria: () => LocalizedString
 		/**
 		 * Start proxy with {modes}
 		 */
@@ -856,6 +996,18 @@ export type TranslationFunctions = {
 		 */
 		currentSessionAria: () => LocalizedString
 		/**
+		 * Live status from the desktop local service.
+		 */
+		desktopActivity: () => LocalizedString
+		/**
+		 * Desktop status is unavailable.
+		 */
+		desktopUnavailable: () => LocalizedString
+		/**
+		 * Live status from this device.
+		 */
+		deviceActivity: () => LocalizedString
+		/**
 		 * Downloaded
 		 */
 		downloaded: () => LocalizedString
@@ -880,9 +1032,13 @@ export type TranslationFunctions = {
 		 */
 		groupsEmpty: () => LocalizedString
 		/**
+		 * Connecting to the desktop local service…
+		 */
+		loadingDesktop: () => LocalizedString
+		/**
 		 * Loading typed fixture data…
 		 */
-		loading: () => LocalizedString
+		loadingFixture: () => LocalizedString
 		/**
 		 * Memory
 		 */
@@ -958,9 +1114,17 @@ export type TranslationFunctions = {
 		 */
 		acknowledge: () => LocalizedString
 		/**
+		 * These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.
+		 */
+		desktopDescription: () => LocalizedString
+		/**
+		 * These controls show capture state reported by this device. A control stays disabled when its capability or action is unavailable.
+		 */
+		deviceDescription: () => LocalizedString
+		/**
 		 * A pressed control means the mode is selected and remembered; a green icon means it is running. The bottom control pauses without forgetting and restores the remembered combination on the next start. This demo does not modify system network configuration.
 		 */
-		description: () => LocalizedString
+		fixtureDescription: () => LocalizedString
 		/**
 		 * Learn about System Proxy, Virtual Interface, and remembered start options
 		 */
@@ -990,9 +1154,13 @@ export type TranslationFunctions = {
 		 */
 		systemProxy: () => LocalizedString
 		/**
-		 * For applications that follow system proxy settings. Part 2 will provide the real capability through the platform adapter.
+		 * Routes applications that follow the system proxy settings.
 		 */
 		systemProxyDescription: () => LocalizedString
+		/**
+		 * Simulates routing applications that follow the system proxy settings.
+		 */
+		systemProxyFixtureDescription: () => LocalizedString
 		/**
 		 * System Proxy and Virtual Interface
 		 */
@@ -1002,9 +1170,43 @@ export type TranslationFunctions = {
 		 */
 		tun: () => LocalizedString
 		/**
-		 * Uses a TUN virtual network interface to capture broader traffic. Part 2 will provide the real capability through a controlled native component.
+		 * Uses a TUN virtual network interface to capture broader traffic.
 		 */
 		tunDescription: () => LocalizedString
+		/**
+		 * Simulates a TUN virtual network interface for broader traffic.
+		 */
+		tunFixtureDescription: () => LocalizedString
+	}
+	capabilities: {
+		/**
+		 * A traffic-capture capability requires permission before it can change.
+		 */
+		capturePermission: () => LocalizedString
+		/**
+		 * Traffic capture is unavailable on this platform.
+		 */
+		captureUnavailable: () => LocalizedString
+		/**
+		 * This action is not supported by the current local service.
+		 */
+		localActionUnavailable: () => LocalizedString
+		/**
+		 * System Proxy requires permission before it can change.
+		 */
+		systemProxyPermission: () => LocalizedString
+		/**
+		 * System Proxy is unavailable on this platform.
+		 */
+		systemProxyUnavailable: () => LocalizedString
+		/**
+		 * Virtual Interface requires permission before it can change.
+		 */
+		tunPermission: () => LocalizedString
+		/**
+		 * Virtual Interface is unavailable on this platform.
+		 */
+		tunUnavailable: () => LocalizedString
 	}
 	proxyPicker: {
 		/**
@@ -1030,10 +1232,6 @@ export type TranslationFunctions = {
 		 */
 		add: () => LocalizedString
 		/**
-		 * Add a local demo monitor. No request will be sent.
-		 */
-		addDescription: () => LocalizedString
-		/**
 		 * Demo service added
 		 */
 		addedToast: () => LocalizedString
@@ -1054,17 +1252,29 @@ export type TranslationFunctions = {
 		 */
 		edit: () => LocalizedString
 		/**
-		 * Edit fixture monitor:
+		 * Service details:
 		 */
 		editAria: () => LocalizedString
 		/**
-		 * No fixture service monitors
+		 * The local desktop service reports no service monitors.
+		 */
+		desktopEmptyDescription: () => LocalizedString
+		/**
+		 * Endpoint status reported by the local desktop service.
+		 */
+		desktopEndpointDescription: () => LocalizedString
+		/**
+		 * No service monitors
 		 */
 		empty: () => LocalizedString
 		/**
+		 * Add a local demo monitor. No request will be sent.
+		 */
+		fixtureEmptyDescription: () => LocalizedString
+		/**
 		 * Fixture endpoint latency.
 		 */
-		endpointDescription: () => LocalizedString
+		fixtureEndpointDescription: () => LocalizedString
 		/**
 		 * Enter a title.
 		 */
@@ -1341,6 +1551,20 @@ export type TranslationFunctions = {
 		returnToStatus: () => LocalizedString
 		/**
 		 * Page not found
+		 */
+		title: () => LocalizedString
+	}
+	startupFailure: {
+		/**
+		 * Mish could not establish its private local connection. No system or network state is being shown.
+		 */
+		description: () => LocalizedString
+		/**
+		 * Mish desktop
+		 */
+		eyebrow: () => LocalizedString
+		/**
+		 * Local service unavailable
 		 */
 		title: () => LocalizedString
 	}

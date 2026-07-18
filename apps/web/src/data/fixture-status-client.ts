@@ -4,6 +4,7 @@ import type {
   ServiceMonitorDraft,
   StatusClient,
   StatusConnectionState,
+  StatusCommand,
   StatusSnapshotDto,
   RoutingMode,
 } from "@mish/contracts";
@@ -200,6 +201,10 @@ export class FixtureStatusClient implements StatusClient {
   subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
     this.snapshotListeners.add(listener);
     return () => this.snapshotListeners.delete(listener);
+  }
+
+  supportsCommand(_command: StatusCommand) {
+    return true;
   }
 
   private async snapshotAfterCommand() {

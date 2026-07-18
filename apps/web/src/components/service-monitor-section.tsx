@@ -45,6 +45,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { useProduct } from "../data/product-provider";
+import { getCommandDescriptionId } from "../data/status-capabilities";
 import type { ServiceMonitorDraft, ServiceMonitorDto } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
@@ -214,11 +215,13 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
 }
 
 export function ServiceMonitorSection() {
-  const { isCommandPending, restoreDefaultServices, snapshot } = useProduct();
+  const { isCommandPending, isCommandSupported, restoreDefaultServices, snapshot } = useProduct();
   const { LL } = useI18nContext();
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
   if (!snapshot) return null;
   const commandPending = isCommandPending("services");
+  const commandSupported = isCommandSupported("services");
+  const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
 
   async function restoreServices() {
     const result = await restoreDefaultServices();
@@ -230,16 +233,25 @@ export function ServiceMonitorSection() {
       <div className="section-heading service-monitor-heading">
         <div className="section-heading-copy">
           <h2>{LL.status.services()}</h2>
-          <p>{LL.services.endpointDescription()}</p>
+          <p>
+            {snapshot.adapterKind === "fixture"
+              ? LL.services.fixtureEndpointDescription()
+              : LL.services.desktopEndpointDescription()}
+          </p>
         </div>
         <DropdownMenu>
-          <DropdownMenuTrigger className="service-manage-trigger">
+          <DropdownMenuTrigger
+            aria-describedby={actionDescriptionId}
+            className="service-manage-trigger"
+            disabled={!commandSupported}
+          >
             {LL.services.manage()}
             <CaretDown aria-hidden="true" weight="bold" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="service-manage-menu" sideOffset={7}>
             <DropdownMenuGroup>
               <DropdownMenuItem
+                disabled={!commandSupported}
                 onClick={() => setDraft({ icon: "globe", label: "", url: "https://" })}
               >
                 <Plus aria-hidden="true" data-icon="inline-start" />
@@ -248,7 +260,10 @@ export function ServiceMonitorSection() {
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem disabled={commandPending} onClick={() => void restoreServices()}>
+              <DropdownMenuItem
+                disabled={commandPending || !commandSupported}
+                onClick={() => void restoreServices()}
+              >
                 <ArrowCounterClockwise aria-hidden="true" data-icon="inline-start" />
                 {LL.services.restoreDefaults()}
               </DropdownMenuItem>
@@ -266,9 +281,10 @@ export function ServiceMonitorSection() {
             );
             return (
               <Button
+                aria-describedby={actionDescriptionId}
                 className="section-grid-item service-monitor-row"
                 data-service-icon={service.icon}
-                disabled={commandPending}
+                disabled={commandPending || !commandSupported}
                 key={service.id}
                 onClick={() => setDraft({ ...service })}
                 type="button"
@@ -292,9 +308,15 @@ export function ServiceMonitorSection() {
         <Empty className="service-monitor-empty">
           <EmptyHeader>
             <EmptyTitle>{LL.services.empty()}</EmptyTitle>
-            <EmptyDescription>{LL.services.addDescription()}</EmptyDescription>
+            <EmptyDescription>
+              {snapshot.adapterKind === "fixture"
+                ? LL.services.fixtureEmptyDescription()
+                : LL.services.desktopEmptyDescription()}
+            </EmptyDescription>
           </EmptyHeader>
           <Button
+            aria-describedby={actionDescriptionId}
+            disabled={!commandSupported}
             onClick={() => setDraft({ icon: "globe", label: "", url: "https://" })}
             variant="outline"
           >
