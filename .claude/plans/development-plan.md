@@ -5,6 +5,10 @@
 项目仓库：`~/repositories/mihomo-web-client`  
 目标平台：macOS、Windows、Linux、Android、iOS
 
+文档说明：本文件用于阶段与工期规划；当前产品、设计、交互、数据与
+平台边界以 `docs/README.md` 中的权威文档索引为准。两者冲突时，应更新
+本计划，而不是用旧计划覆盖已确认的项目契约。
+
 ## 1. 项目目标
 
 开发一个基于 Mihomo 内核、以 Web 技术栈为主的跨平台代理客户端，产品体验参考 Clash Pro、Clash Mi、Stash 和 Clash Verge Rev。

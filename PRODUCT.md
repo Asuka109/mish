@@ -7,16 +7,18 @@ product
 ## Users
 
 People who run Mihomo continuously on macOS and later on other desktop and
-mobile platforms. They need to confirm that traffic is protected, change the
-active route quickly, and investigate failures without learning Mihomo's
-implementation details or navigating an administration dashboard.
+mobile platforms. They need to control traffic capture, understand current
+activity, switch policy-group selections, and investigate failures without
+learning Mihomo's implementation details or navigating an administration
+dashboard.
 
 ## Product Purpose
 
 Provide a clear, trustworthy control surface for a local Mihomo service. The
-default view should answer three questions immediately: is traffic routed, where
-is it going, and is the system healthy. Common route and mode changes should be
-one step away, while profiles, connections, logs, and diagnostics remain
+default view should make the aggregate proxy state, capture paths, routing mode,
+live session activity, frequently used policy groups, and endpoint reachability
+easy to scan. It must not invent a single globally active node in Rule mode.
+Profiles, full group trees, connections, events, and diagnostics remain
 available through progressive disclosure.
 
 ## Brand Personality
@@ -35,8 +37,8 @@ glassmorphism, gradients, pill-heavy controls, and visibly generated AI slop.
 
 ## Design Principles
 
-1. Lead with the user's current network outcome, not Mihomo's configuration
-   model.
+1. Lead with the user's current capture state and activity, not Mihomo's
+   configuration model.
 2. Make frequent actions spatially stable and compact; reveal expert detail near
    the object it explains.
 3. Use the window as the main container and reserve cards for true elevation or
@@ -45,6 +47,15 @@ glassmorphism, gradients, pill-heavy controls, and visibly generated AI slop.
    wasteful dashboard spacing.
 5. Make every status legible through wording, placement, and iconography in
    addition to color.
+6. Preserve Mihomo's group-scoped model. Never turn a convenient shortcut into
+   a false claim about one canonical route.
+
+## Current Product Surface
+
+The macOS-first Status experience and its interaction rules are specified in
+[`docs/product/status-experience.md`](docs/product/status-experience.md). The
+current React prototype is a reference for that surface, not evidence that the
+network integration is complete.
 
 ## Accessibility & Inclusion
 

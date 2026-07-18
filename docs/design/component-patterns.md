@@ -1,0 +1,116 @@
+# Component Patterns
+
+This document explains recurring component anatomy and interaction. Visual
+tokens, radii, colors, shadows, and typography remain authoritative in
+[`../../DESIGN.md`](../../DESIGN.md).
+
+## SectionGrid
+
+`SectionGrid` and `SectionGridItem` are the default primitives for a bordered
+collection of related rows or cells.
+
+- The container owns one real 1px outer hairline, an 8px radius, and a 1px grid
+  gap using the soft hairline token.
+- The container leaves overflow visible so focus treatment and intentional
+  overlays are not truncated. Every item constrains its own content and must
+  respect the grid's outer corner geometry.
+- Every child owns a white surface. Gaps become internal separators.
+- Items may span rows or columns, supporting vertical lists, horizontal lists,
+  and mixed metric grids without a new card implementation.
+- Never simulate the outer border with padding and a background; child surfaces
+  flatten or clip the visible corners.
+- Avoid adding independent borders to items inside the grid. Double borders are
+  the usual cause of unexpectedly thick separators.
+
+Use `SectionGrid` for Session metrics, policy groups, service monitors, and the
+two-row routing control. Do not use it merely to put a border around unrelated
+page sections.
+
+## Section headings
+
+Section headings are open, not card headers. Keep the title, short descriptor,
+and optional action on one baseline. Actions such as “Open live traffic” and
+“View all” belong at the end of the same heading row and share the same compact
+text-button treatment.
+
+## Choice controls
+
+Routing mode uses shadcn `ToggleGroup` backed by Base UI:
+
+- the group owns a single visual outline;
+- adjacent items share 1px boundaries;
+- `aria-pressed` communicates selection;
+- selection is exclusive.
+
+System Proxy and TUN use two standalone shadcn `Toggle` controls because they
+are independent capabilities. Each control owns a complete outline and radius,
+and `aria-pressed` communicates its state. Use the same muted pressed surface as
+Routing mode; preserve the green icon as the additional enabled-state cue.
+
+Use shadcn `ButtonGroup` only when unlike actions intentionally form one joined
+control. The capture help trigger is a separate outline button beside the two
+capture toggles because it explains the modes rather than selecting one.
+Do not rebuild pressed-state or roving-focus behavior with manually coordinated
+buttons.
+
+## Dialogs, menus, and forms
+
+Use shadcn Base UI `DropdownMenu` for compact action and profile menus. Compose
+selection dialogs from `Dialog` and `Command`; use `Field`, `Input`, and
+`AlertDialog` for editable service data and destructive confirmation. Validation
+must be visible in text, reflected with `aria-invalid`, and prevent an invalid
+save. Because Base UI input change callbacks expose the value directly, bind
+controlled inputs with `onValueChange(value)` instead of assuming a native DOM
+change event.
+
+Pressed fills stay close to white. Selection should be clear through border,
+icon, and text changes without becoming a dark gray trough.
+
+## ProxyControlButton
+
+The sidebar aggregate action is documented behaviorally in
+[`../product/status-experience.md`](../product/status-experience.md). Its layout
+must use the same icon and label columns as navigation. Default and hover content
+are stacked in the same geometry and crossfade with opacity; do not translate
+the SVG or label during the transition because fractional compositing can leave
+one-pixel artifacts on Retina displays.
+
+The animated material is clipped behind a DOM fallback. It pauses when hidden,
+uses a static frame under reduced motion, cleans up WebGL resources, and caps
+draws at a simple 30, 45, or 60 FPS capability tier.
+
+## User-authored labels
+
+Group, node, profile, and service names are arbitrary Unicode strings. Render
+the complete label verbatim and do not parse an emoji prefix. Apply the current
+40% saturation treatment to the complete user-authored label layer. This is a
+visual compromise, not semantic normalization: dark emoji can remain darker
+than colorful emoji, and the product must not rewrite the user's label to fix
+that difference.
+
+Truncate only where the layout requires it, preserve the full accessible name,
+and expose the complete label through an appropriate detail or tooltip when it
+is not otherwise available.
+
+## Icons
+
+- Use Phosphor for general interface icons.
+- Use solid, semantically colored service icons without framed icon tiles.
+- Do not substitute a browser logo for a service brand.
+- Keep ordinary navigation and metadata icons neutral; reserve color for
+  traffic direction, service identity, and state.
+- Icon meaning must be reinforced by text or an accessible label.
+
+## Sparklines
+
+Traffic sparklines are decorative area lines with no background, axes, grid,
+markers, application role, or focus outline. Use a low-opacity fill down to the
+baseline and fade all four edges into the row. Hide the chart before it compresses
+labels or rates. The adjacent text value is always authoritative.
+
+## Responsive composition
+
+Prefer container queries for component-level crowding and page media queries
+for the main column change. Preserve reading order when Session and Groups
+stack. Do not shrink text below the design scale merely to keep a desktop row
+intact.

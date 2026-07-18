@@ -15,9 +15,9 @@ colors:
   hairline: "#E5E7EB"
   accent: "#3B82F6"
   brand: "#2F6FDC"
-  brand-hover: "#2864C8"
   brand-foreground: "#F8FAFF"
   success: "#10B981"
+  success-text: "#047857"
   traffic-download: "#2F6FDC"
   traffic-upload: "#2F855A"
   warning: "#B45309"
@@ -112,6 +112,11 @@ components:
     textColor: "{colors.ink}"
     typography: "{typography.metadata}"
     padding: "0px"
+  positive-status-text:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.success-text}"
+    typography: "{typography.metadata}"
+    padding: "0px"
   metadata:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.muted}"
@@ -135,7 +140,7 @@ components:
     padding: "0px 10px"
     height: "36px"
   status-button-healthy-hover:
-    backgroundColor: "{colors.brand-hover}"
+    backgroundColor: "{colors.brand}"
     textColor: "{colors.brand-foreground}"
     typography: "{typography.metadata}"
     rounded: "{rounded.md}"
@@ -194,6 +199,12 @@ page. The default status screen presents the user's outcome through the sidebar
 proxy control, then exposes the active profile, routing mode, frequently used
 policy groups, and session activity without repeating status in a dashboard card.
 
+Product behavior is specified in
+[`docs/product/status-experience.md`](docs/product/status-experience.md). Reusable
+component anatomy is specified in
+[`docs/design/component-patterns.md`](docs/design/component-patterns.md). This
+document remains authoritative for visual tokens and styling rules.
+
 ## Colors
 
 Use ink and neutral gray for almost all structure. Use the accent blue for focus
@@ -245,18 +256,20 @@ and tooltips. Full rounding is limited to switches and status dots.
 
 ## Components
 
-Use Base UI primitives for stateful, accessible behavior:
+Prefer shadcn components backed by Base UI for stateful, accessible behavior.
+Use a Base UI primitive directly only when the shadcn layer does not provide the
+required behavior:
 
 - `Tabs` owns primary workspace navigation and panels.
-- Base UI `Button` owns each ranked policy-group shortcut.
-- `ButtonGroup` composition with Base UI `Button` owns routing mode.
-- Base UI `Button` owns the sidebar `ProxyControlButton` start/stop action.
-- Base UI `Menu` owns active-profile switching in the toolbar.
-- A `ButtonGroup` composition owns the independent System Proxy and TUN capture
-  toggles; an adjacent Base UI `Dialog` explains their tradeoffs.
-- Base UI `Menu` and `Dialog` own service-monitor management and editing.
-- Base UI `Dialog` owns the group-scoped proxy picker.
-- `Tooltip` labels icon-only expert controls.
+- shadcn `Button` owns policy-group rows, text actions, and the sidebar
+  `ProxyControlButton`.
+- shadcn `ToggleGroup` owns the exclusive routing mode. Two standalone shadcn
+  `Toggle` controls own the independent System Proxy and TUN capture states.
+- shadcn `DropdownMenu` owns profile switching and service-monitor management.
+- shadcn `Dialog`, `Command`, and `Button` compose the group-scoped proxy picker.
+- shadcn `Dialog`, `Field`, `Input`, and `AlertDialog` compose service editing.
+- shadcn `Badge` owns compact child counts; `Tooltip` labels icon-only expert
+  controls.
 
 Keep static rows, metrics, headings, and layout as semantic HTML. Base UI owns
 behavior and accessibility, while this document owns visual styling. Buttons
@@ -273,19 +286,21 @@ layout. Use the ordinary hairline for this active border and keep its shadow
 almost imperceptible; the border, not elevation, should carry selection.
 
 Build grouped surfaces with the reusable `SectionGrid` and `SectionGridItem`
-components. `SectionGrid` owns one real 1px hairline border, an 8px clipped
-radius, and stable 1px internal gaps using the softer hairline token; never
+components. `SectionGrid` owns one real 1px hairline border, an 8px radius, and
+stable 1px internal gaps using the softer hairline token. It does not clip
+overflow by default; each item must constrain its own content and respect the
+outer corner geometry. Never
 simulate the outer border with padding or
 a background because child surfaces will visually flatten the corners. The
 grid accepts one or more columns, while items can span rows or columns, so the
 same anatomy supports vertical lists, horizontal divisions, and mixed layouts.
 
-Compact routing choices use the shadcn Button Group composition with Base UI
-buttons. The three outline buttons form one joined 30px control, share internal
+Compact routing choices use shadcn `ToggleGroup` backed by Base UI. The three
+outline buttons form one joined 30px control, share internal
 hairlines, and expose the current mode with `aria-pressed`. Hover uses
 surface-soft; the selected button uses hairline-soft and stronger ink.
 
-The sidebar `ProxyControlButton` is a 36px Base UI button aligned to the same icon
+The sidebar `ProxyControlButton` is a 36px shadcn button aligned to the same icon
 and text columns as navigation. Healthy proxy state uses the brand surface and
 shows a Wi-Fi icon plus the selected node. Hover and keyboard focus keep the
 material unchanged and crossfade in place to a circle-X icon plus "关闭代理". Inactive state
@@ -309,21 +324,17 @@ frame-random flicker. The effect remains clipped to the button, uses a low-power
 context, pauses while hidden, and falls back cleanly when WebGL is unavailable.
 Reduced-motion users receive a static frame rather than continuous animation.
 
-The Status page ranks the five most-used visible policy groups by cumulative
-connection count. Counts are derived by deduplicating Mihomo connection IDs and
-matching each connection chain against the current profile's known groups.
-Rows always show both group name and currently selected child; they open a
-group-scoped selector and never imply that a node is globally active. Persist
-rankings per profile so switching configurations cannot mix unrelated groups.
-Preserve user-supplied emoji as a leading part of node and group labels. Keep
-the emoji and label as separate data fields, then render them in fixed marker
-columns with an explicit 5px visual gap. Apply saturation to the complete
-user-authored label layer so arbitrary text and emoji ordering works without
-rewriting input; neutral text remains visually unchanged. Use 40% saturation
-for all user-authored labels. Semantic group emoji use a restrained 15px
-marker; regional flags use a smaller, lower-contrast 11px marker so they
-do not turn labels into decorative prose. The client must not invent geography
-when a name does not provide it.
+The Status page shows five frequently used visible policy groups. Rows show the
+complete group label, selected child, latency, and child-count badge; they open
+a group-scoped selector and never imply that a node is globally active. Ranking
+semantics belong to
+[`docs/architecture/status-data-contracts.md`](docs/architecture/status-data-contracts.md).
+
+Treat every user-authored group, node, profile, and service label as one opaque
+Unicode string. Do not parse an emoji prefix or require separate emoji and text
+fields. Apply 40% saturation to the complete user-authored label layer. Preserve
+the input verbatim, provide a clean no-emoji case, and never invent geography
+from a label.
 
 Download and upload session rows may include a compact area sparkline between
 the label and value. It has no chart background, axes, grid, markers, or text.
@@ -336,13 +347,9 @@ truth.
 The Session grouped list integrates cumulative bytes below the Downloaded and
 Uploaded labels, beside the live rate and sparkline. Their arrow icons use the
 same semantic blue and green as the corresponding charts. It also shows Mihomo
-memory in use, active connections, and uptime. Pair stable secondary metrics in
-two-column rows to preserve density. Map the values to `/traffic`
-(`up`, `down`, `upTotal`, `downTotal`) and `/memory` (`inuse`); `/connections`
-may supply the same totals and memory alongside the active connection list.
-Show the active rule count as another compact paired metric. Derive it from
-`/rules` and exclude entries explicitly marked disabled instead of treating the
-raw array length as universally effective.
+memory in use, active connections, effective rules, and uptime. Pair stable
+secondary metrics in two-column rows to preserve density. Source mapping belongs
+to [`docs/architecture/status-data-contracts.md`](docs/architecture/status-data-contracts.md).
 
 Place configurable service-latency monitors in one full-width grouped list
 below the policy-group and session columns. Use three columns at comfortable
@@ -351,23 +358,26 @@ semantically colored service icon, title, and measured latency; the probe URL
 is shown only in the reusable editor dialog. Ship Google, GitHub, Cloudflare,
 Baidu, Apple, and Microsoft as defaults, while
 allowing add, edit, delete, and Restore defaults. Treat these values as endpoint
-probe results, not proof of a globally active proxy route; the application layer
-must choose and disclose the Mihomo probe target explicitly.
+probe results, not proof of a globally active proxy route. Probe semantics and
+security belong to
+[`docs/architecture/status-data-contracts.md`](docs/architecture/status-data-contracts.md).
 
 The toolbar profile selector is an infrequent configuration control. Keep its
 icon, label, and caret muted until hover or focus so it does not compete with
 Status-page controls.
 
-Traffic capture uses two independent pressed-state buttons labeled “系统代理”
+Traffic capture uses two standalone shadcn `Toggle` controls labeled “系统代理”
 and “增强模式（TUN）”, because the capabilities are not mutually exclusive.
-Use a nearly white pressed fill so state remains visible without turning the
-compact group into a heavy gray control.
-Place its button group and Routing mode as two vertically stacked rows in the
+Give each control its own complete outline and radius. Use the same muted
+pressed fill as Routing mode, while retaining the green enabled icon as the
+capture-specific semantic cue.
+Place Traffic capture and Routing mode as two vertically stacked rows in the
 same `SectionGrid`. Within each row, keep the label and control on one line.
 Let each row use the label's natural width, then left-align its controls with a
 consistent 24px gap instead of reserving a fixed label column.
-Include the question button as the final item in the traffic-capture button
-group; it opens a concise explanation dialog.
+Place the question button beside the two traffic-capture toggles;
+it opens a concise explanation dialog without appearing to be another capture
+mode.
 The sidebar `ProxyControlButton`
 remains the aggregate everyday control: stopping it disables both capture
 paths, while starting from fully inactive enables System Proxy by default.
@@ -376,7 +386,7 @@ paths, while starting from fully inactive enables System Proxy by default.
 
 ### Do
 
-- Lead with connection outcome and active route.
+- Lead with capture state, routing controls, and observable activity.
 - Keep navigation labels visible and task-oriented.
 - Use tonal surfaces for grouping and hairlines for repeated rows.
 - Keep diagnostics progressively disclosed.
