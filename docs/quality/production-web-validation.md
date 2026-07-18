@@ -7,10 +7,12 @@ desktop WebView. It consumes shared components from `packages/ui/` and CSS
 tokens from `packages/design-tokens/`. It does not import source, fixtures, or
 runtime assets from `sketch/`.
 
-Ordinary browser startup uses `FixtureStatusClient`, an implementation of the
-shared typed `StatusClient` boundary. Its commands update detached in-memory DTO
-snapshots only. The toolbar and aggregate capture action identify this as demo
-data; no System Proxy, TUN, Mihomo core operation, probe, capture, WebSocket, or
+Ordinary browser startup uses `FixtureStatusClient` and
+`FixtureTrafficClient`, implementations of the independent typed Status and
+Traffic boundaries. Status commands update detached in-memory DTO snapshots
+only; Traffic is read-only and derives Closed rows locally. The toolbar,
+aggregate capture action, and Traffic source notice identify this as demo data;
+no System Proxy, TUN, Mihomo core operation, probe, capture, WebSocket, or
 network request is executed.
 
 `RpcStatusClient` is available only for explicit composition with an injected
@@ -28,14 +30,14 @@ remain opaque strings and are never translated.
 
 The six stable destinations are:
 
-| URL         | Current Part 1 state                                            |
-| ----------- | --------------------------------------------------------------- |
-| `/status`   | Complete fixture-backed reference surface                       |
-| `/routes`   | Nested fixture policy graph; RPC selection remains read-only    |
-| `/profiles` | Structured profile-lifecycle ownership and missing-store state  |
-| `/traffic`  | Structured connections/rules ownership and missing-stream state |
-| `/events`   | Structured event/diagnostic ownership and missing-buffer state  |
-| `/settings` | Structured capability/settings ownership and fixture-only state |
+| URL         | Current Part 1 state                                                    |
+| ----------- | ----------------------------------------------------------------------- |
+| `/status`   | Complete fixture-backed reference surface                               |
+| `/routes`   | Nested fixture policy graph; RPC selection remains read-only            |
+| `/profiles` | Structured profile-lifecycle ownership and missing-store state          |
+| `/traffic`  | Read-only Active, bounded local Closed, and ordered Rules investigation |
+| `/events`   | Structured event/diagnostic ownership and missing-buffer state          |
+| `/settings` | Structured capability/settings ownership and fixture-only state         |
 
 React Router owns these client routes. Development and Vite preview use SPA
 fallback behavior. Tauri's embedded-asset resolver also returns the bundled
@@ -96,6 +98,12 @@ Automated tests cover:
   subscriptions, commands, reconnect without a follow-up event, and typed
   failure; and
 - pending command deduplication plus suppression of success UI after failure.
+- independent Traffic snapshot validation, cancellation, subscription
+  reconciliation, stale transport state, and Controller-session reconnects;
+- bounded active-to-Closed derivation without reconnect-gap false closure,
+  local-only Clear Closed, structured filtering, exact counter sorting, complete
+  route-chain detail, fictional privacy fixtures, and incremental large-snapshot
+  rendering;
 - a real WebSocket client/server flow against the TypeScript mock bridge,
   including authentication, snapshots, subscriptions, commands, core state,
   typed failure, non-mutation after failure, and cleanup; and

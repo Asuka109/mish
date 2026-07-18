@@ -26,7 +26,7 @@ pub async fn compose_desktop_runtime(
         return Ok(MishRuntime::new(lifecycle));
     };
     let source = ControllerStatusSource::new(controller, lifecycle.clone())?;
-    let runtime = MishRuntime::with_status_source(lifecycle, source.clone());
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
     source.start().await;
     Ok(runtime)
 }

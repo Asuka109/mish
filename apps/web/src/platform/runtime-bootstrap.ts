@@ -1,7 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { statusRpcMethods, type StatusClient } from "@mish/contracts";
+import { mishRpcMethods, type StatusClient, type TrafficClient } from "@mish/contracts";
 import { RpcClient } from "@mish/rpc-client";
 import { RpcStatusClient } from "../data/rpc-status-client";
+import { RpcTrafficClient } from "../data/rpc-traffic-client";
 
 interface RuntimeBootstrapPayload {
   authToken: string;
@@ -16,6 +17,7 @@ interface BootstrapDependencies {
 
 export interface StartupStatusClient {
   client?: StatusClient;
+  trafficClient?: TrafficClient;
   dispose(): void;
   runtime: "browser" | "desktop";
 }
@@ -38,11 +40,20 @@ export async function resolveStartupStatusClient(
       clientVersion: "bootstrap-v1",
       token: bootstrap.authToken,
     }),
-    methods: statusRpcMethods,
+    methods: mishRpcMethods,
     transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
   });
   const client = new RpcStatusClient(rpc);
-  return { client, dispose: () => client.dispose(), runtime: "desktop" };
+  const trafficClient = new RpcTrafficClient(rpc);
+  return {
+    client,
+    trafficClient,
+    dispose: () => {
+      trafficClient.dispose();
+      client.dispose();
+    },
+    runtime: "desktop",
+  };
 }
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {

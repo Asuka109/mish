@@ -4,6 +4,7 @@ import { DestinationPage } from "./pages/destination-page";
 import { NotFoundPage } from "./pages/not-found-page";
 import { RoutesPage } from "./pages/routes-page";
 import { StatusPage } from "./pages/status-page";
+import { TrafficPage } from "./pages/traffic-page";
 
 export function AppRoutes() {
   return (
@@ -13,7 +14,7 @@ export function AppRoutes() {
         <Route element={<StatusPage />} path="status" />
         <Route element={<RoutesPage />} path="routes" />
         <Route element={<DestinationPage destination="profiles" />} path="profiles" />
-        <Route element={<DestinationPage destination="traffic" />} path="traffic" />
+        <Route element={<TrafficPage />} path="traffic" />
         <Route element={<DestinationPage destination="events" />} path="events" />
         <Route element={<DestinationPage destination="settings" />} path="settings" />
         <Route element={<NotFoundPage />} path="*" />

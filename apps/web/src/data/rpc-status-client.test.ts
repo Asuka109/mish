@@ -1,4 +1,4 @@
-import { StatusClientError, statusRpcMethods, type StatusSnapshotDto } from "@mish/contracts";
+import { StatusClientError, mishRpcMethods, type StatusSnapshotDto } from "@mish/contracts";
 import { RpcClient, type WebSocketLike, type WebSocketLikeEventMap } from "@mish/rpc-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FixtureStatusClient } from "./fixture-status-client";
@@ -87,7 +87,7 @@ describe("RpcStatusClient", () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({
       authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
-      methods: statusRpcMethods,
+      methods: mishRpcMethods,
       transportFactory: () => transport,
     });
     const client = new RpcStatusClient(rpc);
@@ -123,7 +123,7 @@ describe("RpcStatusClient", () => {
     const rpc = new RpcClient({
       authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
       backoff: { initialDelayMilliseconds: 5, maximumReconnectAttempts: 1 },
-      methods: statusRpcMethods,
+      methods: mishRpcMethods,
       transportFactory: () => transports[transportIndex++],
     });
     const client = new RpcStatusClient(rpc);
