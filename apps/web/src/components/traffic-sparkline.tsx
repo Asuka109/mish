@@ -5,6 +5,10 @@ interface TrafficSparklineProps {
 }
 
 export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
+  if (data.length === 0) {
+    return <div aria-hidden="true" className="traffic-sparkline" />;
+  }
+
   const gradientId = `${id}-area-gradient`;
   const width = 150;
   const height = 34;
