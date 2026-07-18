@@ -92,6 +92,9 @@ Automated tests cover:
 - Rust local-agent integration coverage for malformed and unauthenticated RPC,
   contract-compatible Status snapshots, hostile Origin rejection, loopback-only
   binding, explicit sidecar start/stop, version reporting, and child cleanup.
+- transport-neutral Rust runtime coverage using an injected embedded-core
+  adapter, including native snapshot identity, lifecycle events, stable typed
+  failures, and suppression of false success events.
 
 ## Manual browser checks
 

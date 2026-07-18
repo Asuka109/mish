@@ -8,9 +8,8 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
-use tokio::sync::broadcast;
 
-use crate::sidecar::{CoreManager, CorePhase, CoreStatus};
+use mish_runtime::{CoreError, CoreErrorKind, MishRuntime, StatusAdapterKind};
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -37,13 +36,12 @@ struct Authentication {
 #[derive(Clone)]
 pub(crate) struct ProtocolState {
     pub auth_token: String,
-    pub core: CoreManager,
-    pub updates: broadcast::Sender<Value>,
+    pub runtime: MishRuntime,
 }
 
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let (mut sender, mut receiver) = socket.split();
-    let mut updates = state.updates.subscribe();
+    let mut updates = state.runtime.subscribe_status();
     let mut authenticated = false;
     let mut subscriptions = HashSet::new();
 
@@ -63,7 +61,8 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 }
             }
             update = updates.recv(), if authenticated && !subscriptions.is_empty() => {
-                let Ok(snapshot) = update else { continue };
+                let Ok(status) = update else { continue };
+                let snapshot = state.runtime.snapshot_from_status(&status, StatusAdapterKind::Rpc);
                 for subscription_id in &subscriptions {
                     let notification = json!({
                         "jsonrpc": "2.0",
@@ -150,43 +149,21 @@ async fn handle_message(
         }
         "agent.getInfo" => json!({
             "agentVersion": env!("CARGO_PKG_VERSION"),
-            "coreConfigured": state.core.configured(),
+            "coreConfigured": state.runtime.core_configured(),
             "protocolVersion": 1,
         }),
         "core.getStatus" => {
-            serde_json::to_value(state.core.status().await).expect("serializable status")
+            serde_json::to_value(state.runtime.core_status().await).expect("serializable status")
         }
-        "core.start" => match state.core.start().await {
-            Ok(status) => {
-                let snapshot = status_snapshot(&status);
-                let _ = state.updates.send(snapshot);
-                serde_json::to_value(status).expect("serializable status")
-            }
-            Err(error) => {
-                return Some(error_response(
-                    id,
-                    -32010,
-                    "Mihomo is not available",
-                    Some(json!({"detail": error})),
-                ));
-            }
+        "core.start" => match state.runtime.start_core().await {
+            Ok(status) => serde_json::to_value(status).expect("serializable status"),
+            Err(error) => return Some(core_error_response(id, error)),
         },
-        "core.stop" => match state.core.stop().await {
-            Ok(status) => {
-                let snapshot = status_snapshot(&status);
-                let _ = state.updates.send(snapshot);
-                serde_json::to_value(status).expect("serializable status")
-            }
-            Err(error) => {
-                return Some(error_response(
-                    id,
-                    -32011,
-                    "Mihomo could not be stopped",
-                    Some(json!({"detail": error})),
-                ));
-            }
+        "core.stop" => match state.runtime.stop_core().await {
+            Ok(status) => serde_json::to_value(status).expect("serializable status"),
+            Err(error) => return Some(core_error_response(id, error)),
         },
-        "status.getSnapshot" => status_snapshot(&state.core.status().await),
+        "status.getSnapshot" => state.runtime.status_snapshot(StatusAdapterKind::Rpc).await,
         "status.subscribe" => {
             if subscriptions.len() >= 16 {
                 return Some(error_response(
@@ -237,31 +214,16 @@ fn error_response(id: Value, code: i32, message: &str, data: Option<Value>) -> V
     json!({"jsonrpc": "2.0", "id": id, "error": error})
 }
 
-fn status_snapshot(core: &CoreStatus) -> Value {
-    let (phase, message) = match core.phase {
-        CorePhase::Stopped => ("inactive", "Mihomo is stopped"),
-        CorePhase::Starting => ("connecting", "Mihomo is starting"),
-        CorePhase::Running => ("healthy", "Mihomo is running"),
-        CorePhase::Stopping => ("stopping", "Mihomo is stopping"),
-        CorePhase::Failed => ("error", "Mihomo failed"),
+fn core_error_response(id: Value, error: CoreError) -> Value {
+    let (code, message) = match error.kind {
+        CoreErrorKind::Unavailable => (-32010, "Mihomo is not available"),
+        CoreErrorKind::StartFailed => (-32011, "Mihomo could not be started"),
+        CoreErrorKind::StopFailed => (-32011, "Mihomo could not be stopped"),
     };
-    json!({
-        "activeProfileId": "local",
-        "adapterKind": "rpc",
-        "capabilities": {"systemProxy": "unavailable", "tun": "unavailable"},
-        "groups": [], "groupUsage": [],
-        "metrics": {"activeConnections": 0, "effectiveRules": 0, "memoryBytes": 0, "uptimeSeconds": 0},
-        "nodes": [], "probeResults": [],
-        "profiles": [{"id": "local", "label": "Local Mihomo"}],
-        "routingMode": "rule",
-        "runtime": {
-            "captureSelection": {"systemProxy": true, "tun": false},
-            "message": message,
-            "phase": phase,
-            "systemProxyEnabled": false,
-            "tunEnabled": false
-        },
-        "services": [],
-        "traffic": {"downloadBytesPerSecond": 0, "downloadSeries": [], "downloadedBytes": 0, "uploadBytesPerSecond": 0, "uploadSeries": [], "uploadedBytes": 0}
-    })
+    error_response(
+        id,
+        code,
+        message,
+        Some(json!({"detail": error.to_string(), "kind": error.kind})),
+    )
 }

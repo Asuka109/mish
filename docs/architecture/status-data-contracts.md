@@ -12,6 +12,11 @@ before an adapter can publish them to application state. The schemas preserve
 the established Status view shape while distinguishing `fixture` and `rpc`
 snapshot sources.
 
+`adapterKind` distinguishes `fixture`, desktop/browser `rpc`, and mobile
+`native` snapshots. It describes the Status adapter that confirmed the view,
+not the language used to implement Mihomo. Stale-state UI applies to every
+non-fixture adapter.
+
 ## DTO families
 
 | DTO                       | Required meaning                                                                             | Authority                                   |
@@ -48,6 +53,11 @@ The shared agent contract also defines `AgentInfoDto` and `CoreStatusDto`.
 error. Core lifecycle commands intentionally take an empty parameter object:
 the agent process owns executable and configuration paths, so an authenticated
 browser cannot redirect process execution to an arbitrary path.
+
+The Rust `CoreRuntime` interface mirrors these lifecycle semantics without
+depending on JSON-RPC. Its typed `unavailable`, `start-failed`, and
+`stop-failed` outcomes are mapped by the desktop transport and can be mapped by
+future Kotlin or Swift adapters without parsing English error text.
 
 ## Mihomo core source mapping
 

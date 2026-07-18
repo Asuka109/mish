@@ -9,31 +9,36 @@ application API; Tauri remains a thin view and platform-capability shell.
 
 ```mermaid
 flowchart LR
-  UI["Shared React product UI"] --> Client["Typed RPC client"]
-  Tray["macOS status-bar menu"] --> Agent["Local Rust agent"]
-  Client -->|"same-origin JSON-RPC over WebSocket"| Agent
-  Agent --> Core["Mihomo sidecar"]
-  Agent --> Helper["Minimal privileged helper"]
-  Tauri["Thin Tauri shell"] --> UI
-  Tauri --> Capabilities["Window, tray, permissions, native material"]
-  Browser["Local browser client"] --> UI
+  UI["Shared React product UI"] --> StatusClient["StatusClient seam"]
+  StatusClient --> DesktopRpc["Desktop RPC adapter"]
+  StatusClient --> Mobile["Mobile native adapter"]
+  DesktopRpc -->|"same-origin JSON-RPC over WebSocket"| DesktopAgent["Desktop Rust agent"]
+  DesktopAgent --> Runtime["Shared Mish runtime"]
+  Runtime --> Sidecar["Desktop Mihomo sidecar adapter"]
+  Mobile --> Android["Android VpnService adapter"]
+  Mobile --> IOS["iOS Packet Tunnel adapter"]
+  Android --> AndroidCore["Embedded Mihomo library"]
+  IOS --> IOSCore["Embedded Mihomo framework"]
 ```
 
 ## Ownership
 
-| Layer                              | Owns                                                                                                | Must not own                                                                             |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Shared product UI                  | Views, interaction state, accessible components, DTO consumption                                    | Mihomo core process lifecycle, privilege escalation, direct Tauri imports in domain code |
-| Shared domain/application packages | DTOs, commands, invariants, derived view models, capability-neutral use cases                       | WebView APIs or operating-system branching spread through features                       |
-| Typed RPC client                   | Request correlation, subscriptions, reconnect policy, DTO validation                                | Product-specific rendering                                                               |
-| Local Rust agent                   | Mihomo core lifecycle, application state, local HTTP/WebSocket origin, persistence, probe execution | Window layout or React component state                                                   |
-| Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge           | Core business rules or an alternative application state store                            |
-| Privileged helper                  | Narrow TUN, DNS, and system-proxy operations requiring elevation                                    | General application logic or remote access                                               |
+| Layer                              | Owns                                                                                                   | Must not own                                                                             |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Shared product UI                  | Views, interaction state, accessible components, DTO consumption                                       | Mihomo core process lifecycle, privilege escalation, direct Tauri imports in domain code |
+| Shared domain/application packages | DTOs, commands, invariants, derived view models, capability-neutral use cases                          | WebView APIs or operating-system branching spread through features                       |
+| Shared Rust runtime                | Core lifecycle semantics, typed failures, snapshots, application events, platform-neutral coordination | Executable paths, HTTP/WebSocket policy, Android/iOS framework calls                     |
+| Typed RPC client                   | Request correlation, subscriptions, reconnect policy, DTO validation                                   | Product-specific rendering                                                               |
+| Desktop Rust agent                 | Local HTTP/WebSocket origin, authentication and desktop adapter composition                            | Android `VpnService` or iOS Packet Tunnel lifecycle                                      |
+| Desktop sidecar adapter            | Mihomo executable paths, child process, PID, signal and cleanup                                        | Cross-platform application semantics                                                     |
+| Android/iOS adapters               | Native VPN permission, TUN/Packet Tunnel lifecycle, native Mihomo integration                          | A spawned desktop executable or persistent WebView lifetime                              |
+| Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge              | Core business rules or an alternative application state store                            |
+| Privileged helper                  | Narrow desktop TUN, DNS, and system-proxy operations requiring elevation                               | General application logic or remote access                                               |
 
 Platform differences are exposed through a capability DTO and adapter rather
 than repeated `if (tauri)` or `if (macOS)` branches.
 
-## Local origin and RPC
+## Desktop local origin and RPC
 
 The local agent serves the offline web bundle and JSON-RPC endpoint from one
 loopback origin. This gives the browser and Tauri clients the same transport and
@@ -48,6 +53,12 @@ The local origin still requires:
 - schema validation at the RPC boundary; and
 - no network listener beyond loopback unless a separate, explicit feature is
   designed and secured.
+
+This origin is a desktop/browser adapter, not the mobile execution model.
+Mobile WebViews use a native Tauri plugin or thin-shell adapter. Android keeps
+the VPN alive in a Kotlin `VpnService`; iOS keeps it alive in a Swift
+`NEPacketTunnelProvider` extension. Neither depends on the WebView, an Axum
+listener, or a spawned CLI process remaining alive.
 
 ## Implemented browser client boundary
 
@@ -81,14 +92,22 @@ local agent and an explicit endpoint/authentication bootstrap exist.
 
 ## Implemented local-agent slice
 
-`crates/agent` is the first Rust implementation of the platform boundary. It
+`crates/runtime` contains the transport-neutral `MishRuntime` module and the
+`CoreRuntime` interface. The interface owns configured/status/start/stop
+semantics, stable typed error categories, Status snapshots, and lifecycle
+events. It has no Axum, Clap, Nix, executable, signal, or process dependency.
+An adapter can publish `native` or `rpc` Status snapshots without changing the
+product view contract.
+
+`crates/agent` is the desktop implementation of the platform seam. It
 binds only to a loopback address, validates `Host` and WebSocket `Origin`, limits
 message size and subscriptions, requires an authentication-first handshake, and
 exposes explicit `agent.getInfo`, `core.getStatus`, `core.start`, and `core.stop`
 methods. Authentication secrets come from `MISH_AGENT_TOKEN`; they are not CLI
 arguments and must never be stored in the repository.
 
-Mihomo executable and configuration paths belong to the agent's startup
+`DesktopSidecar` implements `CoreRuntime`. Mihomo executable and configuration
+paths belong to the desktop agent's startup
 configuration. Browser RPC calls cannot choose an executable or arbitrary file.
 The process manager checks the configured executable's version before launch,
 tracks PID and process liveness, sends `SIGTERM` on stop, applies a bounded wait,
@@ -101,6 +120,11 @@ platform reconciliation return a typed capability error instead of fake
 success. Serving the offline Web bundle from the same origin and mapping Mihomo
 controller streams remain follow-up work, so the production Web startup still
 uses `FixtureStatusClient`.
+
+The future Android adapter will pair Kotlin `VpnService` with an embedded Go
+core library. The future iOS adapter will pair Swift
+`NEPacketTunnelProvider` with an embedded core framework. These adapters are
+not scaffolded until a native ABI, signing, and lifecycle slice is approved.
 
 `packages/mock-agent` implements the same shared contracts in TypeScript over a
 real loopback WebSocket server. It supports deterministic snapshots,
@@ -151,7 +175,8 @@ packages/
   ui/                  Shared accessible components
   design-tokens/       Generated or shared token exports
 crates/
-  agent/               Local service and Mihomo core orchestration
+  runtime/             Transport-neutral application runtime and core seam
+  agent/               Desktop loopback service and Mihomo sidecar adapter
   platform-macos/      macOS capability implementation
   privileged-helper/   Narrow elevated operations
 ```

@@ -148,10 +148,13 @@ export const PlatformCapabilitiesSchema = z
   .strict();
 export interface PlatformCapabilitiesDto extends z.infer<typeof PlatformCapabilitiesSchema> {}
 
+export const StatusAdapterKindSchema = z.enum(["fixture", "native", "rpc"]);
+export type StatusAdapterKind = z.infer<typeof StatusAdapterKindSchema>;
+
 export const StatusSnapshotSchema = z
   .object({
     activeProfileId: IdentifierSchema,
-    adapterKind: z.enum(["fixture", "rpc"]),
+    adapterKind: StatusAdapterKindSchema,
     capabilities: PlatformCapabilitiesSchema,
     groups: z.array(PolicyGroupSchema),
     groupUsage: z.array(GroupUsageSchema),
@@ -171,6 +174,11 @@ export const RpcStatusSnapshotSchema = StatusSnapshotSchema.extend({
   adapterKind: z.literal("rpc"),
 });
 export interface RpcStatusSnapshotDto extends z.infer<typeof RpcStatusSnapshotSchema> {}
+
+export const NativeStatusSnapshotSchema = StatusSnapshotSchema.extend({
+  adapterKind: z.literal("native"),
+});
+export interface NativeStatusSnapshotDto extends z.infer<typeof NativeStatusSnapshotSchema> {}
 
 export const ServiceMonitorDraftSchema = ServiceMonitorSchema.omit({ id: true })
   .extend({ id: IdentifierSchema.optional() })
@@ -219,6 +227,14 @@ export const CoreStatusSchema = z
   })
   .strict();
 export interface CoreStatusDto extends z.infer<typeof CoreStatusSchema> {}
+
+export const CoreErrorKindSchema = z.enum(["unavailable", "start-failed", "stop-failed"]);
+export type CoreErrorKind = z.infer<typeof CoreErrorKindSchema>;
+
+export const CoreErrorDataSchema = z
+  .object({ detail: z.string(), kind: CoreErrorKindSchema })
+  .strict();
+export interface CoreErrorDataDto extends z.infer<typeof CoreErrorDataSchema> {}
 
 export const AgentInfoSchema = z
   .object({

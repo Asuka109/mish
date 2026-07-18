@@ -1,28 +1,35 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
+    sync::Arc,
 };
 
 use futures_util::{SinkExt, StreamExt};
-use mish_agent::{AgentConfig, CoreConfig, start_agent};
+use mish_agent::{
+    DesktopSidecar, DesktopSidecarConfig, LoopbackServerConfig, start_loopback_server,
+};
+use mish_runtime::MishRuntime;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const TOKEN: &str = "test-token-123456789";
 const ORIGIN: &str = "http://mish.test";
 
-fn config(core: CoreConfig) -> AgentConfig {
-    AgentConfig {
+fn config() -> LoopbackServerConfig {
+    LoopbackServerConfig {
         allowed_origins: vec![ORIGIN.into()],
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
-        core,
         max_message_bytes: 1_048_576,
     }
 }
 
-fn no_core() -> CoreConfig {
-    CoreConfig {
+fn runtime(config: DesktopSidecarConfig) -> MishRuntime {
+    MishRuntime::new(Arc::new(DesktopSidecar::new(config)))
+}
+
+fn no_core() -> DesktopSidecarConfig {
+    DesktopSidecarConfig {
         binary: None,
         config_directory: None,
         config_file: None,
@@ -73,7 +80,9 @@ async fn authenticate(
 
 #[tokio::test]
 async fn rejects_unauthenticated_and_malformed_requests() {
-    let agent = start_agent(config(no_core())).await.unwrap();
+    let agent = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
     let mut ws = socket(agent.address).await;
 
     let unauthenticated = request(
@@ -94,7 +103,9 @@ async fn rejects_unauthenticated_and_malformed_requests() {
 
 #[tokio::test]
 async fn authenticates_and_serves_contract_compatible_status() {
-    let agent = start_agent(config(no_core())).await.unwrap();
+    let agent = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
     let mut ws = socket(agent.address).await;
     authenticate(&mut ws).await;
 
@@ -129,7 +140,9 @@ async fn authenticates_and_serves_contract_compatible_status() {
 
 #[tokio::test]
 async fn rejects_an_untrusted_websocket_origin() {
-    let agent = start_agent(config(no_core())).await.unwrap();
+    let agent = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
     let mut request = format!("ws://{}/rpc", agent.address)
         .into_client_request()
         .unwrap();
@@ -145,11 +158,14 @@ async fn rejects_an_untrusted_websocket_origin() {
 async fn manages_an_explicit_sidecar_and_stops_it_during_shutdown() {
     let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-mihomo.sh");
     let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let agent = start_agent(config(CoreConfig {
-        binary: Some(binary),
-        config_directory: Some(directory),
-        config_file: None,
-    }))
+    let agent = start_loopback_server(
+        config(),
+        runtime(DesktopSidecarConfig {
+            binary: Some(binary),
+            config_directory: Some(directory),
+            config_file: None,
+        }),
+    )
     .await
     .unwrap();
     let mut ws = socket(agent.address).await;
@@ -196,9 +212,9 @@ async fn manages_an_explicit_sidecar_and_stops_it_during_shutdown() {
 
 #[tokio::test]
 async fn refuses_non_loopback_binding() {
-    let mut unsafe_config = config(no_core());
+    let mut unsafe_config = config();
     unsafe_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
-    let error = match start_agent(unsafe_config).await {
+    let error = match start_loopback_server(unsafe_config, runtime(no_core())).await {
         Ok(agent) => {
             agent.shutdown().await;
             panic!("unsafe binding was accepted")

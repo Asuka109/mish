@@ -548,12 +548,23 @@ dependencies = [
  "axum",
  "clap",
  "futures-util",
+ "mish-runtime",
  "nix",
  "serde",
  "serde_json",
  "subtle",
  "tokio",
  "tokio-tungstenite 0.30.0",
+]
+
+[[package]]
+name = "mish-runtime"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

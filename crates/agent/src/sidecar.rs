@@ -1,36 +1,19 @@
 use std::{path::PathBuf, process::Stdio, sync::Arc, time::Duration};
 
-use serde::Serialize;
+use futures_util::future::BoxFuture;
 use tokio::{
     process::{Child, Command},
     sync::Mutex,
     time::timeout,
 };
 
+use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus};
+
 #[derive(Clone, Debug)]
-pub struct CoreConfig {
+pub struct DesktopSidecarConfig {
     pub binary: Option<PathBuf>,
     pub config_directory: Option<PathBuf>,
     pub config_file: Option<PathBuf>,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CorePhase {
-    Stopped,
-    Starting,
-    Running,
-    Stopping,
-    Failed,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CoreStatus {
-    pub error: Option<String>,
-    pub phase: CorePhase,
-    pub pid: Option<u32>,
-    pub version: Option<String>,
 }
 
 struct Inner {
@@ -39,13 +22,13 @@ struct Inner {
 }
 
 #[derive(Clone)]
-pub struct CoreManager {
-    config: CoreConfig,
+pub struct DesktopSidecar {
+    config: DesktopSidecarConfig,
     inner: Arc<Mutex<Inner>>,
 }
 
-impl CoreManager {
-    pub fn new(config: CoreConfig) -> Self {
+impl DesktopSidecar {
+    pub fn new(config: DesktopSidecarConfig) -> Self {
         Self {
             config,
             inner: Arc::new(Mutex::new(Inner {
@@ -208,5 +191,36 @@ impl CoreManager {
         inner.status.pid = None;
         inner.status.error = None;
         Ok(inner.status.clone())
+    }
+}
+
+impl CoreRuntime for DesktopSidecar {
+    fn configured(&self) -> bool {
+        DesktopSidecar::configured(self)
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(DesktopSidecar::status(self))
+    }
+
+    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move {
+            if !self.configured() {
+                return Err(CoreError::unavailable(
+                    "Mihomo requires an explicit binary and configuration path",
+                ));
+            }
+            DesktopSidecar::start(self)
+                .await
+                .map_err(CoreError::start_failed)
+        })
+    }
+
+    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move {
+            DesktopSidecar::stop(self)
+                .await
+                .map_err(CoreError::stop_failed)
+        })
     }
 }

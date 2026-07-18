@@ -116,7 +116,7 @@ export function StatusPage() {
             {error}
           </p>
         ) : null}
-        {snapshot.adapterKind === "rpc" && connection.stale ? (
+        {snapshot.adapterKind !== "fixture" && connection.stale ? (
           <p className="fixture-error" role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>

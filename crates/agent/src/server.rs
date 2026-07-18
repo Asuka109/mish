@@ -11,24 +11,17 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use mish_runtime::MishRuntime;
 use serde_json::json;
-use tokio::{
-    net::TcpListener,
-    sync::{broadcast, oneshot},
-    task::JoinHandle,
-};
+use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
-use crate::{
-    protocol::{ProtocolState, serve_socket},
-    sidecar::{CoreConfig, CoreManager},
-};
+use crate::protocol::{ProtocolState, serve_socket};
 
 #[derive(Clone)]
-pub struct AgentConfig {
+pub struct LoopbackServerConfig {
     pub allowed_origins: Vec<String>,
     pub auth_token: String,
     pub bind: SocketAddr,
-    pub core: CoreConfig,
     pub max_message_bytes: usize,
 }
 
@@ -39,16 +32,16 @@ struct HttpState {
     max_message_bytes: usize,
 }
 
-pub struct AgentHandle {
+pub struct LoopbackServerHandle {
     pub address: SocketAddr,
     join: JoinHandle<()>,
     shutdown: Option<oneshot::Sender<()>>,
-    core: CoreManager,
+    runtime: MishRuntime,
 }
 
-impl AgentHandle {
+impl LoopbackServerHandle {
     pub async fn shutdown(mut self) {
-        let _ = self.core.stop().await;
+        let _ = self.runtime.stop_core().await;
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -56,7 +49,10 @@ impl AgentHandle {
     }
 }
 
-pub async fn start_agent(config: AgentConfig) -> Result<AgentHandle, String> {
+pub async fn start_loopback_server(
+    config: LoopbackServerConfig,
+    runtime: MishRuntime,
+) -> Result<LoopbackServerHandle, String> {
     if !config.bind.ip().is_loopback() {
         return Err("The Mish agent may only bind to a loopback address".into());
     }
@@ -81,15 +77,12 @@ pub async fn start_agent(config: AgentConfig) -> Result<AgentHandle, String> {
     } else {
         config.allowed_origins.into_iter().collect()
     };
-    let core = CoreManager::new(config.core);
-    let (updates, _) = broadcast::channel(32);
     let state = Arc::new(HttpState {
         allowed_hosts,
         allowed_origins,
         protocol: ProtocolState {
             auth_token: config.auth_token,
-            core: core.clone(),
-            updates,
+            runtime: runtime.clone(),
         },
         max_message_bytes: config.max_message_bytes,
     });
@@ -108,11 +101,11 @@ pub async fn start_agent(config: AgentConfig) -> Result<AgentHandle, String> {
         })
         .await;
     });
-    Ok(AgentHandle {
+    Ok(LoopbackServerHandle {
         address,
         join,
         shutdown: Some(shutdown_tx),
-        core,
+        runtime,
     })
 }
 
