@@ -127,17 +127,20 @@ not start Mihomo automatically.
 
 `crates/mihomo-controller` implements a transport-neutral, read-only client for
 the pinned Mihomo Controller surface. It validates bounded unary and streaming
-responses but is not yet composed into the desktop bridge, Rust runtime, RPC,
-or product adapters. See
+responses. The shared desktop bootstrap can compose an explicit loopback
+Controller through `ControllerStatusSource`; the Tauri shell deliberately does
+not supply Controller configuration until core and profile activation are
+composed. See
 [`mihomo-controller-integration.md`](mihomo-controller-integration.md) for the
 process boundaries, data flow, terminology, and remaining mapping gaps.
 
 The current Status snapshot from Rust is deliberately sparse and reports
 System Proxy and TUN as unavailable. Commands not backed by real controller or
 platform reconciliation return a typed capability error instead of fake
-success. The RPC Status client therefore advertises no supported mutations, and
-the shared UI presents its profile, routing, group, service, System Proxy, and
-TUN controls as unavailable rather than runnable. Reconciling Controller
+success. The RPC Status client therefore advertises no supported mutations.
+Profile import, persistence, refresh, and inactive deletion use the separate
+Profile application service; activation, routing, group, service, System Proxy,
+and TUN controls remain unavailable rather than runnable. Reconciling Controller
 observations into richer product snapshots remains follow-up work.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go

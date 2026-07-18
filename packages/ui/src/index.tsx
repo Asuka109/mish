@@ -45,7 +45,7 @@ export function Button({
 }
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
-  variant?: "default" | "outline";
+  variant?: "default" | "outline" | "success" | "warning" | "destructive";
 }
 
 export function Badge({ className, variant = "default", ...props }: BadgeProps) {
@@ -169,6 +169,14 @@ export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 export const DialogTitle = DialogPrimitive.Title;
 export const DialogDescription = DialogPrimitive.Description;
+
+export function DialogHeader(props: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} className={cn("dialog-header", props.className)} />;
+}
+
+export function DialogFooter(props: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} className={cn("dialog-footer", props.className)} />;
+}
 
 export interface DialogContentProps extends ComponentProps<typeof DialogPrimitive.Popup> {
   closeLabel?: string;
@@ -362,6 +370,10 @@ export function EmptyTitle(props: HTMLAttributes<HTMLDivElement>) {
 
 export function EmptyDescription(props: HTMLAttributes<HTMLDivElement>) {
   return <div {...props} className={cn("ui-empty-description", props.className)} />;
+}
+
+export function Spinner(props: HTMLAttributes<HTMLSpanElement>) {
+  return <span aria-hidden="true" {...props} className={cn("ui-spinner", props.className)} />;
 }
 
 export function Command({ className, ...props }: ComponentProps<typeof CommandPrimitive>) {

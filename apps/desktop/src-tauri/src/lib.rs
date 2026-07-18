@@ -1,14 +1,17 @@
 use std::{
     fmt::Write as _,
+    io,
     net::{Ipv4Addr, SocketAddr},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig,
-    compose_desktop_runtime, start_loopback_server,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService, LoopbackServerConfig,
+    LoopbackServerHandle, ReqwestHttpsSourceReader, compose_desktop_runtime, start_loopback_server,
 };
+use mish_profile::{ProfilePreview, ProfileServiceError};
 use serde::Serialize;
+use tauri::Manager;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
@@ -20,13 +23,81 @@ struct RuntimeBootstrap {
     rpc_url: String,
 }
 
+#[derive(Clone)]
+struct BridgeState(Arc<Mutex<Option<LoopbackServerHandle>>>);
+
+#[derive(Clone)]
+struct ProfileState(Arc<DesktopProfileService>);
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileCommandError {
+    code: &'static str,
+    message: &'static str,
+}
+
 #[tauri::command]
 fn runtime_bootstrap(state: tauri::State<'_, RuntimeBootstrap>) -> RuntimeBootstrap {
     state.inner().clone()
 }
 
+#[tauri::command]
+async fn profile_preflight_local(
+    state: tauri::State<'_, ProfileState>,
+    label: Option<String>,
+) -> Result<Option<ProfilePreview>, ProfileCommandError> {
+    let selected = tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .add_filter("Mihomo profile", &["yaml", "yml"])
+            .set_title("Choose a Mihomo profile")
+            .pick_file()
+    })
+    .await
+    .map_err(|_| ProfileCommandError {
+        code: "dialog-unavailable",
+        message: "The native file picker is unavailable",
+    })?;
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+
+    state
+        .0
+        .preflight_local(path, label)
+        .await
+        .map(Some)
+        .map_err(profile_command_error)
+}
+
 pub fn run() -> Result<i32, String> {
-    let auth_token = generate_auth_token()?;
+    let app = tauri::Builder::default()
+        .setup(initialize)
+        .invoke_handler(tauri::generate_handler![
+            runtime_bootstrap,
+            profile_preflight_local
+        ])
+        .build(tauri::generate_context!())
+        .map_err(|error| error.to_string())?;
+    let bridge_state = app.state::<BridgeState>().inner().clone();
+    let exit_code = app.run_return(|_, _| {});
+    let bridge = bridge_state
+        .0
+        .lock()
+        .map_err(|_| "desktop bridge state is unavailable")?
+        .take();
+    if let Some(bridge) = bridge {
+        tauri::async_runtime::block_on(bridge.shutdown());
+    }
+    Ok(exit_code)
+}
+
+fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let auth_token = generate_auth_token().map_err(io::Error::other)?;
+    let profile_root = app.path().app_data_dir()?;
+    let profile_service = Arc::new(
+        ReqwestHttpsSourceReader::profile_service(profile_root)
+            .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
+    );
     let bridge = tauri::async_runtime::block_on(async {
         let runtime = compose_desktop_runtime(
             Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
@@ -37,30 +108,48 @@ pub fn run() -> Result<i32, String> {
             None,
         )
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| io::Error::other(error.to_string()))?;
         start_loopback_server(
             LoopbackServerConfig {
                 allowed_origins: allowed_origins(tauri::is_dev()),
                 auth_token: auth_token.clone(),
                 bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
                 max_message_bytes: 1_048_576,
+                profile_service: Some(profile_service.clone()),
             },
             runtime,
         )
         .await
+        .map_err(io::Error::other)
     })?;
-    let bootstrap = RuntimeBootstrap {
+    app.manage(RuntimeBootstrap {
         auth_token,
         rpc_url: format!("ws://{}/rpc", bridge.address),
-    };
-    let app = tauri::Builder::default()
-        .manage(bootstrap)
-        .invoke_handler(tauri::generate_handler![runtime_bootstrap])
-        .build(tauri::generate_context!())
-        .map_err(|error| error.to_string())?;
-    let exit_code = app.run_return(|_, _| {});
-    tauri::async_runtime::block_on(bridge.shutdown());
-    Ok(exit_code)
+    });
+    app.manage(ProfileState(profile_service));
+    app.manage(BridgeState(Arc::new(Mutex::new(Some(bridge)))));
+    Ok(())
+}
+
+fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
+    match error {
+        ProfileServiceError::Import(_) => ProfileCommandError {
+            code: "validation-failed",
+            message: "Profile validation failed",
+        },
+        ProfileServiceError::Repository(_) => ProfileCommandError {
+            code: "storage-failed",
+            message: "Profile storage operation failed",
+        },
+        ProfileServiceError::PreviewNotFound => ProfileCommandError {
+            code: "preview-not-found",
+            message: "Profile preflight was not found",
+        },
+        ProfileServiceError::ActiveProfileDeletionDisabled => ProfileCommandError {
+            code: "activation-required",
+            message: "Active profiles cannot be deleted until transactional activation is available",
+        },
+    }
 }
 
 fn allowed_origins(is_dev: bool) -> Vec<String> {

@@ -68,6 +68,13 @@ current bridge does not implement the mutation. Group- and node-scoped latency
 commands remain outside this slice; the page displays and sorts confirmed
 latency observations without simulating a probe.
 
+The production Profiles destination now lists the private app-data repository,
+preflights HTTPS and user-selected local YAML sources, shows a redacted preview,
+saves valid previews, refreshes persisted sources manually, and deletes inactive
+profiles after confirmation. Browser mode remains explicitly fixture-only and
+does not simulate local-file import. Activation and active-profile deletion stay
+disabled until the transactional core-activation slice exists.
+
 ## Requirements: Profiles
 
 | ID | Priority | Requirement | Acceptance criteria |

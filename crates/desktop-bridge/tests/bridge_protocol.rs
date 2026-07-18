@@ -1,4 +1,5 @@
 use std::{
+    env, fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     sync::Arc,
@@ -6,7 +7,8 @@ use std::{
 
 use futures_util::{SinkExt, StreamExt};
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, start_loopback_server,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig,
+    ReqwestHttpsSourceReader, start_loopback_server,
 };
 use mish_runtime::MishRuntime;
 use serde_json::{Value, json};
@@ -22,6 +24,7 @@ fn config() -> LoopbackServerConfig {
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         max_message_bytes: 1_048_576,
+        profile_service: None,
     }
 }
 
@@ -138,6 +141,66 @@ async fn authenticates_and_serves_contract_compatible_status() {
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);
     bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_errors() {
+    let root = env::temp_dir().join(format!("mish-bridge-profiles-{}", uuid::Uuid::new_v4()));
+    let mut bridge_config = config();
+    bridge_config.profile_service = Some(Arc::new(
+        ReqwestHttpsSourceReader::profile_service(root.clone()).unwrap(),
+    ));
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let snapshot = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"profiles.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(snapshot["result"]["adapterKind"], "rpc");
+    assert_eq!(
+        snapshot["result"]["capabilities"]["activation"],
+        "unavailable"
+    );
+    assert_eq!(
+        snapshot["result"]["capabilities"]["localFileImport"],
+        "permission-required"
+    );
+    assert_eq!(snapshot["result"]["profiles"], json!([]));
+
+    const PRIVATE_PATH: &str = "/private/hidden/profile.yaml";
+    let local_rpc = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"profiles.preflightLocal",
+            "params":{"path":PRIVATE_PATH}
+        }),
+    )
+    .await;
+    assert_eq!(local_rpc["error"]["code"], -32601);
+    assert!(!local_rpc.to_string().contains(PRIVATE_PATH));
+
+    const RAW_URL: &str =
+        "https://user:private-password@profiles.example/config.yaml?token=private-token";
+    let invalid_remote = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"profiles.preflightHttps",
+            "params":{"url":RAW_URL}
+        }),
+    )
+    .await;
+    assert_eq!(invalid_remote["error"]["code"], -32040);
+    let error_json = invalid_remote.to_string();
+    assert!(!error_json.contains("private-password"));
+    assert!(!error_json.contains("private-token"));
+
+    bridge.shutdown().await;
+    let _ = fs::remove_dir_all(root);
 }
 
 #[tokio::test]

@@ -122,9 +122,23 @@ Corrupt JSON, missing files, fingerprint mismatches, schema mismatches, unsafe
 paths, and atomic write failures return typed errors without echoing stored
 contents.
 
+## Application service
+
+`ProfileService` owns the P0 operational flow over injected source readers and
+the repository. It lists display-safe metadata, holds preflight previews only
+as short-lived opaque in-memory entries, persists a selected preview, refreshes
+an existing source, and deletes inactive profiles. Failed refresh stores the
+safe failed attempt while retaining the last known valid revision and artifact.
+
+The desktop bridge exposes only HTTPS preflight and persisted-profile commands
+through authenticated RPC. Local-file preflight remains outside ordinary RPC
+and is composed through the user-mediated Tauri picker boundary. Neither the
+service view nor its errors expose raw URLs, source YAML, credentials, or full
+local paths.
+
 ## Future activation transaction seam
 
-Activation remains intentionally outside this slice. A future application
+Activation remains intentionally outside this slice. A future activation
 service will accept a persisted, valid artifact and its policy classifications,
 then:
 

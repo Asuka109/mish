@@ -6,15 +6,33 @@ const token = "0123456789abcdef".repeat(4);
 describe("desktop runtime bootstrap", () => {
   it("leaves ordinary browser startup fixture-backed and does not invoke IPC", async () => {
     const invokeBootstrap = vi.fn();
+    const invokeLocalProfilePreflight = vi.fn();
     const startup = await resolveStartupStatusClient({
       invokeBootstrap,
+      invokeLocalProfilePreflight,
       isDesktop: () => false,
       openWebSocket: vi.fn(),
     });
 
     expect(startup.client).toBeUndefined();
+    expect(startup.profileClient).toBeUndefined();
     expect(startup.runtime).toBe("browser");
     expect(invokeBootstrap).not.toHaveBeenCalled();
+    expect(invokeLocalProfilePreflight).not.toHaveBeenCalled();
+  });
+
+  it("routes local profile preflight only through the injected native boundary", async () => {
+    const invokeLocalProfilePreflight = vi.fn(async () => null);
+    const startup = await resolveStartupStatusClient({
+      invokeBootstrap: async () => ({ authToken: token, rpcUrl: "ws://127.0.0.1:43123/rpc" }),
+      invokeLocalProfilePreflight,
+      isDesktop: () => true,
+      openWebSocket: vi.fn(),
+    });
+
+    await expect(startup.profileClient?.preflightLocal("Local profile")).resolves.toBeNull();
+    expect(invokeLocalProfilePreflight).toHaveBeenCalledWith("Local profile");
+    startup.dispose();
   });
 
   it("accepts only an uncredentialed loopback WebSocket endpoint", () => {
@@ -48,6 +66,7 @@ describe("desktop runtime bootstrap", () => {
     const openWebSocket = vi.fn((_url: string) => transport as unknown as WebSocket);
     const startup = await resolveStartupStatusClient({
       invokeBootstrap: async () => ({ authToken: token, rpcUrl: "ws://127.0.0.1:43123/rpc" }),
+      invokeLocalProfilePreflight: vi.fn(),
       isDesktop: () => true,
       openWebSocket,
     });

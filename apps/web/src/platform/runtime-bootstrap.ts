@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { statusRpcMethods, type StatusClient } from "@mish/contracts";
+import { mishRpcMethods, type ProfileClient, type StatusClient } from "@mish/contracts";
 import { RpcClient } from "@mish/rpc-client";
+import { RpcProfileClient } from "../data/rpc-profile-client";
 import { RpcStatusClient } from "../data/rpc-status-client";
 
 interface RuntimeBootstrapPayload {
@@ -10,6 +11,7 @@ interface RuntimeBootstrapPayload {
 
 interface BootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
+  invokeLocalProfilePreflight(label?: string): Promise<unknown>;
   isDesktop(): boolean;
   openWebSocket(url: string): WebSocket;
 }
@@ -17,11 +19,13 @@ interface BootstrapDependencies {
 export interface StartupStatusClient {
   client?: StatusClient;
   dispose(): void;
+  profileClient?: ProfileClient;
   runtime: "browser" | "desktop";
 }
 
 const defaultDependencies: BootstrapDependencies = {
   invokeBootstrap: () => invoke("runtime_bootstrap"),
+  invokeLocalProfilePreflight: (label) => invoke("profile_preflight_local", { label }),
   isDesktop: isTauri,
   openWebSocket: (url) => new WebSocket(url),
 };
@@ -38,11 +42,12 @@ export async function resolveStartupStatusClient(
       clientVersion: "bootstrap-v1",
       token: bootstrap.authToken,
     }),
-    methods: statusRpcMethods,
+    methods: mishRpcMethods,
     transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
   });
   const client = new RpcStatusClient(rpc);
-  return { client, dispose: () => client.dispose(), runtime: "desktop" };
+  const profileClient = new RpcProfileClient(rpc, dependencies.invokeLocalProfilePreflight);
+  return { client, dispose: () => client.dispose(), profileClient, runtime: "desktop" };
 }
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {

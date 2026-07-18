@@ -1,6 +1,7 @@
 mod controller_source;
 mod controller_status;
 mod managed_process;
+mod profiles;
 mod protocol;
 mod server;
 
@@ -12,6 +13,7 @@ pub use controller_status::{
     StatusRetentionPolicy,
 };
 pub use managed_process::{DesktopMihomoProcess, DesktopMihomoProcessConfig};
+pub use profiles::{DesktopProfileService, ReqwestHttpsSourceReader};
 pub use server::{LoopbackServerConfig, LoopbackServerHandle, start_loopback_server};
 
 use std::sync::Arc;

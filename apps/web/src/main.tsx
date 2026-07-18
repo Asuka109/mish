@@ -6,6 +6,7 @@ import { TooltipProvider } from "@mish/ui";
 import { AppRoutes } from "./app";
 import { AppearanceProvider, useAppearance } from "./appearance";
 import { ProductProvider } from "./data/product-provider";
+import { ProfileProvider } from "./data/profile-provider";
 import { StartupFailure } from "./components/startup-failure";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
@@ -37,10 +38,12 @@ async function startApplication() {
           <TypesafeI18n locale={initialLocale}>
             <BrowserRouter>
               <ProductProvider client={startup.client}>
-                <TooltipProvider delay={500}>
-                  <AppRoutes />
-                  <AppearanceToaster />
-                </TooltipProvider>
+                <ProfileProvider client={startup.profileClient}>
+                  <TooltipProvider delay={500}>
+                    <AppRoutes />
+                    <AppearanceToaster />
+                  </TooltipProvider>
+                </ProfileProvider>
               </ProductProvider>
             </BrowserRouter>
           </TypesafeI18n>

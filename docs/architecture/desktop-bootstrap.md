@@ -4,14 +4,15 @@
 
 `apps/desktop` is a thin Tauri 2 shell around the shared `apps/web` product
 entry. It embeds the Vite production output in the application binary, starts
-the existing Rust loopback desktop bridge in-process, and exposes one narrowly scoped
-bootstrap command to the main WebView. It does not own product state, controller
-reconciliation, Mihomo lifecycle rules, System Proxy, TUN, or mobile execution.
+the existing Rust loopback desktop bridge in-process, and exposes narrowly
+scoped bootstrap and local-profile-picker commands to the main WebView. It does
+not own product state, controller reconciliation, Mihomo lifecycle rules,
+System Proxy, TUN, or mobile execution.
 
 An ordinary browser has no Tauri IPC surface. It continues to construct
 `FixtureStatusClient`, performs no startup request, and labels all fixture values
 and actions as demo state. The Tauri WebView alone constructs `RpcStatusClient`
-after validating its private bootstrap payload.
+and `RpcProfileClient` after validating its private bootstrap payload.
 
 ## Local resource flow
 
@@ -24,7 +25,8 @@ after validating its private bootstrap payload.
 5. During development, the shell explicitly loads `http://127.0.0.1:4173`, and
    Vite supplies the equivalent SPA fallback.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
-   token, and starts `mish-bridge` on `127.0.0.1:0`.
+   token, resolves Tauri's application-data directory, constructs the private
+   profile repository there, and starts `mish-bridge` on `127.0.0.1:0`.
 7. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body.
@@ -37,6 +39,12 @@ after validating its private bootstrap payload.
 10. When the Tauri event loop exits, the shell shuts down the in-process bridge.
     The runtime first closes and awaits any injected Status data source, then
     stops the core lifecycle, and finally closes the RPC server.
+
+Local-file profile preflight uses a separate Tauri command granted only to the
+main window. The command accepts no path from Web content: it opens the native
+file picker itself, reads only the user-selected YAML file, and returns a
+display-safe preview. Browser and fixture adapters report this operation as
+unsupported.
 
 If a later slice moves frontend hosting to the local HTTP bridge, the host must
 serve exact bundled assets, return `index.html` for unknown non-asset `GET` and
@@ -54,10 +62,11 @@ retains the bridge's message and subscription bounds. The endpoint contains no
 secret, so URL histories, access logs, referrers, and routine network diagnostics
 cannot reveal the token.
 
-Tauri's capability grants no general filesystem, shell, dialog, event, or window
-API. The production CSP permits only local bundled resources, Tauri IPC, and an
-IPv4-loopback WebSocket. It blocks frames, objects, forms, remote fonts, and
-remote frontend connections.
+Tauri's capability grants no general filesystem, shell, dialog, event, or
+window API. It grants only the generated bootstrap command and the narrow
+profile-picker command described above. The production CSP permits only local
+bundled resources, Tauri IPC, and an IPv4-loopback WebSocket. It blocks frames,
+objects, forms, remote fonts, and remote frontend connections.
 
 This boundary does not protect against compromise of the Mish process, a
 compromised system WebView, injected code already executing in the trusted main
@@ -73,10 +82,13 @@ claim that process memory is a secure enclave.
   real but sparse local state and does not start the core automatically.
 - The shared desktop composition can inject an explicit loopback Controller and
   publish read-only Controller-derived Status values. The current Tauri shell
-  deliberately supplies no Controller configuration because core launch,
-  address, secret, and profile ownership are not specified yet; it therefore
-  remains lifecycle-only and performs no discovery from system or environment
-  state.
+  deliberately supplies no Controller configuration because profile activation
+  and core configuration are not implemented; it therefore performs no
+  discovery from system or environment state.
+- The Tauri shell composes the Profile application service with private
+  application-data storage and the authenticated bridge. Profile activation and
+  active-profile deletion remain unavailable until the activation transaction
+  exists.
 - Network-changing Status commands remain unsupported.
 - The Tauri shell has no status-bar menu or native sidebar material yet.
 - Installer packaging, final icon production, entitlements, code signing,

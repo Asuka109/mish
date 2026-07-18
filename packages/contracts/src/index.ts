@@ -276,6 +276,127 @@ export const BridgeInfoSchema = z
   .strict();
 export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
 
+export const ProfileSourceTypeSchema = z.enum(["local-file", "https"]);
+export type ProfileSourceType = z.infer<typeof ProfileSourceTypeSchema>;
+
+export const ProfileValidationIssueCodeSchema = z.enum([
+  "source-formatting-not-round-tripped",
+  "unknown-keys-preserved",
+  "application-settings-overridden",
+  "platform-settings-disabled",
+  "unsafe-paths-rejected",
+  "sensitive-data-present",
+]);
+export type ProfileValidationIssueCode = z.infer<typeof ProfileValidationIssueCodeSchema>;
+
+export const ProfileAttemptOutcomeSchema = z.enum(["succeeded", "failed"]);
+export type ProfileAttemptOutcome = z.infer<typeof ProfileAttemptOutcomeSchema>;
+
+export const ProfileStatusFlagsSchema = z
+  .object({
+    active: z.boolean(),
+    error: z.boolean(),
+    stale: z.boolean(),
+    updating: z.boolean(),
+    valid: z.boolean(),
+    warning: z.boolean(),
+  })
+  .strict();
+export interface ProfileStatusFlagsDto extends z.infer<typeof ProfileStatusFlagsSchema> {}
+
+export const ProfileSourceSummarySchema = z
+  .object({ display: z.string(), sourceType: ProfileSourceTypeSchema })
+  .strict();
+export interface ProfileSourceSummaryDto extends z.infer<typeof ProfileSourceSummarySchema> {}
+
+export const ProfileAttemptSchema = z
+  .object({ attemptedAt: NonNegativeIntegerSchema, outcome: ProfileAttemptOutcomeSchema })
+  .strict();
+export interface ProfileAttemptDto extends z.infer<typeof ProfileAttemptSchema> {}
+
+export const ProfileListItemSchema = z
+  .object({
+    id: IdentifierSchema,
+    label: z.string(),
+    lastAttempt: ProfileAttemptSchema.nullable(),
+    lastKnownValid: z.boolean(),
+    lastSuccessAt: NonNegativeIntegerSchema.nullable(),
+    source: ProfileSourceSummarySchema,
+    status: ProfileStatusFlagsSchema,
+    warningCodes: z.array(ProfileValidationIssueCodeSchema),
+  })
+  .strict();
+export interface ProfileListItemDto extends z.infer<typeof ProfileListItemSchema> {}
+
+export const ProfileCapabilityAvailabilitySchema = z.enum([
+  "fixture-only",
+  "supported",
+  "permission-required",
+  "unavailable",
+]);
+export type ProfileCapabilityAvailability = z.infer<typeof ProfileCapabilityAvailabilitySchema>;
+
+export const ProfileCapabilitiesSchema = z
+  .object({
+    activation: ProfileCapabilityAvailabilitySchema,
+    deletion: ProfileCapabilityAvailabilitySchema,
+    httpsImport: ProfileCapabilityAvailabilitySchema,
+    localFileImport: ProfileCapabilityAvailabilitySchema,
+    refresh: ProfileCapabilityAvailabilitySchema,
+    save: ProfileCapabilityAvailabilitySchema,
+  })
+  .strict();
+export interface ProfileCapabilitiesDto extends z.infer<typeof ProfileCapabilitiesSchema> {}
+
+export const ProfileSnapshotSchema = z
+  .object({
+    adapterKind: z.enum(["fixture", "rpc", "native"]),
+    capabilities: ProfileCapabilitiesSchema,
+    profiles: z.array(ProfileListItemSchema),
+  })
+  .strict();
+export interface ProfileSnapshotDto extends z.infer<typeof ProfileSnapshotSchema> {}
+
+export const RpcProfileSnapshotSchema = ProfileSnapshotSchema.extend({
+  adapterKind: z.literal("rpc"),
+});
+
+export const ProfileSensitiveDataNoticeSchema = z.enum([
+  "none",
+  "source-url-contains-sensitive-data",
+  "configuration-contains-sensitive-data",
+  "source-and-configuration-contain-sensitive-data",
+]);
+export type ProfileSensitiveDataNotice = z.infer<typeof ProfileSensitiveDataNoticeSchema>;
+
+export const ProfilePreviewSchema = z
+  .object({
+    classificationCounts: z
+      .object({
+        disabled: NonNegativeIntegerSchema,
+        overridden: NonNegativeIntegerSchema,
+        preserved: NonNegativeIntegerSchema,
+        rejected: NonNegativeIntegerSchema,
+      })
+      .strict(),
+    groupCount: NonNegativeIntegerSchema,
+    label: z.string(),
+    previewId: IdentifierSchema,
+    proxyCount: NonNegativeIntegerSchema,
+    ruleCount: NonNegativeIntegerSchema,
+    sensitiveDataNotice: ProfileSensitiveDataNoticeSchema,
+    sourceType: ProfileSourceTypeSchema,
+    warningCodes: z.array(ProfileValidationIssueCodeSchema),
+  })
+  .strict();
+export interface ProfilePreviewDto extends z.infer<typeof ProfilePreviewSchema> {}
+
+export const ProfilePreflightHttpsCommandSchema = z
+  .object({ label: z.string().optional(), url: z.string().min(1).max(8192) })
+  .strict();
+export const ProfileSaveCommandSchema = z.object({ previewId: IdentifierSchema }).strict();
+export const ProfileIdCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
+
 export const bridgeRpcMethods = {
   "bridge.getInfo": { params: EmptyCommandSchema, result: BridgeInfoSchema },
   "core.getStatus": { params: EmptyCommandSchema, result: CoreStatusSchema },
@@ -324,8 +445,20 @@ export const statusRpcMethods = {
   },
 } as const;
 
+export const profileRpcMethods = {
+  "profiles.delete": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.getSnapshot": { params: EmptyCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.preflightHttps": {
+    params: ProfilePreflightHttpsCommandSchema,
+    result: ProfilePreviewSchema,
+  },
+  "profiles.refresh": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.save": { params: ProfileSaveCommandSchema, result: RpcProfileSnapshotSchema },
+} as const;
+
 export const mishRpcMethods = {
   ...bridgeRpcMethods,
+  ...profileRpcMethods,
   ...statusRpcMethods,
 } as const;
 
@@ -403,4 +536,44 @@ export interface StatusClient {
     draft: ServiceMonitorDraft,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
+}
+
+export type ProfileClientErrorCode =
+  | "cancelled"
+  | "conflict"
+  | "disconnected"
+  | "invalid-request"
+  | "not-found"
+  | "protocol"
+  | "remote"
+  | "unsupported"
+  | "unknown"
+  | "validation";
+
+export class ProfileClientError extends Error {
+  readonly code: ProfileClientErrorCode;
+  readonly retryable: boolean;
+
+  constructor(code: ProfileClientErrorCode, message: string, retryable = false) {
+    super(message);
+    this.name = "ProfileClientError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+export interface ProfileClient {
+  deleteProfile(profileId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  getSnapshot(options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  preflightHttps(
+    url: string,
+    label?: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfilePreviewDto>;
+  preflightLocal(label?: string): Promise<ProfilePreviewDto | null>;
+  refreshProfile(
+    profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto>;
+  savePreview(previewId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
 }

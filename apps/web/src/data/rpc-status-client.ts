@@ -1,6 +1,6 @@
 import {
   StatusClientError,
-  statusRpcMethods,
+  mishRpcMethods,
   statusRpcNotifications,
   type CaptureSelectionDto,
   type RoutingMode,
@@ -24,7 +24,7 @@ import {
   type RpcRequestOptions,
 } from "@mish/rpc-client";
 
-export type StatusRpcClient = RpcClient<typeof statusRpcMethods>;
+export type StatusRpcClient = RpcClient<typeof mishRpcMethods>;
 
 export class RpcStatusClient implements StatusClient {
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
