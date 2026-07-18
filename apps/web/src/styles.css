@@ -51,7 +51,7 @@ input:focus-visible,
 a:focus-visible,
 [role="menuitem"]:focus-visible,
 [role="option"]:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-focus-accent) 72%, white);
+  outline: 2px solid color-mix(in srgb, var(--color-focus-accent) 72%, var(--color-canvas));
   outline-offset: 2px;
 }
 
@@ -170,7 +170,7 @@ h2 {
 }
 
 .nav-item:hover {
-  background: rgb(255 255 255 / 55%);
+  background: color-mix(in srgb, var(--color-canvas) 55%, transparent);
   color: var(--color-body);
 }
 
@@ -352,6 +352,20 @@ h2 {
 .toolbar-button svg {
   width: 15px;
   height: 15px;
+}
+
+.appearance-menu-trigger {
+  width: 34px;
+  padding: 0;
+  gap: 3px;
+}
+
+.appearance-menu-trigger svg:last-child {
+  width: 11px;
+}
+
+.appearance-menu {
+  min-width: 156px;
 }
 
 .demo-data-badge {
@@ -883,6 +897,11 @@ h2 {
   color: oklch(0.61 0.2 245);
 }
 
+:root[data-theme="dark"] .service-monitor-row[data-service-icon="github"] .service-monitor-icon,
+:root[data-theme="dark"] .service-monitor-row[data-service-icon="apple"] .service-monitor-icon {
+  color: oklch(0.82 0.02 260);
+}
+
 .service-monitor-latency,
 .proxy-picker-latency {
   color: var(--color-success-text);
@@ -979,6 +998,10 @@ h2 {
   inset: 0;
   background: rgb(17 24 39 / 18%);
   backdrop-filter: blur(2px);
+}
+
+:root[data-theme="dark"] .dialog-backdrop {
+  background: rgb(0 0 0 / 45%);
 }
 
 .dialog-content {

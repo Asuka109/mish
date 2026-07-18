@@ -214,6 +214,14 @@ with text. The sidebar and exposed app-shell margin share the lighter
 surface-soft neutral rather than splitting into two nearby gray fields. Avoid a
 vertical color seam at the workspace edge.
 
+The application supports light and dark appearances plus a system-following
+preference. Both appearances preserve the same two-layer hierarchy: the sidebar
+and window base remain quieter than the opaque workspace. Dark appearance uses
+near-black neutral surfaces rather than pure black, raises hairline contrast just
+enough to preserve grouping, and lightens semantic status colors for legibility.
+Appearance changes must update native form controls and the browser theme color,
+and the system preference must react to operating-system changes without a reload.
+
 ## Typography
 
 Use the macOS system font stack. Keep the visible scale to 13px metadata, 14px

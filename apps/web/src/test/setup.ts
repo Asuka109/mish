@@ -5,6 +5,8 @@ import { afterEach, vi } from "vitest";
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.style.removeProperty("color-scheme");
 });
 
 Object.defineProperty(window, "matchMedia", {

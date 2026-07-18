@@ -15,6 +15,13 @@ const zh = {
     label: "语言",
     simplifiedChinese: "简体中文",
   },
+  appearance: {
+    current: "切换主题。当前主题：{appearance}",
+    dark: "深色",
+    label: "主题",
+    light: "浅色",
+    system: "跟随系统",
+  },
   navigation: {
     events: "事件",
     primary: "主导航",
