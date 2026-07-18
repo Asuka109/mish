@@ -134,9 +134,35 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"systemProxy": true, "tun": false})
     );
 
+    let traffic = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":4, "method":"traffic.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(traffic["result"]["adapterKind"], "rpc");
+    assert_eq!(traffic["result"]["phase"], "unavailable");
+    assert_eq!(traffic["result"]["activeConnections"], json!([]));
+    assert_eq!(traffic["result"]["rules"], json!([]));
+
+    let subscription = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":5, "method":"traffic.subscribe", "params":{}}),
+    )
+    .await;
+    assert_eq!(subscription["result"]["snapshot"]["phase"], "unavailable");
+    let subscription_id = subscription["result"]["subscriptionId"].as_str().unwrap();
+    assert!(subscription_id.starts_with("traffic-"));
+
+    let invalid = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":6, "method":"traffic.getSnapshot", "params":{"extra":true}}),
+    )
+    .await;
+    assert_eq!(invalid["error"]["code"], -32602);
+
     let unavailable = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":4, "method":"core.start", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":7, "method":"core.start", "params":{}}),
     )
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);
@@ -235,6 +261,23 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
         )
         .await;
         assert_eq!(response["error"]["code"], -32020);
+        assert!(response.get("result").is_none());
+    }
+
+    for (id, method, params) in [
+        (
+            7,
+            "traffic.closeConnection",
+            json!({"connectionId": "fixture"}),
+        ),
+        (8, "traffic.closeAll", json!({})),
+    ] {
+        let response = request(
+            &mut ws,
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], -32601);
         assert!(response.get("result").is_none());
     }
 

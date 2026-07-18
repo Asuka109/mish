@@ -208,7 +208,7 @@ function mapConnectionState(state: RpcConnectionState): StatusConnectionState {
   };
 }
 
-function mapRpcError(error: unknown) {
+export function mapRpcError(error: unknown) {
   if (error instanceof RpcCancelledError) {
     return new StatusClientError("cancelled", error.message);
   }

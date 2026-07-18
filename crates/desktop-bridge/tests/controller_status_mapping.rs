@@ -5,7 +5,7 @@ use mish_bridge::{
 use mish_mihomo_controller::{
     ConnectionSnapshot, MemorySnapshot, ProxyCatalog, RuleList, RuntimeConfig, TrafficSnapshot,
 };
-use mish_runtime::{CorePhase, CoreStatus, StatusAdapterKind};
+use mish_runtime::{CorePhase, CoreStatus, StatusAdapterKind, TrafficDataPhase};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
@@ -256,6 +256,24 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
     assert_eq!(snapshot.metrics.active_connections, 2);
     assert_eq!(snapshot.metrics.effective_rules, 1);
     assert_eq!(snapshot.metrics.uptime_seconds, 123);
+    let traffic = mapper.traffic_snapshot(
+        StatusAdapterKind::Rpc,
+        TrafficDataPhase::Ready,
+        7,
+        Some("controller-1".into()),
+        0,
+    );
+    assert_eq!(traffic.active_connections.len(), 2);
+    assert_eq!(traffic.active_connections[0].download_bytes, "34");
+    assert_eq!(traffic.active_connections[0].upload_bytes, "12");
+    assert_eq!(
+        traffic.active_connections[0].destination_ip.as_deref(),
+        Some("198.51.100.20")
+    );
+    assert_eq!(traffic.active_connections[0].route_chain[0], OUTER_GROUP);
+    assert_eq!(traffic.rules.len(), 2);
+    assert!(traffic.rules[0].enabled);
+    assert!(!traffic.rules[1].enabled);
     let outer_usage = snapshot
         .group_usage
         .iter()
@@ -634,4 +652,37 @@ fn requires_identity_observations_and_rejects_invalid_retention() {
             maximum: 512
         })
     ));
+}
+
+#[test]
+fn rejects_negative_connection_counters_transactionally() {
+    let mut mapper = initialized_mapper();
+    let mut invalid = connection("negative", &[DIRECT]);
+    invalid["upload"] = json!(-1);
+    let error = mapper
+        .apply(ControllerObservationBatch {
+            connections: Some(connections(vec![invalid])),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        StatusMappingError::NegativeConnectionValue {
+            connection: "negative".into(),
+            field: "upload",
+            value: -1,
+        }
+    );
+    assert!(
+        mapper
+            .traffic_snapshot(
+                StatusAdapterKind::Rpc,
+                TrafficDataPhase::Ready,
+                1,
+                Some("controller-1".into()),
+                0,
+            )
+            .active_connections
+            .is_empty()
+    );
 }

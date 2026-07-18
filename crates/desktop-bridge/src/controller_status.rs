@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use mish_mihomo_controller::{
-    ConnectionSnapshot, MemorySnapshot, ProxyCatalog, RoutingMode as ControllerRoutingMode,
-    RuleList, RuntimeConfig, TrafficSnapshot as ControllerTrafficSnapshot,
+    Connection, ConnectionSnapshot, MemorySnapshot, ProxyCatalog,
+    RoutingMode as ControllerRoutingMode, Rule, RuleList, RuntimeConfig,
+    TrafficSnapshot as ControllerTrafficSnapshot,
 };
 use mish_runtime::{
-    CaptureSelection, CoreStatus, GroupUsage, PlatformCapabilities, PolicyGroup, PolicyGroupKind,
-    ProfileSummary, ProxyNode, RoutingMode, RuntimeMetrics, RuntimeStatus,
-    STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot, TrafficSnapshot,
+    CaptureSelection, CoreStatus, EffectiveRule, GroupUsage, PlatformCapabilities, PolicyGroup,
+    PolicyGroupKind, ProfileSummary, ProxyNode, RoutingMode, RuntimeMetrics, RuntimeStatus,
+    STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot, TrafficConnection,
+    TrafficDataPhase, TrafficDataSnapshot, TrafficMatchedRule, TrafficSnapshot,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -109,6 +111,14 @@ pub enum StatusMappingError {
     InvalidRetention { field: &'static str, maximum: usize },
     #[error("Mihomo traffic field {field} must be non-negative, received {value}")]
     NegativeTrafficValue { field: &'static str, value: i64 },
+    #[error(
+        "Mihomo connection {connection:?} field {field} must be non-negative, received {value}"
+    )]
+    NegativeConnectionValue {
+        connection: String,
+        field: &'static str,
+        value: i64,
+    },
     #[error("a {observation} observation is required before producing Status")]
     MissingRequiredObservation { observation: &'static str },
     #[error("policy group {group:?} has no selected child")]
@@ -138,8 +148,8 @@ pub struct ControllerStatusMapper {
     catalog: Option<MappedCatalog>,
     traffic: TrafficSnapshot,
     memory_bytes: u64,
-    active_connections: usize,
-    effective_rules: usize,
+    active_connections: Vec<TrafficConnection>,
+    effective_rules: Vec<EffectiveRule>,
     group_counts_by_id: HashMap<String, u64>,
     seen_connection_ids: HashSet<String>,
     seen_connection_order: VecDeque<String>,
@@ -162,8 +172,8 @@ impl ControllerStatusMapper {
             catalog: None,
             traffic: TrafficSnapshot::default(),
             memory_bytes: 0,
-            active_connections: 0,
-            effective_rules: 0,
+            active_connections: Vec::new(),
+            effective_rules: Vec::new(),
             group_counts_by_id: HashMap::new(),
             seen_connection_ids: HashSet::new(),
             seen_connection_order: VecDeque::new(),
@@ -217,8 +227,12 @@ impl ControllerStatusMapper {
             groups: catalog.groups.clone(),
             group_usage,
             metrics: RuntimeMetrics {
-                active_connections: self.active_connections,
-                effective_rules: self.effective_rules,
+                active_connections: self.active_connections.len(),
+                effective_rules: self
+                    .effective_rules
+                    .iter()
+                    .filter(|rule| rule.enabled)
+                    .count(),
                 memory_bytes: self.memory_bytes,
                 uptime_seconds,
             },
@@ -239,6 +253,26 @@ impl ControllerStatusMapper {
             services: Vec::new(),
             traffic: self.traffic.clone(),
         })
+    }
+
+    pub fn traffic_snapshot(
+        &self,
+        adapter_kind: StatusAdapterKind,
+        phase: TrafficDataPhase,
+        sequence: u64,
+        session_id: Option<String>,
+        reconnect_count: u64,
+    ) -> TrafficDataSnapshot {
+        TrafficDataSnapshot {
+            active_connections: self.active_connections.clone(),
+            adapter_kind,
+            phase,
+            profile_id: self.context.profile_id.clone(),
+            reconnect_count,
+            rules: self.effective_rules.clone(),
+            sequence,
+            session_id,
+        }
     }
 
     fn apply_inner(
@@ -275,11 +309,15 @@ impl ControllerStatusMapper {
             self.memory_bytes = memory.inuse;
         }
         if let Some(rules) = observations.rules {
-            self.effective_rules = rules.effective_count();
+            self.effective_rules = rules.rules.into_iter().map(map_rule).collect();
         }
         if let Some(connections) = observations.connections {
-            self.active_connections = connections.connections.len();
             self.observe_group_usage(&connections);
+            self.active_connections = connections
+                .connections
+                .into_iter()
+                .map(map_connection)
+                .collect::<Result<_, _>>()?;
         }
         Ok(())
     }
@@ -432,6 +470,67 @@ fn scoped_identifier(kind: &str, profile_fingerprint: &str, identity: &str) -> S
 
 fn map_traffic_value(field: &'static str, value: i64) -> Result<u64, StatusMappingError> {
     u64::try_from(value).map_err(|_| StatusMappingError::NegativeTrafficValue { field, value })
+}
+
+fn map_connection(connection: Connection) -> Result<TrafficConnection, StatusMappingError> {
+    let upload_bytes = map_connection_value(&connection.id, "upload", connection.upload)?;
+    let download_bytes = map_connection_value(&connection.id, "download", connection.download)?;
+    Ok(TrafficConnection {
+        destination_host: non_empty(connection.metadata.host),
+        destination_ip: non_empty(connection.metadata.destination_ip),
+        destination_port: connection.metadata.destination_port,
+        download_bytes,
+        id: connection.id,
+        matched_rule: TrafficMatchedRule {
+            payload: connection.rule_payload,
+            kind: connection.rule,
+        },
+        network: connection.metadata.network,
+        process_name: non_empty(connection.metadata.process),
+        process_path: non_empty(connection.metadata.process_path),
+        protocol: connection.metadata.kind,
+        provider_chain: connection.provider_chains,
+        remote_destination: non_empty(connection.metadata.remote_destination),
+        route_chain: connection.chains,
+        sniff_host: non_empty(connection.metadata.sniff_host),
+        source_ip: non_empty(connection.metadata.source_ip),
+        source_port: connection.metadata.source_port,
+        started_at: connection.start,
+        upload_bytes,
+    })
+}
+
+fn map_connection_value(
+    connection: &str,
+    field: &'static str,
+    value: i64,
+) -> Result<String, StatusMappingError> {
+    if value < 0 {
+        return Err(StatusMappingError::NegativeConnectionValue {
+            connection: connection.into(),
+            field,
+            value,
+        });
+    }
+    Ok(value.to_string())
+}
+
+fn map_rule(rule: Rule) -> EffectiveRule {
+    let enabled = !rule.extra.as_ref().is_some_and(|extra| extra.disabled);
+    EffectiveRule {
+        enabled,
+        hit_count: rule.extra.as_ref().map(|extra| extra.hit_count.to_string()),
+        last_hit_at: rule.extra.and_then(|extra| non_empty(extra.hit_at)),
+        payload: rule.payload,
+        priority: rule.index,
+        size: rule.size.to_string(),
+        target: rule.proxy,
+        kind: rule.kind,
+    }
+}
+
+fn non_empty(value: String) -> Option<String> {
+    if value.is_empty() { None } else { Some(value) }
 }
 
 fn push_bounded(series: &mut Vec<u64>, value: u64, limit: usize) {

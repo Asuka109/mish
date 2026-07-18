@@ -7,18 +7,20 @@ desktop WebView. It consumes shared components from `packages/ui/` and CSS
 tokens from `packages/design-tokens/`. It does not import source, fixtures, or
 runtime assets from `sketch/`.
 
-Ordinary browser startup uses `FixtureStatusClient` and `FixtureProfileClient`,
-implementations of the shared typed product boundaries. Status commands update
-detached in-memory DTO snapshots only. Profile mutations, including local-file
-preflight, report unsupported instead of simulating success. The UI identifies
-this as demo data; no System Proxy, TUN, Mihomo core operation, probe, capture,
-WebSocket, filesystem access, or network request is executed.
+Ordinary browser startup uses `FixtureStatusClient`, `FixtureProfileClient`, and
+`FixtureTrafficClient`, implementations of the independent typed product
+boundaries. Status commands update detached in-memory DTO snapshots only;
+Traffic is read-only and derives Closed rows locally. Profile mutations,
+including local-file preflight, report unsupported instead of simulating
+success. The UI identifies this as demo data; no System Proxy, TUN, Mihomo core
+operation, probe, capture, WebSocket, filesystem access, or network request is
+executed.
 
-`RpcStatusClient` and `RpcProfileClient` are available only for explicit
-composition with an injected `RpcClient`. Runtime schemas reject malformed
-results and notifications before they enter product state. The Tauri WebView
-composes them from the validated process-only desktop bootstrap. An ordinary
-browser has no endpoint or token bootstrap and remains fixture-backed.
+`RpcStatusClient`, `RpcProfileClient`, and `RpcTrafficClient` are available only
+for explicit composition with an injected `RpcClient`. Runtime schemas reject
+malformed results and notifications before they enter product state. The Tauri
+WebView composes them from the validated process-only desktop bootstrap. An
+ordinary browser has no endpoint or token bootstrap and remains fixture-backed.
 
 English and Simplified Chinese UI dictionaries are bundled with the production
 artifact and exposed through generated `typesafe-i18n` functions. Locale changes
@@ -29,14 +31,14 @@ remain opaque strings and are never translated.
 
 The six stable destinations are:
 
-| URL         | Current Part 1 state                                            |
-| ----------- | --------------------------------------------------------------- |
-| `/status`   | Complete fixture-backed reference surface                       |
-| `/routes`   | Nested fixture policy graph; RPC selection remains read-only    |
-| `/profiles` | Desktop profile list/import/refresh/inactive-delete operations  |
-| `/traffic`  | Structured connections/rules ownership and missing-stream state |
-| `/events`   | Structured event/diagnostic ownership and missing-buffer state  |
-| `/settings` | Structured capability/settings ownership and fixture-only state |
+| URL         | Current Part 1 state                                                    |
+| ----------- | ----------------------------------------------------------------------- |
+| `/status`   | Complete fixture-backed reference surface                               |
+| `/routes`   | Nested fixture policy graph; RPC selection remains read-only            |
+| `/profiles` | Desktop profile list/import/refresh/inactive-delete operations          |
+| `/traffic`  | Read-only Active, bounded local Closed, and ordered Rules investigation |
+| `/events`   | Structured event/diagnostic ownership and missing-buffer state          |
+| `/settings` | Structured capability/settings ownership and fixture-only state         |
 
 React Router owns these client routes. Development and Vite preview use SPA
 fallback behavior. Tauri's embedded-asset resolver also returns the bundled
@@ -96,7 +98,7 @@ Automated tests cover:
 - an end-to-end fake-transport Status adapter flow across snapshots,
   subscriptions, commands, reconnect without a follow-up event, and typed
   failure; and
-- pending command deduplication plus suppression of success UI after failure.
+- pending command deduplication plus suppression of success UI after failure;
 - profile service preflight/save/refresh/delete behavior, last-known-valid
   retention after a failed refresh, and display-view redaction;
 - authenticated Profile RPC coverage, including rejection of arbitrary local
@@ -104,6 +106,12 @@ Automated tests cover:
 - Profiles UI coverage for fixture isolation, HTTPS and native local preflight,
   preview/save, manual refresh, inactive deletion, and disabled activation and
   active deletion;
+- independent Traffic snapshot validation, cancellation, subscription
+  reconciliation, stale transport state, and Controller-session reconnects;
+- bounded active-to-Closed derivation without reconnect-gap false closure,
+  local-only Clear Closed, structured filtering, exact counter sorting, complete
+  route-chain detail, fictional privacy fixtures, and incremental large-snapshot
+  rendering;
 - a real WebSocket client/server flow against the TypeScript mock bridge,
   including authentication, snapshots, subscriptions, commands, core state,
   typed failure, non-mutation after failure, and cleanup; and

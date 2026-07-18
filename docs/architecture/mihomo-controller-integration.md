@@ -47,8 +47,8 @@ flowchart TB
     RpcServer["Authenticated loopback RPC server"]
     Runtime["Transport-neutral Mish runtime"]
     ProcessManager["Desktop process manager"]
-    ObservationSource["Controller Status source"]
-    ProductMapper["Read-only Controller Status mapper"]
+    ObservationSource["Controller observation source"]
+    ProductMapper["Read-only Status and Traffic mapper"]
 
     subgraph AdapterLibrary["Read-only Controller adapter library"]
       ControllerClient["Typed Controller client"]
@@ -91,10 +91,10 @@ There are three independent paths:
 1. **Lifecycle control:** UI RPC calls reach the desktop bridge, which asks the
    process manager to start or stop Mihomo. This path exists today.
 2. **Controller observations:** when the desktop host supplies an explicit
-   loopback Controller configuration, the desktop Status source verifies the
+   loopback Controller configuration, the desktop observation source verifies the
    pinned version, owns unary refreshes and streams, reconciles validated
    observations through the mapper, and publishes changes through the runtime
-   to `status.getSnapshot` and `status.subscribe`.
+   to the independent Status and Traffic snapshot/subscription contracts.
 3. **Device traffic:** application traffic enters Mihomo through a local proxy,
    System Proxy, or TUN path and leaves through Mihomo's selected outbound.
    This traffic never passes through the Controller adapter.
@@ -162,9 +162,9 @@ complete batch. Unsupported versions and invalid first snapshots are typed
 terminal candidate failures; ordinary connection failures may retry only until
 the activation readiness deadline.
 
-`compose_desktop_runtime` remains the lifecycle/read-only composition seam. Passing an
-explicit Controller configuration installs and starts the source. Passing
-`None` constructs the existing lifecycle-only runtime and performs no
+`compose_desktop_runtime` remains the lifecycle/read-only composition seam.
+Passing an explicit Controller configuration installs and starts the source.
+Passing `None` constructs the existing lifecycle-only runtime and performs no
 Controller access. The current Tauri shell and standalone bridge binary still
 pass `None`; profile activation has no RPC or shell startup command in this
 slice.
@@ -295,6 +295,10 @@ Controller DTOs remain distinct from the shared Status structs. The mapper adds
 caller-supplied lifecycle, uptime, active-profile identity, honest platform
 capabilities, bounded traffic-series retention, and profile-scoped group usage.
 See [`status-data-contracts.md`](status-data-contracts.md) for those semantics.
+The same validated observation batch also maps detailed connections and ordered
+rules into the independent read-only Traffic snapshot documented in
+[`traffic-data-contracts.md`](traffic-data-contracts.md). Exact connection byte
+counters cross that boundary as decimal strings.
 
 ## Shutdown order
 
@@ -324,7 +328,8 @@ The composed read-only slice does not:
 - enable System Proxy, TUN, DNS changes, or privileged operations;
 - call delay-test endpoints, which initiate real network requests and update
   Mihomo histories;
-- retain closed connections or historical traffic;
+- persist closed connections or historical traffic; the Web client derives only
+  a bounded in-memory recently Closed view;
 - read proxy-provider or rule-provider inventories; or
 - implement Unix-socket or named-pipe Controller transports.
 

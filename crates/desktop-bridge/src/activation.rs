@@ -570,7 +570,7 @@ impl MihomoActivationManager {
         observation.reconnect_delay = self.timing.reconnect_delay;
         let source = ControllerStatusSource::new(observation, process.clone())
             .map_err(|_| MihomoActivationError::ControllerFailure)?;
-        let runtime = MishRuntime::with_status_source(process, source.clone());
+        let runtime = MishRuntime::with_data_sources(process, source.clone(), source.clone());
         if runtime.start_core().await.is_err() {
             source.close().await;
             let _ = fs::remove_dir_all(&candidate_root);

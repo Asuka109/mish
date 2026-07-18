@@ -211,6 +211,9 @@ rules:
     assert_eq!(snapshot["runtime"]["phase"], "healthy");
     assert_eq!(snapshot["groups"][0]["label"], "synthetic-group");
     assert_eq!(snapshot["metrics"]["effectiveRules"], 1);
+    let traffic = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(traffic["phase"], "ready");
+    assert_eq!(traffic["profileId"], record.metadata.id.as_str());
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

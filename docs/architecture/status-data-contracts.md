@@ -12,6 +12,12 @@ before an adapter can publish them to application state. The schemas preserve
 the established Status view shape while distinguishing `fixture` and `rpc`
 snapshot sources.
 
+Detailed active connections, recently Closed derivation, and effective rules
+use the independent Traffic contract documented in
+[`traffic-data-contracts.md`](traffic-data-contracts.md). They are deliberately
+excluded from `StatusSnapshotDto` so high-volume investigation data does not
+expand the compact Status subscription.
+
 `adapterKind` distinguishes `fixture`, desktop/browser `rpc`, and mobile
 `native` snapshots. It describes the Status adapter that confirmed the view,
 not the language used to implement Mihomo. Stale-state UI applies to every

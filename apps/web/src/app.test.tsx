@@ -18,6 +18,7 @@ import { AppearanceProvider } from "./appearance";
 import { FixtureStatusClient } from "./data/fixture-status-client";
 import { ProductProvider } from "./data/product-provider";
 import { ProfileProvider } from "./data/profile-provider";
+import { TrafficProvider } from "./data/traffic-provider";
 import { StartupFailure } from "./components/startup-failure";
 import TypesafeI18n from "./i18n/i18n-react";
 import type { Locales } from "./i18n/i18n-types";
@@ -32,9 +33,11 @@ function renderRoute(path: string, locale: Locales = "en", client?: StatusClient
         <MemoryRouter initialEntries={[path]}>
           <ProductProvider client={client}>
             <ProfileProvider>
-              <TooltipProvider>
-                <AppRoutes />
-              </TooltipProvider>
+              <TrafficProvider>
+                <TooltipProvider>
+                  <AppRoutes />
+                </TooltipProvider>
+              </TrafficProvider>
             </ProfileProvider>
           </ProductProvider>
         </MemoryRouter>

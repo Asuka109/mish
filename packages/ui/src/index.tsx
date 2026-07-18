@@ -3,11 +3,13 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Input as InputPrimitive } from "@base-ui/react/input";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
+import { Select as SelectPrimitive } from "@base-ui/react/select";
+import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { Toggle as TogglePrimitive } from "@base-ui/react/toggle";
 import { ToggleGroup as ToggleGroupPrimitive } from "@base-ui/react/toggle-group";
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { Command as CommandPrimitive } from "cmdk";
-import { Check, Search, X } from "lucide-react";
+import { Check, ChevronDown, Search, X } from "lucide-react";
 import {
   createContext,
   useContext,
@@ -319,6 +321,147 @@ export function AlertDialogFooter(props: HTMLAttributes<HTMLDivElement>) {
 
 export function Input({ className, ...props }: ComponentProps<typeof InputPrimitive>) {
   return <InputPrimitive className={cn("ui-input", className)} data-slot="input" {...props} />;
+}
+
+export function Tabs({ className, ...props }: ComponentProps<typeof TabsPrimitive.Root>) {
+  return <TabsPrimitive.Root className={cn("ui-tabs", className)} data-slot="tabs" {...props} />;
+}
+
+export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrimitive.List>) {
+  return (
+    <TabsPrimitive.List
+      className={cn("ui-tabs-list", className)}
+      data-slot="tabs-list"
+      {...props}
+    />
+  );
+}
+
+export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitive.Tab>) {
+  return (
+    <TabsPrimitive.Tab
+      className={cn("ui-tabs-trigger", className)}
+      data-slot="tabs-trigger"
+      {...props}
+    />
+  );
+}
+
+export function TabsContent({ className, ...props }: ComponentProps<typeof TabsPrimitive.Panel>) {
+  return (
+    <TabsPrimitive.Panel
+      className={cn("ui-tabs-content", className)}
+      data-slot="tabs-content"
+      {...props}
+    />
+  );
+}
+
+export const Select = SelectPrimitive.Root;
+export const SelectGroup = SelectPrimitive.Group;
+export const SelectValue = SelectPrimitive.Value;
+
+export function SelectTrigger({
+  children,
+  className,
+  ...props
+}: ComponentProps<typeof SelectPrimitive.Trigger>) {
+  return (
+    <SelectPrimitive.Trigger
+      className={cn("ui-select-trigger", className)}
+      data-slot="select-trigger"
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon className="ui-select-icon">
+        <ChevronDown aria-hidden="true" />
+      </SelectPrimitive.Icon>
+    </SelectPrimitive.Trigger>
+  );
+}
+
+interface SelectContentProps extends ComponentProps<typeof SelectPrimitive.Popup> {
+  align?: ComponentProps<typeof SelectPrimitive.Positioner>["align"];
+  alignItemWithTrigger?: boolean;
+  side?: ComponentProps<typeof SelectPrimitive.Positioner>["side"];
+  sideOffset?: number;
+}
+
+export function SelectContent({
+  align = "start",
+  alignItemWithTrigger = false,
+  children,
+  className,
+  side = "bottom",
+  sideOffset = 4,
+  ...props
+}: SelectContentProps) {
+  return (
+    <SelectPrimitive.Portal>
+      <SelectPrimitive.Positioner
+        align={align}
+        alignItemWithTrigger={alignItemWithTrigger}
+        className="ui-select-positioner"
+        side={side}
+        sideOffset={sideOffset}
+      >
+        <SelectPrimitive.Popup
+          className={cn("ui-select-content", className)}
+          data-slot="select-content"
+          {...props}
+        >
+          <SelectPrimitive.List className="ui-select-list">{children}</SelectPrimitive.List>
+        </SelectPrimitive.Popup>
+      </SelectPrimitive.Positioner>
+    </SelectPrimitive.Portal>
+  );
+}
+
+export function SelectItem({
+  children,
+  className,
+  ...props
+}: ComponentProps<typeof SelectPrimitive.Item>) {
+  return (
+    <SelectPrimitive.Item
+      className={cn("ui-select-item", className)}
+      data-slot="select-item"
+      {...props}
+    >
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemIndicator className="ui-select-item-indicator">
+        <Check aria-hidden="true" />
+      </SelectPrimitive.ItemIndicator>
+    </SelectPrimitive.Item>
+  );
+}
+
+export function Table({ className, ...props }: ComponentProps<"table">) {
+  return (
+    <div className="ui-table-container" data-slot="table-container">
+      <table className={cn("ui-table", className)} data-slot="table" {...props} />
+    </div>
+  );
+}
+
+export function TableHeader({ className, ...props }: ComponentProps<"thead">) {
+  return <thead className={cn("ui-table-header", className)} data-slot="table-header" {...props} />;
+}
+
+export function TableBody({ className, ...props }: ComponentProps<"tbody">) {
+  return <tbody className={cn("ui-table-body", className)} data-slot="table-body" {...props} />;
+}
+
+export function TableRow({ className, ...props }: ComponentProps<"tr">) {
+  return <tr className={cn("ui-table-row", className)} data-slot="table-row" {...props} />;
+}
+
+export function TableHead({ className, ...props }: ComponentProps<"th">) {
+  return <th className={cn("ui-table-head", className)} data-slot="table-head" {...props} />;
+}
+
+export function TableCell({ className, ...props }: ComponentProps<"td">) {
+  return <td className={cn("ui-table-cell", className)} data-slot="table-cell" {...props} />;
 }
 
 export function FieldGroup(props: HTMLAttributes<HTMLDivElement>) {

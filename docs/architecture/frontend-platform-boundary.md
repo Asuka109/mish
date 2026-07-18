@@ -91,11 +91,12 @@ preventing an older queued lifecycle event from overwriting the reconciliation
 snapshot. Cancellation removes local correlation state and emits
 `rpc.cancel` metadata when the authenticated transport is still available.
 
-`apps/web/src/data/rpc-status-client.ts` maps this generic transport to the
-`StatusClient` view boundary. Ordinary browser startup constructs
-`FixtureStatusClient` without network or IPC access. The Tauri WebView obtains a
-validated private endpoint and in-memory token through its narrow bootstrap IPC
-surface, then constructs `RpcStatusClient`.
+`apps/web/src/data/rpc-status-client.ts` and `rpc-traffic-client.ts` map this
+generic transport to independent Status and Traffic view boundaries. Ordinary
+browser startup constructs fixture clients without network or IPC access. The
+Tauri WebView obtains a validated private endpoint and in-memory token through
+its narrow bootstrap IPC surface, then composes both adapters over one
+authenticated RPC client.
 
 ## Implemented desktop local bridge slice
 
@@ -135,10 +136,12 @@ resolution is offline: development requires an explicit prepared path and
 production looks only in the supplied sidecar resource directory.
 
 `crates/mihomo-controller` implements a transport-neutral, read-only client for
-the pinned Mihomo Controller surface. The desktop bridge composes it into the
-Controller Status source and transactional activation manager; the current
-Tauri shell and RPC profile command surface do not select or activate a profile.
-See
+the pinned Mihomo Controller surface. The desktop bridge composes its validated,
+bounded observations into the Status source, the independent Traffic source,
+and the transactional activation manager. The current Tauri shell and RPC
+profile command surface do not select or activate a profile; default startup
+therefore reports Traffic unavailable rather than discovering private
+configuration. See
 [`mihomo-controller-integration.md`](mihomo-controller-integration.md) for the
 process boundaries, data flow, terminology, and remaining mapping gaps.
 

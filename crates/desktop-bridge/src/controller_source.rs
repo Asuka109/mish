@@ -14,7 +14,8 @@ use mish_mihomo_controller::{
 };
 use mish_runtime::{
     CaptureSelection, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, ProfileSummary,
-    RuntimePhase, StatusAdapterKind, StatusDataSource, StatusSnapshot,
+    RuntimePhase, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficDataPhase,
+    TrafficDataSnapshot, TrafficDataSource,
 };
 use thiserror::Error;
 use tokio::{
@@ -90,6 +91,10 @@ struct SourceState {
     initial_observation: ControllerInitialObservation,
     mapper: Option<ControllerStatusMapper>,
     running_since: Option<Instant>,
+    traffic_reconnect_count: u64,
+    traffic_sequence: u64,
+    traffic_session_id: Option<String>,
+    traffic_session_number: u64,
 }
 
 impl SourceState {
@@ -99,6 +104,10 @@ impl SourceState {
             initial_observation: ControllerInitialObservation::Pending,
             mapper: None,
             running_since: None,
+            traffic_reconnect_count: 0,
+            traffic_sequence: 0,
+            traffic_session_id: None,
+            traffic_session_number: 0,
         }
     }
 
@@ -254,6 +263,34 @@ impl StatusDataSource for ControllerStatusSource {
     }
 }
 
+impl TrafficDataSource for ControllerStatusSource {
+    fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .expect("controller source state poisoned");
+        let Some(mapper) = &state.mapper else {
+            let mut snapshot = TrafficDataSnapshot::unavailable(adapter_kind);
+            snapshot.profile_id = self.inner.profile.profile_id().into();
+            return snapshot;
+        };
+        let stale = state.diagnostics.contains_key(&ObservationChannel::Session)
+            || state.diagnostics.contains_key(&ObservationChannel::Refresh);
+        mapper.traffic_snapshot(
+            adapter_kind,
+            if stale {
+                TrafficDataPhase::Stale
+            } else {
+                TrafficDataPhase::Ready
+            },
+            state.traffic_sequence,
+            state.traffic_session_id.clone(),
+            state.traffic_reconnect_count,
+        )
+    }
+}
+
 async fn run_collector(inner: Arc<SourceInner>) {
     let mut mapper = ControllerStatusMapper::new(inner.profile.clone());
     loop {
@@ -306,14 +343,9 @@ async fn observe_session(
             connections: Some(connections),
             rules: Some(rules),
         },
+        true,
     )
     .await?;
-    clear_all_diagnostics(inner).await;
-    inner
-        .state
-        .lock()
-        .expect("controller source state poisoned")
-        .initial_observation = ControllerInitialObservation::Ready;
 
     let mut refresh = interval(inner.refresh_interval);
     refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -428,7 +460,7 @@ async fn apply_channel_observation(
     channel: ObservationChannel,
     batch: ControllerObservationBatch,
 ) {
-    match apply_observations(inner, mapper, batch).await {
+    match apply_observations(inner, mapper, batch, false).await {
         Ok(()) => clear_diagnostic(inner, channel).await,
         Err(_) => {
             record_error(
@@ -445,13 +477,27 @@ async fn apply_observations(
     inner: &Arc<SourceInner>,
     mapper: &mut ControllerStatusMapper,
     batch: ControllerObservationBatch,
+    new_session: bool,
 ) -> Result<(), StatusMappingError> {
+    let traffic_changed = batch.connections.is_some() || batch.rules.is_some();
     mapper.apply(batch)?;
-    inner
-        .state
-        .lock()
-        .expect("controller source state poisoned")
-        .mapper = Some(mapper.clone());
+    {
+        let mut state = inner
+            .state
+            .lock()
+            .expect("controller source state poisoned");
+        if new_session {
+            state.traffic_session_number = state.traffic_session_number.saturating_add(1);
+            state.traffic_reconnect_count = state.traffic_session_number.saturating_sub(1);
+            state.traffic_session_id = Some(format!("controller-{}", state.traffic_session_number));
+            state.diagnostics.clear();
+            state.initial_observation = ControllerInitialObservation::Ready;
+        }
+        if traffic_changed {
+            state.traffic_sequence = state.traffic_sequence.saturating_add(1);
+        }
+        state.mapper = Some(mapper.clone());
+    }
     publish_change(inner).await;
     Ok(())
 }
@@ -505,21 +551,6 @@ async fn clear_diagnostic(inner: &Arc<SourceInner>, channel: ObservationChannel)
         .diagnostics
         .remove(&channel)
         .is_some();
-    if changed {
-        publish_change(inner).await;
-    }
-}
-
-async fn clear_all_diagnostics(inner: &Arc<SourceInner>) {
-    let changed = {
-        let mut state = inner
-            .state
-            .lock()
-            .expect("controller source state poisoned");
-        let changed = !state.diagnostics.is_empty();
-        state.diagnostics.clear();
-        changed
-    };
     if changed {
         publish_change(inner).await;
     }

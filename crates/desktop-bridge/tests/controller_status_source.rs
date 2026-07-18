@@ -465,7 +465,8 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
         stopped: AtomicBool::new(false),
     });
     let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
-    let runtime = MishRuntime::with_status_source(lifecycle.clone(), source.clone());
+    let runtime = MishRuntime::with_data_sources(lifecycle.clone(), source.clone(), source.clone());
+    let runtime_view = runtime.clone();
     source.start().await;
     let bridge = start_loopback_server(bridge_config(), runtime)
         .await
@@ -496,6 +497,26 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
     assert_eq!(initial["routingMode"], "rule");
     assert_eq!(initial["metrics"]["activeConnections"], 1);
     assert_eq!(initial["traffic"]["downloadBytesPerSecond"], 4);
+    let initial_traffic = runtime_view.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(initial_traffic["phase"], "ready");
+    assert_eq!(initial_traffic["sessionId"], "controller-1");
+    assert_eq!(
+        initial_traffic["activeConnections"][0]["destinationHost"],
+        Value::Null
+    );
+    assert_eq!(
+        initial_traffic["activeConnections"][0]["destinationIp"],
+        "198.51.100.1"
+    );
+    assert_eq!(
+        initial_traffic["activeConnections"][0]["downloadBytes"],
+        "100"
+    );
+    assert_eq!(
+        initial_traffic["activeConnections"][0]["routeChain"],
+        json!(["SELECT", "DIRECT"])
+    );
+    assert_eq!(initial_traffic["rules"][0]["priority"], 0);
 
     fake.state.traffic.send_replace(traffic(11, 22, 110, 220));
     let streamed = next_snapshot(&mut websocket, |snapshot| {
@@ -517,6 +538,12 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
     })
     .await;
     assert_eq!(refreshed["metrics"]["effectiveRules"], 1);
+    let refreshed_traffic = runtime_view.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(refreshed_traffic["activeConnections"], json!([]));
+    assert!(
+        refreshed_traffic["sequence"].as_u64().unwrap()
+            > initial_traffic["sequence"].as_u64().unwrap()
+    );
 
     fake.state.traffic.send_replace(traffic(33, -1, 330, 440));
     let invalid = next_snapshot(&mut websocket, |snapshot| {
@@ -549,6 +576,9 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
     })
     .await;
     assert_eq!(disconnected["traffic"]["downloadBytesPerSecond"], 44);
+    let stale_traffic = runtime_view.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(stale_traffic["phase"], "stale");
+    assert_eq!(stale_traffic["sessionId"], "controller-1");
 
     fake.set_available(true);
     let reconnected = next_snapshot(&mut websocket, |snapshot| {
@@ -557,6 +587,10 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
     })
     .await;
     assert_eq!(reconnected["routingMode"], "direct");
+    let reconnected_traffic = runtime_view.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(reconnected_traffic["phase"], "ready");
+    assert_eq!(reconnected_traffic["sessionId"], "controller-2");
+    assert_eq!(reconnected_traffic["reconnectCount"], 1);
 
     websocket.close(None).await.unwrap();
     bridge.shutdown().await;

@@ -3,6 +3,9 @@ import * as z from "zod";
 const IdentifierSchema = z.string().min(1);
 const NonNegativeIntegerSchema = z.number().int().nonnegative();
 const NonNegativeNumberSchema = z.number().nonnegative().finite();
+const BoundedTextSchema = z.string().max(8_192);
+const DecimalIntegerSchema = z.string().regex(/^(0|[1-9]\d*)$/u);
+const SignedDecimalIntegerSchema = z.string().regex(/^-?(0|[1-9]\d*)$/u);
 
 export const RoutingModeSchema = z.enum(["rule", "global", "direct"]);
 export type RoutingMode = z.infer<typeof RoutingModeSchema>;
@@ -15,6 +18,9 @@ export const RuntimePhaseSchema = z.enum([
   "error",
 ]);
 export type RuntimePhase = z.infer<typeof RuntimePhaseSchema>;
+
+export const StatusAdapterKindSchema = z.enum(["fixture", "native", "rpc"]);
+export type StatusAdapterKind = z.infer<typeof StatusAdapterKindSchema>;
 
 export const ProbeStatusSchema = z.enum(["pending", "healthy", "error"]);
 export type ProbeStatus = z.infer<typeof ProbeStatusSchema>;
@@ -46,6 +52,89 @@ export const TrafficSnapshotSchema = z
   })
   .strict();
 export interface TrafficSnapshotDto extends z.infer<typeof TrafficSnapshotSchema> {}
+
+export const TrafficDataPhaseSchema = z.enum(["ready", "stale", "unavailable"]);
+export type TrafficDataPhase = z.infer<typeof TrafficDataPhaseSchema>;
+
+export const TrafficMatchedRuleSchema = z
+  .object({ payload: BoundedTextSchema, type: BoundedTextSchema })
+  .strict();
+export interface TrafficMatchedRuleDto extends z.infer<typeof TrafficMatchedRuleSchema> {}
+
+export const TrafficConnectionSchema = z
+  .object({
+    destinationHost: BoundedTextSchema.nullable(),
+    destinationIp: BoundedTextSchema.nullable(),
+    destinationPort: z.number().int().min(0).max(65_535),
+    downloadBytes: DecimalIntegerSchema,
+    id: IdentifierSchema,
+    matchedRule: TrafficMatchedRuleSchema,
+    network: BoundedTextSchema,
+    processName: BoundedTextSchema.nullable(),
+    processPath: BoundedTextSchema.nullable(),
+    protocol: BoundedTextSchema,
+    providerChain: z.array(BoundedTextSchema).max(256),
+    remoteDestination: BoundedTextSchema.nullable(),
+    routeChain: z.array(BoundedTextSchema).max(256),
+    sniffHost: BoundedTextSchema.nullable(),
+    sourceIp: BoundedTextSchema.nullable(),
+    sourcePort: z.number().int().min(0).max(65_535),
+    startedAt: BoundedTextSchema.min(1),
+    uploadBytes: DecimalIntegerSchema,
+  })
+  .strict();
+export interface TrafficConnectionDto extends z.infer<typeof TrafficConnectionSchema> {}
+
+export const EffectiveRuleSchema = z
+  .object({
+    enabled: z.boolean(),
+    hitCount: DecimalIntegerSchema.nullable(),
+    lastHitAt: BoundedTextSchema.nullable(),
+    payload: BoundedTextSchema,
+    priority: NonNegativeIntegerSchema,
+    size: SignedDecimalIntegerSchema,
+    target: BoundedTextSchema,
+    type: BoundedTextSchema,
+  })
+  .strict();
+export interface EffectiveRuleDto extends z.infer<typeof EffectiveRuleSchema> {}
+
+const TrafficDataSnapshotBaseSchema = z
+  .object({
+    activeConnections: z.array(TrafficConnectionSchema).max(20_000),
+    adapterKind: StatusAdapterKindSchema,
+    phase: TrafficDataPhaseSchema,
+    profileId: IdentifierSchema,
+    reconnectCount: NonNegativeIntegerSchema,
+    rules: z.array(EffectiveRuleSchema).max(100_000),
+    sequence: NonNegativeIntegerSchema,
+    sessionId: IdentifierSchema.nullable(),
+  })
+  .strict();
+
+export const TrafficDataSnapshotSchema = TrafficDataSnapshotBaseSchema.superRefine(
+  (snapshot, context) => {
+    if (snapshot.phase === "unavailable" || snapshot.sessionId !== null) return;
+    context.addIssue({
+      code: "custom",
+      message: "A ready or stale Traffic snapshot requires a session ID",
+      path: ["sessionId"],
+    });
+  },
+);
+export interface TrafficDataSnapshotDto extends z.infer<typeof TrafficDataSnapshotSchema> {}
+
+export const RpcTrafficDataSnapshotSchema = TrafficDataSnapshotBaseSchema.extend({
+  adapterKind: z.literal("rpc"),
+}).superRefine((snapshot, context) => {
+  if (snapshot.phase === "unavailable" || snapshot.sessionId !== null) return;
+  context.addIssue({
+    code: "custom",
+    message: "A ready or stale Traffic snapshot requires a session ID",
+    path: ["sessionId"],
+  });
+});
+export interface RpcTrafficDataSnapshotDto extends z.infer<typeof RpcTrafficDataSnapshotSchema> {}
 
 export const RuntimeMetricsSchema = z
   .object({
@@ -178,9 +267,6 @@ export const PlatformCapabilitiesSchema = z
   })
   .strict();
 export interface PlatformCapabilitiesDto extends z.infer<typeof PlatformCapabilitiesSchema> {}
-
-export const StatusAdapterKindSchema = z.enum(["fixture", "native", "rpc"]);
-export type StatusAdapterKind = z.infer<typeof StatusAdapterKindSchema>;
 
 export const StatusSnapshotSchema = z
   .object({
@@ -456,14 +542,38 @@ export const profileRpcMethods = {
   "profiles.save": { params: ProfileSaveCommandSchema, result: RpcProfileSnapshotSchema },
 } as const;
 
+export const TrafficSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const TrafficSubscriptionSchema = TrafficSubscriptionIdSchema.extend({
+  snapshot: RpcTrafficDataSnapshotSchema,
+}).strict();
+export interface TrafficSubscriptionDto extends z.infer<typeof TrafficSubscriptionSchema> {}
+
+export const TrafficSnapshotNotificationSchema = z
+  .object({ snapshot: RpcTrafficDataSnapshotSchema, subscriptionId: IdentifierSchema })
+  .strict();
+export interface TrafficSnapshotNotificationDto extends z.infer<
+  typeof TrafficSnapshotNotificationSchema
+> {}
+
+export const trafficRpcMethods = {
+  "traffic.getSnapshot": { params: EmptyCommandSchema, result: RpcTrafficDataSnapshotSchema },
+  "traffic.subscribe": { params: EmptyCommandSchema, result: TrafficSubscriptionSchema },
+  "traffic.unsubscribe": { params: TrafficSubscriptionIdSchema, result: z.boolean() },
+} as const;
+
 export const mishRpcMethods = {
   ...bridgeRpcMethods,
   ...profileRpcMethods,
   ...statusRpcMethods,
+  ...trafficRpcMethods,
 } as const;
 
 export const statusRpcNotifications = {
   "status.snapshot": StatusSnapshotNotificationSchema,
+} as const;
+
+export const trafficRpcNotifications = {
+  "traffic.snapshot": TrafficSnapshotNotificationSchema,
 } as const;
 
 export type StatusConnectionPhase =
@@ -562,6 +672,32 @@ export class ProfileClientError extends Error {
   }
 }
 
+export type TrafficConnectionPhase =
+  | "fixture"
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "disposed";
+
+export interface TrafficConnectionState {
+  attempt: number;
+  phase: TrafficConnectionPhase;
+  stale: boolean;
+}
+
+export class TrafficClientError extends Error {
+  readonly code: StatusClientErrorCode;
+  readonly retryable: boolean;
+
+  constructor(code: StatusClientErrorCode, message: string, retryable = false) {
+    super(message);
+    this.name = "TrafficClientError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
 export interface ProfileClient {
   deleteProfile(profileId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
@@ -576,4 +712,12 @@ export interface ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto>;
   savePreview(previewId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+}
+
+export interface TrafficClient {
+  dispose(): void;
+  getConnectionState(): TrafficConnectionState;
+  getSnapshot(options?: { signal?: AbortSignal }): Promise<TrafficDataSnapshotDto>;
+  subscribeConnection(listener: (state: TrafficConnectionState) => void): () => void;
+  subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void): () => void;
 }
