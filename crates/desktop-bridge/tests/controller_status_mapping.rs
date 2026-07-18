@@ -165,6 +165,18 @@ fn rules() -> RuleList {
     }))
 }
 
+fn initialized_mapper() -> ControllerStatusMapper {
+    let mut mapper = ControllerStatusMapper::new(context("sha256:profile-a"));
+    mapper
+        .apply(ControllerObservationBatch {
+            runtime_config: Some(runtime_config()),
+            proxies: Some(proxy_catalog()),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+    mapper
+}
+
 #[test]
 fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
     let mut mapper = ControllerStatusMapper::new(context("sha256:profile-a"));
@@ -262,6 +274,176 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
     assert_eq!(value["groups"][0]["type"], "selector");
     assert_eq!(value["services"], json!([]));
     assert_eq!(value["probeResults"], json!([]));
+}
+
+#[test]
+fn maps_non_negative_traffic_rates_totals_and_series() {
+    let mut mapper = initialized_mapper();
+
+    mapper
+        .apply(ControllerObservationBatch {
+            traffic: Some(TrafficSnapshot {
+                up: 11,
+                down: 22,
+                up_total: 33,
+                down_total: 44,
+            }),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+
+    let traffic = mapper
+        .snapshot(&core(), StatusAdapterKind::Rpc, 0)
+        .unwrap()
+        .traffic;
+    assert_eq!(traffic.upload_bytes_per_second, 11);
+    assert_eq!(traffic.download_bytes_per_second, 22);
+    assert_eq!(traffic.uploaded_bytes, 33);
+    assert_eq!(traffic.downloaded_bytes, 44);
+    assert_eq!(traffic.upload_series, [11]);
+    assert_eq!(traffic.download_series, [22]);
+}
+
+#[test]
+fn rejects_negative_traffic_rates_and_totals() {
+    let cases = [
+        (
+            "traffic.up",
+            TrafficSnapshot {
+                up: -1,
+                down: 2,
+                up_total: 3,
+                down_total: 4,
+            },
+        ),
+        (
+            "traffic.down",
+            TrafficSnapshot {
+                up: 1,
+                down: -2,
+                up_total: 3,
+                down_total: 4,
+            },
+        ),
+        (
+            "traffic.upTotal",
+            TrafficSnapshot {
+                up: 1,
+                down: 2,
+                up_total: -3,
+                down_total: 4,
+            },
+        ),
+        (
+            "traffic.downTotal",
+            TrafficSnapshot {
+                up: 1,
+                down: 2,
+                up_total: 3,
+                down_total: -4,
+            },
+        ),
+    ];
+
+    for (field, traffic) in cases {
+        let mut mapper = initialized_mapper();
+        let value = match field {
+            "traffic.up" => traffic.up,
+            "traffic.down" => traffic.down,
+            "traffic.upTotal" => traffic.up_total,
+            "traffic.downTotal" => traffic.down_total,
+            _ => unreachable!(),
+        };
+
+        assert_eq!(
+            mapper
+                .apply(ControllerObservationBatch {
+                    traffic: Some(traffic),
+                    ..ControllerObservationBatch::default()
+                })
+                .unwrap_err(),
+            StatusMappingError::NegativeTrafficValue { field, value }
+        );
+    }
+}
+
+#[test]
+fn maps_maximum_signed_traffic_values_without_overflow() {
+    let mut mapper = initialized_mapper();
+
+    mapper
+        .apply(ControllerObservationBatch {
+            traffic: Some(TrafficSnapshot {
+                up: i64::MAX,
+                down: i64::MAX,
+                up_total: i64::MAX,
+                down_total: i64::MAX,
+            }),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+
+    let traffic = mapper
+        .snapshot(&core(), StatusAdapterKind::Rpc, 0)
+        .unwrap()
+        .traffic;
+    let maximum = 9_223_372_036_854_775_807_u64;
+    assert_eq!(traffic.upload_bytes_per_second, maximum);
+    assert_eq!(traffic.download_bytes_per_second, maximum);
+    assert_eq!(traffic.uploaded_bytes, maximum);
+    assert_eq!(traffic.downloaded_bytes, maximum);
+    assert_eq!(traffic.upload_series, [maximum]);
+    assert_eq!(traffic.download_series, [maximum]);
+}
+
+#[test]
+fn rejects_invalid_traffic_batch_without_replacing_valid_state() {
+    let mut mapper = initialized_mapper();
+    mapper
+        .apply(ControllerObservationBatch {
+            traffic: Some(TrafficSnapshot {
+                up: 5,
+                down: 6,
+                up_total: 7,
+                down_total: 8,
+            }),
+            memory: Some(MemorySnapshot {
+                inuse: 9,
+                oslimit: 10,
+            }),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+    let before = mapper.snapshot(&core(), StatusAdapterKind::Rpc, 0).unwrap();
+
+    let mut direct_config = runtime_config();
+    direct_config.mode = mish_mihomo_controller::RoutingMode::Direct;
+    assert_eq!(
+        mapper
+            .apply(ControllerObservationBatch {
+                runtime_config: Some(direct_config),
+                traffic: Some(TrafficSnapshot {
+                    up: 50,
+                    down: 60,
+                    up_total: 70,
+                    down_total: -80,
+                }),
+                memory: Some(MemorySnapshot {
+                    inuse: 90,
+                    oslimit: 100,
+                }),
+                ..ControllerObservationBatch::default()
+            })
+            .unwrap_err(),
+        StatusMappingError::NegativeTrafficValue {
+            field: "traffic.downTotal",
+            value: -80,
+        }
+    );
+    assert_eq!(
+        mapper.snapshot(&core(), StatusAdapterKind::Rpc, 0).unwrap(),
+        before
+    );
 }
 
 #[test]

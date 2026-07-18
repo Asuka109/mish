@@ -107,6 +107,8 @@ pub enum StatusMappingError {
     InvalidContext { field: &'static str },
     #[error("retention field {field} must be between 1 and {maximum}")]
     InvalidRetention { field: &'static str, maximum: usize },
+    #[error("Mihomo traffic field {field} must be non-negative, received {value}")]
+    NegativeTrafficValue { field: &'static str, value: i64 },
     #[error("a {observation} observation is required before producing Status")]
     MissingRequiredObservation { observation: &'static str },
     #[error("policy group {group:?} has no selected child")]
@@ -250,18 +252,22 @@ impl ControllerStatusMapper {
             self.catalog = Some(map_catalog(&self.context, catalog)?);
         }
         if let Some(traffic) = observations.traffic {
-            self.traffic.download_bytes_per_second = traffic.down;
-            self.traffic.downloaded_bytes = traffic.down_total;
-            self.traffic.upload_bytes_per_second = traffic.up;
-            self.traffic.uploaded_bytes = traffic.up_total;
+            let download_bytes_per_second = map_traffic_value("traffic.down", traffic.down)?;
+            let downloaded_bytes = map_traffic_value("traffic.downTotal", traffic.down_total)?;
+            let upload_bytes_per_second = map_traffic_value("traffic.up", traffic.up)?;
+            let uploaded_bytes = map_traffic_value("traffic.upTotal", traffic.up_total)?;
+            self.traffic.download_bytes_per_second = download_bytes_per_second;
+            self.traffic.downloaded_bytes = downloaded_bytes;
+            self.traffic.upload_bytes_per_second = upload_bytes_per_second;
+            self.traffic.uploaded_bytes = uploaded_bytes;
             push_bounded(
                 &mut self.traffic.download_series,
-                traffic.down,
+                download_bytes_per_second,
                 self.retention.max_traffic_samples,
             );
             push_bounded(
                 &mut self.traffic.upload_series,
-                traffic.up,
+                upload_bytes_per_second,
                 self.retention.max_traffic_samples,
             );
         }
@@ -422,6 +428,10 @@ fn scoped_identifier(kind: &str, profile_fingerprint: &str, identity: &str) -> S
         write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");
     }
     format!("{kind}:{encoded}")
+}
+
+fn map_traffic_value(field: &'static str, value: i64) -> Result<u64, StatusMappingError> {
+    u64::try_from(value).map_err(|_| StatusMappingError::NegativeTrafficValue { field, value })
 }
 
 fn push_bounded(series: &mut Vec<u64>, value: u64, limit: usize) {

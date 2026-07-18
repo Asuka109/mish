@@ -184,7 +184,10 @@ values remain heuristic ranking input rather than exact request totals.
   and time-series retention belong to the product mapping layer.
 - Mihomo declares traffic totals, traffic rates, and connection byte counters
   as signed 64-bit integers. The adapter preserves that wire type instead of
-  imposing an unsigned interpretation.
+  imposing an unsigned interpretation. The separate Status mapper performs a
+  checked conversion for product traffic values and transactionally rejects
+  negative samples; see
+  [`status-data-contracts.md`](status-data-contracts.md#mihomo-core-source-mapping).
 - v1.19.29 deliberately emits zero for the first `/memory` sample. The adapter
   preserves that sample rather than replacing it with a fabricated value.
 - An idle v1.19.29 core serializes the connection list as `null`. The adapter
