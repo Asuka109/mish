@@ -2,6 +2,7 @@
 node_modules/
 dist/
 target/
+*.tsbuildinfo
 .npm-cache/
 .scratch/
 
@@ -22,8 +23,11 @@ target/
 *.p12
 
 # Runtime state and secrets
-data/
-logs/
+/data/
+/logs/
 *.log
 *.key
 *.pem
+
+# Local competitive references and other private research material
+references/
