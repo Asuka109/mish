@@ -77,10 +77,13 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
   const { removeServiceMonitor, upsertServiceMonitor } = useProduct();
   const { LL } = useI18nContext();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [editedFields, setEditedFields] = useState({ label: false, url: false });
   if (!draft) return null;
 
   const labelInvalid = draft.label.trim().length === 0;
   const urlInvalid = !isValidProbeUrl(draft.url);
+  const showLabelError = labelInvalid && editedFields.label;
+  const showUrlError = urlInvalid && editedFields.url;
   const canSave = !labelInvalid && !urlInvalid;
   const existingService = Boolean(draft.id);
 
@@ -120,30 +123,36 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
           }}
         >
           <FieldGroup>
-            <Field data-invalid={labelInvalid}>
+            <Field data-invalid={showLabelError || undefined}>
               <FieldLabel htmlFor="service-title">{LL.services.title()}</FieldLabel>
               <Input
-                aria-invalid={labelInvalid}
+                aria-invalid={showLabelError || undefined}
                 autoFocus
                 id="service-title"
-                onValueChange={(value) => setDraft({ ...draft, label: value })}
+                onValueChange={(value) => {
+                  setEditedFields((fields) => ({ ...fields, label: true }));
+                  setDraft({ ...draft, label: value });
+                }}
                 placeholder={LL.services.serviceName()}
                 value={draft.label}
               />
-              {labelInvalid ? <FieldError>{LL.services.labelError()}</FieldError> : null}
+              {showLabelError ? <FieldError>{LL.services.labelError()}</FieldError> : null}
             </Field>
-            <Field data-invalid={urlInvalid}>
+            <Field data-invalid={showUrlError || undefined}>
               <FieldLabel htmlFor="service-probe-url">{LL.services.probeUrl()}</FieldLabel>
               <Input
-                aria-invalid={urlInvalid}
+                aria-invalid={showUrlError || undefined}
                 id="service-probe-url"
-                onValueChange={(value) => setDraft({ ...draft, url: value })}
+                onValueChange={(value) => {
+                  setEditedFields((fields) => ({ ...fields, url: true }));
+                  setDraft({ ...draft, url: value });
+                }}
                 placeholder="https://example.com/generate_204"
                 type="url"
                 value={draft.url}
               />
               <FieldDescription>{LL.services.urlDescription()}</FieldDescription>
-              {urlInvalid ? <FieldError>{LL.services.urlError()}</FieldError> : null}
+              {showUrlError ? <FieldError>{LL.services.urlError()}</FieldError> : null}
             </Field>
           </FieldGroup>
           <div className="dialog-footer service-editor-footer">
@@ -281,7 +290,12 @@ export function ServiceMonitorSection() {
         </Empty>
       )}
 
-      <ServiceEditorDialog draft={draft} onClose={() => setDraft(null)} setDraft={setDraft} />
+      <ServiceEditorDialog
+        draft={draft}
+        key={draft ? (draft.id ?? "new") : "closed"}
+        onClose={() => setDraft(null)}
+        setDraft={setDraft}
+      />
     </section>
   );
 }

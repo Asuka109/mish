@@ -246,10 +246,15 @@ export interface DropdownMenuRadioItemProps extends ComponentProps<typeof MenuPr
 export function DropdownMenuRadioItem({
   children,
   className,
+  closeOnClick = true,
   ...props
 }: DropdownMenuRadioItemProps) {
   return (
-    <MenuPrimitive.RadioItem className={cn("menu-item menu-radio-item", className)} {...props}>
+    <MenuPrimitive.RadioItem
+      className={cn("menu-item menu-radio-item", className)}
+      closeOnClick={closeOnClick}
+      {...props}
+    >
       {children}
       <MenuPrimitive.RadioItemIndicator className="menu-radio-indicator">
         <Check aria-hidden="true" />

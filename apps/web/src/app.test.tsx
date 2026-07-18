@@ -101,8 +101,29 @@ describe("Status fixture experience", () => {
     await user.click(await screen.findByRole("menuitemradio", { name: "简体中文" }));
 
     expect(await screen.findByText("当前演示活动概览。")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
     expect(localStorage.getItem("mihomo-web-client.locale")).toBe("zh");
+  });
+
+  it("defers service validation feedback until a field is edited", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+    await screen.findByText("Fixture activity at a glance.");
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Add service" }));
+
+    const title = await screen.findByRole("textbox", { name: "Title" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(title).not.toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.type(title, "Temporary");
+    await user.clear(title);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter a title.");
+    expect(title).toHaveAttribute("aria-invalid", "true");
   });
 });
