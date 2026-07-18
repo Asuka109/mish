@@ -47,8 +47,8 @@ flowchart TB
     RpcServer["Authenticated loopback RPC server"]
     Runtime["Transport-neutral Mish runtime"]
     ProcessManager["Desktop process manager"]
-    ObservationSource["Controller Status source"]
-    ProductMapper["Read-only Controller Status mapper"]
+    ObservationSource["Controller observation source"]
+    ProductMapper["Read-only Status and Traffic mapper"]
 
     subgraph AdapterLibrary["Read-only Controller adapter library"]
       ControllerClient["Typed Controller client"]
@@ -91,10 +91,10 @@ There are three independent paths:
 1. **Lifecycle control:** UI RPC calls reach the desktop bridge, which asks the
    process manager to start or stop Mihomo. This path exists today.
 2. **Controller observations:** when the desktop host supplies an explicit
-   loopback Controller configuration, the desktop Status source verifies the
+   loopback Controller configuration, the desktop observation source verifies the
    pinned version, owns unary refreshes and streams, reconciles validated
    observations through the mapper, and publishes changes through the runtime
-   to `status.getSnapshot` and `status.subscribe`.
+   to the independent Status and Traffic snapshot/subscription contracts.
 3. **Device traffic:** application traffic enters Mihomo through a local proxy,
    System Proxy, or TUN path and leaves through Mihomo's selected outbound.
    This traffic never passes through the Controller adapter.
@@ -156,12 +156,56 @@ HTTP request timeout, stream connection timeout, response and message bounds,
 per-stream cancellation, and client-wide shutdown semantics. It does not add an
 unbounded response buffer or bypass DTO validation.
 
-`compose_desktop_runtime` is the production composition seam. Passing an
-explicit Controller configuration installs and starts the source. Passing
-`None` constructs the existing lifecycle-only runtime and performs no
-Controller access. The current Tauri shell and standalone bridge binary pass
-`None` because no product-owned Controller launch/configuration specification
-exists yet.
+The source exposes a closed initial-observation result for activation
+coordination. `Ready` is published only after version verification and the first
+complete batch. Unsupported versions and invalid first snapshots are typed
+terminal candidate failures; ordinary connection failures may retry only until
+the activation readiness deadline.
+
+`compose_desktop_runtime` remains the lifecycle/read-only composition seam.
+Passing an explicit Controller configuration installs and starts the source.
+Passing `None` constructs the existing lifecycle-only runtime and performs no
+Controller access. The current Tauri shell and standalone bridge binary still
+pass `None`; profile activation has no RPC or shell startup command in this
+slice.
+
+## Transactional core activation
+
+`MihomoActivationManager` composes `DesktopMihomoProcess` and
+`ControllerStatusSource` for one persisted normalized artifact. The generator
+reasserts application policy even if an older or tampered artifact still
+contains removed keys: all proxy ingress ports are zero, LAN and listeners are
+off, the bind address and Controller are loopback-only, the Controller secret is
+application-owned, mode is Rule, logging is warning, sniffer capture and TUN are
+off, DNS has no listen socket, and selection/fake-IP persistence is disabled.
+Relative provider paths remain source-owned but paths that escape the managed
+home are rejected.
+
+Each candidate uses a private `0700` directory and `0600` configuration under
+the managed runtime root. Validation runs `mihomo -d <candidate-home> -f
+<candidate-config> -t` only after the executable reports the exact pinned
+version. The validated candidate then starts without replacing or stopping the
+prior core. Commit requires all of the following:
+
+1. the child remains alive;
+2. the Controller reports v1.19.29;
+3. Controller HTTP and stream readiness succeeds; and
+4. the first complete observation batch maps to a valid Status snapshot.
+
+Only then may the manager stop the prior core and atomically replace
+`activation-state.json`. A validation error, early exit, readiness timeout,
+version mismatch, Controller failure, prior-stop failure, or active-state write
+failure stops the candidate and preserves or restarts the prior core. If the
+prior core cannot be restored, the in-memory state is cleared and the result is
+an explicit safe stopped failure. The state and attempt documents contain no
+configuration, URL, Controller secret, node label, or absolute path.
+
+`ManagedMihomoResolver` performs no network access. Development callers must
+pass the explicit path produced by `pnpm mihomo:prepare`. Production callers
+pass the packaged sidecar/resource directory. Lookup accepts the packaged
+runtime name (`mihomo`, or `mihomo.exe`) and the target-specific bundle input
+name such as `mihomo-aarch64-apple-darwin`. Missing binaries return a typed
+missing state rather than initiating a runtime download.
 
 ## Status mapping and reconciliation
 
@@ -276,8 +320,10 @@ cancellation, but production ownership uses the awaited shutdown path.
 The composed read-only slice does not:
 
 - discover a Controller configuration or read one from system state;
-- define how a packaged Mihomo process receives its Controller address and
-  secret;
+- expose profile activation through RPC or wire a selected persisted artifact
+  into Tauri startup;
+- package the production Mihomo sidecar or choose the application-data runtime
+  root;
 - mutate profiles, routing mode, group selection, rules, or connections;
 - enable System Proxy, TUN, DNS changes, or privileged operations;
 - call delay-test endpoints, which initiate real network requests and update
@@ -287,9 +333,9 @@ The composed read-only slice does not:
 - read proxy-provider or rule-provider inventories; or
 - implement Unix-socket or named-pipe Controller transports.
 
-The synthetic loopback integration test is test infrastructure only. It does
-not implement Mihomo routing or proxy traffic and contains no real endpoints,
-configuration, credentials, subscription data, or node names.
+The synthetic loopback and fake-process integration tests are test
+infrastructure only. They do not implement Mihomo routing or proxy traffic and
+use only fictional endpoints, configuration, credentials, and labels.
 
 ## Opt-in pinned-core verification
 
@@ -301,13 +347,17 @@ network access. On Apple Silicon macOS, prepare and run the pinned core with:
 pnpm mihomo:prepare
 MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
   cargo test -p mish-mihomo-controller --test real_core -- --nocapture
+MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  cargo test -p mish-bridge --test real_core_activation -- --nocapture
 ```
 
-The harness writes a synthetic configuration under ignored `.scratch` storage,
-binds the Controller only to an ephemeral loopback port, disables proxy ingress,
-LAN access, DNS, and TUN, and uses no providers or remote proxy endpoints. It
-reads `/version`, `/configs`, `/proxies`, `/rules`, `/traffic`, `/memory`, and
-`/connections`; it does not call delay tests or generate routed traffic.
+The Controller harness writes a synthetic configuration under ignored
+`.scratch` storage. The activation harness uses a private operating-system temp
+directory. Both bind the Controller only to an ephemeral loopback port, disable
+proxy ingress, LAN access, DNS, and TUN, and use no providers or remote proxy
+endpoints. They read `/version`, `/configs`, `/proxies`, `/rules`, `/traffic`,
+`/memory`, and `/connections`; they do not call delay tests or generate routed
+traffic.
 
 ## Upstream references
 
@@ -318,3 +368,4 @@ reads `/version`, `/configs`, `/proxies`, `/rules`, `/traffic`, `/memory`, and
 - [v1.19.29 connection tracker](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/tunnel/statistic/tracker.go)
 - [v1.19.29 proxy endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/proxies.go)
 - [v1.19.29 rule endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/rules.go)
+- [Tauri external binary naming](https://v2.tauri.app/develop/sidecar/)

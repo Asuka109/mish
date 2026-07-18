@@ -131,6 +131,19 @@ available at `ws://127.0.0.1:9099/rpc`. Mihomo is started only after an
 authenticated `core.start` RPC command and is stopped when the bridge shuts
 down. Do not put the token or private configuration path in the repository.
 
+Transactional activation tests use a fictional fake core by default. Real-core
+activation is explicit and offline after preparation:
+
+```sh
+pnpm mihomo:prepare
+MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  cargo test -p mish-bridge --test real_core_activation -- --nocapture
+```
+
+No ordinary test, application startup, or activation path downloads Mihomo. A
+production host must package the target-specific sidecar resource; a missing
+resource is reported as unavailable.
+
 For transport and UI-adapter development without Mihomo, run the TypeScript
 mock server explicitly:
 

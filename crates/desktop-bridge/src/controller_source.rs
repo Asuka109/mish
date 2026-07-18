@@ -70,6 +70,14 @@ pub enum ControllerStatusSourceError {
     Mapping(#[from] StatusMappingError),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ControllerInitialObservation {
+    Pending,
+    Ready,
+    VersionMismatch,
+    InvalidSnapshot,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum ObservationChannel {
     Session,
@@ -80,6 +88,7 @@ enum ObservationChannel {
 
 struct SourceState {
     diagnostics: BTreeMap<ObservationChannel, String>,
+    initial_observation: ControllerInitialObservation,
     mapper: Option<ControllerStatusMapper>,
     running_since: Option<Instant>,
     traffic_reconnect_count: u64,
@@ -92,6 +101,7 @@ impl SourceState {
     fn new() -> Self {
         Self {
             diagnostics: BTreeMap::new(),
+            initial_observation: ControllerInitialObservation::Pending,
             mapper: None,
             running_since: None,
             traffic_reconnect_count: 0,
@@ -194,6 +204,14 @@ impl ControllerStatusSource {
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
+
+    pub fn initial_observation(&self) -> ControllerInitialObservation {
+        self.inner
+            .state
+            .lock()
+            .expect("controller source state poisoned")
+            .initial_observation
+    }
 }
 
 fn is_loopback_url(url: &Url) -> bool {
@@ -283,7 +301,13 @@ async fn run_collector(inner: Arc<SourceInner>) {
             Ok(()) => return,
             Err(_) if inner.cancellation.is_cancelled() => return,
             Err(error) => {
-                record_error(&inner, ObservationChannel::Session, error.to_string()).await;
+                record_initial_failure(&inner, &error);
+                record_error(
+                    &inner,
+                    ObservationChannel::Session,
+                    safe_source_error(&error),
+                )
+                .await;
             }
         }
         tokio::select! {
@@ -371,6 +395,39 @@ async fn observe_session(
     }
 }
 
+fn record_initial_failure(inner: &SourceInner, error: &ControllerStatusSourceError) {
+    let failure = match error {
+        ControllerStatusSourceError::Controller(error)
+            if error.kind() == mish_mihomo_controller::ControllerErrorKind::UnsupportedVersion =>
+        {
+            Some(ControllerInitialObservation::VersionMismatch)
+        }
+        ControllerStatusSourceError::Controller(error)
+            if matches!(
+                error.kind(),
+                mish_mihomo_controller::ControllerErrorKind::Decode
+                    | mish_mihomo_controller::ControllerErrorKind::Validation
+            ) =>
+        {
+            Some(ControllerInitialObservation::InvalidSnapshot)
+        }
+        ControllerStatusSourceError::Mapping(_) => {
+            Some(ControllerInitialObservation::InvalidSnapshot)
+        }
+        _ => None,
+    };
+    let Some(failure) = failure else {
+        return;
+    };
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    if state.initial_observation == ControllerInitialObservation::Pending {
+        state.initial_observation = failure;
+    }
+}
+
 async fn next_traffic(
     client: &ControllerClient,
     stream: &mut ControllerStream<TrafficSnapshot>,
@@ -405,7 +462,14 @@ async fn apply_channel_observation(
 ) {
     match apply_observations(inner, mapper, batch, false).await {
         Ok(()) => clear_diagnostic(inner, channel).await,
-        Err(error) => record_error(inner, channel, error.to_string()).await,
+        Err(_) => {
+            record_error(
+                inner,
+                channel,
+                "the Controller observation could not be mapped safely",
+            )
+            .await
+        }
     }
 }
 
@@ -427,6 +491,7 @@ async fn apply_observations(
             state.traffic_reconnect_count = state.traffic_session_number.saturating_sub(1);
             state.traffic_session_id = Some(format!("controller-{}", state.traffic_session_number));
             state.diagnostics.clear();
+            state.initial_observation = ControllerInitialObservation::Ready;
         }
         if traffic_changed {
             state.traffic_sequence = state.traffic_sequence.saturating_add(1);
@@ -437,7 +502,7 @@ async fn apply_observations(
     Ok(())
 }
 
-async fn record_error(inner: &Arc<SourceInner>, channel: ObservationChannel, detail: String) {
+async fn record_error(inner: &Arc<SourceInner>, channel: ObservationChannel, detail: &str) {
     inner
         .state
         .lock()
@@ -448,6 +513,34 @@ async fn record_error(inner: &Arc<SourceInner>, channel: ObservationChannel, det
             format!("Mihomo Controller observation failed: {detail}"),
         );
     publish_change(inner).await;
+}
+
+fn safe_source_error(error: &ControllerStatusSourceError) -> &'static str {
+    match error {
+        ControllerStatusSourceError::InvalidTiming => "the observation timing policy is invalid",
+        ControllerStatusSourceError::NonLoopbackController => {
+            "the Controller endpoint is not loopback-only"
+        }
+        ControllerStatusSourceError::Mapping(_) => {
+            "the Controller observation could not be mapped safely"
+        }
+        ControllerStatusSourceError::Controller(error) => match error.kind() {
+            mish_mihomo_controller::ControllerErrorKind::UnsupportedVersion => {
+                "the Controller version is unsupported"
+            }
+            mish_mihomo_controller::ControllerErrorKind::Decode
+            | mish_mihomo_controller::ControllerErrorKind::Validation => {
+                "the Controller response schema is invalid"
+            }
+            mish_mihomo_controller::ControllerErrorKind::Timeout => {
+                "the Controller operation timed out"
+            }
+            mish_mihomo_controller::ControllerErrorKind::Shutdown => {
+                "the Controller source is shutting down"
+            }
+            _ => "the Controller transport is unavailable",
+        },
+    }
 }
 
 async fn clear_diagnostic(inner: &Arc<SourceInner>, channel: ObservationChannel) {

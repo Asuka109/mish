@@ -126,22 +126,33 @@ updates `CoreStatus`, and reports the transition through the shared runtime even
 sink so RPC and native subscribers cannot retain a false healthy state. It does
 not start Mihomo automatically.
 
+`MihomoActivationManager` adds the application transaction above that process
+adapter. It generates and privately stages a complete controlled configuration,
+uses the exact pinned binary for `-t` validation and launch, composes the
+Controller Status source, waits for version/readiness/first snapshot, and only
+then commits redacted active state. Failed candidates stop and leave the prior
+healthy core active or restore an explicit safe stopped state. Managed binary
+resolution is offline: development requires an explicit prepared path and
+production looks only in the supplied sidecar resource directory.
+
 `crates/mihomo-controller` implements a transport-neutral, read-only client for
-the pinned Mihomo Controller surface. The optional desktop observation source
-composes its validated bounded observations into Status and the independent
-Traffic RPC/product adapters. Default Tauri startup still passes no Controller
-configuration and therefore reports Traffic unavailable rather than discovering
-private configuration. See
+the pinned Mihomo Controller surface. The desktop bridge composes its validated,
+bounded observations into the Status source, the independent Traffic source,
+and the transactional activation manager. The current Tauri shell and RPC
+profile command surface do not select or activate a profile; default startup
+therefore reports Traffic unavailable rather than discovering private
+configuration. See
 [`mihomo-controller-integration.md`](mihomo-controller-integration.md) for the
 process boundaries, data flow, terminology, and remaining mapping gaps.
 
-The current Status snapshot from Rust is deliberately sparse and reports
+The Tauri-started Status snapshot remains deliberately sparse and reports
 System Proxy and TUN as unavailable. Commands not backed by real controller or
 platform reconciliation return a typed capability error instead of fake
 success. The RPC Status client therefore advertises no supported mutations, and
 the shared UI presents its profile, routing, group, service, System Proxy, and
-TUN controls as unavailable rather than runnable. Reconciling Controller
-observations into richer product snapshots remains follow-up work.
+TUN controls as unavailable rather than runnable. Wiring a selected persisted
+profile through activation into the live Tauri/RPC composition remains follow-up
+work.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift

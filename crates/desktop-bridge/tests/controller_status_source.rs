@@ -549,7 +549,7 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
         snapshot["runtime"]["phase"] == "error"
             && snapshot["runtime"]["message"]
                 .as_str()
-                .is_some_and(|message| message.contains("must be non-negative"))
+                .is_some_and(|message| message.contains("could not be mapped safely"))
     })
     .await;
     assert_eq!(invalid["traffic"], streamed["traffic"]);
@@ -630,7 +630,7 @@ async fn unsupported_controller_version_is_diagnostic_and_blocks_observation() {
         snapshot["runtime"]["message"]
             .as_str()
             .unwrap()
-            .contains("unsupported; expected v1.19.29")
+            .contains("Controller version is unsupported")
     );
 
     runtime.shutdown().await.unwrap();

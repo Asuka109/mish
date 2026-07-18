@@ -122,22 +122,27 @@ Corrupt JSON, missing files, fingerprint mismatches, schema mismatches, unsafe
 paths, and atomic write failures return typed errors without echoing stored
 contents.
 
-## Future activation transaction seam
+## Activation transaction seam
 
-Activation remains intentionally outside this slice. A future application
-service will accept a persisted, valid artifact and its policy classifications,
-then:
+Activation remains outside the profile crate. `MihomoActivationManager` in
+`crates/desktop-bridge` accepts a `ProfileRecord` loaded from the repository and
+rechecks its valid state and artifact fingerprint before generation. It then:
 
-1. inject application-owned Controller, port, logging, and resource policy;
-2. inject explicitly approved platform capture policy;
-3. validate the complete generated artifact against the pinned Mihomo core;
-4. stage the candidate without replacing the last-known-good runtime;
-5. commit the core switch and active-profile metadata as one application
-   transaction, or roll back to the previous healthy artifact or a documented
-   stopped state;
-6. record the attempt and update last success only after the transaction
-   commits.
+1. injects the application-owned loopback Controller, secret, zero ingress
+   ports, Rule mode, warning logging, and managed resource policy;
+2. forces LAN, listeners, sniffer capture, and TUN off;
+3. writes the complete generated configuration to a private candidate staging
+   directory and validates it with pinned Mihomo v1.19.29;
+4. starts the candidate from its own managed home without replacing the
+   last-known-good runtime;
+5. requires the pinned Controller version and first complete valid Status batch;
+6. atomically commits a redacted managed active-state record, or stops the
+   candidate and restores the prior healthy core or an explicit safe stopped
+   state; and
+7. records only profile ID, fingerprint, outcome, and a closed failure category.
 
-This seam prevents repository persistence from implying activation and prevents
-an imported router or server configuration from silently enabling System Proxy,
-TUN, listeners, or a Controller endpoint.
+The managed activation record is separate from profile repository metadata.
+Projecting activation attempts into the future Profiles RPC/view model must use
+that record; repository persistence alone never implies activation. This seam
+also prevents an imported router or server configuration from silently enabling
+System Proxy, TUN, listeners, or a Controller endpoint.
