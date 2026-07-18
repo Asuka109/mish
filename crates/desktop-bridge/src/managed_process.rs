@@ -13,12 +13,46 @@ use tokio::{
 };
 
 use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink};
+use thiserror::Error;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum ManagedProcessValidationError {
+    #[error("Mihomo validation requires managed configuration")]
+    NotConfigured,
+    #[error("unable to execute the managed Mihomo version check")]
+    VersionCheckFailed,
+    #[error("managed Mihomo version does not match the pinned version")]
+    VersionMismatch,
+    #[error("Mihomo configuration validation timed out")]
+    Timeout,
+    #[error("unable to validate the managed Mihomo configuration")]
+    ExecutionFailed,
+    #[error("Mihomo rejected the managed runtime configuration")]
+    ConfigurationRejected,
+}
+
+#[derive(Clone)]
 pub struct DesktopMihomoProcessConfig {
     pub binary: Option<PathBuf>,
     pub config_directory: Option<PathBuf>,
     pub config_file: Option<PathBuf>,
+}
+
+impl std::fmt::Debug for DesktopMihomoProcessConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DesktopMihomoProcessConfig")
+            .field("binary", &self.binary.as_ref().map(|_| "[redacted]"))
+            .field(
+                "config_directory",
+                &self.config_directory.as_ref().map(|_| "[redacted]"),
+            )
+            .field(
+                "config_file",
+                &self.config_file.as_ref().map(|_| "[redacted]"),
+            )
+            .finish()
+    }
 }
 
 struct Inner {
@@ -30,14 +64,27 @@ struct Inner {
 #[derive(Clone)]
 pub struct DesktopMihomoProcess {
     config: DesktopMihomoProcessConfig,
+    expected_version: Option<&'static str>,
     inner: Arc<Mutex<Inner>>,
     status_events: Arc<OnceLock<CoreStatusEventSink>>,
 }
 
 impl DesktopMihomoProcess {
     pub fn new(config: DesktopMihomoProcessConfig) -> Self {
+        Self::with_expected_version(config, None)
+    }
+
+    pub fn new_pinned(config: DesktopMihomoProcessConfig, expected_version: &'static str) -> Self {
+        Self::with_expected_version(config, Some(expected_version))
+    }
+
+    fn with_expected_version(
+        config: DesktopMihomoProcessConfig,
+        expected_version: Option<&'static str>,
+    ) -> Self {
         Self {
             config,
+            expected_version,
             inner: Arc::new(Mutex::new(Inner {
                 child: None,
                 generation: 0,
@@ -49,6 +96,30 @@ impl DesktopMihomoProcess {
                 },
             })),
             status_events: Arc::new(OnceLock::new()),
+        }
+    }
+
+    pub async fn validate_config(
+        &self,
+        deadline: Duration,
+    ) -> Result<(), ManagedProcessValidationError> {
+        if !self.configured() {
+            return Err(ManagedProcessValidationError::NotConfigured);
+        }
+        self.checked_version(deadline).await?;
+        let mut command = self.command();
+        command
+            .arg("-t")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        match timeout(deadline, command.status()).await {
+            Err(_) => Err(ManagedProcessValidationError::Timeout),
+            Ok(Err(_)) => Err(ManagedProcessValidationError::ExecutionFailed),
+            Ok(Ok(status)) if !status.success() => {
+                Err(ManagedProcessValidationError::ConfigurationRejected)
+            }
+            Ok(Ok(_)) => Ok(()),
         }
     }
 
@@ -79,35 +150,17 @@ impl DesktopMihomoProcess {
 
         inner.status.phase = CorePhase::Starting;
         inner.status.error = None;
-        let binary = self.config.binary.as_ref().expect("checked configuration");
-        let version_output = match Command::new(binary).arg("-v").output().await {
-            Ok(output) => output,
+        let version = match self.checked_version(Duration::from_secs(5)).await {
+            Ok(version) => version,
             Err(error) => {
-                let message = format!("Unable to execute Mihomo: {error}");
+                let message = error.to_string();
                 inner.status.phase = CorePhase::Failed;
                 inner.status.error = Some(message.clone());
                 return Err(message);
             }
         };
-        if !version_output.status.success() {
-            let message = String::from_utf8_lossy(&version_output.stderr)
-                .trim()
-                .to_owned();
-            inner.status.phase = CorePhase::Failed;
-            inner.status.error = Some(message.clone());
-            return Err(format!("Mihomo version check failed: {message}"));
-        }
-        let version = String::from_utf8_lossy(&version_output.stdout)
-            .trim()
-            .to_owned();
 
-        let mut command = Command::new(binary);
-        if let Some(directory) = &self.config.config_directory {
-            command.arg("-d").arg(directory);
-        }
-        if let Some(file) = &self.config.config_file {
-            command.arg("-f").arg(file);
-        }
+        let mut command = self.command();
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -115,8 +168,8 @@ impl DesktopMihomoProcess {
             .kill_on_drop(true);
         let mut child = match command.spawn() {
             Ok(child) => child,
-            Err(error) => {
-                let message = format!("Unable to start Mihomo: {error}");
+            Err(_) => {
+                let message = "Unable to start managed Mihomo".to_owned();
                 inner.status.phase = CorePhase::Failed;
                 inner.status.error = Some(message.clone());
                 return Err(message);
@@ -132,8 +185,8 @@ impl DesktopMihomoProcess {
                 inner.status.version = Some(version);
                 return Err(message);
             }
-            Err(error) => {
-                let message = format!("Unable to inspect Mihomo during startup: {error}");
+            Err(_) => {
+                let message = "Unable to inspect Mihomo during startup".to_owned();
                 inner.status.phase = CorePhase::Failed;
                 inner.status.error = Some(message.clone());
                 return Err(message);
@@ -155,6 +208,57 @@ impl DesktopMihomoProcess {
         Ok(status)
     }
 
+    fn command(&self) -> Command {
+        let mut command = Command::new(
+            self.config
+                .binary
+                .as_ref()
+                .expect("checked managed Mihomo configuration"),
+        );
+        if let Some(directory) = &self.config.config_directory {
+            command.arg("-d").arg(directory);
+        }
+        if let Some(file) = &self.config.config_file {
+            command.arg("-f").arg(file);
+        }
+        command
+    }
+
+    async fn checked_version(
+        &self,
+        deadline: Duration,
+    ) -> Result<String, ManagedProcessValidationError> {
+        let binary = self
+            .config
+            .binary
+            .as_ref()
+            .ok_or(ManagedProcessValidationError::NotConfigured)?;
+        let output = match timeout(deadline, Command::new(binary).arg("-v").output()).await {
+            Err(_) => return Err(ManagedProcessValidationError::Timeout),
+            Ok(Err(_)) => return Err(ManagedProcessValidationError::VersionCheckFailed),
+            Ok(Ok(output)) => output,
+        };
+        if !output.status.success() {
+            return Err(ManagedProcessValidationError::VersionCheckFailed);
+        }
+        let reported = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+        if let Some(expected) = self.expected_version {
+            let matches = reported
+                .split_whitespace()
+                .map(|part| {
+                    part.trim_matches(|character: char| {
+                        !(character.is_ascii_alphanumeric() || character == '.')
+                    })
+                })
+                .any(|part| part == expected);
+            if !matches {
+                return Err(ManagedProcessValidationError::VersionMismatch);
+            }
+            return Ok(expected.to_owned());
+        }
+        Ok(reported)
+    }
+
     pub async fn stop(&self) -> Result<CoreStatus, String> {
         let mut inner = self.inner.lock().await;
         inner.generation = inner.generation.wrapping_add(1);
@@ -171,16 +275,16 @@ impl DesktopMihomoProcess {
                 nix::unistd::Pid::from_raw(pid as i32),
                 nix::sys::signal::Signal::SIGTERM,
             )
-            .map_err(|error| format!("Unable to stop Mihomo: {error}"))?;
+            .map_err(|_| "Unable to stop managed Mihomo".to_owned())?;
         }
         if timeout(Duration::from_secs(5), child.wait()).await.is_err() {
             child
                 .start_kill()
-                .map_err(|error| format!("Unable to kill Mihomo: {error}"))?;
+                .map_err(|_| "Unable to kill managed Mihomo".to_owned())?;
             child
                 .wait()
                 .await
-                .map_err(|error| format!("Unable to reap Mihomo: {error}"))?;
+                .map_err(|_| "Unable to reap managed Mihomo".to_owned())?;
         }
         inner.status.phase = CorePhase::Stopped;
         inner.status.pid = None;
@@ -246,8 +350,8 @@ fn inspect_child(inner: &mut Inner) -> Option<CoreStatus> {
             Some(inner.status.clone())
         }
         Ok(None) => None,
-        Err(error) => {
-            inner.status.error = Some(format!("Unable to inspect Mihomo: {error}"));
+        Err(_) => {
+            inner.status.error = Some("Unable to inspect managed Mihomo".into());
             inner.status.phase = CorePhase::Failed;
             Some(inner.status.clone())
         }

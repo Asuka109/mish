@@ -72,11 +72,11 @@ claim that process memory is a secure enclave.
 - The in-process bridge uses no Mihomo binary or configuration path, so it reports
   real but sparse local state and does not start the core automatically.
 - The shared desktop composition can inject an explicit loopback Controller and
-  publish read-only Controller-derived Status values. The current Tauri shell
-  deliberately supplies no Controller configuration because core launch,
-  address, secret, and profile ownership are not specified yet; it therefore
-  remains lifecycle-only and performs no discovery from system or environment
-  state.
+  publish read-only Controller-derived Status values. The desktop bridge also
+  provides transactional activation and managed binary/resource resolution.
+  The current Tauri shell deliberately supplies no selected persisted artifact,
+  Controller policy, managed app-data root, or packaged sidecar, so it remains
+  lifecycle-only and does not start Mihomo automatically.
 - Network-changing Status commands remain unsupported.
 - The Tauri shell has no status-bar menu or native sidebar material yet.
 - Installer packaging, final icon production, entitlements, code signing,
