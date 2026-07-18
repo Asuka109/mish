@@ -33,19 +33,26 @@ const en = {
     traffic: "Traffic",
   },
   toolbar: {
+    deviceDescription: "Status is read from this device.",
+    deviceMode: "Device status",
     demoDescription:
       "The current screen uses simulated data. No action changes system or network state.",
     demoMode: "Demo mode",
     fixtureActionDescription:
       "This action changes local fixture data only and does not change system or network state.",
+    loadingDesktop: "Loading local status…",
     loadingFixture: "Loading fixture…",
+    localService: "Local service",
+    localServiceDescription: "Status is read from Mish's private local desktop service.",
     profiles: "Profiles",
     switchProfile: "Switch profile. Current profile: {profile:string}",
   },
   proxyControl: {
-    disableAria: "Disable the proxy demo state",
+    disableAria: "Disable proxy",
     disable: "Disable proxy",
-    enableAria: "Enable the proxy demo state",
+    disableFixtureAria: "Disable the proxy demo state",
+    enableAria: "Enable proxy",
+    enableFixtureAria: "Enable the proxy demo state",
     enableWithModes: "Start proxy with {modes:string}",
     enable: "Enable proxy",
     running: "Proxy running",
@@ -54,13 +61,17 @@ const en = {
     activeRules: "Active rules",
     connections: "Connections",
     currentSessionAria: "Current session",
+    desktopActivity: "Live status from the desktop local service.",
+    desktopUnavailable: "Desktop status is unavailable.",
+    deviceActivity: "Live status from this device.",
     downloaded: "Downloaded",
     fixtureActivity: "Fixture activity at a glance.",
     fixtureUnavailable: "Fixture data is unavailable.",
     groups: "Groups",
     groupsAria: "Frequently used policy groups",
     groupsEmpty: "No policy groups available.",
-    loading: "Loading typed fixture data…",
+    loadingDesktop: "Connecting to the desktop local service…",
+    loadingFixture: "Loading typed fixture data…",
     memory: "Memory",
     modeDirect: "Direct",
     modeGlobal: "Global",
@@ -81,7 +92,11 @@ const en = {
   },
   capture: {
     acknowledge: "Got it",
-    description:
+    desktopDescription:
+      "These controls show capture state reported by the local desktop service. A control stays disabled when its capability or action is unavailable.",
+    deviceDescription:
+      "These controls show capture state reported by this device. A control stays disabled when its capability or action is unavailable.",
+    fixtureDescription:
       "A pressed control means the mode is selected and remembered; a green icon means it is running. The bottom control pauses without forgetting and restores the remembered combination on the next start. This demo does not modify system network configuration.",
     helpAria: "Learn about System Proxy, Virtual Interface, and remembered start options",
     modeAria: "{mode:string}, {selection:string}, {runtime:string}",
@@ -90,12 +105,22 @@ const en = {
     running: "running",
     selected: "selected",
     systemProxy: "System Proxy",
-    systemProxyDescription:
-      "For applications that follow system proxy settings. Part 2 will provide the real capability through the platform adapter.",
+    systemProxyDescription: "Routes applications that follow the system proxy settings.",
+    systemProxyFixtureDescription:
+      "Simulates routing applications that follow the system proxy settings.",
     title: "System Proxy and Virtual Interface",
     tun: "Virtual Interface",
-    tunDescription:
-      "Uses a TUN virtual network interface to capture broader traffic. Part 2 will provide the real capability through a controlled native component.",
+    tunDescription: "Uses a TUN virtual network interface to capture broader traffic.",
+    tunFixtureDescription: "Simulates a TUN virtual network interface for broader traffic.",
+  },
+  capabilities: {
+    capturePermission: "A traffic-capture capability requires permission before it can change.",
+    captureUnavailable: "Traffic capture is unavailable on this platform.",
+    localActionUnavailable: "This action is not supported by the current local service.",
+    systemProxyPermission: "System Proxy requires permission before it can change.",
+    systemProxyUnavailable: "System Proxy is unavailable on this platform.",
+    tunPermission: "Virtual Interface requires permission before it can change.",
+    tunUnavailable: "Virtual Interface is unavailable on this platform.",
   },
   proxyPicker: {
     description: "Select a child for this policy group. The selection is not global.",
@@ -105,15 +130,17 @@ const en = {
   },
   services: {
     add: "Add service",
-    addDescription: "Add a local demo monitor. No request will be sent.",
     addedToast: "Demo service added",
     defaultRestoredToast: "Default demo services restored",
     deleteDescription: "This removes only the local fixture monitor.",
     deleteTitle: "Delete {service:string}?",
     edit: "Edit service",
-    editAria: "Edit fixture monitor:",
-    empty: "No fixture service monitors",
-    endpointDescription: "Fixture endpoint latency.",
+    editAria: "Service details:",
+    desktopEmptyDescription: "The local desktop service reports no service monitors.",
+    desktopEndpointDescription: "Endpoint status reported by the local desktop service.",
+    empty: "No service monitors",
+    fixtureEmptyDescription: "Add a local demo monitor. No request will be sent.",
+    fixtureEndpointDescription: "Fixture endpoint latency.",
     labelError: "Enter a title.",
     manage: "Manage",
     metadataDescription: "Fixture metadata only. Part 1 never requests this endpoint.",
@@ -199,6 +226,12 @@ const en = {
     description: "This route is not one of the six stable product destinations.",
     returnToStatus: "Return to Status",
     title: "Page not found",
+  },
+  startupFailure: {
+    description:
+      "Mish could not establish its private local connection. No system or network state is being shown.",
+    eyebrow: "Mish desktop",
+    title: "Local service unavailable",
   },
   errors: {
     command: "The command failed.",

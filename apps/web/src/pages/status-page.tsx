@@ -19,6 +19,7 @@ import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
 import { useProduct } from "../data/product-provider";
+import { getCommandDescriptionId } from "../data/status-capabilities";
 import type { PolicyGroupDto, RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
@@ -52,6 +53,7 @@ export function StatusPage() {
     connection,
     error,
     isCommandPending,
+    isCommandSupported,
     isLoading,
     selectGroupChild,
     setCapture,
@@ -82,13 +84,20 @@ export function StatusPage() {
   }, [snapshot]);
 
   if (isLoading) {
-    return <div className="status-loading">{LL.status.loading()}</div>;
+    return (
+      <div className="status-loading">
+        {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
+      </div>
+    );
   }
 
   if (!snapshot) {
     return (
       <div className="status-loading" role="alert">
-        {error ?? LL.status.fixtureUnavailable()}
+        {error ??
+          (connection.phase === "fixture"
+            ? LL.status.fixtureUnavailable()
+            : LL.status.desktopUnavailable())}
       </div>
     );
   }
@@ -98,6 +107,11 @@ export function StatusPage() {
     ? snapshot.nodes.filter((node) => pickerGroup.childIds.includes(node.id))
     : [];
   const captureRuntime = snapshot.runtime;
+  const captureSupported = isCommandSupported("capture");
+  const groupSupported = isCommandSupported("group");
+  const routingSupported = isCommandSupported("routing");
+  const groupDescriptionId = getCommandDescriptionId(snapshot.adapterKind, groupSupported);
+  const routingDescriptionId = getCommandDescriptionId(snapshot.adapterKind, routingSupported);
   const captureActive = captureRuntime.systemProxyEnabled || captureRuntime.tunEnabled;
   const hasTrafficData =
     snapshot.traffic.downloadSeries.length > 0 ||
@@ -109,6 +123,7 @@ export function StatusPage() {
   const hasMetricsData = Object.values(snapshot.metrics).some((value) => value > 0);
 
   function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
+    if (!captureSupported) return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
     void setCapture(selection, active);
@@ -138,8 +153,10 @@ export function StatusPage() {
               <span className="status-control-label">{LL.status.routingMode()}</span>
               <ToggleGroup
                 aria-label={LL.status.routingMode()}
+                aria-describedby={routingDescriptionId}
                 className="routing-mode-group"
                 onValueChange={(values) => {
+                  if (!routingSupported) return;
                   const nextMode = values[0] as RoutingMode | undefined;
                   if (nextMode) void setRoutingMode(nextMode);
                 }}
@@ -149,8 +166,9 @@ export function StatusPage() {
               >
                 {(Object.keys(modeLabels) as RoutingMode[]).map((mode) => (
                   <ToggleGroupItem
+                    aria-describedby={routingDescriptionId}
                     className="routing-mode-button"
-                    disabled={routingPending}
+                    disabled={routingPending || !routingSupported}
                     key={mode}
                     value={mode}
                   >
@@ -162,6 +180,9 @@ export function StatusPage() {
             <SectionGridItem className="status-control-cell">
               <span className="status-control-label">{LL.status.trafficCapture()}</span>
               <TrafficCaptureControl
+                adapterKind={snapshot.adapterKind}
+                capabilities={snapshot.capabilities}
+                commandSupported={captureSupported}
                 disabled={capturePending}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
@@ -182,7 +203,13 @@ export function StatusPage() {
             <div className="section-heading">
               <div className="section-heading-copy">
                 <h2>{LL.status.session()}</h2>
-                <p>{LL.status.fixtureActivity()}</p>
+                <p>
+                  {snapshot.adapterKind === "fixture"
+                    ? LL.status.fixtureActivity()
+                    : snapshot.adapterKind === "rpc"
+                      ? LL.status.desktopActivity()
+                      : LL.status.deviceActivity()}
+                </p>
               </div>
               <Link className="text-link" to="/traffic">
                 {LL.status.openLiveTraffic()} <CaretRight aria-hidden="true" />
@@ -280,8 +307,9 @@ export function StatusPage() {
                   );
                   return (
                     <Button
+                      aria-describedby={groupDescriptionId}
                       className="section-grid-item policy-group-row"
-                      disabled={groupPending}
+                      disabled={groupPending || !groupSupported}
                       key={group.id}
                       onClick={() => openPicker(group)}
                       type="button"

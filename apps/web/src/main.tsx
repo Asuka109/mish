@@ -6,6 +6,7 @@ import { TooltipProvider } from "@mish/ui";
 import { AppRoutes } from "./app";
 import { AppearanceProvider, useAppearance } from "./appearance";
 import { ProductProvider } from "./data/product-provider";
+import { StartupFailure } from "./components/startup-failure";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
 import { persistLocale, resolveInitialLocale } from "./i18n/locale";
@@ -48,16 +49,13 @@ async function startApplication() {
     );
   } catch {
     createRoot(applicationRoot).render(
-      <main className="startup-failure" role="alert">
-        <section>
-          <p className="startup-failure__eyebrow">Mish desktop</p>
-          <h1>Local service unavailable</h1>
-          <p>
-            Mish could not establish its private local connection. No system or network state is
-            being shown.
-          </p>
-        </section>
-      </main>,
+      <StrictMode>
+        <AppearanceProvider>
+          <TypesafeI18n locale={initialLocale}>
+            <StartupFailure />
+          </TypesafeI18n>
+        </AppearanceProvider>
+      </StrictMode>,
     );
   }
 }

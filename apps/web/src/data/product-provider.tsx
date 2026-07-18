@@ -4,6 +4,7 @@ import {
   type RoutingMode,
   type ServiceMonitorDraft,
   type StatusClient,
+  type StatusCommand,
   type StatusConnectionState,
   type StatusSnapshotDto,
 } from "@mish/contracts";
@@ -20,7 +21,7 @@ import {
 import { useI18nContext } from "../i18n/i18n-react";
 import { createFixtureStatusClient } from "./fixture-status-client";
 
-export type ProductCommand = "capture" | "group" | "profile" | "routing" | "services";
+export type ProductCommand = StatusCommand;
 
 export type ProductCommandState =
   | { phase: "idle" }
@@ -35,6 +36,7 @@ interface ProductContextValue {
   connection: StatusConnectionState;
   error: string | null;
   isCommandPending(command: ProductCommand): boolean;
+  isCommandSupported(command: ProductCommand): boolean;
   isLoading: boolean;
   removeServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
   restoreDefaultServices(): Promise<ProductCommandResult>;
@@ -110,6 +112,16 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
 
   const runCommand = useCallback(
     async (command: ProductCommand, operation: () => Promise<StatusSnapshotDto>) => {
+      if (!resolvedClient.supportsCommand(command)) {
+        return {
+          error: new StatusClientError(
+            "invalid-request",
+            "This command is not supported by the current Status client",
+          ),
+          ok: false,
+        } satisfies ProductCommandResult;
+      }
+
       if (pendingCommands.current.has(command)) {
         return {
           error: new StatusClientError("conflict", "This command is already pending", true),
@@ -136,7 +148,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         pendingCommands.current.delete(command);
       }
     },
-    [],
+    [resolvedClient],
   );
 
   const value = useMemo<ProductContextValue>(
@@ -145,6 +157,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       connection,
       error: loadFailed ? LL.errors.loadStatus() : commandFailed ? LL.errors.command() : null,
       isCommandPending: (command) => commandStates[command].phase === "pending",
+      isCommandSupported: (command) => resolvedClient.supportsCommand(command),
       isLoading: snapshot === null && !loadFailed,
       removeServiceMonitor: (monitorId) =>
         runCommand("services", () => resolvedClient.removeServiceMonitor(monitorId)),

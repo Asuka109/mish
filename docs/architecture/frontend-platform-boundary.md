@@ -92,9 +92,10 @@ snapshot. Cancellation removes local correlation state and emits
 `rpc.cancel` metadata when the authenticated transport is still available.
 
 `apps/web/src/data/rpc-status-client.ts` maps this generic transport to the
-`StatusClient` view boundary. `ProductProvider` does not construct it by
-default: the application continues to use `FixtureStatusClient` until a secured
-local bridge and an explicit endpoint/authentication bootstrap exist.
+`StatusClient` view boundary. Ordinary browser startup constructs
+`FixtureStatusClient` without network or IPC access. The Tauri WebView obtains a
+validated private endpoint and in-memory token through its narrow bootstrap IPC
+surface, then constructs `RpcStatusClient`.
 
 ## Implemented desktop local bridge slice
 
@@ -134,9 +135,10 @@ process boundaries, data flow, terminology, and remaining mapping gaps.
 The current Status snapshot from Rust is deliberately sparse and reports
 System Proxy and TUN as unavailable. Commands not backed by real controller or
 platform reconciliation return a typed capability error instead of fake
-success. Serving the offline Web bundle from the same origin and reconciling
-Controller observations into product snapshots remain follow-up work, so the
-production Web startup still uses `FixtureStatusClient`.
+success. The RPC Status client therefore advertises no supported mutations, and
+the shared UI presents its profile, routing, group, service, System Proxy, and
+TUN controls as unavailable rather than runnable. Reconciling Controller
+observations into richer product snapshots remains follow-up work.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift

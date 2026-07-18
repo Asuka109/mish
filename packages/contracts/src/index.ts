@@ -316,6 +316,8 @@ export interface StatusConnectionState {
   stale: boolean;
 }
 
+export type StatusCommand = "capture" | "group" | "profile" | "routing" | "services";
+
 export type StatusClientErrorCode =
   | "cancelled"
   | "conflict"
@@ -343,6 +345,7 @@ export interface StatusClient {
   dispose(): void;
   getConnectionState(): StatusConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<StatusSnapshotDto>;
+  supportsCommand(command: StatusCommand): boolean;
   removeServiceMonitor(
     monitorId: string,
     options?: { signal?: AbortSignal },

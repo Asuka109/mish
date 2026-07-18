@@ -43,6 +43,14 @@ confirmed `StatusSnapshotDto`; a JSON-RPC success envelope with an invalid resul
 is a validation failure, not command success. RPC snapshots must identify their
 adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 
+The presence of a command schema does not claim that every Status backend
+implements that mutation. `StatusClient.supportsCommand` reports the backend's
+current mutation surface. The browser fixture supports local demo mutations;
+the current desktop RPC adapter is read-only, so the shared UI disables its
+capture, routing, profile, group, and service actions. Capture controls also
+respect the snapshot's `supported`, `unavailable`, and `permission-required`
+platform capabilities.
+
 `status.subscribe` returns both the subscription ID and a current validated
 snapshot. The server resets that socket's lifecycle-event cursor before reading
 the snapshot, then sends the subscription response before it can send a

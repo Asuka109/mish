@@ -395,7 +395,7 @@ h2 {
 }
 
 .toolbar-button,
-.demo-data-badge,
+.runtime-data-badge,
 .service-manage-trigger {
   display: inline-flex;
   height: 34px;
@@ -436,7 +436,7 @@ h2 {
   min-width: 156px;
 }
 
-.demo-data-badge {
+.runtime-data-badge {
   height: 24px;
   border-color: var(--color-hairline);
   background: var(--color-surface-soft);
@@ -1652,7 +1652,7 @@ h2 {
     padding-left: 18px;
   }
 
-  .demo-data-badge {
+  .runtime-data-badge {
     display: none;
   }
 
