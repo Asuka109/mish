@@ -59,8 +59,10 @@ const en = {
     noSelection: "No selection",
     openLiveTraffic: "Open live traffic",
     routingMode: "Routing mode",
+    reconnecting: "Reconnecting to the local agent. Last confirmed data is stale.",
     session: "Session",
     services: "Services",
+    staleData: "The local agent is disconnected. Last confirmed data is stale.",
     trafficCapture: "Traffic capture",
     uploaded: "Uploaded",
     uptime: "Uptime",
@@ -185,8 +187,8 @@ const en = {
     title: "Page not found",
   },
   errors: {
-    command: "The fixture command failed.",
-    loadFixture: "Unable to load fixture data.",
+    command: "The command failed.",
+    loadStatus: "Unable to load Status data.",
   },
 } satisfies BaseTranslation;
 

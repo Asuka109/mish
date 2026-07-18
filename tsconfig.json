@@ -1,4 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "./packages/ui" }, { "path": "./apps/web" }]
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/rpc-client" },
+    { "path": "./packages/ui" },
+    { "path": "./apps/web" }
+  ]
 }

@@ -208,6 +208,10 @@ type RootTranslation = {
 		 */
 		routingMode: string
 		/**
+		 * R​e​c​o​n​n​e​c​t​i​n​g​ ​t​o​ ​t​h​e​ ​l​o​c​a​l​ ​a​g​e​n​t​.​ ​L​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​d​a​t​a​ ​i​s​ ​s​t​a​l​e​.
+		 */
+		reconnecting: string
+		/**
 		 * S​e​s​s​i​o​n
 		 */
 		session: string
@@ -215,6 +219,10 @@ type RootTranslation = {
 		 * S​e​r​v​i​c​e​s
 		 */
 		services: string
+		/**
+		 * T​h​e​ ​l​o​c​a​l​ ​a​g​e​n​t​ ​i​s​ ​d​i​s​c​o​n​n​e​c​t​e​d​.​ ​L​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​d​a​t​a​ ​i​s​ ​s​t​a​l​e​.
+		 */
+		staleData: string
 		/**
 		 * T​r​a​f​f​i​c​ ​c​a​p​t​u​r​e
 		 */
@@ -616,13 +624,13 @@ type RootTranslation = {
 	}
 	errors: {
 		/**
-		 * T​h​e​ ​f​i​x​t​u​r​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.
+		 * T​h​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.
 		 */
 		command: string
 		/**
-		 * U​n​a​b​l​e​ ​t​o​ ​l​o​a​d​ ​f​i​x​t​u​r​e​ ​d​a​t​a​.
+		 * U​n​a​b​l​e​ ​t​o​ ​l​o​a​d​ ​S​t​a​t​u​s​ ​d​a​t​a​.
 		 */
-		loadFixture: string
+		loadStatus: string
 	}
 }
 
@@ -819,6 +827,10 @@ export type TranslationFunctions = {
 		 */
 		routingMode: () => LocalizedString
 		/**
+		 * Reconnecting to the local agent. Last confirmed data is stale.
+		 */
+		reconnecting: () => LocalizedString
+		/**
 		 * Session
 		 */
 		session: () => LocalizedString
@@ -826,6 +838,10 @@ export type TranslationFunctions = {
 		 * Services
 		 */
 		services: () => LocalizedString
+		/**
+		 * The local agent is disconnected. Last confirmed data is stale.
+		 */
+		staleData: () => LocalizedString
 		/**
 		 * Traffic capture
 		 */
@@ -1225,13 +1241,13 @@ export type TranslationFunctions = {
 	}
 	errors: {
 		/**
-		 * The fixture command failed.
+		 * The command failed.
 		 */
 		command: () => LocalizedString
 		/**
-		 * Unable to load fixture data.
+		 * Unable to load Status data.
 		 */
-		loadFixture: () => LocalizedString
+		loadStatus: () => LocalizedString
 	}
 }
 

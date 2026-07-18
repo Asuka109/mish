@@ -2,9 +2,11 @@ import type {
   ServiceMonitorDto,
   ServiceMonitorDraft,
   StatusClient,
+  StatusConnectionState,
   StatusSnapshotDto,
   RoutingMode,
-} from "./status-client";
+} from "@mihomo/contracts";
+import { StatusClientError } from "@mihomo/contracts";
 
 const defaultServices: ServiceMonitorDto[] = [
   {
@@ -175,17 +177,58 @@ function createMonitorId() {
 
 export class FixtureStatusClient implements StatusClient {
   private snapshot = cloneSnapshot(initialSnapshot);
+  private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
+  private readonly snapshotListeners = new Set<(snapshot: StatusSnapshotDto) => void>();
 
-  async getSnapshot() {
+  dispose() {
+    this.connectionListeners.clear();
+    this.snapshotListeners.clear();
+  }
+
+  getConnectionState(): StatusConnectionState {
+    return { attempt: 0, phase: "fixture", stale: false };
+  }
+
+  subscribeConnection(listener: (state: StatusConnectionState) => void) {
+    this.connectionListeners.add(listener);
+    listener(this.getConnectionState());
+    return () => this.connectionListeners.delete(listener);
+  }
+
+  subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+    this.snapshotListeners.add(listener);
+    return () => this.snapshotListeners.delete(listener);
+  }
+
+  private async snapshotAfterCommand() {
+    const snapshot = await this.getSnapshot();
+    for (const listener of this.snapshotListeners) listener(snapshot);
+    return snapshot;
+  }
+
+  async getSnapshot(options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture request was cancelled");
+    }
     return cloneSnapshot(this.snapshot);
   }
 
-  async setRoutingMode(mode: RoutingMode) {
+  async setRoutingMode(mode: RoutingMode, options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
     this.snapshot.routingMode = mode;
-    return this.getSnapshot();
+    return this.snapshotAfterCommand();
   }
 
-  async setCapture(systemProxyEnabled: boolean, tunEnabled: boolean) {
+  async setCapture(
+    systemProxyEnabled: boolean,
+    tunEnabled: boolean,
+    options?: { signal?: AbortSignal },
+  ) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
     this.snapshot.runtime = {
       message:
         systemProxyEnabled || tunEnabled
@@ -195,29 +238,41 @@ export class FixtureStatusClient implements StatusClient {
       systemProxyEnabled,
       tunEnabled,
     };
-    return this.getSnapshot();
+    return this.snapshotAfterCommand();
   }
 
-  async setActiveProfile(profileId: string) {
+  async setActiveProfile(profileId: string, options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
     if (!this.snapshot.profiles.some((profile) => profile.id === profileId)) {
-      throw new Error("Unknown fixture profile");
+      throw new StatusClientError("not-found", "Unknown fixture profile");
     }
 
     this.snapshot.activeProfileId = profileId;
-    return this.getSnapshot();
+    return this.snapshotAfterCommand();
   }
 
-  async selectGroupChild(groupId: string, childId: string) {
+  async selectGroupChild(groupId: string, childId: string, options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
     const group = this.snapshot.groups.find((candidate) => candidate.id === groupId);
     if (!group || !group.childIds.includes(childId)) {
-      throw new Error("The fixture child does not belong to this group");
+      throw new StatusClientError(
+        "invalid-request",
+        "The fixture child does not belong to this group",
+      );
     }
 
     group.selectedChildId = childId;
-    return this.getSnapshot();
+    return this.snapshotAfterCommand();
   }
 
-  async upsertServiceMonitor(draft: ServiceMonitorDraft) {
+  async upsertServiceMonitor(draft: ServiceMonitorDraft, options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
     const monitor: ServiceMonitorDto = {
       icon: draft.icon,
       id: draft.id ?? createMonitorId(),
@@ -239,21 +294,27 @@ export class FixtureStatusClient implements StatusClient {
       });
     }
 
-    return this.getSnapshot();
+    return this.snapshotAfterCommand();
   }
 
-  async removeServiceMonitor(monitorId: string) {
+  async removeServiceMonitor(monitorId: string, options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
     this.snapshot.services = this.snapshot.services.filter((service) => service.id !== monitorId);
     this.snapshot.probeResults = this.snapshot.probeResults.filter(
       (result) => result.monitorId !== monitorId,
     );
-    return this.getSnapshot();
+    return this.snapshotAfterCommand();
   }
 
-  async restoreDefaultServices() {
+  async restoreDefaultServices(options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
     this.snapshot.services = structuredClone(defaultServices);
     this.snapshot.probeResults = structuredClone(initialSnapshot.probeResults);
-    return this.getSnapshot();
+    return this.snapshotAfterCommand();
   }
 }
 

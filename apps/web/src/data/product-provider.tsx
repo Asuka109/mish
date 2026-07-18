@@ -1,26 +1,48 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createFixtureStatusClient } from "./fixture-status-client";
-import type {
-  RoutingMode,
-  ServiceMonitorDraft,
-  StatusClient,
-  StatusSnapshotDto,
-} from "./status-client";
+import {
+  StatusClientError,
+  type RoutingMode,
+  type ServiceMonitorDraft,
+  type StatusClient,
+  type StatusConnectionState,
+  type StatusSnapshotDto,
+} from "@mihomo/contracts";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useI18nContext } from "../i18n/i18n-react";
+import { createFixtureStatusClient } from "./fixture-status-client";
 
-type ProductError = "command" | "load";
+export type ProductCommand = "capture" | "group" | "profile" | "routing" | "services";
+
+export type ProductCommandState =
+  | { phase: "idle" }
+  | { phase: "pending" }
+  | { phase: "success" }
+  | { error: StatusClientError; phase: "failure" };
+
+export type ProductCommandResult = { ok: true } | { error: StatusClientError; ok: false };
 
 interface ProductContextValue {
+  commandStates: Record<ProductCommand, ProductCommandState>;
+  connection: StatusConnectionState;
   error: string | null;
+  isCommandPending(command: ProductCommand): boolean;
   isLoading: boolean;
-  removeServiceMonitor(monitorId: string): Promise<void>;
-  restoreDefaultServices(): Promise<void>;
-  selectGroupChild(groupId: string, childId: string): Promise<void>;
-  setActiveProfile(profileId: string): Promise<void>;
-  setCapture(systemProxyEnabled: boolean, tunEnabled: boolean): Promise<void>;
-  setRoutingMode(mode: RoutingMode): Promise<void>;
+  removeServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
+  restoreDefaultServices(): Promise<ProductCommandResult>;
+  selectGroupChild(groupId: string, childId: string): Promise<ProductCommandResult>;
+  setActiveProfile(profileId: string): Promise<ProductCommandResult>;
+  setCapture(systemProxyEnabled: boolean, tunEnabled: boolean): Promise<ProductCommandResult>;
+  setRoutingMode(mode: RoutingMode): Promise<ProductCommandResult>;
   snapshot: StatusSnapshotDto | null;
-  upsertServiceMonitor(draft: ServiceMonitorDraft): Promise<void>;
+  upsertServiceMonitor(draft: ServiceMonitorDraft): Promise<ProductCommandResult>;
 }
 
 const ProductContext = createContext<ProductContextValue | null>(null);
@@ -30,53 +52,125 @@ interface ProductProviderProps {
   client?: StatusClient;
 }
 
+function createInitialCommandStates(): Record<ProductCommand, ProductCommandState> {
+  return {
+    capture: { phase: "idle" },
+    group: { phase: "idle" },
+    profile: { phase: "idle" },
+    routing: { phase: "idle" },
+    services: { phase: "idle" },
+  };
+}
+
+function toStatusClientError(error: unknown) {
+  if (error instanceof StatusClientError) return error;
+  if (error instanceof Error) return new StatusClientError("unknown", error.message);
+  return new StatusClientError("unknown", "Unknown Status client failure");
+}
+
 export function ProductProvider({ children, client }: ProductProviderProps) {
   const { LL } = useI18nContext();
   const resolvedClient = useMemo(() => client ?? createFixtureStatusClient(), [client]);
   const [snapshot, setSnapshot] = useState<StatusSnapshotDto | null>(null);
-  const [error, setError] = useState<ProductError | null>(null);
+  const [connection, setConnection] = useState<StatusConnectionState>(() =>
+    resolvedClient.getConnectionState(),
+  );
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [commandFailed, setCommandFailed] = useState(false);
+  const [commandStates, setCommandStates] = useState(createInitialCommandStates);
+  const pendingCommands = useRef(new Set<ProductCommand>());
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
+    setConnection(resolvedClient.getConnectionState());
+    const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
+    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot) => {
+      setSnapshot(nextSnapshot);
+      setLoadFailed(false);
+    });
+
     resolvedClient
-      .getSnapshot()
+      .getSnapshot({ signal: controller.signal })
       .then((nextSnapshot) => {
-        if (active) setSnapshot(nextSnapshot);
+        setSnapshot(nextSnapshot);
+        setLoadFailed(false);
       })
       .catch(() => {
-        if (active) setError("load");
+        if (controller.signal.aborted) return;
+        setLoadFailed(true);
       });
 
     return () => {
-      active = false;
+      controller.abort();
+      unsubscribeConnection();
+      unsubscribeSnapshots();
     };
   }, [resolvedClient]);
 
-  async function runCommand(command: () => Promise<StatusSnapshotDto>) {
-    setError(null);
-    try {
-      setSnapshot(await command());
-    } catch {
-      setError("command");
-    }
-  }
+  const runCommand = useCallback(
+    async (command: ProductCommand, operation: () => Promise<StatusSnapshotDto>) => {
+      if (pendingCommands.current.has(command)) {
+        return {
+          error: new StatusClientError("conflict", "This command is already pending", true),
+          ok: false,
+        } satisfies ProductCommandResult;
+      }
 
-  const value: ProductContextValue = {
-    error:
-      error === "load" ? LL.errors.loadFixture() : error === "command" ? LL.errors.command() : null,
-    isLoading: snapshot === null && error === null,
-    removeServiceMonitor: (monitorId) =>
-      runCommand(() => resolvedClient.removeServiceMonitor(monitorId)),
-    restoreDefaultServices: () => runCommand(() => resolvedClient.restoreDefaultServices()),
-    selectGroupChild: (groupId, childId) =>
-      runCommand(() => resolvedClient.selectGroupChild(groupId, childId)),
-    setActiveProfile: (profileId) => runCommand(() => resolvedClient.setActiveProfile(profileId)),
-    setCapture: (systemProxyEnabled, tunEnabled) =>
-      runCommand(() => resolvedClient.setCapture(systemProxyEnabled, tunEnabled)),
-    setRoutingMode: (mode) => runCommand(() => resolvedClient.setRoutingMode(mode)),
-    snapshot,
-    upsertServiceMonitor: (draft) => runCommand(() => resolvedClient.upsertServiceMonitor(draft)),
-  };
+      pendingCommands.current.add(command);
+      setCommandFailed(false);
+      setCommandStates((states) => ({ ...states, [command]: { phase: "pending" } }));
+      try {
+        setSnapshot(await operation());
+        setCommandStates((states) => ({ ...states, [command]: { phase: "success" } }));
+        return { ok: true } satisfies ProductCommandResult;
+      } catch (error) {
+        const typedError = toStatusClientError(error);
+        setCommandFailed(true);
+        setCommandStates((states) => ({
+          ...states,
+          [command]: { error: typedError, phase: "failure" },
+        }));
+        return { error: typedError, ok: false } satisfies ProductCommandResult;
+      } finally {
+        pendingCommands.current.delete(command);
+      }
+    },
+    [],
+  );
+
+  const value = useMemo<ProductContextValue>(
+    () => ({
+      commandStates,
+      connection,
+      error: loadFailed ? LL.errors.loadStatus() : commandFailed ? LL.errors.command() : null,
+      isCommandPending: (command) => commandStates[command].phase === "pending",
+      isLoading: snapshot === null && !loadFailed,
+      removeServiceMonitor: (monitorId) =>
+        runCommand("services", () => resolvedClient.removeServiceMonitor(monitorId)),
+      restoreDefaultServices: () =>
+        runCommand("services", () => resolvedClient.restoreDefaultServices()),
+      selectGroupChild: (groupId, childId) =>
+        runCommand("group", () => resolvedClient.selectGroupChild(groupId, childId)),
+      setActiveProfile: (profileId) =>
+        runCommand("profile", () => resolvedClient.setActiveProfile(profileId)),
+      setCapture: (systemProxyEnabled, tunEnabled) =>
+        runCommand("capture", () => resolvedClient.setCapture(systemProxyEnabled, tunEnabled)),
+      setRoutingMode: (mode) => runCommand("routing", () => resolvedClient.setRoutingMode(mode)),
+      snapshot,
+      upsertServiceMonitor: (draft) =>
+        runCommand("services", () => resolvedClient.upsertServiceMonitor(draft)),
+    }),
+    [
+      LL,
+      commandFailed,
+      commandStates,
+      connection,
+      loadFailed,
+      resolvedClient,
+      runCommand,
+      snapshot,
+    ],
+  );
 
   return <ProductContext.Provider value={value}>{children}</ProductContext.Provider>;
 }

@@ -21,14 +21,14 @@ flowchart LR
 
 ## Ownership
 
-| Layer | Owns | Must not own |
-| --- | --- | --- |
-| Shared product UI | Views, interaction state, accessible components, DTO consumption | Mihomo process lifecycle, privilege escalation, direct Tauri imports in domain code |
-| Shared domain/application packages | DTOs, commands, invariants, derived view models, capability-neutral use cases | WebView APIs or operating-system branching spread through features |
-| Typed RPC client | Request correlation, subscriptions, reconnect policy, DTO validation | Product-specific rendering |
-| Local Rust agent | Mihomo lifecycle, application state, local HTTP/WebSocket origin, persistence, probe execution | Window layout or React component state |
-| Tauri shell | Window creation, status-bar menu, native material, deep links, platform permission bridge | Core business rules or an alternative application state store |
-| Privileged helper | Narrow TUN, DNS, and system-proxy operations requiring elevation | General application logic or remote access |
+| Layer                              | Owns                                                                                           | Must not own                                                                        |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Shared product UI                  | Views, interaction state, accessible components, DTO consumption                               | Mihomo process lifecycle, privilege escalation, direct Tauri imports in domain code |
+| Shared domain/application packages | DTOs, commands, invariants, derived view models, capability-neutral use cases                  | WebView APIs or operating-system branching spread through features                  |
+| Typed RPC client                   | Request correlation, subscriptions, reconnect policy, DTO validation                           | Product-specific rendering                                                          |
+| Local Rust agent                   | Mihomo lifecycle, application state, local HTTP/WebSocket origin, persistence, probe execution | Window layout or React component state                                              |
+| Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge      | Core business rules or an alternative application state store                       |
+| Privileged helper                  | Narrow TUN, DNS, and system-proxy operations requiring elevation                               | General application logic or remote access                                          |
 
 Platform differences are exposed through a capability DTO and adapter rather
 than repeated `if (tauri)` or `if (macOS)` branches.
@@ -48,6 +48,36 @@ The local origin still requires:
 - schema validation at the RPC boundary; and
 - no network listener beyond loopback unless a separate, explicit feature is
   designed and secured.
+
+## Implemented browser client boundary
+
+`packages/rpc-client` implements JSON-RPC 2.0 over an injected WebSocket-like
+transport. It has no global singleton and does not choose an endpoint or open a
+socket until an owning adapter requests a connection. The boundary owns:
+
+- monotonically increasing request IDs and response correlation;
+- method-specific parameter and result validation;
+- typed remote, validation, protocol, size, disconnect, cancellation, and
+  disposal failures;
+- a configurable inbound and outbound message-size limit;
+- an authentication-first handshake carrying an explicit token plus client
+  name and version metadata;
+- validated notification listeners for application subscriptions;
+- stale, connecting, connected, reconnecting, disconnected, and disposed
+  state; and
+- exponential reconnect delays capped by a maximum delay and retry count.
+
+Requests that were in flight when the transport disconnects are rejected and
+are not replayed automatically. Replaying a consequential command without
+knowing whether the server applied it would be unsafe. Subscription ownership
+stays with an adapter, which resubscribes after authentication on a new
+connection. Cancellation removes local correlation state and emits
+`rpc.cancel` metadata when the authenticated transport is still available.
+
+`apps/web/src/data/rpc-status-client.ts` maps this generic transport to the
+`StatusClient` view boundary. `ProductProvider` does not construct it by
+default: the application continues to use `FixtureStatusClient` until a secured
+local agent and an explicit endpoint/authentication bootstrap exist.
 
 ## Offline asset policy
 

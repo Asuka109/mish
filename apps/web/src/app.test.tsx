@@ -1,9 +1,17 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { toast } from "sonner";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mihomo/ui";
+import {
+  StatusClientError,
+  type RoutingMode,
+  type StatusClient,
+  type StatusSnapshotDto,
+} from "@mihomo/contracts";
 import { AppRoutes } from "./app";
+import { FixtureStatusClient } from "./data/fixture-status-client";
 import { ProductProvider } from "./data/product-provider";
 import TypesafeI18n from "./i18n/i18n-react";
 import type { Locales } from "./i18n/i18n-types";
@@ -11,11 +19,11 @@ import { loadAllLocales } from "./i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderRoute(path: string, locale: Locales = "en") {
+function renderRoute(path: string, locale: Locales = "en", client?: StatusClient) {
   return render(
     <TypesafeI18n locale={locale}>
       <MemoryRouter initialEntries={[path]}>
-        <ProductProvider>
+        <ProductProvider client={client}>
           <TooltipProvider>
             <AppRoutes />
           </TooltipProvider>
@@ -23,6 +31,30 @@ function renderRoute(path: string, locale: Locales = "en") {
       </MemoryRouter>
     </TypesafeI18n>,
   );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+class DeferredRoutingClient extends FixtureStatusClient {
+  calls = 0;
+  rejectCommand: (() => void) | null = null;
+
+  override setRoutingMode(_mode: RoutingMode) {
+    this.calls += 1;
+    return new Promise<Awaited<ReturnType<FixtureStatusClient["getSnapshot"]>>>((_, reject) => {
+      this.rejectCommand = () =>
+        reject(new StatusClientError("conflict", "Routing command failed", true));
+    });
+  }
+}
+
+class FailingServicesClient extends FixtureStatusClient {
+  override restoreDefaultServices(): Promise<StatusSnapshotDto> {
+    return Promise.reject(new StatusClientError("remote", "Restore failed"));
+  }
 }
 
 describe("production routes", () => {
@@ -47,6 +79,19 @@ describe("production routes", () => {
     await user.click(routesLink);
     expect(await screen.findByRole("heading", { name: "Routes" })).toBeInTheDocument();
     expect(routesLink).toHaveAttribute("aria-current", "page");
+  });
+
+  it("starts with fixture data without opening a socket or making a request", async () => {
+    const webSocket = vi.fn();
+    const fetch = vi.fn();
+    vi.stubGlobal("WebSocket", webSocket);
+    vi.stubGlobal("fetch", fetch);
+
+    renderRoute("/status");
+    await screen.findByText("Fixture activity at a glance.");
+
+    expect(webSocket).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -88,6 +133,37 @@ describe("Status fixture experience", () => {
     expect(
       await screen.findByRole("button", { name: "Enable the proxy demo state" }),
     ).toBeInTheDocument();
+  });
+
+  it("prevents duplicate commands while pending and preserves confirmed state on failure", async () => {
+    const user = userEvent.setup();
+    const client = new DeferredRoutingClient();
+    renderRoute("/status", "en", client);
+    await screen.findByText("Fixture activity at a glance.");
+    const globalMode = screen.getByRole("button", { name: "Global" });
+
+    await user.click(globalMode);
+    expect(globalMode).toBeDisabled();
+    await user.click(globalMode);
+    expect(client.calls).toBe(1);
+
+    client.rejectCommand?.();
+    expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
+    await waitFor(() => expect(globalMode).not.toBeDisabled());
+    expect(globalMode).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("does not show a success toast after a failed service command", async () => {
+    const user = userEvent.setup();
+    const successToast = vi.spyOn(toast, "success");
+    renderRoute("/status", "en", new FailingServicesClient());
+    await screen.findByText("Fixture activity at a glance.");
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Restore defaults" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
+    expect(successToast).not.toHaveBeenCalled();
   });
 
   it("switches to Simplified Chinese and persists the locale", async () => {

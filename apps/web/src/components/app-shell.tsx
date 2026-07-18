@@ -55,11 +55,12 @@ const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Lo
 ];
 
 function ProxyControlButton() {
-  const { setCapture, snapshot } = useProduct();
+  const { isCommandPending, setCapture, snapshot } = useProduct();
   const { LL } = useI18nContext();
   const runtime = snapshot?.runtime;
   const active = runtime ? runtime.systemProxyEnabled || runtime.tunEnabled : false;
-  const phase = runtime?.phase ?? "inactive";
+  const pending = isCommandPending("capture");
+  const phase = pending ? (active ? "stopping" : "connecting") : (runtime?.phase ?? "inactive");
 
   async function handleToggle() {
     if (!runtime) return;
@@ -77,12 +78,17 @@ function ProxyControlButton() {
       aria-label={active ? LL.proxyControl.disableAria() : LL.proxyControl.enableAria()}
       className="proxy-control-button"
       data-status={phase}
-      disabled={!snapshot}
+      disabled={!snapshot || pending}
       onClick={handleToggle}
       type="button"
     >
       {phase === "healthy" ? <StatusShimmer active /> : null}
-      {active ? (
+      {pending ? (
+        <span className="proxy-control-state proxy-control-default">
+          <Power aria-hidden="true" />
+          <span className="proxy-control-label">{LL.common.pending()}</span>
+        </span>
+      ) : active ? (
         <>
           <span className="proxy-control-state proxy-control-default">
             <WifiHigh aria-hidden="true" weight="bold" />
@@ -147,19 +153,21 @@ function Sidebar() {
 }
 
 function ProfileMenu() {
-  const { setActiveProfile, snapshot } = useProduct();
+  const { isCommandPending, setActiveProfile, snapshot } = useProduct();
   const { LL } = useI18nContext();
   if (!snapshot) return <span className="toolbar-loading">{LL.toolbar.loadingFixture()}</span>;
 
   const activeProfile =
     snapshot.profiles.find((profile) => profile.id === snapshot.activeProfileId) ??
     snapshot.profiles[0];
+  const profilePending = isCommandPending("profile");
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label={LL.toolbar.switchProfile({ profile: activeProfile.label })}
         className="toolbar-button profile-menu-trigger"
+        disabled={profilePending}
       >
         <FileText aria-hidden="true" />
         <span className="user-authored-label">{activeProfile.label}</span>
@@ -173,6 +181,7 @@ function ProfileMenu() {
           {snapshot.profiles.map((profile) => (
             <DropdownMenuRadioItem
               className="profile-menu-item"
+              disabled={profilePending}
               key={profile.id}
               value={profile.id}
             >

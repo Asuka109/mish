@@ -16,7 +16,7 @@ import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
 import { useProduct } from "../data/product-provider";
-import type { PolicyGroupDto, RoutingMode } from "../data/status-client";
+import type { PolicyGroupDto, RoutingMode } from "@mihomo/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 
@@ -45,7 +45,16 @@ function formatUptime(seconds: number) {
 }
 
 export function StatusPage() {
-  const { error, isLoading, selectGroupChild, setCapture, setRoutingMode, snapshot } = useProduct();
+  const {
+    connection,
+    error,
+    isCommandPending,
+    isLoading,
+    selectGroupChild,
+    setCapture,
+    setRoutingMode,
+    snapshot,
+  } = useProduct();
   const { LL, locale } = useI18nContext();
   const [pickerGroupId, setPickerGroupId] = useState<string | null>(null);
   const modeLabels: Record<RoutingMode, string> = {
@@ -53,6 +62,9 @@ export function StatusPage() {
     global: LL.status.modeGlobal(),
     rule: LL.status.modeRule(),
   };
+  const capturePending = isCommandPending("capture");
+  const groupPending = isCommandPending("group");
+  const routingPending = isCommandPending("routing");
 
   const frequentGroups = useMemo(() => {
     if (!snapshot) return [];
@@ -96,6 +108,11 @@ export function StatusPage() {
             {error}
           </p>
         ) : null}
+        {snapshot.adapterKind === "rpc" && connection.stale ? (
+          <p className="fixture-error" role="status">
+            {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
+          </p>
+        ) : null}
         <div className="status-controls">
           <SectionGrid className="status-control-card">
             <SectionGridItem className="status-control-cell">
@@ -112,7 +129,12 @@ export function StatusPage() {
                 variant="outline"
               >
                 {(Object.keys(modeLabels) as RoutingMode[]).map((mode) => (
-                  <ToggleGroupItem className="routing-mode-button" key={mode} value={mode}>
+                  <ToggleGroupItem
+                    className="routing-mode-button"
+                    disabled={routingPending}
+                    key={mode}
+                    value={mode}
+                  >
                     {modeLabels[mode]}
                   </ToggleGroupItem>
                 ))}
@@ -121,6 +143,7 @@ export function StatusPage() {
             <SectionGridItem className="status-control-cell">
               <span className="status-control-label">{LL.status.trafficCapture()}</span>
               <TrafficCaptureControl
+                disabled={capturePending}
                 onSystemProxyChange={(enabled) =>
                   void setCapture(enabled, snapshot.runtime.tunEnabled)
                 }
@@ -226,6 +249,7 @@ export function StatusPage() {
                 return (
                   <Button
                     className="section-grid-item policy-group-row"
+                    disabled={groupPending}
                     key={group.id}
                     onClick={() => openPicker(group)}
                     type="button"

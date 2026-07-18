@@ -7,10 +7,16 @@ desktop WebView. It consumes shared components from `packages/ui/` and CSS
 tokens from `packages/design-tokens/`. It does not import source, fixtures, or
 runtime assets from `sketch/`.
 
-Part 1 uses `FixtureStatusClient`, an implementation of the typed `StatusClient`
-boundary. Its commands update detached in-memory DTO snapshots only. The
-toolbar and aggregate capture action identify this as demo data; no System
-Proxy, TUN, Mihomo, probe, capture, or network request is executed.
+The default app uses `FixtureStatusClient`, an implementation of the shared
+typed `StatusClient` boundary. Its commands update detached in-memory DTO
+snapshots only. The toolbar and aggregate capture action identify this as demo
+data; no System Proxy, TUN, Mihomo, probe, capture, WebSocket, or network request
+is executed.
+
+`RpcStatusClient` is available only for explicit composition with an injected
+`RpcClient`. Runtime schemas reject malformed results and notifications before
+they enter product state. No endpoint, authentication token, or browser
+transport factory is wired into default application startup.
 
 English and Simplified Chinese UI dictionaries are bundled with the production
 artifact and exposed through generated `typesafe-i18n` functions. Locale changes
@@ -57,7 +63,7 @@ remains an explicit Git working-tree check.
 
 ## Automated coverage
 
-Part 1 tests cover:
+Automated tests cover:
 
 - direct rendering of all six deep-link routes;
 - semantic sidebar links and accessible active destination state;
@@ -67,7 +73,15 @@ Part 1 tests cover:
 - routing-mode changes through Base UI pressed-state controls;
 - verbatim mixed-script and emoji labels; and
 - English-to-Chinese switching, document language updates, and local locale
-  persistence.
+  persistence;
+- authentication-first request flow and typed result validation;
+- malformed payloads, unknown or mismatched IDs, typed remote errors, and
+  message-size limits;
+- validated subscriptions, disconnect/reconnect state, bounded retry,
+  cancellation, disposal, and cleanup;
+- an end-to-end fake-transport Status adapter flow across snapshots,
+  subscriptions, commands, reconnect, and typed failure; and
+- pending command deduplication plus suppression of success UI after failure.
 
 ## Manual browser checks
 
@@ -85,11 +99,12 @@ Before a visible production change is accepted, verify:
 - Services at three columns and one column; and
 - no browser console errors, unexpected runtime requests, or CDN assets.
 
-## Part 2 replacement gate
+## Local-agent replacement gate
 
-Part 2 may replace `FixtureStatusClient` with a validated DTO/RPC client without
-changing the view component contract. Before that adapter is considered real,
-it must add pending and typed failure semantics, authenticated same-origin RPC,
-stream reconnection, schema validation, and integration tests against the local
-agent. A fixture interaction must never be relabeled as a successful system or
-network action.
+The validated DTO/RPC client boundary, reconnect behavior, pending and typed
+failure semantics, and fake-transport integration coverage now exist. Replacing
+the startup fixture still requires the local agent to implement and test strict
+Host/Origin checks, loopback binding, authentication-secret bootstrap, message
+and subscription limits, matching schemas, and real command reconciliation.
+Integration tests must then run against that local agent. A fixture interaction
+must never be relabeled as a successful system or network action.

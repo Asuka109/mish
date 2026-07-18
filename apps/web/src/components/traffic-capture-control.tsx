@@ -14,6 +14,7 @@ import {
 import { useI18nContext } from "../i18n/i18n-react";
 
 interface TrafficCaptureControlProps {
+  disabled?: boolean;
   onSystemProxyChange(value: boolean): void;
   onTunChange(value: boolean): void;
   systemProxyEnabled: boolean;
@@ -21,6 +22,7 @@ interface TrafficCaptureControlProps {
 }
 
 export function TrafficCaptureControl({
+  disabled = false,
   onSystemProxyChange,
   onTunChange,
   systemProxyEnabled,
@@ -34,6 +36,7 @@ export function TrafficCaptureControl({
       <div className="capture-control">
         <Toggle
           className="capture-mode-button"
+          disabled={disabled}
           onPressedChange={onSystemProxyChange}
           pressed={systemProxyEnabled}
           variant="outline"
@@ -43,6 +46,7 @@ export function TrafficCaptureControl({
         </Toggle>
         <Toggle
           className="capture-mode-button"
+          disabled={disabled}
           onPressedChange={onTunChange}
           pressed={tunEnabled}
           variant="outline"

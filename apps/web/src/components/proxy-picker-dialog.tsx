@@ -10,7 +10,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@mihomo/ui";
-import type { PolicyGroupDto, ProxyNodeDto } from "../data/status-client";
+import type { PolicyGroupDto, ProxyNodeDto } from "@mihomo/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
 interface ProxyPickerDialogProps {

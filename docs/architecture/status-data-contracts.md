@@ -6,40 +6,50 @@ This document defines the data semantics behind Status. It separates direct
 Mihomo observations, local-agent state, and derived product values so the UI
 does not accidentally present a heuristic as core truth.
 
-The exact TypeScript schemas will be added with the production contracts
-package. The fields below describe required meaning, not final wire names.
+The shared TypeScript DTO, command, and runtime schemas live in
+`packages/contracts`. Zod 4 validates untrusted RPC results and notifications
+before an adapter can publish them to application state. The schemas preserve
+the established Status view shape while distinguishing `fixture` and `rpc`
+snapshot sources.
 
 ## DTO families
 
-| DTO | Required meaning | Authority |
-| --- | --- | --- |
-| `RuntimeStatusDto` | Core lifecycle, System Proxy state, TUN state, error or transition | Local agent plus platform adapter |
-| `TrafficSnapshotDto` | Current up/down rates and cumulative up/down bytes | Mihomo traffic stream |
-| `RuntimeMetricsDto` | Memory in use, uptime, active connections, effective rules | Mihomo observations plus local-agent uptime |
-| `ProfileSummaryDto` | Stable profile ID/fingerprint and user-facing label | Local agent persistence |
-| `PolicyGroupDto` | Opaque group label, type, children, selected child, latency data | Mihomo proxy tree plus delay observations |
-| `GroupUsageDto` | Profile-scoped cumulative deduplicated connection observations | Local-agent derivation |
-| `ServiceMonitorDto` | ID, opaque title, URL, icon key, probe policy | Local agent persistence |
-| `ServiceProbeResultDto` | Monitor ID, latency, timestamp, status, explicit route target | Local-agent probe execution |
-| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities | Platform adapter |
+| DTO                       | Required meaning                                                       | Authority                                   |
+| ------------------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
+| `RuntimeStatusDto`        | Core lifecycle, System Proxy state, TUN state, error or transition     | Local agent plus platform adapter           |
+| `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                     | Mihomo traffic stream                       |
+| `RuntimeMetricsDto`       | Memory in use, uptime, active connections, effective rules             | Mihomo observations plus local-agent uptime |
+| `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                    | Local agent persistence                     |
+| `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data       | Mihomo proxy tree plus delay observations   |
+| `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations         | Local-agent derivation                      |
+| `ServiceMonitorDto`       | ID, opaque title, URL, icon key, probe policy                          | Local agent persistence                     |
+| `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target          | Local-agent probe execution                 |
+| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities | Platform adapter                            |
 
 User-authored Mihomo labels are opaque Unicode strings. Production code must
 not split, normalize, reorder, or infer structured emoji and text fields. The
 current sketch keeps separate fixture properties only for convenient mock
 construction; that shape is not a production contract.
 
+The current command contracts cover snapshot reads, capture and routing-mode
+changes, active-profile selection, group-scoped child selection, service-monitor
+mutations, and Status subscription lifecycle. Every command returns a newly
+confirmed `StatusSnapshotDto`; a JSON-RPC success envelope with an invalid result
+is a validation failure, not command success. RPC snapshots must identify their
+adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
+
 ## Mihomo source mapping
 
-| Product value | Mihomo source | Notes |
-| --- | --- | --- |
-| Current rates and totals | `/traffic` stream (`up`, `down`, `upTotal`, `downTotal`) | The UI formats units; totals reset when their upstream source resets. |
-| Memory in use | `/memory` stream (`inuse`) | Present as Mihomo memory, not total app memory. |
-| Active connections | `/connections` snapshot or stream | Count live connection records, not historical observations. |
-| Policy groups and selected children | `/proxies` | Preserve nested group structure and group-scoped selection. |
-| Select a group child | `PUT /proxies/{group}` with a child name | Validate the child still belongs to the group. |
-| Proxy or group delay | `GET /proxies/{name}/delay` with bounded URL and timeout | The result is scoped to the requested proxy or group. |
-| Rules | `/rules` | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
-| Routing mode | `/configs` read/update | Represent Rule, Global, and Direct as a closed product enum. |
+| Product value                       | Mihomo source                                            | Notes                                                                                                                                                  |
+| ----------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Current rates and totals            | `/traffic` stream (`up`, `down`, `upTotal`, `downTotal`) | The UI formats units; totals reset when their upstream source resets.                                                                                  |
+| Memory in use                       | `/memory` stream (`inuse`)                               | Present as Mihomo memory, not total app memory.                                                                                                        |
+| Active connections                  | `/connections` snapshot or stream                        | Count live connection records, not historical observations.                                                                                            |
+| Policy groups and selected children | `/proxies`                                               | Preserve nested group structure and group-scoped selection.                                                                                            |
+| Select a group child                | `PUT /proxies/{group}` with a child name                 | Validate the child still belongs to the group.                                                                                                         |
+| Proxy or group delay                | `GET /proxies/{name}/delay` with bounded URL and timeout | The result is scoped to the requested proxy or group.                                                                                                  |
+| Rules                               | `/rules`                                                 | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
+| Routing mode                        | `/configs` read/update                                   | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
 
 Mihomo APIs can vary across versions. Pin the supported core revision and
 validate response schemas at the agent boundary rather than leaking version

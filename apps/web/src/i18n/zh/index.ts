@@ -57,8 +57,10 @@ const zh = {
     noSelection: "尚未选择",
     openLiveTraffic: "查看实时流量",
     routingMode: "路由模式",
+    reconnecting: "正在重新连接本地代理；上次确认的数据已过期。",
     session: "会话",
     services: "服务",
+    staleData: "本地代理已断开；上次确认的数据已过期。",
     trafficCapture: "流量接管",
     uploaded: "已上传",
     uptime: "运行时间",
@@ -175,8 +177,8 @@ const zh = {
     title: "页面不存在",
   },
   errors: {
-    command: "演示操作失败。",
-    loadFixture: "无法加载演示数据。",
+    command: "操作失败。",
+    loadStatus: "无法加载状态数据。",
   },
 } satisfies Translation;
 

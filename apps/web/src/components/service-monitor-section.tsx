@@ -45,7 +45,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { useProduct } from "../data/product-provider";
-import type { ServiceMonitorDraft, ServiceMonitorDto } from "../data/status-client";
+import type { ServiceMonitorDraft, ServiceMonitorDto } from "@mihomo/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
 const serviceIcons: Record<ServiceMonitorDto["icon"], Icon> = {
@@ -74,7 +74,7 @@ interface ServiceEditorDialogProps {
 }
 
 function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogProps) {
-  const { removeServiceMonitor, upsertServiceMonitor } = useProduct();
+  const { isCommandPending, removeServiceMonitor, upsertServiceMonitor } = useProduct();
   const { LL } = useI18nContext();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editedFields, setEditedFields] = useState({ label: false, url: false });
@@ -86,17 +86,20 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
   const showUrlError = urlInvalid && editedFields.url;
   const canSave = !labelInvalid && !urlInvalid;
   const existingService = Boolean(draft.id);
+  const commandPending = isCommandPending("services");
 
   async function saveService() {
     if (!draft || !canSave) return;
-    await upsertServiceMonitor(draft);
+    const result = await upsertServiceMonitor(draft);
+    if (!result.ok) return;
     toast.success(existingService ? LL.services.updatedToast() : LL.services.addedToast());
     onClose();
   }
 
   async function deleteService() {
     if (!draft?.id) return;
-    await removeServiceMonitor(draft.id);
+    const result = await removeServiceMonitor(draft.id);
+    if (!result.ok) return;
     toast.success(LL.services.removedToast());
     setDeleteConfirmOpen(false);
     onClose();
@@ -158,6 +161,7 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
           <div className="dialog-footer service-editor-footer">
             {existingService ? (
               <Button
+                disabled={commandPending}
                 onClick={() => setDeleteConfirmOpen(true)}
                 type="button"
                 variant="destructive"
@@ -173,7 +177,11 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
               >
                 {LL.common.cancel()}
               </DialogClose>
-              <Button className="primary-action-button" disabled={!canSave} type="submit">
+              <Button
+                className="primary-action-button"
+                disabled={!canSave || commandPending}
+                type="submit"
+              >
                 {LL.common.save()}
               </Button>
             </div>
@@ -190,7 +198,11 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
-              <AlertDialogAction onClick={() => void deleteService()} variant="destructive">
+              <AlertDialogAction
+                disabled={commandPending}
+                onClick={() => void deleteService()}
+                variant="destructive"
+              >
                 {LL.common.delete()}
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -202,10 +214,16 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
 }
 
 export function ServiceMonitorSection() {
-  const { restoreDefaultServices, snapshot } = useProduct();
+  const { isCommandPending, restoreDefaultServices, snapshot } = useProduct();
   const { LL } = useI18nContext();
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
   if (!snapshot) return null;
+  const commandPending = isCommandPending("services");
+
+  async function restoreServices() {
+    const result = await restoreDefaultServices();
+    if (result.ok) toast.success(LL.services.defaultRestoredToast());
+  }
 
   return (
     <section aria-label={LL.services.aria()} className="service-monitor-section">
@@ -230,12 +248,7 @@ export function ServiceMonitorSection() {
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem
-                onClick={() => {
-                  void restoreDefaultServices();
-                  toast.success(LL.services.defaultRestoredToast());
-                }}
-              >
+              <DropdownMenuItem disabled={commandPending} onClick={() => void restoreServices()}>
                 <ArrowCounterClockwise aria-hidden="true" data-icon="inline-start" />
                 {LL.services.restoreDefaults()}
               </DropdownMenuItem>
@@ -255,6 +268,7 @@ export function ServiceMonitorSection() {
               <Button
                 className="section-grid-item service-monitor-row"
                 data-service-icon={service.icon}
+                disabled={commandPending}
                 key={service.id}
                 onClick={() => setDraft({ ...service })}
                 type="button"
