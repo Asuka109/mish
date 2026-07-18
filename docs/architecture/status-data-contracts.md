@@ -43,6 +43,12 @@ state. The capture command carries the complete selection plus an aggregate
 active flag. Stopping may therefore disable both runtime paths without erasing
 the selection, while starting can restore the complete remembered combination.
 
+The shared agent contract also defines `AgentInfoDto` and `CoreStatusDto`.
+`CoreStatusDto` reports a closed lifecycle phase plus optional PID, version, and
+error. Core lifecycle commands intentionally take an empty parameter object:
+the agent process owns executable and configuration paths, so an authenticated
+browser cannot redirect process execution to an arbitrary path.
+
 ## Mihomo core source mapping
 
 | Product value                       | Mihomo source                                            | Notes                                                                                                                                                  |
@@ -112,6 +118,12 @@ memory, rules, latencies, and service results are fixtures. UI interactions may
 change local React state, but they do not call Mihomo. Production work must
 replace fixtures at a DTO boundary rather than importing core response objects
 directly into components.
+
+`packages/mock-agent` is a separate contract-test implementation. Unlike the
+in-process production fixture, it exercises real JSON-RPC serialization,
+authentication, WebSocket delivery, subscriptions, and remote failures. Its
+`fixture-only` capability values and deterministic measurements must not be
+presented as Mihomo or operating-system observations.
 
 ## References
 

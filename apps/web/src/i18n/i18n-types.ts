@@ -59,6 +59,29 @@ type RootTranslation = {
 		 */
 		simplifiedChinese: string
 	}
+	appearance: {
+		/**
+		 * C​h​a​n​g​e​ ​t​h​e​m​e​.​ ​C​u​r​r​e​n​t​ ​t​h​e​m​e​:​ ​{​a​p​p​e​a​r​a​n​c​e​}
+		 * @param {string} appearance
+		 */
+		current: RequiredParams<'appearance'>
+		/**
+		 * D​a​r​k
+		 */
+		dark: string
+		/**
+		 * T​h​e​m​e
+		 */
+		label: string
+		/**
+		 * L​i​g​h​t
+		 */
+		light: string
+		/**
+		 * F​o​l​l​o​w​ ​s​y​s​t​e​m
+		 */
+		system: string
+	}
 	navigation: {
 		/**
 		 * E​v​e​n​t​s
@@ -706,6 +729,28 @@ export type TranslationFunctions = {
 		 * 简体中文
 		 */
 		simplifiedChinese: () => LocalizedString
+	}
+	appearance: {
+		/**
+		 * Change theme. Current theme: {appearance}
+		 */
+		current: (arg: { appearance: string }) => LocalizedString
+		/**
+		 * Dark
+		 */
+		dark: () => LocalizedString
+		/**
+		 * Theme
+		 */
+		label: () => LocalizedString
+		/**
+		 * Light
+		 */
+		light: () => LocalizedString
+		/**
+		 * Follow system
+		 */
+		system: () => LocalizedString
 	}
 	navigation: {
 		/**

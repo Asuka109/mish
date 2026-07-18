@@ -15,6 +15,13 @@ const en = {
     label: "Language",
     simplifiedChinese: "简体中文",
   },
+  appearance: {
+    current: "Change theme. Current theme: {appearance:string}",
+    dark: "Dark",
+    label: "Theme",
+    light: "Light",
+    system: "Follow system",
+  },
   navigation: {
     events: "Events",
     primary: "Primary navigation",

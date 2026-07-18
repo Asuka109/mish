@@ -5,9 +5,11 @@ import { FileText } from "@phosphor-icons/react/FileText";
 import { Gauge } from "@phosphor-icons/react/Gauge";
 import { GearSix } from "@phosphor-icons/react/GearSix";
 import { ListBullets } from "@phosphor-icons/react/ListBullets";
+import { Moon } from "@phosphor-icons/react/Moon";
 import { PlugsConnected } from "@phosphor-icons/react/PlugsConnected";
 import { Power } from "@phosphor-icons/react/Power";
 import { Stack } from "@phosphor-icons/react/Stack";
+import { Sun } from "@phosphor-icons/react/Sun";
 import { Translate } from "@phosphor-icons/react/Translate";
 import { WifiHigh } from "@phosphor-icons/react/WifiHigh";
 import { XCircle } from "@phosphor-icons/react/XCircle";
@@ -23,6 +25,7 @@ import {
   TooltipTrigger,
 } from "@mish/ui";
 import { NavLink, Outlet, useLocation } from "react-router";
+import { useAppearance, type AppearancePreference } from "../appearance";
 import { useProduct } from "../data/product-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -53,6 +56,8 @@ const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Lo
   { label: "english", value: "en" },
   { label: "simplifiedChinese", value: "zh" },
 ];
+
+const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
 
 function ProxyControlButton() {
   const { isCommandPending, setCapture, snapshot } = useProduct();
@@ -240,6 +245,42 @@ function LanguageMenu() {
   );
 }
 
+function AppearanceMenu() {
+  const { preference, resolvedAppearance, setPreference } = useAppearance();
+  const { LL } = useI18nContext();
+  const currentAppearance = LL.appearance[preference]();
+  const AppearanceIcon = resolvedAppearance === "dark" ? Moon : Sun;
+
+  function changeAppearance(value: string) {
+    if (!appearanceOptions.includes(value as AppearancePreference)) return;
+    setPreference(value as AppearancePreference);
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label={LL.appearance.current({ appearance: currentAppearance })}
+        className="toolbar-button appearance-menu-trigger"
+      >
+        <AppearanceIcon aria-hidden="true" />
+        <CaretDown aria-hidden="true" weight="bold" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="appearance-menu" sideOffset={8}>
+        <DropdownMenuRadioGroup onValueChange={changeAppearance} value={preference}>
+          <DropdownMenuLabel className="profile-menu-label">
+            {LL.appearance.label()}
+          </DropdownMenuLabel>
+          {appearanceOptions.map((option) => (
+            <DropdownMenuRadioItem key={option} value={option}>
+              {LL.appearance[option]()}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function Toolbar() {
   const location = useLocation();
   const { LL } = useI18nContext();
@@ -253,6 +294,7 @@ function Toolbar() {
           <TooltipTrigger className="demo-data-badge">{LL.toolbar.demoMode()}</TooltipTrigger>
           <TooltipContent>{LL.toolbar.demoDescription()}</TooltipContent>
         </Tooltip>
+        <AppearanceMenu />
         <LanguageMenu />
         <ProfileMenu />
       </div>

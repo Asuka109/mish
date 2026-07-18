@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "agent": "cargo run -p mish-agent --",
     "build": "pnpm --filter @mish/web build",
     "design:lint": "pnpm dlx @google/design.md lint DESIGN.md",
     "dev": "pnpm --filter @mish/web dev",
@@ -13,12 +14,18 @@
     "i18n:check": "node scripts/check-i18n-generated.ts",
     "i18n:generate": "pnpm --filter @mish/web i18n:generate",
     "lint": "oxlint apps packages",
+    "mock-agent": "pnpm --filter @mish/mock-agent dev",
+    "mihomo:prepare": "node scripts/prepare-mihomo.ts",
     "preview": "pnpm --filter @mish/web preview",
     "test": "pnpm --filter @mish/web test",
     "test:run": "pnpm --recursive --if-present test:run",
+    "rust:check": "cargo check --workspace",
+    "rust:clippy": "cargo clippy --workspace --all-targets -- -D warnings",
+    "rust:format:check": "cargo fmt --all -- --check",
+    "rust:test": "cargo test --workspace",
     "tokens:check": "node scripts/check-design-tokens.ts",
     "typecheck": "pnpm --recursive --if-present typecheck",
-    "validate": "pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
+    "validate": "pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
   },
   "devDependencies": {
     "oxfmt": "0.59.0",

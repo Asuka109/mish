@@ -12,6 +12,7 @@ import {
   type StatusSnapshotDto,
 } from "@mish/contracts";
 import { AppRoutes } from "./app";
+import { AppearanceProvider } from "./appearance";
 import { FixtureStatusClient } from "./data/fixture-status-client";
 import { ProductProvider } from "./data/product-provider";
 import TypesafeI18n from "./i18n/i18n-react";
@@ -22,15 +23,17 @@ loadAllLocales();
 
 function renderRoute(path: string, locale: Locales = "en", client?: StatusClient) {
   return render(
-    <TypesafeI18n locale={locale}>
-      <MemoryRouter initialEntries={[path]}>
-        <ProductProvider client={client}>
-          <TooltipProvider>
-            <AppRoutes />
-          </TooltipProvider>
-        </ProductProvider>
-      </MemoryRouter>
-    </TypesafeI18n>,
+    <AppearanceProvider>
+      <TypesafeI18n locale={locale}>
+        <MemoryRouter initialEntries={[path]}>
+          <ProductProvider client={client}>
+            <TooltipProvider>
+              <AppRoutes />
+            </TooltipProvider>
+          </ProductProvider>
+        </MemoryRouter>
+      </TypesafeI18n>
+    </AppearanceProvider>,
   );
 }
 
@@ -307,6 +310,22 @@ describe("Status fixture experience", () => {
     expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
     expect(localStorage.getItem("mish.locale")).toBe("zh");
+  });
+
+  it("switches appearance manually and persists the preference", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+    await screen.findByText("Fixture activity at a glance.");
+
+    await user.click(
+      screen.getByRole("button", { name: "Change theme. Current theme: Follow system" }),
+    );
+    await user.click(await screen.findByRole("menuitemradio", { name: "Dark" }));
+
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "dark"));
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(localStorage.getItem("mish.appearance")).toBe("dark");
+    expect(screen.getByRole("button", { name: "Change theme. Current theme: Dark" })).toBeVisible();
   });
 
   it("defers service validation feedback until a field is edited", async () => {
