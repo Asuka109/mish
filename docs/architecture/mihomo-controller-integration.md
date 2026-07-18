@@ -9,8 +9,9 @@ Mihomo is not linked into the Rust process through a C ABI.
 
 The Controller adapter is a Rust library, not a service and not a proxy engine.
 It does not receive or forward device traffic. Its output is a set of validated
-Rust DTOs that a future application mapping layer can reconcile into Status,
-Routes, and Traffic contracts.
+Rust DTOs. A read-only application mapper in `crates/desktop-bridge` reconciles
+those DTOs into the transport-neutral typed Status state owned by
+`crates/runtime`.
 
 ## Terminology
 
@@ -46,7 +47,7 @@ flowchart TB
     RpcServer["Authenticated loopback RPC server"]
     Runtime["Transport-neutral Mish runtime"]
     ProcessManager["Desktop process manager"]
-    ProductMapper["Product DTO mapping and reconciliation (not implemented)"]
+    ProductMapper["Read-only Controller Status mapper"]
 
     subgraph AdapterLibrary["Read-only Controller adapter library"]
       ControllerClient["Typed Controller client"]
@@ -57,7 +58,7 @@ flowchart TB
     end
 
     RpcServer --> Runtime --> ProcessManager
-    Validation -. "not composed yet" .-> ProductMapper
+    Validation --> ProductMapper
     ProductMapper -. "not exposed yet" .-> Runtime
   end
 
@@ -90,8 +91,9 @@ There are three independent paths:
 1. **Lifecycle control:** UI RPC calls reach the desktop bridge, which asks the
    process manager to start or stop Mihomo. This path exists today.
 2. **Controller observations:** Mihomo emits Controller JSON, the adapter
-   validates it, and a future mapper will publish product DTOs over RPC. Only
-   the Controller-to-adapter portion exists today.
+   validates it, and the desktop mapper reconciles caller-supplied observations
+   into typed Status state. Concrete fetching, scheduling, uptime ownership,
+   and publication through runtime/RPC are not composed yet.
 3. **Device traffic:** application traffic enters Mihomo through a local proxy,
    System Proxy, or TUN path and leaves through Mihomo's selected outbound.
    This traffic never passes through the Controller adapter.
@@ -126,16 +128,58 @@ The adapter validates the pinned version explicitly through
 `verify_version()`. Callers may still read `/version` without claiming that an
 unknown version is supported.
 
-## DTO mapping rules
+## Status mapping and reconciliation
+
+`ControllerStatusMapper` accepts a caller-supplied profile ID, profile label,
+and stable profile fingerprint. It accepts validated observation batches but
+does not fetch, authenticate, persist, or schedule them. `crates/runtime` owns
+the transport-neutral Status structs and a generic `StatusDataSource` seam; it
+does not depend on the Controller crate or any desktop transport.
+
+| Status value             | Mapper input and behavior                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Routing mode             | Latest `/configs` mode; a configuration observation is required before a snapshot can be produced                   |
+| Core health              | Caller-supplied transport-neutral `CoreStatus`; an explicit core error becomes the Status message                   |
+| Groups and selection     | `/proxies` entries with `all`; `now` must exist, name one of that group's children, and resolve in the same catalog |
+| Nodes and latency        | Non-group `/proxies` entries; protocol is the exact Controller `type`, latency is the last supplied history delay   |
+| Traffic                  | Latest `/traffic` rates/totals plus a bounded series of observed rates                                              |
+| Memory                   | Latest `/memory.inuse`                                                                                              |
+| Active connections       | Length of the latest explicit `/connections` snapshot                                                               |
+| Effective rules          | `/rules` entries excluding those explicitly marked disabled                                                         |
+| Group usage              | Bounded recent connection-ID de-duplication and exact chain intersection with visible group labels                  |
+| Capabilities and capture | System Proxy and TUN are unavailable, disabled, and unselected                                                      |
+
+Catalog application is transactional. A missing selection, duplicate child,
+unknown child, out-of-group selection, or derived identifier collision rejects
+the whole catalog update and preserves the last valid state. This is necessary
+because the Status contract requires a selected child and cannot honestly
+represent an incomplete group.
+
+An absent field in an observation batch means that source did not publish a new
+value; the mapper retains its last observation. An explicit empty connection
+snapshot sets the active count to zero. Before the optional traffic, memory,
+connection, or rule streams produce a value, their contract-required numeric
+state is zero and traffic series are empty. The mapper does not claim that zero
+is a fresh Controller sample.
+
+Traffic series retain at most 512 observations, matching the Status DTO bound;
+the policy may lower but not raise that limit. Connection de-duplication retains
+the latest 65,536 IDs by default and evicts oldest IDs first. Group counts are
+profile-local, saturating counters and are emitted only for currently visible
+groups. Replaying an evicted connection ID may increment a count again, so these
+values remain heuristic ranking input rather than exact request totals.
+
+## DTO preservation rules
 
 - User-authored proxy and group names are opaque Unicode strings. Preserve
   exact values; do not split emoji, infer geography or protocol from labels, or
   normalize names.
 - The presence of Mihomo's `all` field identifies a group. `now` is the current
   effective child when present, and `fixed` is retained separately.
-- Mihomo group serializers do not consistently expose an internal UUID. A
-  future product identifier must therefore be scoped to a stable profile
-  fingerprint rather than treating a label as globally unique.
+- Mihomo group serializers do not consistently expose an internal UUID. The
+  mapper derives `group:` and `proxy:` identifiers by hashing the entity kind,
+  caller-supplied profile fingerprint, and Controller ID when present or exact
+  label otherwise. Labels are never treated as globally unique.
 - Traffic and memory integers are preserved as Controller values. Unit display
   and time-series retention belong to the product mapping layer.
 - v1.19.29 deliberately emits zero for the first `/memory` sample. The adapter
@@ -148,17 +192,17 @@ unknown version is supported.
 - Unknown JSON fields are ignored for additive compatibility, while required
   fields, numeric ranges, enum values, and configured size bounds are enforced.
 
-These Controller DTOs are not the shared Status DTOs. The future mapping layer
-must add local lifecycle state, uptime, active-profile identity, platform
-capabilities, capture intent, traffic-series retention, and profile-scoped
-group-usage derivation. See
-[`status-data-contracts.md`](status-data-contracts.md) for those semantics.
+Controller DTOs remain distinct from the shared Status structs. The mapper adds
+caller-supplied lifecycle, uptime, active-profile identity, honest platform
+capabilities, bounded traffic-series retention, and profile-scoped group usage.
+See [`status-data-contracts.md`](status-data-contracts.md) for those semantics.
 
 ## Explicit exclusions and remaining gaps
 
-This slice does not:
+The mapping slice does not:
 
-- compose the adapter into `ProductProvider`, the Rust runtime, or RPC;
+- instantiate `ControllerClient`, coordinate unary/stream reads, or publish
+  mapped snapshots through the Rust runtime or RPC;
 - change Status subscription ownership or reconnection behavior;
 - mutate profiles, routing mode, group selection, rules, or connections;
 - enable System Proxy, TUN, DNS changes, or privileged operations;

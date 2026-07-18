@@ -96,6 +96,13 @@ Automated tests cover:
   contract-compatible Status snapshots, subscription snapshot ordering, hostile
   Origin rejection, loopback-only binding, explicit managed-process start/stop,
   independent child exit publication, version reporting, and child cleanup.
+- synthetic Controller-to-Status mapping coverage for nested groups,
+  group-scoped and invalid selections, long mixed-script labels,
+  profile-scoped identifiers, exact proxy metadata and latency, stale and empty
+  streams, bounded traffic retention, bounded connection de-duplication, and
+  effective-rule counts;
+- explicit desktop-bridge rejection and non-mutation coverage for every
+  network-changing Status command;
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events;
@@ -129,7 +136,8 @@ validated Status snapshot, and explicit process lifecycle. Tauri embeds and
 serves the offline bundle from its own application protocol; a future same-origin
 HTTP host remains a desktop-bridge interface change.
 
-The browser replacement gate remains closed, and the desktop state remains
-sparse, until the desktop bridge reconciles against the pinned Mihomo Controller API and
-implements the required commands. A fixture or mock interaction must never be
-relabeled as a successful system or network action.
+The browser replacement gate remains closed. The desktop bridge now has a
+tested read-only Controller-to-Status mapper, but no concrete Controller fetch
+or stream coordinator is composed into runtime/RPC and no required command is
+implemented. A fixture or mock interaction must never be relabeled as a
+successful system or network action.

@@ -75,6 +75,13 @@ adapter. Desktop child-process monitoring and future embedded mobile adapters ca
 report lifecycle changes that occur outside an explicit start or stop command
 through the same runtime event stream.
 
+Rust Status state is now typed in `crates/runtime`. The generic
+`StatusDataSource` boundary can be implemented by desktop or embedded hosts
+without introducing Controller transport dependencies into runtime. The
+Controller-specific mapper lives in `crates/desktop-bridge`; it is deliberately
+not composed into `MishRuntime` or the RPC server until a desktop owner exists
+for Controller fetching, stream lifecycle, freshness, and uptime.
+
 ## Mihomo core source mapping
 
 | Product value                       | Mihomo source                                            | Notes                                                                                                                                                  |
@@ -87,6 +94,20 @@ through the same runtime event stream.
 | Proxy or group delay                | `GET /proxies/{name}/delay` with bounded URL and timeout | The result is scoped to the requested proxy or group.                                                                                                  |
 | Rules                               | `/rules`                                                 | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
 | Routing mode                        | `/configs` read/update                                   | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
+
+For the implemented read-only mapper, profile IDs are caller-supplied. Group
+and proxy IDs are deterministic SHA-256-derived identifiers scoped by a
+caller-supplied stable profile fingerprint and prefixed with `group:` or
+`proxy:`. The hash input uses the Controller entity ID when present and the
+exact opaque label otherwise. Renaming an entity without a Controller ID
+therefore changes its derived identifier; changing profiles always changes it.
+
+The mapper consumes coalesced observation batches. Missing batch fields retain
+the last valid value, while an explicitly empty connection snapshot sets the
+active count to zero. It retains at most 512 traffic-rate observations and a
+bounded recent set of connection IDs for group-usage de-duplication. Invalid
+catalog relationships reject the batch transactionally instead of inventing a
+selected child.
 
 Mihomo APIs can vary across versions. Pin the supported core revision and
 validate response schemas at the local-bridge boundary rather than leaking version
@@ -104,11 +125,13 @@ groups from observed usage:
 4. Increment every traversed group, not only the last chain element.
 5. Persist counts under a stable profile fingerprint so profiles never share
    ranking history.
-6. Sort descending, apply a stable tie-breaker, and show the first five groups.
+6. Consumers sort descending, apply a stable tie-breaker, and show the first
+   five groups.
 
 Counts are heuristic ranking input. They are not exact request totals, billing
-data, or a user-facing metric. The local bridge should define retention, reset,
-and profile-deletion behavior before production release.
+data, or a user-facing metric. The mapper uses saturating per-profile counts and
+retains the latest 65,536 connection IDs by default, evicting oldest IDs first.
+Profile deletion and durable count persistence remain composition concerns.
 
 ## Service probes
 

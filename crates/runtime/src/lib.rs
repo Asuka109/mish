@@ -5,8 +5,12 @@ use std::{
 
 use futures_util::future::BoxFuture;
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::broadcast;
+
+mod status;
+
+pub use status::*;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -25,13 +29,6 @@ pub struct CoreStatus {
     pub phase: CorePhase,
     pub pid: Option<u32>,
     pub version: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum StatusAdapterKind {
-    Native,
-    Rpc,
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
@@ -105,20 +102,45 @@ pub trait CoreRuntime: Send + Sync {
     fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
 }
 
+pub trait StatusDataSource: Send + Sync {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot;
+}
+
+#[derive(Default)]
+struct LifecycleStatusDataSource;
+
+impl StatusDataSource for LifecycleStatusDataSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+}
+
 #[derive(Clone)]
 pub struct MishRuntime {
     core: Arc<dyn CoreRuntime>,
     events: Arc<RuntimeStatusEvents>,
+    status_source: Arc<dyn StatusDataSource>,
 }
 
 impl MishRuntime {
     pub fn new(core: Arc<dyn CoreRuntime>) -> Self {
+        Self::with_status_source(core, Arc::new(LifecycleStatusDataSource))
+    }
+
+    pub fn with_status_source(
+        core: Arc<dyn CoreRuntime>,
+        status_source: Arc<dyn StatusDataSource>,
+    ) -> Self {
         let (updates, _) = broadcast::channel(32);
         let events = Arc::new(RuntimeStatusEvents { updates });
         core.attach_status_event_sink(CoreStatusEventSink {
             events: Arc::downgrade(&events),
         });
-        Self { core, events }
+        Self {
+            core,
+            events,
+            status_source,
+        }
     }
 
     pub fn core_configured(&self) -> bool {
@@ -150,7 +172,8 @@ impl MishRuntime {
         status: &CoreStatus,
         adapter_kind: StatusAdapterKind,
     ) -> Value {
-        status_snapshot(status, adapter_kind)
+        serde_json::to_value(self.status_source.snapshot(status, adapter_kind))
+            .expect("Status state must serialize")
     }
 
     pub fn subscribe_status(&self) -> broadcast::Receiver<CoreStatus> {
@@ -160,74 +183,4 @@ impl MishRuntime {
     fn publish_status(&self, status: &CoreStatus) {
         let _ = self.events.updates.send(status.clone());
     }
-}
-
-fn status_snapshot(core: &CoreStatus, adapter_kind: StatusAdapterKind) -> Value {
-    let (phase, message) = match core.phase {
-        CorePhase::Stopped => ("inactive", "Mihomo is stopped"),
-        CorePhase::Starting => ("connecting", "Mihomo is starting"),
-        CorePhase::Running => ("healthy", "Mihomo is running"),
-        CorePhase::Stopping => ("stopping", "Mihomo is stopping"),
-        CorePhase::Failed => ("error", "Mihomo failed"),
-    };
-    json!({
-        "activeProfileId": "local",
-        "adapterKind": adapter_kind,
-        "capabilities": {"systemProxy": "unavailable", "tun": "unavailable"},
-        "groups": [], "groupUsage": [],
-        "metrics": {"activeConnections": 0, "effectiveRules": 0, "memoryBytes": 0, "uptimeSeconds": 0},
-        "nodes": [], "probeResults": [],
-        "profiles": [{"id": "local", "label": "Local Mihomo"}],
-        "routingMode": "rule",
-        "runtime": {
-            "captureSelection": {"systemProxy": true, "tun": false},
-            "message": message,
-            "phase": phase,
-            "systemProxyEnabled": false,
-            "tunEnabled": false
-        },
-        "services": default_services(),
-        "traffic": {"downloadBytesPerSecond": 0, "downloadSeries": [], "downloadedBytes": 0, "uploadBytesPerSecond": 0, "uploadSeries": [], "uploadedBytes": 0}
-    })
-}
-
-fn default_services() -> Value {
-    json!([
-        {
-            "icon": "google",
-            "id": "google",
-            "label": "Google",
-            "url": "https://www.google.com/generate_204"
-        },
-        {
-            "icon": "github",
-            "id": "github",
-            "label": "GitHub",
-            "url": "https://github.com"
-        },
-        {
-            "icon": "cloudflare",
-            "id": "cloudflare",
-            "label": "Cloudflare",
-            "url": "https://cp.cloudflare.com/generate_204"
-        },
-        {
-            "icon": "baidu",
-            "id": "baidu",
-            "label": "Baidu",
-            "url": "https://www.baidu.com"
-        },
-        {
-            "icon": "apple",
-            "id": "apple",
-            "label": "Apple",
-            "url": "https://www.apple.com/library/test/success.html"
-        },
-        {
-            "icon": "microsoft",
-            "id": "microsoft",
-            "label": "Microsoft",
-            "url": "https://www.msftconnecttest.com/connecttest.txt"
-        }
-    ])
 }
