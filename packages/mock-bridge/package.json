@@ -1,5 +1,5 @@
 {
-  "name": "@mish/mock-agent",
+  "name": "@mish/mock-bridge",
   "version": "0.1.0",
   "private": true,
   "type": "module",

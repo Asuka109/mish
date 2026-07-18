@@ -103,7 +103,7 @@ importers:
 
   packages/design-tokens: {}
 
-  packages/mock-agent:
+  packages/mock-bridge:
     dependencies:
       '@mish/contracts':
         specifier: workspace:*

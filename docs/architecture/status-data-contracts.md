@@ -3,7 +3,7 @@
 ## Scope
 
 This document defines the data semantics behind Status. It separates direct
-Mihomo core observations, local-agent state, and derived product values so the UI
+Mihomo core observations, local-bridge state, and derived product values so the UI
 does not accidentally present a heuristic as core truth.
 
 The shared TypeScript DTO, command, and runtime schemas live in
@@ -19,17 +19,17 @@ non-fixture adapter.
 
 ## DTO families
 
-| DTO                       | Required meaning                                                                             | Authority                                   |
-| ------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------- |
-| `RuntimeStatusDto`        | Core lifecycle, capture selection, confirmed System Proxy and TUN state, error or transition | Local agent plus platform adapter           |
-| `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                                           | Mihomo traffic stream                       |
-| `RuntimeMetricsDto`       | Memory in use, uptime, active connections, effective rules                                   | Mihomo observations plus local-agent uptime |
-| `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local agent persistence                     |
-| `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations   |
-| `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-agent derivation                      |
-| `ServiceMonitorDto`       | ID, opaque title, URL, icon key, probe policy                                                | Local agent persistence                     |
-| `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-agent probe execution                 |
-| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                            |
+| DTO                       | Required meaning                                                                             | Authority                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `RuntimeStatusDto`        | Core lifecycle, capture selection, confirmed System Proxy and TUN state, error or transition | Local bridge plus platform adapter           |
+| `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                                           | Mihomo traffic stream                        |
+| `RuntimeMetricsDto`       | Memory in use, uptime, active connections, effective rules                                   | Mihomo observations plus local-bridge uptime |
+| `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local bridge persistence                     |
+| `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations    |
+| `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                      |
+| `ServiceMonitorDto`       | ID, opaque title, URL, icon key, probe policy                                                | Local bridge persistence                     |
+| `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                 |
+| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                             |
 
 User-authored Mihomo labels are opaque Unicode strings. Production code must
 not split, normalize, reorder, or infer structured emoji and text fields. The
@@ -48,10 +48,11 @@ state. The capture command carries the complete selection plus an aggregate
 active flag. Stopping may therefore disable both runtime paths without erasing
 the selection, while starting can restore the complete remembered combination.
 
-The shared agent contract also defines `AgentInfoDto` and `CoreStatusDto`.
+The shared desktop-bridge contract also defines `BridgeInfoDto` and
+`CoreStatusDto`.
 `CoreStatusDto` reports a closed lifecycle phase plus optional PID, version, and
 error. Core lifecycle commands intentionally take an empty parameter object:
-the agent process owns executable and configuration paths, so an authenticated
+the bridge process owns executable and configuration paths, so an authenticated
 browser cannot redirect process execution to an arbitrary path.
 
 The Rust `CoreRuntime` interface mirrors these lifecycle semantics without
@@ -73,7 +74,7 @@ future Kotlin or Swift adapters without parsing English error text.
 | Routing mode                        | `/configs` read/update                                   | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
 
 Mihomo APIs can vary across versions. Pin the supported core revision and
-validate response schemas at the agent boundary rather than leaking version
+validate response schemas at the local-bridge boundary rather than leaking version
 differences into React components.
 
 ## Most-used group derivation
@@ -91,12 +92,12 @@ groups from observed usage:
 6. Sort descending, apply a stable tie-breaker, and show the first five groups.
 
 Counts are heuristic ranking input. They are not exact request totals, billing
-data, or a user-facing metric. The local agent should define retention, reset,
+data, or a user-facing metric. The local bridge should define retention, reset,
 and profile-deletion behavior before production release.
 
 ## Service probes
 
-Service monitors are executed by the local agent, not directly by the WebView.
+Service monitors are executed by the local bridge, not directly by the WebView.
 This avoids browser CORS behavior, keeps results consistent between browser and
 Tauri clients, and makes route selection explicit.
 
@@ -129,7 +130,7 @@ change local React state, but they do not call Mihomo. Production work must
 replace fixtures at a DTO boundary rather than importing core response objects
 directly into components.
 
-`packages/mock-agent` is a separate contract-test implementation. Unlike the
+`packages/mock-bridge` is a separate contract-test implementation. Unlike the
 in-process production fixture, it exercises real JSON-RPC serialization,
 authentication, WebSocket delivery, subscriptions, and remote failures. Its
 `fixture-only` capability values and deterministic measurements must not be

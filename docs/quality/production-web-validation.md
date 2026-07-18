@@ -30,14 +30,14 @@ The six stable destinations are:
 | URL         | Current Part 1 state                                            |
 | ----------- | --------------------------------------------------------------- |
 | `/status`   | Complete fixture-backed reference surface                       |
-| `/routes`   | Structured policy-group ownership and missing-agent state       |
+| `/routes`   | Structured policy-group ownership and bridge-unavailable state  |
 | `/profiles` | Structured profile-lifecycle ownership and missing-store state  |
 | `/traffic`  | Structured connections/rules ownership and missing-stream state |
 | `/events`   | Structured event/diagnostic ownership and missing-buffer state  |
 | `/settings` | Structured capability/settings ownership and fixture-only state |
 
 React Router owns these client routes. Development and Vite preview use SPA
-fallback behavior. Any future static server or local agent must return the same
+fallback behavior. Any future static server or desktop bridge must return the same
 bundled `index.html` for an unknown non-asset path so a direct URL or browser
 refresh resolves before React Router takes over.
 
@@ -86,12 +86,12 @@ Automated tests cover:
 - an end-to-end fake-transport Status adapter flow across snapshots,
   subscriptions, commands, reconnect, and typed failure; and
 - pending command deduplication plus suppression of success UI after failure.
-- a real WebSocket client/server flow against the TypeScript mock agent,
+- a real WebSocket client/server flow against the TypeScript mock bridge,
   including authentication, snapshots, subscriptions, commands, core state,
   typed failure, non-mutation after failure, and cleanup; and
-- Rust local-agent integration coverage for malformed and unauthenticated RPC,
+- Rust desktop-bridge integration coverage for malformed and unauthenticated RPC,
   contract-compatible Status snapshots, hostile Origin rejection, loopback-only
-  binding, explicit sidecar start/stop, version reporting, and child cleanup.
+  binding, explicit managed-process start/stop, version reporting, and child cleanup.
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events.
@@ -112,17 +112,17 @@ Before a visible production change is accepted, verify:
 - Services at three columns and one column; and
 - no browser console errors, unexpected runtime requests, or CDN assets.
 
-## Local-agent replacement gate
+## Desktop-bridge replacement gate
 
 The validated DTO/RPC client boundary, reconnect behavior, pending and typed
 failure semantics, and fake-transport integration coverage now exist. Replacing
-the startup fixture still requires the local agent to implement and test strict
+the startup fixture still requires the desktop bridge to implement and test strict
 Host/Origin checks, loopback binding, authentication-secret bootstrap, message
 and subscription limits, matching schemas, and real command reconciliation.
-The initial agent now covers loopback binding, strict Host/Origin checks,
+The initial desktop bridge now covers loopback binding, strict Host/Origin checks,
 authentication, message and subscription bounds, JSON-RPC framing, a sparse
 validated Status snapshot, and explicit process lifecycle. The replacement gate
-remains closed until the agent serves the offline bundle from its origin,
+remains closed until the desktop bridge serves the offline bundle from its origin,
 bootstraps the browser endpoint and secret, reconciles state against the pinned
 Mihomo controller API, and implements the required commands. A fixture or mock
 interaction must never be relabeled as a successful system or network action.

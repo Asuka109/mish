@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/agent", "crates/runtime"]
+members = ["crates/desktop-bridge", "crates/mihomo-controller", "crates/runtime"]
 resolver = "2"
 
 [workspace.package]

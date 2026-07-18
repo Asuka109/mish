@@ -107,7 +107,7 @@ async fn handle_message(
     }
     if matches!(
         request.method.as_str(),
-        "agent.getInfo"
+        "bridge.getInfo"
             | "core.getStatus"
             | "core.start"
             | "core.stop"
@@ -147,8 +147,8 @@ async fn handle_message(
                 "sessionId": format!("session-{}", NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed)),
             })
         }
-        "agent.getInfo" => json!({
-            "agentVersion": env!("CARGO_PKG_VERSION"),
+        "bridge.getInfo" => json!({
+            "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
             "protocolVersion": 1,
         }),
@@ -193,7 +193,7 @@ async fn handle_message(
             return Some(error_response(
                 id,
                 -32020,
-                "Capability is not implemented by the local agent",
+                "Capability is not implemented by the desktop bridge",
                 None,
             ));
         }

@@ -50,7 +50,7 @@ route tests are diagnostic tools, not a top-level entertainment-unlock promise.
 | EVENT-F-002 | P0 | Users shall filter by severity, source, time, and text. | Filters are composable, keyboard accessible, and do not discard the underlying bounded event buffer. |
 | EVENT-F-003 | P0 | Users shall pause visual follow, change chronological order, and clear the local view. | Clear affects the displayed local buffer only unless a separate persistent-log deletion action explicitly says otherwise. |
 | EVENT-F-004 | P0 | Common failures shall link to contextual recovery or a guided diagnostic. | A core start failure, permission denial, profile validation failure, DNS failure, and System Proxy drift each expose a relevant next action. |
-| DIAG-F-001 | P0 | Guided diagnostics shall test the layers needed to localize a failure. | A run reports local-agent reachability, core health, active profile validity, capture state, DNS resolution, direct reachability, and explicitly scoped proxy/group reachability. |
+| DIAG-F-001 | P0 | Guided diagnostics shall test the layers needed to localize a failure. | A run reports desktop-bridge reachability, core health, active profile validity, capture state, DNS resolution, direct reachability, and explicitly scoped proxy/group reachability. |
 | DIAG-F-002 | P0 | Diagnostic results shall distinguish observation from inference. | Each check includes scope, time, route target, observed result, and a plain-language interpretation that does not overclaim global connectivity. |
 | DIAG-F-003 | P1 | Users shall be able to export a redacted diagnostic bundle. | Before export, the UI previews included categories and redactions; default output excludes credentials, subscription URLs/tokens, full user paths, IPs when not required, and raw configuration secrets. |
 | DIAG-F-004 | P1 | Diagnostic bundles shall include enough version context for support. | With consent, the bundle includes app/core/OS versions, capability state, recent bounded events, profile summary/fingerprint, capture observations, and check results. |
@@ -100,7 +100,7 @@ route tests are diagnostic tools, not a top-level entertainment-unlock promise.
 ## Dependencies
 
 - Mihomo core connections, rules, traffic, logs/events, and health data.
-- Local-agent event schema, bounded storage, stream sequence/reconnect metadata,
+- Desktop-bridge event schema, bounded storage, stream sequence/reconnect metadata,
   and diagnostic runner.
 - Platform observations for System Proxy, TUN, permissions, and process details.
 - Profile summary and redaction schema.

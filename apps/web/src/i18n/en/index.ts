@@ -178,7 +178,7 @@ const en = {
       itemThreeLabel: "Export",
       itemTwoDetail: "Layered checks with observed scope.",
       itemTwoLabel: "Diagnostics",
-      prerequisite: "No local-agent event buffer or diagnostic runner exists yet.",
+      prerequisite: "No desktop-bridge event buffer or diagnostic runner exists yet.",
       title: "Events",
     },
     settings: {

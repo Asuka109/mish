@@ -44,7 +44,7 @@ failures without opening a terminal or a second administration dashboard.
 | [`PRODUCT.md`](../../../PRODUCT.md) | Users, purpose, personality, anti-references, and product principles |
 | [`DESIGN.md`](../../../DESIGN.md) | Cal-derived design system and macOS utility composition |
 | [`status-experience.md`](../status-experience.md) | Approved Status behavior and semantics |
-| [`frontend-platform-boundary.md`](../../architecture/frontend-platform-boundary.md) | Shared web product layer, local agent, RPC, Tauri, and privileged-helper ownership |
+| [`frontend-platform-boundary.md`](../../architecture/frontend-platform-boundary.md) | Shared web product layer, desktop bridge, RPC, Tauri, and privileged-helper ownership |
 | [`status-data-contracts.md`](../../architecture/status-data-contracts.md) | Mihomo core source mapping, group-usage derivation, and service-probe semantics |
 
 ## Competitive conclusions

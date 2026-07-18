@@ -5,8 +5,8 @@ use std::{
 };
 
 use futures_util::{SinkExt, StreamExt};
-use mish_agent::{
-    DesktopSidecar, DesktopSidecarConfig, LoopbackServerConfig, start_loopback_server,
+use mish_bridge::{
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, start_loopback_server,
 };
 use mish_runtime::MishRuntime;
 use serde_json::{Value, json};
@@ -24,12 +24,12 @@ fn config() -> LoopbackServerConfig {
     }
 }
 
-fn runtime(config: DesktopSidecarConfig) -> MishRuntime {
-    MishRuntime::new(Arc::new(DesktopSidecar::new(config)))
+fn runtime(config: DesktopMihomoProcessConfig) -> MishRuntime {
+    MishRuntime::new(Arc::new(DesktopMihomoProcess::new(config)))
 }
 
-fn no_core() -> DesktopSidecarConfig {
-    DesktopSidecarConfig {
+fn no_core() -> DesktopMihomoProcessConfig {
+    DesktopMihomoProcessConfig {
         binary: None,
         config_directory: None,
         config_file: None,
@@ -80,10 +80,10 @@ async fn authenticate(
 
 #[tokio::test]
 async fn rejects_unauthenticated_and_malformed_requests() {
-    let agent = start_loopback_server(config(), runtime(no_core()))
+    let bridge = start_loopback_server(config(), runtime(no_core()))
         .await
         .unwrap();
-    let mut ws = socket(agent.address).await;
+    let mut ws = socket(bridge.address).await;
 
     let unauthenticated = request(
         &mut ws,
@@ -98,23 +98,24 @@ async fn rejects_unauthenticated_and_malformed_requests() {
     };
     let malformed: Value = serde_json::from_str(&response).unwrap();
     assert_eq!(malformed["error"]["code"], -32700);
-    agent.shutdown().await;
+    bridge.shutdown().await;
 }
 
 #[tokio::test]
 async fn authenticates_and_serves_contract_compatible_status() {
-    let agent = start_loopback_server(config(), runtime(no_core()))
+    let bridge = start_loopback_server(config(), runtime(no_core()))
         .await
         .unwrap();
-    let mut ws = socket(agent.address).await;
+    let mut ws = socket(bridge.address).await;
     authenticate(&mut ws).await;
 
     let info = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":2, "method":"agent.getInfo", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
     assert_eq!(info["result"]["protocolVersion"], 1);
+    assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
 
     let snapshot = request(
@@ -135,15 +136,15 @@ async fn authenticates_and_serves_contract_compatible_status() {
     )
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);
-    agent.shutdown().await;
+    bridge.shutdown().await;
 }
 
 #[tokio::test]
 async fn rejects_an_untrusted_websocket_origin() {
-    let agent = start_loopback_server(config(), runtime(no_core()))
+    let bridge = start_loopback_server(config(), runtime(no_core()))
         .await
         .unwrap();
-    let mut request = format!("ws://{}/rpc", agent.address)
+    let mut request = format!("ws://{}/rpc", bridge.address)
         .into_client_request()
         .unwrap();
     request
@@ -151,16 +152,16 @@ async fn rejects_an_untrusted_websocket_origin() {
         .insert("Origin", "https://attacker.example".parse().unwrap());
     let error = tokio_tungstenite::connect_async(request).await.unwrap_err();
     assert!(error.to_string().contains("403"));
-    agent.shutdown().await;
+    bridge.shutdown().await;
 }
 
 #[tokio::test]
-async fn manages_an_explicit_sidecar_and_stops_it_during_shutdown() {
+async fn manages_an_explicit_mihomo_process_and_stops_it_during_shutdown() {
     let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-mihomo.sh");
     let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let agent = start_loopback_server(
+    let bridge = start_loopback_server(
         config(),
-        runtime(DesktopSidecarConfig {
+        runtime(DesktopMihomoProcessConfig {
             binary: Some(binary),
             config_directory: Some(directory),
             config_file: None,
@@ -168,7 +169,7 @@ async fn manages_an_explicit_sidecar_and_stops_it_during_shutdown() {
     )
     .await
     .unwrap();
-    let mut ws = socket(agent.address).await;
+    let mut ws = socket(bridge.address).await;
     authenticate(&mut ws).await;
 
     let subscription = request(
@@ -207,7 +208,7 @@ async fn manages_an_explicit_sidecar_and_stops_it_during_shutdown() {
     )
     .await;
     assert_eq!(stopped["result"]["phase"], "stopped");
-    agent.shutdown().await;
+    bridge.shutdown().await;
 }
 
 #[tokio::test]
@@ -215,8 +216,8 @@ async fn refuses_non_loopback_binding() {
     let mut unsafe_config = config();
     unsafe_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0);
     let error = match start_loopback_server(unsafe_config, runtime(no_core())).await {
-        Ok(agent) => {
-            agent.shutdown().await;
+        Ok(bridge) => {
+            bridge.shutdown().await;
             panic!("unsafe binding was accepted")
         }
         Err(error) => error,

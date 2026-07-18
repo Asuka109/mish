@@ -1,6 +1,6 @@
+mod managed_process;
 mod protocol;
 mod server;
-mod sidecar;
 
+pub use managed_process::{DesktopMihomoProcess, DesktopMihomoProcessConfig};
 pub use server::{LoopbackServerConfig, LoopbackServerHandle, start_loopback_server};
-pub use sidecar::{DesktopSidecar, DesktopSidecarConfig};

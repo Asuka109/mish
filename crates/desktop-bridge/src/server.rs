@@ -54,10 +54,10 @@ pub async fn start_loopback_server(
     runtime: MishRuntime,
 ) -> Result<LoopbackServerHandle, String> {
     if !config.bind.ip().is_loopback() {
-        return Err("The Mish agent may only bind to a loopback address".into());
+        return Err("The Mish desktop bridge may only bind to a loopback address".into());
     }
     if config.auth_token.len() < 16 {
-        return Err("MISH_AGENT_TOKEN must contain at least 16 characters".into());
+        return Err("MISH_BRIDGE_TOKEN must contain at least 16 characters".into());
     }
     let listener = TcpListener::bind(config.bind)
         .await
