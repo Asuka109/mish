@@ -201,6 +201,35 @@ export interface RemoveServiceMonitorCommand extends z.infer<
 
 export const EmptyCommandSchema = z.object({}).strict();
 
+export const CorePhaseSchema = z.enum(["stopped", "starting", "running", "stopping", "failed"]);
+export type CorePhase = z.infer<typeof CorePhaseSchema>;
+
+export const CoreStatusSchema = z
+  .object({
+    error: z.string().nullable(),
+    phase: CorePhaseSchema,
+    pid: NonNegativeIntegerSchema.nullable(),
+    version: z.string().nullable(),
+  })
+  .strict();
+export interface CoreStatusDto extends z.infer<typeof CoreStatusSchema> {}
+
+export const AgentInfoSchema = z
+  .object({
+    agentVersion: z.string().min(1),
+    coreConfigured: z.boolean(),
+    protocolVersion: z.literal(1),
+  })
+  .strict();
+export interface AgentInfoDto extends z.infer<typeof AgentInfoSchema> {}
+
+export const agentRpcMethods = {
+  "agent.getInfo": { params: EmptyCommandSchema, result: AgentInfoSchema },
+  "core.getStatus": { params: EmptyCommandSchema, result: CoreStatusSchema },
+  "core.start": { params: EmptyCommandSchema, result: CoreStatusSchema },
+  "core.stop": { params: EmptyCommandSchema, result: CoreStatusSchema },
+} as const;
+
 export const StatusSubscriptionSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
 export interface StatusSubscriptionDto extends z.infer<typeof StatusSubscriptionSchema> {}
 
@@ -237,6 +266,11 @@ export const statusRpcMethods = {
     params: UpsertServiceMonitorCommandSchema,
     result: RpcStatusSnapshotSchema,
   },
+} as const;
+
+export const mishRpcMethods = {
+  ...agentRpcMethods,
+  ...statusRpcMethods,
 } as const;
 
 export const statusRpcNotifications = {

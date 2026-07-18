@@ -52,6 +52,10 @@ pnpm lint
 pnpm format:check
 pnpm typecheck
 pnpm test:run
+pnpm rust:format:check
+pnpm rust:check
+pnpm rust:clippy
+pnpm rust:test
 pnpm build
 pnpm design:lint
 pnpm docs:links
@@ -82,6 +86,12 @@ Automated tests cover:
 - an end-to-end fake-transport Status adapter flow across snapshots,
   subscriptions, commands, reconnect, and typed failure; and
 - pending command deduplication plus suppression of success UI after failure.
+- a real WebSocket client/server flow against the TypeScript mock agent,
+  including authentication, snapshots, subscriptions, commands, core state,
+  typed failure, non-mutation after failure, and cleanup; and
+- Rust local-agent integration coverage for malformed and unauthenticated RPC,
+  contract-compatible Status snapshots, hostile Origin rejection, loopback-only
+  binding, explicit sidecar start/stop, version reporting, and child cleanup.
 
 ## Manual browser checks
 
@@ -106,5 +116,10 @@ failure semantics, and fake-transport integration coverage now exist. Replacing
 the startup fixture still requires the local agent to implement and test strict
 Host/Origin checks, loopback binding, authentication-secret bootstrap, message
 and subscription limits, matching schemas, and real command reconciliation.
-Integration tests must then run against that local agent. A fixture interaction
-must never be relabeled as a successful system or network action.
+The initial agent now covers loopback binding, strict Host/Origin checks,
+authentication, message and subscription bounds, JSON-RPC framing, a sparse
+validated Status snapshot, and explicit process lifecycle. The replacement gate
+remains closed until the agent serves the offline bundle from its origin,
+bootstraps the browser endpoint and secret, reconciles state against the pinned
+Mihomo controller API, and implements the required commands. A fixture or mock
+interaction must never be relabeled as a successful system or network action.

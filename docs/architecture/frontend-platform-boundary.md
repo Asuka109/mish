@@ -79,6 +79,34 @@ connection. Cancellation removes local correlation state and emits
 default: the application continues to use `FixtureStatusClient` until a secured
 local agent and an explicit endpoint/authentication bootstrap exist.
 
+## Implemented local-agent slice
+
+`crates/agent` is the first Rust implementation of the platform boundary. It
+binds only to a loopback address, validates `Host` and WebSocket `Origin`, limits
+message size and subscriptions, requires an authentication-first handshake, and
+exposes explicit `agent.getInfo`, `core.getStatus`, `core.start`, and `core.stop`
+methods. Authentication secrets come from `MISH_AGENT_TOKEN`; they are not CLI
+arguments and must never be stored in the repository.
+
+Mihomo executable and configuration paths belong to the agent's startup
+configuration. Browser RPC calls cannot choose an executable or arbitrary file.
+The process manager checks the configured executable's version before launch,
+tracks PID and process liveness, sends `SIGTERM` on stop, applies a bounded wait,
+and reaps or kills the child before agent shutdown completes. It does not start
+Mihomo automatically.
+
+The current Status snapshot from Rust is deliberately sparse and reports
+System Proxy and TUN as unavailable. Commands not backed by real controller or
+platform reconciliation return a typed capability error instead of fake
+success. Serving the offline Web bundle from the same origin and mapping Mihomo
+controller streams remain follow-up work, so the production Web startup still
+uses `FixtureStatusClient`.
+
+`packages/mock-agent` implements the same shared contracts in TypeScript over a
+real loopback WebSocket server. It supports deterministic snapshots,
+subscriptions, commands, injected typed failures, and mock core state for test
+and adapter development. It is manually started and never selected by default.
+
 ## Offline asset policy
 
 The Tauri client ships the complete UI bundle, icons, fonts, charts, and core

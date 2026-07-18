@@ -1,0 +1,18 @@
+[package]
+name = "mish-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = { version = "0.8.9", features = ["ws"] }
+clap = { version = "4.6.2", features = ["derive"] }
+futures-util = "0.3.33"
+nix = { version = "0.31.3", features = ["signal"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+subtle = "2.6.1"
+tokio = { version = "1.53.0", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.30.0"
