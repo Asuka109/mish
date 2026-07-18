@@ -39,7 +39,9 @@ Any future local HTTP asset host must preserve that same rule for unknown
 non-asset `GET`/`HEAD` paths while returning ordinary `404` responses for
 missing files with extensions.
 
-The current desktop bridge reports a real but deliberately sparse RPC snapshot and does
-not automatically start Mihomo. Controller reconciliation, System Proxy, TUN,
-status-bar behavior, native material, packaging icons, signing, and notarization
-remain separate platform slices.
+The current Tauri composition reports a real but deliberately sparse RPC
+snapshot and does not automatically start Mihomo. The desktop bridge library has
+a transactional pinned-core activation manager, but this shell does not yet
+select a persisted profile, package/resolve the production sidecar, or expose an
+activation command. System Proxy, TUN, status-bar behavior, native material,
+packaging icons, signing, and notarization remain separate platform slices.
