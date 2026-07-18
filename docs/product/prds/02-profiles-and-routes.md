@@ -51,6 +51,23 @@ Routes owns the runtime group tree and selection.
 - Merge templates, JavaScript transforms, remote transform marketplaces, or
   provider-controlled native extensions.
 
+## Implemented frontend slice
+
+The production React Routes destination now provides the read-only and
+fixture-backed policy-group workspace for the P0 browsing contract. It renders
+nested group-to-group and group-to-node relationships, distinguishes every
+specified group type, searches complete Unicode labels, keeps sorting local to
+each expanded group, and permits manual selection only through Selector groups.
+It rejects inconsistent graphs before rendering and includes a 160-node scale
+fixture whose collapsed children are not mounted.
+
+The fixture adapter supports group-scoped selection for interaction tests. The
+desktop RPC Status adapter remains honestly read-only: it can display a valid
+snapshot, but group selection is disabled with an explanation because the
+current bridge does not implement the mutation. Group- and node-scoped latency
+commands remain outside this slice; the page displays and sorts confirmed
+latency observations without simulating a probe.
+
 ## Requirements: Profiles
 
 | ID | Priority | Requirement | Acceptance criteria |

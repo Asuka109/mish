@@ -10,11 +10,11 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@mish/ui";
-import type { PolicyGroupDto, ProxyNodeDto } from "@mish/contracts";
+import type { ProxyNodeDto, SelectorPolicyGroupDto } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
 interface ProxyPickerDialogProps {
-  group: PolicyGroupDto | null;
+  group: SelectorPolicyGroupDto | null;
   nodes: ProxyNodeDto[];
   onOpenChange(open: boolean): void;
   onSelect(nodeId: string): void;

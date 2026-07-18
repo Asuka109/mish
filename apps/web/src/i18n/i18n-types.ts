@@ -446,6 +446,205 @@ type RootTranslation = {
 		 */
 		searchPlaceholder: string
 	}
+	routes: {
+		/**
+		 * A​c​t​i​v​e​ ​p​r​o​f​i​l​e​:​ ​{​p​r​o​f​i​l​e​}
+		 * @param {string} profile
+		 */
+		activeProfile: RequiredParams<'profile'>
+		/**
+		 * {​c​o​u​n​t​}​ ​c​h​i​l​d​r​e​n
+		 * @param {number} count
+		 */
+		childCount: RequiredParams<'count'>
+		/**
+		 * C​o​l​l​a​p​s​e​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		collapseGroup: RequiredParams<'group'>
+		/**
+		 * C​o​n​f​i​g​u​r​a​t​i​o​n
+		 */
+		configurationOrder: string
+		/**
+		 * C​u​r​r​e​n​t​:​ ​{​c​h​i​l​d​}
+		 * @param {string} child
+		 */
+		currentChild: RequiredParams<'child'>
+		/**
+		 * B​r​o​w​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​'​s​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​g​r​a​p​h​.​ ​E​v​e​r​y​ ​c​h​o​i​c​e​ ​r​e​m​a​i​n​s​ ​s​c​o​p​e​d​ ​t​o​ ​i​t​s​ ​o​w​n​i​n​g​ ​s​e​l​e​c​t​o​r​.
+		 */
+		description: string
+		/**
+		 * P​o​l​i​c​y​ ​g​r​o​u​p​s​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 */
+		desktopDescription: string
+		/**
+		 * P​o​l​i​c​y​ ​g​r​o​u​p​s​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​i​s​ ​d​e​v​i​c​e​.
+		 */
+		deviceDescription: string
+		/**
+		 * E​x​p​a​n​d​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		expandGroup: RequiredParams<'group'>
+		/**
+		 * N​e​s​t​e​d​ ​f​i​x​t​u​r​e​ ​g​r​o​u​p​s​ ​f​o​r​ ​i​n​t​e​r​a​c​t​i​o​n​ ​a​n​d​ ​s​c​a​l​e​ ​v​e​r​i​f​i​c​a​t​i​o​n​.
+		 */
+		fixtureDescription: string
+		/**
+		 * M​i​s​h​ ​d​i​d​ ​n​o​t​ ​r​e​n​d​e​r​ ​t​h​i​s​ ​g​r​a​p​h​ ​b​e​c​a​u​s​e​ ​i​t​s​ ​r​e​l​a​t​i​o​n​s​h​i​p​s​ ​a​r​e​ ​i​n​c​o​n​s​i​s​t​e​n​t​.​ ​N​o​ ​r​o​u​t​e​ ​c​h​o​i​c​e​ ​w​a​s​ ​c​h​a​n​g​e​d​.
+		 */
+		graphErrorDescription: string
+		/**
+		 * T​h​e​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​g​r​a​p​h​ ​i​s​ ​i​n​v​a​l​i​d
+		 */
+		graphErrorTitle: string
+		groupType: {
+			/**
+			 * D​i​r​e​c​t
+			 */
+			direct: string
+			/**
+			 * F​a​l​l​b​a​c​k
+			 */
+			fallback: string
+			/**
+			 * L​o​a​d​ ​b​a​l​a​n​c​e
+			 */
+			loadBalance: string
+			/**
+			 * R​e​j​e​c​t
+			 */
+			reject: string
+			/**
+			 * R​e​l​a​y
+			 */
+			relay: string
+			/**
+			 * S​e​l​e​c​t​o​r
+			 */
+			selector: string
+			/**
+			 * U​n​s​u​p​p​o​r​t​e​d​ ​·​ ​{​t​y​p​e​}
+			 * @param {string} type
+			 */
+			unsupported: RequiredParams<'type'>
+			/**
+			 * U​R​L​ ​t​e​s​t
+			 */
+			urlTest: string
+		}
+		/**
+		 * C​y​c​l​e​ ​d​e​t​e​c​t​e​d​:​ ​{​p​a​t​h​}
+		 * @param {string} path
+		 */
+		invalidCycle: RequiredParams<'path'>
+		/**
+		 * {​g​r​o​u​p​}​ ​r​e​p​e​a​t​s​ ​c​h​i​l​d​ ​{​c​h​i​l​d​}​.
+		 * @param {string} child
+		 * @param {string} group
+		 */
+		invalidDuplicateChild: RequiredParams<'child' | 'group'>
+		/**
+		 * T​h​e​ ​I​D​ ​{​e​n​t​i​t​y​}​ ​i​s​ ​u​s​e​d​ ​b​y​ ​m​o​r​e​ ​t​h​a​n​ ​o​n​e​ ​e​n​t​i​t​y​.
+		 * @param {string} entity
+		 */
+		invalidDuplicateEntity: RequiredParams<'entity'>
+		/**
+		 * {​g​r​o​u​p​}​ ​r​e​f​e​r​e​n​c​e​s​ ​m​i​s​s​i​n​g​ ​c​h​i​l​d​ ​{​c​h​i​l​d​}​.
+		 * @param {string} child
+		 * @param {string} group
+		 */
+		invalidMissingChild: RequiredParams<'child' | 'group'>
+		/**
+		 * {​g​r​o​u​p​}​ ​r​e​p​o​r​t​s​ ​c​u​r​r​e​n​t​ ​c​h​i​l​d​ ​{​c​h​i​l​d​}​ ​o​u​t​s​i​d​e​ ​t​h​e​ ​g​r​o​u​p​.
+		 * @param {string} child
+		 * @param {string} group
+		 */
+		invalidSelection: RequiredParams<'child' | 'group'>
+		/**
+		 * {​g​r​o​u​p​}​ ​i​s​ ​t​e​r​m​i​n​a​l​ ​b​u​t​ ​r​e​p​o​r​t​s​ ​c​h​i​l​d​r​e​n​.
+		 * @param {string} group
+		 */
+		invalidTerminalChildren: RequiredParams<'group'>
+		/**
+		 * L​a​t​e​n​c​y
+		 */
+		latency: string
+		/**
+		 * {​l​a​t​e​n​c​y​}​ ​m​s
+		 * @param {number} latency
+		 */
+		latencyMilliseconds: RequiredParams<'latency'>
+		/**
+		 * L​a​t​e​n​c​y​ ​u​n​a​v​a​i​l​a​b​l​e
+		 */
+		latencyUnavailable: string
+		/**
+		 * L​a​b​e​l
+		 */
+		labelOrder: string
+		/**
+		 * T​h​i​s​ ​g​r​o​u​p​ ​h​a​s​ ​n​o​ ​c​h​i​l​d​r​e​n​.
+		 */
+		noChildren: string
+		/**
+		 * N​o​ ​s​i​n​g​l​e​ ​c​u​r​r​e​n​t​ ​c​h​i​l​d
+		 */
+		noCurrentChild: string
+		/**
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​a​d​a​p​t​e​r​ ​d​i​d​ ​n​o​t​ ​r​e​p​o​r​t​ ​a​n​y​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​.
+		 */
+		noGroupsDescription: string
+		/**
+		 * N​o​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s
+		 */
+		noGroupsTitle: string
+		/**
+		 * T​r​y​ ​a​n​o​t​h​e​r​ ​c​o​m​p​l​e​t​e​ ​g​r​o​u​p​ ​o​r​ ​c​h​i​l​d​ ​l​a​b​e​l​.
+		 */
+		noMatchesDescription: string
+		/**
+		 * N​o​ ​m​a​t​c​h​i​n​g​ ​r​o​u​t​e​s
+		 */
+		noMatchesTitle: string
+		/**
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​d​o​e​s​ ​n​o​t​ ​s​u​p​p​o​r​t​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​s​e​l​e​c​t​i​o​n​.​ ​Y​o​u​ ​c​a​n​ ​i​n​s​p​e​c​t​ ​a​n​d​ ​s​o​r​t​ ​e​a​c​h​ ​g​r​o​u​p​,​ ​b​u​t​ ​c​h​o​i​c​e​s​ ​r​e​m​a​i​n​ ​d​i​s​a​b​l​e​d​.
+		 */
+		readOnlyDescription: string
+		/**
+		 * R​o​u​t​e​s​ ​a​r​e​ ​r​e​a​d​-​o​n​l​y
+		 */
+		readOnlyTitle: string
+		/**
+		 * S​e​a​r​c​h​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​a​n​d​ ​c​h​i​l​d​r​e​n
+		 */
+		searchLabel: string
+		/**
+		 * S​e​a​r​c​h​ ​c​o​m​p​l​e​t​e​ ​l​a​b​e​l​s
+		 */
+		searchPlaceholder: string
+		/**
+		 * S​e​l​e​c​t​ ​{​c​h​i​l​d​}​ ​i​n​ ​{​g​r​o​u​p​}
+		 * @param {string} child
+		 * @param {string} group
+		 */
+		selectChild: RequiredParams<'child' | 'group'>
+		/**
+		 * S​e​l​e​c​t​e​d
+		 */
+		selected: string
+		/**
+		 * S​o​r​t​ ​c​h​i​l​d​r​e​n​ ​i​n​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		sortChildren: RequiredParams<'group'>
+		/**
+		 * R​o​u​t​e​s
+		 */
+		title: string
+	}
 	services: {
 		/**
 		 * A​d​d​ ​s​e​r​v​i​c​e
@@ -1225,6 +1424,186 @@ export type TranslationFunctions = {
 		 * Search nodes
 		 */
 		searchPlaceholder: () => LocalizedString
+	}
+	routes: {
+		/**
+		 * Active profile: {profile}
+		 */
+		activeProfile: (arg: { profile: string }) => LocalizedString
+		/**
+		 * {count} children
+		 */
+		childCount: (arg: { count: number }) => LocalizedString
+		/**
+		 * Collapse {group}
+		 */
+		collapseGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Configuration
+		 */
+		configurationOrder: () => LocalizedString
+		/**
+		 * Current: {child}
+		 */
+		currentChild: (arg: { child: string }) => LocalizedString
+		/**
+		 * Browse the active profile's policy-group graph. Every choice remains scoped to its owning selector.
+		 */
+		description: () => LocalizedString
+		/**
+		 * Policy groups reported by the desktop local service.
+		 */
+		desktopDescription: () => LocalizedString
+		/**
+		 * Policy groups reported by this device.
+		 */
+		deviceDescription: () => LocalizedString
+		/**
+		 * Expand {group}
+		 */
+		expandGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Nested fixture groups for interaction and scale verification.
+		 */
+		fixtureDescription: () => LocalizedString
+		/**
+		 * Mish did not render this graph because its relationships are inconsistent. No route choice was changed.
+		 */
+		graphErrorDescription: () => LocalizedString
+		/**
+		 * The policy-group graph is invalid
+		 */
+		graphErrorTitle: () => LocalizedString
+		groupType: {
+			/**
+			 * Direct
+			 */
+			direct: () => LocalizedString
+			/**
+			 * Fallback
+			 */
+			fallback: () => LocalizedString
+			/**
+			 * Load balance
+			 */
+			loadBalance: () => LocalizedString
+			/**
+			 * Reject
+			 */
+			reject: () => LocalizedString
+			/**
+			 * Relay
+			 */
+			relay: () => LocalizedString
+			/**
+			 * Selector
+			 */
+			selector: () => LocalizedString
+			/**
+			 * Unsupported · {type}
+			 */
+			unsupported: (arg: { type: string }) => LocalizedString
+			/**
+			 * URL test
+			 */
+			urlTest: () => LocalizedString
+		}
+		/**
+		 * Cycle detected: {path}
+		 */
+		invalidCycle: (arg: { path: string }) => LocalizedString
+		/**
+		 * {group} repeats child {child}.
+		 */
+		invalidDuplicateChild: (arg: { child: string, group: string }) => LocalizedString
+		/**
+		 * The ID {entity} is used by more than one entity.
+		 */
+		invalidDuplicateEntity: (arg: { entity: string }) => LocalizedString
+		/**
+		 * {group} references missing child {child}.
+		 */
+		invalidMissingChild: (arg: { child: string, group: string }) => LocalizedString
+		/**
+		 * {group} reports current child {child} outside the group.
+		 */
+		invalidSelection: (arg: { child: string, group: string }) => LocalizedString
+		/**
+		 * {group} is terminal but reports children.
+		 */
+		invalidTerminalChildren: (arg: { group: string }) => LocalizedString
+		/**
+		 * Latency
+		 */
+		latency: () => LocalizedString
+		/**
+		 * {latency} ms
+		 */
+		latencyMilliseconds: (arg: { latency: number }) => LocalizedString
+		/**
+		 * Latency unavailable
+		 */
+		latencyUnavailable: () => LocalizedString
+		/**
+		 * Label
+		 */
+		labelOrder: () => LocalizedString
+		/**
+		 * This group has no children.
+		 */
+		noChildren: () => LocalizedString
+		/**
+		 * No single current child
+		 */
+		noCurrentChild: () => LocalizedString
+		/**
+		 * The current adapter did not report any policy groups.
+		 */
+		noGroupsDescription: () => LocalizedString
+		/**
+		 * No policy groups
+		 */
+		noGroupsTitle: () => LocalizedString
+		/**
+		 * Try another complete group or child label.
+		 */
+		noMatchesDescription: () => LocalizedString
+		/**
+		 * No matching routes
+		 */
+		noMatchesTitle: () => LocalizedString
+		/**
+		 * The current local service does not support policy-group selection. You can inspect and sort each group, but choices remain disabled.
+		 */
+		readOnlyDescription: () => LocalizedString
+		/**
+		 * Routes are read-only
+		 */
+		readOnlyTitle: () => LocalizedString
+		/**
+		 * Search policy groups and children
+		 */
+		searchLabel: () => LocalizedString
+		/**
+		 * Search complete labels
+		 */
+		searchPlaceholder: () => LocalizedString
+		/**
+		 * Select {child} in {group}
+		 */
+		selectChild: (arg: { child: string, group: string }) => LocalizedString
+		/**
+		 * Selected
+		 */
+		selected: () => LocalizedString
+		/**
+		 * Sort children in {group}
+		 */
+		sortChildren: (arg: { group: string }) => LocalizedString
+		/**
+		 * Routes
+		 */
+		title: () => LocalizedString
 	}
 	services: {
 		/**

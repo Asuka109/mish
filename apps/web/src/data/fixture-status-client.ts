@@ -39,6 +39,25 @@ const defaultServices: ServiceMonitorDto[] = [
   },
 ];
 
+const fixtureNodes = [
+  { id: "hkg-02", label: "🇭🇰 HKG-02", latencyMilliseconds: 38, protocol: "Hysteria2" },
+  { id: "hkg-01", label: "🇭🇰 HKG-01", latencyMilliseconds: 52, protocol: "Hysteria2" },
+  { id: "nrt-03", label: "🇯🇵 NRT-03", latencyMilliseconds: 71, protocol: "VLESS" },
+  { id: "sin-01", label: "🇸🇬 SIN-01", latencyMilliseconds: 83, protocol: "Trojan" },
+  { id: "fra-01", label: "🇩🇪 Frankfurt · Arbeit", latencyMilliseconds: 164, protocol: "VLESS" },
+  { id: "unicode-01", label: "台北・開発 🚄", latencyMilliseconds: null, protocol: "TUIC" },
+] satisfies StatusSnapshotDto["nodes"];
+
+const largeFixtureNodes = Array.from({ length: 160 }, (_, index) => {
+  const sequence = String(index + 1).padStart(3, "0");
+  return {
+    id: `fixture-scale-${sequence}`,
+    label: `Scale fixture node ${sequence}`,
+    latencyMilliseconds: index % 9 === 0 ? null : 40 + ((index * 17) % 280),
+    protocol: index % 2 === 0 ? "VLESS" : "Hysteria2",
+  };
+}) satisfies StatusSnapshotDto["nodes"];
+
 const initialSnapshot: StatusSnapshotDto = {
   adapterKind: "fixture",
   activeProfileId: "home",
@@ -48,7 +67,19 @@ const initialSnapshot: StatusSnapshotDto = {
   },
   groups: [
     {
-      childIds: ["hkg-02", "hkg-01", "nrt-03", "sin-01"],
+      childIds: [
+        "hkg-02",
+        "hkg-01",
+        "nrt-03",
+        "sin-01",
+        "auto-fast",
+        "fallback-global",
+        "balanced",
+        "relay-chain",
+        "direct-route",
+        "reject-route",
+        "unsupported-smart",
+      ],
       id: "proxy",
       label: "🌐 Proxy",
       selectedChildId: "hkg-02",
@@ -82,6 +113,63 @@ const initialSnapshot: StatusSnapshotDto = {
       selectedChildId: "hkg-02",
       type: "selector",
     },
+    {
+      childIds: ["nrt-03", "sin-01", "unicode-01"],
+      id: "auto-fast",
+      label: "⚡ 自动选择・Auto",
+      selectedChildId: "nrt-03",
+      type: "url-test",
+    },
+    {
+      childIds: ["auto-fast", "hkg-02", "fra-01"],
+      id: "fallback-global",
+      label: "Fallback Europe",
+      selectedChildId: "auto-fast",
+      type: "fallback",
+    },
+    {
+      childIds: ["hkg-01", "nrt-03", "sin-01", "fra-01", "unicode-01"],
+      id: "balanced",
+      label: "Balanced pool",
+      selectedChildId: null,
+      type: "load-balance",
+    },
+    {
+      childIds: ["hkg-01", "sin-01"],
+      id: "relay-chain",
+      label: "Relay chain",
+      selectedChildId: null,
+      type: "relay",
+    },
+    {
+      childIds: [],
+      id: "direct-route",
+      label: "DIRECT",
+      selectedChildId: null,
+      type: "direct",
+    },
+    {
+      childIds: [],
+      id: "reject-route",
+      label: "REJECT",
+      selectedChildId: null,
+      type: "reject",
+    },
+    {
+      childIds: ["unicode-01"],
+      id: "unsupported-smart",
+      label: "Provider smart policy",
+      selectedChildId: "unicode-01",
+      type: "unsupported",
+      unsupportedType: "smart-group",
+    },
+    {
+      childIds: largeFixtureNodes.map((node) => node.id),
+      id: "large-fixture",
+      label: "Scale verification pool · 160",
+      selectedChildId: null,
+      type: "load-balance",
+    },
   ],
   groupUsage: [
     { groupId: "proxy", observedConnectionCount: 12_842 },
@@ -96,12 +184,7 @@ const initialSnapshot: StatusSnapshotDto = {
     memoryBytes: 90_177_536,
     uptimeSeconds: 5_047,
   },
-  nodes: [
-    { id: "hkg-02", label: "🇭🇰 HKG-02", latencyMilliseconds: 38, protocol: "Hysteria2" },
-    { id: "hkg-01", label: "🇭🇰 HKG-01", latencyMilliseconds: 52, protocol: "Hysteria2" },
-    { id: "nrt-03", label: "🇯🇵 NRT-03", latencyMilliseconds: 71, protocol: "VLESS" },
-    { id: "sin-01", label: "🇸🇬 SIN-01", latencyMilliseconds: 83, protocol: "Trojan" },
-  ],
+  nodes: [...fixtureNodes, ...largeFixtureNodes],
   probeResults: [
     {
       latencyMilliseconds: 48,
@@ -266,10 +349,10 @@ export class FixtureStatusClient implements StatusClient {
       throw new StatusClientError("cancelled", "The fixture command was cancelled");
     }
     const group = this.snapshot.groups.find((candidate) => candidate.id === groupId);
-    if (!group || !group.childIds.includes(childId)) {
+    if (!group || group.type !== "selector" || !group.childIds.includes(childId)) {
       throw new StatusClientError(
         "invalid-request",
-        "The fixture child does not belong to this group",
+        "The fixture child does not belong to this group or the group is not a selector",
       );
     }
 

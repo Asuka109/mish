@@ -20,7 +20,7 @@ import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
-import type { PolicyGroupDto, RoutingMode } from "@mish/contracts";
+import type { RoutingMode, SelectorPolicyGroupDto } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 
@@ -102,7 +102,8 @@ export function StatusPage() {
     );
   }
 
-  const pickerGroup = snapshot.groups.find((group) => group.id === pickerGroupId) ?? null;
+  const pickerGroupCandidate = snapshot.groups.find((group) => group.id === pickerGroupId);
+  const pickerGroup = pickerGroupCandidate?.type === "selector" ? pickerGroupCandidate : null;
   const pickerNodes = pickerGroup
     ? snapshot.nodes.filter((node) => pickerGroup.childIds.includes(node.id))
     : [];
@@ -129,7 +130,7 @@ export function StatusPage() {
     void setCapture(selection, active);
   }
 
-  function openPicker(group: PolicyGroupDto) {
+  function openPicker(group: SelectorPolicyGroupDto) {
     setPickerGroupId(group.id);
   }
 
@@ -305,16 +306,11 @@ export function StatusPage() {
                   const selectedNode = snapshot.nodes.find(
                     (node) => node.id === group.selectedChildId,
                   );
-                  return (
-                    <Button
-                      aria-describedby={groupDescriptionId}
-                      className="section-grid-item policy-group-row"
-                      disabled={groupPending || !groupSupported}
-                      key={group.id}
-                      onClick={() => openPicker(group)}
-                      type="button"
-                      variant="ghost"
-                    >
+                  const selectedGroup = snapshot.groups.find(
+                    (candidate) => candidate.id === group.selectedChildId,
+                  );
+                  const rowContent = (
+                    <>
                       <span className="policy-group-leading">
                         <span className="policy-group-rank tabular">{index + 1}</span>
                         <span className="policy-group-copy">
@@ -322,7 +318,7 @@ export function StatusPage() {
                             {group.label}
                           </strong>
                           <span className="policy-group-secondary user-authored-label">
-                            {selectedNode?.label ?? LL.status.noSelection()}
+                            {selectedNode?.label ?? selectedGroup?.label ?? LL.status.noSelection()}
                             {selectedNode?.latencyMilliseconds === null ||
                             selectedNode?.latencyMilliseconds === undefined
                               ? ""
@@ -337,8 +333,28 @@ export function StatusPage() {
                         >
                           {group.childIds.length}
                         </Badge>
-                        <CaretRight aria-hidden="true" />
+                        {group.type === "selector" ? <CaretRight aria-hidden="true" /> : null}
                       </span>
+                    </>
+                  );
+                  if (group.type !== "selector") {
+                    return (
+                      <SectionGridItem className="policy-group-row" key={group.id}>
+                        {rowContent}
+                      </SectionGridItem>
+                    );
+                  }
+                  return (
+                    <Button
+                      aria-describedby={groupDescriptionId}
+                      className="section-grid-item policy-group-row"
+                      disabled={groupPending || !groupSupported}
+                      key={group.id}
+                      onClick={() => openPicker(group)}
+                      type="button"
+                      variant="ghost"
+                    >
+                      {rowContent}
                     </Button>
                   );
                 })}

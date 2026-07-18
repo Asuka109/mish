@@ -267,7 +267,11 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
           }
           case "status.selectGroupChild": {
             const group = snapshot.groups.find((candidate) => candidate.id === values.groupId);
-            if (!group || !group.childIds.includes(String(values.childId)))
+            if (
+              !group ||
+              group.type !== "selector" ||
+              !group.childIds.includes(String(values.childId))
+            )
               throw new MockRpcError(-32602, "Invalid group child");
             group.selectedChildId = String(values.childId);
             return structuredClone(snapshot);
