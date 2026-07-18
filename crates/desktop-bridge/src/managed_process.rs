@@ -15,7 +15,7 @@ use tokio::{
 use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink};
 
 #[derive(Clone, Debug)]
-pub struct DesktopSidecarConfig {
+pub struct DesktopMihomoProcessConfig {
     pub binary: Option<PathBuf>,
     pub config_directory: Option<PathBuf>,
     pub config_file: Option<PathBuf>,
@@ -28,14 +28,14 @@ struct Inner {
 }
 
 #[derive(Clone)]
-pub struct DesktopSidecar {
-    config: DesktopSidecarConfig,
+pub struct DesktopMihomoProcess {
+    config: DesktopMihomoProcessConfig,
     inner: Arc<Mutex<Inner>>,
     status_events: Arc<OnceLock<CoreStatusEventSink>>,
 }
 
-impl DesktopSidecar {
-    pub fn new(config: DesktopSidecarConfig) -> Self {
+impl DesktopMihomoProcess {
+    pub fn new(config: DesktopMihomoProcessConfig) -> Self {
         Self {
             config,
             inner: Arc::new(Mutex::new(Inner {
@@ -254,17 +254,17 @@ fn inspect_child(inner: &mut Inner) -> Option<CoreStatus> {
     }
 }
 
-impl CoreRuntime for DesktopSidecar {
+impl CoreRuntime for DesktopMihomoProcess {
     fn attach_status_event_sink(&self, sink: CoreStatusEventSink) {
         let _ = self.status_events.set(sink);
     }
 
     fn configured(&self) -> bool {
-        DesktopSidecar::configured(self)
+        DesktopMihomoProcess::configured(self)
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
-        Box::pin(DesktopSidecar::status(self))
+        Box::pin(DesktopMihomoProcess::status(self))
     }
 
     fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
@@ -274,7 +274,7 @@ impl CoreRuntime for DesktopSidecar {
                     "Mihomo requires an explicit binary and configuration path",
                 ));
             }
-            DesktopSidecar::start(self)
+            DesktopMihomoProcess::start(self)
                 .await
                 .map_err(CoreError::start_failed)
         })
@@ -282,7 +282,7 @@ impl CoreRuntime for DesktopSidecar {
 
     fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
         Box::pin(async move {
-            DesktopSidecar::stop(self)
+            DesktopMihomoProcess::stop(self)
                 .await
                 .map_err(CoreError::stop_failed)
         })

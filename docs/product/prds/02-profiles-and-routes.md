@@ -119,7 +119,7 @@ Routes owns the runtime group tree and selection.
 ## Dependencies
 
 - Profile persistence, source fetcher, validator, stable fingerprinting, and
-  activation transaction in the local agent.
+  activation transaction in the desktop bridge.
 - Pinned Mihomo schemas for configuration, proxies, selection, and delay.
 - Status group-usage retention policy.
 - Secure local storage rules for source credentials.

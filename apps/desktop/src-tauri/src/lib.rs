@@ -4,8 +4,8 @@ use std::{
     sync::Arc,
 };
 
-use mish_agent::{
-    DesktopSidecar, DesktopSidecarConfig, LoopbackServerConfig, start_loopback_server,
+use mish_bridge::{
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, start_loopback_server,
 };
 use mish_runtime::MishRuntime;
 use serde::Serialize;
@@ -27,12 +27,14 @@ fn runtime_bootstrap(state: tauri::State<'_, RuntimeBootstrap>) -> RuntimeBootst
 
 pub fn run() -> Result<i32, String> {
     let auth_token = generate_auth_token()?;
-    let runtime = MishRuntime::new(Arc::new(DesktopSidecar::new(DesktopSidecarConfig {
-        binary: None,
-        config_directory: None,
-        config_file: None,
-    })));
-    let agent = tauri::async_runtime::block_on(start_loopback_server(
+    let runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let bridge = tauri::async_runtime::block_on(start_loopback_server(
         LoopbackServerConfig {
             allowed_origins: allowed_origins(tauri::is_dev()),
             auth_token: auth_token.clone(),
@@ -43,7 +45,7 @@ pub fn run() -> Result<i32, String> {
     ))?;
     let bootstrap = RuntimeBootstrap {
         auth_token,
-        rpc_url: format!("ws://{}/rpc", agent.address),
+        rpc_url: format!("ws://{}/rpc", bridge.address),
     };
     let app = tauri::Builder::default()
         .manage(bootstrap)
@@ -51,7 +53,7 @@ pub fn run() -> Result<i32, String> {
         .build(tauri::generate_context!())
         .map_err(|error| error.to_string())?;
     let exit_code = app.run_return(|_, _| {});
-    tauri::async_runtime::block_on(agent.shutdown());
+    tauri::async_runtime::block_on(bridge.shutdown());
     Ok(exit_code)
 }
 

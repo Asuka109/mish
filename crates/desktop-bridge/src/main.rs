@@ -1,13 +1,13 @@
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use clap::Parser;
-use mish_agent::{
-    DesktopSidecar, DesktopSidecarConfig, LoopbackServerConfig, start_loopback_server,
+use mish_bridge::{
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, start_loopback_server,
 };
 use mish_runtime::MishRuntime;
 
 #[derive(Parser)]
-#[command(version, about = "Loopback Mish agent for the Mihomo sidecar")]
+#[command(version, about = "Mish desktop bridge for the managed Mihomo process")]
 struct Arguments {
     #[arg(long, default_value = "127.0.0.1:9099")]
     bind: SocketAddr,
@@ -26,14 +26,16 @@ struct Arguments {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let arguments = Arguments::parse();
-    let auth_token = env::var("MISH_AGENT_TOKEN")
-        .map_err(|_| "MISH_AGENT_TOKEN is required and must not be stored in the repository")?;
-    let runtime = MishRuntime::new(Arc::new(DesktopSidecar::new(DesktopSidecarConfig {
-        binary: arguments.mihomo_binary,
-        config_directory: arguments.mihomo_config_directory,
-        config_file: arguments.mihomo_config_file,
-    })));
-    let agent = start_loopback_server(
+    let auth_token = env::var("MISH_BRIDGE_TOKEN")
+        .map_err(|_| "MISH_BRIDGE_TOKEN is required and must not be stored in the repository")?;
+    let runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: arguments.mihomo_binary,
+            config_directory: arguments.mihomo_config_directory,
+            config_file: arguments.mihomo_config_file,
+        },
+    )));
+    let bridge = start_loopback_server(
         LoopbackServerConfig {
             allowed_origins: arguments.allow_origin,
             auth_token,
@@ -43,10 +45,10 @@ async fn main() -> Result<(), String> {
         runtime,
     )
     .await?;
-    println!("Mish agent listening on http://{}", agent.address);
+    println!("Mish desktop bridge listening on http://{}", bridge.address);
     tokio::signal::ctrl_c()
         .await
         .map_err(|error| error.to_string())?;
-    agent.shutdown().await;
+    bridge.shutdown().await;
     Ok(())
 }

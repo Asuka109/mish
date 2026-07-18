@@ -4,7 +4,7 @@
 
 `apps/desktop` is a thin Tauri 2 shell around the shared `apps/web` product
 entry. It embeds the Vite production output in the application binary, starts
-the existing Rust loopback agent in-process, and exposes one narrowly scoped
+the existing Rust loopback desktop bridge in-process, and exposes one narrowly scoped
 bootstrap command to the main WebView. It does not own product state, controller
 reconciliation, Mihomo lifecycle rules, System Proxy, TUN, or mobile execution.
 
@@ -24,7 +24,7 @@ after validating its private bootstrap payload.
 5. During development, the shell explicitly loads `http://127.0.0.1:4173`, and
    Vite supplies the equivalent SPA fallback.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
-   token, and starts `mish-agent` on `127.0.0.1:0`.
+   token, and starts `mish-bridge` on `127.0.0.1:0`.
 7. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body.
@@ -34,13 +34,13 @@ after validating its private bootstrap payload.
 9. The token remains in process memory for reconnect authentication. Neither
    side writes it to a file, URL, log, query string, fragment, cookie,
    `localStorage`, or `sessionStorage`.
-10. When the Tauri event loop exits, the shell shuts down the in-process agent;
-    the agent applies its existing core cleanup behavior.
+10. When the Tauri event loop exits, the shell shuts down the in-process bridge;
+    the bridge applies its existing core cleanup behavior.
 
-If a later slice moves frontend hosting to the local HTTP agent, the host must
+If a later slice moves frontend hosting to the local HTTP bridge, the host must
 serve exact bundled assets, return `index.html` for unknown non-asset `GET` and
 `HEAD` paths, and preserve ordinary `404` responses for missing asset filenames.
-That change belongs to the agent's HTTP interface and must not be recreated in
+That change belongs to the bridge's HTTP interface and must not be recreated in
 the Tauri shell.
 
 ## Threat model
@@ -49,7 +49,7 @@ The bootstrap protects against drive-by websites and other local processes that
 guess a loopback port. The service binds only to IPv4 loopback, validates `Host`
 and the exact development or packaged WebView `Origin`, uses an unpredictable
 256-bit per-process token, requires authentication before other RPC methods, and
-retains the agent's message and subscription bounds. The endpoint contains no
+retains the bridge's message and subscription bounds. The endpoint contains no
 secret, so URL histories, access logs, referrers, and routine network diagnostics
 cannot reveal the token.
 
@@ -68,10 +68,10 @@ claim that process memory is a secure enclave.
 
 ## Current limitations
 
-- The in-process agent uses no Mihomo binary or configuration path, so it reports
+- The in-process bridge uses no Mihomo binary or configuration path, so it reports
   real but sparse local state and does not start the core automatically.
 - Controller-derived Status values and network-changing commands remain owned by
-  later agent/runtime sessions.
+  later bridge/runtime sessions.
 - The Tauri shell has no status-bar menu or native sidebar material yet.
 - Installer packaging, final icon production, entitlements, code signing,
   notarization, update metadata, and release distribution are not configured.

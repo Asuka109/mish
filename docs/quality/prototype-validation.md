@@ -5,7 +5,7 @@
 `sketch/` is an interactive, offline-bundled React reference for the macOS-first
 Status experience. It validates layout, component anatomy, responsive behavior,
 keyboard semantics, and selected micro-interactions. It does not validate the
-local agent, Mihomo core compatibility, persistence, Tauri window behavior,
+desktop bridge, Mihomo core compatibility, persistence, Tauri window behavior,
 status-bar menus, native privileges, or release packaging.
 
 `sketch/` remains a retained design and interaction reference. Production code
@@ -28,10 +28,10 @@ production TypeScript boundary and validation matrix live in
 
 | Area               | Current state                       | Production requirement                                      |
 | ------------------ | ----------------------------------- | ----------------------------------------------------------- |
-| Mihomo core data   | Static fixtures                     | Typed DTOs from the local agent                             |
+| Mihomo core data   | Static fixtures                     | Typed DTOs from the desktop bridge                          |
 | Commands           | React state only                    | Authenticated JSON-RPC commands with error states           |
 | Group usage        | Fixture counts                      | Profile-scoped deduplicated observation and persistence     |
-| Service probes     | Fixture latency                     | Bounded local-agent probes with explicit route policy       |
+| Service probes     | Fixture latency                     | Bounded desktop-bridge probes with explicit route policy    |
 | Profiles           | Local fixture menu                  | Import, update, validation, persistence, and fingerprinting |
 | Native shell       | Browser-shaped preview              | Tauri window, tray, capabilities, lifecycle, and signing    |
 | Sidebar vibrancy   | Solid fallback                      | Native macOS material and accessibility fallback            |

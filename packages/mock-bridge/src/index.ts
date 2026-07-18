@@ -9,7 +9,7 @@ import { WebSocket, WebSocketServer } from "ws";
 
 type RpcFailure = { code: number; data?: unknown; message: string };
 
-export interface MockAgentOptions {
+export interface MockBridgeOptions {
   allowedOrigins?: string[];
   authToken: string;
   failMethods?: Partial<Record<keyof typeof mishRpcMethods, RpcFailure>>;
@@ -18,7 +18,7 @@ export interface MockAgentOptions {
   port?: number;
 }
 
-export interface MockAgentHandle {
+export interface MockBridgeHandle {
   close(): Promise<void>;
   readonly rpcUrl: string;
 }
@@ -91,10 +91,10 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
   };
 }
 
-export async function startMockAgent(options: MockAgentOptions): Promise<MockAgentHandle> {
+export async function startMockBridge(options: MockBridgeOptions): Promise<MockBridgeHandle> {
   const host = options.host ?? "127.0.0.1";
   if (host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
-    throw new Error("The mock agent may only bind to a loopback host");
+    throw new Error("The mock bridge may only bind to a loopback host");
   }
   if (options.authToken.length < 16) throw new Error("The mock token must contain 16 characters");
 
@@ -129,7 +129,8 @@ export async function startMockAgent(options: MockAgentOptions): Promise<MockAge
     server.once("error", reject);
   });
   const address = server.address();
-  if (!address || typeof address === "string") throw new Error("The mock agent has no TCP address");
+  if (!address || typeof address === "string")
+    throw new Error("The mock bridge has no TCP address");
 
   const broadcastSnapshot = () => {
     for (const client of server.clients) {
@@ -226,8 +227,8 @@ export async function startMockAgent(options: MockAgentOptions): Promise<MockAge
       function dispatch(method: string, params: unknown): unknown {
         const values = params as Record<string, unknown>;
         switch (method) {
-          case "agent.getInfo":
-            return { agentVersion: "mock", coreConfigured: true, protocolVersion: 2 };
+          case "bridge.getInfo":
+            return { bridgeVersion: "mock", coreConfigured: true, protocolVersion: 2 };
           case "core.getStatus":
             return core;
           case "core.start":
@@ -335,7 +336,7 @@ function sendError(socket: WebSocket, id: unknown, code: number, message: string
 }
 
 function closeServer(server: WebSocketServer): Promise<void> {
-  for (const client of server.clients) client.close(1001, "Mock agent disposed");
+  for (const client of server.clients) client.close(1001, "Mock bridge disposed");
   return new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );

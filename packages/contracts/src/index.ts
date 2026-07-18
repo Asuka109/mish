@@ -236,17 +236,17 @@ export const CoreErrorDataSchema = z
   .strict();
 export interface CoreErrorDataDto extends z.infer<typeof CoreErrorDataSchema> {}
 
-export const AgentInfoSchema = z
+export const BridgeInfoSchema = z
   .object({
-    agentVersion: z.string().min(1),
+    bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
     protocolVersion: z.literal(2),
   })
   .strict();
-export interface AgentInfoDto extends z.infer<typeof AgentInfoSchema> {}
+export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
 
-export const agentRpcMethods = {
-  "agent.getInfo": { params: EmptyCommandSchema, result: AgentInfoSchema },
+export const bridgeRpcMethods = {
+  "bridge.getInfo": { params: EmptyCommandSchema, result: BridgeInfoSchema },
   "core.getStatus": { params: EmptyCommandSchema, result: CoreStatusSchema },
   "core.start": { params: EmptyCommandSchema, result: CoreStatusSchema },
   "core.stop": { params: EmptyCommandSchema, result: CoreStatusSchema },
@@ -294,7 +294,7 @@ export const statusRpcMethods = {
 } as const;
 
 export const mishRpcMethods = {
-  ...agentRpcMethods,
+  ...bridgeRpcMethods,
   ...statusRpcMethods,
 } as const;
 

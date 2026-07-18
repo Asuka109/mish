@@ -2,7 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/contracts" },
-    { "path": "./packages/mock-agent" },
+    { "path": "./packages/mock-bridge" },
     { "path": "./packages/rpc-client" },
     { "path": "./packages/ui" },
     { "path": "./apps/web" }

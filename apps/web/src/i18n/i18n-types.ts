@@ -616,7 +616,7 @@ type RootTranslation = {
 			 */
 			itemTwoLabel: string
 			/**
-			 * N​o​ ​l​o​c​a​l​-​a​g​e​n​t​ ​e​v​e​n​t​ ​b​u​f​f​e​r​ ​o​r​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​n​e​r​ ​e​x​i​s​t​s​ ​y​e​t​.
+			 * N​o​ ​d​e​s​k​t​o​p​-​b​r​i​d​g​e​ ​e​v​e​n​t​ ​b​u​f​f​e​r​ ​o​r​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​n​e​r​ ​e​x​i​s​t​s​ ​y​e​t​.
 			 */
 			prerequisite: string
 			/**
@@ -1283,7 +1283,7 @@ export type TranslationFunctions = {
 			 */
 			itemTwoLabel: () => LocalizedString
 			/**
-			 * No local-agent event buffer or diagnostic runner exists yet.
+			 * No desktop-bridge event buffer or diagnostic runner exists yet.
 			 */
 			prerequisite: () => LocalizedString
 			/**

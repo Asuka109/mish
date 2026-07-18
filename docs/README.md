@@ -6,18 +6,19 @@ decisions from chat history.
 
 ## Authority map
 
-| Question                                                                   | Authoritative document                                                                     |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Who is the product for, and what should it feel like?                      | [`../PRODUCT.md`](../PRODUCT.md)                                                           |
-| Which visual tokens and styling rules are binding?                         | [`../DESIGN.md`](../DESIGN.md)                                                             |
-| How should the Status experience behave?                                   | [`product/status-experience.md`](product/status-experience.md)                             |
-| What are the implementation-ready product requirements and release slices? | [`product/prds/README.md`](product/prds/README.md)                                         |
-| What belongs in the web app, local agent, Tauri shell, or native layer?    | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md) |
-| How does the desktop bundle and authenticated local startup work?          | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                   |
-| Where do Status values come from and how are they derived?                 | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)           |
-| How should recurring UI structures be composed?                            | [`design/component-patterns.md`](design/component-patterns.md)                             |
-| What is real, mocked, verified, or still pending?                          | [`quality/prototype-validation.md`](quality/prototype-validation.md)                       |
-| How is the production Web foundation run and validated?                    | [`quality/production-web-validation.md`](quality/production-web-validation.md)             |
+| Question                                                                    | Authoritative document                                                                           |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Who is the product for, and what should it feel like?                       | [`../PRODUCT.md`](../PRODUCT.md)                                                                 |
+| Which visual tokens and styling rules are binding?                          | [`../DESIGN.md`](../DESIGN.md)                                                                   |
+| How should the Status experience behave?                                    | [`product/status-experience.md`](product/status-experience.md)                                   |
+| What are the implementation-ready product requirements and release slices?  | [`product/prds/README.md`](product/prds/README.md)                                               |
+| What belongs in the web app, desktop bridge, Tauri shell, or native layer?  | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       |
+| How does the desktop bundle and authenticated local startup work?           | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                         |
+| How do the desktop bridge, Controller adapter, and Mihomo process interact? | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) |
+| Where do Status values come from and how are they derived?                  | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)                 |
+| How should recurring UI structures be composed?                             | [`design/component-patterns.md`](design/component-patterns.md)                                   |
+| What is real, mocked, verified, or still pending?                           | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
+| How is the production Web foundation run and validated?                     | [`quality/production-web-validation.md`](quality/production-web-validation.md)                   |
 
 ## Supporting material
 
@@ -36,7 +37,7 @@ decisions from chat history.
   Browser startup remains fixture-backed; desktop startup explicitly composes
   the RPC adapter and is not evidence of Mihomo controller reconciliation.
 - [`../apps/desktop/`](../apps/desktop/) is the thin Tauri shell. It owns only
-  the desktop window, embedded asset startup, local-agent composition, and the
+  the desktop window, embedded asset startup, desktop-bridge composition, and the
   private bootstrap seam.
 
 ## Maintenance rules

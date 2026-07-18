@@ -12,7 +12,7 @@ pnpm desktop:dev
 pnpm desktop:build
 ```
 
-The shell starts the existing Rust agent in-process on an ephemeral IPv4
+The shell starts the existing Rust desktop bridge in-process on an ephemeral IPv4
 loopback port. It creates a fresh 256-bit authentication token for each desktop
 process and returns the endpoint and token only through the `runtime_bootstrap`
 command allowed to the `main` WebView. The token is sent in the first JSON-RPC
@@ -39,7 +39,7 @@ Any future local HTTP asset host must preserve that same rule for unknown
 non-asset `GET`/`HEAD` paths while returning ordinary `404` responses for
 missing files with extensions.
 
-The current agent reports a real but deliberately sparse RPC snapshot and does
+The current desktop bridge reports a real but deliberately sparse RPC snapshot and does
 not automatically start Mihomo. Controller reconciliation, System Proxy, TUN,
 status-bar behavior, native material, packaging icons, signing, and notarization
 remain separate platform slices.

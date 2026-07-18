@@ -31,7 +31,7 @@ The six stable destinations are:
 | URL         | Current Part 1 state                                            |
 | ----------- | --------------------------------------------------------------- |
 | `/status`   | Complete fixture-backed reference surface                       |
-| `/routes`   | Structured policy-group ownership and missing-agent state       |
+| `/routes`   | Structured policy-group ownership and bridge-unavailable state  |
 | `/profiles` | Structured profile-lifecycle ownership and missing-store state  |
 | `/traffic`  | Structured connections/rules ownership and missing-stream state |
 | `/events`   | Structured event/diagnostic ownership and missing-buffer state  |
@@ -89,12 +89,12 @@ Automated tests cover:
   subscriptions, commands, reconnect without a follow-up event, and typed
   failure; and
 - pending command deduplication plus suppression of success UI after failure.
-- a real WebSocket client/server flow against the TypeScript mock agent,
+- a real WebSocket client/server flow against the TypeScript mock bridge,
   including authentication, snapshots, subscriptions, commands, core state,
   typed failure, non-mutation after failure, and cleanup; and
-- Rust local-agent integration coverage for malformed and unauthenticated RPC,
+- Rust desktop-bridge integration coverage for malformed and unauthenticated RPC,
   contract-compatible Status snapshots, subscription snapshot ordering, hostile
-  Origin rejection, loopback-only binding, explicit sidecar start/stop,
+  Origin rejection, loopback-only binding, explicit managed-process start/stop,
   independent child exit publication, version reporting, and child cleanup.
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
@@ -120,16 +120,16 @@ Before a visible production change is accepted, verify:
 - Services at three columns and one column; and
 - no browser console errors, unexpected runtime requests, or CDN assets.
 
-## Local-agent replacement gate
+## Desktop-bridge replacement gate
 
 The desktop bootstrap now provides an explicit endpoint and ephemeral secret,
-while the initial agent covers loopback binding, strict Host/Origin checks,
+while the initial desktop bridge covers loopback binding, strict Host/Origin checks,
 authentication, message and subscription bounds, JSON-RPC framing, a sparse
 validated Status snapshot, and explicit process lifecycle. Tauri embeds and
 serves the offline bundle from its own application protocol; a future same-origin
-HTTP host remains an agent-owned interface change.
+HTTP host remains a desktop-bridge interface change.
 
 The browser replacement gate remains closed, and the desktop state remains
-sparse, until the agent reconciles against the pinned Mihomo controller API and
+sparse, until the desktop bridge reconciles against the pinned Mihomo Controller API and
 implements the required commands. A fixture or mock interaction must never be
 relabeled as a successful system or network action.

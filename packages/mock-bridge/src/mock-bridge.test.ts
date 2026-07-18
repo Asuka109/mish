@@ -3,19 +3,19 @@ import { RpcClient, type WebSocketLike } from "@mish/rpc-client";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 
-import { type MockAgentHandle, startMockAgent } from "./index.ts";
+import { type MockBridgeHandle, startMockBridge } from "./index.ts";
 
 const TOKEN = "mock-token-123456789";
 const ORIGIN = "http://mish.test";
-const handles = new Set<MockAgentHandle>();
+const handles = new Set<MockBridgeHandle>();
 
 afterEach(async () => {
   await Promise.all([...handles].map((handle) => handle.close()));
   handles.clear();
 });
 
-async function agent(options: Parameters<typeof startMockAgent>[0] = { authToken: TOKEN }) {
-  const handle = await startMockAgent({ allowedOrigins: [ORIGIN], ...options });
+async function bridge(options: Parameters<typeof startMockBridge>[0] = { authToken: TOKEN }) {
+  const handle = await startMockBridge({ allowedOrigins: [ORIGIN], ...options });
   handles.add(handle);
   return handle;
 }
@@ -28,9 +28,9 @@ function client(url: string) {
   });
 }
 
-describe("mock agent", () => {
+describe("mock bridge", () => {
   it("drives snapshots, subscriptions, commands, and core state through the real client", async () => {
-    const handle = await agent();
+    const handle = await bridge();
     const rpc = client(handle.rpcUrl);
     const initial = await rpc.request("status.getSnapshot", {});
     expect(initial.groups[0]?.label).toBe("🌐 Proxy 代理");
@@ -70,7 +70,7 @@ describe("mock agent", () => {
   });
 
   it("returns typed failures without mutating command state", async () => {
-    const handle = await agent({
+    const handle = await bridge({
       authToken: TOKEN,
       failMethods: { "status.setRoutingMode": { code: -32040, message: "Injected failure" } },
     });
