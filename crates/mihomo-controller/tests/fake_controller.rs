@@ -69,7 +69,7 @@ async fn reads_pinned_controller_dtos_and_cancels_websocket_streams() {
     let snapshot = client.connections().await.unwrap();
     assert_eq!(snapshot.connections.len(), 1);
     assert_eq!(snapshot.connections[0].chains, ["Synthetic Node"]);
-    assert_eq!(snapshot.connections[0].rule, "DOMAIN-SUFFIX");
+    assert_eq!(snapshot.connections[0].rule, "DomainSuffix");
 
     let rules = client.rules().await.unwrap();
     assert_eq!(rules.rules.len(), 2);
@@ -290,7 +290,7 @@ fn connections_payload() -> Value {
             "start": "2026-01-01T00:00:00Z",
             "chains": ["Synthetic Node"],
             "providerChains": [""],
-            "rule": "DOMAIN-SUFFIX",
+            "rule": "DomainSuffix",
             "rulePayload": "fixture.invalid"
         }]
     })
@@ -301,7 +301,7 @@ fn rules_payload() -> Value {
         "rules": [
             {
                 "index": 0,
-                "type": "DOMAIN-SUFFIX",
+                "type": "DomainSuffix",
                 "payload": "fixture.invalid",
                 "proxy": "Synthetic Group",
                 "size": -1,
@@ -315,7 +315,7 @@ fn rules_payload() -> Value {
             },
             {
                 "index": 1,
-                "type": "MATCH",
+                "type": "Match",
                 "payload": "",
                 "proxy": "DIRECT",
                 "size": -1,
