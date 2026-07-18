@@ -8,7 +8,7 @@ import {
   SectionGridItem,
   ToggleGroup,
   ToggleGroupItem,
-} from "@mihomo/ui";
+} from "@mish/ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
@@ -16,7 +16,7 @@ import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
 import { useProduct } from "../data/product-provider";
-import type { PolicyGroupDto, RoutingMode } from "@mihomo/contracts";
+import type { PolicyGroupDto, RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 

@@ -5,7 +5,7 @@ import {
   type StatusClient,
   type StatusConnectionState,
   type StatusSnapshotDto,
-} from "@mihomo/contracts";
+} from "@mish/contracts";
 import {
   createContext,
   useCallback,

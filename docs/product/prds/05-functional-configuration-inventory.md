@@ -11,7 +11,7 @@
 ## Purpose
 
 This document converts competitor research and a profile-backed Clash Verge Rev
-walkthrough into a Mihomo capability inventory. It does not adopt Clash Verge
+walkthrough into a Mihomo core capability inventory. It does not adopt Clash Verge
 Rev's navigation, page composition, or control styling. Every capability below
 must be expressed through this project's existing six-destination workbench,
 object ownership rules, progressive disclosure, and shared command model.

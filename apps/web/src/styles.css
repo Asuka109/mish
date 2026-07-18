@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "@mihomo/design-tokens/tokens.css";
+@import "@mish/design-tokens/tokens.css";
 @source "../../../packages/ui/src";
 
 :root {

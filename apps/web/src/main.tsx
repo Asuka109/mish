@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
 import { Toaster } from "sonner";
-import { TooltipProvider } from "@mihomo/ui";
+import { TooltipProvider } from "@mish/ui";
 import { AppRoutes } from "./app";
 import { ProductProvider } from "./data/product-provider";
 import TypesafeI18n from "./i18n/i18n-react";

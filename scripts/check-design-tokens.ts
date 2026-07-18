@@ -79,7 +79,7 @@ for (const section of ["colors", "rounded", "spacing"] as const) {
 
   for (const [name, value] of Object.entries(values)) {
     if (typeof value === "object") continue;
-    expectToken(`mihomo-${prefix}-${name}`, value, variables);
+    expectToken(`mish-${prefix}-${name}`, value, variables);
     checkedTokens += 1;
   }
 }
@@ -91,7 +91,7 @@ for (const [level, properties] of Object.entries(typography)) {
   if (!properties || typeof properties !== "object") continue;
   for (const [property, value] of Object.entries(properties)) {
     if (typeof value === "object") continue;
-    expectToken(`mihomo-typography-${level}-${kebabCase(property)}`, value, variables);
+    expectToken(`mish-typography-${level}-${kebabCase(property)}`, value, variables);
     checkedTokens += 1;
   }
 }
@@ -126,7 +126,7 @@ for (const token of requiredThemeTokens) {
 }
 
 const consumers = [
-  ["apps/web/src/styles.css", '@import "@mihomo/design-tokens/tokens.css";'],
+  ["apps/web/src/styles.css", '@import "@mish/design-tokens/tokens.css";'],
   ["sketch/src/styles.css", '@import "../../packages/design-tokens/src/tokens.css";'],
 ] as const;
 for (const [path, expectedImport] of consumers) {

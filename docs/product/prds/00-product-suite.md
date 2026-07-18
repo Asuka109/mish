@@ -1,4 +1,4 @@
-# PRD 00: Mihomo Client Product Suite
+# PRD 00: Mish Product Suite
 
 ## Metadata
 
@@ -42,8 +42,8 @@ therefore product requirements, not implementation details.
    within one coherent product.
 2. Make capture state, routing mode, active profile, and runtime health legible
    without duplicating them in multiple dashboards.
-3. Preserve Mihomo's group-scoped routing model and never invent a global active
-   node in Rule mode.
+3. Preserve the Mihomo core's group-scoped routing model and never invent a
+   global active node in Rule mode.
 4. Keep expert inspection one step away while allowing daily operation from
    Status and the native status-bar menu.
 5. Reuse one product model and accessible component system across browser,
@@ -70,7 +70,7 @@ therefore product requirements, not implementation details.
 3. **Progressive disclosure.** Daily actions stay stable; expert controls are
    near the object they affect, not mixed into a universal settings page.
 4. **Truth over convenience.** Heuristics are labeled and never presented as
-   Mihomo truth.
+   Mihomo core truth.
 5. **Local trust.** No telemetry by default, no silent device identity, no
    provider-controlled native modules, and no unreviewed runtime assets.
 6. **Commands are not navigation.** Routing modes and capture changes must look
@@ -97,7 +97,7 @@ different domain model.
 | Slice | Proof of value | Included | Exit criteria |
 | --- | --- | --- | --- |
 | P0 macOS alpha | A valid profile can produce an observable System Proxy session | Local/URL import, validation, activation, Routes, Rule/Global/Direct, System Proxy, Status, Traffic, Events, stop/recovery | End-to-end acceptance journey passes on a clean macOS account |
-| P1 macOS beta | The client can replace an everyday desktop Mihomo GUI | TUN helper, status-bar commands, signed updates, guided diagnostics, profile refresh, robust sleep/wake/restart handling | Native validation gate and recovery tests pass on Intel and Apple Silicon |
+| P1 macOS beta | Mish can replace an everyday desktop proxy client powered by the Mihomo core | TUN helper, status-bar commands, signed updates, guided diagnostics, profile refresh, robust sleep/wake/restart handling | Native validation gate and recovery tests pass on Intel and Apple Silicon |
 | P2 desktop expansion | Shared product works on Windows and Linux | Platform adapters, packaging, service/privilege differences | Capability matrix and signed build gates pass per OS |
 | P2 mobile feasibility | Shared UI can coexist with native VPN lifecycle | Android `VpnService` spike and iOS Packet Tunnel/TestFlight spike | Device VPN, entitlement, sleep/wake, and network-switch gates pass |
 
@@ -145,7 +145,7 @@ different domain model.
 
 | Item | Current position | Resolution |
 | --- | --- | --- |
-| Final product name | Do not ship a downstream name that implies official Mihomo ownership. | Decide before public branding and signing. |
+| Product brand | The independent product name is Mish; Mihomo is reserved for the upstream core and its integration boundaries. | Apply Mish consistently before public branding and signing. |
 | Mobile shell feasibility | Shared React is confirmed; Apple extension integration remains the gate. | Complete device/TestFlight spike before scheduling mobile product work. |
 | Profile transforms | Merge/script systems are useful but add a second configuration language and security surface. | Keep out of P0; review after profile lifecycle is reliable. |
 | Update and crash evidence | No vendor or privacy contract is selected. | Choose an explicitly consented, open-source-compatible approach before beta metrics are finalized. |

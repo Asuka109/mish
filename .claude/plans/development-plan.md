@@ -1,8 +1,8 @@
-# Mihomo 五端 Web 客户端研发计划
+# Mish 五端 Web 客户端研发计划
 
 状态：Draft v0.1  
 日期：2026-07-14  
-项目仓库：`~/repositories/mihomo-web-client`  
+项目仓库：当前工作仓库（本地目录名属于历史路径，不作为产品品牌）
 目标平台：macOS、Windows、Linux、Android、iOS
 
 文档说明：本文件用于阶段与工期规划；当前产品、设计、交互、数据与
@@ -11,7 +11,7 @@
 
 ## 1. 项目目标
 
-开发一个基于 Mihomo 内核、以 Web 技术栈为主的跨平台代理客户端，产品体验参考 Clash Pro、Clash Mi、Stash 和 Clash Verge Rev。
+开发 Mish：一个基于 Mihomo 内核、以 Web 技术栈为主的跨平台代理客户端，产品体验参考 Clash Pro、Clash Mi、Stash 和 Clash Verge Rev。
 
 首要目标不是一次性复制成熟客户端的全部功能，而是以尽可能低的研发与维护成本，建立一套能够长期演进、可独立构建、可审计、可发布的五端基础架构。
 

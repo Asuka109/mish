@@ -10,8 +10,8 @@ runtime assets from `sketch/`.
 The default app uses `FixtureStatusClient`, an implementation of the shared
 typed `StatusClient` boundary. Its commands update detached in-memory DTO
 snapshots only. The toolbar and aggregate capture action identify this as demo
-data; no System Proxy, TUN, Mihomo, probe, capture, WebSocket, or network request
-is executed.
+data; no System Proxy, TUN, Mihomo core operation, probe, capture, WebSocket, or
+network request is executed.
 
 `RpcStatusClient` is available only for explicit composition with an injected
 `RpcClient`. Runtime schemas reject malformed results and notifications before

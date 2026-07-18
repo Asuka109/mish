@@ -18,7 +18,7 @@ function readGeneratedFiles() {
 }
 
 const before = readGeneratedFiles();
-const generation = spawnSync("pnpm", ["--filter", "@mihomo/web", "i18n:generate"], {
+const generation = spawnSync("pnpm", ["--filter", "@mish/web", "i18n:generate"], {
   cwd: root,
   stdio: "inherit",
 });

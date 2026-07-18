@@ -1,6 +1,6 @@
 ---
 version: beta
-name: Mihomo Cal Workbench
+name: Mish Cal Workbench
 description: A Cal.com-derived neutral design system adapted for a compact macOS network utility.
 colors:
   primary: "#111111"
@@ -182,7 +182,7 @@ components:
     height: "34px"
 ---
 
-# Design System: Mihomo Cal Workbench
+# Design System: Mish Cal Workbench
 
 ## Overview
 
@@ -347,7 +347,7 @@ truth.
 The Session grouped list integrates cumulative bytes below the Downloaded and
 Uploaded labels, beside the live rate and sparkline. Their arrow icons use the
 same semantic blue and green as the corresponding charts. It also shows Mihomo
-memory in use, active connections, effective rules, and uptime. Pair stable
+core memory in use, active connections, effective rules, and uptime. Pair stable
 secondary metrics in two-column rows to preserve density. Source mapping belongs
 to [`docs/architecture/status-data-contracts.md`](docs/architecture/status-data-contracts.md).
 

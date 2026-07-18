@@ -76,7 +76,7 @@ const trafficSeries = {
   upload: [12, 15, 14, 18, 17, 21, 19, 24, 22, 27, 25, 29, 26, 31, 28, 33],
 };
 
-const mihomoSnapshot = {
+const coreSnapshot = {
   connections: 24,
   memory: {
     inuse: 90_177_536,
@@ -178,9 +178,9 @@ function Sidebar({ connected, onToggle, proxy }) {
         <Circle size={12} weight="fill" color="#28c840" />
       </div>
 
-      <div className="brand-row" aria-label="Mihomo">
+      <div className="brand-row" aria-label="Mish">
         <Stack size={18} weight="regular" />
-        <span>Mihomo</span>
+        <span>Mish</span>
       </div>
 
       <Tabs.List className="nav-list" aria-label="Workspace sections">
@@ -327,38 +327,38 @@ function Overview({
                   <ArrowDown aria-hidden="true" size={14} />
                   <span className="traffic-session-copy">
                     <span>Downloaded</span>
-                    <small>{formatBytes(mihomoSnapshot.traffic.downTotal)}</small>
+                    <small>{formatBytes(coreSnapshot.traffic.downTotal)}</small>
                   </span>
                 </span>
                 <TrafficSparkline color="var(--color-traffic-download)" data={trafficSeries.download} id="download" />
-                <strong className="traffic-rate-value tabular">{formatRate(mihomoSnapshot.traffic.down)}</strong>
+                <strong className="traffic-rate-value tabular">{formatRate(coreSnapshot.traffic.down)}</strong>
               </SectionGridItem>
               <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
                 <span className="traffic-session-label" data-direction="upload">
                   <ArrowUp aria-hidden="true" size={14} />
                   <span className="traffic-session-copy">
                     <span>Uploaded</span>
-                    <small>{formatBytes(mihomoSnapshot.traffic.upTotal)}</small>
+                    <small>{formatBytes(coreSnapshot.traffic.upTotal)}</small>
                   </span>
                 </span>
                 <TrafficSparkline color="var(--color-traffic-upload)" data={trafficSeries.upload} id="upload" />
-                <strong className="traffic-rate-value tabular">{formatRate(mihomoSnapshot.traffic.up)}</strong>
+                <strong className="traffic-rate-value tabular">{formatRate(coreSnapshot.traffic.up)}</strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>Connections</span>
-                <strong className="tabular">{mihomoSnapshot.connections}</strong>
+                <strong className="tabular">{coreSnapshot.connections}</strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>Active rules</span>
-                <strong className="tabular">{formatCount(mihomoSnapshot.rules)}</strong>
+                <strong className="tabular">{formatCount(coreSnapshot.rules)}</strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>Memory</span>
-                <strong className="tabular">{formatBytes(mihomoSnapshot.memory.inuse)}</strong>
+                <strong className="tabular">{formatBytes(coreSnapshot.memory.inuse)}</strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>Uptime</span>
-                <strong className="tabular">{mihomoSnapshot.uptime}</strong>
+                <strong className="tabular">{coreSnapshot.uptime}</strong>
               </SectionGridItem>
             </SectionGrid>
           </section>

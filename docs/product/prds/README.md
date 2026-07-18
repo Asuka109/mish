@@ -15,10 +15,10 @@ tokens.
 
 ## Product bet
 
-For people who keep Mihomo running throughout the day, provide a quiet,
+For people who keep Mish running throughout the day, provide a quiet,
 trustworthy workbench that can import a usable profile, control traffic capture,
 make group-scoped route changes, and explain current network behavior without
-requiring the user to understand Mihomo's internal configuration model.
+requiring the user to understand the Mihomo core's internal configuration model.
 
 The bet succeeds when a user with a valid profile can reach a healthy proxied
 state quickly, can tell what the client is doing, and can recover from common
@@ -33,7 +33,7 @@ failures without opening a terminal or a second administration dashboard.
 | [02 — Profiles and Routes](02-profiles-and-routes.md) | How does configuration become a safe, selectable routing model? | Profiles, Routes |
 | [03 — Traffic, Events, and Diagnostics](03-traffic-events-diagnostics.md) | How does the user inspect behavior and investigate failures? | Traffic, Events |
 | [04 — Settings and Native Integration](04-settings-native-integration.md) | How do platform capabilities and advanced preferences remain safe? | Settings, tray, native shell |
-| [05 — Functional and Configuration Inventory](05-functional-configuration-inventory.md) | Which Mihomo capabilities and configuration layers must the product cover, and where do they belong in our interaction model? | Whole product |
+| [05 — Functional and Configuration Inventory](05-functional-configuration-inventory.md) | Which Mihomo core capabilities and configuration layers must the product cover, and where do they belong in our interaction model? | Whole product |
 
 ## Confirmed evidence
 
@@ -45,7 +45,7 @@ failures without opening a terminal or a second administration dashboard.
 | [`DESIGN.md`](../../../DESIGN.md) | Cal-derived design system and macOS utility composition |
 | [`status-experience.md`](../status-experience.md) | Approved Status behavior and semantics |
 | [`frontend-platform-boundary.md`](../../architecture/frontend-platform-boundary.md) | Shared web product layer, local agent, RPC, Tauri, and privileged-helper ownership |
-| [`status-data-contracts.md`](../../architecture/status-data-contracts.md) | Mihomo source mapping, group-usage derivation, and service-probe semantics |
+| [`status-data-contracts.md`](../../architecture/status-data-contracts.md) | Mihomo core source mapping, group-usage derivation, and service-probe semantics |
 
 ## Competitive conclusions
 

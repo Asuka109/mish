@@ -3,13 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TooltipProvider } from "@mihomo/ui";
+import { TooltipProvider } from "@mish/ui";
 import {
   StatusClientError,
   type RoutingMode,
   type StatusClient,
   type StatusSnapshotDto,
-} from "@mihomo/contracts";
+} from "@mish/contracts";
 import { AppRoutes } from "./app";
 import { FixtureStatusClient } from "./data/fixture-status-client";
 import { ProductProvider } from "./data/product-provider";
@@ -58,6 +58,11 @@ class FailingServicesClient extends FixtureStatusClient {
 }
 
 describe("production routes", () => {
+  it("presents Mish as the product brand", () => {
+    renderRoute("/status");
+    expect(screen.getByLabelText("Mish")).toHaveTextContent("Mish");
+  });
+
   it.each([
     ["/status", "Status"],
     ["/routes", "Routes"],
@@ -180,7 +185,7 @@ describe("Status fixture experience", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
-    expect(localStorage.getItem("mihomo-web-client.locale")).toBe("zh");
+    expect(localStorage.getItem("mish.locale")).toBe("zh");
   });
 
   it("defers service validation feedback until a field is edited", async () => {

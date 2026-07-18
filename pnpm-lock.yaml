@@ -23,16 +23,16 @@ importers:
       '@base-ui/react':
         specifier: 1.6.0
         version: 1.6.0(@types/react@19.2.14)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      '@mihomo/contracts':
+      '@mish/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@mihomo/design-tokens':
+      '@mish/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
-      '@mihomo/rpc-client':
+      '@mish/rpc-client':
         specifier: workspace:*
         version: link:../../packages/rpc-client
-      '@mihomo/ui':
+      '@mish/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       '@phosphor-icons/react':
@@ -105,7 +105,7 @@ importers:
 
   packages/rpc-client:
     dependencies:
-      '@mihomo/contracts':
+      '@mish/contracts':
         specifier: workspace:*
         version: link:../contracts
       zod:

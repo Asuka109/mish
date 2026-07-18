@@ -1,119 +1,119 @@
 :root {
-  --mihomo-color-primary: #111111;
-  --mihomo-color-ink: #111111;
-  --mihomo-color-ink-active: #242424;
-  --mihomo-color-body: #374151;
-  --mihomo-color-muted: #6b7280;
-  --mihomo-color-muted-soft: #898989;
-  --mihomo-color-canvas: #ffffff;
-  --mihomo-color-surface-soft: #f8f9fa;
-  --mihomo-color-hairline-soft: #f3f4f6;
-  --mihomo-color-hairline: #e5e7eb;
-  --mihomo-color-accent: #3b82f6;
-  --mihomo-color-brand: #2f6fdc;
-  --mihomo-color-brand-foreground: #f8faff;
-  --mihomo-color-status-water-base: #2f82dc;
-  --mihomo-color-success: #10b981;
-  --mihomo-color-success-text: #047857;
-  --mihomo-color-traffic-download: #2f6fdc;
-  --mihomo-color-traffic-upload: #2f855a;
-  --mihomo-color-warning: #b45309;
-  --mihomo-color-error: #dc2626;
+  --mish-color-primary: #111111;
+  --mish-color-ink: #111111;
+  --mish-color-ink-active: #242424;
+  --mish-color-body: #374151;
+  --mish-color-muted: #6b7280;
+  --mish-color-muted-soft: #898989;
+  --mish-color-canvas: #ffffff;
+  --mish-color-surface-soft: #f8f9fa;
+  --mish-color-hairline-soft: #f3f4f6;
+  --mish-color-hairline: #e5e7eb;
+  --mish-color-accent: #3b82f6;
+  --mish-color-brand: #2f6fdc;
+  --mish-color-brand-foreground: #f8faff;
+  --mish-color-status-water-base: #2f82dc;
+  --mish-color-success: #10b981;
+  --mish-color-success-text: #047857;
+  --mish-color-traffic-download: #2f6fdc;
+  --mish-color-traffic-upload: #2f855a;
+  --mish-color-warning: #b45309;
+  --mish-color-error: #dc2626;
 
-  --mihomo-typography-title-font-family:
+  --mish-typography-title-font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --mihomo-typography-title-font-size: 22px;
-  --mihomo-typography-title-font-weight: 600;
-  --mihomo-typography-title-line-height: 1.3;
-  --mihomo-typography-body-font-family:
+  --mish-typography-title-font-size: 22px;
+  --mish-typography-title-font-weight: 600;
+  --mish-typography-title-line-height: 1.3;
+  --mish-typography-body-font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --mihomo-typography-body-font-size: 14px;
-  --mihomo-typography-body-font-weight: 400;
-  --mihomo-typography-body-line-height: 1.45;
-  --mihomo-typography-metadata-font-family:
+  --mish-typography-body-font-size: 14px;
+  --mish-typography-body-font-weight: 400;
+  --mish-typography-body-line-height: 1.45;
+  --mish-typography-metadata-font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  --mihomo-typography-metadata-font-size: 13px;
-  --mihomo-typography-metadata-font-weight: 400;
-  --mihomo-typography-metadata-line-height: 1.4;
+  --mish-typography-metadata-font-size: 13px;
+  --mish-typography-metadata-font-weight: 400;
+  --mish-typography-metadata-line-height: 1.4;
 
-  --mihomo-radius-sm: 6px;
-  --mihomo-radius-md: 8px;
-  --mihomo-radius-lg: 12px;
-  --mihomo-radius-full: 999px;
+  --mish-radius-sm: 6px;
+  --mish-radius-md: 8px;
+  --mish-radius-lg: 12px;
+  --mish-radius-full: 999px;
 
-  --mihomo-spacing-xs: 4px;
-  --mihomo-spacing-sm: 8px;
-  --mihomo-spacing-md: 12px;
-  --mihomo-spacing-lg: 16px;
-  --mihomo-spacing-xl: 24px;
-  --mihomo-spacing-xxl: 32px;
+  --mish-spacing-xs: 4px;
+  --mish-spacing-sm: 8px;
+  --mish-spacing-md: 12px;
+  --mish-spacing-lg: 16px;
+  --mish-spacing-xl: 24px;
+  --mish-spacing-xxl: 32px;
 
-  --mihomo-shadow-panel: 0 1px 2px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 2.5%);
-  --mihomo-shadow-float: 0 4px 12px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%);
-  --mihomo-shadow-status: 0 2px 10px rgb(37 111 215 / 16%), 0 1px 2px rgb(18 72 150 / 8%);
+  --mish-shadow-panel: 0 1px 2px rgb(0 0 0 / 5%), 0 8px 24px rgb(0 0 0 / 2.5%);
+  --mish-shadow-float: 0 4px 12px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%);
+  --mish-shadow-status: 0 2px 10px rgb(37 111 215 / 16%), 0 1px 2px rgb(18 72 150 / 8%);
 
   /* Runtime semantic aliases used by shadcn and future appearance themes. */
-  --background: var(--mihomo-color-canvas);
-  --foreground: var(--mihomo-color-ink);
-  --card: var(--mihomo-color-canvas);
-  --card-foreground: var(--mihomo-color-ink);
-  --popover: var(--mihomo-color-canvas);
-  --popover-foreground: var(--mihomo-color-ink);
-  --primary: var(--mihomo-color-primary);
-  --primary-foreground: var(--mihomo-color-brand-foreground);
-  --secondary: var(--mihomo-color-surface-soft);
-  --secondary-foreground: var(--mihomo-color-body);
-  --muted: var(--mihomo-color-surface-soft);
-  --muted-foreground: var(--mihomo-color-muted);
-  --accent: var(--mihomo-color-surface-soft);
-  --accent-foreground: var(--mihomo-color-ink-active);
-  --destructive: var(--mihomo-color-error);
-  --border: var(--mihomo-color-hairline);
-  --input: var(--mihomo-color-hairline);
-  --ring: var(--mihomo-color-accent);
-  --sidebar: var(--mihomo-color-surface-soft);
-  --sidebar-foreground: var(--mihomo-color-body);
-  --sidebar-primary: var(--mihomo-color-primary);
-  --sidebar-primary-foreground: var(--mihomo-color-brand-foreground);
-  --sidebar-accent: var(--mihomo-color-canvas);
-  --sidebar-accent-foreground: var(--mihomo-color-ink-active);
-  --sidebar-border: var(--mihomo-color-hairline);
-  --sidebar-ring: var(--mihomo-color-accent);
+  --background: var(--mish-color-canvas);
+  --foreground: var(--mish-color-ink);
+  --card: var(--mish-color-canvas);
+  --card-foreground: var(--mish-color-ink);
+  --popover: var(--mish-color-canvas);
+  --popover-foreground: var(--mish-color-ink);
+  --primary: var(--mish-color-primary);
+  --primary-foreground: var(--mish-color-brand-foreground);
+  --secondary: var(--mish-color-surface-soft);
+  --secondary-foreground: var(--mish-color-body);
+  --muted: var(--mish-color-surface-soft);
+  --muted-foreground: var(--mish-color-muted);
+  --accent: var(--mish-color-surface-soft);
+  --accent-foreground: var(--mish-color-ink-active);
+  --destructive: var(--mish-color-error);
+  --border: var(--mish-color-hairline);
+  --input: var(--mish-color-hairline);
+  --ring: var(--mish-color-accent);
+  --sidebar: var(--mish-color-surface-soft);
+  --sidebar-foreground: var(--mish-color-body);
+  --sidebar-primary: var(--mish-color-primary);
+  --sidebar-primary-foreground: var(--mish-color-brand-foreground);
+  --sidebar-accent: var(--mish-color-canvas);
+  --sidebar-accent-foreground: var(--mish-color-ink-active);
+  --sidebar-border: var(--mish-color-hairline);
+  --sidebar-ring: var(--mish-color-accent);
 }
 
 @theme inline static {
-  --font-sans: var(--mihomo-typography-body-font-family);
-  --font-heading: var(--mihomo-typography-title-font-family);
+  --font-sans: var(--mish-typography-body-font-family);
+  --font-heading: var(--mish-typography-title-font-family);
 
-  --text-title: var(--mihomo-typography-title-font-size);
-  --text-title--line-height: var(--mihomo-typography-title-line-height);
-  --text-body: var(--mihomo-typography-body-font-size);
-  --text-body--line-height: var(--mihomo-typography-body-line-height);
-  --text-metadata: var(--mihomo-typography-metadata-font-size);
-  --text-metadata--line-height: var(--mihomo-typography-metadata-line-height);
-  --font-weight-ui: var(--mihomo-typography-body-font-weight);
+  --text-title: var(--mish-typography-title-font-size);
+  --text-title--line-height: var(--mish-typography-title-line-height);
+  --text-body: var(--mish-typography-body-font-size);
+  --text-body--line-height: var(--mish-typography-body-line-height);
+  --text-metadata: var(--mish-typography-metadata-font-size);
+  --text-metadata--line-height: var(--mish-typography-metadata-line-height);
+  --font-weight-ui: var(--mish-typography-body-font-weight);
   --font-weight-control: 500;
-  --font-weight-heading: var(--mihomo-typography-title-font-weight);
+  --font-weight-heading: var(--mish-typography-title-font-weight);
 
-  --color-ink: var(--mihomo-color-ink);
-  --color-ink-active: var(--mihomo-color-ink-active);
-  --color-body: var(--mihomo-color-body);
-  --color-text-muted: var(--mihomo-color-muted);
-  --color-muted-soft: var(--mihomo-color-muted-soft);
-  --color-canvas: var(--mihomo-color-canvas);
-  --color-surface-soft: var(--mihomo-color-surface-soft);
-  --color-hairline-soft: var(--mihomo-color-hairline-soft);
-  --color-hairline: var(--mihomo-color-hairline);
-  --color-focus-accent: var(--mihomo-color-accent);
-  --color-brand: var(--mihomo-color-brand);
-  --color-brand-foreground: var(--mihomo-color-brand-foreground);
-  --color-status-water-base: var(--mihomo-color-status-water-base);
-  --color-success: var(--mihomo-color-success);
-  --color-success-text: var(--mihomo-color-success-text);
-  --color-traffic-download: var(--mihomo-color-traffic-download);
-  --color-traffic-upload: var(--mihomo-color-traffic-upload);
-  --color-warning: var(--mihomo-color-warning);
-  --color-error: var(--mihomo-color-error);
+  --color-ink: var(--mish-color-ink);
+  --color-ink-active: var(--mish-color-ink-active);
+  --color-body: var(--mish-color-body);
+  --color-text-muted: var(--mish-color-muted);
+  --color-muted-soft: var(--mish-color-muted-soft);
+  --color-canvas: var(--mish-color-canvas);
+  --color-surface-soft: var(--mish-color-surface-soft);
+  --color-hairline-soft: var(--mish-color-hairline-soft);
+  --color-hairline: var(--mish-color-hairline);
+  --color-focus-accent: var(--mish-color-accent);
+  --color-brand: var(--mish-color-brand);
+  --color-brand-foreground: var(--mish-color-brand-foreground);
+  --color-status-water-base: var(--mish-color-status-water-base);
+  --color-success: var(--mish-color-success);
+  --color-success-text: var(--mish-color-success-text);
+  --color-traffic-download: var(--mish-color-traffic-download);
+  --color-traffic-upload: var(--mish-color-traffic-upload);
+  --color-warning: var(--mish-color-warning);
+  --color-error: var(--mish-color-error);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -142,20 +142,20 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  --radius-sm: var(--mihomo-radius-sm);
-  --radius-md: var(--mihomo-radius-md);
-  --radius-lg: var(--mihomo-radius-lg);
-  --radius-full: var(--mihomo-radius-full);
+  --radius-sm: var(--mish-radius-sm);
+  --radius-md: var(--mish-radius-md);
+  --radius-lg: var(--mish-radius-lg);
+  --radius-full: var(--mish-radius-full);
 
-  --spacing: var(--mihomo-spacing-xs);
-  --spacing-xs: var(--mihomo-spacing-xs);
-  --spacing-sm: var(--mihomo-spacing-sm);
-  --spacing-md: var(--mihomo-spacing-md);
-  --spacing-lg: var(--mihomo-spacing-lg);
-  --spacing-xl: var(--mihomo-spacing-xl);
-  --spacing-xxl: var(--mihomo-spacing-xxl);
+  --spacing: var(--mish-spacing-xs);
+  --spacing-xs: var(--mish-spacing-xs);
+  --spacing-sm: var(--mish-spacing-sm);
+  --spacing-md: var(--mish-spacing-md);
+  --spacing-lg: var(--mish-spacing-lg);
+  --spacing-xl: var(--mish-spacing-xl);
+  --spacing-xxl: var(--mish-spacing-xxl);
 
-  --shadow-panel: var(--mihomo-shadow-panel);
-  --shadow-float: var(--mihomo-shadow-float);
-  --shadow-status: var(--mihomo-shadow-status);
+  --shadow-panel: var(--mish-shadow-panel);
+  --shadow-float: var(--mish-shadow-float);
+  --shadow-status: var(--mish-shadow-status);
 }

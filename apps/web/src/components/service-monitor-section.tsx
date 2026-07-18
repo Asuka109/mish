@@ -41,11 +41,11 @@ import {
   FieldLabel,
   Input,
   SectionGrid,
-} from "@mihomo/ui";
+} from "@mish/ui";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useProduct } from "../data/product-provider";
-import type { ServiceMonitorDraft, ServiceMonitorDto } from "@mihomo/contracts";
+import type { ServiceMonitorDraft, ServiceMonitorDto } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
 const serviceIcons: Record<ServiceMonitorDto["icon"], Icon> = {

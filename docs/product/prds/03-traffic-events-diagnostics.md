@@ -46,7 +46,7 @@ route tests are diagnostic tools, not a top-level entertainment-unlock promise.
 
 | ID | Priority | Requirement | Acceptance criteria |
 | --- | --- | --- | --- |
-| EVENT-F-001 | P0 | Events shall combine application, Mihomo, RPC, and platform-adapter events with source and severity. | Given concurrent events, then each row has timestamp, severity, source, concise message, and optional structured detail. |
+| EVENT-F-001 | P0 | Events shall combine Mish application, Mihomo core, RPC, and platform-adapter events with source and severity. | Given concurrent events, then each row has timestamp, severity, source, concise message, and optional structured detail. |
 | EVENT-F-002 | P0 | Users shall filter by severity, source, time, and text. | Filters are composable, keyboard accessible, and do not discard the underlying bounded event buffer. |
 | EVENT-F-003 | P0 | Users shall pause visual follow, change chronological order, and clear the local view. | Clear affects the displayed local buffer only unless a separate persistent-log deletion action explicitly says otherwise. |
 | EVENT-F-004 | P0 | Common failures shall link to contextual recovery or a guided diagnostic. | A core start failure, permission denial, profile validation failure, DNS failure, and System Proxy drift each expose a relevant next action. |
@@ -99,7 +99,7 @@ route tests are diagnostic tools, not a top-level entertainment-unlock promise.
 
 ## Dependencies
 
-- Mihomo connections, rules, traffic, logs/events, and health data.
+- Mihomo core connections, rules, traffic, logs/events, and health data.
 - Local-agent event schema, bounded storage, stream sequence/reconnect metadata,
   and diagnostic runner.
 - Platform observations for System Proxy, TUN, permissions, and process details.

@@ -5,8 +5,8 @@ import type {
   StatusConnectionState,
   StatusSnapshotDto,
   RoutingMode,
-} from "@mihomo/contracts";
-import { StatusClientError } from "@mihomo/contracts";
+} from "@mish/contracts";
+import { StatusClientError } from "@mish/contracts";
 
 const defaultServices: ServiceMonitorDto[] = [
   {

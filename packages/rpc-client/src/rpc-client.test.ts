@@ -1,4 +1,4 @@
-import { StatusSnapshotSchema, statusRpcMethods } from "@mihomo/contracts";
+import { StatusSnapshotSchema, statusRpcMethods } from "@mish/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   RpcCancelledError,

@@ -1,5 +1,5 @@
-import { StatusClientError, statusRpcMethods, type StatusSnapshotDto } from "@mihomo/contracts";
-import { RpcClient, type WebSocketLike, type WebSocketLikeEventMap } from "@mihomo/rpc-client";
+import { StatusClientError, statusRpcMethods, type StatusSnapshotDto } from "@mish/contracts";
+import { RpcClient, type WebSocketLike, type WebSocketLikeEventMap } from "@mish/rpc-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FixtureStatusClient } from "./fixture-status-client";
 import { RpcStatusClient } from "./rpc-status-client";

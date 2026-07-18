@@ -125,7 +125,7 @@ When implementing from a selected generated mock, treat that image as the source
   layer. Fade all four edges visibly and soften the adjacent direction labels
   so the textual rate remains dominant.
 - The Session group shows live upload and download rates, cumulative uploaded and
-  downloaded bytes, active connection count, Mihomo memory in use, and uptime.
+  downloaded bytes, active connection count, Mihomo core memory in use, and uptime.
   Integrate cumulative bytes beneath the Downloaded and Uploaded labels instead
   of allocating another pair of cells. Give the direction arrows the same blue
   and green semantic colors as their sparklines and slightly increase the live

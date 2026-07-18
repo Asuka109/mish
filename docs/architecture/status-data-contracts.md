@@ -3,7 +3,7 @@
 ## Scope
 
 This document defines the data semantics behind Status. It separates direct
-Mihomo observations, local-agent state, and derived product values so the UI
+Mihomo core observations, local-agent state, and derived product values so the UI
 does not accidentally present a heuristic as core truth.
 
 The shared TypeScript DTO, command, and runtime schemas live in
@@ -38,7 +38,7 @@ confirmed `StatusSnapshotDto`; a JSON-RPC success envelope with an invalid resul
 is a validation failure, not command success. RPC snapshots must identify their
 adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 
-## Mihomo source mapping
+## Mihomo core source mapping
 
 | Product value                       | Mihomo source                                            | Notes                                                                                                                                                  |
 | ----------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |

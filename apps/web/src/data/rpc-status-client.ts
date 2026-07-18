@@ -8,7 +8,7 @@ import {
   type StatusConnectionState,
   type StatusSnapshotDto,
   type StatusSnapshotNotificationDto,
-} from "@mihomo/contracts";
+} from "@mish/contracts";
 import {
   RpcCancelledError,
   RpcClient,
@@ -20,7 +20,7 @@ import {
   RpcValidationError,
   type RpcConnectionState,
   type RpcRequestOptions,
-} from "@mihomo/rpc-client";
+} from "@mish/rpc-client";
 
 export type StatusRpcClient = RpcClient<typeof statusRpcMethods>;
 

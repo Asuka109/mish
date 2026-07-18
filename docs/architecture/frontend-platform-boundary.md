@@ -4,7 +4,7 @@
 
 The product uses a web-first UI without making product logic depend on Tauri.
 The same compiled bundle runs in an ordinary browser and inside the desktop
-WebView. A local agent owns Mihomo and exposes a transport-independent
+WebView. A local agent owns the Mihomo core and exposes a transport-independent
 application API; Tauri remains a thin view and platform-capability shell.
 
 ```mermaid
@@ -21,14 +21,14 @@ flowchart LR
 
 ## Ownership
 
-| Layer                              | Owns                                                                                           | Must not own                                                                        |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Shared product UI                  | Views, interaction state, accessible components, DTO consumption                               | Mihomo process lifecycle, privilege escalation, direct Tauri imports in domain code |
-| Shared domain/application packages | DTOs, commands, invariants, derived view models, capability-neutral use cases                  | WebView APIs or operating-system branching spread through features                  |
-| Typed RPC client                   | Request correlation, subscriptions, reconnect policy, DTO validation                           | Product-specific rendering                                                          |
-| Local Rust agent                   | Mihomo lifecycle, application state, local HTTP/WebSocket origin, persistence, probe execution | Window layout or React component state                                              |
-| Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge      | Core business rules or an alternative application state store                       |
-| Privileged helper                  | Narrow TUN, DNS, and system-proxy operations requiring elevation                               | General application logic or remote access                                          |
+| Layer                              | Owns                                                                                                | Must not own                                                                             |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Shared product UI                  | Views, interaction state, accessible components, DTO consumption                                    | Mihomo core process lifecycle, privilege escalation, direct Tauri imports in domain code |
+| Shared domain/application packages | DTOs, commands, invariants, derived view models, capability-neutral use cases                       | WebView APIs or operating-system branching spread through features                       |
+| Typed RPC client                   | Request correlation, subscriptions, reconnect policy, DTO validation                                | Product-specific rendering                                                               |
+| Local Rust agent                   | Mihomo core lifecycle, application state, local HTTP/WebSocket origin, persistence, probe execution | Window layout or React component state                                                   |
+| Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge           | Core business rules or an alternative application state store                            |
+| Privileged helper                  | Narrow TUN, DNS, and system-proxy operations requiring elevation                                    | General application logic or remote access                                               |
 
 Platform differences are exposed through a capability DTO and adapter rather
 than repeated `if (tauri)` or `if (macOS)` branches.
@@ -123,7 +123,7 @@ packages/
   ui/                  Shared accessible components
   design-tokens/       Generated or shared token exports
 crates/
-  agent/               Local service and Mihomo orchestration
+  agent/               Local service and Mihomo core orchestration
   platform-macos/      macOS capability implementation
   privileged-helper/   Narrow elevated operations
 ```

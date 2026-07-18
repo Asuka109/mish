@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Status is the everyday workbench for a running Mihomo client. It should support
+Status is the everyday workbench for a running Mish client. It should support
 four tasks without becoming a generic proxy dashboard:
 
 1. Start or stop traffic capture.
@@ -11,7 +11,7 @@ four tasks without becoming a generic proxy dashboard:
 4. Open a frequently used policy group and change that group's selected child.
 
 Status deliberately does not claim that Rule mode has one globally active
-node. Different rules can traverse different groups, and Mihomo exposes no
+node. Different rules can traverse different groups, and the Mihomo core exposes no
 canonical primary group.
 
 ## Information hierarchy
@@ -62,7 +62,7 @@ Session presents:
 - cumulative downloaded and uploaded bytes;
 - active connection count;
 - effective rule count;
-- Mihomo memory in use; and
+- Mihomo core memory in use; and
 - uptime.
 
 Downloaded and Uploaded rows contain optional decorative sparklines. The text

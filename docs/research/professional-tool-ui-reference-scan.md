@@ -4,7 +4,7 @@ Date: 2026-07-15
 
 ## Scope
 
-This scan supports the macOS-first Mihomo client sketch. It studies restrained
+This scan supports the macOS-first Mish client sketch. It studies restrained
 professional tools rather than consumer dashboards, with particular attention
 to window structure, hierarchy, borders, shadows, density, navigation, and
 progressive disclosure.
@@ -146,7 +146,7 @@ Selection fill, text weight, icon tint, a small status dot, and placement work
 together. Saturated color is reserved for active state, health, warnings, or a
 primary action.
 
-## Direction for the Mihomo Sketch
+## Direction for the Mish Sketch
 
 - Keep the current sidebar-plus-workspace frame.
 - Treat Overview as a calm inspector-style page, not a dashboard grid.
@@ -163,4 +163,3 @@ primary action.
   region.
 - Avoid decorative cards, strong ambient shadows, gratuitous gradients, large
   marketing typography, and many unrelated corner radii.
-

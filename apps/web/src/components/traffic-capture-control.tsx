@@ -10,7 +10,7 @@ import {
   DialogDescription,
   DialogTitle,
   Toggle,
-} from "@mihomo/ui";
+} from "@mish/ui";
 import { useI18nContext } from "../i18n/i18n-react";
 
 interface TrafficCaptureControlProps {

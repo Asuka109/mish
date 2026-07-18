@@ -1,7 +1,7 @@
 # Project Documentation
 
 This directory contains the durable product, architecture, design-pattern, and
-quality knowledge needed to evolve Mihomo Web Client without reconstructing past
+quality knowledge needed to evolve Mish without reconstructing past
 decisions from chat history.
 
 ## Authority map
@@ -31,8 +31,9 @@ decisions from chat history.
   not the authority for current product or design behavior.
 - [`../sketch/`](../sketch/) is the interactive reference implementation. Its
   mock data must not be mistaken for a production API contract.
-- [`../apps/web/`](../apps/web/) is the production browser/WebView entry. Its
-  current fixture adapter is replaceable infrastructure, not a Mihomo client.
+- [`../apps/web/`](../apps/web/) is the production Mish browser/WebView entry.
+  Its current fixture adapter is replaceable infrastructure, not evidence of a
+  working Mihomo core integration.
 
 ## Maintenance rules
 

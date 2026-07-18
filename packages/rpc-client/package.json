@@ -1,5 +1,5 @@
 {
-  "name": "@mihomo/rpc-client",
+  "name": "@mish/rpc-client",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mihomo/contracts": "workspace:*",
+    "@mish/contracts": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {

@@ -21,7 +21,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@mihomo/ui";
+} from "@mish/ui";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useProduct } from "../data/product-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -46,7 +46,7 @@ function getPageTitle(LL: TranslationFunctions, pathname: string) {
   const title = destinations.find((destination) => destination.path === pathname);
   if (title) return getNavigationLabel(LL, title.key);
   if (pathname === "/settings") return LL.navigation.settings();
-  return "Mihomo";
+  return "Mish";
 }
 
 const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Locales }> = [
@@ -119,9 +119,9 @@ function Sidebar() {
         <Circle color="#febc2e" weight="fill" />
         <Circle color="#28c840" weight="fill" />
       </div>
-      <div aria-label="Mihomo" className="brand-row">
+      <div aria-label="Mish" className="brand-row">
         <Stack aria-hidden="true" />
-        <span>Mihomo</span>
+        <span>Mish</span>
       </div>
 
       <nav aria-label={LL.navigation.sections()} className="nav-list">

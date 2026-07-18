@@ -1,7 +1,7 @@
 import type { Locales } from "./i18n-types.js";
 import { baseLocale, isLocale } from "./i18n-util.js";
 
-const localeStorageKey = "mihomo-web-client.locale";
+const localeStorageKey = "mish.locale";
 
 function matchSupportedLocale(candidate: string | null | undefined): Locales | null {
   if (!candidate) return null;
