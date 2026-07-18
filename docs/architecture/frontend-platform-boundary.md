@@ -148,11 +148,12 @@ process boundaries, data flow, terminology, and remaining mapping gaps.
 The Tauri-started Status snapshot remains deliberately sparse and reports
 System Proxy and TUN as unavailable. Commands not backed by real controller or
 platform reconciliation return a typed capability error instead of fake
-success. The RPC Status client therefore advertises no supported mutations, and
-the shared UI presents its profile, routing, group, service, System Proxy, and
-TUN controls as unavailable rather than runnable. Wiring a selected persisted
-profile through activation into the live Tauri/RPC composition remains follow-up
-work.
+success. The RPC Status client therefore advertises no supported mutations.
+Profile import, persistence, refresh, and inactive deletion use the separate
+Profile application service; activation, routing, group, service, System Proxy,
+and TUN controls remain unavailable rather than runnable. Wiring a selected
+persisted profile through the existing activation manager into the live
+Tauri/RPC composition remains follow-up work.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift

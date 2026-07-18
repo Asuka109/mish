@@ -162,7 +162,7 @@ where
                     .map_err(|_| RepositoryError::CorruptData {
                         component: RepositoryComponent::Metadata,
                     })?;
-            if name.starts_with(".staging-") {
+            if name.starts_with(".staging-") || name.starts_with(".deleting-") {
                 continue;
             }
             let id = ProfileId::parse(name).map_err(|_| RepositoryError::CorruptData {
@@ -228,6 +228,26 @@ where
         };
         validate_record(&record)?;
         Ok(record)
+    }
+
+    pub fn delete(&self, id: &ProfileId) -> Result<(), RepositoryError> {
+        if !self.root.is_absolute() {
+            return Err(RepositoryError::UnsafeStoragePath);
+        }
+        let profile_path = self.profile_path(id);
+        if !profile_path.exists() {
+            return Err(RepositoryError::NotFound);
+        }
+        reject_symlinks_between(&self.root, &profile_path)?;
+
+        let deleting_path = self
+            .profiles_root()
+            .join(format!(".deleting-{}", Uuid::new_v4()));
+        fs::rename(&profile_path, &deleting_path)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        sync_directory(&self.profiles_root()).map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        fs::remove_dir_all(&deleting_path).map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        sync_directory(&self.profiles_root()).map_err(|_| RepositoryError::AtomicWriteFailed)
     }
 
     fn write_record(

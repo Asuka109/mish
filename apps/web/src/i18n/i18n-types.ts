@@ -645,6 +645,254 @@ type RootTranslation = {
 		 */
 		title: string
 	}
+	profiles: {
+		/**
+		 * A​c​t​i​v​a​t​e
+		 */
+		activation: string
+		/**
+		 * A​c​t​i​v​a​t​i​o​n​ ​r​e​m​a​i​n​s​ ​d​i​s​a​b​l​e​d​ ​u​n​t​i​l​ ​M​i​s​h​ ​c​a​n​ ​v​a​l​i​d​a​t​e​,​ ​s​w​i​t​c​h​,​ ​a​n​d​ ​r​o​l​l​ ​b​a​c​k​ ​t​h​e​ ​c​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​t​r​a​n​s​a​c​t​i​o​n​a​l​l​y​.
+		 */
+		activationUnavailable: string
+		/**
+		 * A​c​t​i​v​e
+		 */
+		active: string
+		/**
+		 * T​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​c​a​n​n​o​t​ ​b​e​ ​d​e​l​e​t​e​d​ ​w​i​t​h​o​u​t​ ​a​ ​s​a​f​e​ ​r​e​p​l​a​c​e​m​e​n​t​ ​o​r​ ​s​t​o​p​p​e​d​-​s​t​a​t​e​ ​t​r​a​n​s​a​c​t​i​o​n​.
+		 */
+		activeDeleteUnavailable: string
+		/**
+		 * F​a​i​l​e​d
+		 */
+		attemptFailed: string
+		/**
+		 * S​u​c​c​e​e​d​e​d
+		 */
+		attemptSucceeded: string
+		/**
+		 * C​h​e​c​k​i​n​g​…
+		 */
+		checking: string
+		/**
+		 * D​i​s​a​b​l​e​d​:​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 */
+		classificationDisabled: RequiredParams<'count'>
+		/**
+		 * O​v​e​r​r​i​d​d​e​n​:​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 */
+		classificationOverridden: RequiredParams<'count'>
+		/**
+		 * P​r​e​s​e​r​v​e​d​:​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 */
+		classificationPreserved: RequiredParams<'count'>
+		/**
+		 * R​e​j​e​c​t​e​d​:​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 */
+		classificationRejected: RequiredParams<'count'>
+		/**
+		 * O​w​n​e​r​s​h​i​p​ ​c​h​a​n​g​e​s
+		 */
+		classifications: string
+		/**
+		 * T​h​i​s​ ​r​e​m​o​v​e​s​ ​t​h​e​ ​s​o​u​r​c​e​,​ ​i​m​m​u​t​a​b​l​e​ ​r​e​v​i​s​i​o​n​s​,​ ​n​o​r​m​a​l​i​z​e​d​ ​a​r​t​i​f​a​c​t​s​,​ ​a​n​d​ ​p​r​o​f​i​l​e​-​s​c​o​p​e​d​ ​l​o​c​a​l​ ​s​t​a​t​e​.
+		 */
+		deleteDescription: string
+		/**
+		 * T​h​e​ ​p​r​o​f​i​l​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​d​e​l​e​t​e​d​.
+		 */
+		deleteFailed: string
+		/**
+		 * D​e​l​e​t​e​ ​{​p​r​o​f​i​l​e​}​?
+		 * @param {string} profile
+		 */
+		deleteTitle: RequiredParams<'profile'>
+		/**
+		 * P​r​o​f​i​l​e​ ​d​e​l​e​t​e​d
+		 */
+		deletedToast: string
+		/**
+		 * V​a​l​i​d​a​t​e​ ​a​n​d​ ​s​t​o​r​e​ ​M​i​h​o​m​o​ ​p​r​o​f​i​l​e​ ​s​o​u​r​c​e​s​ ​w​i​t​h​o​u​t​ ​c​h​a​n​g​i​n​g​ ​t​h​e​ ​r​u​n​n​i​n​g​ ​c​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
+		 */
+		description: string
+		/**
+		 * P​r​o​f​i​l​e​s​ ​a​r​e​ ​s​t​o​r​e​d​ ​p​r​i​v​a​t​e​l​y​ ​i​n​ ​M​i​s​h​ ​a​p​p​ ​d​a​t​a​.​ ​H​T​T​P​S​ ​i​m​p​o​r​t​ ​a​n​d​ ​m​a​n​u​a​l​ ​r​e​f​r​e​s​h​ ​u​s​e​ ​t​h​e​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 */
+		desktopDescription: string
+		/**
+		 * I​m​p​o​r​t​ ​a​n​ ​H​T​T​P​S​ ​s​o​u​r​c​e​ ​o​r​ ​c​h​o​o​s​e​ ​a​ ​l​o​c​a​l​ ​Y​A​M​L​ ​f​i​l​e​ ​t​o​ ​b​e​g​i​n​.
+		 */
+		emptyDescription: string
+		/**
+		 * N​o​ ​s​a​v​e​d​ ​p​r​o​f​i​l​e​s
+		 */
+		emptyTitle: string
+		/**
+		 * L​a​t​e​s​t​ ​a​t​t​e​m​p​t​ ​f​a​i​l​e​d
+		 */
+		error: string
+		/**
+		 * T​h​i​s​ ​b​r​o​w​s​e​r​-​o​n​l​y​ ​v​i​e​w​ ​u​s​e​s​ ​f​i​c​t​i​o​n​a​l​ ​m​e​t​a​d​a​t​a​.​ ​I​m​p​o​r​t​,​ ​r​e​f​r​e​s​h​,​ ​s​a​v​e​,​ ​d​e​l​e​t​e​,​ ​a​n​d​ ​l​o​c​a​l​ ​f​i​l​e​ ​a​c​c​e​s​s​ ​a​r​e​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		fixtureDescription: string
+		/**
+		 * G​r​o​u​p​s
+		 */
+		groups: string
+		/**
+		 * T​h​e​ ​c​o​m​p​l​e​t​e​ ​U​R​L​ ​i​s​ ​s​e​n​t​ ​o​n​l​y​ ​t​o​ ​t​h​e​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​a​n​d​ ​i​s​ ​n​e​v​e​r​ ​s​h​o​w​n​ ​a​g​a​i​n​ ​a​f​t​e​r​ ​p​r​e​f​l​i​g​h​t​.
+		 */
+		httpsDescription: string
+		/**
+		 * H​T​T​P​S​ ​p​r​o​f​i​l​e​ ​U​R​L
+		 */
+		httpsLabel: string
+		/**
+		 * P​r​e​f​l​i​g​h​t​ ​c​h​e​c​k​s​ ​s​i​z​e​,​ ​t​r​a​n​s​p​o​r​t​,​ ​Y​A​M​L​ ​s​t​r​u​c​t​u​r​e​,​ ​a​n​d​ ​a​p​p​l​i​c​a​t​i​o​n​/​p​l​a​t​f​o​r​m​ ​o​w​n​e​r​s​h​i​p​ ​b​e​f​o​r​e​ ​a​n​y​t​h​i​n​g​ ​i​s​ ​s​a​v​e​d​.
+		 */
+		importDescription: string
+		/**
+		 * P​r​o​f​i​l​e​ ​p​r​e​f​l​i​g​h​t​ ​f​a​i​l​e​d​.​ ​N​o​ ​p​r​o​f​i​l​e​ ​w​a​s​ ​s​a​v​e​d​ ​o​r​ ​a​c​t​i​v​a​t​e​d​.
+		 */
+		importFailed: string
+		/**
+		 * I​m​p​o​r​t​ ​H​T​T​P​S
+		 */
+		importHttps: string
+		/**
+		 * C​h​o​o​s​e​ ​l​o​c​a​l​ ​f​i​l​e
+		 */
+		importLocal: string
+		/**
+		 * I​m​p​o​r​t​ ​p​r​o​f​i​l​e
+		 */
+		importTitle: string
+		/**
+		 * O​p​t​i​o​n​a​l​.​ ​I​f​ ​e​m​p​t​y​,​ ​M​i​s​h​ ​u​s​e​s​ ​a​ ​s​a​f​e​ ​s​o​u​r​c​e​-​d​e​r​i​v​e​d​ ​l​a​b​e​l​.
+		 */
+		labelDescription: string
+		/**
+		 * P​r​o​f​i​l​e​ ​l​a​b​e​l
+		 */
+		labelLabel: string
+		/**
+		 * L​a​s​t​ ​a​t​t​e​m​p​t
+		 */
+		lastAttempt: string
+		/**
+		 * L​a​s​t​ ​k​n​o​w​n​ ​v​a​l​i​d​ ​r​e​t​a​i​n​e​d
+		 */
+		lastKnownValid: string
+		/**
+		 * L​a​s​t​ ​s​u​c​c​e​s​s
+		 */
+		lastSuccess: string
+		/**
+		 * L​o​a​d​i​n​g​ ​p​r​o​f​i​l​e​s​…
+		 */
+		loading: string
+		/**
+		 * L​o​c​a​l​ ​f​i​l​e​s​ ​c​a​n​ ​o​n​l​y​ ​b​e​ ​o​p​e​n​e​d​ ​t​h​r​o​u​g​h​ ​t​h​e​ ​n​a​t​i​v​e​ ​p​i​c​k​e​r​ ​a​f​t​e​r​ ​a​n​ ​e​x​p​l​i​c​i​t​ ​u​s​e​r​ ​c​h​o​i​c​e​.
+		 */
+		localPermission: string
+		/**
+		 * N​e​v​e​r
+		 */
+		never: string
+		/**
+		 * T​h​i​s​ ​s​u​m​m​a​r​y​ ​c​o​n​t​a​i​n​s​ ​n​o​ ​s​o​u​r​c​e​ ​Y​A​M​L​,​ ​c​r​e​d​e​n​t​i​a​l​s​,​ ​c​o​m​p​l​e​t​e​ ​l​o​c​a​l​ ​p​a​t​h​,​ ​o​r​ ​r​a​w​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​.
+		 */
+		previewDescription: string
+		/**
+		 * R​e​a​d​y​ ​t​o​ ​s​a​v​e
+		 */
+		previewTitle: string
+		/**
+		 * P​r​e​v​i​e​w
+		 */
+		preflight: string
+		/**
+		 * S​a​v​e​d​ ​p​r​o​f​i​l​e​s
+		 */
+		profilesAria: string
+		/**
+		 * P​r​o​x​i​e​s
+		 */
+		proxies: string
+		/**
+		 * R​e​f​r​e​s​h
+		 */
+		refresh: string
+		/**
+		 * R​e​f​r​e​s​h​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​l​a​s​t​ ​k​n​o​w​n​ ​v​a​l​i​d​ ​r​e​v​i​s​i​o​n​ ​r​e​m​a​i​n​s​ ​s​t​o​r​e​d​.
+		 */
+		refreshFailed: string
+		/**
+		 * R​e​f​r​e​s​h​i​n​g​…
+		 */
+		refreshing: string
+		/**
+		 * R​u​l​e​s
+		 */
+		rules: string
+		/**
+		 * T​h​e​ ​v​a​l​i​d​a​t​e​d​ ​p​r​o​f​i​l​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​s​a​v​e​d​.
+		 */
+		saveFailed: string
+		/**
+		 * P​r​o​f​i​l​e​ ​s​a​v​e​d
+		 */
+		savedToast: string
+		/**
+		 * S​a​v​e​ ​p​r​o​f​i​l​e
+		 */
+		saveProfile: string
+		/**
+		 * S​a​v​i​n​g​…
+		 */
+		saving: string
+		/**
+		 * S​e​n​s​i​t​i​v​e​ ​s​o​u​r​c​e​ ​o​r​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​d​a​t​a​ ​w​i​l​l​ ​s​t​a​y​ ​i​n​ ​M​i​s​h​'​s​ ​p​r​i​v​a​t​e​ ​a​p​p​-​d​a​t​a​ ​s​t​o​r​a​g​e​.
+		 */
+		sensitiveNotice: string
+		/**
+		 * S​o​u​r​c​e
+		 */
+		source: string
+		/**
+		 * H​T​T​P​S
+		 */
+		sourceHttps: string
+		/**
+		 * L​o​c​a​l​ ​f​i​l​e
+		 */
+		sourceLocal: string
+		/**
+		 * S​t​a​l​e
+		 */
+		stale: string
+		/**
+		 * P​r​o​f​i​l​e​s
+		 */
+		title: string
+		/**
+		 * V​a​l​i​d
+		 */
+		valid: string
+		/**
+		 * R​e​v​i​e​w​ ​w​a​r​n​i​n​g​s
+		 */
+		warning: string
+		/**
+		 * W​a​r​n​i​n​g​s​:​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 */
+		warnings: RequiredParams<'count'>
+	}
 	services: {
 		/**
 		 * A​d​d​ ​s​e​r​v​i​c​e
@@ -1879,6 +2127,248 @@ export type TranslationFunctions = {
 		 * Routes
 		 */
 		title: () => LocalizedString
+	}
+	profiles: {
+		/**
+		 * Activate
+		 */
+		activation: () => LocalizedString
+		/**
+		 * Activation remains disabled until Mish can validate, switch, and roll back the core configuration transactionally.
+		 */
+		activationUnavailable: () => LocalizedString
+		/**
+		 * Active
+		 */
+		active: () => LocalizedString
+		/**
+		 * The active profile cannot be deleted without a safe replacement or stopped-state transaction.
+		 */
+		activeDeleteUnavailable: () => LocalizedString
+		/**
+		 * Failed
+		 */
+		attemptFailed: () => LocalizedString
+		/**
+		 * Succeeded
+		 */
+		attemptSucceeded: () => LocalizedString
+		/**
+		 * Checking…
+		 */
+		checking: () => LocalizedString
+		/**
+		 * Disabled: {count}
+		 */
+		classificationDisabled: (arg: { count: number }) => LocalizedString
+		/**
+		 * Overridden: {count}
+		 */
+		classificationOverridden: (arg: { count: number }) => LocalizedString
+		/**
+		 * Preserved: {count}
+		 */
+		classificationPreserved: (arg: { count: number }) => LocalizedString
+		/**
+		 * Rejected: {count}
+		 */
+		classificationRejected: (arg: { count: number }) => LocalizedString
+		/**
+		 * Ownership changes
+		 */
+		classifications: () => LocalizedString
+		/**
+		 * This removes the source, immutable revisions, normalized artifacts, and profile-scoped local state.
+		 */
+		deleteDescription: () => LocalizedString
+		/**
+		 * The profile could not be deleted.
+		 */
+		deleteFailed: () => LocalizedString
+		/**
+		 * Delete {profile}?
+		 */
+		deleteTitle: (arg: { profile: string }) => LocalizedString
+		/**
+		 * Profile deleted
+		 */
+		deletedToast: () => LocalizedString
+		/**
+		 * Validate and store Mihomo profile sources without changing the running core configuration.
+		 */
+		description: () => LocalizedString
+		/**
+		 * Profiles are stored privately in Mish app data. HTTPS import and manual refresh use the authenticated local service.
+		 */
+		desktopDescription: () => LocalizedString
+		/**
+		 * Import an HTTPS source or choose a local YAML file to begin.
+		 */
+		emptyDescription: () => LocalizedString
+		/**
+		 * No saved profiles
+		 */
+		emptyTitle: () => LocalizedString
+		/**
+		 * Latest attempt failed
+		 */
+		error: () => LocalizedString
+		/**
+		 * This browser-only view uses fictional metadata. Import, refresh, save, delete, and local file access are unavailable.
+		 */
+		fixtureDescription: () => LocalizedString
+		/**
+		 * Groups
+		 */
+		groups: () => LocalizedString
+		/**
+		 * The complete URL is sent only to the authenticated local service and is never shown again after preflight.
+		 */
+		httpsDescription: () => LocalizedString
+		/**
+		 * HTTPS profile URL
+		 */
+		httpsLabel: () => LocalizedString
+		/**
+		 * Preflight checks size, transport, YAML structure, and application/platform ownership before anything is saved.
+		 */
+		importDescription: () => LocalizedString
+		/**
+		 * Profile preflight failed. No profile was saved or activated.
+		 */
+		importFailed: () => LocalizedString
+		/**
+		 * Import HTTPS
+		 */
+		importHttps: () => LocalizedString
+		/**
+		 * Choose local file
+		 */
+		importLocal: () => LocalizedString
+		/**
+		 * Import profile
+		 */
+		importTitle: () => LocalizedString
+		/**
+		 * Optional. If empty, Mish uses a safe source-derived label.
+		 */
+		labelDescription: () => LocalizedString
+		/**
+		 * Profile label
+		 */
+		labelLabel: () => LocalizedString
+		/**
+		 * Last attempt
+		 */
+		lastAttempt: () => LocalizedString
+		/**
+		 * Last known valid retained
+		 */
+		lastKnownValid: () => LocalizedString
+		/**
+		 * Last success
+		 */
+		lastSuccess: () => LocalizedString
+		/**
+		 * Loading profiles…
+		 */
+		loading: () => LocalizedString
+		/**
+		 * Local files can only be opened through the native picker after an explicit user choice.
+		 */
+		localPermission: () => LocalizedString
+		/**
+		 * Never
+		 */
+		never: () => LocalizedString
+		/**
+		 * This summary contains no source YAML, credentials, complete local path, or raw subscription URL.
+		 */
+		previewDescription: () => LocalizedString
+		/**
+		 * Ready to save
+		 */
+		previewTitle: () => LocalizedString
+		/**
+		 * Preview
+		 */
+		preflight: () => LocalizedString
+		/**
+		 * Saved profiles
+		 */
+		profilesAria: () => LocalizedString
+		/**
+		 * Proxies
+		 */
+		proxies: () => LocalizedString
+		/**
+		 * Refresh
+		 */
+		refresh: () => LocalizedString
+		/**
+		 * Refresh failed. The last known valid revision remains stored.
+		 */
+		refreshFailed: () => LocalizedString
+		/**
+		 * Refreshing…
+		 */
+		refreshing: () => LocalizedString
+		/**
+		 * Rules
+		 */
+		rules: () => LocalizedString
+		/**
+		 * The validated profile could not be saved.
+		 */
+		saveFailed: () => LocalizedString
+		/**
+		 * Profile saved
+		 */
+		savedToast: () => LocalizedString
+		/**
+		 * Save profile
+		 */
+		saveProfile: () => LocalizedString
+		/**
+		 * Saving…
+		 */
+		saving: () => LocalizedString
+		/**
+		 * Sensitive source or configuration data will stay in Mish's private app-data storage.
+		 */
+		sensitiveNotice: () => LocalizedString
+		/**
+		 * Source
+		 */
+		source: () => LocalizedString
+		/**
+		 * HTTPS
+		 */
+		sourceHttps: () => LocalizedString
+		/**
+		 * Local file
+		 */
+		sourceLocal: () => LocalizedString
+		/**
+		 * Stale
+		 */
+		stale: () => LocalizedString
+		/**
+		 * Profiles
+		 */
+		title: () => LocalizedString
+		/**
+		 * Valid
+		 */
+		valid: () => LocalizedString
+		/**
+		 * Review warnings
+		 */
+		warning: () => LocalizedString
+		/**
+		 * Warnings: {count}
+		 */
+		warnings: (arg: { count: number }) => LocalizedString
 	}
 	services: {
 		/**

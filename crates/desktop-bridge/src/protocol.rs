@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
+use mish_profile::{ProfileServiceError, RepositoryError};
 use mish_runtime::{CoreError, CoreErrorKind, CoreStatus, MishRuntime, StatusAdapterKind};
 use tokio::sync::broadcast;
 
@@ -37,7 +38,28 @@ struct Authentication {
 #[derive(Clone)]
 pub(crate) struct ProtocolState {
     pub auth_token: String,
+    pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
     pub runtime: MishRuntime,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfilePreflightHttpsParams {
+    #[serde(default)]
+    label: Option<String>,
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileIdParams {
+    profile_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileSaveParams {
+    preview_id: String,
 }
 
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
@@ -141,6 +163,7 @@ async fn handle_message(
             | "core.stop"
             | "status.getSnapshot"
             | "status.subscribe"
+            | "profiles.getSnapshot"
             | "traffic.getSnapshot"
             | "traffic.subscribe"
     ) && !request
@@ -247,6 +270,67 @@ async fn handle_message(
             };
             json!(traffic_subscriptions.remove(subscription_id))
         }
+        "profiles.getSnapshot" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            match service.snapshot() {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
+        "profiles.preflightHttps" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfilePreflightHttpsParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.preflight_https(&params.url, params.label).await {
+                Ok(preview) => serde_json::to_value(preview).expect("serializable preview"),
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
+        "profiles.save" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileSaveParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.save_preview(&params.preview_id).await {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
+        "profiles.refresh" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileIdParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.refresh(&params.profile_id).await {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
+        "profiles.delete" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileIdParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.delete(&params.profile_id) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
         "rpc.cancel" => json!(false),
         method if method.starts_with("status.") => {
             return Some(error_response(
@@ -285,4 +369,36 @@ fn core_error_response(id: Value, error: CoreError) -> Value {
         message,
         Some(json!({"detail": error.to_string(), "kind": error.kind})),
     )
+}
+
+fn profile_capability_error(id: Value) -> Value {
+    error_response(
+        id,
+        -32020,
+        "Profile storage is not available in this bridge composition",
+        None,
+    )
+}
+
+fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {
+    match error {
+        ProfileServiceError::PreviewNotFound => {
+            error_response(id, -32004, "Profile preflight was not found", None)
+        }
+        ProfileServiceError::Repository(RepositoryError::NotFound) => {
+            error_response(id, -32004, "Profile was not found", None)
+        }
+        ProfileServiceError::ActiveProfileDeletionDisabled => error_response(
+            id,
+            -32009,
+            "Active profiles cannot be deleted until transactional activation is available",
+            None,
+        ),
+        ProfileServiceError::Import(_) => {
+            error_response(id, -32040, "Profile validation failed", None)
+        }
+        ProfileServiceError::Repository(_) => {
+            error_response(id, -32041, "Profile storage operation failed", None)
+        }
+    }
 }

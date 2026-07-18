@@ -7,19 +7,20 @@ desktop WebView. It consumes shared components from `packages/ui/` and CSS
 tokens from `packages/design-tokens/`. It does not import source, fixtures, or
 runtime assets from `sketch/`.
 
-Ordinary browser startup uses `FixtureStatusClient` and
-`FixtureTrafficClient`, implementations of the independent typed Status and
-Traffic boundaries. Status commands update detached in-memory DTO snapshots
-only; Traffic is read-only and derives Closed rows locally. The toolbar,
-aggregate capture action, and Traffic source notice identify this as demo data;
-no System Proxy, TUN, Mihomo core operation, probe, capture, WebSocket, or
-network request is executed.
+Ordinary browser startup uses `FixtureStatusClient`, `FixtureProfileClient`, and
+`FixtureTrafficClient`, implementations of the independent typed product
+boundaries. Status commands update detached in-memory DTO snapshots only;
+Traffic is read-only and derives Closed rows locally. Profile mutations,
+including local-file preflight, report unsupported instead of simulating
+success. The UI identifies this as demo data; no System Proxy, TUN, Mihomo core
+operation, probe, capture, WebSocket, filesystem access, or network request is
+executed.
 
-`RpcStatusClient` is available only for explicit composition with an injected
-`RpcClient`. Runtime schemas reject malformed results and notifications before
-they enter product state. The Tauri WebView composes it from the validated
-process-only desktop bootstrap. An ordinary browser has no endpoint or token
-bootstrap and remains fixture-backed.
+`RpcStatusClient`, `RpcProfileClient`, and `RpcTrafficClient` are available only
+for explicit composition with an injected `RpcClient`. Runtime schemas reject
+malformed results and notifications before they enter product state. The Tauri
+WebView composes them from the validated process-only desktop bootstrap. An
+ordinary browser has no endpoint or token bootstrap and remains fixture-backed.
 
 English and Simplified Chinese UI dictionaries are bundled with the production
 artifact and exposed through generated `typesafe-i18n` functions. Locale changes
@@ -34,7 +35,7 @@ The six stable destinations are:
 | ----------- | ----------------------------------------------------------------------- |
 | `/status`   | Complete fixture-backed reference surface                               |
 | `/routes`   | Nested fixture policy graph; RPC selection remains read-only            |
-| `/profiles` | Structured profile-lifecycle ownership and missing-store state          |
+| `/profiles` | Desktop profile list/import/refresh/inactive-delete operations          |
 | `/traffic`  | Read-only Active, bounded local Closed, and ordered Rules investigation |
 | `/events`   | Structured event/diagnostic ownership and missing-buffer state          |
 | `/settings` | Structured capability/settings ownership and fixture-only state         |
@@ -97,7 +98,14 @@ Automated tests cover:
 - an end-to-end fake-transport Status adapter flow across snapshots,
   subscriptions, commands, reconnect without a follow-up event, and typed
   failure; and
-- pending command deduplication plus suppression of success UI after failure.
+- pending command deduplication plus suppression of success UI after failure;
+- profile service preflight/save/refresh/delete behavior, last-known-valid
+  retention after a failed refresh, and display-view redaction;
+- authenticated Profile RPC coverage, including rejection of arbitrary local
+  paths and credential-bearing input without reflecting sensitive values;
+- Profiles UI coverage for fixture isolation, HTTPS and native local preflight,
+  preview/save, manual refresh, inactive deletion, and disabled activation and
+  active deletion;
 - independent Traffic snapshot validation, cancellation, subscription
   reconciliation, stale transport state, and Controller-session reconnects;
 - bounded active-to-Closed derivation without reconnect-gap false closure,
@@ -153,8 +161,10 @@ validated Status snapshot, and explicit process lifecycle. Tauri embeds and
 serves the offline bundle from its own application protocol; a future same-origin
 HTTP host remains a desktop-bridge interface change.
 
-The browser replacement gate remains closed. The desktop bridge now has a
-tested read-only Controller-to-Status mapper, but no concrete Controller fetch
-or stream coordinator is composed into runtime/RPC and no required command is
-implemented. A fixture or mock interaction must never be relabeled as a
-successful system or network action.
+The browser replacement gate remains closed for Controller-backed Status data.
+The desktop bridge has a tested read-only Controller-to-Status mapper, and the
+shared bootstrap can compose an explicit Controller source, but the Tauri shell
+does not configure one until core and profile activation exist. The Profile
+slice is separately composed through authenticated RPC and a capability-gated
+native file picker. A fixture or mock interaction must never be relabeled as a
+successful system, filesystem, or network action.

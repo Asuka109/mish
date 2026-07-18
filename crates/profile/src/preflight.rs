@@ -146,6 +146,8 @@ pub enum ImportError {
     },
     #[error("profile label is empty or exceeds 120 characters")]
     InvalidLabel,
+    #[error(transparent)]
+    SourceValidation(#[from] crate::SourceValidationError),
     #[error("normalized profile could not be generated")]
     NormalizationFailed,
 }

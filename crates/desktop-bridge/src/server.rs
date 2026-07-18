@@ -15,6 +15,7 @@ use mish_runtime::MishRuntime;
 use serde_json::json;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
+use crate::DesktopProfileService;
 use crate::protocol::{ProtocolState, serve_socket};
 
 #[derive(Clone)]
@@ -23,6 +24,7 @@ pub struct LoopbackServerConfig {
     pub auth_token: String,
     pub bind: SocketAddr,
     pub max_message_bytes: usize,
+    pub profile_service: Option<Arc<DesktopProfileService>>,
 }
 
 struct HttpState {
@@ -82,6 +84,7 @@ pub async fn start_loopback_server(
         allowed_origins,
         protocol: ProtocolState {
             auth_token: config.auth_token,
+            profile_service: config.profile_service,
             runtime: runtime.clone(),
         },
         max_message_bytes: config.max_message_bytes,

@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"] }
+bytes = "1.11.1"
 clap = { version = "4.6.2", features = ["derive"] }
 futures-util = "0.3.33"
 mish-mihomo-controller = { path = "../mihomo-controller" }
@@ -21,7 +22,9 @@ thiserror = "2.0.18"
 tokio = { version = "1.53.0", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-util = "0.7.18"
 url = "2.5.8"
+reqwest = { version = "0.13.2", default-features = false, features = ["http2", "rustls", "stream"] }
 uuid = { version = "1.24.0", features = ["v4"] }
 
 [dev-dependencies]
 tokio-tungstenite = "0.30.0"
+uuid = { version = "1.24.0", features = ["v4"] }

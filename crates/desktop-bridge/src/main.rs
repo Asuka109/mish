@@ -44,6 +44,7 @@ async fn main() -> Result<(), String> {
             auth_token,
             bind: arguments.bind,
             max_message_bytes: arguments.max_message_bytes,
+            profile_service: None,
         },
         runtime,
     )
