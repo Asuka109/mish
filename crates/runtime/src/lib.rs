@@ -9,8 +9,10 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 mod status;
+mod traffic;
 
 pub use status::*;
+pub use traffic::*;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -110,6 +112,10 @@ pub trait StatusDataSource: Send + Sync {
     }
 }
 
+pub trait TrafficDataSource: Send + Sync {
+    fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot;
+}
+
 #[derive(Default)]
 struct LifecycleStatusDataSource;
 
@@ -119,21 +125,37 @@ impl StatusDataSource for LifecycleStatusDataSource {
     }
 }
 
+impl TrafficDataSource for LifecycleStatusDataSource {
+    fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
+        TrafficDataSnapshot::unavailable(adapter_kind)
+    }
+}
+
 #[derive(Clone)]
 pub struct MishRuntime {
     core: Arc<dyn CoreRuntime>,
     events: Arc<RuntimeStatusEvents>,
     status_source: Arc<dyn StatusDataSource>,
+    traffic_source: Arc<dyn TrafficDataSource>,
 }
 
 impl MishRuntime {
     pub fn new(core: Arc<dyn CoreRuntime>) -> Self {
-        Self::with_status_source(core, Arc::new(LifecycleStatusDataSource))
+        let source = Arc::new(LifecycleStatusDataSource);
+        Self::with_data_sources(core, source.clone(), source)
     }
 
     pub fn with_status_source(
         core: Arc<dyn CoreRuntime>,
         status_source: Arc<dyn StatusDataSource>,
+    ) -> Self {
+        Self::with_data_sources(core, status_source, Arc::new(LifecycleStatusDataSource))
+    }
+
+    pub fn with_data_sources(
+        core: Arc<dyn CoreRuntime>,
+        status_source: Arc<dyn StatusDataSource>,
+        traffic_source: Arc<dyn TrafficDataSource>,
     ) -> Self {
         let (updates, _) = broadcast::channel(32);
         let events = Arc::new(RuntimeStatusEvents { updates });
@@ -147,6 +169,7 @@ impl MishRuntime {
             core,
             events,
             status_source,
+            traffic_source,
         }
     }
 
@@ -172,6 +195,11 @@ impl MishRuntime {
 
     pub async fn status_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         self.snapshot_from_status(&self.core.status().await, adapter_kind)
+    }
+
+    pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
+        serde_json::to_value(self.traffic_source.traffic_snapshot(adapter_kind))
+            .expect("Traffic state must serialize")
     }
 
     pub fn snapshot_from_status(

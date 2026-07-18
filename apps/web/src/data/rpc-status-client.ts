@@ -1,6 +1,6 @@
 import {
   StatusClientError,
-  statusRpcMethods,
+  mishRpcMethods,
   statusRpcNotifications,
   type CaptureSelectionDto,
   type RoutingMode,
@@ -24,7 +24,7 @@ import {
   type RpcRequestOptions,
 } from "@mish/rpc-client";
 
-export type StatusRpcClient = RpcClient<typeof statusRpcMethods>;
+export type StatusRpcClient = RpcClient<typeof mishRpcMethods>;
 
 export class RpcStatusClient implements StatusClient {
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
@@ -208,7 +208,7 @@ function mapConnectionState(state: RpcConnectionState): StatusConnectionState {
   };
 }
 
-function mapRpcError(error: unknown) {
+export function mapRpcError(error: unknown) {
   if (error instanceof RpcCancelledError) {
     return new StatusClientError("cancelled", error.message);
   }

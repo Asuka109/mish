@@ -748,6 +748,281 @@ type RootTranslation = {
 		 */
 		fallbackName: string
 	}
+	traffic: {
+		/**
+		 * A​c​t​i​v​e
+		 */
+		active: string
+		/**
+		 * N​o​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s
+		 */
+		activeEmpty: string
+		/**
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​s​n​a​p​s​h​o​t​ ​c​o​n​t​a​i​n​s​ ​n​o​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s​.
+		 */
+		activeEmptyDescription: string
+		/**
+		 * A​l​l​ ​n​e​t​w​o​r​k​s
+		 */
+		allNetworks: string
+		/**
+		 * C​l​e​a​r​ ​C​l​o​s​e​d
+		 */
+		clearClosed: string
+		/**
+		 * C​l​e​a​r​s​ ​o​n​l​y​ ​t​h​i​s​ ​a​p​p​'​s​ ​b​o​u​n​d​e​d​ ​l​o​c​a​l​ ​h​i​s​t​o​r​y​.​ ​A​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​n​d​ ​M​i​h​o​m​o​ ​s​t​a​t​e​ ​a​r​e​ ​u​n​c​h​a​n​g​e​d​.
+		 */
+		clearClosedDescription: string
+		/**
+		 * C​l​o​s​e
+		 */
+		close: string
+		/**
+		 * C​l​o​s​e​ ​a​l​l
+		 */
+		closeAll: string
+		/**
+		 * R​e​a​l​ ​c​o​n​n​e​c​t​i​o​n​-​c​l​o​s​e​ ​c​o​m​m​a​n​d​s​ ​a​r​e​ ​n​o​t​ ​i​n​c​l​u​d​e​d​ ​i​n​ ​t​h​i​s​ ​r​e​a​d​-​o​n​l​y​ ​s​l​i​c​e​.​ ​N​o​ ​c​o​m​m​a​n​d​ ​w​i​l​l​ ​b​e​ ​s​e​n​t​.
+		 */
+		closeDisabled: string
+		/**
+		 * C​l​o​s​e​d
+		 */
+		closed: string
+		/**
+		 * C​l​o​s​e​d
+		 */
+		closedAt: string
+		/**
+		 * N​o​ ​r​e​c​e​n​t​l​y​ ​c​l​o​s​e​d​ ​c​o​n​n​e​c​t​i​o​n​s
+		 */
+		closedEmpty: string
+		/**
+		 * C​o​n​n​e​c​t​i​o​n​s​ ​c​l​o​s​e​d​ ​d​u​r​i​n​g​ ​t​h​i​s​ ​u​n​i​n​t​e​r​r​u​p​t​e​d​ ​l​o​c​a​l​ ​o​b​s​e​r​v​a​t​i​o​n​ ​s​e​s​s​i​o​n​ ​a​p​p​e​a​r​ ​h​e​r​e​ ​f​o​r​ ​u​p​ ​t​o​ ​3​0​ ​m​i​n​u​t​e​s​,​ ​l​i​m​i​t​e​d​ ​t​o​ ​5​1​2​ ​r​o​w​s​.
+		 */
+		closedEmptyDescription: string
+		/**
+		 * C​o​n​n​e​c​t​i​o​n​ ​d​e​t​a​i​l​s
+		 */
+		connectionDetails: string
+		/**
+		 * D​e​s​t​i​n​a​t​i​o​n
+		 */
+		destination: string
+		/**
+		 * D​e​s​t​i​n​a​t​i​o​n​ ​h​o​s​t
+		 */
+		destinationHost: string
+		/**
+		 * D​e​s​t​i​n​a​t​i​o​n​ ​I​P
+		 */
+		destinationIp: string
+		/**
+		 * C​o​m​p​l​e​t​e​ ​l​o​c​a​l​l​y​ ​o​b​s​e​r​v​e​d​ ​c​o​n​n​e​c​t​i​o​n​ ​m​e​t​a​d​a​t​a​ ​a​n​d​ ​o​r​d​e​r​e​d​ ​r​o​u​t​e​ ​c​h​a​i​n​.
+		 */
+		detailDescription: string
+		/**
+		 * D​i​s​a​b​l​e​d
+		 */
+		disabled: string
+		/**
+		 * D​o​w​n​l​o​a​d​e​d
+		 */
+		download: string
+		/**
+		 * E​n​a​b​l​e​d
+		 */
+		enabled: string
+		/**
+		 * F​i​c​t​i​o​n​a​l​ ​l​o​c​a​l​ ​f​i​x​t​u​r​e​ ​d​a​t​a​.​ ​N​o​ ​n​e​t​w​o​r​k​ ​o​r​ ​s​y​s​t​e​m​ ​a​c​t​i​o​n​ ​i​s​ ​p​e​r​f​o​r​m​e​d​.
+		 */
+		fixtureNotice: string
+		/**
+		 * H​i​t​s
+		 */
+		hits: string
+		/**
+		 * R​e​a​d​-​o​n​l​y​ ​o​b​s​e​r​v​a​t​i​o​n​s​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 */
+		liveNotice: string
+		/**
+		 * T​r​a​f​f​i​c​ ​d​a​t​a​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​l​o​a​d​e​d​.
+		 */
+		loadError: string
+		/**
+		 * S​h​o​w​ ​m​o​r​e
+		 */
+		loadMore: string
+		/**
+		 * N​e​t​w​o​r​k
+		 */
+		network: string
+		/**
+		 * N​o​ ​m​a​t​c​h​e​s
+		 */
+		noMatches: string
+		/**
+		 * C​l​e​a​r​ ​o​r​ ​c​h​a​n​g​e​ ​t​h​e​ ​t​e​x​t​ ​a​n​d​ ​s​t​r​u​c​t​u​r​e​d​ ​f​i​l​t​e​r​s​.
+		 */
+		noMatchesDescription: string
+		/**
+		 * O​r​d​e​r​e​d​ ​r​o​u​t​e​ ​c​h​a​i​n
+		 */
+		orderedChain: string
+		/**
+		 * P​a​y​l​o​a​d
+		 */
+		payload: string
+		/**
+		 * P​r​i​o​r​i​t​y
+		 */
+		priority: string
+		/**
+		 * P​r​o​c​e​s​s
+		 */
+		process: string
+		/**
+		 * P​r​o​c​e​s​s​ ​p​a​t​h
+		 */
+		processPath: string
+		/**
+		 * P​r​o​f​i​l​e​ ​{​p​r​o​f​i​l​e​}
+		 * @param {string} profile
+		 */
+		profile: RequiredParams<'profile'>
+		/**
+		 * P​r​o​t​o​c​o​l
+		 */
+		protocol: string
+		/**
+		 * P​r​o​v​i​d​e​r​ ​c​h​a​i​n
+		 */
+		providerChain: string
+		/**
+		 * O​b​s​e​r​v​a​t​i​o​n​ ​s​e​s​s​i​o​n​ ​{​s​e​s​s​i​o​n​}​;​ ​r​e​c​o​n​n​e​c​t​s​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 * @param {string} session
+		 */
+		reconnect: RequiredParams<'count' | 'session'>
+		/**
+		 * L​o​c​a​l​ ​C​l​o​s​e​d​ ​r​e​t​e​n​t​i​o​n​:​ ​3​0​ ​m​i​n​u​t​e​s​ ​/​ ​5​1​2​ ​r​o​w​s
+		 */
+		retention: string
+		/**
+		 * R​o​u​t​e
+		 */
+		route: string
+		/**
+		 * R​e​m​o​t​e​ ​d​e​s​t​i​n​a​t​i​o​n
+		 */
+		remoteDestination: string
+		/**
+		 * M​a​t​c​h​e​d​ ​r​u​l​e
+		 */
+		rule: string
+		/**
+		 * R​u​l​e​s
+		 */
+		rules: string
+		/**
+		 * N​o​ ​e​f​f​e​c​t​i​v​e​ ​r​u​l​e​s
+		 */
+		rulesEmpty: string
+		/**
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​T​r​a​f​f​i​c​ ​s​n​a​p​s​h​o​t​ ​c​o​n​t​a​i​n​s​ ​n​o​ ​r​u​l​e​s​.
+		 */
+		rulesEmptyDescription: string
+		/**
+		 * S​e​a​r​c​h​ ​T​r​a​f​f​i​c
+		 */
+		searchLabel: string
+		/**
+		 * S​e​a​r​c​h​,​ ​o​r​ ​u​s​e​ ​d​e​s​t​i​n​a​t​i​o​n​:​,​ ​p​r​o​c​e​s​s​:​,​ ​r​u​l​e​:​,​ ​c​h​a​i​n​:​,​ ​n​e​t​w​o​r​k​:​,​ ​p​r​o​t​o​c​o​l​:​,​ ​s​t​a​t​e​:
+		 */
+		searchPlaceholder: string
+		/**
+		 * S​h​o​w​i​n​g​ ​{​v​i​s​i​b​l​e​}​ ​o​f​ ​{​t​o​t​a​l​}
+		 * @param {number} total
+		 * @param {number} visible
+		 */
+		showing: RequiredParams<'total' | 'visible'>
+		/**
+		 * D​e​s​t​i​n​a​t​i​o​n
+		 */
+		sortDestination: string
+		/**
+		 * D​o​w​n​l​o​a​d​e​d
+		 */
+		sortDownload: string
+		/**
+		 * H​i​t​s
+		 */
+		sortHits: string
+		/**
+		 * S​o​r​t
+		 */
+		sortLabel: string
+		/**
+		 * P​r​i​o​r​i​t​y
+		 */
+		sortPriority: string
+		/**
+		 * S​t​a​r​t​e​d
+		 */
+		sortStarted: string
+		/**
+		 * T​a​r​g​e​t
+		 */
+		sortTarget: string
+		/**
+		 * T​y​p​e
+		 */
+		sortType: string
+		/**
+		 * U​p​l​o​a​d​e​d
+		 */
+		sortUpload: string
+		/**
+		 * S​o​u​r​c​e
+		 */
+		source: string
+		/**
+		 * S​n​i​f​f​e​d​ ​h​o​s​t
+		 */
+		sniffHost: string
+		/**
+		 * T​r​a​f​f​i​c​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​s​t​a​l​e​ ​a​f​t​e​r​ ​a​ ​c​o​n​n​e​c​t​i​o​n​ ​g​a​p​.​ ​A​c​t​i​v​e​ ​r​o​w​s​ ​a​r​e​ ​h​i​d​d​e​n​ ​u​n​t​i​l​ ​a​ ​f​r​e​s​h​ ​s​n​a​p​s​h​o​t​ ​e​s​t​a​b​l​i​s​h​e​s​ ​a​ ​n​e​w​ ​s​e​s​s​i​o​n​.
+		 */
+		staleNotice: string
+		/**
+		 * S​t​a​r​t​e​d
+		 */
+		started: string
+		/**
+		 * S​t​a​t​e
+		 */
+		state: string
+		/**
+		 * T​a​r​g​e​t
+		 */
+		target: string
+		/**
+		 * T​r​a​f​f​i​c
+		 */
+		title: string
+		/**
+		 * U​n​a​v​a​i​l​a​b​l​e
+		 */
+		unavailable: string
+		/**
+		 * T​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​h​a​s​ ​n​o​ ​c​o​n​f​i​g​u​r​e​d​ ​T​r​a​f​f​i​c​ ​o​b​s​e​r​v​a​t​i​o​n​ ​s​o​u​r​c​e​.​ ​N​o​ ​a​c​t​i​v​e​ ​s​t​a​t​e​ ​i​s​ ​c​l​a​i​m​e​d​.
+		 */
+		unavailableNotice: string
+		/**
+		 * U​p​l​o​a​d​e​d
+		 */
+		upload: string
+	}
 	destination: {
 		/**
 		 * C​u​r​r​e​n​t​ ​s​t​a​t​e
@@ -1706,6 +1981,276 @@ export type TranslationFunctions = {
 		 * this service
 		 */
 		fallbackName: () => LocalizedString
+	}
+	traffic: {
+		/**
+		 * Active
+		 */
+		active: () => LocalizedString
+		/**
+		 * No active connections
+		 */
+		activeEmpty: () => LocalizedString
+		/**
+		 * The current snapshot contains no active connections.
+		 */
+		activeEmptyDescription: () => LocalizedString
+		/**
+		 * All networks
+		 */
+		allNetworks: () => LocalizedString
+		/**
+		 * Clear Closed
+		 */
+		clearClosed: () => LocalizedString
+		/**
+		 * Clears only this app's bounded local history. Active connections and Mihomo state are unchanged.
+		 */
+		clearClosedDescription: () => LocalizedString
+		/**
+		 * Close
+		 */
+		close: () => LocalizedString
+		/**
+		 * Close all
+		 */
+		closeAll: () => LocalizedString
+		/**
+		 * Real connection-close commands are not included in this read-only slice. No command will be sent.
+		 */
+		closeDisabled: () => LocalizedString
+		/**
+		 * Closed
+		 */
+		closed: () => LocalizedString
+		/**
+		 * Closed
+		 */
+		closedAt: () => LocalizedString
+		/**
+		 * No recently closed connections
+		 */
+		closedEmpty: () => LocalizedString
+		/**
+		 * Connections closed during this uninterrupted local observation session appear here for up to 30 minutes, limited to 512 rows.
+		 */
+		closedEmptyDescription: () => LocalizedString
+		/**
+		 * Connection details
+		 */
+		connectionDetails: () => LocalizedString
+		/**
+		 * Destination
+		 */
+		destination: () => LocalizedString
+		/**
+		 * Destination host
+		 */
+		destinationHost: () => LocalizedString
+		/**
+		 * Destination IP
+		 */
+		destinationIp: () => LocalizedString
+		/**
+		 * Complete locally observed connection metadata and ordered route chain.
+		 */
+		detailDescription: () => LocalizedString
+		/**
+		 * Disabled
+		 */
+		disabled: () => LocalizedString
+		/**
+		 * Downloaded
+		 */
+		download: () => LocalizedString
+		/**
+		 * Enabled
+		 */
+		enabled: () => LocalizedString
+		/**
+		 * Fictional local fixture data. No network or system action is performed.
+		 */
+		fixtureNotice: () => LocalizedString
+		/**
+		 * Hits
+		 */
+		hits: () => LocalizedString
+		/**
+		 * Read-only observations from the desktop local service.
+		 */
+		liveNotice: () => LocalizedString
+		/**
+		 * Traffic data could not be loaded.
+		 */
+		loadError: () => LocalizedString
+		/**
+		 * Show more
+		 */
+		loadMore: () => LocalizedString
+		/**
+		 * Network
+		 */
+		network: () => LocalizedString
+		/**
+		 * No matches
+		 */
+		noMatches: () => LocalizedString
+		/**
+		 * Clear or change the text and structured filters.
+		 */
+		noMatchesDescription: () => LocalizedString
+		/**
+		 * Ordered route chain
+		 */
+		orderedChain: () => LocalizedString
+		/**
+		 * Payload
+		 */
+		payload: () => LocalizedString
+		/**
+		 * Priority
+		 */
+		priority: () => LocalizedString
+		/**
+		 * Process
+		 */
+		process: () => LocalizedString
+		/**
+		 * Process path
+		 */
+		processPath: () => LocalizedString
+		/**
+		 * Profile {profile}
+		 */
+		profile: (arg: { profile: string }) => LocalizedString
+		/**
+		 * Protocol
+		 */
+		protocol: () => LocalizedString
+		/**
+		 * Provider chain
+		 */
+		providerChain: () => LocalizedString
+		/**
+		 * Observation session {session}; reconnects {count}
+		 */
+		reconnect: (arg: { count: number, session: string }) => LocalizedString
+		/**
+		 * Local Closed retention: 30 minutes / 512 rows
+		 */
+		retention: () => LocalizedString
+		/**
+		 * Route
+		 */
+		route: () => LocalizedString
+		/**
+		 * Remote destination
+		 */
+		remoteDestination: () => LocalizedString
+		/**
+		 * Matched rule
+		 */
+		rule: () => LocalizedString
+		/**
+		 * Rules
+		 */
+		rules: () => LocalizedString
+		/**
+		 * No effective rules
+		 */
+		rulesEmpty: () => LocalizedString
+		/**
+		 * The current Traffic snapshot contains no rules.
+		 */
+		rulesEmptyDescription: () => LocalizedString
+		/**
+		 * Search Traffic
+		 */
+		searchLabel: () => LocalizedString
+		/**
+		 * Search, or use destination:, process:, rule:, chain:, network:, protocol:, state:
+		 */
+		searchPlaceholder: () => LocalizedString
+		/**
+		 * Showing {visible} of {total}
+		 */
+		showing: (arg: { total: number, visible: number }) => LocalizedString
+		/**
+		 * Destination
+		 */
+		sortDestination: () => LocalizedString
+		/**
+		 * Downloaded
+		 */
+		sortDownload: () => LocalizedString
+		/**
+		 * Hits
+		 */
+		sortHits: () => LocalizedString
+		/**
+		 * Sort
+		 */
+		sortLabel: () => LocalizedString
+		/**
+		 * Priority
+		 */
+		sortPriority: () => LocalizedString
+		/**
+		 * Started
+		 */
+		sortStarted: () => LocalizedString
+		/**
+		 * Target
+		 */
+		sortTarget: () => LocalizedString
+		/**
+		 * Type
+		 */
+		sortType: () => LocalizedString
+		/**
+		 * Uploaded
+		 */
+		sortUpload: () => LocalizedString
+		/**
+		 * Source
+		 */
+		source: () => LocalizedString
+		/**
+		 * Sniffed host
+		 */
+		sniffHost: () => LocalizedString
+		/**
+		 * Traffic observation is stale after a connection gap. Active rows are hidden until a fresh snapshot establishes a new session.
+		 */
+		staleNotice: () => LocalizedString
+		/**
+		 * Started
+		 */
+		started: () => LocalizedString
+		/**
+		 * State
+		 */
+		state: () => LocalizedString
+		/**
+		 * Target
+		 */
+		target: () => LocalizedString
+		/**
+		 * Traffic
+		 */
+		title: () => LocalizedString
+		/**
+		 * Unavailable
+		 */
+		unavailable: () => LocalizedString
+		/**
+		 * The desktop local service has no configured Traffic observation source. No active state is claimed.
+		 */
+		unavailableNotice: () => LocalizedString
+		/**
+		 * Uploaded
+		 */
+		upload: () => LocalizedString
 	}
 	destination: {
 		/**
