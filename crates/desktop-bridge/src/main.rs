@@ -2,9 +2,9 @@ use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, start_loopback_server,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig,
+    compose_desktop_runtime, start_loopback_server,
 };
-use mish_runtime::MishRuntime;
 
 #[derive(Parser)]
 #[command(version, about = "Mish desktop bridge for the managed Mihomo process")]
@@ -28,13 +28,16 @@ async fn main() -> Result<(), String> {
     let arguments = Arguments::parse();
     let auth_token = env::var("MISH_BRIDGE_TOKEN")
         .map_err(|_| "MISH_BRIDGE_TOKEN is required and must not be stored in the repository")?;
-    let runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
-        DesktopMihomoProcessConfig {
+    let runtime = compose_desktop_runtime(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
             binary: arguments.mihomo_binary,
             config_directory: arguments.mihomo_config_directory,
             config_file: arguments.mihomo_config_file,
-        },
-    )));
+        })),
+        None,
+    )
+    .await
+    .map_err(|error| error.to_string())?;
     let bridge = start_loopback_server(
         LoopbackServerConfig {
             allowed_origins: arguments.allow_origin,
