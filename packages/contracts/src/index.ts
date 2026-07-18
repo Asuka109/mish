@@ -236,23 +236,26 @@ export const CoreErrorDataSchema = z
   .strict();
 export interface CoreErrorDataDto extends z.infer<typeof CoreErrorDataSchema> {}
 
-export const AgentInfoSchema = z
+export const BridgeInfoSchema = z
   .object({
-    agentVersion: z.string().min(1),
+    bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(1),
+    protocolVersion: z.literal(2),
   })
   .strict();
-export interface AgentInfoDto extends z.infer<typeof AgentInfoSchema> {}
+export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
 
-export const agentRpcMethods = {
-  "agent.getInfo": { params: EmptyCommandSchema, result: AgentInfoSchema },
+export const bridgeRpcMethods = {
+  "bridge.getInfo": { params: EmptyCommandSchema, result: BridgeInfoSchema },
   "core.getStatus": { params: EmptyCommandSchema, result: CoreStatusSchema },
   "core.start": { params: EmptyCommandSchema, result: CoreStatusSchema },
   "core.stop": { params: EmptyCommandSchema, result: CoreStatusSchema },
 } as const;
 
-export const StatusSubscriptionSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const StatusSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const StatusSubscriptionSchema = StatusSubscriptionIdSchema.extend({
+  snapshot: RpcStatusSnapshotSchema,
+}).strict();
 export interface StatusSubscriptionDto extends z.infer<typeof StatusSubscriptionSchema> {}
 
 export const StatusSnapshotNotificationSchema = z
@@ -283,7 +286,7 @@ export const statusRpcMethods = {
   "status.setCapture": { params: SetCaptureCommandSchema, result: RpcStatusSnapshotSchema },
   "status.setRoutingMode": { params: SetRoutingModeCommandSchema, result: RpcStatusSnapshotSchema },
   "status.subscribe": { params: EmptyCommandSchema, result: StatusSubscriptionSchema },
-  "status.unsubscribe": { params: StatusSubscriptionSchema, result: z.boolean() },
+  "status.unsubscribe": { params: StatusSubscriptionIdSchema, result: z.boolean() },
   "status.upsertServiceMonitor": {
     params: UpsertServiceMonitorCommandSchema,
     result: RpcStatusSnapshotSchema,
@@ -291,7 +294,7 @@ export const statusRpcMethods = {
 } as const;
 
 export const mishRpcMethods = {
-  ...agentRpcMethods,
+  ...bridgeRpcMethods,
   ...statusRpcMethods,
 } as const;
 
@@ -312,6 +315,8 @@ export interface StatusConnectionState {
   phase: StatusConnectionPhase;
   stale: boolean;
 }
+
+export type StatusCommand = "capture" | "group" | "profile" | "routing" | "services";
 
 export type StatusClientErrorCode =
   | "cancelled"
@@ -340,6 +345,7 @@ export interface StatusClient {
   dispose(): void;
   getConnectionState(): StatusConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<StatusSnapshotDto>;
+  supportsCommand(command: StatusCommand): boolean;
   removeServiceMonitor(
     monitorId: string,
     options?: { signal?: AbortSignal },

@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
-    CoreError, CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, MishRuntime, StatusAdapterKind,
+    CoreError, CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, MishRuntime,
+    ProfileSummary, StatusAdapterKind, StatusDataSource, StatusSnapshot,
 };
 use tokio::time::{Duration, timeout};
 
@@ -43,6 +44,20 @@ impl CoreRuntime for EmbeddedCore {
 
 struct UnavailableCore;
 
+struct SuppliedStatusSource;
+
+impl StatusDataSource for SuppliedStatusSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        let mut snapshot = StatusSnapshot::lifecycle_only(core, adapter_kind);
+        snapshot.active_profile_id = "supplied-profile".into();
+        snapshot.profiles = vec![ProfileSummary {
+            id: "supplied-profile".into(),
+            label: "Supplied profile".into(),
+        }];
+        snapshot
+    }
+}
+
 impl CoreRuntime for UnavailableCore {
     fn configured(&self) -> bool {
         false
@@ -68,6 +83,58 @@ impl CoreRuntime for UnavailableCore {
     }
 }
 
+struct EventReportingCore {
+    events: Mutex<Option<CoreStatusEventSink>>,
+}
+
+impl EventReportingCore {
+    fn report(&self, status: CoreStatus) {
+        self.events
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .publish(status);
+    }
+}
+
+impl CoreRuntime for EventReportingCore {
+    fn attach_status_event_sink(&self, sink: CoreStatusEventSink) {
+        *self.events.lock().unwrap() = Some(sink);
+    }
+
+    fn configured(&self) -> bool {
+        true
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(ready(CoreStatus {
+            error: None,
+            phase: CorePhase::Running,
+            pid: None,
+            version: Some("embedded-test".into()),
+        }))
+    }
+
+    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(ready(Ok(CoreStatus {
+            error: None,
+            phase: CorePhase::Running,
+            pid: None,
+            version: Some("embedded-test".into()),
+        })))
+    }
+
+    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(ready(Ok(CoreStatus {
+            error: None,
+            phase: CorePhase::Stopped,
+            pid: None,
+            version: Some("embedded-test".into()),
+        })))
+    }
+}
+
 #[tokio::test]
 async fn runtime_drives_an_injected_core_and_publishes_status() {
     let runtime = MishRuntime::new(Arc::new(EmbeddedCore));
@@ -83,6 +150,8 @@ async fn runtime_drives_an_injected_core_and_publishes_status() {
     let snapshot = runtime.snapshot_from_status(&update, StatusAdapterKind::Native);
     assert_eq!(snapshot["adapterKind"], "native");
     assert_eq!(snapshot["runtime"]["phase"], "healthy");
+    assert_eq!(snapshot["services"].as_array().unwrap().len(), 6);
+    assert_eq!(snapshot["services"][0]["id"], "google");
 }
 
 #[tokio::test]
@@ -97,4 +166,35 @@ async fn runtime_preserves_typed_core_failures_without_publishing_success() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn runtime_uses_an_injected_transport_neutral_status_source() {
+    let runtime =
+        MishRuntime::with_status_source(Arc::new(EmbeddedCore), Arc::new(SuppliedStatusSource));
+    let snapshot = runtime.status_snapshot(StatusAdapterKind::Native).await;
+
+    assert_eq!(snapshot["activeProfileId"], "supplied-profile");
+    assert_eq!(snapshot["profiles"][0]["label"], "Supplied profile");
+    assert_eq!(snapshot["adapterKind"], "native");
+}
+
+#[tokio::test]
+async fn runtime_forwards_adapter_reported_lifecycle_events() {
+    let core = Arc::new(EventReportingCore {
+        events: Mutex::new(None),
+    });
+    let runtime = MishRuntime::new(core.clone());
+    let mut updates = runtime.subscribe_status();
+
+    core.report(CoreStatus {
+        error: Some("Embedded core exited".into()),
+        phase: CorePhase::Failed,
+        pid: None,
+        version: Some("embedded-test".into()),
+    });
+
+    let update = updates.recv().await.unwrap();
+    assert!(matches!(update.phase, CorePhase::Failed));
+    assert_eq!(update.error.as_deref(), Some("Embedded core exited"));
 }

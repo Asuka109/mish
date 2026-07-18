@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { toast } from "sonner";
@@ -9,12 +9,15 @@ import {
   type CaptureSelectionDto,
   type RoutingMode,
   type StatusClient,
+  type StatusCommand,
+  type StatusConnectionState,
   type StatusSnapshotDto,
 } from "@mish/contracts";
 import { AppRoutes } from "./app";
 import { AppearanceProvider } from "./appearance";
 import { FixtureStatusClient } from "./data/fixture-status-client";
 import { ProductProvider } from "./data/product-provider";
+import { StartupFailure } from "./components/startup-failure";
 import TypesafeI18n from "./i18n/i18n-react";
 import type { Locales } from "./i18n/i18n-types";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
@@ -70,6 +73,96 @@ class FailingCaptureClient extends FixtureStatusClient {
   }
 }
 
+class EmptyStatusClient extends FixtureStatusClient {
+  override async getSnapshot(): Promise<StatusSnapshotDto> {
+    const snapshot = await super.getSnapshot();
+    snapshot.groups = [];
+    snapshot.groupUsage = [];
+    snapshot.metrics = {
+      activeConnections: 0,
+      effectiveRules: 0,
+      memoryBytes: 0,
+      uptimeSeconds: 0,
+    };
+    snapshot.traffic = {
+      downloadBytesPerSecond: 0,
+      downloadSeries: [],
+      downloadedBytes: 0,
+      uploadBytesPerSecond: 0,
+      uploadSeries: [],
+      uploadedBytes: 0,
+    };
+    return snapshot;
+  }
+}
+
+class SnapshotStatusClient extends FixtureStatusClient {
+  constructor(
+    private readonly confirmedSnapshot: StatusSnapshotDto,
+    private readonly confirmedConnection: StatusConnectionState = {
+      attempt: 0,
+      phase: "connected",
+      stale: false,
+    },
+  ) {
+    super();
+  }
+
+  override getConnectionState() {
+    return { ...this.confirmedConnection };
+  }
+
+  override async getSnapshot() {
+    return structuredClone(this.confirmedSnapshot);
+  }
+
+  override subscribeConnection(listener: (state: StatusConnectionState) => void) {
+    listener(this.getConnectionState());
+    return () => false;
+  }
+
+  override supportsCommand(_command: StatusCommand) {
+    return false;
+  }
+}
+
+async function createRpcSnapshot(sparse = false) {
+  const snapshot = await new FixtureStatusClient().getSnapshot();
+  snapshot.adapterKind = "rpc";
+  snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
+  snapshot.runtime = {
+    captureSelection: { systemProxy: true, tun: false },
+    message: "Mihomo is stopped",
+    phase: "inactive",
+    systemProxyEnabled: false,
+    tunEnabled: false,
+  };
+  if (!sparse) return snapshot;
+
+  snapshot.activeProfileId = "local";
+  snapshot.groups = [];
+  snapshot.groupUsage = [];
+  snapshot.metrics = {
+    activeConnections: 0,
+    effectiveRules: 0,
+    memoryBytes: 0,
+    uptimeSeconds: 0,
+  };
+  snapshot.nodes = [];
+  snapshot.probeResults = [];
+  snapshot.profiles = [{ id: "local", label: "Local Mihomo" }];
+  snapshot.services = [];
+  snapshot.traffic = {
+    downloadBytesPerSecond: 0,
+    downloadSeries: [],
+    downloadedBytes: 0,
+    uploadBytesPerSecond: 0,
+    uploadSeries: [],
+    uploadedBytes: 0,
+  };
+  return snapshot;
+}
+
 describe("production routes", () => {
   it("presents Mish as the product brand", () => {
     renderRoute("/status");
@@ -113,6 +206,81 @@ describe("production routes", () => {
 
     expect(webSocket).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+    expect(screen.getByText("Demo mode")).toBeInTheDocument();
+    expect(screen.queryByText("Local service")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rule" })).toHaveAccessibleDescription(
+      /local fixture data only/,
+    );
+  });
+});
+
+describe("desktop RPC experience", () => {
+  it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
+    const snapshot = await createRpcSnapshot(true);
+    const client = new SnapshotStatusClient(snapshot, {
+      attempt: 2,
+      phase: "reconnecting",
+      stale: true,
+    });
+    renderRoute("/status", "en", client);
+
+    expect(await screen.findByText("Live status from the desktop local service.")).toBeVisible();
+    expect(screen.getByText("Local service")).toBeVisible();
+    expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
+    expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(/reconnecting/i);
+
+    const proxyControl = screen.getByRole("button", { name: "Enable proxy" });
+    expect(proxyControl).toBeDisabled();
+    expect(proxyControl).toHaveAccessibleDescription(/capture is unavailable/i);
+
+    const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
+    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toHaveAccessibleDescription(/System Proxy is unavailable/i);
+
+    const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
+    expect(tun).toBeDisabled();
+    expect(tun).toHaveAccessibleDescription(/Virtual Interface is unavailable/i);
+
+    expect(screen.getByRole("button", { name: "Rule" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Switch profile/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Manage" })).toBeDisabled();
+    expect(
+      screen.getByText("The local desktop service reports no service monitors."),
+    ).toBeVisible();
+  });
+
+  it("combines backend support with supported and permission-required capabilities", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "permission-required" };
+    const client = new SnapshotStatusClient(snapshot);
+    const setCapture = vi.spyOn(client, "setCapture");
+    const setRoutingMode = vi.spyOn(client, "setRoutingMode");
+    renderRoute("/status", "en", client);
+    await screen.findByText("Live status from the desktop local service.");
+
+    const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
+    expect(systemProxy).toBeDisabled();
+    expect(systemProxy).toHaveAccessibleDescription(/not supported by the current local service/i);
+    expect(systemProxy).not.toHaveAttribute("aria-describedby", "fixture-action-description");
+
+    const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
+    expect(tun).toBeDisabled();
+    expect(tun).toHaveAccessibleDescription(/requires permission/i);
+
+    const globalMode = screen.getByRole("button", { name: "Global" });
+    const group = screen.getByRole("button", { name: /🌐 Proxy/ });
+    const services = screen.getByRole("region", { name: "Service latency monitors" });
+    const google = within(services).getByRole("button", { name: /Google/ });
+    for (const control of [globalMode, group, google]) {
+      expect(control).toBeDisabled();
+      expect(control).toHaveAccessibleDescription(/not supported by the current local service/i);
+      await user.click(control);
+    }
+
+    expect(setCapture).not.toHaveBeenCalled();
+    expect(setRoutingMode).not.toHaveBeenCalled();
   });
 });
 
@@ -123,6 +291,17 @@ describe("Status fixture experience", () => {
     expect(screen.getByText("Demo mode")).toBeInTheDocument();
     expect(screen.getByText("🌐 Proxy")).toBeInTheDocument();
     expect(screen.getByText("Messaging")).toBeInTheDocument();
+  });
+
+  it("renders explicit placeholders for policy groups and unavailable session samples", async () => {
+    renderRoute("/status", "en", new EmptyStatusClient());
+
+    expect(await screen.findByText("No policy groups available.")).toBeInTheDocument();
+    const session = screen.getByRole("region", { name: "Current session" });
+    expect(within(session).getAllByText("- B/s")).toHaveLength(2);
+    expect(within(session).getAllByText("-")).toHaveLength(6);
+    expect(within(session).queryByText("0 B/s")).not.toBeInTheDocument();
+    expect(within(session).queryByText("00:00:00")).not.toBeInTheDocument();
   });
 
   it("changes routing and one group child through the typed fixture adapter", async () => {
@@ -349,5 +528,23 @@ describe("Status fixture experience", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter a title.");
     expect(title).toHaveAttribute("aria-invalid", "true");
+  });
+});
+
+describe("desktop startup failure", () => {
+  it("uses the selected Simplified Chinese locale without exposing connection details", () => {
+    render(
+      <AppearanceProvider>
+        <TypesafeI18n locale="zh">
+          <StartupFailure />
+        </TypesafeI18n>
+      </AppearanceProvider>,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("本地服务不可用");
+    expect(alert).toHaveTextContent("无法建立私有本地连接");
+    expect(alert).not.toHaveTextContent(/ws:\/\//i);
+    expect(alert).not.toHaveTextContent(/token/i);
   });
 });

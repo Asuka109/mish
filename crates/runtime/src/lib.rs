@@ -1,9 +1,16 @@
-use std::{fmt, sync::Arc};
+use std::{
+    fmt,
+    sync::{Arc, Weak},
+};
 
 use futures_util::future::BoxFuture;
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::broadcast;
+
+mod status;
+
+pub use status::*;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -25,13 +32,6 @@ pub struct CoreStatus {
 }
 
 #[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum StatusAdapterKind {
-    Native,
-    Rpc,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CoreErrorKind {
     Unavailable,
@@ -43,6 +43,24 @@ pub enum CoreErrorKind {
 pub struct CoreError {
     pub kind: CoreErrorKind,
     message: String,
+}
+
+struct RuntimeStatusEvents {
+    updates: broadcast::Sender<CoreStatus>,
+}
+
+#[derive(Clone)]
+pub struct CoreStatusEventSink {
+    events: Weak<RuntimeStatusEvents>,
+}
+
+impl CoreStatusEventSink {
+    pub fn publish(&self, status: CoreStatus) {
+        let Some(events) = self.events.upgrade() else {
+            return;
+        };
+        let _ = events.updates.send(status);
+    }
 }
 
 impl CoreError {
@@ -77,22 +95,52 @@ impl fmt::Display for CoreError {
 impl std::error::Error for CoreError {}
 
 pub trait CoreRuntime: Send + Sync {
+    fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
     fn configured(&self) -> bool;
     fn status(&self) -> BoxFuture<'_, CoreStatus>;
     fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
     fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
 }
 
+pub trait StatusDataSource: Send + Sync {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot;
+}
+
+#[derive(Default)]
+struct LifecycleStatusDataSource;
+
+impl StatusDataSource for LifecycleStatusDataSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+}
+
 #[derive(Clone)]
 pub struct MishRuntime {
     core: Arc<dyn CoreRuntime>,
-    updates: broadcast::Sender<CoreStatus>,
+    events: Arc<RuntimeStatusEvents>,
+    status_source: Arc<dyn StatusDataSource>,
 }
 
 impl MishRuntime {
     pub fn new(core: Arc<dyn CoreRuntime>) -> Self {
+        Self::with_status_source(core, Arc::new(LifecycleStatusDataSource))
+    }
+
+    pub fn with_status_source(
+        core: Arc<dyn CoreRuntime>,
+        status_source: Arc<dyn StatusDataSource>,
+    ) -> Self {
         let (updates, _) = broadcast::channel(32);
-        Self { core, updates }
+        let events = Arc::new(RuntimeStatusEvents { updates });
+        core.attach_status_event_sink(CoreStatusEventSink {
+            events: Arc::downgrade(&events),
+        });
+        Self {
+            core,
+            events,
+            status_source,
+        }
     }
 
     pub fn core_configured(&self) -> bool {
@@ -124,43 +172,15 @@ impl MishRuntime {
         status: &CoreStatus,
         adapter_kind: StatusAdapterKind,
     ) -> Value {
-        status_snapshot(status, adapter_kind)
+        serde_json::to_value(self.status_source.snapshot(status, adapter_kind))
+            .expect("Status state must serialize")
     }
 
     pub fn subscribe_status(&self) -> broadcast::Receiver<CoreStatus> {
-        self.updates.subscribe()
+        self.events.updates.subscribe()
     }
 
     fn publish_status(&self, status: &CoreStatus) {
-        let _ = self.updates.send(status.clone());
+        let _ = self.events.updates.send(status.clone());
     }
-}
-
-fn status_snapshot(core: &CoreStatus, adapter_kind: StatusAdapterKind) -> Value {
-    let (phase, message) = match core.phase {
-        CorePhase::Stopped => ("inactive", "Mihomo is stopped"),
-        CorePhase::Starting => ("connecting", "Mihomo is starting"),
-        CorePhase::Running => ("healthy", "Mihomo is running"),
-        CorePhase::Stopping => ("stopping", "Mihomo is stopping"),
-        CorePhase::Failed => ("error", "Mihomo failed"),
-    };
-    json!({
-        "activeProfileId": "local",
-        "adapterKind": adapter_kind,
-        "capabilities": {"systemProxy": "unavailable", "tun": "unavailable"},
-        "groups": [], "groupUsage": [],
-        "metrics": {"activeConnections": 0, "effectiveRules": 0, "memoryBytes": 0, "uptimeSeconds": 0},
-        "nodes": [], "probeResults": [],
-        "profiles": [{"id": "local", "label": "Local Mihomo"}],
-        "routingMode": "rule",
-        "runtime": {
-            "captureSelection": {"systemProxy": true, "tun": false},
-            "message": message,
-            "phase": phase,
-            "systemProxyEnabled": false,
-            "tunEnabled": false
-        },
-        "services": [],
-        "traffic": {"downloadBytesPerSecond": 0, "downloadSeries": [], "downloadedBytes": 0, "uploadBytesPerSecond": 0, "uploadSeries": [], "uploadedBytes": 0}
-    })
 }

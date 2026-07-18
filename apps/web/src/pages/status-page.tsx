@@ -4,6 +4,9 @@ import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import {
   Badge,
   Button,
+  Empty,
+  EmptyHeader,
+  EmptyTitle,
   SectionGrid,
   SectionGridItem,
   ToggleGroup,
@@ -16,6 +19,7 @@ import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
 import { useProduct } from "../data/product-provider";
+import { getCommandDescriptionId } from "../data/status-capabilities";
 import type { PolicyGroupDto, RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
@@ -49,6 +53,7 @@ export function StatusPage() {
     connection,
     error,
     isCommandPending,
+    isCommandSupported,
     isLoading,
     selectGroupChild,
     setCapture,
@@ -79,13 +84,20 @@ export function StatusPage() {
   }, [snapshot]);
 
   if (isLoading) {
-    return <div className="status-loading">{LL.status.loading()}</div>;
+    return (
+      <div className="status-loading">
+        {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
+      </div>
+    );
   }
 
   if (!snapshot) {
     return (
       <div className="status-loading" role="alert">
-        {error ?? LL.status.fixtureUnavailable()}
+        {error ??
+          (connection.phase === "fixture"
+            ? LL.status.fixtureUnavailable()
+            : LL.status.desktopUnavailable())}
       </div>
     );
   }
@@ -95,9 +107,23 @@ export function StatusPage() {
     ? snapshot.nodes.filter((node) => pickerGroup.childIds.includes(node.id))
     : [];
   const captureRuntime = snapshot.runtime;
+  const captureSupported = isCommandSupported("capture");
+  const groupSupported = isCommandSupported("group");
+  const routingSupported = isCommandSupported("routing");
+  const groupDescriptionId = getCommandDescriptionId(snapshot.adapterKind, groupSupported);
+  const routingDescriptionId = getCommandDescriptionId(snapshot.adapterKind, routingSupported);
   const captureActive = captureRuntime.systemProxyEnabled || captureRuntime.tunEnabled;
+  const hasTrafficData =
+    snapshot.traffic.downloadSeries.length > 0 ||
+    snapshot.traffic.uploadSeries.length > 0 ||
+    snapshot.traffic.downloadBytesPerSecond > 0 ||
+    snapshot.traffic.downloadedBytes > 0 ||
+    snapshot.traffic.uploadBytesPerSecond > 0 ||
+    snapshot.traffic.uploadedBytes > 0;
+  const hasMetricsData = Object.values(snapshot.metrics).some((value) => value > 0);
 
   function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
+    if (!captureSupported) return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
     void setCapture(selection, active);
@@ -127,8 +153,10 @@ export function StatusPage() {
               <span className="status-control-label">{LL.status.routingMode()}</span>
               <ToggleGroup
                 aria-label={LL.status.routingMode()}
+                aria-describedby={routingDescriptionId}
                 className="routing-mode-group"
                 onValueChange={(values) => {
+                  if (!routingSupported) return;
                   const nextMode = values[0] as RoutingMode | undefined;
                   if (nextMode) void setRoutingMode(nextMode);
                 }}
@@ -138,8 +166,9 @@ export function StatusPage() {
               >
                 {(Object.keys(modeLabels) as RoutingMode[]).map((mode) => (
                   <ToggleGroupItem
+                    aria-describedby={routingDescriptionId}
                     className="routing-mode-button"
-                    disabled={routingPending}
+                    disabled={routingPending || !routingSupported}
                     key={mode}
                     value={mode}
                   >
@@ -151,6 +180,9 @@ export function StatusPage() {
             <SectionGridItem className="status-control-cell">
               <span className="status-control-label">{LL.status.trafficCapture()}</span>
               <TrafficCaptureControl
+                adapterKind={snapshot.adapterKind}
+                capabilities={snapshot.capabilities}
+                commandSupported={captureSupported}
                 disabled={capturePending}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
@@ -171,7 +203,13 @@ export function StatusPage() {
             <div className="section-heading">
               <div className="section-heading-copy">
                 <h2>{LL.status.session()}</h2>
-                <p>{LL.status.fixtureActivity()}</p>
+                <p>
+                  {snapshot.adapterKind === "fixture"
+                    ? LL.status.fixtureActivity()
+                    : snapshot.adapterKind === "rpc"
+                      ? LL.status.desktopActivity()
+                      : LL.status.deviceActivity()}
+                </p>
               </div>
               <Link className="text-link" to="/traffic">
                 {LL.status.openLiveTraffic()} <CaretRight aria-hidden="true" />
@@ -183,7 +221,9 @@ export function StatusPage() {
                   <ArrowDown aria-hidden="true" />
                   <span className="traffic-session-copy">
                     <span>{LL.status.downloaded()}</span>
-                    <small>{formatBytes(snapshot.traffic.downloadedBytes, locale)}</small>
+                    <small>
+                      {hasTrafficData ? formatBytes(snapshot.traffic.downloadedBytes, locale) : "-"}
+                    </small>
                   </span>
                 </span>
                 <TrafficSparkline
@@ -192,7 +232,9 @@ export function StatusPage() {
                   id="download"
                 />
                 <strong className="traffic-rate-value tabular">
-                  {formatRate(snapshot.traffic.downloadBytesPerSecond, locale)}
+                  {hasTrafficData
+                    ? formatRate(snapshot.traffic.downloadBytesPerSecond, locale)
+                    : "- B/s"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
@@ -200,7 +242,9 @@ export function StatusPage() {
                   <ArrowUp aria-hidden="true" />
                   <span className="traffic-session-copy">
                     <span>{LL.status.uploaded()}</span>
-                    <small>{formatBytes(snapshot.traffic.uploadedBytes, locale)}</small>
+                    <small>
+                      {hasTrafficData ? formatBytes(snapshot.traffic.uploadedBytes, locale) : "-"}
+                    </small>
                   </span>
                 </span>
                 <TrafficSparkline
@@ -209,30 +253,38 @@ export function StatusPage() {
                   id="upload"
                 />
                 <strong className="traffic-rate-value tabular">
-                  {formatRate(snapshot.traffic.uploadBytesPerSecond, locale)}
+                  {hasTrafficData
+                    ? formatRate(snapshot.traffic.uploadBytesPerSecond, locale)
+                    : "- B/s"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.connections()}</span>
-                <strong className="tabular">{snapshot.metrics.activeConnections}</strong>
+                <strong className="tabular">
+                  {hasMetricsData ? snapshot.metrics.activeConnections : "-"}
+                </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.activeRules()}</span>
                 <strong className="tabular">
-                  {new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en").format(
-                    snapshot.metrics.effectiveRules,
-                  )}
+                  {hasMetricsData
+                    ? new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en").format(
+                        snapshot.metrics.effectiveRules,
+                      )
+                    : "-"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.memory()}</span>
                 <strong className="tabular">
-                  {formatBytes(snapshot.metrics.memoryBytes, locale)}
+                  {hasMetricsData ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.uptime()}</span>
-                <strong className="tabular">{formatUptime(snapshot.metrics.uptimeSeconds)}</strong>
+                <strong className="tabular">
+                  {hasMetricsData ? formatUptime(snapshot.metrics.uptimeSeconds) : "-"}
+                </strong>
               </SectionGridItem>
             </SectionGrid>
           </section>
@@ -247,48 +299,57 @@ export function StatusPage() {
                 {LL.status.viewAll()} <CaretRight aria-hidden="true" />
               </Link>
             </div>
-            <SectionGrid className="policy-group-list">
-              {frequentGroups.map((group, index) => {
-                const selectedNode = snapshot.nodes.find(
-                  (node) => node.id === group.selectedChildId,
-                );
-                return (
-                  <Button
-                    className="section-grid-item policy-group-row"
-                    disabled={groupPending}
-                    key={group.id}
-                    onClick={() => openPicker(group)}
-                    type="button"
-                    variant="ghost"
-                  >
-                    <span className="policy-group-leading">
-                      <span className="policy-group-rank tabular">{index + 1}</span>
-                      <span className="policy-group-copy">
-                        <strong className="policy-group-primary user-authored-label">
-                          {group.label}
-                        </strong>
-                        <span className="policy-group-secondary user-authored-label">
-                          {selectedNode?.label ?? LL.status.noSelection()}
-                          {selectedNode?.latencyMilliseconds === null ||
-                          selectedNode?.latencyMilliseconds === undefined
-                            ? ""
-                            : ` · ${selectedNode.latencyMilliseconds} ms`}
+            {frequentGroups.length > 0 ? (
+              <SectionGrid className="policy-group-list">
+                {frequentGroups.map((group, index) => {
+                  const selectedNode = snapshot.nodes.find(
+                    (node) => node.id === group.selectedChildId,
+                  );
+                  return (
+                    <Button
+                      aria-describedby={groupDescriptionId}
+                      className="section-grid-item policy-group-row"
+                      disabled={groupPending || !groupSupported}
+                      key={group.id}
+                      onClick={() => openPicker(group)}
+                      type="button"
+                      variant="ghost"
+                    >
+                      <span className="policy-group-leading">
+                        <span className="policy-group-rank tabular">{index + 1}</span>
+                        <span className="policy-group-copy">
+                          <strong className="policy-group-primary user-authored-label">
+                            {group.label}
+                          </strong>
+                          <span className="policy-group-secondary user-authored-label">
+                            {selectedNode?.label ?? LL.status.noSelection()}
+                            {selectedNode?.latencyMilliseconds === null ||
+                            selectedNode?.latencyMilliseconds === undefined
+                              ? ""
+                              : ` · ${selectedNode.latencyMilliseconds} ms`}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                    <span className="policy-group-trailing">
-                      <Badge
-                        aria-label={LL.status.availableChildren({ count: group.childIds.length })}
-                        variant="outline"
-                      >
-                        {group.childIds.length}
-                      </Badge>
-                      <CaretRight aria-hidden="true" />
-                    </span>
-                  </Button>
-                );
-              })}
-            </SectionGrid>
+                      <span className="policy-group-trailing">
+                        <Badge
+                          aria-label={LL.status.availableChildren({ count: group.childIds.length })}
+                          variant="outline"
+                        >
+                          {group.childIds.length}
+                        </Badge>
+                        <CaretRight aria-hidden="true" />
+                      </span>
+                    </Button>
+                  );
+                })}
+              </SectionGrid>
+            ) : (
+              <Empty className="policy-group-empty">
+                <EmptyHeader>
+                  <EmptyTitle>{LL.status.groupsEmpty()}</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+            )}
           </section>
         </div>
 

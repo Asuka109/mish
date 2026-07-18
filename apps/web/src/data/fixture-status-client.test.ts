@@ -4,6 +4,7 @@ import { FixtureStatusClient } from "./fixture-status-client";
 describe("FixtureStatusClient", () => {
   it("returns detached typed snapshots", async () => {
     const client = new FixtureStatusClient();
+    expect(client.supportsCommand("capture")).toBe(true);
     const first = await client.getSnapshot();
     first.profiles[0].label = "Changed outside the adapter";
 

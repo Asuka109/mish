@@ -56,7 +56,7 @@ Settings as the durable configuration home.
 | NATIVE-F-002 | P1 | Closing the main window shall follow an explicit, discoverable lifecycle preference. | Depending on preference, close hides to status bar or quits; first-use behavior is explained and can be changed. |
 | NATIVE-F-003 | P1 | Sleep, wake, network switch, and core restart shall reconcile runtime and OS state. | Integration tests show stale proxy/TUN settings are detected, streams reconnect, and the user is warned when safe recovery cannot be automatic. |
 | NATIVE-F-004 | P1 | Native sidebar material shall degrade to deterministic surfaces. | Reduce Transparency, unsupported shells, browser mode, inactive windows, and compositor failure retain readable opaque surfaces. |
-| NATIVE-F-005 | P1 | The local agent shall continue operating independently of the main window. | Given the window is hidden or closed according to preference, then core supervision, capture reconciliation, scheduled refresh, and status-menu commands continue without a live WebView. |
+| NATIVE-F-005 | P1 | The desktop bridge shall continue operating independently of the main window. | Given the window is hidden or closed according to preference, then core supervision, capture reconciliation, scheduled refresh, and status-menu commands continue without a live WebView. |
 | SET-NF-001 | P0 | Secrets shall use platform-appropriate protected storage and redaction. | Ordinary UI, logs, crash evidence, clipboard actions, and exports do not reveal stored credentials by default. |
 | SET-NF-002 | P1 | Unsaved expert-setting changes shall never leak into live runtime state. | Given the user changes fields in an expert detail surface and cancels, then desired settings and effective runtime configuration remain unchanged. |
 
@@ -120,7 +120,7 @@ validation surface rather than a fully observed competitor behavior.
 ## Dependencies
 
 - Platform-capability DTO and adapters.
-- Authenticated local agent and same-origin web/RPC serving.
+- Authenticated desktop bridge and same-origin web/RPC serving.
 - Tauri shell, status menu, window lifecycle, and native material.
 - Signed helper/update strategy and protected secret storage.
 - Event and diagnostic contracts from PRD 03.

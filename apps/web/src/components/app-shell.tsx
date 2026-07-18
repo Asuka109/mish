@@ -26,10 +26,17 @@ import {
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useProduct } from "../data/product-provider";
+import {
+  getAggregateCaptureDescriptionId,
+  getCommandDescriptionId,
+  isCaptureCapabilityAvailable,
+  statusDescriptionIds,
+} from "../data/status-capabilities";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
+import { handleDesktopWindowDrag } from "../platform/desktop-window";
 import { StatusShimmer } from "./status-shimmer";
 
 const destinations = [
@@ -59,21 +66,37 @@ const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Lo
 const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
 
 function ProxyControlButton() {
-  const { isCommandPending, setCapture, snapshot } = useProduct();
+  const { isCommandPending, isCommandSupported, setCapture, snapshot } = useProduct();
   const { LL } = useI18nContext();
   const runtime = snapshot?.runtime;
   const active = runtime ? runtime.systemProxyEnabled || runtime.tunEnabled : false;
   const pending = isCommandPending("capture");
+  const commandSupported = isCommandSupported("capture");
+  const systemProxyAvailable = snapshot
+    ? isCaptureCapabilityAvailable(snapshot.adapterKind, snapshot.capabilities.systemProxy)
+    : false;
+  const tunAvailable = snapshot
+    ? isCaptureCapabilityAvailable(snapshot.adapterKind, snapshot.capabilities.tun)
+    : false;
+  const captureAvailable = systemProxyAvailable || tunAvailable;
   const phase = pending ? (active ? "stopping" : "connecting") : (runtime?.phase ?? "inactive");
+  const selectedCapture = {
+    systemProxy: Boolean(runtime?.captureSelection.systemProxy && systemProxyAvailable),
+    tun: Boolean(runtime?.captureSelection.tun && tunAvailable),
+  };
   const resumeSelection =
-    runtime && (runtime.captureSelection.systemProxy || runtime.captureSelection.tun)
-      ? runtime.captureSelection
-      : { systemProxy: true, tun: false };
+    selectedCapture.systemProxy || selectedCapture.tun
+      ? selectedCapture
+      : { systemProxy: systemProxyAvailable, tun: !systemProxyAvailable && tunAvailable };
   const resumeModes = [
     resumeSelection.systemProxy ? LL.capture.systemProxy() : null,
     resumeSelection.tun ? LL.capture.tun() : null,
   ].filter((mode) => mode !== null);
   const resumeDescription = LL.proxyControl.enableWithModes({ modes: resumeModes.join(" + ") });
+  const fixture = snapshot?.adapterKind === "fixture";
+  const actionDescriptionId = snapshot
+    ? getAggregateCaptureDescriptionId(snapshot, commandSupported)
+    : undefined;
 
   async function handleToggle() {
     if (!runtime) return;
@@ -87,11 +110,19 @@ function ProxyControlButton() {
 
   return (
     <button
-      aria-describedby="fixture-action-description"
-      aria-label={active ? LL.proxyControl.disableAria() : LL.proxyControl.enableAria()}
+      aria-describedby={actionDescriptionId}
+      aria-label={
+        active
+          ? fixture
+            ? LL.proxyControl.disableFixtureAria()
+            : LL.proxyControl.disableAria()
+          : fixture
+            ? LL.proxyControl.enableFixtureAria()
+            : LL.proxyControl.enableAria()
+      }
       className="proxy-control-button"
       data-status={phase}
-      disabled={!snapshot || pending}
+      disabled={!snapshot || pending || !commandSupported || !captureAvailable}
       onClick={handleToggle}
       title={active ? LL.proxyControl.disable() : resumeDescription}
       type="button"
@@ -128,19 +159,29 @@ function Sidebar() {
 
   return (
     <aside aria-label={LL.navigation.primary()} className="sidebar">
-      <div aria-hidden="true" className="traffic-lights">
-        <Circle color="#ff5f57" weight="fill" />
-        <Circle color="#febc2e" weight="fill" />
-        <Circle color="#28c840" weight="fill" />
-      </div>
-      <div aria-label="Mish" className="brand-row">
-        <img alt="" aria-hidden="true" className="brand-image-light" src="/brand/mish-brand.svg" />
-        <img
-          alt=""
-          aria-hidden="true"
-          className="brand-image-dark"
-          src="/brand/mish-brand-dark.svg"
-        />
+      <div className="sidebar-window-header" data-tauri-drag-region="deep">
+        <div className="window-controls-slot">
+          <div aria-hidden="true" className="traffic-lights">
+            <Circle color="#ff5f57" weight="fill" />
+            <Circle color="#febc2e" weight="fill" />
+            <Circle color="#28c840" weight="fill" />
+          </div>
+          <div aria-hidden="true" className="window-drag-region" />
+        </div>
+        <div aria-label="Mish" className="brand-row">
+          <img
+            alt=""
+            aria-hidden="true"
+            className="brand-image-light"
+            src="/brand/mish-brand.svg"
+          />
+          <img
+            alt=""
+            aria-hidden="true"
+            className="brand-image-dark"
+            src="/brand/mish-brand-dark.svg"
+          />
+        </div>
       </div>
 
       <nav aria-label={LL.navigation.sections()} className="nav-list">
@@ -172,21 +213,33 @@ function Sidebar() {
 }
 
 function ProfileMenu() {
-  const { isCommandPending, setActiveProfile, snapshot } = useProduct();
+  const { connection, isCommandPending, isCommandSupported, setActiveProfile, snapshot } =
+    useProduct();
   const { LL } = useI18nContext();
-  if (!snapshot) return <span className="toolbar-loading">{LL.toolbar.loadingFixture()}</span>;
+  if (!snapshot) {
+    return (
+      <span className="toolbar-loading">
+        {connection.phase === "fixture" ? LL.toolbar.loadingFixture() : LL.toolbar.loadingDesktop()}
+      </span>
+    );
+  }
 
   const activeProfile =
     snapshot.profiles.find((profile) => profile.id === snapshot.activeProfileId) ??
     snapshot.profiles[0];
+  if (!activeProfile) return <span className="toolbar-loading">{LL.common.unavailable()}</span>;
+
   const profilePending = isCommandPending("profile");
+  const profileSupported = isCommandSupported("profile");
+  const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, profileSupported);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        aria-describedby={actionDescriptionId}
         aria-label={LL.toolbar.switchProfile({ profile: activeProfile.label })}
         className="toolbar-button profile-menu-trigger"
-        disabled={profilePending}
+        disabled={profilePending || !profileSupported || snapshot.profiles.length < 2}
       >
         <FileText aria-hidden="true" />
         <span className="user-authored-label">{activeProfile.label}</span>
@@ -287,31 +340,74 @@ function AppearanceMenu() {
 
 function Toolbar() {
   const location = useLocation();
+  const { snapshot } = useProduct();
   const { LL } = useI18nContext();
   const title = getPageTitle(LL, location.pathname);
+  const runtimeBadge =
+    snapshot?.adapterKind === "fixture"
+      ? { description: LL.toolbar.demoDescription(), label: LL.toolbar.demoMode() }
+      : snapshot?.adapterKind === "rpc"
+        ? { description: LL.toolbar.localServiceDescription(), label: LL.toolbar.localService() }
+        : snapshot?.adapterKind === "native"
+          ? { description: LL.toolbar.deviceDescription(), label: LL.toolbar.deviceMode() }
+          : null;
 
   return (
-    <header className="toolbar">
+    <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
       <span className="toolbar-title">{title}</span>
       <div className="toolbar-actions">
-        <Tooltip>
-          <TooltipTrigger className="demo-data-badge">{LL.toolbar.demoMode()}</TooltipTrigger>
-          <TooltipContent>{LL.toolbar.demoDescription()}</TooltipContent>
-        </Tooltip>
+        {runtimeBadge ? (
+          <Tooltip>
+            <TooltipTrigger className="runtime-data-badge">{runtimeBadge.label}</TooltipTrigger>
+            <TooltipContent>{runtimeBadge.description}</TooltipContent>
+          </Tooltip>
+        ) : null}
         <AppearanceMenu />
         <LanguageMenu />
         <ProfileMenu />
       </div>
-      <span className="sr-only" id="fixture-action-description">
+    </header>
+  );
+}
+
+function StatusActionDescriptions() {
+  const { snapshot } = useProduct();
+  const { LL } = useI18nContext();
+  if (!snapshot) return null;
+
+  if (snapshot.adapterKind === "fixture") {
+    return (
+      <span className="sr-only" id={statusDescriptionIds.fixtureAction}>
         {LL.toolbar.fixtureActionDescription()}
       </span>
-    </header>
+    );
+  }
+
+  return (
+    <div className="sr-only">
+      <span id={statusDescriptionIds.localActionUnavailable}>
+        {LL.capabilities.localActionUnavailable()}
+      </span>
+      <span id={statusDescriptionIds.captureUnavailable}>
+        {LL.capabilities.captureUnavailable()}
+      </span>
+      <span id={statusDescriptionIds.capturePermission}>{LL.capabilities.capturePermission()}</span>
+      <span id={statusDescriptionIds.systemProxyUnavailable}>
+        {LL.capabilities.systemProxyUnavailable()}
+      </span>
+      <span id={statusDescriptionIds.systemProxyPermission}>
+        {LL.capabilities.systemProxyPermission()}
+      </span>
+      <span id={statusDescriptionIds.tunUnavailable}>{LL.capabilities.tunUnavailable()}</span>
+      <span id={statusDescriptionIds.tunPermission}>{LL.capabilities.tunPermission()}</span>
+    </div>
   );
 }
 
 export function AppShell() {
   return (
     <div className="app-shell">
+      <StatusActionDescriptions />
       <Sidebar />
       <main className="workspace">
         <Toolbar />

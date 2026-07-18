@@ -1,5 +1,10 @@
 [workspace]
-members = ["crates/agent", "crates/runtime"]
+members = [
+  "apps/desktop/src-tauri",
+  "crates/desktop-bridge",
+  "crates/mihomo-controller",
+  "crates/runtime",
+]
 resolver = "2"
 
 [workspace.package]

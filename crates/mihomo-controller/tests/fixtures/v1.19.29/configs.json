@@ -1,0 +1,22 @@
+{
+  "port": 0,
+  "socks-port": 0,
+  "redir-port": 0,
+  "tproxy-port": 0,
+  "mixed-port": 0,
+  "tun": {
+    "enable": false,
+    "device": "",
+    "stack": "gVisor",
+    "auto-route": true,
+    "auto-detect-interface": true
+  },
+  "allow-lan": false,
+  "mode": "rule",
+  "log-level": "silent",
+  "ipv6": false,
+  "interface-name": "",
+  "tcp-concurrent": false,
+  "find-process-mode": "off",
+  "sniffing": false
+}

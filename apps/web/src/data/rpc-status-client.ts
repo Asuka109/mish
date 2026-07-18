@@ -7,6 +7,7 @@ import {
   type ServiceMonitorDraft,
   type StatusClient,
   type StatusConnectionState,
+  type StatusCommand,
   type StatusSnapshotDto,
   type StatusSnapshotNotificationDto,
 } from "@mish/contracts";
@@ -32,6 +33,7 @@ export class RpcStatusClient implements StatusClient {
   private disposed = false;
   private remoteSubscriptionId: string | null = null;
   private subscriptionPromise: Promise<void> | null = null;
+  private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
 
@@ -107,6 +109,10 @@ export class RpcStatusClient implements StatusClient {
     };
   }
 
+  supportsCommand(_command: StatusCommand) {
+    return false;
+  }
+
   upsertServiceMonitor(draft: ServiceMonitorDraft, options?: RpcRequestOptions) {
     return this.requestSnapshot("status.upsertServiceMonitor", { draft }, options);
   }
@@ -117,23 +123,23 @@ export class RpcStatusClient implements StatusClient {
   }
 
   private async ensureRemoteSubscription() {
-    if (
-      this.disposed ||
-      this.snapshotListeners.size === 0 ||
-      this.remoteSubscriptionId ||
-      this.subscriptionPromise
-    ) {
+    if (this.disposed || this.snapshotListeners.size === 0 || this.remoteSubscriptionId) {
+      return;
+    }
+    if (this.subscriptionPromise) {
+      this.subscriptionRetryPending = true;
       return;
     }
 
     this.subscriptionPromise = this.rpc
       .request("status.subscribe", {})
-      .then(({ subscriptionId }) => {
+      .then(({ snapshot, subscriptionId }) => {
         if (this.snapshotListeners.size === 0) {
           void this.rpc.request("status.unsubscribe", { subscriptionId }).catch(() => undefined);
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
+        this.receiveSnapshot({ snapshot, subscriptionId });
       })
       .catch(() => {
         if (this.connectionState.phase === "connected") {
@@ -142,6 +148,9 @@ export class RpcStatusClient implements StatusClient {
       })
       .finally(() => {
         this.subscriptionPromise = null;
+        if (!this.subscriptionRetryPending) return;
+        this.subscriptionRetryPending = false;
+        void this.ensureRemoteSubscription();
       });
     await this.subscriptionPromise;
   }

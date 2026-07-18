@@ -4,17 +4,18 @@
 
 The product uses a web-first UI without making product logic depend on Tauri.
 The same compiled bundle runs in an ordinary browser and inside the desktop
-WebView. A local agent owns the Mihomo core and exposes a transport-independent
-application API; Tauri remains a thin view and platform-capability shell.
+WebView. A desktop local bridge service owns the Mihomo core and exposes a
+transport-independent application API; Tauri remains a thin view and
+platform-capability shell.
 
 ```mermaid
 flowchart LR
   UI["Shared React product UI"] --> StatusClient["StatusClient seam"]
   StatusClient --> DesktopRpc["Desktop RPC adapter"]
   StatusClient --> Mobile["Mobile native adapter"]
-  DesktopRpc -->|"same-origin JSON-RPC over WebSocket"| DesktopAgent["Desktop Rust agent"]
-  DesktopAgent --> Runtime["Shared Mish runtime"]
-  Runtime --> Sidecar["Desktop Mihomo sidecar adapter"]
+  DesktopRpc -->|"same-origin JSON-RPC over WebSocket"| DesktopBridge["Desktop local bridge service"]
+  DesktopBridge --> Runtime["Shared Mish runtime"]
+  Runtime --> ManagedProcess["Managed Mihomo process adapter"]
   Mobile --> Android["Android VpnService adapter"]
   Mobile --> IOS["iOS Packet Tunnel adapter"]
   Android --> AndroidCore["Embedded Mihomo library"]
@@ -29,8 +30,8 @@ flowchart LR
 | Shared domain/application packages | DTOs, commands, invariants, derived view models, capability-neutral use cases                          | WebView APIs or operating-system branching spread through features                       |
 | Shared Rust runtime                | Core lifecycle semantics, typed failures, snapshots, application events, platform-neutral coordination | Executable paths, HTTP/WebSocket policy, Android/iOS framework calls                     |
 | Typed RPC client                   | Request correlation, subscriptions, reconnect policy, DTO validation                                   | Product-specific rendering                                                               |
-| Desktop Rust agent                 | Local HTTP/WebSocket origin, authentication and desktop adapter composition                            | Android `VpnService` or iOS Packet Tunnel lifecycle                                      |
-| Desktop sidecar adapter            | Mihomo executable paths, child process, PID, signal and cleanup                                        | Cross-platform application semantics                                                     |
+| Desktop local bridge service       | Local HTTP/WebSocket origin, authentication and desktop adapter composition                            | Android `VpnService` or iOS Packet Tunnel lifecycle                                      |
+| Desktop managed-process adapter    | Mihomo executable paths, child process, PID, signal and cleanup                                        | Cross-platform application semantics                                                     |
 | Android/iOS adapters               | Native VPN permission, TUN/Packet Tunnel lifecycle, native Mihomo integration                          | A spawned desktop executable or persistent WebView lifetime                              |
 | Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge              | Core business rules or an alternative application state store                            |
 | Privileged helper                  | Narrow desktop TUN, DNS, and system-proxy operations requiring elevation                               | General application logic or remote access                                               |
@@ -40,7 +41,7 @@ than repeated `if (tauri)` or `if (macOS)` branches.
 
 ## Desktop local origin and RPC
 
-The local agent serves the offline web bundle and JSON-RPC endpoint from one
+The desktop local bridge serves the offline web bundle and JSON-RPC endpoint from one
 loopback origin. This gives the browser and Tauri clients the same transport and
 avoids coupling product features to Tauri commands.
 
@@ -82,15 +83,21 @@ Requests that were in flight when the transport disconnects are rejected and
 are not replayed automatically. Replaying a consequential command without
 knowing whether the server applied it would be unsafe. Subscription ownership
 stays with an adapter, which resubscribes after authentication on a new
-connection. Cancellation removes local correlation state and emits
+connection. Each successful Status subscription response includes its current
+validated snapshot, so resubscription restores authoritative state even if no
+later notification occurs. The bridge establishes the event cursor before
+sampling that snapshot and sends the response before subsequent notifications,
+preventing an older queued lifecycle event from overwriting the reconciliation
+snapshot. Cancellation removes local correlation state and emits
 `rpc.cancel` metadata when the authenticated transport is still available.
 
 `apps/web/src/data/rpc-status-client.ts` maps this generic transport to the
-`StatusClient` view boundary. `ProductProvider` does not construct it by
-default: the application continues to use `FixtureStatusClient` until a secured
-local agent and an explicit endpoint/authentication bootstrap exist.
+`StatusClient` view boundary. Ordinary browser startup constructs
+`FixtureStatusClient` without network or IPC access. The Tauri WebView obtains a
+validated private endpoint and in-memory token through its narrow bootstrap IPC
+surface, then constructs `RpcStatusClient`.
 
-## Implemented local-agent slice
+## Implemented desktop local bridge slice
 
 `crates/runtime` contains the transport-neutral `MishRuntime` module and the
 `CoreRuntime` interface. The interface owns configured/status/start/stop
@@ -99,34 +106,46 @@ events. It has no Axum, Clap, Nix, executable, signal, or process dependency.
 An adapter can publish `native` or `rpc` Status snapshots without changing the
 product view contract.
 
-`crates/agent` is the desktop implementation of the platform seam. It
+`crates/desktop-bridge` is the desktop implementation of the platform seam. It
 binds only to a loopback address, validates `Host` and WebSocket `Origin`, limits
 message size and subscriptions, requires an authentication-first handshake, and
-exposes explicit `agent.getInfo`, `core.getStatus`, `core.start`, and `core.stop`
-methods. Authentication secrets come from `MISH_AGENT_TOKEN`; they are not CLI
+exposes explicit `bridge.getInfo`, `core.getStatus`, `core.start`, and `core.stop`
+methods. Authentication secrets come from `MISH_BRIDGE_TOKEN`; they are not CLI
 arguments and must never be stored in the repository.
 
-`DesktopSidecar` implements `CoreRuntime`. Mihomo executable and configuration
-paths belong to the desktop agent's startup
-configuration. Browser RPC calls cannot choose an executable or arbitrary file.
+`DesktopMihomoProcess` implements `CoreRuntime` for the managed Mihomo process.
+Mihomo executable and configuration paths belong to the
+desktop bridge's startup configuration. Browser RPC calls cannot choose an
+executable or arbitrary file.
 The process manager checks the configured executable's version before launch,
 tracks PID and process liveness, sends `SIGTERM` on stop, applies a bounded wait,
-and reaps or kills the child before agent shutdown completes. It does not start
-Mihomo automatically.
+and reaps or kills the child before bridge shutdown completes. A background
+process monitor also detects termination outside an explicit stop command,
+updates `CoreStatus`, and reports the transition through the shared runtime event
+sink so RPC and native subscribers cannot retain a false healthy state. It does
+not start Mihomo automatically.
+
+`crates/mihomo-controller` implements a transport-neutral, read-only client for
+the pinned Mihomo Controller surface. It validates bounded unary and streaming
+responses but is not yet composed into the desktop bridge, Rust runtime, RPC,
+or product adapters. See
+[`mihomo-controller-integration.md`](mihomo-controller-integration.md) for the
+process boundaries, data flow, terminology, and remaining mapping gaps.
 
 The current Status snapshot from Rust is deliberately sparse and reports
 System Proxy and TUN as unavailable. Commands not backed by real controller or
 platform reconciliation return a typed capability error instead of fake
-success. Serving the offline Web bundle from the same origin and mapping Mihomo
-controller streams remain follow-up work, so the production Web startup still
-uses `FixtureStatusClient`.
+success. The RPC Status client therefore advertises no supported mutations, and
+the shared UI presents its profile, routing, group, service, System Proxy, and
+TUN controls as unavailable rather than runnable. Reconciling Controller
+observations into richer product snapshots remains follow-up work.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift
 `NEPacketTunnelProvider` with an embedded core framework. These adapters are
 not scaffolded until a native ABI, signing, and lifecycle slice is approved.
 
-`packages/mock-agent` implements the same shared contracts in TypeScript over a
+`packages/mock-bridge` implements the same shared contracts in TypeScript over a
 real loopback WebSocket server. It supports deterministic snapshots,
 subscriptions, commands, injected typed failures, and mock core state for test
 and adapter development. It is manually started and never selected by default.
@@ -138,13 +157,21 @@ screen styles. Core surfaces should not depend on a CDN or appear behind runtime
 download placeholders. Code splitting remains acceptable for maintainability,
 but it is not required merely to optimize a hosted-web cold start.
 
+`apps/desktop` implements the first shell slice. Tauri embeds `apps/web/dist`,
+uses its application-protocol `index.html` fallback for React Router paths, and
+starts the existing loopback desktop bridge on an ephemeral port. One permission-scoped
+IPC command passes a process-only token and validated endpoint to the main
+WebView. Ordinary browser startup remains fixture-backed. The detailed resource
+flow and threat model are documented in
+[`desktop-bootstrap.md`](desktop-bootstrap.md).
+
 ## macOS status-bar behavior
 
 The macOS application normally remains available from the status bar. The
 native menu should expose stable, common commands such as proxy start/stop,
 capture modes, profile selection, group-scoped proxy selection, opening the
 Tauri window, and opening the local browser client. Menu commands call the same
-local-agent application API as the React UI.
+desktop-bridge application API as the React UI.
 
 ## Native sidebar material
 
@@ -176,7 +203,7 @@ packages/
   design-tokens/       Generated or shared token exports
 crates/
   runtime/             Transport-neutral application runtime and core seam
-  agent/               Desktop loopback service and Mihomo sidecar adapter
+  desktop-bridge/      Desktop bridge and managed-process adapter
   platform-macos/      macOS capability implementation
   privileged-helper/   Narrow elevated operations
 ```
