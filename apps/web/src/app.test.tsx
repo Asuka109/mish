@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
 import {
   StatusClientError,
+  type CaptureSelectionDto,
   type RoutingMode,
   type StatusClient,
   type StatusSnapshotDto,
@@ -54,6 +55,15 @@ class DeferredRoutingClient extends FixtureStatusClient {
 class FailingServicesClient extends FixtureStatusClient {
   override restoreDefaultServices(): Promise<StatusSnapshotDto> {
     return Promise.reject(new StatusClientError("remote", "Restore failed"));
+  }
+}
+
+class FailingCaptureClient extends FixtureStatusClient {
+  override setCapture(
+    _selection: CaptureSelectionDto,
+    _active: boolean,
+  ): Promise<StatusSnapshotDto> {
+    return Promise.reject(new StatusClientError("remote", "Capture failed"));
   }
 }
 
@@ -138,6 +148,117 @@ describe("Status fixture experience", () => {
     expect(
       await screen.findByRole("button", { name: "Enable the proxy demo state" }),
     ).toBeInTheDocument();
+  });
+
+  it("remembers selected capture modes when the master control stops and resumes capture", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    const systemProxy = await screen.findByRole("button", { name: /^System Proxy/ });
+    expect(systemProxy).toHaveAttribute("aria-pressed", "true");
+    expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
+
+    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
+
+    await waitFor(() => {
+      expect(systemProxy).toHaveAttribute("aria-pressed", "true");
+      expect(systemProxy).toHaveAccessibleName("System Proxy, selected, not running");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Enable the proxy demo state" }));
+
+    await waitFor(() => {
+      expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
+    });
+  });
+
+  it("starts the complete remembered combination when a stopped unselected mode is added", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    await user.click(await screen.findByRole("button", { name: "Disable the proxy demo state" }));
+    const systemProxy = screen.getByRole("button", {
+      name: "System Proxy, selected, not running",
+    });
+    const tun = screen.getByRole("button", {
+      name: "Virtual Interface, not selected, not running",
+    });
+
+    await user.click(tun);
+
+    await waitFor(() => {
+      expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
+      expect(tun).toHaveAccessibleName("Virtual Interface, selected, running");
+    });
+  });
+
+  it("removes a remembered mode without starting capture when its gray control is clicked", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    await user.click(await screen.findByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "System Proxy, selected, not running" }));
+
+    expect(
+      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(
+      screen.getByRole("button", { name: "Virtual Interface, selected, not running" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Enable the proxy demo state" })).toHaveAttribute(
+      "title",
+      "Start proxy with Virtual Interface",
+    );
+  });
+
+  it("uses System Proxy as the master-control fallback when no mode is selected", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    await user.click(
+      await screen.findByRole("button", { name: "System Proxy, selected, running" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Enable the proxy demo state" })).toHaveAttribute(
+      "title",
+      "Start proxy with System Proxy",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Enable the proxy demo state" }));
+
+    expect(
+      await screen.findByRole("button", { name: "System Proxy, selected, running" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("does not remember an unconfirmed capture-mode change", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status", "en", new FailingCaptureClient());
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
+    expect(screen.getByRole("button", { name: "System Proxy, selected, running" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    ).toHaveAttribute("aria-pressed", "false");
   });
 
   it("prevents duplicate commands while pending and preserves confirmed state on failure", async () => {

@@ -77,6 +77,7 @@ function createSnapshot() {
     profiles: [{ id: "配置-α", label: "工作 🌏" }],
     routingMode: "rule",
     runtime: {
+      captureSelection: { systemProxy: false, tun: false },
       message: "Ready",
       phase: "healthy",
       systemProxyEnabled: false,

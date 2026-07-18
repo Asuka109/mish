@@ -516,9 +516,20 @@ h2 {
   height: 15px;
 }
 
-.capture-mode-button[aria-pressed="true"] svg,
-.capture-mode-button[data-pressed] svg {
-  color: var(--color-success);
+.capture-mode-button[data-capture-state="remembered"] {
+  color: var(--color-text-muted);
+}
+
+.capture-mode-button[data-capture-state="remembered"] svg {
+  color: var(--color-muted-soft);
+}
+
+.capture-mode-button[data-capture-state="running"] {
+  color: var(--color-body);
+}
+
+.capture-mode-button[data-capture-state="running"] svg {
+  color: color-mix(in srgb, var(--color-success) 64%, var(--color-muted-soft));
 }
 
 .capture-help-button {
@@ -1053,11 +1064,11 @@ h2 {
   grid-template-columns: 24px minmax(0, 1fr);
   gap: 10px;
   padding: 14px 0;
-  border-bottom: 1px solid var(--color-hairline);
 }
 
-.capture-explanation:last-child {
-  border-bottom: 0;
+.info-dialog .dialog-header,
+.info-dialog .dialog-footer {
+  border: 0;
 }
 
 .capture-explanation > svg {

@@ -156,13 +156,14 @@ When implementing from a selected generated mock, treat that image as the source
   child backgrounds flatten the visible corners.
 - Put traffic-capture configuration and Routing mode in the same two-row
   `SectionGrid`. Traffic capture uses standalone shadcn Toggle controls labeled
-  exactly “系统代理” and “增强模式（TUN）”. Each toggle owns a complete outline
+  exactly “系统代理” and “虚拟网卡”. Each toggle owns a complete outline
   and radius. The adjacent question button is a separate outline button and opens a shadcn
   Dialog explaining the difference. Stack the two control rows vertically, but keep
   each row's label and controls on one line. Let labels use their natural width,
   then left-align controls with a consistent 24px gap. `ProxyControlButton`
-  remains the aggregate master control: stop disables both, and a fresh start
-  enables System Proxy by default.
+  remains the aggregate master control: stop pauses both without clearing the
+  selected combination, and start resumes it. When neither mode is selected,
+  start selects and enables System Proxy as the compatibility default.
 - The Status toolbar contains one shadcn DropdownMenu showing the active
   configuration. Keep it visually quiet because profile switching is infrequent.
   Do not use that position for a supposedly global active node or a persistent

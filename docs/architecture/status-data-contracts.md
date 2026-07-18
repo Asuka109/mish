@@ -14,17 +14,17 @@ snapshot sources.
 
 ## DTO families
 
-| DTO                       | Required meaning                                                       | Authority                                   |
-| ------------------------- | ---------------------------------------------------------------------- | ------------------------------------------- |
-| `RuntimeStatusDto`        | Core lifecycle, System Proxy state, TUN state, error or transition     | Local agent plus platform adapter           |
-| `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                     | Mihomo traffic stream                       |
-| `RuntimeMetricsDto`       | Memory in use, uptime, active connections, effective rules             | Mihomo observations plus local-agent uptime |
-| `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                    | Local agent persistence                     |
-| `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data       | Mihomo proxy tree plus delay observations   |
-| `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations         | Local-agent derivation                      |
-| `ServiceMonitorDto`       | ID, opaque title, URL, icon key, probe policy                          | Local agent persistence                     |
-| `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target          | Local-agent probe execution                 |
-| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities | Platform adapter                            |
+| DTO                       | Required meaning                                                                             | Authority                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `RuntimeStatusDto`        | Core lifecycle, capture selection, confirmed System Proxy and TUN state, error or transition | Local agent plus platform adapter           |
+| `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                                           | Mihomo traffic stream                       |
+| `RuntimeMetricsDto`       | Memory in use, uptime, active connections, effective rules                                   | Mihomo observations plus local-agent uptime |
+| `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local agent persistence                     |
+| `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations   |
+| `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-agent derivation                      |
+| `ServiceMonitorDto`       | ID, opaque title, URL, icon key, probe policy                                                | Local agent persistence                     |
+| `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-agent probe execution                 |
+| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                            |
 
 User-authored Mihomo labels are opaque Unicode strings. Production code must
 not split, normalize, reorder, or infer structured emoji and text fields. The
@@ -37,6 +37,11 @@ mutations, and Status subscription lifecycle. Every command returns a newly
 confirmed `StatusSnapshotDto`; a JSON-RPC success envelope with an invalid result
 is a validation failure, not command success. RPC snapshots must identify their
 adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
+
+Capture selection is device-level intent and is distinct from confirmed runtime
+state. The capture command carries the complete selection plus an aggregate
+active flag. Stopping may therefore disable both runtime paths without erasing
+the selection, while starting can restore the complete remembered combination.
 
 ## Mihomo core source mapping
 

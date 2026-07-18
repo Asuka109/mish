@@ -367,10 +367,14 @@ icon, label, and caret muted until hover or focus so it does not compete with
 Status-page controls.
 
 Traffic capture uses two standalone shadcn `Toggle` controls labeled “系统代理”
-and “增强模式（TUN）”, because the capabilities are not mutually exclusive.
+and “虚拟网卡”, because the capabilities are not mutually exclusive. Explain
+the TUN implementation detail inside the adjacent help dialog rather than in
+the compact control label.
 Give each control its own complete outline and radius. Use the same muted
-pressed fill as Routing mode, while retaining the green enabled icon as the
-capture-specific semantic cue.
+pressed treatment as Routing mode whenever it is selected. A selected but
+stopped mode keeps muted label and icon colors; a selected and running mode uses
+a restrained green icon. Provide equivalent accessible state text so runtime
+state does not depend on color alone.
 Place Traffic capture and Routing mode as two vertically stacked rows in the
 same `SectionGrid`. Within each row, keep the label and control on one line.
 Let each row use the label's natural width, then left-align its controls with a
@@ -379,8 +383,10 @@ Place the question button beside the two traffic-capture toggles;
 it opens a concise explanation dialog without appearing to be another capture
 mode.
 The sidebar `ProxyControlButton`
-remains the aggregate everyday control: stopping it disables both capture
-paths, while starting from fully inactive enables System Proxy by default.
+remains the aggregate everyday control: stopping it pauses every selected
+capture path without clearing the selection, and starting it resumes the full
+remembered combination. When no path is selected, starting selects and enables
+System Proxy as the compatibility default.
 
 ## Do's and Don'ts
 

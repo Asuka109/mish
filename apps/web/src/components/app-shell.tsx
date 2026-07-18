@@ -61,15 +61,24 @@ function ProxyControlButton() {
   const active = runtime ? runtime.systemProxyEnabled || runtime.tunEnabled : false;
   const pending = isCommandPending("capture");
   const phase = pending ? (active ? "stopping" : "connecting") : (runtime?.phase ?? "inactive");
+  const resumeSelection =
+    runtime && (runtime.captureSelection.systemProxy || runtime.captureSelection.tun)
+      ? runtime.captureSelection
+      : { systemProxy: true, tun: false };
+  const resumeModes = [
+    resumeSelection.systemProxy ? LL.capture.systemProxy() : null,
+    resumeSelection.tun ? LL.capture.tun() : null,
+  ].filter((mode) => mode !== null);
+  const resumeDescription = LL.proxyControl.enableWithModes({ modes: resumeModes.join(" + ") });
 
   async function handleToggle() {
     if (!runtime) return;
     if (active) {
-      await setCapture(false, false);
+      await setCapture(runtime.captureSelection, false);
       return;
     }
 
-    await setCapture(true, false);
+    await setCapture(resumeSelection, true);
   }
 
   return (
@@ -80,6 +89,7 @@ function ProxyControlButton() {
       data-status={phase}
       disabled={!snapshot || pending}
       onClick={handleToggle}
+      title={active ? LL.proxyControl.disable() : resumeDescription}
       type="button"
     >
       {phase === "healthy" ? <StatusShimmer active /> : null}

@@ -18,7 +18,15 @@ interface TrafficCaptureControlProps {
   onSystemProxyChange(value: boolean): void;
   onTunChange(value: boolean): void;
   systemProxyEnabled: boolean;
+  systemProxySelected: boolean;
   tunEnabled: boolean;
+  tunSelected: boolean;
+}
+
+function getCaptureState(selected: boolean, enabled: boolean) {
+  if (enabled) return "running";
+  if (selected) return "remembered";
+  return "unselected";
 }
 
 export function TrafficCaptureControl({
@@ -26,7 +34,9 @@ export function TrafficCaptureControl({
   onSystemProxyChange,
   onTunChange,
   systemProxyEnabled,
+  systemProxySelected,
   tunEnabled,
+  tunSelected,
 }: TrafficCaptureControlProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const { LL } = useI18nContext();
@@ -35,20 +45,32 @@ export function TrafficCaptureControl({
     <>
       <div className="capture-control">
         <Toggle
+          aria-label={LL.capture.modeAria({
+            mode: LL.capture.systemProxy(),
+            runtime: systemProxyEnabled ? LL.capture.running() : LL.capture.notRunning(),
+            selection: systemProxySelected ? LL.capture.selected() : LL.capture.notSelected(),
+          })}
           className="capture-mode-button"
+          data-capture-state={getCaptureState(systemProxySelected, systemProxyEnabled)}
           disabled={disabled}
           onPressedChange={onSystemProxyChange}
-          pressed={systemProxyEnabled}
+          pressed={systemProxySelected}
           variant="outline"
         >
           <Desktop aria-hidden="true" data-icon="inline-start" weight="fill" />
           <span>{LL.capture.systemProxy()}</span>
         </Toggle>
         <Toggle
+          aria-label={LL.capture.modeAria({
+            mode: LL.capture.tun(),
+            runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
+            selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
+          })}
           className="capture-mode-button"
+          data-capture-state={getCaptureState(tunSelected, tunEnabled)}
           disabled={disabled}
           onPressedChange={onTunChange}
-          pressed={tunEnabled}
+          pressed={tunSelected}
           variant="outline"
         >
           <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
