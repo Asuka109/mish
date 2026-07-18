@@ -31,7 +31,7 @@ The six stable destinations are:
 | URL         | Current Part 1 state                                            |
 | ----------- | --------------------------------------------------------------- |
 | `/status`   | Complete fixture-backed reference surface                       |
-| `/routes`   | Structured policy-group ownership and bridge-unavailable state  |
+| `/routes`   | Nested fixture policy graph; RPC selection remains read-only    |
 | `/profiles` | Structured profile-lifecycle ownership and missing-store state  |
 | `/traffic`  | Structured connections/rules ownership and missing-stream state |
 | `/events`   | Structured event/diagnostic ownership and missing-buffer state  |
@@ -74,6 +74,13 @@ Automated tests cover:
 - direct rendering of all six deep-link routes;
 - semantic sidebar links and accessible active destination state;
 - typed fixture snapshot isolation and fixture-only capability declarations;
+- legacy selector-contract compatibility plus all extended policy-group types;
+- nested group graph validation for cycles, missing children, duplicate or
+  illegal relationships, and invalid current selections;
+- Unicode route search, per-group configuration/latency/label sorting,
+  selector-scoped selection, unsupported-group behavior, and RPC read-only
+  controls;
+- a 160-node scale fixture whose collapsed children are not rendered;
 - group-scoped child validation and selection;
 - aggregate capture state without real system operations;
 - routing-mode changes through Base UI pressed-state controls;
@@ -124,6 +131,8 @@ Before a visible production change is accepted, verify:
 - reduced-motion mode, WebGL unavailable fallback, and an inactive aggregate
   control;
 - long mixed-script, emoji, and no-emoji labels without semantic parsing;
+- Routes search, independent group sorting, nested expansion, read-only control
+  descriptions, and the collapsed large-fixture rendering boundary;
 - Services at three columns and one column; and
 - no browser console errors, unexpected runtime requests, or CDN assets.
 

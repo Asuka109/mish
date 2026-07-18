@@ -36,6 +36,23 @@ not split, normalize, reorder, or infer structured emoji and text fields. The
 current sketch keeps separate fixture properties only for convenient mock
 construction; that shape is not a production contract.
 
+`PolicyGroupDto` is a discriminated union for `selector`, `url-test`,
+`fallback`, `load-balance`, `relay`, `direct`, `reject`, and `unsupported`.
+The original strict selector payload remains unchanged: it requires
+`childIds`, `id`, `label`, a non-null `selectedChildId`, and
+`type: "selector"`. Automatic groups may report a nullable current child;
+terminal Direct and Reject groups have no children. An unsupported group keeps
+its opaque upstream kind in `unsupportedType` so the UI can describe the
+limitation without treating the group as a selector.
+
+Group `childIds` may reference either another group or a proxy node. The Routes
+view validates the complete graph before rendering it. Duplicate entity IDs,
+duplicate child relationships, missing children, selections outside a group,
+children on terminal groups, and cycles produce a safe graph error instead of
+a partial or flattened route list. A node may still be referenced by multiple
+groups; each reference remains under its owning group because that is valid
+policy-graph structure rather than duplicate global state.
+
 The current command contracts cover snapshot reads, capture and routing-mode
 changes, active-profile selection, group-scoped child selection, service-monitor
 mutations, and Status subscription lifecycle. Every command returns a newly
@@ -89,6 +106,12 @@ without introducing Controller transport dependencies into runtime. The
 Controller-specific mapper lives in `crates/desktop-bridge`; it is deliberately
 not composed into `MishRuntime` or the RPC server until a desktop owner exists
 for Controller fetching, stream lifecycle, freshness, and uptime.
+
+The current Rust `PolicyGroupKind` and Controller mapper deliberately emit only
+the backward-compatible selector variant. The broader TypeScript contract and
+fixture let the product UI validate the complete Routes interaction model now;
+extending the Rust enum and pinned Controller mapper remains follow-up work and
+must preserve the same graph validation rules.
 
 ## Mihomo core source mapping
 

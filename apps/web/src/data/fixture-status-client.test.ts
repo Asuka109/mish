@@ -24,6 +24,17 @@ describe("FixtureStatusClient", () => {
     expect(next.groups.find((group) => group.id === "proxy")?.selectedChildId).toBe("hkg-02");
   });
 
+  it("allows selection only inside selector groups", async () => {
+    const client = new FixtureStatusClient();
+    await expect(client.selectGroupChild("auto-fast", "sin-01")).rejects.toThrow(
+      "group is not a selector",
+    );
+
+    const next = await client.selectGroupChild("proxy", "auto-fast");
+    expect(next.groups.find((group) => group.id === "proxy")?.selectedChildId).toBe("auto-fast");
+    expect(next.groups.find((group) => group.id === "auto-fast")?.selectedChildId).toBe("nrt-03");
+  });
+
   it("models capture actions as fixture state only", async () => {
     const client = new FixtureStatusClient();
     const selection = { systemProxy: true, tun: false };

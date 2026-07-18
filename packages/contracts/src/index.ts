@@ -75,16 +75,47 @@ export const ProxyNodeSchema = z
   .strict();
 export interface ProxyNodeDto extends z.infer<typeof ProxyNodeSchema> {}
 
-export const PolicyGroupSchema = z
-  .object({
-    childIds: z.array(IdentifierSchema),
-    id: IdentifierSchema,
-    label: z.string(),
-    selectedChildId: IdentifierSchema,
-    type: z.literal("selector"),
-  })
-  .strict();
-export interface PolicyGroupDto extends z.infer<typeof PolicyGroupSchema> {}
+export const PolicyGroupTypeSchema = z.enum([
+  "selector",
+  "url-test",
+  "fallback",
+  "load-balance",
+  "relay",
+  "direct",
+  "reject",
+  "unsupported",
+]);
+export type PolicyGroupType = z.infer<typeof PolicyGroupTypeSchema>;
+
+const PolicyGroupBaseSchema = z.object({
+  childIds: z.array(IdentifierSchema),
+  id: IdentifierSchema,
+  label: z.string(),
+});
+
+export const SelectorPolicyGroupSchema = PolicyGroupBaseSchema.extend({
+  selectedChildId: IdentifierSchema,
+  type: z.literal("selector"),
+}).strict();
+
+export const AutomaticPolicyGroupSchema = PolicyGroupBaseSchema.extend({
+  selectedChildId: IdentifierSchema.nullable(),
+  type: z.enum(["url-test", "fallback", "load-balance", "relay", "direct", "reject"]),
+}).strict();
+
+export const UnsupportedPolicyGroupSchema = PolicyGroupBaseSchema.extend({
+  selectedChildId: IdentifierSchema.nullable(),
+  type: z.literal("unsupported"),
+  unsupportedType: z.string().min(1),
+}).strict();
+
+export const PolicyGroupSchema = z.discriminatedUnion("type", [
+  SelectorPolicyGroupSchema,
+  AutomaticPolicyGroupSchema,
+  UnsupportedPolicyGroupSchema,
+]);
+export type PolicyGroupDto = z.infer<typeof PolicyGroupSchema>;
+export type SelectorPolicyGroupDto = z.infer<typeof SelectorPolicyGroupSchema>;
 
 export const GroupUsageSchema = z
   .object({
