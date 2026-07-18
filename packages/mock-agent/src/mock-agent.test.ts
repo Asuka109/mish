@@ -42,7 +42,8 @@ describe("mock agent", () => {
         ({ snapshot }) => resolve(snapshot.routingMode),
       );
     });
-    await rpc.request("status.subscribe", {});
+    const subscription = await rpc.request("status.subscribe", {});
+    expect(subscription.snapshot.routingMode).toBe("rule");
     const changed = await rpc.request("status.setRoutingMode", { mode: "direct" });
     expect(changed.routingMode).toBe("direct");
     await expect(notification).resolves.toBe("direct");

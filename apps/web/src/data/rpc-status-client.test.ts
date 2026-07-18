@@ -139,7 +139,7 @@ describe("RpcStatusClient", () => {
     transports[0].respond({
       id: subscribeRequest.id,
       jsonrpc: "2.0",
-      result: { subscriptionId: "subscription-1" },
+      result: { snapshot, subscriptionId: "subscription-1" },
     });
     await flushMicrotasks();
     transports[0].respond({
@@ -149,6 +149,7 @@ describe("RpcStatusClient", () => {
     });
     expect(receivedSnapshots.at(-1)?.profiles[0].label).toBe("配置 🌏");
     expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: false });
+    const snapshotsBeforeReconnect = receivedSnapshots.length;
 
     const getSnapshot = client.getSnapshot();
     const snapshotRequest = await waitForRequest(transports[0], 2);
@@ -179,16 +180,12 @@ describe("RpcStatusClient", () => {
     transports[1].respond({
       id: resubscribeRequest.id,
       jsonrpc: "2.0",
-      result: { subscriptionId: "subscription-2" },
+      result: { snapshot, subscriptionId: "subscription-2" },
     });
     await flushMicrotasks();
-    transports[1].respond({
-      jsonrpc: "2.0",
-      method: "status.snapshot",
-      params: { snapshot, subscriptionId: "subscription-2" },
-    });
 
-    expect(receivedSnapshots).toHaveLength(2);
+    expect(receivedSnapshots).toHaveLength(snapshotsBeforeReconnect + 1);
+    expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: false });
     expect(connectionStates).toContain("reconnecting:true");
     unsubscribeSnapshot();
     unsubscribeConnection();

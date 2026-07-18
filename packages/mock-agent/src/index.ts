@@ -227,7 +227,7 @@ export async function startMockAgent(options: MockAgentOptions): Promise<MockAge
         const values = params as Record<string, unknown>;
         switch (method) {
           case "agent.getInfo":
-            return { agentVersion: "mock", coreConfigured: true, protocolVersion: 1 };
+            return { agentVersion: "mock", coreConfigured: true, protocolVersion: 2 };
           case "core.getStatus":
             return core;
           case "core.start":
@@ -294,7 +294,7 @@ export async function startMockAgent(options: MockAgentOptions): Promise<MockAge
           case "status.subscribe": {
             const subscriptionId = `status-${crypto.randomUUID()}`;
             subscriptions.get(socket)?.add(subscriptionId);
-            return { subscriptionId };
+            return { snapshot: structuredClone(snapshot), subscriptionId };
           }
           case "status.unsubscribe":
             return subscriptions.get(socket)?.delete(String(values.subscriptionId)) ?? false;
