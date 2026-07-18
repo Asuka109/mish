@@ -34,8 +34,9 @@ after validating its private bootstrap payload.
 9. The token remains in process memory for reconnect authentication. Neither
    side writes it to a file, URL, log, query string, fragment, cookie,
    `localStorage`, or `sessionStorage`.
-10. When the Tauri event loop exits, the shell shuts down the in-process bridge;
-    the bridge applies its existing core cleanup behavior.
+10. When the Tauri event loop exits, the shell shuts down the in-process bridge.
+    The runtime first closes and awaits any injected Status data source, then
+    stops the core lifecycle, and finally closes the RPC server.
 
 If a later slice moves frontend hosting to the local HTTP bridge, the host must
 serve exact bundled assets, return `index.html` for unknown non-asset `GET` and
@@ -70,8 +71,13 @@ claim that process memory is a secure enclave.
 
 - The in-process bridge uses no Mihomo binary or configuration path, so it reports
   real but sparse local state and does not start the core automatically.
-- Controller-derived Status values and network-changing commands remain owned by
-  later bridge/runtime sessions.
+- The shared desktop composition can inject an explicit loopback Controller and
+  publish read-only Controller-derived Status values. The current Tauri shell
+  deliberately supplies no Controller configuration because core launch,
+  address, secret, and profile ownership are not specified yet; it therefore
+  remains lifecycle-only and performs no discovery from system or environment
+  state.
+- Network-changing Status commands remain unsupported.
 - The Tauri shell has no status-bar menu or native sidebar material yet.
 - Installer packaging, final icon production, entitlements, code signing,
   notarization, update metadata, and release distribution are not configured.

@@ -41,7 +41,7 @@ pub struct LoopbackServerHandle {
 
 impl LoopbackServerHandle {
     pub async fn shutdown(mut self) {
-        let _ = self.runtime.stop_core().await;
+        let _ = self.runtime.shutdown().await;
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }

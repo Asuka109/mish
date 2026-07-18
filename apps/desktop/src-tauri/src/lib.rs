@@ -5,9 +5,9 @@ use std::{
 };
 
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, start_loopback_server,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig,
+    compose_desktop_runtime, start_loopback_server,
 };
-use mish_runtime::MishRuntime;
 use serde::Serialize;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
@@ -27,22 +27,28 @@ fn runtime_bootstrap(state: tauri::State<'_, RuntimeBootstrap>) -> RuntimeBootst
 
 pub fn run() -> Result<i32, String> {
     let auth_token = generate_auth_token()?;
-    let runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
-        DesktopMihomoProcessConfig {
-            binary: None,
-            config_directory: None,
-            config_file: None,
-        },
-    )));
-    let bridge = tauri::async_runtime::block_on(start_loopback_server(
-        LoopbackServerConfig {
-            allowed_origins: allowed_origins(tauri::is_dev()),
-            auth_token: auth_token.clone(),
-            bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-            max_message_bytes: 1_048_576,
-        },
-        runtime,
-    ))?;
+    let bridge = tauri::async_runtime::block_on(async {
+        let runtime = compose_desktop_runtime(
+            Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+                binary: None,
+                config_directory: None,
+                config_file: None,
+            })),
+            None,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+        start_loopback_server(
+            LoopbackServerConfig {
+                allowed_origins: allowed_origins(tauri::is_dev()),
+                auth_token: auth_token.clone(),
+                bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+                max_message_bytes: 1_048_576,
+            },
+            runtime,
+        )
+        .await
+    })?;
     let bootstrap = RuntimeBootstrap {
         auth_token,
         rpc_url: format!("ws://{}/rpc", bridge.address),

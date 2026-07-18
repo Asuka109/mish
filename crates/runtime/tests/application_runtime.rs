@@ -46,6 +46,14 @@ struct UnavailableCore;
 
 struct SuppliedStatusSource;
 
+struct ShutdownRecordingSource {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+struct ShutdownRecordingCore {
+    order: Arc<Mutex<Vec<&'static str>>>,
+}
+
 impl StatusDataSource for SuppliedStatusSource {
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
         let mut snapshot = StatusSnapshot::lifecycle_only(core, adapter_kind);
@@ -55,6 +63,49 @@ impl StatusDataSource for SuppliedStatusSource {
             label: "Supplied profile".into(),
         }];
         snapshot
+    }
+}
+
+impl StatusDataSource for ShutdownRecordingSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+
+    fn shutdown(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            self.order.lock().unwrap().push("status-source");
+        })
+    }
+}
+
+impl CoreRuntime for ShutdownRecordingCore {
+    fn configured(&self) -> bool {
+        true
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(ready(CoreStatus {
+            error: None,
+            phase: CorePhase::Running,
+            pid: None,
+            version: Some("embedded-test".into()),
+        }))
+    }
+
+    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move { Ok(self.status().await) })
+    }
+
+    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move {
+            self.order.lock().unwrap().push("core");
+            Ok(CoreStatus {
+                error: None,
+                phase: CorePhase::Stopped,
+                pid: None,
+                version: Some("embedded-test".into()),
+            })
+        })
     }
 }
 
@@ -197,4 +248,21 @@ async fn runtime_forwards_adapter_reported_lifecycle_events() {
     let update = updates.recv().await.unwrap();
     assert!(matches!(update.phase, CorePhase::Failed));
     assert_eq!(update.error.as_deref(), Some("Embedded core exited"));
+}
+
+#[tokio::test]
+async fn runtime_shuts_down_status_source_before_core_lifecycle() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let runtime = MishRuntime::with_status_source(
+        Arc::new(ShutdownRecordingCore {
+            order: order.clone(),
+        }),
+        Arc::new(ShutdownRecordingSource {
+            order: order.clone(),
+        }),
+    );
+
+    runtime.shutdown().await.unwrap();
+
+    assert_eq!(*order.lock().unwrap(), ["status-source", "core"]);
 }

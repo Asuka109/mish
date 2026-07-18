@@ -103,7 +103,11 @@ pub trait CoreRuntime: Send + Sync {
 }
 
 pub trait StatusDataSource: Send + Sync {
+    fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot;
+    fn shutdown(&self) -> BoxFuture<'_, ()> {
+        Box::pin(std::future::ready(()))
+    }
 }
 
 #[derive(Default)]
@@ -134,6 +138,9 @@ impl MishRuntime {
         let (updates, _) = broadcast::channel(32);
         let events = Arc::new(RuntimeStatusEvents { updates });
         core.attach_status_event_sink(CoreStatusEventSink {
+            events: Arc::downgrade(&events),
+        });
+        status_source.attach_status_event_sink(CoreStatusEventSink {
             events: Arc::downgrade(&events),
         });
         Self {
@@ -178,6 +185,11 @@ impl MishRuntime {
 
     pub fn subscribe_status(&self) -> broadcast::Receiver<CoreStatus> {
         self.events.updates.subscribe()
+    }
+
+    pub async fn shutdown(&self) -> Result<CoreStatus, CoreError> {
+        self.status_source.shutdown().await;
+        self.stop_core().await
     }
 
     fn publish_status(&self, status: &CoreStatus) {

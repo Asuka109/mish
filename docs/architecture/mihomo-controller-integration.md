@@ -47,6 +47,7 @@ flowchart TB
     RpcServer["Authenticated loopback RPC server"]
     Runtime["Transport-neutral Mish runtime"]
     ProcessManager["Desktop process manager"]
+    ObservationSource["Controller Status source"]
     ProductMapper["Read-only Controller Status mapper"]
 
     subgraph AdapterLibrary["Read-only Controller adapter library"]
@@ -58,8 +59,7 @@ flowchart TB
     end
 
     RpcServer --> Runtime --> ProcessManager
-    Validation --> ProductMapper
-    ProductMapper -. "not exposed yet" .-> Runtime
+    Validation --> ObservationSource --> ProductMapper --> Runtime
   end
 
   subgraph Core["Managed Mihomo process"]
@@ -90,10 +90,11 @@ There are three independent paths:
 
 1. **Lifecycle control:** UI RPC calls reach the desktop bridge, which asks the
    process manager to start or stop Mihomo. This path exists today.
-2. **Controller observations:** Mihomo emits Controller JSON, the adapter
-   validates it, and the desktop mapper reconciles caller-supplied observations
-   into typed Status state. Concrete fetching, scheduling, uptime ownership,
-   and publication through runtime/RPC are not composed yet.
+2. **Controller observations:** when the desktop host supplies an explicit
+   loopback Controller configuration, the desktop Status source verifies the
+   pinned version, owns unary refreshes and streams, reconciles validated
+   observations through the mapper, and publishes changes through the runtime
+   to `status.getSnapshot` and `status.subscribe`.
 3. **Device traffic:** application traffic enters Mihomo through a local proxy,
    System Proxy, or TUN path and leaves through Mihomo's selected outbound.
    This traffic never passes through the Controller adapter.
@@ -128,6 +129,40 @@ The adapter validates the pinned version explicitly through
 `verify_version()`. Callers may still read `/version` without claiming that an
 unknown version is supported.
 
+## Desktop observation ownership
+
+`ControllerStatusSource` in `crates/desktop-bridge` is the concrete desktop
+owner for Controller observation. Construction requires injected lifecycle
+data plus an explicit configuration containing a loopback base URL, optional
+Bearer secret, profile ID/fingerprint/label, Controller bounds, transport
+timeouts, refresh interval, and reconnect delay. The configuration is held in
+process memory. It is not discovered from environment variables, system proxy
+settings, profiles, subscriptions, or user directories.
+
+The source starts only after `MishRuntime` attaches its status-event sink. One
+observation session proceeds in this order:
+
+1. Read `/version` and require exactly `v1.19.29`.
+2. Open the `/traffic` and `/memory` WebSocket streams.
+3. Read an initial coalesced batch from `/configs`, `/proxies`, `/rules`,
+   `/connections`, and the first traffic and memory stream messages.
+4. Apply the complete initial batch transactionally and publish the first valid
+   Status change.
+5. Continue long-lived traffic and memory reads while a bounded interval
+   refreshes configs, proxies, rules, and connections as one batch.
+
+The source uses the existing `ControllerClient` and therefore inherits its
+HTTP request timeout, stream connection timeout, response and message bounds,
+per-stream cancellation, and client-wide shutdown semantics. It does not add an
+unbounded response buffer or bypass DTO validation.
+
+`compose_desktop_runtime` is the production composition seam. Passing an
+explicit Controller configuration installs and starts the source. Passing
+`None` constructs the existing lifecycle-only runtime and performs no
+Controller access. The current Tauri shell and standalone bridge binary pass
+`None` because no product-owned Controller launch/configuration specification
+exists yet.
+
 ## Status mapping and reconciliation
 
 `ControllerStatusMapper` accepts a caller-supplied profile ID, profile label,
@@ -154,6 +189,17 @@ unknown child, out-of-group selection, or derived identifier collision rejects
 the whole catalog update and preserves the last valid state. This is necessary
 because the Status contract requires a selected child and cannot honestly
 represent an incomplete group.
+
+The observation source preserves the mapper's transaction boundary. A rejected
+traffic, memory, or refresh batch leaves the last valid mapper state intact and
+sets a diagnostic runtime error. The failed channel clears that diagnostic only
+after it supplies another valid observation. A transport failure, stream end,
+HTTP error, decode failure, validation failure, or unsupported version ends the
+current observation session, preserves the last valid state, reports the
+failure through Status, waits the injected reconnect delay, and starts again at
+version verification. A successful complete initial batch clears prior session
+diagnostics. No failure is converted into a healthy or zero-valued Controller
+sample.
 
 An absent field in an observation batch means that source did not publish a new
 value; the mapper retains its last observation. An explicit empty connection
@@ -206,13 +252,28 @@ caller-supplied lifecycle, uptime, active-profile identity, honest platform
 capabilities, bounded traffic-series retention, and profile-scoped group usage.
 See [`status-data-contracts.md`](status-data-contracts.md) for those semantics.
 
+## Shutdown order
+
+Desktop shutdown is ordered and awaitable:
+
+1. `MishRuntime` asks the Status source to close.
+2. The source cancels its collector token and the `ControllerClient`, which
+   releases outstanding unary reads and WebSocket streams, then awaits the
+   collector task.
+3. The runtime stops the managed Mihomo lifecycle.
+4. The loopback bridge requests graceful RPC server shutdown and awaits the
+   server task.
+
+Closing the source is idempotent. Dropping an unclosed source also signals
+cancellation, but production ownership uses the awaited shutdown path.
+
 ## Explicit exclusions and remaining gaps
 
-The mapping slice does not:
+The composed read-only slice does not:
 
-- instantiate `ControllerClient`, coordinate unary/stream reads, or publish
-  mapped snapshots through the Rust runtime or RPC;
-- change Status subscription ownership or reconnection behavior;
+- discover a Controller configuration or read one from system state;
+- define how a packaged Mihomo process receives its Controller address and
+  secret;
 - mutate profiles, routing mode, group selection, rules, or connections;
 - enable System Proxy, TUN, DNS changes, or privileged operations;
 - call delay-test endpoints, which initiate real network requests and update

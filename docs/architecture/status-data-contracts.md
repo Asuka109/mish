@@ -86,9 +86,19 @@ through the same runtime event stream.
 Rust Status state is now typed in `crates/runtime`. The generic
 `StatusDataSource` boundary can be implemented by desktop or embedded hosts
 without introducing Controller transport dependencies into runtime. The
-Controller-specific mapper lives in `crates/desktop-bridge`; it is deliberately
-not composed into `MishRuntime` or the RPC server until a desktop owner exists
-for Controller fetching, stream lifecycle, freshness, and uptime.
+Controller-specific mapper and observation source live in
+`crates/desktop-bridge`. The source is the desktop owner for Controller fetching,
+stream lifecycle, freshness, reconnects, and close. It attaches to the runtime's
+transport-neutral event sink so accepted observations and diagnostic changes
+are visible through both Status snapshot RPC methods. `StatusDataSource` also
+has an awaited shutdown hook; runtime shutdown closes the source before stopping
+the core lifecycle.
+
+Controller composition is opt-in. The desktop host must inject one explicit
+loopback base URL, optional secret, profile identity/fingerprint/label,
+Controller limits and timing policy, and the same lifecycle object used by
+`MishRuntime`. Without that configuration, runtime construction remains
+lifecycle-only and performs no Controller read or configuration discovery.
 
 ## Mihomo core source mapping
 
@@ -116,6 +126,13 @@ active count to zero. It retains at most 512 traffic-rate observations and a
 bounded recent set of connection IDs for group-usage de-duplication. Invalid
 catalog relationships reject the batch transactionally instead of inventing a
 selected child.
+
+The desktop source stores only a mapper produced by a valid batch. An invalid
+later observation therefore leaves all prior Controller-derived values intact,
+while the Status runtime phase and message expose the source failure. Stream or
+transport loss follows the same stale-data rule and starts a new session after
+the configured reconnect delay. Session recovery revalidates the pinned version
+and requires a complete initial batch before clearing the diagnostic state.
 
 The Controller traffic DTO preserves Mihomo's signed 64-bit wire fields. At the
 Controller-to-Status boundary, the mapper checked-converts each rate and total
