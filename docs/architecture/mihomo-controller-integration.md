@@ -217,6 +217,17 @@ complete batch. Unsupported versions and invalid first snapshots are typed
 terminal candidate failures; ordinary connection failures may retry only until
 the activation readiness deadline.
 
+The source also implements the runtime observation-control hook used by desktop
+lifecycle coordination. A sleep pause cancels the live Status/Traffic and Events
+collector tasks and leaves the last session explicitly stale. A network change,
+wake rebuild, or unavailable core increments the observation generation, waits
+for in-flight command authority, clears the mapper, connections, event buffer,
+event session, and group-delay authority, and rejects late collector work from
+older generations. Resume opens new streams and publishes authority only after
+the ordinary pinned-version and complete-initial-batch barrier succeeds. It does
+not restart Mihomo, probe an arbitrary endpoint, or reuse an old connection
+session identifier.
+
 `compose_desktop_runtime` remains the lifecycle/Controller composition seam.
 Passing an explicit Controller configuration installs and starts the source.
 Passing `None` constructs the existing lifecycle-only runtime and performs no

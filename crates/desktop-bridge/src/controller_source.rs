@@ -18,10 +18,11 @@ use mish_runtime::{
     EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
     EventsDataSource, EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult,
     GroupDelayFailure, GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, ProfileSummary,
-    ProxyDiagnosticFailure, ProxyDiagnosticObservation, RoutingMode, RuntimePhase,
-    StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusDataSource,
-    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
-    TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+    ProxyDiagnosticFailure, ProxyDiagnosticObservation, RoutingMode, RuntimeObservationPauseReason,
+    RuntimePhase, StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
+    StatusDataSource, StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution,
+    TrafficCommandFailureKind, TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot,
+    TrafficDataSource,
 };
 use thiserror::Error;
 use tokio::{
@@ -149,6 +150,54 @@ impl SourceState {
     }
 }
 
+fn invalidate_source_state(inner: &SourceInner, reason: RuntimeObservationPauseReason) {
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    state.group_delay_test = GroupDelayTest::idle();
+    state.running_since = None;
+
+    match reason {
+        RuntimeObservationPauseReason::Sleep => {
+            state.diagnostics.insert(
+                ObservationChannel::Session,
+                "Mihomo Controller observations paused while the system is sleeping".into(),
+            );
+            state.event_phase = if state.event_session_id.is_some() {
+                EventsDataPhase::Stale
+            } else {
+                EventsDataPhase::Unavailable
+            };
+        }
+        RuntimeObservationPauseReason::CoreUnavailable
+        | RuntimeObservationPauseReason::NetworkChanged => {
+            state.diagnostics.clear();
+            state.diagnostics.insert(
+                ObservationChannel::Session,
+                match reason {
+                    RuntimeObservationPauseReason::CoreUnavailable => {
+                        "Mihomo Controller authority was invalidated after the core became unavailable"
+                    }
+                    RuntimeObservationPauseReason::NetworkChanged => {
+                        "Mihomo Controller authority was invalidated after the network changed"
+                    }
+                    RuntimeObservationPauseReason::Sleep => unreachable!(),
+                }
+                .into(),
+            );
+            state.initial_observation = ControllerInitialObservation::Pending;
+            state.mapper = None;
+            state.traffic_sequence = 0;
+            state.traffic_session_id = None;
+            state.event_phase = EventsDataPhase::Unavailable;
+            state.event_sequence = 0;
+            state.event_session_id = None;
+            state.events.clear();
+        }
+    }
+}
+
 struct SourceInner {
     authority: AsyncMutex<()>,
     cancellation: CancellationToken,
@@ -156,6 +205,8 @@ struct SourceInner {
     command: AsyncMutex<()>,
     confirmation_timeout: Duration,
     lifecycle: Arc<dyn CoreRuntime>,
+    observation_generation: AtomicU64,
+    observations_active: AtomicBool,
     event_source_id: u64,
     event_updates: broadcast::Sender<()>,
     group_delay_control: Mutex<Option<(String, CancellationToken)>>,
@@ -170,8 +221,12 @@ pub struct ControllerStatusSource {
     closed: AtomicBool,
     inner: Arc<SourceInner>,
     group_delay_task: AsyncMutex<Option<JoinHandle<()>>>,
-    started: AtomicBool,
-    task: AsyncMutex<Option<JoinHandle<()>>>,
+    observation_task: AsyncMutex<Option<ObservationTask>>,
+}
+
+struct ObservationTask {
+    cancellation: CancellationToken,
+    join: JoinHandle<()>,
 }
 
 impl ControllerStatusSource {
@@ -206,6 +261,8 @@ impl ControllerStatusSource {
                 command: AsyncMutex::new(()),
                 confirmation_timeout: config.confirmation_timeout,
                 lifecycle,
+                observation_generation: AtomicU64::new(0),
+                observations_active: AtomicBool::new(false),
                 event_source_id: NEXT_EVENT_SOURCE_ID.fetch_add(1, Ordering::Relaxed),
                 event_updates,
                 group_delay_control: Mutex::new(None),
@@ -216,21 +273,12 @@ impl ControllerStatusSource {
                 status_events: OnceLock::new(),
             }),
             group_delay_task: AsyncMutex::new(None),
-            started: AtomicBool::new(false),
-            task: AsyncMutex::new(None),
+            observation_task: AsyncMutex::new(None),
         }))
     }
 
     pub async fn start(self: &Arc<Self>) {
-        if self.started.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let mut task = self.task.lock().await;
-        if self.closed.load(Ordering::Acquire) {
-            return;
-        }
-        let inner = self.inner.clone();
-        *task = Some(tokio::spawn(run_collectors(inner)));
+        self.resume_observation_task().await;
     }
 
     pub async fn close(&self) {
@@ -238,6 +286,7 @@ impl ControllerStatusSource {
             return;
         }
         self.inner.cancellation.cancel();
+        self.stop_observation_task().await;
         if let Some((_, cancellation)) = self
             .inner
             .group_delay_control
@@ -249,9 +298,6 @@ impl ControllerStatusSource {
         }
         self.inner.client.shutdown();
         if let Some(task) = self.group_delay_task.lock().await.take() {
-            let _ = task.await;
-        }
-        if let Some(task) = self.task.lock().await.take() {
             let _ = task.await;
         }
     }
@@ -266,6 +312,81 @@ impl ControllerStatusSource {
             .lock()
             .expect("controller source state poisoned")
             .initial_observation
+    }
+
+    async fn stop_observation_task(&self) {
+        let task = self.observation_task.lock().await.take();
+        if let Some(task) = task {
+            task.cancellation.cancel();
+            let _ = task.join.await;
+        }
+        self.inner
+            .observations_active
+            .store(false, Ordering::Release);
+    }
+
+    async fn resume_observation_task(&self) {
+        if self.closed.load(Ordering::Acquire) {
+            return;
+        }
+        let mut task = self.observation_task.lock().await;
+        if task.is_some() {
+            return;
+        }
+        let generation = self
+            .inner
+            .observation_generation
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .expect("controller source state poisoned");
+            if state.mapper.is_none() {
+                state.diagnostics.remove(&ObservationChannel::Session);
+                state.event_phase = EventsDataPhase::Connecting;
+            }
+        }
+        self.inner
+            .observations_active
+            .store(true, Ordering::Release);
+        let cancellation = CancellationToken::new();
+        let inner = self.inner.clone();
+        let task_cancellation = cancellation.clone();
+        *task = Some(ObservationTask {
+            cancellation,
+            join: tokio::spawn(run_collectors(inner, task_cancellation, generation)),
+        });
+        drop(task);
+        publish_change(&self.inner).await;
+        publish_event_change(&self.inner);
+    }
+
+    async fn pause_observation_task(&self, reason: RuntimeObservationPauseReason) {
+        self.inner
+            .observation_generation
+            .fetch_add(1, Ordering::AcqRel);
+        self.inner
+            .observations_active
+            .store(false, Ordering::Release);
+        if let Some((_, cancellation)) = self
+            .inner
+            .group_delay_control
+            .lock()
+            .expect("group delay control poisoned")
+            .as_ref()
+        {
+            cancellation.cancel();
+        }
+        self.stop_observation_task().await;
+        {
+            let _authority = self.inner.authority.lock().await;
+            invalidate_source_state(&self.inner, reason);
+        }
+        publish_change(&self.inner).await;
+        publish_event_change(&self.inner);
     }
 }
 
@@ -322,8 +443,17 @@ impl StatusDataSource for ControllerStatusSource {
         Box::pin(self.close())
     }
 
+    fn pause_observations(&self, reason: RuntimeObservationPauseReason) -> BoxFuture<'_, ()> {
+        Box::pin(self.pause_observation_task(reason))
+    }
+
+    fn resume_observations(&self) -> BoxFuture<'_, ()> {
+        Box::pin(self.resume_observation_task())
+    }
+
     fn supports_command(&self, command: StatusCommand) -> bool {
         !self.closed.load(Ordering::Acquire)
+            && self.inner.observations_active.load(Ordering::Acquire)
             && self
                 .inner
                 .state
@@ -374,6 +504,9 @@ impl ControllerStatusSource {
     async fn run_scoped_proxy_diagnostic(
         &self,
     ) -> Result<ProxyDiagnosticObservation, ProxyDiagnosticFailure> {
+        if !self.inner.observations_active.load(Ordering::Acquire) {
+            return Err(ProxyDiagnosticFailure::Disconnected);
+        }
         let mapper = {
             let state = self
                 .inner
@@ -472,6 +605,12 @@ impl ControllerStatusSource {
     }
 
     fn require_command_ready(&self) -> Result<(), StatusCommandError> {
+        if !self.inner.observations_active.load(Ordering::Acquire) {
+            return Err(StatusCommandError::new(
+                StatusCommandErrorKind::Disconnected,
+                "Controller observations are paused",
+            ));
+        }
         let state = self
             .inner
             .state
@@ -1240,7 +1379,8 @@ impl TrafficDataSource for ControllerStatusSource {
             snapshot.profile_id = self.inner.profile.profile_id().into();
             return snapshot;
         };
-        let stale = state.diagnostics.contains_key(&ObservationChannel::Session)
+        let stale = !self.inner.observations_active.load(Ordering::Acquire)
+            || state.diagnostics.contains_key(&ObservationChannel::Session)
             || state.diagnostics.contains_key(&ObservationChannel::Refresh);
         mapper.traffic_snapshot(
             adapter_kind,
@@ -1257,6 +1397,14 @@ impl TrafficDataSource for ControllerStatusSource {
 
     fn supports_traffic_command(&self, operation: TrafficCommandOperation) -> bool {
         !self.closed.load(Ordering::Acquire)
+            && self.inner.observations_active.load(Ordering::Acquire)
+            && self
+                .inner
+                .state
+                .lock()
+                .expect("controller source state poisoned")
+                .initial_observation
+                == ControllerInitialObservation::Ready
             && matches!(
                 operation,
                 TrafficCommandOperation::CloseConnection | TrafficCommandOperation::CloseAllActive
@@ -1615,21 +1763,31 @@ impl EventsDataSource for ControllerStatusSource {
     }
 }
 
-async fn run_collectors(inner: Arc<SourceInner>) {
+async fn run_collectors(
+    inner: Arc<SourceInner>,
+    session_cancellation: CancellationToken,
+    generation: u64,
+) {
     tokio::join!(
-        run_status_collector(inner.clone()),
-        run_event_collector(inner),
+        run_status_collector(inner.clone(), session_cancellation.clone(), generation),
+        run_event_collector(inner, session_cancellation, generation),
     );
 }
 
-async fn run_status_collector(inner: Arc<SourceInner>) {
+async fn run_status_collector(
+    inner: Arc<SourceInner>,
+    session_cancellation: CancellationToken,
+    generation: u64,
+) {
     loop {
-        if inner.cancellation.is_cancelled() {
+        if inner.cancellation.is_cancelled() || session_cancellation.is_cancelled() {
             return;
         }
-        match observe_session(&inner).await {
+        match observe_session(&inner, &session_cancellation, generation).await {
             Ok(()) => return,
-            Err(_) if inner.cancellation.is_cancelled() => return,
+            Err(_) if inner.cancellation.is_cancelled() || session_cancellation.is_cancelled() => {
+                return;
+            }
             Err(error) => {
                 record_initial_failure(&inner, &error);
                 record_error(
@@ -1642,12 +1800,29 @@ async fn run_status_collector(inner: Arc<SourceInner>) {
         }
         tokio::select! {
             _ = inner.cancellation.cancelled() => return,
+            _ = session_cancellation.cancelled() => return,
             _ = tokio::time::sleep(inner.reconnect_delay) => {}
         }
     }
 }
 
-async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatusSourceError> {
+async fn observe_session(
+    inner: &Arc<SourceInner>,
+    session_cancellation: &CancellationToken,
+    generation: u64,
+) -> Result<(), ControllerStatusSourceError> {
+    tokio::select! {
+        biased;
+        _ = inner.cancellation.cancelled() => Ok(()),
+        _ = session_cancellation.cancelled() => Ok(()),
+        result = observe_active_session(inner, generation) => result,
+    }
+}
+
+async fn observe_active_session(
+    inner: &Arc<SourceInner>,
+    generation: u64,
+) -> Result<(), ControllerStatusSourceError> {
     let _authority = inner.authority.lock().await;
     inner.client.verify_version().await?;
     let (mut traffic, mut memory) =
@@ -1660,7 +1835,7 @@ async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatu
         next_traffic(&inner.client, &mut traffic),
         next_memory(&inner.client, &mut memory),
     )?;
-    apply_observations(
+    apply_session_observations(
         inner,
         ControllerObservationBatch {
             runtime_config: Some(runtime_config),
@@ -1671,6 +1846,7 @@ async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatu
             rules: Some(rules),
         },
         true,
+        generation,
     )
     .await?;
     drop(_authority);
@@ -1687,6 +1863,7 @@ async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatu
                     inner,
                     ObservationChannel::Traffic,
                     ControllerObservationBatch { traffic: Some(sample), ..Default::default() },
+                    generation,
                 ).await;
             }
             sample = memory.next() => {
@@ -1695,6 +1872,7 @@ async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatu
                     inner,
                     ObservationChannel::Memory,
                     ControllerObservationBatch { memory: Some(sample), ..Default::default() },
+                    generation,
                 ).await;
             }
             _ = refresh.tick() => {
@@ -1715,24 +1893,32 @@ async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatu
                         rules: Some(rules),
                         ..Default::default()
                     },
+                    generation,
                 ).await;
             }
         }
     }
 }
 
-async fn run_event_collector(inner: Arc<SourceInner>) {
+async fn run_event_collector(
+    inner: Arc<SourceInner>,
+    session_cancellation: CancellationToken,
+    generation: u64,
+) {
     loop {
-        if inner.cancellation.is_cancelled() {
+        if inner.cancellation.is_cancelled() || session_cancellation.is_cancelled() {
             return;
         }
-        match observe_event_session(&inner).await {
+        match observe_event_session(&inner, &session_cancellation, generation).await {
             Ok(()) => return,
-            Err(_) if inner.cancellation.is_cancelled() => return,
+            Err(_) if inner.cancellation.is_cancelled() || session_cancellation.is_cancelled() => {
+                return;
+            }
             Err(error) => record_event_failure(&inner, &error),
         }
         tokio::select! {
             _ = inner.cancellation.cancelled() => return,
+            _ = session_cancellation.cancelled() => return,
             _ = tokio::time::sleep(inner.reconnect_delay) => {}
         }
     }
@@ -1740,16 +1926,30 @@ async fn run_event_collector(inner: Arc<SourceInner>) {
 
 async fn observe_event_session(
     inner: &Arc<SourceInner>,
+    session_cancellation: &CancellationToken,
+    generation: u64,
+) -> Result<(), ControllerStatusSourceError> {
+    tokio::select! {
+        biased;
+        _ = inner.cancellation.cancelled() => Ok(()),
+        _ = session_cancellation.cancelled() => Ok(()),
+        result = observe_active_event_session(inner, generation) => result,
+    }
+}
+
+async fn observe_active_event_session(
+    inner: &Arc<SourceInner>,
+    generation: u64,
 ) -> Result<(), ControllerStatusSourceError> {
     inner.client.verify_version().await?;
     let mut logs = inner.client.logs_stream().await?;
-    start_event_session(inner);
+    start_event_session(inner, generation);
     loop {
         tokio::select! {
             _ = inner.cancellation.cancelled() => return Ok(()),
             message = logs.next() => {
                 let message = stream_item(message, &inner.client, Endpoint::Logs)?;
-                apply_log_message(inner, message);
+                apply_log_message(inner, message, generation);
             }
         }
     }
@@ -1818,8 +2018,9 @@ async fn apply_channel_observation(
     inner: &Arc<SourceInner>,
     channel: ObservationChannel,
     batch: ControllerObservationBatch,
+    generation: u64,
 ) {
-    match apply_observations(inner, batch, false).await {
+    match apply_session_observations(inner, batch, false, generation).await {
         Ok(()) => {
             clear_diagnostic(inner, channel).await;
             if channel == ObservationChannel::Refresh {
@@ -1837,10 +2038,28 @@ async fn apply_channel_observation(
     }
 }
 
+async fn apply_session_observations(
+    inner: &Arc<SourceInner>,
+    batch: ControllerObservationBatch,
+    new_session: bool,
+    generation: u64,
+) -> Result<(), StatusMappingError> {
+    apply_observations_guarded(inner, batch, new_session, Some(generation)).await
+}
+
 async fn apply_observations(
     inner: &Arc<SourceInner>,
     batch: ControllerObservationBatch,
     new_session: bool,
+) -> Result<(), StatusMappingError> {
+    apply_observations_guarded(inner, batch, new_session, None).await
+}
+
+async fn apply_observations_guarded(
+    inner: &Arc<SourceInner>,
+    batch: ControllerObservationBatch,
+    new_session: bool,
+    generation: Option<u64>,
 ) -> Result<(), StatusMappingError> {
     let traffic_changed = batch.connections.is_some() || batch.rules.is_some();
     {
@@ -1848,6 +2067,12 @@ async fn apply_observations(
             .state
             .lock()
             .expect("controller source state poisoned");
+        if generation.is_some_and(|generation| {
+            !inner.observations_active.load(Ordering::Acquire)
+                || inner.observation_generation.load(Ordering::Acquire) != generation
+        }) {
+            return Ok(());
+        }
         let mut mapper = state
             .mapper
             .clone()
@@ -1935,11 +2160,16 @@ async fn publish_change(inner: &Arc<SourceInner>) {
     events.publish(status);
 }
 
-fn start_event_session(inner: &SourceInner) {
+fn start_event_session(inner: &SourceInner, generation: u64) {
     let mut state = inner
         .state
         .lock()
         .expect("controller source state poisoned");
+    if !inner.observations_active.load(Ordering::Acquire)
+        || inner.observation_generation.load(Ordering::Acquire) != generation
+    {
+        return;
+    }
     reset_event_session(&mut state, inner);
     state.event_phase = EventsDataPhase::Ready;
     push_event(
@@ -2029,7 +2259,7 @@ fn safe_event_source_error(error: &ControllerStatusSourceError) -> &'static str 
     }
 }
 
-fn apply_log_message(inner: &Arc<SourceInner>, message: LogMessage) {
+fn apply_log_message(inner: &Arc<SourceInner>, message: LogMessage, generation: u64) {
     let level = match message.level.as_str() {
         "debug" => EventLevel::Debug,
         "info" => EventLevel::Info,
@@ -2053,6 +2283,11 @@ fn apply_log_message(inner: &Arc<SourceInner>, message: LogMessage) {
         .state
         .lock()
         .expect("controller source state poisoned");
+    if !inner.observations_active.load(Ordering::Acquire)
+        || inner.observation_generation.load(Ordering::Acquire) != generation
+    {
+        return;
+    }
     if state.event_session_id.is_none() {
         return;
     }

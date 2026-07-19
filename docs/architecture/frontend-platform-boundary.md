@@ -112,6 +112,14 @@ events. It has no Axum, Clap, Nix, executable, signal, or process dependency.
 An adapter can publish `native` or `rpc` Status snapshots without changing the
 product view contract.
 
+The runtime also defines the closed platform lifecycle event envelope and the
+injectable event-source contract. `crates/platform-macos` maps native sleep,
+wake, and primary-network-service notifications into that envelope only.
+`crates/desktop-bridge` owns the serialized application coordinator that pauses
+or invalidates observation authority, restarts collectors, reconciles explicit
+capture intent, and rejects stale concurrent event sequences. Neither Tauri nor
+the native callback owns those rules.
+
 `crates/desktop-bridge` is the desktop implementation of the platform seam. It
 binds only to a loopback address, validates `Host` and WebSocket `Origin`, limits
 message size and subscriptions, requires an authentication-first handshake, and

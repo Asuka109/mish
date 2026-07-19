@@ -3,6 +3,7 @@ mod controller_source;
 mod controller_status;
 mod diagnostics;
 mod event_redaction;
+mod lifecycle;
 mod managed_process;
 mod profile_activation;
 mod profiles;
@@ -25,6 +26,9 @@ pub use controller_status::{
     SelectionTargetError, StatusMappingError, StatusRetentionPolicy,
 };
 pub use diagnostics::{DiagnosticCoordinator, DiagnosticNetworkProbe};
+pub use lifecycle::{
+    DesktopLifecycleCoordinator, LifecycleCoordinationError, LifecycleEventDisposition,
+};
 pub use managed_process::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,
 };
@@ -37,7 +41,7 @@ pub use profiles::{DesktopProfileService, ReqwestHttpsSourceReader};
 pub use runtime_host::DesktopRuntimeHost;
 pub use server::{
     LoopbackServerConfig, LoopbackServerHandle, start_loopback_server,
-    start_loopback_server_with_runtime_host,
+    start_loopback_server_with_runtime_host, start_loopback_server_with_runtime_host_and_lifecycle,
 };
 
 use std::sync::Arc;
