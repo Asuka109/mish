@@ -147,6 +147,7 @@ h2 {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
   grid-template-columns: 164px minmax(0, 1fr);
   width: 100%;
@@ -155,6 +156,15 @@ h2 {
   min-height: 0;
   overflow: hidden;
   background: var(--color-surface-soft);
+}
+
+.workspace-top-window-drag-region {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  left: 164px;
+  height: 10px;
 }
 
 .sidebar {
@@ -4194,6 +4204,10 @@ h2 {
     grid-template-rows: minmax(0, 1fr) auto;
   }
 
+  .workspace-top-window-drag-region {
+    display: none;
+  }
+
   .workspace {
     grid-row: 1;
     margin: 6px 6px 0;
@@ -4376,4 +4390,30 @@ h2 {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+:root[data-runtime="desktop"],
+:root[data-runtime="desktop"] *,
+:root[data-runtime="desktop"] *::before,
+:root[data-runtime="desktop"] *::after {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+:root[data-runtime="desktop"]
+  :is(input, textarea, code, pre, [contenteditable="true"], [data-native-text-interaction]) {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
+
+:root[data-runtime="desktop"] img {
+  -webkit-user-drag: none;
+}
+
+:root[data-runtime="desktop"] button,
+:root[data-runtime="desktop"] [role="button"],
+:root[data-runtime="desktop"] a {
+  cursor: default;
 }

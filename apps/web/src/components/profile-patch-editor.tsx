@@ -512,6 +512,7 @@ function OperationFields({
             <Input
               id="patch-rule-value"
               onValueChange={(value) => setOperation({ ...operation, rule: { ...rule, value } })}
+              spellCheck={false}
               value={rule.value}
             />
             <FieldDescription>{LL.profiles.patchRuleValueDescription()}</FieldDescription>

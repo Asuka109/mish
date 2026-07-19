@@ -152,6 +152,7 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
                   setDraft({ ...draft, url: value });
                 }}
                 placeholder="https://example.com/generate_204"
+                spellCheck={false}
                 type="url"
                 value={draft.url}
               />

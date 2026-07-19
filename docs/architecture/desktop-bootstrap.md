@@ -45,23 +45,29 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body. The same payload declares the
    desktop-only support-bundle capability.
-9. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
-   non-WebSocket, or non-`/rpc` endpoints. It sends the token only in the first
-   JSON-RPC authentication message.
-10. The bootstrap also declares whether the shell compiled with native macOS
+9. The native window remains hidden while React validates bootstrap and commits
+   its first complete tree. The WebView then invokes the idempotent
+   `reveal_main_window` command. Manual launches and login launches configured to
+   show the window are revealed and focused; background login launches remain
+   hidden. This public IPC handshake prevents the shell from exposing an empty
+   WebView frame without relying on private WebKit presentation APIs.
+10. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
+    non-WebSocket, or non-`/rpc` endpoints. It sends the token only in the first
+    JSON-RPC authentication message.
+11. The bootstrap also declares whether the shell compiled with native macOS
     Sidebar material. The WebView uses this capability only to expose the matching
     sidebar/window-base pixels; product components do not branch on Tauri or the
     operating system.
-11. The token remains in process memory for reconnect authentication. Neither
+12. The token remains in process memory for reconnect authentication. Neither
     side writes it to a file, URL, log, query string, fragment, cookie,
     `localStorage`, or `sessionStorage`.
-12. Profile activation reloads a repository-owned valid artifact, resolves only
+13. Profile activation reloads a repository-owned valid artifact, resolves only
     the managed pinned binary, and commits the new runtime after Controller,
     Status and Traffic readiness plus an open redacted Events stream.
     Development accepts only an explicit
     `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
     downloads a binary at runtime.
-13. When the Tauri event loop exits, the shell shuts down the in-process bridge.
+14. When the Tauri event loop exits, the shell shuts down the in-process bridge.
     The runtime invalidates any active diagnostic run, stops its capture audit
     loop, restores a still-confirmed
     Mish-owned System Proxy state, then the coordinator closes the active Status,
@@ -105,9 +111,10 @@ secret, so URL histories, access logs, referrers, and routine network diagnostic
 cannot reveal the token.
 
 Tauri's capability grants no general filesystem, shell, dialog, event, or
-window API to Web content. It grants only the generated bootstrap command and
-the narrow profile-picker and support-bundle commands described above; native
-dialogs and file writes remain internal to those commands. The production CSP permits only local
+window API to Web content. It grants only the generated bootstrap and
+first-frame reveal commands plus the narrow profile-picker and support-bundle
+commands described above; native dialogs, window reveal policy, and file writes
+remain internal to those commands. The production CSP permits only local
 bundled resources, Tauri IPC, and an IPv4-loopback WebSocket. It blocks frames,
 objects, forms, remote fonts, and remote frontend connections.
 

@@ -205,12 +205,14 @@ function Sidebar() {
             alt=""
             aria-hidden="true"
             className="brand-image-light"
+            draggable={false}
             src="/brand/mish-brand.svg"
           />
           <img
             alt=""
             aria-hidden="true"
             className="brand-image-dark"
+            draggable={false}
             src="/brand/mish-brand-dark.svg"
           />
         </div>
@@ -458,6 +460,12 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <StatusActionDescriptions />
+      <div
+        aria-hidden="true"
+        className="workspace-top-window-drag-region"
+        data-window-drag-surface="workspace-top"
+        onMouseDown={handleDesktopWindowDrag}
+      />
       <Sidebar />
       <SurfaceScope as="main" className="workspace" surfaceRole="content">
         <Toolbar />

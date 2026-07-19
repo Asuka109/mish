@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isNativeDestination } from "./native-navigation";
+import { isNativeDestination, isNativeSettingsShortcut } from "./native-navigation";
 
 describe("native navigation", () => {
   it("accepts only fixed product destinations", () => {
@@ -12,5 +12,21 @@ describe("native navigation", () => {
     ]) {
       expect(isNativeDestination(destination)).toBe(false);
     }
+  });
+});
+
+describe("native settings shortcut", () => {
+  it("accepts the platform settings shortcuts without modifiers that change the command", () => {
+    expect(
+      isNativeSettingsShortcut(new KeyboardEvent("keydown", { key: ",", metaKey: true })),
+    ).toBe(true);
+    expect(
+      isNativeSettingsShortcut(new KeyboardEvent("keydown", { key: ",", ctrlKey: true })),
+    ).toBe(true);
+    expect(
+      isNativeSettingsShortcut(
+        new KeyboardEvent("keydown", { key: ",", metaKey: true, shiftKey: true }),
+      ),
+    ).toBe(false);
   });
 });

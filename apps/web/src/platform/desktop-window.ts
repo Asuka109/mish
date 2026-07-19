@@ -1,4 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow, type Theme } from "@tauri-apps/api/window";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
@@ -19,6 +19,7 @@ const INTERACTIVE_TARGETS = [
 
 interface DesktopWindowDependencies {
   isDesktop(): boolean;
+  revealMainWindow(): Promise<void>;
   setTheme(theme: Theme | null): Promise<void>;
   startDragging(): Promise<void>;
   toggleMaximize(): Promise<void>;
@@ -26,6 +27,7 @@ interface DesktopWindowDependencies {
 
 const defaultDependencies: DesktopWindowDependencies = {
   isDesktop: isTauri,
+  revealMainWindow: () => invoke("reveal_main_window"),
   setTheme: (theme) => getCurrentWindow().setTheme(theme),
   startDragging: () => getCurrentWindow().startDragging(),
   toggleMaximize: () => getCurrentWindow().toggleMaximize(),
@@ -66,3 +68,17 @@ export function createDesktopWindowAppearanceSync(
 }
 
 export const syncDesktopWindowAppearance = createDesktopWindowAppearanceSync();
+
+export function createDesktopWindowReadySignal(
+  dependencies: Pick<
+    DesktopWindowDependencies,
+    "isDesktop" | "revealMainWindow"
+  > = defaultDependencies,
+) {
+  return async function signalDesktopWindowReady() {
+    if (!dependencies.isDesktop()) return;
+    await dependencies.revealMainWindow();
+  };
+}
+
+export const signalDesktopWindowReady = createDesktopWindowReadySignal();

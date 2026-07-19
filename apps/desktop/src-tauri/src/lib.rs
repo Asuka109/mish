@@ -54,6 +54,10 @@ struct RuntimeBootstrap {
     support_bundle_export: bool,
 }
 
+struct MainWindowStartup {
+    reveal_on_ready: bool,
+}
+
 #[derive(Clone)]
 struct BridgeState(Arc<Mutex<Option<LoopbackServerHandle>>>);
 
@@ -140,6 +144,18 @@ struct ProfileCommandError {
 #[tauri::command]
 fn runtime_bootstrap(state: tauri::State<'_, RuntimeBootstrap>) -> RuntimeBootstrap {
     state.inner().clone()
+}
+
+#[tauri::command]
+fn reveal_main_window(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, MainWindowStartup>,
+) -> Result<(), String> {
+    if !state.reveal_on_ready {
+        return Ok(());
+    }
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -259,6 +275,7 @@ pub fn run() -> Result<i32, String> {
         .setup(initialize)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
+            reveal_main_window,
             profile_preflight_local,
             diagnostics_support_bundle_preview,
             diagnostics_support_bundle_save
@@ -420,6 +437,16 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         settings_snapshot: settings_service.snapshot(SettingsAdapterKind::Rpc),
         support_bundle_export: true,
     });
+    app.manage(MainWindowStartup {
+        reveal_on_ready: should_show_main_window(
+            std::env::args().any(|argument| argument == LOGIN_STARTUP_ARGUMENT),
+            settings_service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .startup
+                .login_launch_behavior,
+        ),
+    });
     app.manage(ProfileState(profile_service));
     app.manage(SettingsState(settings_service.clone()));
     app.manage(SupportBundleState {
@@ -432,18 +459,6 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| io::Error::other("desktop bridge state is unavailable"))? = Some(bridge);
     if cfg!(target_os = "macos") {
         status_bar::initialize(app, status_bar_state)?;
-    }
-    if should_show_main_window(
-        std::env::args().any(|argument| argument == LOGIN_STARTUP_ARGUMENT),
-        settings_service
-            .snapshot(SettingsAdapterKind::Rpc)
-            .preferences
-            .startup
-            .login_launch_behavior,
-    ) && let Some(window) = app.get_webview_window("main")
-    {
-        window.show()?;
-        window.set_focus()?;
     }
     Ok(())
 }
