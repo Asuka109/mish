@@ -292,7 +292,25 @@ invariant(
   "The Gradle cache key must include the wrapper and build scripts.",
 );
 
+const androidTools = step(packageAndroid, "Set up Android SDK tools");
+invariant(
+  androidTools.uses === "android-actions/setup-android@v4",
+  "Android packaging must install sdkmanager with setup-android v4.",
+);
+invariant(
+  androidTools.with?.["cmdline-tools-version"] === 14742923,
+  "Android command-line tools must use the pinned upstream build.",
+);
+invariant(
+  androidTools.with?.packages === "",
+  "The setup action must not install unpinned Android packages implicitly.",
+);
+
 const androidSetup = step(packageAndroid, "Install pinned Android components").run ?? "";
+invariant(
+  !androidSetup.includes("sdkmanager --licenses"),
+  "The setup action must own Android SDK license acceptance.",
+);
 for (const component of [
   "platforms;android-36",
   "build-tools;36.1.0",
