@@ -4,6 +4,7 @@ dist/
 target/
 *.tsbuildinfo
 .npm-cache/
+.vitest-attachments/
 .scratch/
 
 # Local environment

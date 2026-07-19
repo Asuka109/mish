@@ -391,9 +391,9 @@ describe("production routes", () => {
     expect(screen.queryByRole("button", { name: /enable lan/i })).not.toBeInTheDocument();
   });
 
-  it("keeps Settings operable by keyboard at the narrow-window breakpoint", async () => {
+  it("keeps Settings operable by keyboard at the minimum desktop window breakpoint", async () => {
     const user = userEvent.setup();
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 760 });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
     window.dispatchEvent(new Event("resize"));
     renderRoute("/settings");
 
