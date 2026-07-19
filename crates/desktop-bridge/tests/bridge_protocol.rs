@@ -305,6 +305,26 @@ async fn rejects_unauthenticated_and_malformed_requests() {
             .contains("provider:private")
     );
 
+    let unauthenticated_patch_mutation = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":5,
+            "method":"profiles.replacePatches",
+            "params":{
+                "authority":{
+                    "artifactFingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "profileId":"00000000-0000-4000-8000-000000000000",
+                    "sourceRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "patches":[],
+                "schemaVersion":1
+            }
+        }),
+    )
+    .await;
+    assert_eq!(unauthenticated_patch_mutation["error"]["code"], -32001);
+
     ws.send(Message::Text("{".into())).await.unwrap();
     let Message::Text(response) = ws.next().await.unwrap().unwrap() else {
         panic!("expected text response")
@@ -427,7 +447,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 9);
+    assert_eq!(info["result"]["protocolVersion"], 10);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})
@@ -683,6 +703,34 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
             .to_string()
             .contains("/private/runtime.yaml")
     );
+
+    const PRIVATE_PATCH_VALUE: &str = "private.example";
+    let arbitrary_patch = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":7, "method":"profiles.replacePatches",
+            "params":{
+                "authority":{
+                    "artifactFingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "profileId":"00000000-0000-4000-8000-000000000000",
+                    "sourceRevision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                },
+                "patches":[{
+                    "enabled":true,
+                    "id":"00000000-0000-4000-8000-000000000001",
+                    "operation":{
+                        "kind":"rule-insert",
+                        "position":"prefix",
+                        "rawYaml":PRIVATE_PATCH_VALUE
+                    }
+                }],
+                "schemaVersion":1
+            }
+        }),
+    )
+    .await;
+    assert_eq!(arbitrary_patch["error"]["code"], -32602);
+    assert!(!arbitrary_patch.to_string().contains(PRIVATE_PATCH_VALUE));
 
     bridge.shutdown().await;
     let _ = fs::remove_dir_all(root);

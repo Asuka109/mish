@@ -9,11 +9,12 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::{
-    AtomicWriter, AttemptOutcome, FileProfileRepository, HttpsSourceReader, ImportError,
-    ImportPreflight, ImportRequest, LocalSourceReader, PolicyDisposition, PreflightReport,
-    ProfileAttempt, ProfileId, ProfileMetadata, ProfileRefreshPolicy, ProfileRefreshState,
-    ProfileSource, ProfileSourceType, RepositoryError, SourceReadPolicy, StdAtomicWriter,
-    Timestamp, ValidationIssueCode,
+    AtomicWriter, AttemptOutcome, FileProfileRepository, Fingerprint, HttpsSourceReader,
+    ImportError, ImportPreflight, ImportRequest, LocalSourceReader, PolicyDisposition,
+    PreflightReport, ProfileAttempt, ProfileId, ProfilePatch, ProfilePatchEditor,
+    ProfilePatchError, ProfileRefreshPolicy, ProfileRefreshState, ProfileSource, ProfileSourceType,
+    ProfileSuccess, RepositoryError, RevisionId, SourceReadPolicy, StdAtomicWriter, Timestamp,
+    ValidationIssueCode,
 };
 
 const MAX_PENDING_PREFLIGHTS: usize = 4;
@@ -40,6 +41,7 @@ pub struct ProfileCapabilities {
     pub deletion: ProfileCapabilityAvailability,
     pub https_import: ProfileCapabilityAvailability,
     pub local_file_import: ProfileCapabilityAvailability,
+    pub patches: ProfileCapabilityAvailability,
     pub refresh: ProfileCapabilityAvailability,
     pub scheduling: ProfileCapabilityAvailability,
     pub save: ProfileCapabilityAvailability,
@@ -65,6 +67,7 @@ pub struct ProfileAttemptView {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileListItem {
+    pub effective_fingerprint: String,
     pub id: String,
     pub label: String,
     pub last_attempt: Option<ProfileAttemptView>,
@@ -131,6 +134,8 @@ pub enum ProfileServiceError {
     ActiveProfileDeletionDisabled,
     #[error("scheduled refresh is available only for HTTPS profile sources")]
     SchedulingUnavailable,
+    #[error(transparent)]
+    Patch(#[from] ProfilePatchError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -211,9 +216,11 @@ where
     pub fn snapshot(&self) -> Result<ProfileSnapshot, ProfileServiceError> {
         let profiles = self
             .repository
-            .list_metadata()?
+            .list_metadata_with_effective_fingerprints()?
             .into_iter()
-            .map(profile_list_item)
+            .map(|(metadata, effective_fingerprint)| {
+                profile_list_item(metadata, effective_fingerprint)
+            })
             .collect();
         Ok(ProfileSnapshot {
             adapter_kind: ProfileAdapterKind::Rpc,
@@ -222,6 +229,7 @@ where
                 deletion: ProfileCapabilityAvailability::Supported,
                 https_import: ProfileCapabilityAvailability::Supported,
                 local_file_import: ProfileCapabilityAvailability::PermissionRequired,
+                patches: ProfileCapabilityAvailability::Supported,
                 refresh: ProfileCapabilityAvailability::Supported,
                 scheduling: ProfileCapabilityAvailability::Supported,
                 save: ProfileCapabilityAvailability::Supported,
@@ -345,6 +353,41 @@ where
                 let mut refreshed = report.into_record(id, completed_at);
                 refreshed.metadata.provenance.imported_at = current.metadata.provenance.imported_at;
                 refreshed.metadata.refresh = current.metadata.refresh;
+                match crate::bind_and_apply_profile_patches(
+                    &refreshed.normalized_bytes,
+                    &refreshed.metadata.revision.id,
+                    &refreshed.metadata.artifact.fingerprint,
+                    current.patches.patches.clone(),
+                ) {
+                    Ok((patches, _)) => refreshed.patches = patches,
+                    Err(error) => {
+                        refreshed.patches = current.patches;
+                        refreshed.metadata.last_success = current.metadata.last_success;
+                        refreshed.metadata.last_attempt = Some(ProfileAttempt {
+                            attempted_at: completed_at,
+                            outcome: AttemptOutcome::Failed,
+                        });
+                        refreshed.metadata.refresh.last_failure_at = Some(completed_at);
+                        if trigger == ProfileRefreshTrigger::Scheduled {
+                            refreshed.metadata.refresh.consecutive_failures = refreshed
+                                .metadata
+                                .refresh
+                                .consecutive_failures
+                                .saturating_add(1);
+                            refreshed.metadata.refresh.next_run_at =
+                                next_backed_off_run(&refreshed.metadata.refresh, completed_at);
+                        } else if refreshed.metadata.refresh.policy != ProfileRefreshPolicy::Off {
+                            refreshed.metadata.refresh.next_run_at =
+                                next_regular_run(refreshed.metadata.refresh.policy, completed_at);
+                        }
+                        refreshed.metadata.status.error = true;
+                        refreshed.metadata.status.stale = true;
+                        refreshed.metadata.status.updating = false;
+                        refreshed.metadata.status.valid = false;
+                        self.repository.update(&refreshed)?;
+                        return Err(ProfileServiceError::Patch(error));
+                    }
+                }
                 refreshed.metadata.refresh.consecutive_failures = 0;
                 refreshed.metadata.refresh.last_success_at = Some(completed_at);
                 refreshed.metadata.refresh.next_run_at =
@@ -387,7 +430,90 @@ where
         profile_id: &str,
     ) -> Result<crate::ProfileRecord, ProfileServiceError> {
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
-        Ok(self.repository.load(&id)?)
+        let record = self.repository.load(&id)?;
+        crate::apply_profile_patches(
+            &record.normalized_bytes,
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+            &record.patches,
+        )?;
+        Ok(record)
+    }
+
+    pub fn patch_editor(
+        &self,
+        profile_id: &str,
+        source_revision: &str,
+        artifact_fingerprint: &str,
+    ) -> Result<ProfilePatchEditor, ProfileServiceError> {
+        let record =
+            self.authorized_patch_record(profile_id, source_revision, artifact_fingerprint)?;
+        Ok(crate::profile_patch_editor(
+            &record.metadata.id,
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+            &record.normalized_bytes,
+            &record.patches,
+        )?)
+    }
+
+    pub fn replace_patches(
+        &self,
+        profile_id: &str,
+        source_revision: &str,
+        artifact_fingerprint: &str,
+        patches: Vec<ProfilePatch>,
+    ) -> Result<ProfilePatchEditor, ProfileServiceError> {
+        let mut record =
+            self.authorized_patch_record(profile_id, source_revision, artifact_fingerprint)?;
+        let (patch_set, _) = crate::bind_and_apply_profile_patches(
+            &record.normalized_bytes,
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+            patches,
+        )?;
+        record.patches = patch_set;
+        let completed_at = Timestamp::now();
+        record.metadata.last_attempt = Some(ProfileAttempt {
+            attempted_at: completed_at,
+            outcome: AttemptOutcome::Succeeded,
+        });
+        record.metadata.last_success = Some(ProfileSuccess {
+            fingerprint: record.metadata.artifact.fingerprint.clone(),
+            revision_id: record.metadata.revision.id.clone(),
+            succeeded_at: completed_at,
+        });
+        record.metadata.status.error = false;
+        record.metadata.status.stale = false;
+        record.metadata.status.valid = true;
+        self.repository.update(&record)?;
+        Ok(crate::profile_patch_editor(
+            &record.metadata.id,
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+            &record.normalized_bytes,
+            &record.patches,
+        )?)
+    }
+
+    fn authorized_patch_record(
+        &self,
+        profile_id: &str,
+        source_revision: &str,
+        artifact_fingerprint: &str,
+    ) -> Result<crate::ProfileRecord, ProfileServiceError> {
+        let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
+        let record = self.repository.load(&id)?;
+        let revision = RevisionId::from_source(&record.source_bytes);
+        let fingerprint = Fingerprint::from_normalized_artifact(&record.normalized_bytes);
+        if revision.as_str() != source_revision
+            || fingerprint.as_str() != artifact_fingerprint
+            || revision != record.metadata.revision.id
+            || fingerprint != record.metadata.artifact.fingerprint
+        {
+            return Err(ProfilePatchError::StaleAuthority.into());
+        }
+        Ok(record)
     }
 
     pub fn delete(&self, profile_id: &str) -> Result<ProfileSnapshot, ProfileServiceError> {
@@ -476,7 +602,10 @@ impl PendingPreflights {
     }
 }
 
-fn profile_list_item(metadata: ProfileMetadata) -> ProfileListItem {
+fn profile_list_item(
+    metadata: crate::ProfileMetadata,
+    effective_fingerprint: Fingerprint,
+) -> ProfileListItem {
     let warning_codes = metadata
         .validation
         .warnings
@@ -484,6 +613,7 @@ fn profile_list_item(metadata: ProfileMetadata) -> ProfileListItem {
         .map(|warning| warning.code)
         .collect();
     ProfileListItem {
+        effective_fingerprint: effective_fingerprint.as_str().to_owned(),
         id: metadata.id.as_str().to_owned(),
         label: metadata.label,
         last_attempt: metadata.last_attempt.map(|attempt| ProfileAttemptView {

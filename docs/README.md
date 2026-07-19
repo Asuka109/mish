@@ -6,26 +6,26 @@ decisions from chat history.
 
 ## Authority map
 
-| Question                                                                    | Authoritative document                                                                           |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Who is the product for, and what should it feel like?                       | [`../PRODUCT.md`](../PRODUCT.md)                                                                 |
-| Which visual tokens and styling rules are binding?                          | [`../DESIGN.md`](../DESIGN.md)                                                                   |
-| How should the Status experience behave?                                    | [`product/status-experience.md`](product/status-experience.md)                                   |
-| What are the implementation-ready product requirements and release slices?  | [`product/prds/README.md`](product/prds/README.md)                                               |
-| What belongs in the web app, desktop bridge, Tauri shell, or native layer?  | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       |
-| How does the desktop bundle and authenticated local startup work?           | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                         |
-| How do the desktop bridge, Controller adapter, and Mihomo process interact? | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) |
-| How are profile sources preflighted, redacted, and stored?                  | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               |
-| Where do Status values come from and how are they derived?                  | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)                 |
-| How do detailed Traffic snapshots, reconnects, and local Closed work?       | [`architecture/traffic-data-contracts.md`](architecture/traffic-data-contracts.md)               |
-| How are Events buffered, redacted, and separated across sessions?           | [`architecture/events-data-contracts.md`](architecture/events-data-contracts.md)                 |
-| How do guided diagnostic runs stay scoped, fixed, bounded, and read-only?   | [`architecture/diagnostics-data-contracts.md`](architecture/diagnostics-data-contracts.md)       |
-| How are application settings stored, reconciled, and exposed?               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md)                       |
-| How do the native status bar and main-window lifecycle behave?              | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     |
-| How should recurring UI structures be composed?                             | [`design/component-patterns.md`](design/component-patterns.md)                                   |
-| What is real, mocked, verified, or still pending?                           | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
-| How is the production Web foundation run and validated?                     | [`quality/production-web-validation.md`](quality/production-web-validation.md)                   |
-| How is the native macOS sidebar material validated?                         | [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md)                   |
+| Question                                                                        | Authoritative document                                                                           |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Who is the product for, and what should it feel like?                           | [`../PRODUCT.md`](../PRODUCT.md)                                                                 |
+| Which visual tokens and styling rules are binding?                              | [`../DESIGN.md`](../DESIGN.md)                                                                   |
+| How should the Status experience behave?                                        | [`product/status-experience.md`](product/status-experience.md)                                   |
+| What are the implementation-ready product requirements and release slices?      | [`product/prds/README.md`](product/prds/README.md)                                               |
+| What belongs in the web app, desktop bridge, Tauri shell, or native layer?      | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       |
+| How does the desktop bundle and authenticated local startup work?               | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                         |
+| How do the desktop bridge, Controller adapter, and Mihomo process interact?     | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) |
+| How are profile sources and structured patches validated, redacted, and stored? | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               |
+| Where do Status values come from and how are they derived?                      | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)                 |
+| How do detailed Traffic snapshots, reconnects, and local Closed work?           | [`architecture/traffic-data-contracts.md`](architecture/traffic-data-contracts.md)               |
+| How are Events buffered, redacted, and separated across sessions?               | [`architecture/events-data-contracts.md`](architecture/events-data-contracts.md)                 |
+| How do guided diagnostic runs stay scoped, fixed, bounded, and read-only?       | [`architecture/diagnostics-data-contracts.md`](architecture/diagnostics-data-contracts.md)       |
+| How are application settings stored, reconciled, and exposed?                   | [`architecture/settings-contracts.md`](architecture/settings-contracts.md)                       |
+| How do the native status bar and main-window lifecycle behave?                  | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     |
+| How should recurring UI structures be composed?                                 | [`design/component-patterns.md`](design/component-patterns.md)                                   |
+| What is real, mocked, verified, or still pending?                               | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
+| How is the production Web foundation run and validated?                         | [`quality/production-web-validation.md`](quality/production-web-validation.md)                   |
+| How is the native macOS sidebar material validated?                             | [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md)                   |
 
 ## Supporting material
 

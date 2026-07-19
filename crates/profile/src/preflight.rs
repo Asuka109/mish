@@ -101,6 +101,10 @@ impl PreflightReport {
         };
 
         ProfileRecord {
+            patches: crate::ProfilePatchSet::empty(
+                &metadata.revision.id,
+                &metadata.artifact.fingerprint,
+            ),
             metadata,
             normalized_bytes: self.normalized_bytes,
             source: self.source,

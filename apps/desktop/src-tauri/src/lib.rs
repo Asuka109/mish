@@ -506,6 +506,11 @@ fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
             field_identity: None,
             message: "Profile validation failed",
         },
+        ProfileServiceError::Patch(_) => ProfileCommandError {
+            code: "validation-failed",
+            field_identity: None,
+            message: "Profile patch validation failed",
+        },
         ProfileServiceError::Repository(_) => ProfileCommandError {
             code: "storage-failed",
             field_identity: None,

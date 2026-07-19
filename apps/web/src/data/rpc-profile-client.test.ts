@@ -71,12 +71,14 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
       deletion: "supported",
       httpsImport: "supported",
       localFileImport: "permission-required",
+      patches: "supported",
       refresh: "supported",
       scheduling: "supported",
       save: "supported",
     },
     profiles: [
       {
+        effectiveFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         id: profileId,
         label: "Synthetic profile",
         lastAttempt: null,
@@ -102,7 +104,13 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
           artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
           authority: "desktop-policy",
           items: [],
-          layers: ["source", "application-policy", "platform-integration", "effective-runtime"],
+          layers: [
+            "source",
+            "user-patches",
+            "application-policy",
+            "platform-integration",
+            "effective-runtime",
+          ],
           sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           unknownKeyCount: 0,
         },
@@ -186,6 +194,34 @@ describe("RpcProfileClient", () => {
       },
     });
     expect((await updatePromise).phase).toBe("failure");
+
+    const patchAuthority = {
+      artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      profileId: "profile-a",
+      sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    };
+    const patchEditor = {
+      activationBlocked: false,
+      authority: patchAuthority,
+      catalog: { groups: [], outbounds: [], ruleProviders: [], rules: [] },
+      effectiveFingerprint: patchAuthority.artifactFingerprint,
+      patches: [],
+      schemaVersion: 1,
+    };
+    const getPatchesPromise = client.getPatches(patchAuthority);
+    const getPatches = await waitForRequest(transport, 3);
+    expect(getPatches).toMatchObject({ method: "profiles.getPatches", params: patchAuthority });
+    transport.respond({ id: getPatches.id, jsonrpc: "2.0", result: patchEditor });
+    await getPatchesPromise;
+
+    const replacePatchesPromise = client.replacePatches(patchAuthority, []);
+    const replacePatches = await waitForRequest(transport, 4);
+    expect(replacePatches).toMatchObject({
+      method: "profiles.replacePatches",
+      params: { authority: patchAuthority, patches: [], schemaVersion: 1 },
+    });
+    transport.respond({ id: replacePatches.id, jsonrpc: "2.0", result: patchEditor });
+    await replacePatchesPromise;
     client.dispose();
     rpc.dispose();
   });

@@ -225,6 +225,13 @@ active without a WebView. Provider commands carry current profile/fingerprint
 authority, preserve partial failures, and never accept a Controller endpoint,
 source URL, path, payload, or credential.
 
+Protocol version 10 adds authenticated `profiles.getPatches` and
+`profiles.replacePatches`. Both carry only profile/revision/artifact authority
+and bounded typed patch DTOs. The desktop serializes patch writes with refresh
+and activation, revalidates against repository-owned bytes, and returns only
+display-safe catalog and provenance fields. Browser fixtures show one fictional
+patch but do not claim validation, persistence, or activation.
+
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift
 `NEPacketTunnelProvider` with an embedded core framework. These adapters are

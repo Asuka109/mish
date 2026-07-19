@@ -2,6 +2,9 @@ import {
   ProfileClientError,
   type ProfileClient,
   type ProfileConnectionState,
+  type ProfilePatchAuthorityDto,
+  type ProfilePatchDto,
+  type ProfilePatchEditorDto,
   type ProfilePreviewDto,
   type ProfileRefreshPolicy,
   type ProfileSnapshotDto,
@@ -29,12 +32,14 @@ const fixtureSnapshot = {
     deletion: "fixture-only",
     httpsImport: "fixture-only",
     localFileImport: "fixture-only",
+    patches: "fixture-only",
     refresh: "fixture-only",
     scheduling: "fixture-only",
     save: "fixture-only",
   },
   profiles: [
     {
+      effectiveFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       id: "fixture-profile-studio",
       label: "Studio route set",
       lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
@@ -85,7 +90,13 @@ const fixtureSnapshot = {
             sourcePresent: true,
           },
         ],
-        layers: ["source", "application-policy", "platform-integration", "effective-runtime"],
+        layers: [
+          "source",
+          "user-patches",
+          "application-policy",
+          "platform-integration",
+          "effective-runtime",
+        ],
         sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         unknownKeyCount: 0,
       },
@@ -128,6 +139,15 @@ export class FixtureProfileClient implements ProfileClient {
     return structuredClone(fixtureSnapshot);
   }
 
+  async getPatches(
+    authority: ProfilePatchAuthorityDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfilePatchEditorDto> {
+    if (options?.signal?.aborted) throw cancelled();
+    if (authority.profileId !== "fixture-profile-studio") throw unsupported();
+    return structuredClone(fixturePatchEditor);
+  }
+
   async deleteProfile(
     _profileId: string,
     options?: { signal?: AbortSignal },
@@ -153,6 +173,15 @@ export class FixtureProfileClient implements ProfileClient {
     _profileId: string,
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto> {
+    if (options?.signal?.aborted) throw cancelled();
+    throw unsupported();
+  }
+
+  async replacePatches(
+    _authority: ProfilePatchAuthorityDto,
+    _patches: ProfilePatchDto[],
+    options?: { signal?: AbortSignal },
+  ): Promise<never> {
     if (options?.signal?.aborted) throw cancelled();
     throw unsupported();
   }
@@ -206,6 +235,52 @@ export class FixtureProfileClient implements ProfileClient {
     return () => undefined;
   }
 }
+
+const fixturePatchEditor = {
+  activationBlocked: false,
+  authority: {
+    artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    profileId: "fixture-profile-studio",
+    sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  },
+  catalog: {
+    groups: [],
+    outbounds: [
+      {
+        id: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        kind: "built-in",
+        label: "DIRECT",
+      },
+    ],
+    ruleProviders: [],
+    rules: [],
+  },
+  effectiveFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  patches: [
+    {
+      activationImpact: "insert-rule",
+      enabled: true,
+      id: "11111111-1111-4111-8111-111111111111",
+      operation: {
+        kind: "rule-insert",
+        position: "prefix",
+        rule: {
+          kind: "standard",
+          noResolve: false,
+          ruleType: "domain-suffix",
+          targetId: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          value: "fictional.example",
+        },
+      },
+      order: 0,
+      status: "enabled",
+      target: "Rules · prefix",
+      validationCode: "valid",
+      validationResult: "valid",
+    },
+  ],
+  schemaVersion: 1,
+} satisfies ProfilePatchEditorDto;
 
 function cancelled() {
   return new ProfileClientError("cancelled", "The fixture profile request was cancelled");

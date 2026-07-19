@@ -24,8 +24,9 @@ use mish_bridge::{
 use mish_profile::{
     FileProfileRepository, Fingerprint, ImmutableRevision, NORMALIZED_ARTIFACT_SCHEMA_VERSION,
     NormalizedArtifact, PROFILE_SCHEMA_VERSION, ProfileAttempt, ProfileId, ProfileMetadata,
-    ProfileRecord, ProfileRefreshTrigger, ProfileSource, ProfileStatus, Provenance, RevisionId,
-    SourceSummary, Timestamp, ValidationResult, ValidationStatus,
+    ProfilePatch, ProfilePatchOperation, ProfilePatchSet, ProfileRecord, ProfileRefreshTrigger,
+    ProfileSource, ProfileStatus, Provenance, RevisionId, RuleInsertPosition, SourceSummary,
+    StructuredRule, Timestamp, ValidationResult, ValidationStatus,
 };
 use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -183,6 +184,67 @@ rules:
             "missing policy report for {managed}"
         );
     }
+}
+
+#[test]
+fn patch_preview_and_activation_use_the_same_runtime_generator() {
+    let normalized = br#"
+mixed-port: 7890
+proxies:
+  - name: synthetic-node
+    type: direct
+rules:
+  - MATCH,DIRECT
+"#;
+    let mut record = profile_record(normalized);
+    let editor = mish_profile::profile_patch_editor(
+        &record.metadata.id,
+        &record.metadata.revision.id,
+        &record.metadata.artifact.fingerprint,
+        &record.normalized_bytes,
+        &record.patches,
+    )
+    .unwrap();
+    let direct = editor
+        .catalog
+        .outbounds
+        .iter()
+        .find(|entity| entity.label == "DIRECT")
+        .unwrap()
+        .id
+        .clone();
+    let (patches, _) = mish_profile::bind_and_apply_profile_patches(
+        &record.normalized_bytes,
+        &record.metadata.revision.id,
+        &record.metadata.artifact.fingerprint,
+        vec![ProfilePatch {
+            enabled: true,
+            id: Uuid::new_v4().to_string(),
+            operation: ProfilePatchOperation::RuleInsert {
+                position: RuleInsertPosition::Prefix,
+                rule: StructuredRule::Match { target_id: direct },
+            },
+        }],
+    )
+    .unwrap();
+    record.patches = patches;
+    let policy = ManagedRuntimePolicy::new(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123),
+        "application-controller-secret",
+    )
+    .unwrap();
+
+    let preview = RuntimeConfigGenerator::generate_record_with_review(&record, &policy).unwrap();
+    let activation = RuntimeConfigGenerator::generate_record(&record, &policy).unwrap();
+    assert_eq!(activation, preview.bytes);
+    let document: Value = serde_norway::from_slice(&activation).unwrap();
+    assert_eq!(document["rules"][0].as_str(), Some("MATCH,DIRECT"));
+    assert_eq!(document["rules"][1].as_str(), Some("MATCH,DIRECT"));
+    assert_eq!(document["mixed-port"].as_i64(), Some(7890));
+    assert_eq!(
+        document["external-controller"].as_str(),
+        Some("127.0.0.1:43123")
+    );
 }
 
 #[test]
@@ -1243,6 +1305,7 @@ fn profile_record(normalized_bytes: &[u8]) -> ProfileRecord {
     let id = ProfileId::new();
     let timestamp = Timestamp::from_unix_milliseconds(1_784_422_800_000);
     ProfileRecord {
+        patches: ProfilePatchSet::empty(&revision_id, &fingerprint),
         metadata: ProfileMetadata {
             artifact: NormalizedArtifact {
                 byte_length: normalized_bytes.len() as u64,

@@ -5,9 +5,9 @@ use mish_bridge::{
 };
 use mish_profile::{
     Fingerprint, ImmutableRevision, NORMALIZED_ARTIFACT_SCHEMA_VERSION, NormalizedArtifact,
-    PROFILE_SCHEMA_VERSION, ProfileId, ProfileMetadata, ProfileRecord, ProfileSource,
-    ProfileSourceType, ProfileStatus, Provenance, RevisionId, SourceSummary, Timestamp,
-    ValidationResult, ValidationStatus,
+    PROFILE_SCHEMA_VERSION, ProfileId, ProfileMetadata, ProfilePatchSet, ProfileRecord,
+    ProfileSource, ProfileSourceType, ProfileStatus, Provenance, RevisionId, SourceSummary,
+    Timestamp, ValidationResult, ValidationStatus,
 };
 use mish_runtime::StatusAdapterKind;
 use uuid::Uuid;
@@ -78,6 +78,7 @@ rules:
     let fingerprint = Fingerprint::from_normalized_artifact(&normalized_bytes);
     let timestamp = Timestamp::from_unix_milliseconds(1_784_422_800_000);
     ProfileRecord {
+        patches: ProfilePatchSet::empty(&revision_id, &fingerprint),
         metadata: ProfileMetadata {
             artifact: NormalizedArtifact {
                 byte_length: normalized_bytes.len() as u64,

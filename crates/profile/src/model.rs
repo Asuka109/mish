@@ -443,6 +443,7 @@ pub struct ProfileMetadata {
 pub struct ProfileRecord {
     pub metadata: ProfileMetadata,
     pub normalized_bytes: Vec<u8>,
+    pub patches: crate::ProfilePatchSet,
     pub source: ProfileSource,
     pub source_bytes: Vec<u8>,
 }
@@ -453,8 +454,15 @@ impl fmt::Debug for ProfileRecord {
             .debug_struct("ProfileRecord")
             .field("metadata", &self.metadata)
             .field("normalized_bytes", &"[redacted]")
+            .field("patches", &"[redacted]")
             .field("source", &self.source.safe_summary())
             .field("source_bytes", &"[redacted]")
             .finish()
+    }
+}
+
+impl ProfileRecord {
+    pub fn effective_fingerprint(&self) -> &Fingerprint {
+        &self.patches.effective_fingerprint
     }
 }

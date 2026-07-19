@@ -5,6 +5,8 @@ import {
   profileRpcNotifications,
   type ProfileClient,
   type ProfileConnectionState,
+  type ProfilePatchAuthorityDto,
+  type ProfilePatchDto,
   type ProfileRefreshPolicy,
   type ProfileSnapshotDto,
   type ProfileSnapshotNotificationDto,
@@ -69,6 +71,10 @@ export class RpcProfileClient implements ProfileClient {
     return this.request("profiles.getSnapshot", {}, options);
   }
 
+  getPatches(authority: ProfilePatchAuthorityDto, options?: RpcRequestOptions) {
+    return this.request("profiles.getPatches", authority, options);
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -97,6 +103,18 @@ export class RpcProfileClient implements ProfileClient {
 
   refreshProfile(profileId: string, options?: RpcRequestOptions) {
     return this.request("profiles.refresh", { profileId }, options);
+  }
+
+  replacePatches(
+    authority: ProfilePatchAuthorityDto,
+    patches: ProfilePatchDto[],
+    options?: RpcRequestOptions,
+  ) {
+    return this.request(
+      "profiles.replacePatches",
+      { authority, patches, schemaVersion: 1 },
+      options,
+    );
   }
 
   setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy, options?: RpcRequestOptions) {

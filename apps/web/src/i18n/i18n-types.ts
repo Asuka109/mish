@@ -1064,6 +1064,280 @@ type RootTranslation = {
 		 */
 		activation: string
 		/**
+		 * O​n​e​ ​o​r​ ​m​o​r​e​ ​p​a​t​c​h​e​s​ ​a​r​e​ ​s​t​a​l​e​ ​o​r​ ​i​n​v​a​l​i​d​.​ ​T​h​i​s​ ​r​e​v​i​s​i​o​n​ ​c​a​n​n​o​t​ ​b​e​ ​a​c​t​i​v​a​t​e​d​ ​u​n​t​i​l​ ​t​h​e​y​ ​a​r​e​ ​r​e​p​a​i​r​e​d​ ​o​r​ ​r​e​m​o​v​e​d​.
+		 */
+		patchActivationBlocked: string
+		/**
+		 * A​d​d​ ​p​a​t​c​h
+		 */
+		patchAdd: string
+		/**
+		 * A​d​d​ ​s​t​r​u​c​t​u​r​e​d​ ​p​a​t​c​h
+		 */
+		patchAddTitle: string
+		/**
+		 * A​l​l​ ​p​a​t​c​h​ ​c​h​a​n​g​e​s​ ​a​r​e​ ​s​a​v​e​d
+		 */
+		patchAllSaved: string
+		/**
+		 * {​c​o​u​n​t​}​ ​p​a​t​c​h​e​s
+		 * @param {number} count
+		 */
+		patchCount: RequiredParams<'count'>
+		/**
+		 * D​i​s​a​b​l​e
+		 */
+		patchDisable: string
+		/**
+		 * D​i​s​a​b​l​e​d
+		 */
+		patchDisabled: string
+		/**
+		 * D​i​s​c​a​r​d​ ​c​h​a​n​g​e​s
+		 */
+		patchDiscard: string
+		/**
+		 * T​h​e​s​e​ ​c​h​a​n​g​e​s​ ​h​a​v​e​ ​n​o​t​ ​b​e​e​n​ ​v​a​l​i​d​a​t​e​d​ ​o​r​ ​s​a​v​e​d​ ​a​n​d​ ​w​i​l​l​ ​n​o​t​ ​e​n​t​e​r​ ​t​h​e​ ​l​i​v​e​ ​r​u​n​t​i​m​e​.
+		 */
+		patchDiscardDescription: string
+		/**
+		 * D​i​s​c​a​r​d​ ​u​n​s​a​v​e​d​ ​p​a​t​c​h​ ​c​h​a​n​g​e​s​?
+		 */
+		patchDiscardTitle: string
+		/**
+		 * E​d​i​t​ ​p​a​t​c​h
+		 */
+		patchEdit: string
+		/**
+		 * E​d​i​t​ ​s​t​r​u​c​t​u​r​e​d​ ​p​a​t​c​h
+		 */
+		patchEditTitle: string
+		/**
+		 * R​e​v​i​e​w​ ​b​o​u​n​d​e​d​ ​r​u​l​e​ ​a​n​d​ ​s​e​l​e​c​t​o​r​-​g​r​o​u​p​ ​c​h​a​n​g​e​s​ ​w​i​t​h​o​u​t​ ​e​d​i​t​i​n​g​ ​s​o​u​r​c​e​ ​Y​A​M​L​.
+		 */
+		patchEditorDescription: string
+		/**
+		 * P​a​t​c​h​e​s​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
+		 * @param {string} profile
+		 */
+		patchEditorTitle: RequiredParams<'profile'>
+		/**
+		 * T​h​e​ ​i​m​m​u​t​a​b​l​e​ ​s​o​u​r​c​e​ ​c​u​r​r​e​n​t​l​y​ ​f​l​o​w​s​ ​i​n​t​o​ ​a​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y​ ​w​i​t​h​o​u​t​ ​u​s​e​r​ ​p​a​t​c​h​e​s​.
+		 */
+		patchEmptyDescription: string
+		/**
+		 * N​o​ ​p​r​o​f​i​l​e​ ​p​a​t​c​h​e​s
+		 */
+		patchEmptyTitle: string
+		/**
+		 * E​n​a​b​l​e
+		 */
+		patchEnable: string
+		/**
+		 * E​n​a​b​l​e​d
+		 */
+		patchEnabled: string
+		/**
+		 * I​l​l​u​s​t​r​a​t​i​v​e​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​o​n​l​y​.​ ​T​h​i​s​ ​f​i​c​t​i​o​n​a​l​ ​p​a​t​c​h​ ​i​s​ ​n​o​t​ ​v​a​l​i​d​a​t​e​d​ ​o​r​ ​a​c​t​i​v​a​t​e​d​ ​b​y​ ​a​ ​d​e​s​k​t​o​p​ ​r​u​n​t​i​m​e​.
+		 */
+		patchFixture: string
+		/**
+		 * O​n​l​y​ ​e​n​t​i​t​i​e​s​ ​k​n​o​w​n​ ​t​o​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​s​o​u​r​c​e​ ​r​e​v​i​s​i​o​n​ ​c​a​n​ ​b​e​ ​r​e​f​e​r​e​n​c​e​d​.
+		 */
+		patchFormDescription: string
+		/**
+		 * A​d​d​ ​s​e​l​e​c​t​o​r​ ​g​r​o​u​p
+		 */
+		patchGroupAdd: string
+		/**
+		 * G​r​o​u​p​ ​l​a​b​e​l
+		 */
+		patchGroupLabel: string
+		/**
+		 * C​h​a​n​g​e​ ​g​r​o​u​p​ ​m​e​m​b​e​r​s
+		 */
+		patchGroupMembers: string
+		/**
+		 * E​x​p​l​i​c​i​t​ ​g​r​o​u​p​ ​o​r​d​e​r
+		 */
+		patchGroupOrder: string
+		/**
+		 * O​r​d​e​r​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s
+		 */
+		patchGroupReorder: string
+		/**
+		 * I​n​v​a​l​i​d
+		 */
+		patchInvalid: string
+		/**
+		 * P​r​o​f​i​l​e​ ​p​a​t​c​h​e​s​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​l​o​a​d​e​d​ ​f​o​r​ ​t​h​i​s​ ​r​e​v​i​s​i​o​n​.
+		 */
+		patchLoadFailed: string
+		/**
+		 * O​r​d​e​r​e​d​ ​m​e​m​b​e​r​s
+		 */
+		patchMembers: string
+		/**
+		 * C​h​o​o​s​e​ ​e​x​i​s​t​i​n​g​ ​s​a​f​e​ ​o​u​t​b​o​u​n​d​ ​i​d​e​n​t​i​f​i​e​r​s​.​ ​S​e​l​e​c​t​i​o​n​ ​o​r​d​e​r​ ​i​s​ ​p​r​e​s​e​r​v​e​d​.
+		 */
+		patchMembersDescription: string
+		/**
+		 * M​o​v​e​ ​d​o​w​n
+		 */
+		patchMoveDown: string
+		/**
+		 * M​o​v​e​ ​u​p
+		 */
+		patchMoveUp: string
+		/**
+		 * P​o​l​i​c​y​ ​g​r​o​u​p
+		 */
+		patchPolicyGroup: string
+		/**
+		 * I​n​s​e​r​t​i​o​n​ ​p​o​s​i​t​i​o​n
+		 */
+		patchPosition: string
+		/**
+		 * B​e​f​o​r​e​ ​s​o​u​r​c​e​ ​r​u​l​e​s
+		 */
+		patchPrefix: string
+		/**
+		 * R​e​s​e​t​ ​a​l​l
+		 */
+		patchReset: string
+		/**
+		 * D​e​l​e​t​e​ ​s​o​u​r​c​e​ ​r​u​l​e
+		 */
+		patchRuleDelete: string
+		/**
+		 * D​i​s​a​b​l​e​ ​s​o​u​r​c​e​ ​r​u​l​e
+		 */
+		patchRuleDisable: string
+		/**
+		 * I​n​s​e​r​t​ ​r​u​l​e
+		 */
+		patchRuleInsert: string
+		/**
+		 * R​u​l​e​ ​p​r​o​v​i​d​e​r
+		 */
+		patchRuleProvider: string
+		/**
+		 * R​u​l​e​ ​{​p​o​s​i​t​i​o​n​}​ ​·​ ​{​r​u​l​e​T​y​p​e​}​ ​→​ ​{​t​a​r​g​e​t​}
+		 * @param {number} position
+		 * @param {string} ruleType
+		 * @param {string} target
+		 */
+		patchRuleSummary: RequiredParams<'position' | 'ruleType' | 'target'>
+		/**
+		 * R​u​l​e​ ​t​a​r​g​e​t
+		 */
+		patchRuleTarget: string
+		/**
+		 * R​u​l​e​ ​t​y​p​e
+		 */
+		patchRuleType: string
+		/**
+		 * M​a​t​c​h​ ​v​a​l​u​e
+		 */
+		patchRuleValue: string
+		/**
+		 * A​ ​b​o​u​n​d​e​d​ ​t​y​p​e​d​ ​v​a​l​u​e​;​ ​c​o​m​m​a​s​ ​a​n​d​ ​c​o​n​t​r​o​l​ ​c​h​a​r​a​c​t​e​r​s​ ​a​r​e​ ​r​e​j​e​c​t​e​d​.
+		 */
+		patchRuleValueDescription: string
+		/**
+		 * S​a​v​e​ ​p​a​t​c​h​e​s
+		 */
+		patchSave: string
+		/**
+		 * P​a​t​c​h​ ​v​a​l​i​d​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​N​o​ ​c​h​a​n​g​e​s​ ​w​e​r​e​ ​s​a​v​e​d​ ​o​r​ ​a​c​t​i​v​a​t​e​d​.
+		 */
+		patchSaveFailed: string
+		/**
+		 * P​r​o​f​i​l​e​ ​p​a​t​c​h​e​s​ ​s​a​v​e​d
+		 */
+		patchSaved: string
+		/**
+		 * S​o​u​r​c​e​ ​r​u​l​e
+		 */
+		patchSourceRule: string
+		/**
+		 * P​o​l​i​c​y​ ​g​r​o​u​p​s
+		 */
+		patchPolicyGroupsTarget: string
+		/**
+		 * R​u​l​e​s​ ​·​ ​{​p​o​s​i​t​i​o​n​}
+		 * @param {string} position
+		 */
+		patchRulesTarget: RequiredParams<'position'>
+		/**
+		 * S​t​a​l​e
+		 */
+		patchStale: string
+		/**
+		 * A​f​t​e​r​ ​s​o​u​r​c​e​ ​r​u​l​e​s
+		 */
+		patchSuffix: string
+		/**
+		 * P​a​t​c​h​ ​t​y​p​e
+		 */
+		patchType: string
+		/**
+		 * U​n​s​a​v​e​d​ ​c​h​a​n​g​e​s
+		 */
+		patchUnsavedChanges: string
+		/**
+		 * N​o​t​ ​v​a​l​i​d​a​t​e​d​ ​u​n​t​i​l​ ​s​a​v​e​d
+		 */
+		patchUnsavedValidation: string
+		/**
+		 * U​p​d​a​t​e​ ​p​a​t​c​h
+		 */
+		patchUpdate: string
+		/**
+		 * S​e​m​a​n​t​i​c​ ​c​o​n​f​l​i​c​t​ ​b​l​o​c​k​s​ ​a​c​t​i​v​a​t​i​o​n
+		 */
+		patchValidationConflict: string
+		/**
+		 * V​a​l​i​d​ ​a​n​d​ ​d​i​s​a​b​l​e​d
+		 */
+		patchValidationDisabled: string
+		/**
+		 * G​r​o​u​p​ ​l​a​b​e​l​ ​c​o​n​f​l​i​c​t​s​ ​w​i​t​h​ ​a​n​o​t​h​e​r​ ​g​r​o​u​p
+		 */
+		patchValidationDuplicateLabel: string
+		/**
+		 * A​n​o​t​h​e​r​ ​p​a​t​c​h​ ​a​l​r​e​a​d​y​ ​o​w​n​s​ ​t​h​i​s​ ​t​a​r​g​e​t
+		 */
+		patchValidationDuplicateTarget: string
+		/**
+		 * O​r​d​e​r​ ​m​u​s​t​ ​c​o​n​t​a​i​n​ ​e​v​e​r​y​ ​c​u​r​r​e​n​t​ ​s​o​u​r​c​e​ ​g​r​o​u​p​ ​e​x​a​c​t​l​y​ ​o​n​c​e
+		 */
+		patchValidationOrder: string
+		/**
+		 * R​e​f​e​r​e​n​c​e​d​ ​e​n​t​i​t​y​ ​i​s​ ​n​o​t​ ​s​a​f​e​ ​i​n​ ​t​h​i​s​ ​r​e​v​i​s​i​o​n
+		 */
+		patchValidationReference: string
+		/**
+		 * P​a​t​c​h​ ​r​e​m​a​i​n​s​ ​b​o​u​n​d​ ​t​o​ ​a​n​ ​e​a​r​l​i​e​r​ ​s​o​u​r​c​e​ ​r​e​v​i​s​i​o​n
+		 */
+		patchValidationRevision: string
+		/**
+		 * T​a​r​g​e​t​ ​n​o​ ​l​o​n​g​e​r​ ​e​x​i​s​t​s​ ​i​n​ ​t​h​i​s​ ​r​e​v​i​s​i​o​n
+		 */
+		patchValidationTarget: string
+		/**
+		 * V​a​l​i​d​a​t​e​d​ ​f​o​r​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​e​v​i​s​i​o​n
+		 */
+		patchValidationValid: string
+		/**
+		 * V​a​l​u​e​ ​i​s​ ​o​u​t​s​i​d​e​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​s​t​r​u​c​t​u​r​e​d​ ​m​o​d​e​l
+		 */
+		patchValidationValue: string
+		/**
+		 * S​t​r​u​c​t​u​r​e​d​ ​p​a​t​c​h​e​s
+		 */
+		patches: string
+		/**
 		 * A​c​t​i​v​a​t​i​o​n​ ​c​a​n​c​e​l​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​a​l​t​h​y​ ​p​r​o​f​i​l​e​ ​w​a​s​ ​p​r​e​s​e​r​v​e​d​.
 		 */
 		activationCancelled: string
@@ -1354,7 +1628,7 @@ type RootTranslation = {
 		 */
 		provenanceImpactReplacedPlatform: string
 		/**
-		 * S​o​u​r​c​e​ ​→​ ​A​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y​ ​→​ ​P​l​a​t​f​o​r​m​ ​i​n​t​e​g​r​a​t​i​o​n​ ​→​ ​E​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
+		 * S​o​u​r​c​e​ ​→​ ​U​s​e​r​ ​p​a​t​c​h​e​s​ ​→​ ​A​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y​ ​→​ ​P​l​a​t​f​o​r​m​ ​i​n​t​e​g​r​a​t​i​o​n​ ​→​ ​E​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
 		 */
 		provenanceLayerFlow: string
 		/**
@@ -3896,6 +4170,274 @@ export type TranslationFunctions = {
 		 */
 		activation: () => LocalizedString
 		/**
+		 * One or more patches are stale or invalid. This revision cannot be activated until they are repaired or removed.
+		 */
+		patchActivationBlocked: () => LocalizedString
+		/**
+		 * Add patch
+		 */
+		patchAdd: () => LocalizedString
+		/**
+		 * Add structured patch
+		 */
+		patchAddTitle: () => LocalizedString
+		/**
+		 * All patch changes are saved
+		 */
+		patchAllSaved: () => LocalizedString
+		/**
+		 * {count} patches
+		 */
+		patchCount: (arg: { count: number }) => LocalizedString
+		/**
+		 * Disable
+		 */
+		patchDisable: () => LocalizedString
+		/**
+		 * Disabled
+		 */
+		patchDisabled: () => LocalizedString
+		/**
+		 * Discard changes
+		 */
+		patchDiscard: () => LocalizedString
+		/**
+		 * These changes have not been validated or saved and will not enter the live runtime.
+		 */
+		patchDiscardDescription: () => LocalizedString
+		/**
+		 * Discard unsaved patch changes?
+		 */
+		patchDiscardTitle: () => LocalizedString
+		/**
+		 * Edit patch
+		 */
+		patchEdit: () => LocalizedString
+		/**
+		 * Edit structured patch
+		 */
+		patchEditTitle: () => LocalizedString
+		/**
+		 * Review bounded rule and selector-group changes without editing source YAML.
+		 */
+		patchEditorDescription: () => LocalizedString
+		/**
+		 * Patches for {profile}
+		 */
+		patchEditorTitle: (arg: { profile: string }) => LocalizedString
+		/**
+		 * The immutable source currently flows into application policy without user patches.
+		 */
+		patchEmptyDescription: () => LocalizedString
+		/**
+		 * No profile patches
+		 */
+		patchEmptyTitle: () => LocalizedString
+		/**
+		 * Enable
+		 */
+		patchEnable: () => LocalizedString
+		/**
+		 * Enabled
+		 */
+		patchEnabled: () => LocalizedString
+		/**
+		 * Illustrative browser fixture only. This fictional patch is not validated or activated by a desktop runtime.
+		 */
+		patchFixture: () => LocalizedString
+		/**
+		 * Only entities known to the current source revision can be referenced.
+		 */
+		patchFormDescription: () => LocalizedString
+		/**
+		 * Add selector group
+		 */
+		patchGroupAdd: () => LocalizedString
+		/**
+		 * Group label
+		 */
+		patchGroupLabel: () => LocalizedString
+		/**
+		 * Change group members
+		 */
+		patchGroupMembers: () => LocalizedString
+		/**
+		 * Explicit group order
+		 */
+		patchGroupOrder: () => LocalizedString
+		/**
+		 * Order policy groups
+		 */
+		patchGroupReorder: () => LocalizedString
+		/**
+		 * Invalid
+		 */
+		patchInvalid: () => LocalizedString
+		/**
+		 * Profile patches could not be loaded for this revision.
+		 */
+		patchLoadFailed: () => LocalizedString
+		/**
+		 * Ordered members
+		 */
+		patchMembers: () => LocalizedString
+		/**
+		 * Choose existing safe outbound identifiers. Selection order is preserved.
+		 */
+		patchMembersDescription: () => LocalizedString
+		/**
+		 * Move down
+		 */
+		patchMoveDown: () => LocalizedString
+		/**
+		 * Move up
+		 */
+		patchMoveUp: () => LocalizedString
+		/**
+		 * Policy group
+		 */
+		patchPolicyGroup: () => LocalizedString
+		/**
+		 * Insertion position
+		 */
+		patchPosition: () => LocalizedString
+		/**
+		 * Before source rules
+		 */
+		patchPrefix: () => LocalizedString
+		/**
+		 * Reset all
+		 */
+		patchReset: () => LocalizedString
+		/**
+		 * Delete source rule
+		 */
+		patchRuleDelete: () => LocalizedString
+		/**
+		 * Disable source rule
+		 */
+		patchRuleDisable: () => LocalizedString
+		/**
+		 * Insert rule
+		 */
+		patchRuleInsert: () => LocalizedString
+		/**
+		 * Rule provider
+		 */
+		patchRuleProvider: () => LocalizedString
+		/**
+		 * Rule {position} · {ruleType} → {target}
+		 */
+		patchRuleSummary: (arg: { position: number, ruleType: string, target: string }) => LocalizedString
+		/**
+		 * Rule target
+		 */
+		patchRuleTarget: () => LocalizedString
+		/**
+		 * Rule type
+		 */
+		patchRuleType: () => LocalizedString
+		/**
+		 * Match value
+		 */
+		patchRuleValue: () => LocalizedString
+		/**
+		 * A bounded typed value; commas and control characters are rejected.
+		 */
+		patchRuleValueDescription: () => LocalizedString
+		/**
+		 * Save patches
+		 */
+		patchSave: () => LocalizedString
+		/**
+		 * Patch validation failed. No changes were saved or activated.
+		 */
+		patchSaveFailed: () => LocalizedString
+		/**
+		 * Profile patches saved
+		 */
+		patchSaved: () => LocalizedString
+		/**
+		 * Source rule
+		 */
+		patchSourceRule: () => LocalizedString
+		/**
+		 * Policy groups
+		 */
+		patchPolicyGroupsTarget: () => LocalizedString
+		/**
+		 * Rules · {position}
+		 */
+		patchRulesTarget: (arg: { position: string }) => LocalizedString
+		/**
+		 * Stale
+		 */
+		patchStale: () => LocalizedString
+		/**
+		 * After source rules
+		 */
+		patchSuffix: () => LocalizedString
+		/**
+		 * Patch type
+		 */
+		patchType: () => LocalizedString
+		/**
+		 * Unsaved changes
+		 */
+		patchUnsavedChanges: () => LocalizedString
+		/**
+		 * Not validated until saved
+		 */
+		patchUnsavedValidation: () => LocalizedString
+		/**
+		 * Update patch
+		 */
+		patchUpdate: () => LocalizedString
+		/**
+		 * Semantic conflict blocks activation
+		 */
+		patchValidationConflict: () => LocalizedString
+		/**
+		 * Valid and disabled
+		 */
+		patchValidationDisabled: () => LocalizedString
+		/**
+		 * Group label conflicts with another group
+		 */
+		patchValidationDuplicateLabel: () => LocalizedString
+		/**
+		 * Another patch already owns this target
+		 */
+		patchValidationDuplicateTarget: () => LocalizedString
+		/**
+		 * Order must contain every current source group exactly once
+		 */
+		patchValidationOrder: () => LocalizedString
+		/**
+		 * Referenced entity is not safe in this revision
+		 */
+		patchValidationReference: () => LocalizedString
+		/**
+		 * Patch remains bound to an earlier source revision
+		 */
+		patchValidationRevision: () => LocalizedString
+		/**
+		 * Target no longer exists in this revision
+		 */
+		patchValidationTarget: () => LocalizedString
+		/**
+		 * Validated for the current revision
+		 */
+		patchValidationValid: () => LocalizedString
+		/**
+		 * Value is outside the bounded structured model
+		 */
+		patchValidationValue: () => LocalizedString
+		/**
+		 * Structured patches
+		 */
+		patches: () => LocalizedString
+		/**
 		 * Activation cancelled. The previous healthy profile was preserved.
 		 */
 		activationCancelled: () => LocalizedString
@@ -4180,7 +4722,7 @@ export type TranslationFunctions = {
 		 */
 		provenanceImpactReplacedPlatform: () => LocalizedString
 		/**
-		 * Source → Application policy → Platform integration → Effective runtime
+		 * Source → User patches → Application policy → Platform integration → Effective runtime
 		 */
 		provenanceLayerFlow: () => LocalizedString
 		/**
