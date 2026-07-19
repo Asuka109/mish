@@ -502,20 +502,20 @@ type RootTranslation = {
 		 */
 		disableFixtureAria: string
 		/**
-		 * E​n​a​b​l​e​ ​p​r​o​x​y
+		 * L​a​u​n​c​h​ ​p​r​o​x​y
 		 */
 		enableAria: string
 		/**
-		 * E​n​a​b​l​e​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
+		 * L​a​u​n​c​h​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
 		 */
 		enableFixtureAria: string
 		/**
-		 * S​t​a​r​t​ ​p​r​o​x​y​ ​w​i​t​h​ ​{​m​o​d​e​s​}
+		 * L​a​u​n​c​h​ ​p​r​o​x​y​ ​w​i​t​h​ ​{​m​o​d​e​s​}
 		 * @param {string} modes
 		 */
 		enableWithModes: RequiredParams<'modes'>
 		/**
-		 * E​n​a​b​l​e​ ​p​r​o​x​y
+		 * L​a​u​n​c​h​ ​p​r​o​x​y
 		 */
 		enable: string
 		/**
@@ -3721,19 +3721,19 @@ export type TranslationFunctions = {
 		 */
 		disableFixtureAria: () => LocalizedString
 		/**
-		 * Enable proxy
+		 * Launch proxy
 		 */
 		enableAria: () => LocalizedString
 		/**
-		 * Enable the proxy demo state
+		 * Launch the proxy demo state
 		 */
 		enableFixtureAria: () => LocalizedString
 		/**
-		 * Start proxy with {modes}
+		 * Launch proxy with {modes}
 		 */
 		enableWithModes: (arg: { modes: string }) => LocalizedString
 		/**
-		 * Enable proxy
+		 * Launch proxy
 		 */
 		enable: () => LocalizedString
 		/**
