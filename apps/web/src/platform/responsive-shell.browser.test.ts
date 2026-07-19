@@ -111,6 +111,7 @@ async function navigate(path: string): Promise<void> {
   await vi.waitFor(() => {
     expect(window.location.pathname).toBe(path);
     expect(document.querySelector("main .page-scroll")).not.toBeNull();
+    expect(document.querySelector("main .route-loading")).toBeNull();
     expect(document.querySelector(".nav-item.is-active")?.getAttribute("href")).toBe(path);
 
     if (path === "/traffic") {
