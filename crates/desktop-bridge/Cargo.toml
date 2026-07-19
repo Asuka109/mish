@@ -23,6 +23,7 @@ tokio = { version = "1.53.0", features = ["macros", "net", "process", "rt-multi-
 tokio-util = "0.7.18"
 url = "2.5.8"
 reqwest = { version = "0.13.2", default-features = false, features = ["http2", "rustls", "stream"] }
+regex = "1.12.2"
 uuid = { version = "1.24.0", features = ["v4"] }
 
 [dev-dependencies]

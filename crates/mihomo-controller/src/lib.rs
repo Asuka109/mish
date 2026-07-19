@@ -33,6 +33,7 @@ pub struct ControllerLimits {
     pub max_connections: usize,
     pub max_chain_entries: usize,
     pub max_rules: usize,
+    pub max_log_fields: usize,
 }
 
 impl Default for ControllerLimits {
@@ -47,6 +48,7 @@ impl Default for ControllerLimits {
             max_connections: 20_000,
             max_chain_entries: 128,
             max_rules: 100_000,
+            max_log_fields: 64,
         }
     }
 }
@@ -63,6 +65,7 @@ impl ControllerLimits {
             self.max_connections,
             self.max_chain_entries,
             self.max_rules,
+            self.max_log_fields,
         ]
         .contains(&0)
         {
@@ -149,6 +152,10 @@ impl ControllerClient {
 
     pub async fn memory_snapshot(&self) -> Result<MemorySnapshot, ControllerError> {
         self.first_snapshot(Endpoint::Memory).await
+    }
+
+    pub async fn logs_stream(&self) -> Result<ControllerStream<LogMessage>, ControllerError> {
+        self.open_stream(Endpoint::Logs).await
     }
 
     pub async fn connection_stream(

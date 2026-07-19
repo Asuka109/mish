@@ -9,10 +9,12 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 mod capture;
+mod events;
 mod status;
 mod traffic;
 
 pub use capture::*;
+pub use events::*;
 pub use status::*;
 pub use traffic::*;
 
@@ -182,8 +184,21 @@ pub trait TrafficDataSource: Send + Sync {
     fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot;
 }
 
-#[derive(Default)]
-struct LifecycleStatusDataSource;
+pub trait EventsDataSource: Send + Sync {
+    fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot;
+    fn subscribe_events(&self) -> broadcast::Receiver<()>;
+}
+
+struct LifecycleStatusDataSource {
+    event_updates: broadcast::Sender<()>,
+}
+
+impl LifecycleStatusDataSource {
+    fn new() -> Self {
+        let (event_updates, _) = broadcast::channel(1);
+        Self { event_updates }
+    }
+}
 
 impl StatusDataSource for LifecycleStatusDataSource {
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
@@ -197,19 +212,36 @@ impl TrafficDataSource for LifecycleStatusDataSource {
     }
 }
 
+impl EventsDataSource for LifecycleStatusDataSource {
+    fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot {
+        EventsSnapshot::unavailable(adapter_kind)
+    }
+
+    fn subscribe_events(&self) -> broadcast::Receiver<()> {
+        self.event_updates.subscribe()
+    }
+}
+
 #[derive(Clone)]
 pub struct MishRuntime {
     capture: Option<Arc<CaptureReconciler>>,
     core: Arc<dyn CoreRuntime>,
     events: Arc<RuntimeStatusEvents>,
+    events_source: Arc<dyn EventsDataSource>,
     status_source: Arc<dyn StatusDataSource>,
     traffic_source: Arc<dyn TrafficDataSource>,
 }
 
 impl MishRuntime {
     pub fn new(core: Arc<dyn CoreRuntime>) -> Self {
-        let source = Arc::new(LifecycleStatusDataSource);
-        Self::with_data_sources_and_capture(core, source.clone(), source, None)
+        let source = Arc::new(LifecycleStatusDataSource::new());
+        Self::with_data_sources_events_and_capture(
+            core,
+            source.clone(),
+            source.clone(),
+            source,
+            None,
+        )
     }
 
     pub fn with_status_source(
@@ -219,7 +251,7 @@ impl MishRuntime {
         Self::with_data_sources_and_capture(
             core,
             status_source,
-            Arc::new(LifecycleStatusDataSource),
+            Arc::new(LifecycleStatusDataSource::new()),
             None,
         )
     }
@@ -232,15 +264,53 @@ impl MishRuntime {
         Self::with_data_sources_and_capture(core, status_source, traffic_source, None)
     }
 
+    pub fn with_data_sources_and_events(
+        core: Arc<dyn CoreRuntime>,
+        status_source: Arc<dyn StatusDataSource>,
+        traffic_source: Arc<dyn TrafficDataSource>,
+        events_source: Arc<dyn EventsDataSource>,
+    ) -> Self {
+        Self::with_data_sources_events_and_capture(
+            core,
+            status_source,
+            traffic_source,
+            events_source,
+            None,
+        )
+    }
+
     pub fn with_capture(core: Arc<dyn CoreRuntime>, capture: Arc<CaptureReconciler>) -> Self {
-        let source = Arc::new(LifecycleStatusDataSource);
-        Self::with_data_sources_and_capture(core, source.clone(), source, Some(capture))
+        let source = Arc::new(LifecycleStatusDataSource::new());
+        Self::with_data_sources_events_and_capture(
+            core,
+            source.clone(),
+            source.clone(),
+            source,
+            Some(capture),
+        )
     }
 
     pub fn with_data_sources_and_capture(
         core: Arc<dyn CoreRuntime>,
         status_source: Arc<dyn StatusDataSource>,
         traffic_source: Arc<dyn TrafficDataSource>,
+        capture: Option<Arc<CaptureReconciler>>,
+    ) -> Self {
+        let events_source = Arc::new(LifecycleStatusDataSource::new());
+        Self::with_data_sources_events_and_capture(
+            core,
+            status_source,
+            traffic_source,
+            events_source,
+            capture,
+        )
+    }
+
+    pub fn with_data_sources_events_and_capture(
+        core: Arc<dyn CoreRuntime>,
+        status_source: Arc<dyn StatusDataSource>,
+        traffic_source: Arc<dyn TrafficDataSource>,
+        events_source: Arc<dyn EventsDataSource>,
         capture: Option<Arc<CaptureReconciler>>,
     ) -> Self {
         let (updates, _) = broadcast::channel(32);
@@ -255,6 +325,7 @@ impl MishRuntime {
             capture,
             core,
             events,
+            events_source,
             status_source,
             traffic_source,
         }
@@ -371,6 +442,15 @@ impl MishRuntime {
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         serde_json::to_value(self.traffic_source.traffic_snapshot(adapter_kind))
             .expect("Traffic state must serialize")
+    }
+
+    pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
+        serde_json::to_value(self.events_source.events_snapshot(adapter_kind))
+            .expect("Events state must serialize")
+    }
+
+    pub fn subscribe_events(&self) -> broadcast::Receiver<()> {
+        self.events_source.subscribe_events()
     }
 
     pub fn snapshot_from_status(

@@ -1,6 +1,7 @@
 mod activation;
 mod controller_source;
 mod controller_status;
+mod event_redaction;
 mod managed_process;
 mod profile_activation;
 mod profiles;
@@ -61,8 +62,9 @@ pub async fn compose_desktop_runtime_with_capture(
         });
     };
     let source = ControllerStatusSource::new(controller, lifecycle.clone())?;
-    let runtime = MishRuntime::with_data_sources_and_capture(
+    let runtime = MishRuntime::with_data_sources_events_and_capture(
         lifecycle,
+        source.clone(),
         source.clone(),
         source.clone(),
         capture,

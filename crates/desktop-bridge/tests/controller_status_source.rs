@@ -23,7 +23,7 @@ use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, S
 use serde_json::{Value, json};
 use tokio::{
     net::TcpListener,
-    sync::{RwLock, oneshot, watch},
+    sync::{RwLock, broadcast, oneshot, watch},
     task::JoinHandle,
     time::{Duration, Instant, sleep, timeout},
 };
@@ -79,6 +79,7 @@ struct FakeControllerState {
     available: watch::Sender<bool>,
     configs: RwLock<Value>,
     connections: RwLock<Value>,
+    logs: broadcast::Sender<Value>,
     memory: watch::Sender<Value>,
     mutation_count: AtomicUsize,
     mutation_status: AtomicUsize,
@@ -100,12 +101,14 @@ impl FakeController {
         let (available, _) = watch::channel(true);
         let (traffic, _) = watch::channel(traffic(3, 4, 30, 40));
         let (memory, _) = watch::channel(json!({"inuse": 4096, "oslimit": 8192}));
+        let (logs, _) = broadcast::channel(2_048);
         let state = Arc::new(FakeControllerState {
             active_streams: AtomicUsize::new(0),
             apply_mutations: AtomicBool::new(true),
             available,
             configs: RwLock::new(configs("rule")),
             connections: RwLock::new(connections("connection-a")),
+            logs,
             memory,
             mutation_count: AtomicUsize::new(0),
             mutation_status: AtomicUsize::new(StatusCode::NO_CONTENT.as_u16().into()),
@@ -126,6 +129,7 @@ impl FakeController {
             .route("/connections", get(connections_endpoint))
             .route("/traffic", get(traffic_endpoint))
             .route("/memory", get(memory_endpoint))
+            .route("/logs", get(logs_endpoint))
             .with_state(state.clone())
             .layer(from_fn(require_controller_auth));
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
@@ -252,6 +256,45 @@ async fn memory_endpoint(
     websocket: WebSocketUpgrade,
 ) -> Response {
     stream_endpoint(state.clone(), websocket, state.memory.subscribe())
+}
+
+async fn logs_endpoint(
+    State(state): State<Arc<FakeControllerState>>,
+    websocket: WebSocketUpgrade,
+) -> Response {
+    if !available(&state) {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    websocket
+        .on_upgrade(move |socket| stream_logs(socket, state))
+        .into_response()
+}
+
+async fn stream_logs(mut socket: axum::extract::ws::WebSocket, state: Arc<FakeControllerState>) {
+    state.active_streams.fetch_add(1, Ordering::AcqRel);
+    let _guard = StreamGuard(&state.active_streams);
+    let mut values = state.logs.subscribe();
+    let mut availability = state.available.subscribe();
+    loop {
+        tokio::select! {
+            value = values.recv() => {
+                let Ok(value) = value else { return };
+                if socket.send(AxumMessage::Text(value.to_string().into())).await.is_err() {
+                    return;
+                }
+            }
+            changed = availability.changed() => {
+                if changed.is_err() || !*availability.borrow_and_update() {
+                    return;
+                }
+            }
+            incoming = socket.recv() => {
+                if incoming.is_none() {
+                    return;
+                }
+            }
+        }
+    }
 }
 
 fn stream_endpoint(
@@ -884,6 +927,95 @@ async fn unsupported_controller_version_is_diagnostic_and_blocks_observation() {
 
     runtime.shutdown().await.unwrap();
     assert!(source.is_closed());
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn controller_events_are_bounded_redacted_and_restart_at_reconnect_boundaries() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources_and_events(
+        lifecycle,
+        source.clone(),
+        source.clone(),
+        source.clone(),
+    );
+    source.start().await;
+
+    wait_for(Duration::from_secs(1), || {
+        runtime.events_snapshot(StatusAdapterKind::Rpc)["phase"] == "ready"
+    })
+    .await;
+    let first_session = runtime.events_snapshot(StatusAdapterKind::Rpc)["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    fake.state
+        .logs
+        .send(json!({
+            "time": "08:00:00",
+            "level": "warning",
+            "message": "failed https://fixture-user:fixture-pass@subscription.example.invalid/list?token=synthetic from /synthetic/private/profile.yaml at 198.51.100.23",
+            "fields": [{"key": "token", "value": "abcdefghijklmnopqrstuvwxyz123456"}]
+        }))
+        .unwrap();
+    wait_for(Duration::from_secs(1), || {
+        runtime.events_snapshot(StatusAdapterKind::Rpc)["sequence"] == 2
+    })
+    .await;
+    let redacted = runtime.events_snapshot(StatusAdapterKind::Rpc).to_string();
+    for sensitive in [
+        "fixture-user",
+        "subscription.example.invalid",
+        "/synthetic/private/profile.yaml",
+        "198.51.100.23",
+        "abcdefghijklmnopqrstuvwxyz123456",
+    ] {
+        assert!(!redacted.contains(sensitive));
+    }
+    assert!(redacted.contains("[redacted-url]"));
+    assert!(redacted.contains("[redacted-path]"));
+
+    for index in 0..1_050 {
+        fake.state
+            .logs
+            .send(json!({
+                "time": "08:00:01",
+                "level": "info",
+                "message": format!("synthetic event {index}"),
+                "fields": []
+            }))
+            .unwrap();
+    }
+    wait_for(Duration::from_secs(3), || {
+        runtime.events_snapshot(StatusAdapterKind::Rpc)["sequence"] == 1_052
+    })
+    .await;
+    let bounded = runtime.events_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(bounded["events"].as_array().unwrap().len(), 1_024);
+    assert_eq!(bounded["events"][0]["sequence"], 29);
+
+    fake.set_available(false);
+    wait_for(Duration::from_secs(1), || {
+        runtime.events_snapshot(StatusAdapterKind::Rpc)["phase"] == "stale"
+    })
+    .await;
+    fake.set_available(true);
+    wait_for(Duration::from_secs(2), || {
+        let snapshot = runtime.events_snapshot(StatusAdapterKind::Rpc);
+        snapshot["phase"] == "ready" && snapshot["sessionId"] != first_session
+    })
+    .await;
+    let reconnected = runtime.events_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(reconnected["reconnectCount"], 1);
+    assert_eq!(reconnected["events"].as_array().unwrap().len(), 1);
+    assert_eq!(reconnected["events"][0]["source"], "application");
+
+    runtime.shutdown().await.unwrap();
     fake.shutdown().await;
 }
 

@@ -1359,6 +1359,197 @@ type RootTranslation = {
 		 */
 		upload: string
 	}
+	events: {
+		/**
+		 * A​l​l​ ​l​e​v​e​l​s
+		 */
+		allLevels: string
+		/**
+		 * A​l​l​ ​s​o​u​r​c​e​s
+		 */
+		allSources: string
+		/**
+		 * C​l​e​a​r​ ​l​o​c​a​l
+		 */
+		clearLocal: string
+		/**
+		 * C​l​e​a​r​s​ ​o​n​l​y​ ​t​h​i​s​ ​W​e​b​V​i​e​w​'​s​ ​b​o​u​n​d​e​d​ ​m​e​m​o​r​y​ ​b​u​f​f​e​r​.​ ​M​i​h​o​m​o​ ​l​o​g​s​,​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​,​ ​r​u​n​t​i​m​e​ ​s​t​a​t​e​,​ ​a​n​d​ ​f​i​l​e​s​ ​a​r​e​ ​u​n​c​h​a​n​g​e​d​.
+		 */
+		clearLocalDescription: string
+		/**
+		 * C​o​n​n​e​c​t​i​n​g​ ​t​o​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​C​o​n​t​r​o​l​l​e​r​ ​e​v​e​n​t​ ​s​o​u​r​c​e​.
+		 */
+		connectingNotice: string
+		/**
+		 * C​o​p​i​e​d​ ​s​a​f​e​ ​e​v​e​n​t​ ​t​e​x​t
+		 */
+		copied: string
+		/**
+		 * C​o​p​y​ ​s​a​f​e​ ​e​v​e​n​t​ ​t​e​x​t
+		 */
+		copyEvent: string
+		/**
+		 * B​o​u​n​d​e​d​,​ ​r​e​d​a​c​t​e​d​ ​a​p​p​l​i​c​a​t​i​o​n​ ​a​n​d​ ​M​i​h​o​m​o​ ​C​o​n​t​r​o​l​l​e​r​ ​o​b​s​e​r​v​a​t​i​o​n​s​.
+		 */
+		description: string
+		/**
+		 * F​i​c​t​i​o​n​a​l​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​e​v​e​n​t​s​.​ ​N​o​ ​d​e​s​k​t​o​p​ ​C​o​n​t​r​o​l​l​e​r​,​ ​f​i​l​e​,​ ​n​e​t​w​o​r​k​,​ ​o​r​ ​s​y​s​t​e​m​ ​s​o​u​r​c​e​ ​w​a​s​ ​c​o​n​t​a​c​t​e​d​.
+		 */
+		fixtureNotice: string
+		/**
+		 * F​o​l​l​o​w​ ​l​a​t​e​s​t
+		 */
+		followLatest: string
+		/**
+		 * F​o​l​l​o​w​i​n​g​ ​l​a​t​e​s​t
+		 */
+		followingLatest: string
+		level: {
+			/**
+			 * D​e​b​u​g
+			 */
+			debug: string
+			/**
+			 * E​r​r​o​r
+			 */
+			error: string
+			/**
+			 * I​n​f​o
+			 */
+			info: string
+			/**
+			 * W​a​r​n​i​n​g
+			 */
+			warning: string
+		}
+		/**
+		 * F​i​l​t​e​r​ ​b​y​ ​l​e​v​e​l
+		 */
+		levelLabel: string
+		/**
+		 * L​i​v​e​ ​r​e​d​a​c​t​e​d​ ​o​b​s​e​r​v​a​t​i​o​n​s​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 */
+		liveNotice: string
+		/**
+		 * E​v​e​n​t​s​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​l​o​a​d​e​d​.
+		 */
+		loadError: string
+		/**
+		 * N​e​w​e​s​t​ ​f​i​r​s​t
+		 */
+		newestFirst: string
+		/**
+		 * N​o​ ​l​o​c​a​l​ ​e​v​e​n​t​s
+		 */
+		noEvents: string
+		/**
+		 * T​h​i​s​ ​s​e​s​s​i​o​n​ ​h​a​s​ ​n​o​t​ ​p​r​o​d​u​c​e​d​ ​a​n​ ​e​v​e​n​t​,​ ​o​r​ ​t​h​e​ ​l​o​c​a​l​ ​b​u​f​f​e​r​ ​w​a​s​ ​c​l​e​a​r​e​d​.
+		 */
+		noEventsDescription: string
+		/**
+		 * N​o​ ​m​a​t​c​h​i​n​g​ ​e​v​e​n​t​s
+		 */
+		noMatches: string
+		/**
+		 * C​l​e​a​r​ ​o​r​ ​c​h​a​n​g​e​ ​t​h​e​ ​t​e​x​t​,​ ​l​e​v​e​l​,​ ​a​n​d​ ​s​o​u​r​c​e​ ​f​i​l​t​e​r​s​.
+		 */
+		noMatchesDescription: string
+		/**
+		 * O​l​d​e​s​t​ ​f​i​r​s​t
+		 */
+		oldestFirst: string
+		/**
+		 * E​v​e​n​t​ ​o​r​d​e​r
+		 */
+		orderLabel: string
+		/**
+		 * P​a​u​s​e​ ​v​i​e​w
+		 */
+		pause: string
+		/**
+		 * V​i​e​w​ ​p​a​u​s​e​d​;​ ​{​c​o​u​n​t​}​ ​n​e​w​e​r​ ​e​v​e​n​t​s​ ​r​e​m​a​i​n​ ​b​u​f​f​e​r​e​d​ ​l​o​c​a​l​l​y​.
+		 * @param {number} count
+		 */
+		paused: RequiredParams<'count'>
+		/**
+		 * R​e​s​u​m​e​ ​v​i​e​w
+		 */
+		resume: string
+		/**
+		 * L​o​c​a​l​ ​m​e​m​o​r​y​ ​o​n​l​y​ ​·​ ​1​,​0​2​4​ ​e​v​e​n​t​s​ ​m​a​x​i​m​u​m
+		 */
+		retention: string
+		/**
+		 * S​e​a​r​c​h​ ​E​v​e​n​t​s
+		 */
+		searchLabel: string
+		/**
+		 * S​e​a​r​c​h​ ​r​e​d​a​c​t​e​d​ ​m​e​s​s​a​g​e​ ​o​r​ ​d​e​t​a​i​l
+		 */
+		searchPlaceholder: string
+		/**
+		 * E​v​e​n​t​ ​s​e​s​s​i​o​n​ ​{​s​e​s​s​i​o​n​}​;​ ​r​e​c​o​n​n​e​c​t​s​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 * @param {string} session
+		 */
+		session: RequiredParams<'count' | 'session'>
+		source: {
+			/**
+			 * A​p​p​l​i​c​a​t​i​o​n
+			 */
+			application: string
+			/**
+			 * M​i​h​o​m​o​ ​c​o​r​e
+			 */
+			core: string
+			/**
+			 * P​l​a​t​f​o​r​m
+			 */
+			platform: string
+			/**
+			 * R​P​C
+			 */
+			rpc: string
+		}
+		/**
+		 * E​v​e​n​t​ ​s​o​u​r​c​e​ ​a​v​a​i​l​a​b​i​l​i​t​y
+		 */
+		sourceAvailability: string
+		/**
+		 * F​i​l​t​e​r​ ​b​y​ ​s​o​u​r​c​e
+		 */
+		sourceLabel: string
+		sourcePhase: {
+			/**
+			 * F​i​x​t​u​r​e​ ​o​n​l​y
+			 */
+			'fixture-only': string
+			/**
+			 * R​e​a​d​y
+			 */
+			ready: string
+			/**
+			 * S​t​a​l​e
+			 */
+			stale: string
+			/**
+			 * U​n​a​v​a​i​l​a​b​l​e
+			 */
+			unavailable: string
+		}
+		/**
+		 * T​h​e​ ​e​v​e​n​t​ ​s​t​r​e​a​m​ ​i​s​ ​s​t​a​l​e​ ​a​f​t​e​r​ ​a​n​ ​o​b​s​e​r​v​a​t​i​o​n​ ​g​a​p​.​ ​R​e​t​a​i​n​e​d​ ​r​o​w​s​ ​b​e​l​o​n​g​ ​o​n​l​y​ ​t​o​ ​t​h​e​ ​l​a​b​e​l​e​d​ ​p​r​i​o​r​ ​s​e​s​s​i​o​n​.
+		 */
+		staleNotice: string
+		/**
+		 * E​v​e​n​t​s
+		 */
+		title: string
+		/**
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​ ​h​a​s​ ​n​o​ ​s​u​p​p​o​r​t​e​d​ ​E​v​e​n​t​s​ ​s​o​u​r​c​e​.​ ​N​o​ ​d​e​s​k​t​o​p​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​c​l​a​i​m​e​d​.
+		 */
+		unavailableNotice: string
+	}
 	destination: {
 		/**
 		 * C​u​r​r​e​n​t​ ​s​t​a​t​e
@@ -2941,6 +3132,194 @@ export type TranslationFunctions = {
 		 * Uploaded
 		 */
 		upload: () => LocalizedString
+	}
+	events: {
+		/**
+		 * All levels
+		 */
+		allLevels: () => LocalizedString
+		/**
+		 * All sources
+		 */
+		allSources: () => LocalizedString
+		/**
+		 * Clear local
+		 */
+		clearLocal: () => LocalizedString
+		/**
+		 * Clears only this WebView's bounded memory buffer. Mihomo logs, configuration, runtime state, and files are unchanged.
+		 */
+		clearLocalDescription: () => LocalizedString
+		/**
+		 * Connecting to the desktop Controller event source.
+		 */
+		connectingNotice: () => LocalizedString
+		/**
+		 * Copied safe event text
+		 */
+		copied: () => LocalizedString
+		/**
+		 * Copy safe event text
+		 */
+		copyEvent: () => LocalizedString
+		/**
+		 * Bounded, redacted application and Mihomo Controller observations.
+		 */
+		description: () => LocalizedString
+		/**
+		 * Fictional browser fixture events. No desktop Controller, file, network, or system source was contacted.
+		 */
+		fixtureNotice: () => LocalizedString
+		/**
+		 * Follow latest
+		 */
+		followLatest: () => LocalizedString
+		/**
+		 * Following latest
+		 */
+		followingLatest: () => LocalizedString
+		level: {
+			/**
+			 * Debug
+			 */
+			debug: () => LocalizedString
+			/**
+			 * Error
+			 */
+			error: () => LocalizedString
+			/**
+			 * Info
+			 */
+			info: () => LocalizedString
+			/**
+			 * Warning
+			 */
+			warning: () => LocalizedString
+		}
+		/**
+		 * Filter by level
+		 */
+		levelLabel: () => LocalizedString
+		/**
+		 * Live redacted observations from the desktop local service.
+		 */
+		liveNotice: () => LocalizedString
+		/**
+		 * Events could not be loaded.
+		 */
+		loadError: () => LocalizedString
+		/**
+		 * Newest first
+		 */
+		newestFirst: () => LocalizedString
+		/**
+		 * No local events
+		 */
+		noEvents: () => LocalizedString
+		/**
+		 * This session has not produced an event, or the local buffer was cleared.
+		 */
+		noEventsDescription: () => LocalizedString
+		/**
+		 * No matching events
+		 */
+		noMatches: () => LocalizedString
+		/**
+		 * Clear or change the text, level, and source filters.
+		 */
+		noMatchesDescription: () => LocalizedString
+		/**
+		 * Oldest first
+		 */
+		oldestFirst: () => LocalizedString
+		/**
+		 * Event order
+		 */
+		orderLabel: () => LocalizedString
+		/**
+		 * Pause view
+		 */
+		pause: () => LocalizedString
+		/**
+		 * View paused; {count} newer events remain buffered locally.
+		 */
+		paused: (arg: { count: number }) => LocalizedString
+		/**
+		 * Resume view
+		 */
+		resume: () => LocalizedString
+		/**
+		 * Local memory only · 1,024 events maximum
+		 */
+		retention: () => LocalizedString
+		/**
+		 * Search Events
+		 */
+		searchLabel: () => LocalizedString
+		/**
+		 * Search redacted message or detail
+		 */
+		searchPlaceholder: () => LocalizedString
+		/**
+		 * Event session {session}; reconnects {count}
+		 */
+		session: (arg: { count: number, session: string }) => LocalizedString
+		source: {
+			/**
+			 * Application
+			 */
+			application: () => LocalizedString
+			/**
+			 * Mihomo core
+			 */
+			core: () => LocalizedString
+			/**
+			 * Platform
+			 */
+			platform: () => LocalizedString
+			/**
+			 * RPC
+			 */
+			rpc: () => LocalizedString
+		}
+		/**
+		 * Event source availability
+		 */
+		sourceAvailability: () => LocalizedString
+		/**
+		 * Filter by source
+		 */
+		sourceLabel: () => LocalizedString
+		sourcePhase: {
+			/**
+			 * Fixture only
+			 */
+			'fixture-only': () => LocalizedString
+			/**
+			 * Ready
+			 */
+			ready: () => LocalizedString
+			/**
+			 * Stale
+			 */
+			stale: () => LocalizedString
+			/**
+			 * Unavailable
+			 */
+			unavailable: () => LocalizedString
+		}
+		/**
+		 * The event stream is stale after an observation gap. Retained rows belong only to the labeled prior session.
+		 */
+		staleNotice: () => LocalizedString
+		/**
+		 * Events
+		 */
+		title: () => LocalizedString
+		/**
+		 * The current runtime has no supported Events source. No desktop observation is claimed.
+		 */
+		unavailableNotice: () => LocalizedString
 	}
 	destination: {
 		/**

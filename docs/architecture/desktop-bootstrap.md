@@ -11,9 +11,9 @@ System Proxy reconciliation rules, TUN, or mobile execution. It composes the
 narrow macOS System Proxy adapter into the shared runtime.
 
 An ordinary browser has no Tauri IPC surface. It continues to construct
-`FixtureStatusClient`, performs no startup request, and labels all fixture values
-and actions as demo state. The Tauri WebView alone constructs `RpcStatusClient`
-and `RpcProfileClient` after validating its private bootstrap payload.
+fixture clients, performs no startup request, and labels all fixture values and
+actions as demo state. The Tauri WebView alone constructs the Status, Profile,
+Traffic, and Events RPC adapters after validating its private bootstrap payload.
 
 ## Local resource flow
 
@@ -30,6 +30,9 @@ and `RpcProfileClient` after validating its private bootstrap payload.
    profile repository, runtime root, and mode-`0600` System Proxy recovery
    journal there, and starts `mish-bridge` on `127.0.0.1:0` in the explicit safe
    stopped state.
+   The bridge-handle slot is created before `run_return`; Tauri's `Ready` setup
+   hook fills it before the WebView can invoke bootstrap, and the exit path later
+   takes the same handle for ordered shutdown.
 7. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body.
@@ -45,13 +48,14 @@ and `RpcProfileClient` after validating its private bootstrap payload.
     `localStorage`, or `sessionStorage`.
 11. Profile activation reloads a repository-owned valid artifact, resolves only
     the managed pinned binary, and commits the new runtime after Controller,
-    Status, and Traffic readiness. Development accepts only an explicit
+    Status and Traffic readiness plus an open redacted Events stream.
+    Development accepts only an explicit
     `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
     downloads a binary at runtime.
 12. When the Tauri event loop exits, the shell shuts down the in-process bridge.
     The runtime stops its capture audit loop, restores a still-confirmed
-    Mish-owned System Proxy state, then the coordinator closes the active Status
-    and Traffic sources, stops the core, and finally closes the RPC server.
+    Mish-owned System Proxy state, then the coordinator closes the active Status,
+    Traffic, and Events sources, stops the core, and finally closes the RPC server.
 
 Local-file profile preflight uses a separate Tauri command granted only to the
 main window. The command accepts no path from Web content: it opens the native
