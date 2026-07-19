@@ -22,6 +22,91 @@ const en = {
     light: "Light",
     system: "Follow system",
   },
+  settingsPage: {
+    advancedDescription: "Rare operations stay summarized until a safe, validated workflow exists.",
+    advancedSupport: "Advanced and support",
+    appearance: "Appearance and interaction",
+    appearanceDescription: "Preferences that change Mish without changing network state.",
+    authentication: "Authenticated local RPC",
+    authenticationDescription:
+      "The desktop WebView authenticates before ordinary RPC methods are accepted. Tokens are never displayed here.",
+    available: "Available",
+    background: "Background",
+    backup: "Backup and restore",
+    backupDescription:
+      "Backup scope, secret handling, validation, and rollback are not implemented yet.",
+    captureStartup: "Capture and startup",
+    captureStartupDescription: "Owns durable OS capture intent and how Mish starts at login.",
+    comingLater: "Coming later",
+    confirmed: "Confirmed",
+    description:
+      "Settings are sourced from Mish's authenticated desktop bridge and private app data.",
+    dns: "DNS policy",
+    dnsDescription:
+      "Mish does not expose DNS fields until effective-state validation and safe rollback exist.",
+    expert: "Expert configuration",
+    expertDescription:
+      "Raw configuration, directories, developer tools, and reset actions require dedicated validation and scope.",
+    fixtureDescription:
+      "This browser fixture can preview appearance and language only. It cannot perform or confirm native macOS operations.",
+    followsSystem: "Follows system",
+    lan: "LAN control",
+    lanDescription:
+      "No LAN listener or enable switch is provided. External control requires a separate security design.",
+    languageDescription:
+      "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
+    launchAtLogin: "Launch at login",
+    launchAtLoginDescription:
+      "Registers Mish with the current macOS account and confirms the observed registration state.",
+    loginWindow: "Login launch window",
+    loginWindowDescription:
+      "Choose one behavior for login launches. Manual launches always show the window.",
+    loopback: "Loopback-only service",
+    loopbackDescription:
+      "The local bridge binds only to IPv4 loopback and exposes no LAN listener.",
+    motion: "Reduced motion",
+    motionDescription:
+      "Non-essential motion follows the operating-system reduced-motion preference.",
+    network: "Network and DNS",
+    networkDescription:
+      "Risk-sensitive core networking remains summary-only until it can be observed and reversed safely.",
+    networkPolicy: "Ports, IPv6, and interfaces",
+    networkPolicyDescription: "No long-form network controls are available in this slice.",
+    off: "Off",
+    on: "On",
+    origin: "Origin validation",
+    originDescription:
+      "Only the exact development or packaged WebView origin is accepted by the local bridge.",
+    privacyAccess: "Privacy and access",
+    privacyDescription:
+      "Confirmed trust boundaries are shown without revealing credentials or offering LAN access.",
+    registration: "Observed login registration",
+    registrationDescription:
+      "Desired and observed platform state are compared; a mismatch is never reported as applied.",
+    registrationPhase: {
+      applied: "Applied",
+      drift: "Needs reconciliation",
+      failed: "Observation failed",
+      unavailable: "Unavailable",
+    },
+    showWindow: "Show window",
+    softwareUpdates: "App, core, and GeoData updates",
+    softwareUpdatesDescription:
+      "Signed sources, attribution, and rollback are required before update controls are enabled.",
+    storageRecovered:
+      "Stored settings were invalid. Mish restored safe defaults in private app data.",
+    themeDescription: "Use the system appearance or choose a fixed light or dark theme.",
+    title: "Settings",
+    trafficCapture: "Traffic capture",
+    trafficCaptureDescription:
+      "System Proxy uses the same desired, observed, drift, and recovery model as Status. TUN remains unavailable.",
+    updateFailed: "The setting could not be confirmed. The last confirmed state is still shown.",
+    updatesData: "Updates and data",
+    updatesDescription:
+      "Versioning and local-data workflows remain explicit about what is not implemented.",
+    version: "Version information",
+    versionDescription: "This build does not expose paths, credentials, or sensitive runtime data.",
+  },
   navigation: {
     events: "Events",
     primary: "Primary navigation",

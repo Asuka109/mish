@@ -2696,6 +2696,203 @@ h2 {
   padding: 36px 32px;
 }
 
+.settings-page {
+  width: min(100%, 960px);
+  margin: 0 auto;
+  padding: 32px 32px 48px;
+}
+
+.settings-header h1 {
+  font-size: var(--text-title);
+  font-weight: var(--font-weight-title);
+  line-height: 1.3;
+  letter-spacing: -0.012em;
+}
+
+.settings-header > p {
+  max-width: 700px;
+  margin-top: 7px;
+  color: var(--color-text-muted);
+  line-height: 21px;
+}
+
+.settings-header + .settings-section,
+.settings-header + .fixture-error,
+.settings-header + .settings-notice {
+  margin-top: 24px;
+}
+
+.settings-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 28%, var(--color-hairline));
+  border-radius: var(--radius-md);
+  color: var(--color-warning);
+  font-size: var(--text-metadata);
+}
+
+.settings-notice > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.settings-section {
+  margin-top: 28px;
+}
+
+.settings-section-heading {
+  padding: 0 4px 10px;
+}
+
+.settings-section-heading h2 {
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-title);
+}
+
+.settings-section-heading p {
+  max-width: 720px;
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+  line-height: 19px;
+}
+
+.settings-row {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 14px;
+}
+
+.settings-row:first-child {
+  border-radius: 7px 7px 0 0;
+}
+
+.settings-row:last-child {
+  border-radius: 0 0 7px 7px;
+}
+
+.settings-row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.settings-row-copy strong {
+  color: var(--color-body);
+  font-weight: var(--font-weight-control);
+}
+
+.settings-row-copy span {
+  max-width: 590px;
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+  line-height: 18px;
+}
+
+.settings-row-control {
+  min-width: fit-content;
+  flex: 0 0 auto;
+}
+
+.settings-inline-control,
+.settings-confirmation {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-confirmation {
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+}
+
+.settings-confirmation[data-confirmed="true"] {
+  color: var(--color-success-text);
+}
+
+.settings-confirmation > svg {
+  width: 15px;
+  height: 15px;
+}
+
+.settings-switch,
+.settings-segmented > button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-canvas);
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+}
+
+.settings-switch {
+  min-width: 52px;
+  padding: 0 10px;
+  border-radius: var(--radius-full);
+}
+
+.settings-segmented > button {
+  padding: 0 11px;
+  border-radius: 0;
+}
+
+.settings-segmented > button:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+
+.settings-segmented > button:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.settings-segmented > button:not(:first-child) {
+  border-left: 0;
+}
+
+.settings-switch:hover,
+.settings-segmented > button:hover {
+  background: var(--color-surface-soft);
+  color: var(--color-body);
+}
+
+.settings-switch[aria-pressed="true"],
+.settings-switch[data-pressed],
+.settings-segmented > button[aria-pressed="true"],
+.settings-segmented > button[data-pressed] {
+  background: var(--color-hairline-soft);
+  color: var(--color-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-hairline) 56%, transparent);
+}
+
+.settings-switch:disabled,
+.settings-segmented > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.settings-row .traffic-capture-stack {
+  align-items: flex-end;
+}
+
+.settings-row .system-proxy-reconciliation {
+  max-width: 460px;
+  text-align: right;
+}
+
+.settings-version {
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+  font-variant-numeric: tabular-nums;
+}
+
 .profiles-page {
   width: min(100%, 1040px);
   margin: 0 auto;
@@ -3152,6 +3349,7 @@ h2 {
 
   .status-page,
   .destination-page,
+  .settings-page,
   .events-page,
   .profiles-page,
   .routes-workspace {
@@ -3164,6 +3362,20 @@ h2 {
 
   .content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settings-row-control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .settings-row .system-proxy-reconciliation {
+    text-align: left;
   }
 
   .service-monitor-list {

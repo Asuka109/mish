@@ -643,6 +643,107 @@ export const PlatformCapabilitiesSchema = z
   .strict();
 export interface PlatformCapabilitiesDto extends z.infer<typeof PlatformCapabilitiesSchema> {}
 
+export const AppearancePreferenceSchema = z.enum(["system", "light", "dark"]);
+export type AppearancePreference = z.infer<typeof AppearancePreferenceSchema>;
+
+export const LanguagePreferenceSchema = z.enum(["en", "zh"]);
+export type LanguagePreference = z.infer<typeof LanguagePreferenceSchema>;
+
+export const LoginLaunchBehaviorSchema = z.enum(["show-window", "background"]);
+export type LoginLaunchBehavior = z.infer<typeof LoginLaunchBehaviorSchema>;
+
+export const StartupPreferencesSchema = z
+  .object({
+    launchAtLogin: z.boolean(),
+    loginLaunchBehavior: LoginLaunchBehaviorSchema,
+  })
+  .strict();
+export interface StartupPreferencesDto extends z.infer<typeof StartupPreferencesSchema> {}
+
+export const SettingsPreferencesSchema = z
+  .object({
+    appearance: AppearancePreferenceSchema,
+    language: LanguagePreferenceSchema,
+    startup: StartupPreferencesSchema,
+  })
+  .strict();
+export interface SettingsPreferencesDto extends z.infer<typeof SettingsPreferencesSchema> {}
+
+export const SettingsAdapterKindSchema = z.enum(["fixture", "rpc"]);
+export type SettingsAdapterKind = z.infer<typeof SettingsAdapterKindSchema>;
+
+export const SettingsAvailabilitySchema = z.enum(["supported", "unavailable", "coming-later"]);
+export type SettingsAvailability = z.infer<typeof SettingsAvailabilitySchema>;
+
+export const SettingsCapabilitiesSchema = z
+  .object({
+    backgroundLaunch: SettingsAvailabilitySchema,
+    backupRestore: SettingsAvailabilitySchema,
+    expertConfiguration: SettingsAvailabilitySchema,
+    launchAtLogin: SettingsAvailabilitySchema,
+    nativeSidebarMaterial: SettingsAvailabilitySchema,
+    networkDns: SettingsAvailabilitySchema,
+    tun: SettingsAvailabilitySchema,
+    updates: SettingsAvailabilitySchema,
+  })
+  .strict();
+export interface SettingsCapabilitiesDto extends z.infer<typeof SettingsCapabilitiesSchema> {}
+
+export const ConfirmationStateSchema = z.enum(["confirmed", "unavailable"]);
+export type ConfirmationState = z.infer<typeof ConfirmationStateSchema>;
+
+export const PrivacyAccessSnapshotSchema = z
+  .object({
+    authenticated: ConfirmationStateSchema,
+    lanControl: SettingsAvailabilitySchema,
+    loopbackOnly: ConfirmationStateSchema,
+    originValidated: ConfirmationStateSchema,
+  })
+  .strict();
+export interface PrivacyAccessSnapshotDto extends z.infer<typeof PrivacyAccessSnapshotSchema> {}
+
+export const StartupRegistrationPhaseSchema = z.enum(["applied", "drift", "failed", "unavailable"]);
+export type StartupRegistrationPhase = z.infer<typeof StartupRegistrationPhaseSchema>;
+
+export const StartupRegistrationSnapshotSchema = z
+  .object({
+    desired: z.boolean(),
+    observed: z.boolean().nullable(),
+    phase: StartupRegistrationPhaseSchema,
+  })
+  .strict()
+  .superRefine((registration, context) => {
+    if (registration.phase === "applied" && registration.observed !== registration.desired) {
+      context.addIssue({
+        code: "custom",
+        message: "Applied startup registration must match the observed platform state",
+      });
+    }
+    if (registration.phase === "drift" && registration.observed === registration.desired) {
+      context.addIssue({ code: "custom", message: "Drift requires an observed mismatch" });
+    }
+  });
+export interface StartupRegistrationSnapshotDto extends z.infer<
+  typeof StartupRegistrationSnapshotSchema
+> {}
+
+export const SettingsSnapshotSchema = z
+  .object({
+    adapterKind: SettingsAdapterKindSchema,
+    capabilities: SettingsCapabilitiesSchema,
+    preferences: SettingsPreferencesSchema,
+    privacy: PrivacyAccessSnapshotSchema,
+    startupRegistration: StartupRegistrationSnapshotSchema,
+    storageRecovered: z.boolean(),
+  })
+  .strict();
+export interface SettingsSnapshotDto extends z.infer<typeof SettingsSnapshotSchema> {}
+
+export const RpcSettingsSnapshotSchema = SettingsSnapshotSchema.extend({
+  adapterKind: z.literal("rpc"),
+});
+export interface RpcSettingsSnapshotDto extends z.infer<typeof RpcSettingsSnapshotSchema> {}
+
 export const StatusSnapshotSchema = z
   .object({
     activeProfileId: IdentifierSchema,
@@ -751,7 +852,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(5),
+    protocolVersion: z.literal(6),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -1168,10 +1269,37 @@ export const eventsRpcMethods = {
   "events.unsubscribe": { params: EventsSubscriptionIdSchema, result: z.boolean() },
 } as const;
 
+export const SetAppearancePreferenceCommandSchema = z
+  .object({ appearance: AppearancePreferenceSchema })
+  .strict();
+export const SetLanguagePreferenceCommandSchema = z
+  .object({ language: LanguagePreferenceSchema })
+  .strict();
+export const SetStartupPreferencesCommandSchema = z
+  .object({ startup: StartupPreferencesSchema })
+  .strict();
+
+export const settingsRpcMethods = {
+  "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
+  "settings.setAppearance": {
+    params: SetAppearancePreferenceCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setLanguage": {
+    params: SetLanguagePreferenceCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setStartup": {
+    params: SetStartupPreferencesCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+} as const;
+
 export const mishRpcMethods = {
   ...bridgeRpcMethods,
   ...eventsRpcMethods,
   ...profileRpcMethods,
+  ...settingsRpcMethods,
   ...statusRpcMethods,
   ...trafficRpcMethods,
 } as const;
@@ -1285,6 +1413,22 @@ export interface StatusClient {
     draft: ServiceMonitorDraft,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
+}
+
+export interface SettingsClient {
+  getSnapshot(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  setAppearance(
+    appearance: AppearancePreference,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  setLanguage(
+    language: LanguagePreference,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  setStartup(
+    startup: StartupPreferencesDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
 }
 
 export type ProfileClientErrorCode =

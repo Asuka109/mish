@@ -614,6 +614,7 @@ fn bridge_config() -> LoopbackServerConfig {
         max_message_bytes: 1_048_576,
         profile_activation: None,
         profile_service: None,
+        settings_service: None,
     }
 }
 

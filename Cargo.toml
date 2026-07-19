@@ -6,6 +6,7 @@ members = [
   "crates/platform-macos",
   "crates/profile",
   "crates/runtime",
+  "crates/settings",
 ]
 resolver = "2"
 

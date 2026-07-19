@@ -12,6 +12,7 @@ use axum::{
     routing::get,
 };
 use mish_runtime::{CaptureAuditReason, CorePhase, MishRuntime};
+use mish_settings::SettingsService;
 use serde_json::json;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
@@ -26,6 +27,7 @@ pub struct LoopbackServerConfig {
     pub max_message_bytes: usize,
     pub profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     pub profile_service: Option<Arc<DesktopProfileService>>,
+    pub settings_service: Option<Arc<SettingsService>>,
 }
 
 struct HttpState {
@@ -107,6 +109,7 @@ pub async fn start_loopback_server_with_runtime_host(
             profile_activation: config.profile_activation,
             profile_service: config.profile_service,
             runtime: runtime.clone(),
+            settings_service: config.settings_service,
         },
         max_message_bytes: config.max_message_bytes,
     });
