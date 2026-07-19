@@ -2,18 +2,22 @@ use std::{
     collections::HashSet,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
 use axum::{
     Json, Router,
-    extract::WebSocketUpgrade,
     extract::ws::Message as AxumMessage,
+    extract::{State, WebSocketUpgrade},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
 };
-use futures_util::future::{BoxFuture, ready};
+use futures_util::{
+    FutureExt,
+    future::{BoxFuture, ready},
+};
 use mish_bridge::{
     ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopMihomoProcess,
     DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedMihomoResolver, ManagedRuntimePolicy,
@@ -22,23 +26,263 @@ use mish_bridge::{
     RuntimeConfigGenerator,
 };
 use mish_profile::{
-    FileProfileRepository, Fingerprint, ImmutableRevision, NORMALIZED_ARTIFACT_SCHEMA_VERSION,
-    NormalizedArtifact, PROFILE_SCHEMA_VERSION, ProfileAttempt, ProfileId, ProfileMetadata,
-    ProfilePatch, ProfilePatchOperation, ProfilePatchSet, ProfileRecord, ProfileRefreshTrigger,
-    ProfileSource, ProfileStatus, Provenance, RevisionId, RuleInsertPosition, SourceSummary,
+    FileProfileRepository, Fingerprint, HttpsSourceReader, ImmutableRevision,
+    NORMALIZED_ARTIFACT_SCHEMA_VERSION, NormalizedArtifact, PROFILE_SCHEMA_VERSION, ProfileAttempt,
+    ProfileId, ProfileMetadata, ProfilePatch, ProfilePatchOperation, ProfilePatchSet,
+    ProfileRecord, ProfileRefreshTrigger, ProfileService, ProfileSource, ProfileSourceType,
+    ProfileStatus, Provenance, RedirectTarget, RevisionId, RuleInsertPosition, SensitiveUrl,
+    SourceContent, SourceReadError, SourceReadPolicy, SourceSummary, StdLocalSourceReader,
     StructuredRule, Timestamp, ValidationResult, ValidationStatus,
 };
 use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureRequest, CaptureSelection, CaptureTransitionError, LoopbackProxyEndpoint,
-    ManualProxyState, MishRuntime, NetworkServiceProxyState, StatusAdapterKind,
-    TunHelperAvailability, TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot,
+    CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError,
+    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState, RoutingMode,
+    StatusAdapterKind, TunHelperAvailability, TunHelperHealth, TunHelperLifecyclePhase,
+    TunHelperSnapshot,
 };
 use serde_json::json;
 use serde_norway::Value;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
+
+#[tokio::test]
+async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_root = root.path().join("profiles");
+    let importing = ProfileService::new(
+        profile_root.clone(),
+        StdLocalSourceReader,
+        FixtureHttpsReader::new(P0_PROFILE),
+        SourceReadPolicy::default(),
+    );
+
+    let local_preview = importing
+        .preflight_local(fixture("p0-profile.yaml"), Some("Local fixture".to_owned()))
+        .await
+        .unwrap();
+    assert_eq!(local_preview.source_type, ProfileSourceType::LocalFile);
+    assert_eq!(local_preview.proxy_count, 1);
+    assert_eq!(local_preview.group_count, 1);
+    assert_eq!(local_preview.rule_count, 2);
+    let local_snapshot = importing
+        .save_preview(&local_preview.preview_id)
+        .await
+        .unwrap();
+    let local_profile_id = local_snapshot
+        .profiles
+        .iter()
+        .find(|profile| profile.label == "Local fixture")
+        .unwrap()
+        .id
+        .clone();
+
+    let https_preview = importing
+        .preflight_https(
+            "https://fixture.invalid/profile.yaml",
+            Some("HTTPS fixture".to_owned()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(https_preview.source_type, ProfileSourceType::Https);
+    let https_snapshot = importing
+        .save_preview(&https_preview.preview_id)
+        .await
+        .unwrap();
+    let https_profile_id = https_snapshot
+        .profiles
+        .iter()
+        .find(|profile| profile.label == "HTTPS fixture")
+        .unwrap()
+        .id
+        .clone();
+
+    let failure_preview = importing
+        .preflight_local(
+            fixture("p0-activation-failure.yaml"),
+            Some("Activation failure fixture".to_owned()),
+        )
+        .await
+        .unwrap();
+    let failure_snapshot = importing
+        .save_preview(&failure_preview.preview_id)
+        .await
+        .unwrap();
+    let failure_profile_id = failure_snapshot
+        .profiles
+        .iter()
+        .find(|profile| profile.label == "Activation failure fixture")
+        .unwrap()
+        .id
+        .clone();
+    drop(importing);
+
+    let controller = P0Controller::start().await;
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let platform = Arc::new(MemoryCapturePlatform::default());
+    let journal = Arc::new(MemoryCaptureJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "fixture-controller-authentication"),
+    ));
+    let mut updates = coordinator.subscribe();
+
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &local_profile_id)
+        .await
+        .unwrap();
+    let activated = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(activated.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        activated.active_profile_id.as_deref(),
+        Some(local_profile_id.as_str())
+    );
+
+    let status = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(status["runtime"]["phase"], "healthy");
+    assert_eq!(status["routingMode"], "rule");
+    assert_eq!(status["groups"][0]["label"], "synthetic-group");
+    assert_eq!(
+        host.traffic_snapshot(StatusAdapterKind::Rpc)["phase"],
+        "ready"
+    );
+    let events = wait_for_events(&host).await;
+    assert_eq!(events["phase"], "ready");
+    assert!(!events["events"].as_array().unwrap().is_empty());
+
+    for (mode, expected) in [
+        (RoutingMode::Global, "global"),
+        (RoutingMode::Direct, "direct"),
+        (RoutingMode::Rule, "rule"),
+    ] {
+        let changed = host
+            .set_routing_mode(mode, StatusAdapterKind::Rpc)
+            .await
+            .unwrap();
+        assert_eq!(changed["routingMode"], expected);
+    }
+
+    let applied = host
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    assert_eq!(applied["runtime"]["systemProxy"]["phase"], "applied");
+
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &https_profile_id)
+        .await
+        .unwrap();
+    let switched = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(switched.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        switched.active_profile_id.as_deref(),
+        Some(https_profile_id.as_str())
+    );
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+
+    let before_restart = host.current();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &https_profile_id)
+        .await
+        .unwrap();
+    let restarted = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(restarted.phase, ProfileActivationPhase::Success);
+    assert!(!before_restart.is_same_instance(&host.current()));
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &failure_profile_id)
+        .await
+        .unwrap();
+    let failed = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(failed.phase, ProfileActivationPhase::Failure);
+    assert_eq!(
+        failed.failure,
+        Some(mish_bridge::ProfileActivationFailure::Validation)
+    );
+    assert_eq!(
+        failed.active_profile_id.as_deref(),
+        Some(https_profile_id.as_str())
+    );
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+
+    platform.set_state(disabled_capture_service());
+    host.audit_capture(CaptureAuditReason::Periodic)
+        .await
+        .unwrap();
+    let drifted = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(drifted["runtime"]["systemProxy"]["phase"], "drift");
+    assert_eq!(
+        drifted["runtime"]["systemProxy"]["recoveryActions"],
+        json!(["repair", "leave-as-is"])
+    );
+    let repaired = host
+        .recover_system_proxy(CaptureRecoveryAction::Repair, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    assert_eq!(repaired["runtime"]["systemProxy"]["phase"], "applied");
+
+    coordinator.stop(&Uuid::new_v4().to_string()).await.unwrap();
+    let stopped = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(stopped.phase, ProfileActivationPhase::Success);
+    assert!(stopped.safe_stopped);
+    assert!(stopped.active_profile_id.is_none());
+    let stopped_status = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(stopped_status["runtime"]["phase"], "inactive");
+    assert_eq!(stopped_status["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(platform.state(), disabled_capture_service());
+    assert!(journal.load().unwrap().is_none());
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
 
 #[test]
 fn generated_runtime_config_reasserts_application_and_capture_policy() {
@@ -1277,6 +1521,74 @@ fn activation_timing(readiness_timeout: Duration) -> ActivationTiming {
     }
 }
 
+async fn wait_for_activation(
+    coordinator: &ProfileActivationCoordinator,
+    updates: &mut tokio::sync::broadcast::Receiver<mish_bridge::ProfileActivationSnapshot>,
+) -> mish_bridge::ProfileActivationSnapshot {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let snapshot = coordinator.activation_snapshot().await;
+            if snapshot.phase != ProfileActivationPhase::Pending {
+                return snapshot;
+            }
+            updates.recv().await.unwrap();
+        }
+    })
+    .await
+    .expect("profile activation did not complete")
+}
+
+async fn wait_for_events(host: &DesktopRuntimeHost) -> serde_json::Value {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let snapshot = host.events_snapshot(StatusAdapterKind::Rpc);
+            if snapshot["phase"] == "ready"
+                && snapshot["events"]
+                    .as_array()
+                    .is_some_and(|events| !events.is_empty())
+            {
+                return snapshot;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("fixture events did not become ready")
+}
+
+#[derive(Clone)]
+struct FixtureHttpsReader {
+    bytes: Arc<Vec<u8>>,
+}
+
+impl FixtureHttpsReader {
+    fn new(bytes: &[u8]) -> Self {
+        Self {
+            bytes: Arc::new(bytes.to_vec()),
+        }
+    }
+}
+
+impl HttpsSourceReader for FixtureHttpsReader {
+    fn read<'a>(
+        &'a self,
+        url: &'a SensitiveUrl,
+        _policy: &'a SourceReadPolicy,
+    ) -> BoxFuture<'a, Result<SourceContent, SourceReadError>> {
+        let bytes = self.bytes.as_ref().clone();
+        let final_url = RedirectTarget::parse(url.expose()).unwrap();
+        async move {
+            Ok(SourceContent {
+                bytes,
+                content_type: Some("application/yaml".to_owned()),
+                final_url: Some(final_url),
+                redirects: 0,
+            })
+        }
+        .boxed()
+    }
+}
+
 struct MemoryCapturePlatform(std::sync::Mutex<NetworkServiceProxyState>);
 
 impl Default for MemoryCapturePlatform {
@@ -1288,6 +1600,10 @@ impl Default for MemoryCapturePlatform {
 impl MemoryCapturePlatform {
     fn state(&self) -> NetworkServiceProxyState {
         self.0.lock().unwrap().clone()
+    }
+
+    fn set_state(&self, state: NetworkServiceProxyState) {
+        *self.0.lock().unwrap() = state;
     }
 }
 
@@ -1426,6 +1742,80 @@ struct FakeController {
     shutdown: oneshot::Sender<()>,
 }
 
+#[derive(Clone)]
+struct P0ControllerState {
+    routing_mode: Arc<Mutex<RoutingMode>>,
+}
+
+struct P0Controller {
+    address: SocketAddr,
+    join: JoinHandle<()>,
+    shutdown: oneshot::Sender<()>,
+}
+
+impl P0Controller {
+    async fn start() -> Self {
+        let state = P0ControllerState {
+            routing_mode: Arc::new(Mutex::new(RoutingMode::Rule)),
+        };
+        let app = Router::new()
+            .route(
+                "/version",
+                get(|| async { Json(json!({"meta": true, "version": "v1.19.29"})) }),
+            )
+            .route("/configs", get(p0_runtime_config).put(p0_set_routing_mode))
+            .route("/proxies", get(|| async { Json(proxy_catalog()) }))
+            .route("/rules", get(|| async { Json(rule_list()) }))
+            .route("/connections", get(|| async { Json(connections()) }))
+            .route("/traffic", get(traffic_stream))
+            .route("/memory", get(memory_stream))
+            .route("/logs", get(log_stream))
+            .with_state(state);
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (shutdown, shutdown_rx) = oneshot::channel();
+        let join = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .unwrap();
+        });
+        Self {
+            address,
+            join,
+            shutdown,
+        }
+    }
+
+    async fn shutdown(self) {
+        let _ = self.shutdown.send(());
+        self.join.await.unwrap();
+    }
+}
+
+async fn p0_runtime_config(State(state): State<P0ControllerState>) -> Json<serde_json::Value> {
+    let mode = *state.routing_mode.lock().unwrap();
+    Json(runtime_config_with_mode(mode))
+}
+
+async fn p0_set_routing_mode(
+    State(state): State<P0ControllerState>,
+    Json(body): Json<serde_json::Value>,
+) -> StatusCode {
+    let Some(mode) = body["mode"].as_str().and_then(|mode| match mode {
+        "rule" => Some(RoutingMode::Rule),
+        "global" => Some(RoutingMode::Global),
+        "direct" => Some(RoutingMode::Direct),
+        _ => None,
+    }) else {
+        return StatusCode::BAD_REQUEST;
+    };
+    *state.routing_mode.lock().unwrap() = mode;
+    StatusCode::NO_CONTENT
+}
+
 impl FakeController {
     async fn start(version: &'static str) -> Self {
         Self::start_with_catalog(version, proxy_catalog()).await
@@ -1501,9 +1891,38 @@ async fn memory_stream(websocket: WebSocketUpgrade) -> Response {
         .into_response()
 }
 
+async fn log_stream(websocket: WebSocketUpgrade) -> Response {
+    websocket
+        .on_upgrade(|mut socket| async move {
+            let _ = socket
+                .send(AxumMessage::Text(
+                    json!({
+                        "time": "08:00:00",
+                        "level": "info",
+                        "message": "fixture core became ready",
+                        "fields": []
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await;
+            std::future::pending::<()>().await;
+        })
+        .into_response()
+}
+
 fn runtime_config() -> serde_json::Value {
+    runtime_config_with_mode(RoutingMode::Rule)
+}
+
+fn runtime_config_with_mode(mode: RoutingMode) -> serde_json::Value {
+    let mode = match mode {
+        RoutingMode::Rule => "rule",
+        RoutingMode::Global => "global",
+        RoutingMode::Direct => "direct",
+    };
     json!({
-        "mode": "rule", "tun": {"enable": false}, "allow-lan": false,
+        "mode": mode, "tun": {"enable": false}, "allow-lan": false,
         "ipv6": false, "port": 0, "socks-port": 0, "redir-port": 0,
         "tproxy-port": 0, "mixed-port": LoopbackProxyEndpoint::managed().port(), "log-level": "warning",
         "tcp-concurrent": false, "find-process-mode": "off", "sniffing": false,

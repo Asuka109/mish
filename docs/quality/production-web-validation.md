@@ -173,6 +173,13 @@ Automated tests cover:
   validation, and separation of the authentication token from the WebSocket
   URL; and
 - desktop token generation plus development/production Origin allowlists.
+- the complete macOS P0 fixture journey across local and HTTPS import,
+  validation, activation, Rule/Global/Direct confirmation, System Proxy,
+  Status/Routes/Traffic/Events observation, restart, failed activation rollback,
+  drift repair, and safe stop.
+
+The installed-app steps and P0 blockers for that journey are defined in
+[`macos-p0-acceptance.md`](macos-p0-acceptance.md).
 
 ## Manual browser checks
 
