@@ -3,6 +3,7 @@ import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Input as InputPrimitive } from "@base-ui/react/input";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { Toggle as TogglePrimitive } from "@base-ui/react/toggle";
@@ -278,6 +279,45 @@ export function DropdownMenuSeparator({
   ...props
 }: ComponentProps<typeof MenuPrimitive.Separator>) {
   return <MenuPrimitive.Separator className={cn("menu-separator", className)} {...props} />;
+}
+
+export const Popover = PopoverPrimitive.Root;
+export const PopoverTrigger = PopoverPrimitive.Trigger;
+export const PopoverTitle = PopoverPrimitive.Title;
+export const PopoverDescription = PopoverPrimitive.Description;
+
+export interface PopoverContentProps extends ComponentProps<typeof PopoverPrimitive.Popup> {
+  align?: ComponentProps<typeof PopoverPrimitive.Positioner>["align"];
+  alignOffset?: number;
+  side?: ComponentProps<typeof PopoverPrimitive.Positioner>["side"];
+  sideOffset?: number;
+}
+
+export function PopoverContent({
+  align = "center",
+  alignOffset = 0,
+  className,
+  side = "bottom",
+  sideOffset = 4,
+  ...props
+}: PopoverContentProps) {
+  return (
+    <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Positioner
+        align={align}
+        alignOffset={alignOffset}
+        className="popover-positioner"
+        side={side}
+        sideOffset={sideOffset}
+      >
+        <PopoverPrimitive.Popup
+          className={cn("popover-content", className)}
+          data-slot="popover-content"
+          {...props}
+        />
+      </PopoverPrimitive.Positioner>
+    </PopoverPrimitive.Portal>
+  );
 }
 
 export const AlertDialog = AlertDialogPrimitive.Root;

@@ -148,6 +148,15 @@ const en = {
     profiles: "Profiles",
     switchProfile: "Switch profile. Current profile: {profile:string}",
   },
+  notifications: {
+    description: "Recent warning and error events.",
+    emptyDescription: "New warnings and errors will appear here.",
+    emptyTitle: "No notifications",
+    markAllRead: "Mark all read",
+    title: "Notifications",
+    trigger: "Notifications, {count:number} unread",
+    viewAllEvents: "View all events",
+  },
   proxyControl: {
     disableAria: "Disable proxy",
     disable: "Disable proxy",

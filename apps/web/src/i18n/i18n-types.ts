@@ -468,6 +468,37 @@ type RootTranslation = {
 		 */
 		switchProfile: RequiredParams<'profile'>
 	}
+	notifications: {
+		/**
+		 * R​e​c​e​n​t​ ​w​a​r​n​i​n​g​ ​a​n​d​ ​e​r​r​o​r​ ​e​v​e​n​t​s​.
+		 */
+		description: string
+		/**
+		 * N​e​w​ ​w​a​r​n​i​n​g​s​ ​a​n​d​ ​e​r​r​o​r​s​ ​w​i​l​l​ ​a​p​p​e​a​r​ ​h​e​r​e​.
+		 */
+		emptyDescription: string
+		/**
+		 * N​o​ ​n​o​t​i​f​i​c​a​t​i​o​n​s
+		 */
+		emptyTitle: string
+		/**
+		 * M​a​r​k​ ​a​l​l​ ​r​e​a​d
+		 */
+		markAllRead: string
+		/**
+		 * N​o​t​i​f​i​c​a​t​i​o​n​s
+		 */
+		title: string
+		/**
+		 * N​o​t​i​f​i​c​a​t​i​o​n​s​,​ ​{​c​o​u​n​t​}​ ​u​n​r​e​a​d
+		 * @param {number} count
+		 */
+		trigger: RequiredParams<'count'>
+		/**
+		 * V​i​e​w​ ​a​l​l​ ​e​v​e​n​t​s
+		 */
+		viewAllEvents: string
+	}
 	proxyControl: {
 		/**
 		 * D​i​s​a​b​l​e​ ​p​r​o​x​y
@@ -3666,6 +3697,36 @@ export type TranslationFunctions = {
 		 * Switch profile. Current profile: {profile}
 		 */
 		switchProfile: (arg: { profile: string }) => LocalizedString
+	}
+	notifications: {
+		/**
+		 * Recent warning and error events.
+		 */
+		description: () => LocalizedString
+		/**
+		 * New warnings and errors will appear here.
+		 */
+		emptyDescription: () => LocalizedString
+		/**
+		 * No notifications
+		 */
+		emptyTitle: () => LocalizedString
+		/**
+		 * Mark all read
+		 */
+		markAllRead: () => LocalizedString
+		/**
+		 * Notifications
+		 */
+		title: () => LocalizedString
+		/**
+		 * Notifications, {count} unread
+		 */
+		trigger: (arg: { count: number }) => LocalizedString
+		/**
+		 * View all events
+		 */
+		viewAllEvents: () => LocalizedString
 	}
 	proxyControl: {
 		/**
