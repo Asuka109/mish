@@ -35,6 +35,7 @@ import {
   SectionGridItem,
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -46,6 +47,10 @@ import type {
   ProfilePolicyClassificationDto,
   ProfilePreviewDto,
   ProfileRuntimeProvenanceDto,
+  ProfileRefreshPolicy,
+  ProviderKind,
+  ProviderSnapshotDto,
+  RuntimeProviderDto,
 } from "@mish/contracts";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -129,6 +134,25 @@ export function ProfilesPage() {
     if (!result.ok) {
       toast.error(LL.profiles.refreshFailed());
     }
+  }
+
+  async function setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy) {
+    const result = await profiles.setRefreshPolicy(profileId, policy);
+    if (!result.ok) toast.error(LL.profiles.scheduleFailed());
+  }
+
+  async function updateProvider(providerId: string) {
+    const authority = snapshot?.providers.authority;
+    if (!authority) return;
+    const result = await profiles.updateProvider(authority, providerId);
+    if (!result.ok) toast.error(LL.profiles.providerUpdateFailed());
+  }
+
+  async function updateAllProviders(kind: ProviderKind) {
+    const authority = snapshot?.providers.authority;
+    if (!authority) return;
+    const result = await profiles.updateAllProviders(authority, kind);
+    if (!result.ok) toast.error(LL.profiles.providerUpdateFailed());
   }
 
   async function activateProfile(profileId: string) {
@@ -221,12 +245,26 @@ export function ProfilesPage() {
               onCancelActivation={cancelActivation}
               onDelete={() => setDeleteTarget(profile)}
               onRefresh={() => refreshProfile(profile.id)}
+              onSchedule={(policy) => setRefreshPolicy(profile.id, policy)}
               profile={profile}
               refreshPending={profiles.isPending("refresh", profile.id)}
               refreshSupported={snapshot.capabilities.refresh === "supported"}
+              schedulePending={profiles.isPending("schedule", profile.id)}
+              schedulingSupported={snapshot.capabilities.scheduling === "supported"}
             />
           ))}
         </SectionGrid>
+      ) : null}
+
+      {snapshot ? (
+        <RuntimeProviders
+          LL={LL}
+          dateFormatter={dateFormatter}
+          onUpdateAll={updateAllProviders}
+          onUpdateOne={updateProvider}
+          pending={(providerId) => profiles.isPending("provider-update", providerId)}
+          snapshot={snapshot.providers}
+        />
       ) : null}
 
       <Dialog
@@ -334,11 +372,13 @@ export function ProfilesPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {replacementProfiles.map((profile) => (
-                        <SelectItem key={profile.id} value={profile.id}>
-                          <span className="user-authored-label">{profile.label}</span>
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        {replacementProfiles.map((profile) => (
+                          <SelectItem key={profile.id} value={profile.id}>
+                            <span className="user-authored-label">{profile.label}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                   <Button
@@ -400,9 +440,12 @@ interface ProfileRowProps {
   onCancelActivation(): void;
   onDelete(): void;
   onRefresh(): void;
+  onSchedule(policy: ProfileRefreshPolicy): void;
   profile: ProfileListItemDto;
   refreshPending: boolean;
   refreshSupported: boolean;
+  schedulePending: boolean;
+  schedulingSupported: boolean;
 }
 
 function ProfileRow({
@@ -415,9 +458,12 @@ function ProfileRow({
   onCancelActivation,
   onDelete,
   onRefresh,
+  onSchedule,
   profile,
   refreshPending,
   refreshSupported,
+  schedulePending,
+  schedulingSupported,
 }: ProfileRowProps) {
   const activationPending =
     activation.phase === "pending" && activation.targetProfileId === profile.id;
@@ -477,7 +523,61 @@ function ProfileRow({
                 : LL.profiles.never()}
             </dd>
           </div>
+          <div>
+            <dt>{LL.profiles.nextRefresh()}</dt>
+            <dd>
+              {profile.refresh.nextRunAt
+                ? dateFormatter.format(profile.refresh.nextRunAt)
+                : LL.profiles.automaticRefreshOff()}
+            </dd>
+          </div>
+          <div>
+            <dt>{LL.profiles.lastRefreshSuccess()}</dt>
+            <dd>
+              {profile.refresh.lastSuccessAt
+                ? dateFormatter.format(profile.refresh.lastSuccessAt)
+                : LL.profiles.never()}
+            </dd>
+          </div>
+          <div>
+            <dt>{LL.profiles.lastRefreshFailure()}</dt>
+            <dd>
+              {profile.refresh.lastFailureAt
+                ? dateFormatter.format(profile.refresh.lastFailureAt)
+                : LL.profiles.never()}
+            </dd>
+          </div>
         </dl>
+        <div className="profile-refresh-policy">
+          <span>{LL.profiles.automaticRefresh()}</span>
+          <Select
+            disabled={
+              !schedulingSupported || schedulePending || profile.source.sourceType !== "https"
+            }
+            onValueChange={(value) => onSchedule(value as ProfileRefreshPolicy)}
+            value={profile.refresh.policy}
+          >
+            <SelectTrigger aria-label={`${LL.profiles.automaticRefresh()} ${profile.label}`}>
+              <SelectValue>
+                {(value) => refreshPolicyLabel(LL, value as ProfileRefreshPolicy)}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="off">{LL.profiles.scheduleOff()}</SelectItem>
+                <SelectItem value="six-hours">{LL.profiles.scheduleSixHours()}</SelectItem>
+                <SelectItem value="twelve-hours">{LL.profiles.scheduleTwelveHours()}</SelectItem>
+                <SelectItem value="daily">{LL.profiles.scheduleDaily()}</SelectItem>
+                <SelectItem value="weekly">{LL.profiles.scheduleWeekly()}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <small>
+            {profile.source.sourceType === "https"
+              ? LL.profiles.scheduleBackoff({ count: profile.refresh.consecutiveFailures })
+              : LL.profiles.scheduleRemoteOnly()}
+          </small>
+        </div>
         {profile.status.active ? (
           <p className="profile-boundary-explanation">{LL.profiles.activeDeleteUnavailable()}</p>
         ) : null}
@@ -529,6 +629,191 @@ function ProfileRow({
       />
     </SectionGridItem>
   );
+}
+
+function refreshPolicyLabel(LL: TranslationFunctions, policy: ProfileRefreshPolicy) {
+  switch (policy) {
+    case "off":
+      return LL.profiles.scheduleOff();
+    case "six-hours":
+      return LL.profiles.scheduleSixHours();
+    case "twelve-hours":
+      return LL.profiles.scheduleTwelveHours();
+    case "daily":
+      return LL.profiles.scheduleDaily();
+    case "weekly":
+      return LL.profiles.scheduleWeekly();
+  }
+}
+
+interface RuntimeProvidersProps {
+  LL: TranslationFunctions;
+  dateFormatter: Intl.DateTimeFormat;
+  onUpdateAll(kind: ProviderKind): void;
+  onUpdateOne(providerId: string): void;
+  pending(providerId: string): boolean;
+  snapshot: ProviderSnapshotDto;
+}
+
+function RuntimeProviders({
+  LL,
+  dateFormatter,
+  onUpdateAll,
+  onUpdateOne,
+  pending,
+  snapshot,
+}: RuntimeProvidersProps) {
+  const supported = snapshot.capability === "supported" && snapshot.authority !== null;
+  const hasProxyProviders = snapshot.providers.some((provider) => provider.kind === "proxy");
+  const hasRuleProviders = snapshot.providers.some((provider) => provider.kind === "rule");
+  return (
+    <section className="runtime-providers" aria-labelledby="runtime-providers-title">
+      <div className="runtime-providers-heading">
+        <div>
+          <h2 id="runtime-providers-title">{LL.profiles.runtimeProviders()}</h2>
+          <p>{LL.profiles.runtimeProvidersDescription()}</p>
+        </div>
+        <div className="runtime-provider-actions">
+          <Button
+            disabled={!supported || !hasProxyProviders || pending("proxy")}
+            onClick={() => onUpdateAll("proxy")}
+            variant="outline"
+          >
+            {pending("proxy") ? <Spinner data-icon="inline-start" /> : null}
+            {LL.profiles.updateAllProxyProviders()}
+          </Button>
+          <Button
+            disabled={!supported || !hasRuleProviders || pending("rule")}
+            onClick={() => onUpdateAll("rule")}
+            variant="outline"
+          >
+            {pending("rule") ? <Spinner data-icon="inline-start" /> : null}
+            {LL.profiles.updateAllRuleProviders()}
+          </Button>
+        </div>
+      </div>
+      <p className="runtime-provider-boundary">
+        {snapshot.capability === "fixture-only"
+          ? LL.profiles.providerFixtureBoundary()
+          : LL.profiles.providerRuntimeBoundary()}
+      </p>
+      {!snapshot.remotelyCancellable && supported ? (
+        <p className="runtime-provider-cancellation">{LL.profiles.providerNotCancellable()}</p>
+      ) : null}
+      {snapshot.observationFailure ? (
+        <p className="runtime-provider-error">{LL.profiles.providerObservationFailed()}</p>
+      ) : null}
+      {snapshot.providers.length > 0 ? (
+        <SectionGrid className="runtime-provider-list" aria-label={LL.profiles.runtimeProviders()}>
+          {snapshot.providers.map((provider) => (
+            <RuntimeProviderRow
+              LL={LL}
+              dateFormatter={dateFormatter}
+              key={provider.id}
+              onUpdate={() => onUpdateOne(provider.id)}
+              pending={pending(provider.id)}
+              provider={provider}
+              supported={supported}
+            />
+          ))}
+        </SectionGrid>
+      ) : (
+        <p className="runtime-provider-empty">
+          {supported ? LL.profiles.noRuntimeProviders() : LL.profiles.providersUnavailable()}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function RuntimeProviderRow({
+  LL,
+  dateFormatter,
+  onUpdate,
+  pending,
+  provider,
+  supported,
+}: {
+  LL: TranslationFunctions;
+  dateFormatter: Intl.DateTimeFormat;
+  onUpdate(): void;
+  pending: boolean;
+  provider: RuntimeProviderDto;
+  supported: boolean;
+}) {
+  return (
+    <SectionGridItem className="runtime-provider-row">
+      <div className="runtime-provider-main">
+        <div className="runtime-provider-title">
+          <strong className="user-authored-label">{provider.label}</strong>
+          <Badge variant={provider.health === "unavailable" ? "destructive" : "outline"}>
+            {providerHealth(LL, provider.health)}
+          </Badge>
+          <Badge variant="outline">
+            {provider.kind === "proxy" ? LL.profiles.proxyProvider() : LL.profiles.ruleProvider()}
+          </Badge>
+        </div>
+        <span>
+          {providerSource(LL, provider.sourceType)} ·{" "}
+          {LL.profiles.providerRecords({
+            count: provider.recordCount,
+          })}
+          {provider.behavior ? ` · ${provider.behavior}` : ""}
+        </span>
+        <span>
+          {LL.profiles.providerLastUpdate()}:{" "}
+          {formatProviderDate(provider.updatedAt, dateFormatter, LL)}
+        </span>
+        {provider.update.phase === "failure" ? (
+          <span className="runtime-provider-error">{LL.profiles.providerUpdateFailed()}</span>
+        ) : null}
+      </div>
+      <Button disabled={!supported || pending} onClick={onUpdate} variant="outline">
+        {pending ? (
+          <Spinner data-icon="inline-start" />
+        ) : (
+          <ArrowClockwise data-icon="inline-start" />
+        )}
+        {pending ? LL.profiles.providerUpdating() : LL.profiles.providerUpdate()}
+      </Button>
+    </SectionGridItem>
+  );
+}
+
+function providerHealth(LL: TranslationFunctions, health: RuntimeProviderDto["health"]) {
+  switch (health) {
+    case "available":
+      return LL.profiles.providerAvailable();
+    case "degraded":
+      return LL.profiles.providerDegraded();
+    case "unavailable":
+      return LL.profiles.providerUnavailable();
+    case "unknown":
+      return LL.profiles.providerUnknown();
+  }
+}
+
+function providerSource(LL: TranslationFunctions, source: RuntimeProviderDto["sourceType"]) {
+  switch (source) {
+    case "file":
+      return LL.profiles.providerSourceFile();
+    case "http":
+      return LL.profiles.providerSourceHttp();
+    case "compatible":
+      return LL.profiles.providerSourceCompatible();
+    case "inline":
+      return LL.profiles.providerSourceInline();
+  }
+}
+
+function formatProviderDate(
+  value: string | null,
+  formatter: Intl.DateTimeFormat,
+  LL: TranslationFunctions,
+) {
+  if (!value) return LL.profiles.never();
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? formatter.format(timestamp) : LL.profiles.never();
 }
 
 function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: ProfilePreviewDto }) {

@@ -5,8 +5,11 @@ use mish_bridge::DesktopRuntimeHost;
 use mish_runtime::{
     CoreError, CorePhase, CoreRuntime, CoreStatus, EventLevel, EventRecord, EventSource,
     EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource, EventsSnapshot,
-    MishRuntime, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
-    TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot, TrafficDataSource,
+    MishRuntime, ProviderAuthority, ProviderCapabilityAvailability, ProviderCommandExecution,
+    ProviderCommandOperation, ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType,
+    ProviderUpdateState, RuntimeProvider, StatusAdapterKind, StatusDataSource, StatusSnapshot,
+    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot,
+    TrafficDataSource,
 };
 use tokio::sync::{Notify, broadcast};
 
@@ -48,6 +51,8 @@ struct ProfileSource {
     command_continue: Option<Arc<Notify>>,
     command_started: Option<Arc<Notify>>,
     event_updates: broadcast::Sender<()>,
+    provider_continue: Option<Arc<Notify>>,
+    provider_started: Option<Arc<Notify>>,
     profile_id: &'static str,
 }
 
@@ -57,6 +62,50 @@ impl StatusDataSource for ProfileSource {
         snapshot.active_profile_id = self.profile_id.into();
         snapshot.profiles[0].id = self.profile_id.into();
         snapshot
+    }
+
+    fn provider_snapshot(&self) -> ProviderSnapshot {
+        ProviderSnapshot {
+            authority: Some(ProviderAuthority {
+                profile_id: self.profile_id.into(),
+                runtime_fingerprint: format!("fingerprint-{}", self.profile_id),
+            }),
+            capability: ProviderCapabilityAvailability::Supported,
+            observation_failure: None,
+            observed_at: Some(1),
+            providers: vec![RuntimeProvider {
+                behavior: None,
+                healthy_record_count: Some(1),
+                health: ProviderHealth::Available,
+                id: format!("provider-{}", self.profile_id),
+                kind: ProviderKind::Proxy,
+                label: "Synthetic provider".into(),
+                record_count: 1,
+                source_type: ProviderSourceType::Http,
+                updated_at: Some("2026-07-19T01:02:03Z".into()),
+                update: ProviderUpdateState::idle(),
+            }],
+            remotely_cancellable: false,
+        }
+    }
+
+    fn update_provider(
+        &self,
+        _authority: ProviderAuthority,
+        provider_id: String,
+    ) -> BoxFuture<'_, ProviderCommandExecution> {
+        Box::pin(async move {
+            if let Some(started) = &self.provider_started {
+                started.notify_one();
+                self.provider_continue.as_ref().unwrap().notified().await;
+            }
+            ProviderCommandExecution {
+                failed: Vec::new(),
+                failure: None,
+                operation: ProviderCommandOperation::UpdateOne,
+                succeeded_provider_ids: vec![provider_id],
+            }
+        })
     }
 }
 
@@ -121,6 +170,8 @@ fn runtime(profile_id: &'static str) -> MishRuntime {
         command_continue: None,
         command_started: None,
         event_updates,
+        provider_continue: None,
+        provider_started: None,
         profile_id,
     });
     MishRuntime::with_data_sources_and_events(
@@ -141,6 +192,30 @@ fn blocking_runtime(
         command_continue: Some(command_continue),
         command_started: Some(command_started),
         event_updates,
+        provider_continue: None,
+        provider_started: None,
+        profile_id,
+    });
+    MishRuntime::with_data_sources_and_events(
+        Arc::new(RunningCore),
+        source.clone(),
+        source.clone(),
+        source,
+    )
+}
+
+fn blocking_provider_runtime(
+    profile_id: &'static str,
+    provider_started: Arc<Notify>,
+    provider_continue: Arc<Notify>,
+) -> MishRuntime {
+    let (event_updates, _) = broadcast::channel(1);
+    let source = Arc::new(ProfileSource {
+        command_continue: None,
+        command_started: None,
+        event_updates,
+        provider_continue: Some(provider_continue),
+        provider_started: Some(provider_started),
         profile_id,
     });
     MishRuntime::with_data_sources_and_events(
@@ -236,6 +311,42 @@ async fn any_runtime_replacement_during_a_traffic_command_invalidates_the_result
     assert_eq!(result["status"], "failure");
     assert_eq!(result["failure"], "runtime-replaced");
     assert_eq!(result["snapshot"]["profileId"], "profile-a");
+}
+
+#[tokio::test]
+async fn runtime_replacement_discards_an_uncancellable_provider_update_result() {
+    let provider_started = Arc::new(Notify::new());
+    let provider_continue = Arc::new(Notify::new());
+    let host = DesktopRuntimeHost::new(blocking_provider_runtime(
+        "profile-a",
+        provider_started.clone(),
+        provider_continue.clone(),
+    ));
+    let command_host = host.clone();
+    let command = tokio::spawn(async move {
+        command_host
+            .update_provider(
+                ProviderAuthority {
+                    profile_id: "profile-a".into(),
+                    runtime_fingerprint: "fingerprint-profile-a".into(),
+                },
+                "provider-profile-a".into(),
+            )
+            .await
+    });
+
+    provider_started.notified().await;
+    host.replace(runtime("profile-b"));
+    provider_continue.notify_one();
+    let result = command.await.unwrap();
+
+    assert_eq!(result.phase, mish_runtime::ProviderCommandPhase::Failure);
+    assert_eq!(
+        result.failure,
+        Some(mish_runtime::ProviderUpdateFailure::RuntimeReplaced)
+    );
+    assert_eq!(result.snapshot.authority.unwrap().profile_id, "profile-b");
+    assert!(!result.snapshot.remotely_cancellable);
 }
 
 #[tokio::test]

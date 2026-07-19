@@ -13,7 +13,7 @@ use axum::{
     http::{StatusCode, header::AUTHORIZATION},
     middleware::{Next, from_fn},
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, put},
 };
 use futures_util::{SinkExt, StreamExt, future::BoxFuture, future::ready};
 use mish_bridge::{
@@ -21,8 +21,10 @@ use mish_bridge::{
     LoopbackServerConfig, ProfileMappingContext, compose_desktop_runtime, start_loopback_server,
 };
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, RoutingMode,
-    RuntimeObservationPauseReason, StatusAdapterKind, StatusCommand, StatusDataSource,
+    CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, ProviderCommandOperation,
+    ProviderCommandPhase, ProviderCommandResult, ProviderKind, ProviderUpdateFailure,
+    ProviderUpdatePhase, RoutingMode, RuntimeObservationPauseReason, StatusAdapterKind,
+    StatusCommand, StatusDataSource,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -92,6 +94,9 @@ struct FakeControllerState {
     mutation_count: AtomicUsize,
     mutation_status: AtomicUsize,
     proxies: RwLock<Value>,
+    proxy_providers: RwLock<Value>,
+    rejected_provider: Mutex<Option<String>>,
+    rule_providers: RwLock<Value>,
     rules: RwLock<Value>,
     traffic: watch::Sender<Value>,
     version: RwLock<String>,
@@ -126,6 +131,9 @@ impl FakeController {
             mutation_count: AtomicUsize::new(0),
             mutation_status: AtomicUsize::new(StatusCode::NO_CONTENT.as_u16().into()),
             proxies: RwLock::new(proxies()),
+            proxy_providers: RwLock::new(proxy_providers()),
+            rejected_provider: Mutex::new(None),
+            rule_providers: RwLock::new(rule_providers()),
             rules: RwLock::new(rules()),
             traffic,
             version: RwLock::new("v1.19.29".into()),
@@ -140,6 +148,13 @@ impl FakeController {
                 axum::routing::put(select_group_endpoint),
             )
             .route("/rules", get(rules_endpoint))
+            .route("/providers/proxies", get(proxy_providers_endpoint))
+            .route("/providers/rules", get(rule_providers_endpoint))
+            .route(
+                "/providers/proxies/{provider}",
+                put(update_provider_endpoint),
+            )
+            .route("/providers/rules/{provider}", put(update_provider_endpoint))
             .route(
                 "/connections",
                 get(connections_endpoint).delete(close_all_connections_endpoint),
@@ -282,6 +297,31 @@ async fn select_group_endpoint(
 
 async fn rules_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
     unary(&state, &state.rules).await
+}
+
+async fn proxy_providers_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
+    unary(&state, &state.proxy_providers).await
+}
+
+async fn rule_providers_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
+    unary(&state, &state.rule_providers).await
+}
+
+async fn update_provider_endpoint(
+    Path(provider): Path<String>,
+    State(state): State<Arc<FakeControllerState>>,
+) -> Response {
+    state.mutation_count.fetch_add(1, Ordering::AcqRel);
+    if state
+        .rejected_provider
+        .lock()
+        .expect("rejected provider poisoned")
+        .as_deref()
+        == Some(&provider)
+    {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    StatusCode::NO_CONTENT.into_response()
 }
 
 async fn connections_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
@@ -549,6 +589,41 @@ fn rules() -> Value {
         "proxy": "SELECT",
         "size": -1
     }]})
+}
+
+fn proxy_providers() -> Value {
+    json!({"providers": {
+        "proxy-a": {
+            "name": "proxy-a",
+            "type": "Proxy",
+            "vehicleType": "HTTP",
+            "updatedAt": "2026-07-19T00:00:00Z",
+            "url": "https://private.invalid/list?token=redacted",
+            "proxies": [{"alive": true, "server": "192.0.2.8"}]
+        },
+        "proxy-b": {
+            "name": "proxy-b",
+            "type": "Proxy",
+            "vehicleType": "File",
+            "updatedAt": "2026-07-19T00:00:00Z",
+            "path": "/private/provider.yaml",
+            "proxies": [{"alive": false, "server": "192.0.2.9"}]
+        }
+    }})
+}
+
+fn rule_providers() -> Value {
+    json!({"providers": {
+        "rules-a": {
+            "behavior": "Domain",
+            "name": "rules-a",
+            "type": "Rule",
+            "ruleCount": 7,
+            "updatedAt": "2026-07-19T00:00:00Z",
+            "vehicleType": "HTTP",
+            "payload": ["private.invalid"]
+        }
+    }})
 }
 
 fn connections(id: &str) -> Value {
@@ -908,6 +983,81 @@ async fn lifecycle_pause_invalidates_old_controller_authority_before_a_new_sessi
     assert_eq!(recovered["activeConnections"][0]["id"], "connection-b");
 
     source.close().await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn provider_updates_are_authorized_reobserved_and_keep_partial_failures() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+
+    let initial = timeout(Duration::from_secs(3), async {
+        loop {
+            let snapshot = runtime.provider_snapshot();
+            if snapshot.providers.len() == 3 {
+                break snapshot;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("provider inventory was not observed");
+    let serialized = serde_json::to_string(&initial).unwrap();
+    for private in [
+        "private.invalid",
+        "redacted",
+        "/private/provider.yaml",
+        "192.0.2.8",
+        "192.0.2.9",
+    ] {
+        assert!(!serialized.contains(private));
+    }
+    assert!(!initial.remotely_cancellable);
+
+    *fake
+        .state
+        .rejected_provider
+        .lock()
+        .expect("rejected provider poisoned") = Some("proxy-b".into());
+    let authority = initial.authority.clone().unwrap();
+    let execution = runtime
+        .update_all_providers(authority, ProviderKind::Proxy)
+        .await;
+    let result = ProviderCommandResult::new(execution, runtime.provider_snapshot());
+
+    assert_eq!(result.operation, ProviderCommandOperation::UpdateAll);
+    assert_eq!(result.phase, ProviderCommandPhase::Partial);
+    assert_eq!(result.succeeded_provider_ids.len(), 1);
+    assert_eq!(result.failed.len(), 1);
+    assert_eq!(
+        result.failed[0].failure,
+        ProviderUpdateFailure::UpdateRejected
+    );
+    let succeeded = result
+        .snapshot
+        .providers
+        .iter()
+        .find(|provider| provider.label == "proxy-a")
+        .unwrap();
+    let failed = result
+        .snapshot
+        .providers
+        .iter()
+        .find(|provider| provider.label == "proxy-b")
+        .unwrap();
+    assert_eq!(succeeded.update.phase, ProviderUpdatePhase::Success);
+    assert_eq!(failed.update.phase, ProviderUpdatePhase::Failure);
+    assert_eq!(
+        failed.update.failure,
+        Some(ProviderUpdateFailure::UpdateRejected)
+    );
+
+    runtime.shutdown().await.unwrap();
     fake.shutdown().await;
 }
 

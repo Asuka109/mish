@@ -85,6 +85,7 @@ function desktopSnapshot(): ProfileSnapshotDto {
       httpsImport: "supported",
       localFileImport: "permission-required",
       refresh: "supported",
+      scheduling: "supported",
       save: "supported",
     },
     profiles: [
@@ -94,6 +95,13 @@ function desktopSnapshot(): ProfileSnapshotDto {
         lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
         lastKnownValid: true,
         lastSuccessAt: 1_721_296_000_000,
+        refresh: {
+          consecutiveFailures: 0,
+          lastFailureAt: null,
+          lastSuccessAt: null,
+          nextRunAt: null,
+          policy: "off",
+        },
         source: { display: "https://profiles.example/…", sourceType: "https" },
         status: {
           active: false,
@@ -112,6 +120,13 @@ function desktopSnapshot(): ProfileSnapshotDto {
         lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
         lastKnownValid: true,
         lastSuccessAt: 1_721_296_000_000,
+        refresh: {
+          consecutiveFailures: 0,
+          lastFailureAt: null,
+          lastSuccessAt: null,
+          nextRunAt: null,
+          policy: "off",
+        },
         source: { display: "local-profile.yaml", sourceType: "local-file" },
         status: {
           active: true,
@@ -125,6 +140,52 @@ function desktopSnapshot(): ProfileSnapshotDto {
         warningCodes: [],
       },
     ],
+    providers: {
+      authority: {
+        profileId: "profile-active",
+        runtimeFingerprint: runtimeProvenance.artifactFingerprint,
+      },
+      capability: "supported",
+      observationFailure: null,
+      observedAt: 1_721_296_000_000,
+      providers: [
+        {
+          behavior: null,
+          healthyRecordCount: 2,
+          health: "available",
+          id: "provider:proxy-fixture",
+          kind: "proxy",
+          label: "Remote proxy set",
+          recordCount: 2,
+          sourceType: "http",
+          updatedAt: "2026-07-19T01:02:03Z",
+          update: {
+            attemptedAt: null,
+            failure: null,
+            finishedAt: null,
+            phase: "idle",
+          },
+        },
+        {
+          behavior: "domain",
+          healthyRecordCount: null,
+          health: "available",
+          id: "provider:rule-fixture",
+          kind: "rule",
+          label: "Remote rule set",
+          recordCount: 7,
+          sourceType: "file",
+          updatedAt: "2026-07-19T01:02:03Z",
+          update: {
+            attemptedAt: null,
+            failure: null,
+            finishedAt: null,
+            phase: "idle",
+          },
+        },
+      ],
+      remotelyCancellable: false,
+    },
   };
 }
 
@@ -146,8 +207,25 @@ function createDesktopClient() {
     preflightHttps: vi.fn(async () => preview),
     preflightLocal: vi.fn(async () => ({ ...preview, sourceType: "local-file" as const })),
     refreshProfile: vi.fn(async () => snapshot),
+    setRefreshPolicy: vi.fn(async () => snapshot),
     savePreview: vi.fn(async () => snapshot),
     stopActiveProfile: vi.fn(async () => snapshot.activation),
+    updateAllProviders: vi.fn<ProfileClient["updateAllProviders"]>(async () => ({
+      failed: [],
+      failure: null,
+      operation: "update-all",
+      phase: "success",
+      snapshot: snapshot.providers,
+      succeededProviderIds: [],
+    })),
+    updateProvider: vi.fn<ProfileClient["updateProvider"]>(async () => ({
+      failed: [],
+      failure: null,
+      operation: "update-one",
+      phase: "success",
+      snapshot: snapshot.providers,
+      succeededProviderIds: [],
+    })),
     subscribeConnection: vi.fn(() => () => undefined),
     subscribeSnapshots: vi.fn(() => () => undefined),
   } satisfies ProfileClient;
@@ -181,6 +259,10 @@ describe("profiles page", () => {
     expect(screen.getByRole("button", { name: "Import HTTPS" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
+    expect(
+      screen.getByText(/does not observe a real Mihomo runtime or execute provider updates/i),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Update all proxy providers" })).toBeDisabled();
   });
 
   it("opens the fictional provenance detail from the keyboard without claiming desktop validation", async () => {
@@ -274,5 +356,54 @@ describe("profiles page", () => {
     expect(within(dialog).getByText("Delete Fictional profile?")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     expect(client.deleteProfile).toHaveBeenCalledWith("profile-inactive");
+  });
+
+  it("shows the fixed automatic refresh boundary only for HTTPS sources", async () => {
+    const client = createDesktopClient();
+    renderProfiles(client);
+    await screen.findByText("Fictional profile");
+
+    const schedule = screen.getByRole("combobox", {
+      name: "Automatic source refresh Fictional profile",
+    });
+    expect(schedule).toHaveTextContent("Off");
+    expect(screen.getByText(/Only fixed safe intervals are allowed/i)).toBeVisible();
+    expect(
+      screen.getByRole("combobox", {
+        name: "Automatic source refresh Active fictional profile",
+      }),
+    ).toBeDisabled();
+  });
+
+  it("keeps provider partial failures visible instead of reporting success", async () => {
+    const user = userEvent.setup();
+    const client = createDesktopClient();
+    client.updateAllProviders.mockImplementation(async () => {
+      const snapshot = desktopSnapshot().providers;
+      snapshot.providers[0].update = {
+        attemptedAt: 1_721_296_000_000,
+        failure: "update-rejected",
+        finishedAt: 1_721_296_000_001,
+        phase: "failure",
+      };
+      return {
+        failed: [{ failure: "update-rejected" as const, providerId: "provider:proxy-fixture" }],
+        failure: null,
+        operation: "update-all" as const,
+        phase: "partial" as const,
+        snapshot,
+        succeededProviderIds: ["provider:rule-fixture"],
+      };
+    });
+    renderProfiles(client);
+    await screen.findByText("Remote proxy set");
+
+    await user.click(screen.getByRole("button", { name: "Update all proxy providers" }));
+
+    expect(client.updateAllProviders).toHaveBeenCalledWith(
+      desktopSnapshot().providers.authority,
+      "proxy",
+    );
+    expect(await screen.findByText(/Provider update was not confirmed/i)).toBeVisible();
   });
 });

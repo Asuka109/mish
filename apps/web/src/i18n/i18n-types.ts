@@ -1080,6 +1080,14 @@ type RootTranslation = {
 		 */
 		activating: string
 		/**
+		 * A​u​t​o​m​a​t​i​c​ ​s​o​u​r​c​e​ ​r​e​f​r​e​s​h
+		 */
+		automaticRefresh: string
+		/**
+		 * O​f​f
+		 */
+		automaticRefreshOff: string
+		/**
 		 * T​h​e​ ​p​i​n​n​e​d​ ​M​i​h​o​m​o​ ​b​i​n​a​r​y​ ​i​s​ ​m​i​s​s​i​n​g​.​ ​P​r​e​p​a​r​e​ ​i​t​ ​e​x​p​l​i​c​i​t​l​y​ ​f​o​r​ ​d​e​v​e​l​o​p​m​e​n​t​ ​o​r​ ​i​n​c​l​u​d​e​ ​t​h​e​ ​p​a​c​k​a​g​e​d​ ​p​r​o​d​u​c​t​i​o​n​ ​r​e​s​o​u​r​c​e​;​ ​M​i​s​h​ ​w​i​l​l​ ​n​o​t​ ​d​o​w​n​l​o​a​d​ ​i​t​ ​a​t​ ​r​u​n​t​i​m​e​.
 		 */
 		binaryMissing: string
@@ -1230,6 +1238,14 @@ type RootTranslation = {
 		 */
 		lastKnownValid: string
 		/**
+		 * L​a​s​t​ ​r​e​f​r​e​s​h​ ​f​a​i​l​u​r​e
+		 */
+		lastRefreshFailure: string
+		/**
+		 * L​a​s​t​ ​s​o​u​r​c​e​ ​r​e​f​r​e​s​h​ ​s​u​c​c​e​s​s
+		 */
+		lastRefreshSuccess: string
+		/**
 		 * L​a​s​t​ ​s​u​c​c​e​s​s
 		 */
 		lastSuccess: string
@@ -1245,6 +1261,14 @@ type RootTranslation = {
 		 * N​e​v​e​r
 		 */
 		never: string
+		/**
+		 * N​e​x​t​ ​s​o​u​r​c​e​ ​r​e​f​r​e​s​h
+		 */
+		nextRefresh: string
+		/**
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​ ​h​a​s​ ​n​o​ ​p​r​o​x​y​ ​o​r​ ​r​u​l​e​ ​p​r​o​v​i​d​e​r​s​.
+		 */
+		noRuntimeProviders: string
 		/**
 		 * T​h​i​s​ ​s​u​m​m​a​r​y​ ​c​o​n​t​a​i​n​s​ ​n​o​ ​s​o​u​r​c​e​ ​Y​A​M​L​,​ ​c​r​e​d​e​n​t​i​a​l​s​,​ ​c​o​m​p​l​e​t​e​ ​l​o​c​a​l​ ​p​a​t​h​,​ ​o​r​ ​r​a​w​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​.
 		 */
@@ -1452,6 +1476,128 @@ type RootTranslation = {
 		 */
 		refreshing: string
 		/**
+		 * A​v​a​i​l​a​b​l​e
+		 */
+		providerAvailable: string
+		/**
+		 * D​e​g​r​a​d​e​d
+		 */
+		providerDegraded: string
+		/**
+		 * B​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​m​o​d​e​ ​d​o​e​s​ ​n​o​t​ ​o​b​s​e​r​v​e​ ​a​ ​r​e​a​l​ ​M​i​h​o​m​o​ ​r​u​n​t​i​m​e​ ​o​r​ ​e​x​e​c​u​t​e​ ​p​r​o​v​i​d​e​r​ ​u​p​d​a​t​e​s​.
+		 */
+		providerFixtureBoundary: string
+		/**
+		 * C​o​r​e​ ​l​a​s​t​ ​u​p​d​a​t​e
+		 */
+		providerLastUpdate: string
+		/**
+		 * M​i​h​o​m​o​ ​v​1​.​1​9​.​2​9​ ​d​o​e​s​ ​n​o​t​ ​p​r​o​v​i​d​e​ ​r​e​m​o​t​e​ ​c​a​n​c​e​l​l​a​t​i​o​n​ ​f​o​r​ ​p​r​o​v​i​d​e​r​ ​u​p​d​a​t​e​s​.​ ​I​f​ ​t​h​e​ ​r​u​n​t​i​m​e​ ​c​h​a​n​g​e​s​,​ ​M​i​s​h​ ​d​i​s​c​a​r​d​s​ ​t​h​e​ ​o​l​d​ ​r​e​s​u​l​t​.
+		 */
+		providerNotCancellable: string
+		/**
+		 * P​r​o​v​i​d​e​r​ ​i​n​v​e​n​t​o​r​y​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​r​e​-​o​b​s​e​r​v​e​d​.​ ​T​h​e​ ​p​r​i​o​r​ ​r​u​n​t​i​m​e​ ​o​b​s​e​r​v​a​t​i​o​n​ ​r​e​m​a​i​n​s​ ​v​i​s​i​b​l​e​.
+		 */
+		providerObservationFailed: string
+		/**
+		 * {​c​o​u​n​t​}​ ​r​e​c​o​r​d​s
+		 * @param {number} count
+		 */
+		providerRecords: RequiredParams<'count'>
+		/**
+		 * T​h​e​s​e​ ​a​r​e​ ​p​r​o​v​i​d​e​r​s​ ​l​o​a​d​e​d​ ​b​y​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​.​ ​T​h​e​y​ ​a​r​e​ ​s​e​p​a​r​a​t​e​ ​f​r​o​m​ ​p​r​o​f​i​l​e​-​s​o​u​r​c​e​ ​r​e​f​r​e​s​h​ ​a​b​o​v​e​.
+		 */
+		providerRuntimeBoundary: string
+		/**
+		 * R​u​n​t​i​m​e​ ​p​r​o​v​i​d​e​r​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		providersUnavailable: string
+		/**
+		 * C​o​m​p​a​t​i​b​l​e​ ​r​u​n​t​i​m​e​ ​s​o​u​r​c​e
+		 */
+		providerSourceCompatible: string
+		/**
+		 * F​i​l​e​ ​s​o​u​r​c​e
+		 */
+		providerSourceFile: string
+		/**
+		 * H​T​T​P​ ​s​o​u​r​c​e
+		 */
+		providerSourceHttp: string
+		/**
+		 * I​n​l​i​n​e​ ​s​o​u​r​c​e
+		 */
+		providerSourceInline: string
+		/**
+		 * U​n​a​v​a​i​l​a​b​l​e
+		 */
+		providerUnavailable: string
+		/**
+		 * U​n​k​n​o​w​n​ ​h​e​a​l​t​h
+		 */
+		providerUnknown: string
+		/**
+		 * U​p​d​a​t​e
+		 */
+		providerUpdate: string
+		/**
+		 * P​r​o​v​i​d​e​r​ ​u​p​d​a​t​e​ ​w​a​s​ ​n​o​t​ ​c​o​n​f​i​r​m​e​d​.​ ​P​r​o​v​i​d​e​r​-​s​p​e​c​i​f​i​c​ ​f​a​i​l​u​r​e​s​ ​r​e​m​a​i​n​ ​v​i​s​i​b​l​e​ ​a​n​d​ ​p​r​i​o​r​ ​v​a​l​i​d​ ​d​a​t​a​ ​s​t​a​y​s​ ​i​n​ ​u​s​e​.
+		 */
+		providerUpdateFailed: string
+		/**
+		 * U​p​d​a​t​i​n​g​…
+		 */
+		providerUpdating: string
+		/**
+		 * P​r​o​x​y​ ​p​r​o​v​i​d​e​r
+		 */
+		proxyProvider: string
+		/**
+		 * R​u​l​e​ ​p​r​o​v​i​d​e​r
+		 */
+		ruleProvider: string
+		/**
+		 * C​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​ ​p​r​o​v​i​d​e​r​s
+		 */
+		runtimeProviders: string
+		/**
+		 * R​e​a​d​-​o​n​l​y​ ​h​e​a​l​t​h​ ​a​n​d​ ​e​x​p​l​i​c​i​t​l​y​ ​s​c​o​p​e​d​ ​u​p​d​a​t​e​ ​c​o​m​m​a​n​d​s​ ​f​o​r​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​r​u​n​t​i​m​e​.
+		 */
+		runtimeProvidersDescription: string
+		/**
+		 * O​n​l​y​ ​f​i​x​e​d​ ​s​a​f​e​ ​i​n​t​e​r​v​a​l​s​ ​a​r​e​ ​a​l​l​o​w​e​d​.​ ​C​o​n​s​e​c​u​t​i​v​e​ ​s​c​h​e​d​u​l​e​d​ ​f​a​i​l​u​r​e​s​:​ ​{​c​o​u​n​t​}​;​ ​t​h​e​ ​n​e​x​t​ ​r​u​n​ ​b​a​c​k​s​ ​o​f​f​.
+		 * @param {number} count
+		 */
+		scheduleBackoff: RequiredParams<'count'>
+		/**
+		 * E​v​e​r​y​ ​d​a​y
+		 */
+		scheduleDaily: string
+		/**
+		 * T​h​e​ ​a​u​t​o​m​a​t​i​c​ ​r​e​f​r​e​s​h​ ​p​o​l​i​c​y​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​s​a​v​e​d​.
+		 */
+		scheduleFailed: string
+		/**
+		 * O​f​f
+		 */
+		scheduleOff: string
+		/**
+		 * A​u​t​o​m​a​t​i​c​ ​r​e​f​r​e​s​h​ ​i​s​ ​a​v​a​i​l​a​b​l​e​ ​o​n​l​y​ ​f​o​r​ ​H​T​T​P​S​ ​s​o​u​r​c​e​s​.
+		 */
+		scheduleRemoteOnly: string
+		/**
+		 * E​v​e​r​y​ ​6​ ​h​o​u​r​s
+		 */
+		scheduleSixHours: string
+		/**
+		 * E​v​e​r​y​ ​1​2​ ​h​o​u​r​s
+		 */
+		scheduleTwelveHours: string
+		/**
+		 * E​v​e​r​y​ ​w​e​e​k
+		 */
+		scheduleWeekly: string
+		/**
 		 * R​u​l​e​s
 		 */
 		rules: string
@@ -1507,6 +1653,14 @@ type RootTranslation = {
 		 * P​r​o​f​i​l​e​s
 		 */
 		title: string
+		/**
+		 * U​p​d​a​t​e​ ​a​l​l​ ​p​r​o​x​y​ ​p​r​o​v​i​d​e​r​s
+		 */
+		updateAllProxyProviders: string
+		/**
+		 * U​p​d​a​t​e​ ​a​l​l​ ​r​u​l​e​ ​p​r​o​v​i​d​e​r​s
+		 */
+		updateAllRuleProviders: string
 		/**
 		 * V​a​l​i​d
 		 */
@@ -3594,6 +3748,14 @@ export type TranslationFunctions = {
 		 */
 		activating: () => LocalizedString
 		/**
+		 * Automatic source refresh
+		 */
+		automaticRefresh: () => LocalizedString
+		/**
+		 * Off
+		 */
+		automaticRefreshOff: () => LocalizedString
+		/**
 		 * The pinned Mihomo binary is missing. Prepare it explicitly for development or include the packaged production resource; Mish will not download it at runtime.
 		 */
 		binaryMissing: () => LocalizedString
@@ -3738,6 +3900,14 @@ export type TranslationFunctions = {
 		 */
 		lastKnownValid: () => LocalizedString
 		/**
+		 * Last refresh failure
+		 */
+		lastRefreshFailure: () => LocalizedString
+		/**
+		 * Last source refresh success
+		 */
+		lastRefreshSuccess: () => LocalizedString
+		/**
 		 * Last success
 		 */
 		lastSuccess: () => LocalizedString
@@ -3753,6 +3923,14 @@ export type TranslationFunctions = {
 		 * Never
 		 */
 		never: () => LocalizedString
+		/**
+		 * Next source refresh
+		 */
+		nextRefresh: () => LocalizedString
+		/**
+		 * The current runtime has no proxy or rule providers.
+		 */
+		noRuntimeProviders: () => LocalizedString
 		/**
 		 * This summary contains no source YAML, credentials, complete local path, or raw subscription URL.
 		 */
@@ -3958,6 +4136,126 @@ export type TranslationFunctions = {
 		 */
 		refreshing: () => LocalizedString
 		/**
+		 * Available
+		 */
+		providerAvailable: () => LocalizedString
+		/**
+		 * Degraded
+		 */
+		providerDegraded: () => LocalizedString
+		/**
+		 * Browser fixture mode does not observe a real Mihomo runtime or execute provider updates.
+		 */
+		providerFixtureBoundary: () => LocalizedString
+		/**
+		 * Core last update
+		 */
+		providerLastUpdate: () => LocalizedString
+		/**
+		 * Mihomo v1.19.29 does not provide remote cancellation for provider updates. If the runtime changes, Mish discards the old result.
+		 */
+		providerNotCancellable: () => LocalizedString
+		/**
+		 * Provider inventory could not be re-observed. The prior runtime observation remains visible.
+		 */
+		providerObservationFailed: () => LocalizedString
+		/**
+		 * {count} records
+		 */
+		providerRecords: (arg: { count: number }) => LocalizedString
+		/**
+		 * These are providers loaded by the current runtime. They are separate from profile-source refresh above.
+		 */
+		providerRuntimeBoundary: () => LocalizedString
+		/**
+		 * Runtime provider observation is unavailable.
+		 */
+		providersUnavailable: () => LocalizedString
+		/**
+		 * Compatible runtime source
+		 */
+		providerSourceCompatible: () => LocalizedString
+		/**
+		 * File source
+		 */
+		providerSourceFile: () => LocalizedString
+		/**
+		 * HTTP source
+		 */
+		providerSourceHttp: () => LocalizedString
+		/**
+		 * Inline source
+		 */
+		providerSourceInline: () => LocalizedString
+		/**
+		 * Unavailable
+		 */
+		providerUnavailable: () => LocalizedString
+		/**
+		 * Unknown health
+		 */
+		providerUnknown: () => LocalizedString
+		/**
+		 * Update
+		 */
+		providerUpdate: () => LocalizedString
+		/**
+		 * Provider update was not confirmed. Provider-specific failures remain visible and prior valid data stays in use.
+		 */
+		providerUpdateFailed: () => LocalizedString
+		/**
+		 * Updating…
+		 */
+		providerUpdating: () => LocalizedString
+		/**
+		 * Proxy provider
+		 */
+		proxyProvider: () => LocalizedString
+		/**
+		 * Rule provider
+		 */
+		ruleProvider: () => LocalizedString
+		/**
+		 * Current runtime providers
+		 */
+		runtimeProviders: () => LocalizedString
+		/**
+		 * Read-only health and explicitly scoped update commands for the active profile runtime.
+		 */
+		runtimeProvidersDescription: () => LocalizedString
+		/**
+		 * Only fixed safe intervals are allowed. Consecutive scheduled failures: {count}; the next run backs off.
+		 */
+		scheduleBackoff: (arg: { count: number }) => LocalizedString
+		/**
+		 * Every day
+		 */
+		scheduleDaily: () => LocalizedString
+		/**
+		 * The automatic refresh policy could not be saved.
+		 */
+		scheduleFailed: () => LocalizedString
+		/**
+		 * Off
+		 */
+		scheduleOff: () => LocalizedString
+		/**
+		 * Automatic refresh is available only for HTTPS sources.
+		 */
+		scheduleRemoteOnly: () => LocalizedString
+		/**
+		 * Every 6 hours
+		 */
+		scheduleSixHours: () => LocalizedString
+		/**
+		 * Every 12 hours
+		 */
+		scheduleTwelveHours: () => LocalizedString
+		/**
+		 * Every week
+		 */
+		scheduleWeekly: () => LocalizedString
+		/**
 		 * Rules
 		 */
 		rules: () => LocalizedString
@@ -4013,6 +4311,14 @@ export type TranslationFunctions = {
 		 * Profiles
 		 */
 		title: () => LocalizedString
+		/**
+		 * Update all proxy providers
+		 */
+		updateAllProxyProviders: () => LocalizedString
+		/**
+		 * Update all rule providers
+		 */
+		updateAllRuleProviders: () => LocalizedString
 		/**
 		 * Valid
 		 */

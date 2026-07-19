@@ -1034,7 +1034,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(8),
+    protocolVersion: z.literal(9),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -1165,6 +1165,25 @@ export const ProfileAttemptSchema = z
   .strict();
 export interface ProfileAttemptDto extends z.infer<typeof ProfileAttemptSchema> {}
 
+export const ProfileRefreshPolicySchema = z.enum([
+  "off",
+  "six-hours",
+  "twelve-hours",
+  "daily",
+  "weekly",
+]);
+export type ProfileRefreshPolicy = z.infer<typeof ProfileRefreshPolicySchema>;
+
+export const ProfileRefreshStateSchema = z
+  .object({
+    consecutiveFailures: NonNegativeIntegerSchema.max(255),
+    lastFailureAt: NonNegativeIntegerSchema.nullable(),
+    lastSuccessAt: NonNegativeIntegerSchema.nullable(),
+    nextRunAt: NonNegativeIntegerSchema.nullable(),
+    policy: ProfileRefreshPolicySchema,
+  })
+  .strict();
+
 export const ProfileListItemSchema = z
   .object({
     id: IdentifierSchema,
@@ -1172,6 +1191,7 @@ export const ProfileListItemSchema = z
     lastAttempt: ProfileAttemptSchema.nullable(),
     lastKnownValid: z.boolean(),
     lastSuccessAt: NonNegativeIntegerSchema.nullable(),
+    refresh: ProfileRefreshStateSchema,
     source: ProfileSourceSummarySchema,
     status: ProfileStatusFlagsSchema,
     runtimeProvenance: ProfileRuntimeProvenanceSchema,
@@ -1195,6 +1215,7 @@ export const ProfileCapabilitiesSchema = z
     httpsImport: ProfileCapabilityAvailabilitySchema,
     localFileImport: ProfileCapabilityAvailabilitySchema,
     refresh: ProfileCapabilityAvailabilitySchema,
+    scheduling: ProfileCapabilityAvailabilitySchema,
     save: ProfileCapabilityAvailabilitySchema,
   })
   .strict();
@@ -1249,12 +1270,85 @@ export interface ProfileActivationSnapshotDto extends z.infer<
   typeof ProfileActivationSnapshotSchema
 > {}
 
+export const ProviderKindSchema = z.enum(["proxy", "rule"]);
+export type ProviderKind = z.infer<typeof ProviderKindSchema>;
+export const ProviderCapabilityAvailabilitySchema = z.enum([
+  "fixture-only",
+  "supported",
+  "unavailable",
+]);
+export const ProviderAuthoritySchema = z
+  .object({ profileId: IdentifierSchema, runtimeFingerprint: ProfileFingerprintSchema })
+  .strict();
+export interface ProviderAuthorityDto extends z.infer<typeof ProviderAuthoritySchema> {}
+export const ProviderUpdateFailureSchema = z.enum([
+  "conflict",
+  "disconnected",
+  "inconsistent-observation",
+  "not-found",
+  "runtime-replaced",
+  "stale-authority",
+  "timeout",
+  "update-rejected",
+  "version-drift",
+]);
+export const ProviderUpdateStateSchema = z
+  .object({
+    attemptedAt: NonNegativeIntegerSchema.nullable(),
+    failure: ProviderUpdateFailureSchema.nullable(),
+    finishedAt: NonNegativeIntegerSchema.nullable(),
+    phase: z.enum(["idle", "pending", "success", "failure"]),
+  })
+  .strict();
+export const RuntimeProviderSchema = z
+  .object({
+    behavior: BoundedTextSchema.nullable(),
+    healthyRecordCount: NonNegativeIntegerSchema.nullable(),
+    health: z.enum(["available", "degraded", "unavailable", "unknown"]),
+    id: IdentifierSchema,
+    kind: ProviderKindSchema,
+    label: BoundedTextSchema,
+    recordCount: NonNegativeIntegerSchema,
+    sourceType: z.enum(["file", "http", "compatible", "inline"]),
+    updatedAt: BoundedTextSchema.nullable(),
+    update: ProviderUpdateStateSchema,
+  })
+  .strict();
+export interface RuntimeProviderDto extends z.infer<typeof RuntimeProviderSchema> {}
+export const ProviderSnapshotSchema = z
+  .object({
+    authority: ProviderAuthoritySchema.nullable(),
+    capability: ProviderCapabilityAvailabilitySchema,
+    observationFailure: ProviderUpdateFailureSchema.nullable(),
+    observedAt: NonNegativeIntegerSchema.nullable(),
+    providers: z.array(RuntimeProviderSchema).max(1024),
+    remotelyCancellable: z.literal(false),
+  })
+  .strict();
+export interface ProviderSnapshotDto extends z.infer<typeof ProviderSnapshotSchema> {}
+export const ProviderCommandResultSchema = z
+  .object({
+    failed: z
+      .array(
+        z.object({ failure: ProviderUpdateFailureSchema, providerId: IdentifierSchema }).strict(),
+      )
+      .max(1024),
+    failure: ProviderUpdateFailureSchema.nullable(),
+    operation: z.enum(["update-one", "update-all"]),
+    phase: z.enum(["success", "partial", "failure"]),
+    snapshot: ProviderSnapshotSchema,
+    succeededProviderIds: z.array(IdentifierSchema).max(1024),
+  })
+  .strict();
+export interface ProviderCommandResultDto extends z.infer<typeof ProviderCommandResultSchema> {}
+
 export const ProfileSnapshotSchema = z
   .object({
     activation: ProfileActivationSnapshotSchema,
     adapterKind: z.enum(["fixture", "rpc", "native"]),
     capabilities: ProfileCapabilitiesSchema,
     profiles: z.array(ProfileListItemSchema),
+    providers: ProviderSnapshotSchema,
   })
   .strict();
 export interface ProfileSnapshotDto extends z.infer<typeof ProfileSnapshotSchema> {}
@@ -1300,6 +1394,15 @@ export const ProfilePreflightHttpsCommandSchema = z
   .strict();
 export const ProfileSaveCommandSchema = z.object({ previewId: IdentifierSchema }).strict();
 export const ProfileIdCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
+export const ProfileRefreshPolicyCommandSchema = z
+  .object({ profileId: IdentifierSchema, policy: ProfileRefreshPolicySchema })
+  .strict();
+export const UpdateProviderCommandSchema = z
+  .object({ authority: ProviderAuthoritySchema, providerId: IdentifierSchema })
+  .strict();
+export const UpdateAllProvidersCommandSchema = z
+  .object({ authority: ProviderAuthoritySchema, kind: ProviderKindSchema })
+  .strict();
 export const ProfileActivationCommandSchema = z
   .object({ commandId: IdentifierSchema, profileId: IdentifierSchema })
   .strict();
@@ -1396,10 +1499,22 @@ export const profileRpcMethods = {
     result: ProfilePreviewSchema,
   },
   "profiles.refresh": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.setRefreshPolicy": {
+    params: ProfileRefreshPolicyCommandSchema,
+    result: RpcProfileSnapshotSchema,
+  },
   "profiles.save": { params: ProfileSaveCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.stop": {
     params: ProfileActivationControlCommandSchema,
     result: ProfileActivationSnapshotSchema,
+  },
+  "profiles.updateAllProviders": {
+    params: UpdateAllProvidersCommandSchema,
+    result: ProviderCommandResultSchema,
+  },
+  "profiles.updateProvider": {
+    params: UpdateProviderCommandSchema,
+    result: ProviderCommandResultSchema,
   },
   "profiles.subscribe": { params: EmptyCommandSchema, result: ProfileSubscriptionSchema },
   "profiles.unsubscribe": { params: ProfileSubscriptionIdSchema, result: z.boolean() },
@@ -1722,11 +1837,26 @@ export interface ProfileClient {
     profileId: string,
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto>;
+  setRefreshPolicy(
+    profileId: string,
+    policy: ProfileRefreshPolicy,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto>;
   savePreview(previewId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
   stopActiveProfile(
     commandId: string,
     options?: { signal?: AbortSignal },
   ): Promise<ProfileActivationSnapshotDto>;
+  updateAllProviders(
+    authority: ProviderAuthorityDto,
+    kind: ProviderKind,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProviderCommandResultDto>;
+  updateProvider(
+    authority: ProviderAuthorityDto,
+    providerId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProviderCommandResultDto>;
   subscribeConnection(listener: (state: ProfileConnectionState) => void): () => void;
   subscribeSnapshots(listener: (snapshot: ProfileSnapshotDto) => void): () => void;
 }

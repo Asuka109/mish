@@ -89,6 +89,7 @@ rules:
             label: "Synthetic real-core activation".into(),
             last_attempt: None,
             last_success: None,
+            refresh: Default::default(),
             provenance: Provenance {
                 imported_at: timestamp,
                 source: SourceSummary {

@@ -211,6 +211,13 @@ and window-lifecycle capability fields. Native menu commands do not create a
 second RPC protocol: the Tauri shell calls the same runtime, capture, routing,
 and profile-activation application seams composed behind RPC.
 
+Protocol version 9 adds persisted fixed Profile refresh policies plus current
+runtime proxy/rule-provider observation and scoped update-one/update-all
+results. Scheduling is owned by the desktop application coordinator and stays
+active without a WebView. Provider commands carry current profile/fingerprint
+authority, preserve partial failures, and never accept a Controller endpoint,
+source URL, path, payload, or credential.
+
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift
 `NEPacketTunnelProvider` with an embedded core framework. These adapters are

@@ -3165,6 +3165,23 @@ h2 {
   font-variant-numeric: tabular-nums;
 }
 
+.profile-refresh-policy {
+  display: grid;
+  grid-template-columns: minmax(140px, auto) minmax(180px, 240px);
+  align-items: center;
+  gap: 6px 16px;
+  margin-top: 14px;
+  color: var(--color-body);
+  font-size: var(--text-metadata);
+}
+
+.profile-refresh-policy small {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
 .profile-row-actions {
   align-self: start;
 }
@@ -3174,6 +3191,84 @@ h2 {
   color: var(--color-text-muted);
   font-size: 12px;
   line-height: 17px;
+}
+
+.runtime-providers {
+  margin-top: 28px;
+}
+
+.runtime-providers-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.runtime-providers-heading h2 {
+  font-size: 16px;
+  font-weight: var(--font-weight-heading);
+}
+
+.runtime-providers-heading p,
+.runtime-provider-boundary,
+.runtime-provider-cancellation,
+.runtime-provider-empty,
+.runtime-provider-error {
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+  line-height: 19px;
+}
+
+.runtime-providers-heading p {
+  margin-top: 4px;
+}
+
+.runtime-provider-actions,
+.runtime-provider-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runtime-provider-boundary,
+.runtime-provider-cancellation,
+.runtime-provider-empty,
+.runtime-provider-error {
+  margin-top: 10px;
+}
+
+.runtime-provider-cancellation {
+  color: var(--color-warning);
+}
+
+.runtime-provider-list {
+  margin-top: 14px;
+}
+
+.runtime-provider-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.runtime-provider-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+}
+
+.runtime-provider-title > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-primary);
+  font-weight: var(--font-weight-heading);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .profile-delete-active-options {
@@ -3548,8 +3643,21 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .profile-refresh-policy,
+  .runtime-provider-row {
+    grid-template-columns: 1fr;
+  }
+
   .profile-row-actions {
     justify-content: flex-start;
+  }
+
+  .runtime-providers-heading {
+    flex-direction: column;
+  }
+
+  .runtime-provider-actions {
+    flex-wrap: wrap;
   }
 
   .profile-provenance > summary,

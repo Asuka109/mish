@@ -17,7 +17,7 @@ use axum::{
 use futures_util::StreamExt;
 use mish_mihomo_controller::{
     ControllerClient, ControllerErrorKind, ControllerLimits, HttpTransport, HttpTransportConfig,
-    ROUTE_DELAY_TEST_URL,
+    ProviderKind, ROUTE_DELAY_TEST_URL,
 };
 use serde_json::{Value, json};
 use tokio::{net::TcpListener, sync::oneshot};
@@ -210,6 +210,128 @@ async fn sends_authenticated_strict_unicode_mutations() {
         ]
     );
     drop(requests);
+    server.abort();
+}
+
+#[tokio::test]
+async fn observes_safe_provider_fields_and_sends_scoped_updates() {
+    const PRIVATE_URL: &str = "https://provider.example/list.yaml?token=private-token";
+    const PRIVATE_PATH: &str = "/private/provider.yaml";
+
+    async fn proxy_providers() -> Response {
+        axum::Json(json!({
+            "providers": {
+                "代理 / 東京": {
+                    "name": "代理 / 東京",
+                    "type": "Proxy",
+                    "vehicleType": "HTTP",
+                    "updatedAt": "2026-07-19T01:02:03Z",
+                    "url": PRIVATE_URL,
+                    "path": PRIVATE_PATH,
+                    "proxies": [{"alive": true, "server": "192.0.2.8"}]
+                }
+            }
+        }))
+        .into_response()
+    }
+
+    async fn rule_providers() -> Response {
+        axum::Json(json!({
+            "providers": {
+                "规则集": {
+                    "behavior": "Domain",
+                    "name": "规则集",
+                    "type": "Rule",
+                    "ruleCount": 7,
+                    "updatedAt": "2026-07-19T01:02:03Z",
+                    "vehicleType": "File",
+                    "payload": ["private.example"]
+                }
+            }
+        }))
+        .into_response()
+    }
+
+    async fn update_provider(
+        axum::extract::OriginalUri(uri): axum::extract::OriginalUri,
+        headers: HeaderMap,
+        State(state): State<Arc<MutationState>>,
+        body: String,
+    ) -> Response {
+        record_mutation(headers, state, uri.path().into(), body)
+    }
+
+    fn record_mutation(
+        headers: HeaderMap,
+        state: Arc<MutationState>,
+        path: String,
+        body: String,
+    ) -> Response {
+        let authorization = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        state
+            .requests
+            .lock()
+            .unwrap()
+            .push((path, authorization, body));
+        StatusCode::NO_CONTENT.into_response()
+    }
+
+    let state = Arc::new(MutationState::default());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/providers/proxies", get(proxy_providers))
+        .route("/providers/rules", get(rule_providers))
+        .route("/providers/proxies/{provider}", put(update_provider))
+        .route("/providers/rules/{provider}", put(update_provider))
+        .with_state(state.clone());
+    let server = tokio::spawn(axum::serve(listener, app).into_future());
+
+    let mut config = HttpTransportConfig::new(Url::parse(&format!("http://{address}/")).unwrap());
+    config.secret = Some("synthetic-controller-token".into());
+    let client = ControllerClient::new(
+        Arc::new(HttpTransport::new(config).unwrap()),
+        ControllerLimits::default(),
+    )
+    .unwrap();
+
+    let proxies = client.proxy_providers().await.unwrap();
+    assert_eq!(proxies.providers["代理 / 東京"].proxies.len(), 1);
+    let rules = client.rule_providers().await.unwrap();
+    assert_eq!(rules.providers["规则集"].rule_count, 7);
+    let serialized = serde_json::to_string(&(proxies, rules)).unwrap();
+    assert!(!serialized.contains(PRIVATE_URL));
+    assert!(!serialized.contains(PRIVATE_PATH));
+    assert!(!serialized.contains("192.0.2.8"));
+    assert!(!serialized.contains("private.example"));
+
+    client
+        .update_provider(ProviderKind::Proxy, "代理 / 東京")
+        .await
+        .unwrap();
+    client
+        .update_provider(ProviderKind::Rule, "规则集")
+        .await
+        .unwrap();
+    assert_eq!(
+        state.requests.lock().unwrap().as_slice(),
+        [
+            (
+                "/providers/proxies/%E4%BB%A3%E7%90%86%20%2F%20%E6%9D%B1%E4%BA%AC".into(),
+                AUTHORIZATION.into(),
+                String::new(),
+            ),
+            (
+                "/providers/rules/%E8%A7%84%E5%88%99%E9%9B%86".into(),
+                AUTHORIZATION.into(),
+                String::new(),
+            ),
+        ]
+    );
     server.abort();
 }
 

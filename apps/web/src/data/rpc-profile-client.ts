@@ -5,8 +5,11 @@ import {
   profileRpcNotifications,
   type ProfileClient,
   type ProfileConnectionState,
+  type ProfileRefreshPolicy,
   type ProfileSnapshotDto,
   type ProfileSnapshotNotificationDto,
+  type ProviderAuthorityDto,
+  type ProviderKind,
 } from "@mish/contracts";
 import {
   RpcCancelledError,
@@ -96,12 +99,28 @@ export class RpcProfileClient implements ProfileClient {
     return this.request("profiles.refresh", { profileId }, options);
   }
 
+  setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy, options?: RpcRequestOptions) {
+    return this.request("profiles.setRefreshPolicy", { profileId, policy }, options);
+  }
+
   savePreview(previewId: string, options?: RpcRequestOptions) {
     return this.request("profiles.save", { previewId }, options);
   }
 
   stopActiveProfile(commandId: string, options?: RpcRequestOptions) {
     return this.request("profiles.stop", { commandId }, options);
+  }
+
+  updateAllProviders(
+    authority: ProviderAuthorityDto,
+    kind: ProviderKind,
+    options?: RpcRequestOptions,
+  ) {
+    return this.request("profiles.updateAllProviders", { authority, kind }, options);
+  }
+
+  updateProvider(authority: ProviderAuthorityDto, providerId: string, options?: RpcRequestOptions) {
+    return this.request("profiles.updateProvider", { authority, providerId }, options);
   }
 
   subscribeConnection(listener: (state: ProfileConnectionState) => void) {

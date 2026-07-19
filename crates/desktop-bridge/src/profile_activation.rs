@@ -1,14 +1,19 @@
 use std::{
+    collections::HashSet,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use mish_profile::{
-    ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfileServiceError, ProfileSnapshot,
+    ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfileRefreshPolicy,
+    ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
-use mish_runtime::MishRuntime;
+use mish_runtime::{MishRuntime, ProviderSnapshot};
 use serde::Serialize;
-use tokio::sync::{Mutex, broadcast};
+use tokio::{
+    sync::{Mutex, broadcast},
+    task::JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -89,15 +94,18 @@ pub struct ManagedProfileSnapshot {
     pub adapter_kind: ProfileAdapterKind,
     pub capabilities: ProfileCapabilities,
     pub profiles: Vec<ProfileListItem>,
+    pub providers: ProviderSnapshot,
 }
 
 impl ManagedProfileSnapshot {
-    pub fn unavailable(snapshot: ProfileSnapshot) -> Self {
+    pub fn unavailable(mut snapshot: ProfileSnapshot) -> Self {
+        snapshot.capabilities.scheduling = mish_profile::ProfileCapabilityAvailability::Unavailable;
         Self {
             activation: ProfileActivationSnapshot::unavailable(),
             adapter_kind: snapshot.adapter_kind,
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
+            providers: ProviderSnapshot::unavailable(),
         }
     }
 }
@@ -137,6 +145,7 @@ pub enum ProfileActivationCoordinatorError {
 }
 
 struct CoordinatorState {
+    busy_profiles: HashSet<String>,
     cancellation: Option<CancellationToken>,
     snapshot: ProfileActivationSnapshot,
 }
@@ -150,6 +159,8 @@ pub struct ProfileActivationCoordinator {
     policy_factory: Arc<PolicyFactory>,
     profiles: Arc<DesktopProfileService>,
     safe_runtime: MishRuntime,
+    scheduler_cancellation: CancellationToken,
+    scheduler_task: Mutex<Option<JoinHandle<()>>>,
     state: Mutex<CoordinatorState>,
     updates: broadcast::Sender<ProfileActivationSnapshot>,
 }
@@ -176,7 +187,10 @@ impl ProfileActivationCoordinator {
             policy_factory: Arc::new(policy_factory),
             profiles,
             safe_runtime,
+            scheduler_cancellation: CancellationToken::new(),
+            scheduler_task: Mutex::new(None),
             state: Mutex::new(CoordinatorState {
+                busy_profiles: HashSet::new(),
                 cancellation: None,
                 snapshot: ProfileActivationSnapshot {
                     active_fingerprint: None,
@@ -206,11 +220,7 @@ impl ProfileActivationCoordinator {
         {
             return Err(ProfileActivationCoordinatorError::Unavailable);
         }
-        let record = self.profiles.activation_record(profile_id)?;
-        let policy = (self.policy_factory)()
-            .map_err(|_| ProfileActivationCoordinatorError::PolicyUnavailable)?;
-        let cancellation = CancellationToken::new();
-        let pending = {
+        {
             let mut state = self.state.lock().await;
             if state.snapshot.command_id.as_deref() == Some(command_id) {
                 return Ok(state.snapshot.clone());
@@ -219,6 +229,33 @@ impl ProfileActivationCoordinator {
                 if state.snapshot.target_profile_id.as_deref() == Some(profile_id) {
                     return Ok(state.snapshot.clone());
                 }
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+            if !state.busy_profiles.insert(profile_id.to_owned()) {
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+        }
+        let record = match self.profiles.activation_record(profile_id) {
+            Ok(record) => record,
+            Err(error) => {
+                self.release_profile(profile_id).await;
+                return Err(error.into());
+            }
+        };
+        let policy = (self.policy_factory)()
+            .map_err(|_| ProfileActivationCoordinatorError::PolicyUnavailable);
+        let policy = match policy {
+            Ok(policy) => policy,
+            Err(error) => {
+                self.release_profile(profile_id).await;
+                return Err(error);
+            }
+        };
+        let cancellation = CancellationToken::new();
+        let pending = {
+            let mut state = self.state.lock().await;
+            if state.snapshot.phase == ProfileActivationPhase::Pending {
+                state.busy_profiles.remove(profile_id);
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
             state.cancellation = Some(cancellation.clone());
@@ -271,6 +308,10 @@ impl ProfileActivationCoordinator {
                 return Ok(state.snapshot.clone());
             }
             if state.snapshot.phase == ProfileActivationPhase::Pending {
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+            let active_profile_id = state.snapshot.active_profile_id.clone();
+            if active_profile_id.is_some_and(|profile_id| !state.busy_profiles.insert(profile_id)) {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
             state.snapshot.command_id = Some(command_id.to_owned());
@@ -330,6 +371,10 @@ impl ProfileActivationCoordinator {
         };
         for profile in &mut snapshot.profiles {
             profile.status.active = activation.active_profile_id.as_deref() == Some(&profile.id);
+            if profile.status.active {
+                profile.status.stale = activation.active_fingerprint.as_deref()
+                    != Some(profile.runtime_provenance.artifact_fingerprint.as_str());
+            }
         }
         Ok(snapshot)
     }
@@ -344,7 +389,82 @@ impl ProfileActivationCoordinator {
             adapter_kind: snapshot.adapter_kind,
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
+            providers: self.host.provider_snapshot(),
         })
+    }
+
+    pub async fn refresh_profile(
+        &self,
+        profile_id: &str,
+        trigger: ProfileRefreshTrigger,
+    ) -> Result<ProfileSnapshot, ProfileActivationCoordinatorError> {
+        {
+            let mut state = self.state.lock().await;
+            if !state.busy_profiles.insert(profile_id.to_owned()) {
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+        }
+        if let Err(error) = self.profiles.mark_refresh_pending(profile_id) {
+            self.release_profile(profile_id).await;
+            return Err(error.into());
+        }
+        self.publish().await;
+        let result = match trigger {
+            ProfileRefreshTrigger::Manual => self.profiles.refresh(profile_id).await,
+            ProfileRefreshTrigger::Scheduled => self.profiles.refresh_scheduled(profile_id).await,
+        };
+        self.release_profile(profile_id).await;
+        self.publish().await;
+        result.map_err(Into::into)
+    }
+
+    pub async fn set_refresh_policy(
+        &self,
+        profile_id: &str,
+        policy: ProfileRefreshPolicy,
+    ) -> Result<ProfileSnapshot, ProfileActivationCoordinatorError> {
+        {
+            let mut state = self.state.lock().await;
+            if !state.busy_profiles.insert(profile_id.to_owned()) {
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+        }
+        let result = self.profiles.set_refresh_policy(profile_id, policy);
+        self.release_profile(profile_id).await;
+        self.publish().await;
+        result.map_err(Into::into)
+    }
+
+    pub async fn start_scheduler(self: &Arc<Self>) {
+        let mut task = self.scheduler_task.lock().await;
+        if task.is_some() {
+            return;
+        }
+        let coordinator = self.clone();
+        *task = Some(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = coordinator.scheduler_cancellation.cancelled() => return,
+                    _ = interval.tick() => coordinator.run_due_refreshes().await,
+                }
+            }
+        }));
+    }
+
+    async fn run_due_refreshes(&self) {
+        let Ok(profile_ids) = self.profiles.due_scheduled_profile_ids(Timestamp::now()) else {
+            return;
+        };
+        for profile_id in profile_ids {
+            if self.scheduler_cancellation.is_cancelled() {
+                return;
+            }
+            let _ = self
+                .refresh_profile(&profile_id, ProfileRefreshTrigger::Scheduled)
+                .await;
+        }
     }
 
     pub async fn publish(&self) {
@@ -352,6 +472,10 @@ impl ProfileActivationCoordinator {
     }
 
     pub async fn shutdown(&self) -> Result<(), ProfileActivationCoordinatorError> {
+        self.scheduler_cancellation.cancel();
+        if let Some(task) = self.scheduler_task.lock().await.take() {
+            let _ = task.await;
+        }
         if let Some(cancellation) = &self.state.lock().await.cancellation {
             cancellation.cancel();
         }
@@ -365,7 +489,12 @@ impl ProfileActivationCoordinator {
         state.snapshot.active_profile_id = None;
         state.snapshot.active_fingerprint = None;
         state.snapshot.safe_stopped = true;
+        state.busy_profiles.clear();
         Ok(())
+    }
+
+    async fn release_profile(&self, profile_id: &str) {
+        self.state.lock().await.busy_profiles.remove(profile_id);
     }
 
     async fn finish_activation(
@@ -378,6 +507,9 @@ impl ProfileActivationCoordinator {
         let mut state = self.state.lock().await;
         if state.snapshot.command_id.as_deref() != Some(command_id) {
             return;
+        }
+        if let Some(profile_id) = state.snapshot.target_profile_id.clone() {
+            state.busy_profiles.remove(&profile_id);
         }
         state.cancellation = None;
         match result {
@@ -419,6 +551,9 @@ impl ProfileActivationCoordinator {
         let mut state = self.state.lock().await;
         if state.snapshot.command_id.as_deref() != Some(command_id) {
             return;
+        }
+        if let Some(profile_id) = state.snapshot.target_profile_id.clone() {
+            state.busy_profiles.remove(&profile_id);
         }
         match result {
             Ok(()) => {

@@ -77,6 +77,15 @@ traffic capture.
 | Backup and recovery | Local backup, optional WebDAV, history, import/restore, transform-triggered backup | Settings: Diagnostics and Recovery | P1 local; P2 remote |
 | Diagnostics export | Versions, capability state, bounded events, profile fingerprint, checks, redaction preview | Events: Diagnostics and Recovery | P1 |
 
+## Implemented P1 lifecycle slice
+
+The implemented provider slice covers both proxy and rule providers from the
+current pinned runtime. It exposes only safe aggregate metadata, requires exact
+profile/runtime authority for update commands, re-observes after mutation, and
+keeps partial failure typed. It does not expose provider URLs, paths, payloads,
+proxy endpoints, or credentials. Profile-source scheduling remains a separate
+Profiles lifecycle with fixed opt-in intervals and persisted backoff.
+
 ## Requirements
 
 | ID | Priority | Requirement | Acceptance criteria |

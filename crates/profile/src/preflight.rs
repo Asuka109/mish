@@ -85,6 +85,7 @@ impl PreflightReport {
                 source: self.source.safe_summary(),
                 source_revision: self.revision.id.clone(),
             },
+            refresh: crate::ProfileRefreshState::default(),
             revision: self.revision,
             runtime_provenance: self.provenance_review,
             schema_version: PROFILE_SCHEMA_VERSION,

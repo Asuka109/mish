@@ -118,7 +118,9 @@ discovery and typed confirmed results without changing Status snapshot ordering.
 Protocol version 5 adds the group-delay policy, state, capability, and commands
 while preserving the Status and Traffic ordering barriers. Protocol version 7
 adds the independent Guided Diagnostics command and history contract without
-changing Status subscriptions.
+changing Status subscriptions. Protocol version 9 adds the independent Profile
+refresh-policy and runtime-provider contracts without changing Status
+subscriptions.
 
 Profile activation has an independent typed snapshot with idle, pending,
 success, and failure phases. The profile subscription uses the same snapshot

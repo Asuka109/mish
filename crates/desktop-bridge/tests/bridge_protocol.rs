@@ -282,6 +282,29 @@ async fn rejects_unauthenticated_and_malformed_requests() {
     .await;
     assert_eq!(unauthenticated_traffic_mutation["error"]["code"], -32001);
 
+    let unauthenticated_provider_mutation = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"profiles.updateProvider",
+            "params":{
+                "authority":{
+                    "profileId":"profile",
+                    "runtimeFingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                },
+                "providerId":"provider:private"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(unauthenticated_provider_mutation["error"]["code"], -32001);
+    assert!(
+        !unauthenticated_provider_mutation
+            .to_string()
+            .contains("provider:private")
+    );
+
     ws.send(Message::Text("{".into())).await.unwrap();
     let Message::Text(response) = ws.next().await.unwrap().unwrap() else {
         panic!("expected text response")
@@ -404,7 +427,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 8);
+    assert_eq!(info["result"]["protocolVersion"], 9);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})
@@ -568,6 +591,10 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
         snapshot["result"]["capabilities"]["localFileImport"],
         "permission-required"
     );
+    assert_eq!(
+        snapshot["result"]["capabilities"]["scheduling"],
+        "unavailable"
+    );
     assert_eq!(snapshot["result"]["profiles"], json!([]));
 
     const PRIVATE_PATH: &str = "/private/hidden/profile.yaml";
@@ -615,6 +642,25 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
         !arbitrary_config
             .to_string()
             .contains("private-runtime-secret")
+    );
+
+    const PRIVATE_PROVIDER_ID: &str = "provider:private-token";
+    let invalid_provider_authority = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":6, "method":"profiles.updateProvider",
+            "params":{
+                "authority":{"profileId":"profile", "runtimeFingerprint":"not-a-fingerprint"},
+                "providerId":PRIVATE_PROVIDER_ID
+            }
+        }),
+    )
+    .await;
+    assert_eq!(invalid_provider_authority["error"]["code"], -32020);
+    assert!(
+        !invalid_provider_authority
+            .to_string()
+            .contains(PRIVATE_PROVIDER_ID)
     );
     assert!(
         !arbitrary_config
@@ -677,10 +723,29 @@ async fn profile_rpc_reports_safe_stopped_startup_and_a_missing_managed_binary()
         "unavailable"
     );
 
+    const PRIVATE_PROVIDER_ID: &str = "provider:private-token";
+    let invalid_provider_authority = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"profiles.updateProvider",
+            "params":{
+                "authority":{"profileId":"profile", "runtimeFingerprint":"not-a-fingerprint"},
+                "providerId":PRIVATE_PROVIDER_ID
+            }
+        }),
+    )
+    .await;
+    assert_eq!(invalid_provider_authority["error"]["code"], -32602);
+    assert!(
+        !invalid_provider_authority
+            .to_string()
+            .contains(PRIVATE_PROVIDER_ID)
+    );
+
     let rejected = request(
         &mut ws,
         json!({
-            "jsonrpc":"2.0", "id":3, "method":"profiles.activate",
+            "jsonrpc":"2.0", "id":4, "method":"profiles.activate",
             "params":{"commandId":uuid::Uuid::new_v4().to_string(), "profileId":uuid::Uuid::new_v4().to_string()}
         }),
     )

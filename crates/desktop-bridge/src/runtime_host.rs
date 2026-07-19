@@ -1,8 +1,10 @@
 use mish_runtime::{
     CaptureAuditReason, CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError,
-    CoreStatus, DiagnosticHistory, MishRuntime, RoutingMode, StatusAdapterKind, StatusCommand,
-    StatusCommandError, TrafficCommandAuthority, TrafficCommandExecution,
-    TrafficCommandFailureKind, TrafficCommandOperation, TrafficCommandResult,
+    CoreStatus, DiagnosticHistory, MishRuntime, ProviderAuthority, ProviderCommandExecution,
+    ProviderCommandResult, ProviderKind, ProviderSnapshot, ProviderUpdateFailure, RoutingMode,
+    StatusAdapterKind, StatusCommand, StatusCommandError, TrafficCommandAuthority,
+    TrafficCommandExecution, TrafficCommandFailureKind, TrafficCommandOperation,
+    TrafficCommandResult,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -204,6 +206,34 @@ impl DesktopRuntimeHost {
         }
     }
 
+    pub fn provider_snapshot(&self) -> ProviderSnapshot {
+        self.current().provider_snapshot()
+    }
+
+    pub async fn update_provider(
+        &self,
+        authority: ProviderAuthority,
+        provider_id: String,
+    ) -> ProviderCommandResult {
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let execution = runtime
+            .update_provider(authority, provider_id.clone())
+            .await;
+        self.finish_provider_command(runtime, execution, Some(provider_id), changes)
+    }
+
+    pub async fn update_all_providers(
+        &self,
+        authority: ProviderAuthority,
+        kind: ProviderKind,
+    ) -> ProviderCommandResult {
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let execution = runtime.update_all_providers(authority, kind).await;
+        self.finish_provider_command(runtime, execution, None, changes)
+    }
+
     pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         self.current().events_snapshot(adapter_kind)
     }
@@ -235,6 +265,34 @@ impl DesktopRuntimeHost {
                 current.traffic_snapshot_typed(adapter_kind),
             ))
             .expect("Traffic command result must serialize");
+            if !changes.has_changed().unwrap_or(true) {
+                return result;
+            }
+            runtime_replaced = true;
+        }
+    }
+
+    fn finish_provider_command(
+        &self,
+        runtime: MishRuntime,
+        execution: ProviderCommandExecution,
+        provider_id: Option<String>,
+        mut changes: watch::Receiver<MishRuntime>,
+    ) -> ProviderCommandResult {
+        let mut runtime_replaced = changes.has_changed().unwrap_or(true);
+        loop {
+            let current = changes.borrow_and_update().clone();
+            runtime_replaced |= !runtime.is_same_instance(&current);
+            let execution = if runtime_replaced {
+                ProviderCommandExecution::failure(
+                    execution.operation,
+                    provider_id.clone(),
+                    ProviderUpdateFailure::RuntimeReplaced,
+                )
+            } else {
+                execution.clone()
+            };
+            let result = ProviderCommandResult::new(execution, current.provider_snapshot());
             if !changes.has_changed().unwrap_or(true) {
                 return result;
             }

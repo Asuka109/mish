@@ -3,6 +3,9 @@ import {
   type ProfileActivationSnapshotDto,
   type ProfileClient,
   type ProfileConnectionState,
+  type ProfileRefreshPolicy,
+  type ProviderAuthorityDto,
+  type ProviderKind,
   type ProfilePreviewDto,
   type ProfileSnapshotDto,
 } from "@mish/contracts";
@@ -18,7 +21,15 @@ import {
 } from "react";
 import { createFixtureProfileClient } from "./fixture-profile-client";
 
-export type ProfileOperation = "activate" | "delete" | "preflight" | "refresh" | "save" | "stop";
+export type ProfileOperation =
+  | "activate"
+  | "delete"
+  | "preflight"
+  | "provider-update"
+  | "refresh"
+  | "schedule"
+  | "save"
+  | "stop";
 export type ProfileOperationResult = { ok: true } | { error: ProfileClientError; ok: false };
 export type ProfilePreviewResult =
   | { ok: true; preview: ProfilePreviewDto | null }
@@ -35,9 +46,21 @@ interface ProfileContextValue {
   preflightHttps(url: string, label?: string): Promise<ProfilePreviewResult>;
   preflightLocal(label?: string): Promise<ProfilePreviewResult>;
   refreshProfile(profileId: string): Promise<ProfileOperationResult>;
+  setRefreshPolicy(
+    profileId: string,
+    policy: ProfileRefreshPolicy,
+  ): Promise<ProfileOperationResult>;
   savePreview(previewId: string): Promise<ProfileOperationResult>;
   snapshot: ProfileSnapshotDto | null;
   stopActiveProfile(): Promise<ProfileOperationResult>;
+  updateAllProviders(
+    authority: ProviderAuthorityDto,
+    kind: ProviderKind,
+  ): Promise<ProfileOperationResult>;
+  updateProvider(
+    authority: ProviderAuthorityDto,
+    providerId: string,
+  ): Promise<ProfileOperationResult>;
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -133,6 +156,37 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     [],
   );
 
+  const runProviderMutation = useCallback(
+    async (
+      providerId: string | undefined,
+      mutate: () => ReturnType<ProfileClient["updateProvider"]>,
+    ): Promise<ProfileOperationResult> => {
+      if (pending.current) return conflict();
+      pending.current = true;
+      setPendingKey(operationKey("provider-update", providerId));
+      setError(null);
+      try {
+        const result = await mutate();
+        setSnapshot((current) => (current ? { ...current, providers: result.snapshot } : current));
+        if (result.phase !== "success") {
+          return {
+            error: new ProfileClientError("remote", "Provider update failed", true),
+            ok: false,
+          };
+        }
+        return { ok: true };
+      } catch (failure) {
+        const typedError = toProfileClientError(failure);
+        setError(typedError);
+        return { error: typedError, ok: false };
+      } finally {
+        pending.current = false;
+        setPendingKey(null);
+      }
+    },
+    [],
+  );
+
   const runActivation = useCallback(
     async (
       operation: "activate" | "stop",
@@ -190,11 +244,19 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       preflightLocal: (label) => runPreflight(() => resolvedClient.preflightLocal(label)),
       refreshProfile: (profileId) =>
         runMutation("refresh", profileId, () => resolvedClient.refreshProfile(profileId)),
+      setRefreshPolicy: (profileId, policy) =>
+        runMutation("schedule", profileId, () =>
+          resolvedClient.setRefreshPolicy(profileId, policy),
+        ),
       savePreview: (previewId) =>
         runMutation("save", undefined, () => resolvedClient.savePreview(previewId)),
       snapshot,
       stopActiveProfile: () =>
         runActivation("stop", () => resolvedClient.stopActiveProfile(crypto.randomUUID())),
+      updateAllProviders: (authority, kind) =>
+        runProviderMutation(kind, () => resolvedClient.updateAllProviders(authority, kind)),
+      updateProvider: (authority, providerId) =>
+        runProviderMutation(providerId, () => resolvedClient.updateProvider(authority, providerId)),
     }),
     [
       connection,
@@ -204,6 +266,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       runActivation,
       runMutation,
       runPreflight,
+      runProviderMutation,
       snapshot,
     ],
   );

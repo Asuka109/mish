@@ -7,9 +7,9 @@ use std::{
 
 use futures_util::{FutureExt, future::BoxFuture};
 use mish_profile::{
-    AttemptOutcome, FileProfileRepository, HttpsSourceReader, LocalSourceReader, ProfileService,
-    ProfileServiceError, RedirectTarget, SensitivePath, SensitiveUrl, SourceContent,
-    SourceReadError, SourceReadPolicy,
+    AttemptOutcome, FileProfileRepository, HttpsSourceReader, LocalSourceReader,
+    ProfileRefreshPolicy, ProfileService, ProfileServiceError, RedirectTarget, SensitivePath,
+    SensitiveUrl, SourceContent, SourceReadError, SourceReadPolicy, Timestamp,
 };
 
 const VALID_PROFILE: &str = r#"
@@ -178,6 +178,117 @@ async fn successful_refresh_rebinds_provenance_to_the_new_revision_and_fingerpri
     assert_ne!(current.source_revision, prior.source_revision);
     assert_ne!(current.artifact_fingerprint, prior.artifact_fingerprint);
     assert!(current.is_bound_to(&current.source_revision, &current.artifact_fingerprint));
+}
+
+#[tokio::test]
+async fn remote_refresh_schedules_are_opt_in_fixed_and_persisted() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]),
+    );
+    let preview = service
+        .preflight_https(
+            "https://profiles.example/config.yaml?token=private-token",
+            Some("Remote profile".into()),
+        )
+        .await
+        .unwrap();
+    let saved = service.save_preview(&preview.preview_id).await.unwrap();
+    let profile_id = saved.profiles[0].id.clone();
+    assert_eq!(saved.profiles[0].refresh.policy, ProfileRefreshPolicy::Off);
+    assert_eq!(saved.profiles[0].refresh.next_run_at, None);
+
+    let scheduled = service
+        .set_refresh_policy(&profile_id, ProfileRefreshPolicy::SixHours)
+        .unwrap();
+    let next_run_at = scheduled.profiles[0].refresh.next_run_at.unwrap();
+    assert_eq!(
+        scheduled.profiles[0].refresh.policy,
+        ProfileRefreshPolicy::SixHours
+    );
+    assert!(next_run_at > Timestamp::now().as_unix_milliseconds());
+
+    let reloaded = service.snapshot().unwrap();
+    assert_eq!(reloaded.profiles[0].refresh.next_run_at, Some(next_run_at));
+    assert!(
+        service
+            .due_scheduled_profile_ids(Timestamp::from_unix_milliseconds(next_run_at))
+            .unwrap()
+            .contains(&profile_id)
+    );
+}
+
+#[tokio::test]
+async fn local_profiles_reject_automatic_refresh_policies() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]),
+    );
+    let preview = service
+        .preflight_local(
+            "/fictional/profile.yaml".into(),
+            Some("Local profile".into()),
+        )
+        .await
+        .unwrap();
+    let profile_id = service
+        .save_preview(&preview.preview_id)
+        .await
+        .unwrap()
+        .profiles[0]
+        .id
+        .clone();
+
+    assert!(matches!(
+        service.set_refresh_policy(&profile_id, ProfileRefreshPolicy::Daily),
+        Err(ProfileServiceError::SchedulingUnavailable)
+    ));
+    assert_eq!(
+        service.snapshot().unwrap().profiles[0].refresh.policy,
+        ProfileRefreshPolicy::Off
+    );
+}
+
+#[tokio::test]
+async fn failed_scheduled_refresh_preserves_lkg_and_backs_off() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            b"proxies: [malformed".to_vec(),
+        ]),
+    );
+    let preview = service
+        .preflight_https(
+            "https://profiles.example/config.yaml?token=private-token",
+            Some("Remote profile".into()),
+        )
+        .await
+        .unwrap();
+    let saved = service.save_preview(&preview.preview_id).await.unwrap();
+    let profile_id = saved.profiles[0].id.clone();
+    let provenance = saved.profiles[0].runtime_provenance.clone();
+    service
+        .set_refresh_policy(&profile_id, ProfileRefreshPolicy::SixHours)
+        .unwrap();
+
+    assert!(service.refresh_scheduled(&profile_id).await.is_err());
+    let failed = service.snapshot().unwrap().profiles.remove(0);
+    assert!(failed.last_known_valid);
+    assert_eq!(failed.runtime_provenance, provenance);
+    assert_eq!(failed.refresh.consecutive_failures, 1);
+    let failed_at = failed.refresh.last_failure_at.unwrap();
+    assert!(failed.refresh.next_run_at.unwrap() >= failed_at + 12 * 60 * 60 * 1_000);
+
+    let repository = FileProfileRepository::new(temp.path().to_path_buf());
+    let stored = repository
+        .load(&mish_profile::ProfileId::parse(profile_id).unwrap())
+        .unwrap();
+    assert_eq!(stored.source_bytes, VALID_PROFILE.as_bytes());
+    assert_eq!(stored.metadata.runtime_provenance, provenance);
 }
 
 #[tokio::test]

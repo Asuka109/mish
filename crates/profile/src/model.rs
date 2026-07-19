@@ -376,6 +376,40 @@ pub struct ProfileSuccess {
     pub succeeded_at: Timestamp,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProfileRefreshPolicy {
+    #[default]
+    Off,
+    SixHours,
+    TwelveHours,
+    Daily,
+    Weekly,
+}
+
+impl ProfileRefreshPolicy {
+    pub const fn interval_milliseconds(self) -> Option<u64> {
+        let hours = match self {
+            Self::Off => return None,
+            Self::SixHours => 6,
+            Self::TwelveHours => 12,
+            Self::Daily => 24,
+            Self::Weekly => 24 * 7,
+        };
+        Some(hours * 60 * 60 * 1_000)
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileRefreshState {
+    pub consecutive_failures: u8,
+    pub last_failure_at: Option<Timestamp>,
+    pub last_success_at: Option<Timestamp>,
+    pub next_run_at: Option<Timestamp>,
+    pub policy: ProfileRefreshPolicy,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileStatus {
@@ -396,6 +430,8 @@ pub struct ProfileMetadata {
     pub last_attempt: Option<ProfileAttempt>,
     pub last_success: Option<ProfileSuccess>,
     pub provenance: Provenance,
+    #[serde(default)]
+    pub refresh: ProfileRefreshState,
     pub revision: ImmutableRevision,
     #[serde(default)]
     pub runtime_provenance: crate::RuntimeProvenanceReview,

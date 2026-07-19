@@ -9,11 +9,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
-use mish_profile::{ImportError, ProfileServiceError, RepositoryError};
+use mish_profile::{
+    ImportError, ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, RepositoryError,
+};
 use mish_runtime::{
     CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
-    CoreErrorKind, CoreStatus, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusCommandErrorKind, TrafficCommandAuthority, TrafficCommandOperation,
+    CoreErrorKind, CoreStatus, ProviderAuthority, ProviderKind, RoutingMode, StatusAdapterKind,
+    StatusCommand, StatusCommandError, StatusCommandErrorKind, TrafficCommandAuthority,
+    TrafficCommandOperation,
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, SettingsAdapterKind, SettingsService,
@@ -64,6 +67,27 @@ struct ProfilePreflightHttpsParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProfileIdParams {
     profile_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileRefreshPolicyParams {
+    profile_id: String,
+    policy: ProfileRefreshPolicy,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateProviderParams {
+    authority: ProviderAuthority,
+    provider_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateAllProvidersParams {
+    authority: ProviderAuthority,
+    kind: ProviderKind,
 }
 
 #[derive(Debug, Deserialize)]
@@ -414,7 +438,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 8,
+            "protocolVersion": 9,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -774,7 +798,18 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            match service.refresh(&params.profile_id).await {
+            let refreshed = if let Some(activation) = &state.profile_activation {
+                activation
+                    .refresh_profile(&params.profile_id, ProfileRefreshTrigger::Manual)
+                    .await
+                    .map_err(|error| profile_activation_error_response(id.clone(), error))
+            } else {
+                service
+                    .refresh(&params.profile_id)
+                    .await
+                    .map_err(|error| profile_error_response(id.clone(), error))
+            };
+            match refreshed {
                 Ok(_) => {
                     publish_profile_update(state).await;
                     match profile_rpc_snapshot(state).await {
@@ -782,8 +817,64 @@ async fn handle_message(
                         Err(error) => return Some(profile_error_response(id, error)),
                     }
                 }
-                Err(error) => return Some(profile_error_response(id, error)),
+                Err(response) => return Some(response),
             }
+        }
+        "profiles.setRefreshPolicy" => {
+            let Some(activation) = &state.profile_activation else {
+                return Some(profile_activation_capability_error(id));
+            };
+            let params: ProfileRefreshPolicyParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match activation
+                .set_refresh_policy(&params.profile_id, params.policy)
+                .await
+            {
+                Ok(_) => match profile_rpc_snapshot(state).await {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => return Some(profile_error_response(id, error)),
+                },
+                Err(error) => return Some(profile_activation_error_response(id, error)),
+            }
+        }
+        "profiles.updateProvider" => {
+            let Some(activation) = &state.profile_activation else {
+                return Some(profile_activation_capability_error(id));
+            };
+            let params: UpdateProviderParams =
+                match serde_json::from_value::<UpdateProviderParams>(request.params) {
+                    Ok(params)
+                        if valid_identifier(&params.provider_id)
+                            && valid_provider_authority(&params.authority) =>
+                    {
+                        params
+                    }
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            let result = state
+                .runtime
+                .update_provider(params.authority, params.provider_id)
+                .await;
+            activation.publish().await;
+            serde_json::to_value(result).expect("serializable provider update")
+        }
+        "profiles.updateAllProviders" => {
+            let Some(activation) = &state.profile_activation else {
+                return Some(profile_activation_capability_error(id));
+            };
+            let params: UpdateAllProvidersParams =
+                match serde_json::from_value::<UpdateAllProvidersParams>(request.params) {
+                    Ok(params) if valid_provider_authority(&params.authority) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            let result = state
+                .runtime
+                .update_all_providers(params.authority, params.kind)
+                .await;
+            activation.publish().await;
+            serde_json::to_value(result).expect("serializable provider updates")
         }
         "profiles.delete" => {
             let Some(service) = &state.profile_service else {
@@ -924,6 +1015,15 @@ fn valid_identifier(value: &str) -> bool {
 
 fn valid_traffic_authority(authority: &TrafficCommandAuthority) -> bool {
     valid_identifier(&authority.profile_id) && valid_identifier(&authority.session_id)
+}
+
+fn valid_provider_authority(authority: &ProviderAuthority) -> bool {
+    valid_identifier(&authority.profile_id)
+        && authority.runtime_fingerprint.len() == 64
+        && authority
+            .runtime_fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn error_response(id: Value, code: i32, message: &str, data: Option<Value>) -> Value {
@@ -1067,6 +1167,12 @@ fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {
             id,
             -32009,
             "Active profiles cannot be deleted until transactional activation is available",
+            None,
+        ),
+        ProfileServiceError::SchedulingUnavailable => error_response(
+            id,
+            -32020,
+            "Scheduled refresh is available only for HTTPS profile sources",
             None,
         ),
         ProfileServiceError::Import(ImportError::UnsafeDeviceIntegration { field_identity }) => {
