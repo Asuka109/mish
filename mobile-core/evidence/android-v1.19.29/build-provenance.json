@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "abiVersion": 1,
+  "source": {
+    "repository": "https://github.com/MetaCubeX/mihomo.git",
+    "version": "v1.19.29",
+    "commit": "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+    "tree": "2487680d2def055568f3b50fcc61f931d70f6fa6",
+    "commitDate": "2026-07-18T11:18:54Z",
+    "sourceDateEpoch": 1784373534,
+    "license": "GPL-3.0",
+    "correspondingSource": "https://github.com/MetaCubeX/mihomo/tree/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb"
+  },
+  "wrapper": {
+    "revision": "mish-mobile-core-v1",
+    "sha256": "ccfac1c5c03f43a6381c940d4c1cce0cfa4ecd39d29ff7be8e254d11f7d1975d"
+  },
+  "toolchains": {
+    "go": {
+      "version": "go version go1.26.0 darwin/arm64",
+      "archiveSha256": "b1640525dfe68f066d56f200bef7bf4dce955a1a893bd061de6754c211431023"
+    },
+    "androidNdk": {
+      "revision": "29.0.14206865",
+      "pathRecorded": false
+    }
+  },
+  "build": {
+    "minimumApi": 28,
+    "tags": ["cmfa", "with_gvisor"],
+    "flags": ["-buildmode=c-shared", "-buildvcs=false", "-trimpath", "-ldflags=-buildid= -s -w"],
+    "sourceDateEpoch": 1784373534,
+    "cCompiler": "NDK clang with an explicit --target triple and API suffix"
+  },
+  "correspondingSource": "https://github.com/MetaCubeX/mihomo/tree/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+  "license": "GPL-3.0-only",
+  "artifacts": [
+    {
+      "abi": "arm64-v8a",
+      "goArch": "arm64",
+      "targetTriple": "aarch64-linux-android",
+      "path": "android/arm64-v8a/libmish_mobile_core.so",
+      "exportedSymbols": [
+        "mish_core_abi_version_v1",
+        "mish_core_command_v1",
+        "mish_core_free_buffer_v1",
+        "mish_core_initialize_v1",
+        "mish_core_load_config_v1",
+        "mish_core_poll_events_v1",
+        "mish_core_snapshot_v1",
+        "mish_core_start_v1",
+        "mish_core_stop_v1",
+        "mish_core_validate_config_v1",
+        "mish_core_version_v1"
+      ],
+      "machine": "AArch64",
+      "sha256": "b87b9348d8cdcca1264065bcd036b2f29fd9c755a9b3c831ec459b73d374aba6",
+      "size": 51527672
+    },
+    {
+      "abi": "x86_64",
+      "goArch": "amd64",
+      "goAmd64": "v2",
+      "targetTriple": "x86_64-linux-android",
+      "path": "android/x86_64/libmish_mobile_core.so",
+      "exportedSymbols": [
+        "mish_core_abi_version_v1",
+        "mish_core_command_v1",
+        "mish_core_free_buffer_v1",
+        "mish_core_initialize_v1",
+        "mish_core_load_config_v1",
+        "mish_core_poll_events_v1",
+        "mish_core_snapshot_v1",
+        "mish_core_start_v1",
+        "mish_core_stop_v1",
+        "mish_core_validate_config_v1",
+        "mish_core_version_v1"
+      ],
+      "machine": "Advanced Micro Devices X86-64",
+      "sha256": "d4987a4d16340e29929c7329f18606d6916b4aa94ffaa8280becf0abf28eaf25",
+      "size": 56027096
+    }
+  ]
+}
