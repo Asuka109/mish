@@ -517,6 +517,18 @@ h2 {
   overflow: auto;
 }
 
+.route-loading {
+  padding: 24px 32px 32px;
+}
+
+.route-loading-placeholder {
+  width: min(100%, 1080px);
+  height: 144px;
+  margin: 0 auto;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-soft);
+}
+
 .status-page {
   width: min(100%, 1080px);
   min-height: 100%;

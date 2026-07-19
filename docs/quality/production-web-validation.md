@@ -46,6 +46,13 @@ fallback behavior. Tauri's embedded-asset resolver also returns the bundled
 that behavior for unknown non-asset paths so a direct URL or browser refresh
 resolves before React Router takes over.
 
+The application shell, platform bootstrap, first-frame reveal handshake, and
+default `/status` route remain in the eager entry path. The other route pages
+load as coarse page-level chunks inside the already-rendered shell. Vite's
+production build table and the existing 700 kB per-chunk warning provide a
+visible bundle-size report and advisory; bundle size is not a blocking quality
+gate for rapid preview development.
+
 ## Required commands
 
 Run from the repository root:
@@ -82,10 +89,12 @@ layout engine.
 Automated tests cover:
 
 - direct rendering of all six deep-link routes;
+- an eager application shell and default Status route while secondary route
+  pages remain page-level deferred boundaries;
 - real-browser responsive layout at 320 x 568, 390 x 844, and the Tauri minimum
   of 800 x 600, in English and Simplified Chinese, including document/page
-  overflow, navigation labels, viewport-clipped controls, and table-local
-  horizontal scrolling;
+  overflow, navigation labels, viewport-clipped controls, completed deferred
+  route loading, and table-local horizontal scrolling;
 - semantic sidebar links and accessible active destination state;
 - typed fixture snapshot isolation and fixture-only capability declarations;
 - legacy selector-contract compatibility plus all extended policy-group types;

@@ -367,6 +367,14 @@ async function createRpcSnapshot(sparse = false) {
 }
 
 describe("production routes", () => {
+  it("keeps the shell and default Status route on the eager first-frame path", async () => {
+    const { container } = renderRoute("/status");
+
+    expect(screen.getByLabelText("Mish")).toBeInTheDocument();
+    expect(container.querySelector(".route-loading")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Status" })).toBeInTheDocument();
+  });
+
   it("presents Mish as the product brand", () => {
     const { container } = renderRoute("/status");
     const brandImages = screen.getByLabelText("Mish").querySelectorAll("img");
