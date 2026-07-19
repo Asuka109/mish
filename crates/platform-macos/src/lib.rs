@@ -7,19 +7,26 @@ use std::{
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::PathBuf,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use futures_util::future::BoxFuture;
 use mish_runtime::{
     CapabilityAvailability, CaptureFailureKind, CaptureJournal, CaptureJournalStore,
-    CapturePlatform, CaptureTransitionError, ManualProxyState, NetworkServiceProxyState,
+    CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState,
+    NetworkServiceProxyState,
 };
-use tokio::{process::Command, time::timeout};
+use tokio::{
+    net::TcpStream,
+    process::Command,
+    time::{sleep, timeout},
+};
 
 const JOURNAL_MAX_BYTES: u64 = 65_536;
 const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
+const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 
 pub struct FileCaptureJournalStore {
     path: PathBuf,
@@ -402,6 +409,31 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
             self.apply_proxy(&target.service_id, MacOsProxyKind::Socks, &target.socks)
                 .await?;
             Ok(())
+        })
+    }
+
+    fn confirm_proxy_listener(
+        &self,
+        endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        let address = endpoint.socket_address();
+        Box::pin(async move {
+            let deadline = Instant::now() + LISTENER_READINESS_TIMEOUT;
+            loop {
+                if timeout(LISTENER_CONNECT_TIMEOUT, TcpStream::connect(address))
+                    .await
+                    .is_ok_and(|result| result.is_ok())
+                {
+                    return Ok(());
+                }
+                if Instant::now() >= deadline {
+                    return Err(CaptureTransitionError::new(
+                        CaptureFailureKind::ListenerUnavailable,
+                        "The managed Mihomo proxy listener is unavailable",
+                    ));
+                }
+                sleep(Duration::from_millis(25)).await;
+            }
         })
     }
 }

@@ -12,6 +12,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use futures_util::future::{BoxFuture, ready};
 use mish_bridge::{
     ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopMihomoProcess,
     DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedMihomoResolver, ManagedRuntimePolicy,
@@ -25,7 +26,11 @@ use mish_profile::{
     ProfileRecord, ProfileSource, ProfileStatus, Provenance, RevisionId, SourceSummary, Timestamp,
     ValidationResult, ValidationStatus,
 };
-use mish_runtime::{MishRuntime, StatusAdapterKind};
+use mish_runtime::{
+    CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
+    CaptureRequest, CaptureSelection, CaptureTransitionError, LoopbackProxyEndpoint,
+    ManualProxyState, MishRuntime, NetworkServiceProxyState, StatusAdapterKind,
+};
 use serde_json::json;
 use serde_norway::Value;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
@@ -72,7 +77,11 @@ rules:
     assert_eq!(root["socks-port"].as_i64(), Some(0));
     assert_eq!(root["redir-port"].as_i64(), Some(0));
     assert_eq!(root["tproxy-port"].as_i64(), Some(0));
-    assert_eq!(root["mixed-port"].as_i64(), Some(0));
+    assert_eq!(
+        root["mixed-port"].as_i64(),
+        Some(i64::from(LoopbackProxyEndpoint::managed().port()))
+    );
+    assert_eq!(policy.proxy_endpoint(), &LoopbackProxyEndpoint::managed());
     assert_eq!(root["allow-lan"].as_bool(), Some(false));
     assert_eq!(root["bind-address"].as_str(), Some("127.0.0.1"));
     assert_eq!(
@@ -333,6 +342,145 @@ async fn repository_backed_activation_atomically_replaces_the_profile_context() 
     assert_eq!(traffic["profileId"], record.metadata.id.as_str());
 
     coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-capture-activation-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let replacement = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
+    let repository = FileProfileRepository::new(profile_root.clone());
+    repository.save(&record).unwrap();
+    repository.save(&replacement).unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let platform = Arc::new(MemoryCapturePlatform::default());
+    let journal = Arc::new(MemoryCaptureJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-capture-secret"),
+    ));
+    let mut updates = coordinator.subscribe();
+
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), record.metadata.id.as_str())
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
+
+    let activated = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(activated["capabilities"]["systemProxy"], "supported");
+    assert_eq!(activated["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(
+        activated["runtime"]["captureSelection"]["systemProxy"],
+        false
+    );
+    assert!(journal.load().unwrap().is_none());
+
+    let applied = host
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    assert_eq!(applied["runtime"]["systemProxy"]["phase"], "applied");
+    assert!(
+        platform
+            .state()
+            .is_mish_endpoint(&LoopbackProxyEndpoint::managed())
+    );
+
+    coordinator
+        .activate(
+            &Uuid::new_v4().to_string(),
+            replacement.metadata.id.as_str(),
+        )
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
+    let switched = coordinator.activation_snapshot().await;
+    assert_eq!(switched.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        switched.active_profile_id.as_deref(),
+        Some(replacement.metadata.id.as_str())
+    );
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+    assert!(
+        platform
+            .state()
+            .is_mish_endpoint(&LoopbackProxyEndpoint::managed())
+    );
+
+    host.stop_core().await.unwrap();
+    host.audit_capture(CaptureAuditReason::CoreHealthChanged)
+        .await
+        .unwrap();
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["systemProxy"]["phase"],
+        "off"
+    );
+    assert_eq!(platform.state(), disabled_capture_service());
+    assert!(journal.load().unwrap().is_none());
+
+    host.start_core().await.unwrap();
+    host.set_capture(
+        CaptureRequest {
+            active: true,
+            selection: CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+        },
+        StatusAdapterKind::Rpc,
+    )
+    .await
+    .unwrap();
+    coordinator.shutdown().await.unwrap();
+    assert_eq!(platform.state(), disabled_capture_service());
+    assert!(journal.load().unwrap().is_none());
+
     controller.shutdown().await;
 }
 
@@ -890,15 +1038,86 @@ fn activation_manager(
             fixture("fake-activation-mihomo.sh"),
             root.join("runtime"),
         ),
-        ActivationTiming {
-            config_validation_timeout: Duration::from_secs(1),
-            controller_connect_timeout: Duration::from_millis(100),
-            controller_request_timeout: Duration::from_millis(100),
-            readiness_timeout,
-            refresh_interval: Duration::from_secs(1),
-            reconnect_delay: Duration::from_millis(25),
-        },
+        activation_timing(readiness_timeout),
     )
+}
+
+fn activation_timing(readiness_timeout: Duration) -> ActivationTiming {
+    ActivationTiming {
+        config_validation_timeout: Duration::from_secs(1),
+        controller_connect_timeout: Duration::from_millis(100),
+        controller_request_timeout: Duration::from_millis(100),
+        readiness_timeout,
+        refresh_interval: Duration::from_secs(1),
+        reconnect_delay: Duration::from_millis(25),
+    }
+}
+
+struct MemoryCapturePlatform(std::sync::Mutex<NetworkServiceProxyState>);
+
+impl Default for MemoryCapturePlatform {
+    fn default() -> Self {
+        Self(std::sync::Mutex::new(disabled_capture_service()))
+    }
+}
+
+impl MemoryCapturePlatform {
+    fn state(&self) -> NetworkServiceProxyState {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+impl CapturePlatform for MemoryCapturePlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        *self.0.lock().unwrap() = target;
+        Box::pin(ready(Ok(())))
+    }
+}
+
+#[derive(Default)]
+struct MemoryCaptureJournal(std::sync::Mutex<Option<CaptureJournal>>);
+
+impl CaptureJournalStore for MemoryCaptureJournal {
+    fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn save(&self, journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
+        *self.0.lock().unwrap() = Some(journal.clone());
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), CaptureTransitionError> {
+        *self.0.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+fn disabled_capture_service() -> NetworkServiceProxyState {
+    NetworkServiceProxyState {
+        auto_discovery_enabled: false,
+        http: ManualProxyState::disabled(),
+        https: ManualProxyState::disabled(),
+        pac_enabled: false,
+        service_id: "capture-fixture-service".into(),
+        socks: ManualProxyState::disabled(),
+    }
 }
 
 fn unused_loopback_address() -> SocketAddr {
@@ -1052,7 +1271,7 @@ fn runtime_config() -> serde_json::Value {
     json!({
         "mode": "rule", "tun": {"enable": false}, "allow-lan": false,
         "ipv6": false, "port": 0, "socks-port": 0, "redir-port": 0,
-        "tproxy-port": 0, "mixed-port": 0, "log-level": "warning",
+        "tproxy-port": 0, "mixed-port": LoopbackProxyEndpoint::managed().port(), "log-level": "warning",
         "tcp-concurrent": false, "find-process-mode": "off", "sniffing": false,
         "interface-name": ""
     })

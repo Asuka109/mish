@@ -159,8 +159,9 @@ narrow seam that can be replaced by a privileged helper without changing the
 UI or RPC contract.
 
 System Proxy is the only implemented RPC Status mutation. It defaults off and
-requires a configured, healthy core before Mish writes the loopback HTTP,
-HTTPS, and SOCKS endpoint. A private, size-bounded journal stores only the
+requires a configured, healthy core plus a reachable managed Mihomo listener
+before Mish writes the shared loopback HTTP, HTTPS, and SOCKS endpoint. A
+private, size-bounded journal stores only the
 minimum prior service state needed for restoration. Every write is observed
 again before success is published. Partial application triggers rollback;
 unconfirmed rollback, observation loss, or external changes become explicit

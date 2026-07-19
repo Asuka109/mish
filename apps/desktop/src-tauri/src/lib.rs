@@ -116,8 +116,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(FileCaptureJournalStore::new(
                 profile_root.join("system-proxy-journal.json"),
             )),
-            LoopbackProxyEndpoint::new("127.0.0.1", 7890)
-                .map_err(|error| io::Error::other(error.to_string()))?,
+            LoopbackProxyEndpoint::managed(),
         ));
         let safe_runtime = compose_desktop_runtime_with_capture(
             Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
@@ -126,14 +125,15 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 config_file: None,
             })),
             None,
-            Some(capture),
+            Some(capture.clone()),
         )
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;
         let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
-        let activation_manager = Arc::new(MihomoActivationManager::new(
+        let activation_manager = Arc::new(MihomoActivationManager::new_with_capture(
             resolver,
             ActivationTiming::default(),
+            Some(capture),
         ));
         activation_manager
             .shutdown()
