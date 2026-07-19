@@ -1,4 +1,9 @@
-import { PolicyGroupSchema, type PolicyGroupDto, type ProxyNodeDto } from "@mish/contracts";
+import {
+  PolicyGroupSchema,
+  type GroupDelayTestDto,
+  type PolicyGroupDto,
+  type ProxyNodeDto,
+} from "@mish/contracts";
 import { describe, expect, it } from "vitest";
 import { buildRouteGraph, createRouteSearchState, sortRouteChildIds } from "./routes-model";
 
@@ -139,5 +144,47 @@ describe("Routes graph model", () => {
     ]);
     expect(sortRouteChildIds(graph, group, "latency", "en")).toEqual(["fast", "slow", "unknown"]);
     expect(sortRouteChildIds(graph, group, "label", "en")).toEqual(["fast", "unknown", "slow"]);
+  });
+
+  it("sorts current successful measurements first and failed or timed-out results last", () => {
+    const group = selector("root", ["slow", "unknown", "fast"]);
+    const graph = buildRouteGraph([group], nodes);
+    const test: GroupDelayTestDto = {
+      children: [
+        {
+          childId: "slow",
+          failure: "timeout",
+          latencyMilliseconds: null,
+          observedAt: 1_720_000_000_001,
+          phase: "failed",
+        },
+        {
+          childId: "unknown",
+          failure: null,
+          latencyMilliseconds: 24,
+          observedAt: 1_720_000_000_002,
+          phase: "success",
+        },
+        {
+          childId: "fast",
+          failure: null,
+          latencyMilliseconds: 91,
+          observedAt: 1_720_000_000_003,
+          phase: "success",
+        },
+      ],
+      finishedAt: 1_720_000_000_004,
+      groupId: "root",
+      phase: "partial",
+      profileId: "profile",
+      startedAt: 1_720_000_000_000,
+      testId: "test",
+    };
+
+    expect(sortRouteChildIds(graph, group, "latency", "en", test)).toEqual([
+      "unknown",
+      "fast",
+      "slow",
+    ]);
   });
 });

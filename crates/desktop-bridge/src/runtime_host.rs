@@ -114,6 +114,26 @@ impl DesktopRuntimeHost {
             .await
     }
 
+    pub async fn start_group_delay_test(
+        &self,
+        group_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.current()
+            .start_group_delay_test(group_id, adapter_kind)
+            .await
+    }
+
+    pub async fn cancel_group_delay_test(
+        &self,
+        test_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.current()
+            .cancel_group_delay_test(test_id, adapter_kind)
+            .await
+    }
+
     pub async fn audit_capture(
         &self,
         reason: CaptureAuditReason,

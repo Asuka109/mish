@@ -126,8 +126,20 @@ struct CloseConnectionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StartGroupDelayTestParams {
+    group_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CloseAllActiveParams {
     authority: TrafficCommandAuthority,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CancelGroupDelayTestParams {
+    test_id: String,
 }
 
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
@@ -364,9 +376,10 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 4,
+            "protocolVersion": 5,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
+                "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
                 "routing": state.runtime.supports_status_command(StatusCommand::Routing),
             },
             "trafficCommands": {
@@ -414,6 +427,36 @@ async fn handle_message(
             match state
                 .runtime
                 .select_group_child(params.group_id, params.child_id, StatusAdapterKind::Rpc)
+                .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(status_command_error_response(id, error)),
+            }
+        }
+        "status.startGroupDelayTest" => {
+            let params: StartGroupDelayTestParams =
+                match serde_json::from_value::<StartGroupDelayTestParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.group_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match state
+                .runtime
+                .start_group_delay_test(params.group_id, StatusAdapterKind::Rpc)
+                .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(status_command_error_response(id, error)),
+            }
+        }
+        "status.cancelGroupDelayTest" => {
+            let params: CancelGroupDelayTestParams =
+                match serde_json::from_value::<CancelGroupDelayTestParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.test_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match state
+                .runtime
+                .cancel_group_delay_test(params.test_id, StatusAdapterKind::Rpc)
                 .await
             {
                 Ok(snapshot) => snapshot,

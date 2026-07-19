@@ -250,10 +250,10 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 4);
+    assert_eq!(info["result"]["protocolVersion"], 5);
     assert_eq!(
         info["result"]["statusCommands"],
-        json!({"group": false, "routing": false})
+        json!({"group": false, "groupDelay": false, "routing": false})
     );
     assert_eq!(
         info["result"]["trafficCommands"],

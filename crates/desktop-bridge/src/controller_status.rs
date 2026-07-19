@@ -6,10 +6,10 @@ use mish_mihomo_controller::{
     TrafficSnapshot as ControllerTrafficSnapshot,
 };
 use mish_runtime::{
-    CaptureSelection, CoreStatus, EffectiveRule, GroupUsage, PlatformCapabilities, PolicyGroup,
-    PolicyGroupKind, ProfileSummary, ProxyNode, RoutingMode, RuntimeMetrics, RuntimeStatus,
-    STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot, TrafficConnection,
-    TrafficDataPhase, TrafficDataSnapshot, TrafficMatchedRule, TrafficSnapshot,
+    CaptureSelection, CoreStatus, EffectiveRule, GroupDelayPolicy, GroupDelayTest, GroupUsage,
+    PlatformCapabilities, PolicyGroup, PolicyGroupKind, ProfileSummary, ProxyNode, RoutingMode,
+    RuntimeMetrics, RuntimeStatus, STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot,
+    TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficMatchedRule, TrafficSnapshot,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -234,6 +234,11 @@ impl ControllerStatusMapper {
             capabilities: PlatformCapabilities::unavailable(),
             groups: catalog.groups.clone(),
             group_usage,
+            group_delay_policy: GroupDelayPolicy {
+                id: mish_mihomo_controller::ROUTE_DELAY_POLICY_ID.into(),
+                timeout_milliseconds: mish_mihomo_controller::ROUTE_DELAY_TIMEOUT_MILLISECONDS,
+            },
+            group_delay_test: GroupDelayTest::idle(),
             metrics: RuntimeMetrics {
                 active_connections: self.active_connections.len(),
                 effective_rules: self
@@ -329,6 +334,48 @@ impl ControllerStatusMapper {
             return Err(SelectionTargetError::ChildOutsideGroup);
         }
         Ok((group.0.clone(), child.0.clone()))
+    }
+
+    pub fn group_delay_targets(
+        &self,
+        catalog: &ProxyCatalog,
+        group_id: &str,
+    ) -> Result<(String, Vec<(String, String)>), SelectionTargetError> {
+        let (group_label, group) = catalog
+            .proxies
+            .iter()
+            .find(|(label, proxy)| {
+                proxy.all.is_some()
+                    && scoped_identifier(
+                        "group",
+                        &self.context.profile_fingerprint,
+                        proxy.id.as_deref().unwrap_or(label),
+                    ) == group_id
+            })
+            .ok_or(SelectionTargetError::GroupNotFound)?;
+        let children = group
+            .all
+            .as_ref()
+            .expect("the matched delay target is a policy group");
+        let mut targets = Vec::with_capacity(children.len());
+        for child_label in children {
+            let child = catalog
+                .proxies
+                .get(child_label)
+                .ok_or(SelectionTargetError::ChildNotFound)?;
+            let kind = if child.all.is_some() {
+                "group"
+            } else {
+                "proxy"
+            };
+            let child_id = scoped_identifier(
+                kind,
+                &self.context.profile_fingerprint,
+                child.id.as_deref().unwrap_or(child_label),
+            );
+            targets.push((child_id, child_label.clone()));
+        }
+        Ok((group_label.clone(), targets))
     }
 
     fn apply_inner(

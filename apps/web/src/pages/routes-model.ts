@@ -1,4 +1,9 @@
-import type { PolicyGroupDto, ProxyNodeDto } from "@mish/contracts";
+import type {
+  GroupDelayChildResultDto,
+  GroupDelayTestDto,
+  PolicyGroupDto,
+  ProxyNodeDto,
+} from "@mish/contracts";
 
 export type RouteSort = "configuration" | "latency" | "label";
 
@@ -155,6 +160,15 @@ export function getRouteChildLatency(graph: RouteGraph, childId: string) {
   return findSelectedLatency(graph, group, new Set());
 }
 
+export function getGroupDelayResult(
+  test: GroupDelayTestDto,
+  groupId: string,
+  childId: string,
+): GroupDelayChildResultDto | undefined {
+  if (test.groupId !== groupId || test.phase === "idle") return undefined;
+  return test.children.find((result) => result.childId === childId);
+}
+
 function getRouteChildLabel(graph: RouteGraph, childId: string) {
   return graph.nodeById.get(childId)?.label ?? graph.groupById.get(childId)?.label ?? childId;
 }
@@ -164,6 +178,7 @@ export function sortRouteChildIds(
   group: PolicyGroupDto,
   sort: RouteSort,
   locale: string,
+  delayTest?: GroupDelayTestDto,
 ) {
   if (sort === "configuration") return [...group.childIds];
 
@@ -178,8 +193,19 @@ export function sortRouteChildIds(
       return byLabel || configuredIndex.get(firstId)! - configuredIndex.get(secondId)!;
     }
 
-    const firstLatency = getRouteChildLatency(graph, firstId);
-    const secondLatency = getRouteChildLatency(graph, secondId);
+    const firstResult = delayTest && getGroupDelayResult(delayTest, group.id, firstId);
+    const secondResult = delayTest && getGroupDelayResult(delayTest, group.id, secondId);
+    const firstFailed = firstResult?.phase === "failed" || firstResult?.phase === "cancelled";
+    const secondFailed = secondResult?.phase === "failed" || secondResult?.phase === "cancelled";
+    if (firstFailed !== secondFailed) return firstFailed ? 1 : -1;
+    const firstLatency =
+      firstResult?.phase === "success"
+        ? firstResult.latencyMilliseconds
+        : getRouteChildLatency(graph, firstId);
+    const secondLatency =
+      secondResult?.phase === "success"
+        ? secondResult.latencyMilliseconds
+        : getRouteChildLatency(graph, secondId);
     if (firstLatency === null && secondLatency !== null) return 1;
     if (firstLatency !== null && secondLatency === null) return -1;
     if (firstLatency !== null && secondLatency !== null && firstLatency !== secondLatency) {

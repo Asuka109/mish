@@ -21,6 +21,10 @@ pub use transport::{
 };
 
 pub const PINNED_MIHOMO_VERSION: &str = "v1.19.29";
+pub const ROUTE_DELAY_POLICY_ID: &str = "mihomo-google-204-v1";
+pub const ROUTE_DELAY_TEST_URL: &str = "https://www.gstatic.com/generate_204";
+pub const ROUTE_DELAY_TIMEOUT_MILLISECONDS: u16 = 5_000;
+pub const ROUTE_DELAY_EXPECTED_STATUS: &str = "204";
 
 #[derive(Clone, Debug)]
 pub struct ControllerLimits {
@@ -209,6 +213,24 @@ impl ControllerClient {
             });
         }
         Ok(())
+    }
+
+    pub async fn proxy_delay(&self, proxy: &str) -> Result<ProxyDelay, ControllerError> {
+        self.validate_command_label("proxy", proxy)?;
+        let body = tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => {
+                return Err(ControllerError::Shutdown { endpoint: Endpoint::Proxies });
+            }
+            result = self.transport.proxy_delay(
+                proxy.to_owned(),
+                ROUTE_DELAY_TEST_URL.into(),
+                ROUTE_DELAY_TIMEOUT_MILLISECONDS,
+                ROUTE_DELAY_EXPECTED_STATUS.into(),
+                self.limits.max_body_bytes,
+            ) => result?,
+        };
+        decode(body, Endpoint::Proxies, &self.limits, false)
     }
 
     fn validate_command_label(

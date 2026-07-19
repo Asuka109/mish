@@ -130,12 +130,25 @@ pub trait StatusDataSource: Send + Sync {
     ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
         Box::pin(std::future::ready(Err(StatusCommandError::unsupported())))
     }
+    fn start_group_delay_test(
+        &self,
+        _group_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(std::future::ready(Err(StatusCommandError::unsupported())))
+    }
+    fn cancel_group_delay_test(
+        &self,
+        _test_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(std::future::ready(Err(StatusCommandError::unsupported())))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StatusCommand {
     Routing,
     Group,
+    GroupDelay,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -464,6 +477,24 @@ impl MishRuntime {
         self.status_source
             .select_group_child(group_id, child_id)
             .await?;
+        Ok(self.status_snapshot(adapter_kind).await)
+    }
+
+    pub async fn start_group_delay_test(
+        &self,
+        group_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.status_source.start_group_delay_test(group_id).await?;
+        Ok(self.status_snapshot(adapter_kind).await)
+    }
+
+    pub async fn cancel_group_delay_test(
+        &self,
+        test_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.status_source.cancel_group_delay_test(test_id).await?;
         Ok(self.status_snapshot(adapter_kind).await)
     }
 

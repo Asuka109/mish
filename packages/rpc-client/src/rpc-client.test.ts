@@ -65,6 +65,16 @@ function createSnapshot() {
     adapterKind: "rpc",
     capabilities: { systemProxy: "supported", tun: "unavailable" },
     groups: [],
+    groupDelayPolicy: { id: "fixture-only", timeoutMilliseconds: 5_000 },
+    groupDelayTest: {
+      children: [],
+      finishedAt: null,
+      groupId: null,
+      phase: "idle",
+      profileId: null,
+      startedAt: null,
+      testId: null,
+    },
     groupUsage: [],
     metrics: {
       activeConnections: 0,

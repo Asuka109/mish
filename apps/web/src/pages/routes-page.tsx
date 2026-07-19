@@ -1,8 +1,17 @@
+import { ArrowClockwise } from "@phosphor-icons/react/ArrowClockwise";
 import { CaretDown } from "@phosphor-icons/react/CaretDown";
 import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import { Check } from "@phosphor-icons/react/Check";
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
-import type { PolicyGroupDto, PolicyGroupType, ProxyNodeDto } from "@mish/contracts";
+import { XCircle } from "@phosphor-icons/react/XCircle";
+import type {
+  GroupDelayChildResultDto,
+  GroupDelayPolicyDto,
+  GroupDelayTestDto,
+  PolicyGroupDto,
+  PolicyGroupType,
+  ProxyNodeDto,
+} from "@mish/contracts";
 import {
   Badge,
   Button,
@@ -24,6 +33,7 @@ import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import {
   buildRouteGraph,
   createRouteSearchState,
+  getGroupDelayResult,
   sortRouteChildIds,
   type RouteGraph,
   type RouteGraphError,
@@ -81,11 +91,78 @@ function getSortLabel(LL: TranslationFunctions, sort: RouteSort) {
   return LL.routes.labelOrder();
 }
 
+function getDelayFailureLabel(
+  LL: TranslationFunctions,
+  failure: GroupDelayChildResultDto["failure"],
+) {
+  switch (failure) {
+    case "timeout":
+      return LL.routes.delayTimeout();
+    case "stale-membership":
+      return LL.routes.delayStaleMembership();
+    case "disconnected":
+      return LL.routes.delayDisconnected();
+    case "version-drift":
+      return LL.routes.delayVersionDrift();
+    case "inconsistent-observation":
+      return LL.routes.delayInconsistent();
+    case "cancelled":
+      return LL.routes.delayCancelled();
+    default:
+      return LL.routes.delayUnavailable();
+  }
+}
+
+function getDelayPhaseLabel(LL: TranslationFunctions, test: GroupDelayTestDto) {
+  switch (test.phase) {
+    case "pending":
+      return LL.routes.delayPhasePending();
+    case "progress":
+      return LL.routes.delayPhaseProgress();
+    case "cancelled":
+      return LL.routes.delayPhaseCancelled();
+    case "completed":
+      return LL.routes.delayPhaseCompleted();
+    case "partial":
+      return LL.routes.delayPhasePartial();
+    case "failed":
+      return LL.routes.delayPhaseFailed();
+    default:
+      return "";
+  }
+}
+
+function DelayResult({ result }: { result?: GroupDelayChildResultDto }) {
+  const { LL, locale } = useI18nContext();
+  if (!result) return null;
+  const outcome =
+    result.phase === "success"
+      ? LL.routes.latencyMilliseconds({ latency: result.latencyMilliseconds! })
+      : result.phase === "pending"
+        ? LL.routes.delayPending()
+        : getDelayFailureLabel(LL, result.failure);
+  return (
+    <span className={`route-delay-result route-delay-${result.phase}`}>
+      <span>{outcome}</span>
+      {result.observedAt === null ? null : (
+        <time dateTime={new Date(result.observedAt).toISOString()}>
+          {new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          }).format(result.observedAt)}
+        </time>
+      )}
+    </span>
+  );
+}
+
 interface RouteNodeRowProps {
   commandDescriptionId: string | undefined;
   commandPending: boolean;
   commandSupported: boolean;
   group: PolicyGroupDto;
+  delayResult?: GroupDelayChildResultDto;
   node: ProxyNodeDto;
   onSelect(groupId: string, childId: string): void;
 }
@@ -95,6 +172,7 @@ function RouteNodeRow({
   commandPending,
   commandSupported,
   group,
+  delayResult,
   node,
   onSelect,
 }: RouteNodeRowProps) {
@@ -109,11 +187,15 @@ function RouteNodeRow({
         <span>{node.protocol}</span>
       </span>
       <span className="route-child-status">
-        <span className="route-latency tabular">
-          {node.latencyMilliseconds === null
-            ? LL.routes.latencyUnavailable()
-            : LL.routes.latencyMilliseconds({ latency: node.latencyMilliseconds })}
-        </span>
+        {delayResult ? (
+          <DelayResult result={delayResult} />
+        ) : (
+          <span className="route-latency tabular">
+            {node.latencyMilliseconds === null
+              ? LL.routes.latencyUnavailable()
+              : LL.routes.latencyMilliseconds({ latency: node.latencyMilliseconds })}
+          </span>
+        )}
         {selected ? (
           <span className="route-selected-status">
             <Check aria-hidden="true" />
@@ -146,16 +228,23 @@ function RouteNodeRow({
 interface RouteGroupProps {
   commandDescriptionId: string | undefined;
   commandSupported: boolean;
+  delayCommandPending: boolean;
+  delayCommandSupported: boolean;
+  delayPolicy: GroupDelayPolicyDto;
+  delayTest: GroupDelayTestDto;
   depth: number;
   expandedGroupIds: Set<string>;
   graph: RouteGraph;
   group: PolicyGroupDto;
   isGroupCommandPending(groupId: string): boolean;
   locale: Locales;
+  onCancelDelay(testId: string): void;
   onSelect(groupId: string, childId: string): void;
   onSort(groupId: string, sort: RouteSort): void;
+  onStartDelay(groupId: string): void;
   onToggle(groupId: string): void;
   parentGroup?: PolicyGroupDto;
+  parentDelayResult?: GroupDelayChildResultDto;
   search: RouteSearchState;
   sortByGroupId: ReadonlyMap<string, RouteSort>;
 }
@@ -163,16 +252,23 @@ interface RouteGroupProps {
 function RouteGroup({
   commandDescriptionId,
   commandSupported,
+  delayCommandPending,
+  delayCommandSupported,
+  delayPolicy,
+  delayTest,
   depth,
   expandedGroupIds,
   graph,
   group,
   isGroupCommandPending,
   locale,
+  onCancelDelay,
   onSelect,
   onSort,
+  onStartDelay,
   onToggle,
   parentGroup,
+  parentDelayResult,
   search,
   sortByGroupId,
 }: RouteGroupProps) {
@@ -185,7 +281,15 @@ function RouteGroup({
   const selectedInParent = parentGroup?.selectedChildId === group.id;
   const canSelectInParent = parentGroup?.type === "selector";
   const sort = sortByGroupId.get(group.id) ?? "configuration";
-  const sortedChildIds = expanded ? sortRouteChildIds(graph, group, sort, locale) : [];
+  const sortedChildIds = expanded ? sortRouteChildIds(graph, group, sort, locale, delayTest) : [];
+  const delayIsActive = delayTest.phase === "pending" || delayTest.phase === "progress";
+  const delayMatchesGroup = delayTest.groupId === group.id;
+  const activeDelayGroup = delayTest.groupId
+    ? (graph.groupById.get(delayTest.groupId)?.label ?? delayTest.groupId)
+    : "";
+  const completedDelayChildren = delayMatchesGroup
+    ? delayTest.children.filter((child) => child.phase !== "pending").length
+    : 0;
   const visibleChildIds = search.queryActive
     ? sortedChildIds.filter(
         (childId) =>
@@ -213,6 +317,7 @@ function RouteGroup({
       <Badge aria-label={LL.routes.childCount({ count: group.childIds.length })} variant="outline">
         {group.childIds.length}
       </Badge>
+      <DelayResult result={parentDelayResult} />
     </>
   );
 
@@ -258,24 +363,77 @@ function RouteGroup({
         {expanded ? (
           <div className="route-group-body" id={childrenId}>
             <div className="route-group-tools">
-              <span>{LL.routes.sortChildren({ group: group.label })}</span>
-              <ToggleGroup
-                aria-label={LL.routes.sortChildren({ group: group.label })}
-                className="route-sort-group"
-                onValueChange={(values) => {
-                  const nextSort = values[0] as RouteSort | undefined;
-                  if (nextSort) onSort(group.id, nextSort);
-                }}
-                spacing={0}
-                value={[sort]}
-                variant="outline"
-              >
-                {routeSorts.map((option) => (
-                  <ToggleGroupItem className="route-sort-button" key={option} value={option}>
-                    {getSortLabel(LL, option)}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
+              <div className="route-sort-tools">
+                <span>{LL.routes.sortChildren({ group: group.label })}</span>
+                <ToggleGroup
+                  aria-label={LL.routes.sortChildren({ group: group.label })}
+                  className="route-sort-group"
+                  onValueChange={(values) => {
+                    const nextSort = values[0] as RouteSort | undefined;
+                    if (nextSort) onSort(group.id, nextSort);
+                  }}
+                  spacing={0}
+                  value={[sort]}
+                  variant="outline"
+                >
+                  {routeSorts.map((option) => (
+                    <ToggleGroupItem className="route-sort-button" key={option} value={option}>
+                      {getSortLabel(LL, option)}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </div>
+              <div className="route-delay-tools">
+                <span className="route-delay-copy">
+                  <strong className="user-authored-label">
+                    {delayMatchesGroup && delayIsActive
+                      ? LL.routes.delayTestingGroup({ group: group.label })
+                      : delayIsActive
+                        ? LL.routes.delayTestingGroup({ group: activeDelayGroup })
+                        : LL.routes.delayTestGroup({ group: group.label })}
+                  </strong>
+                  <span>
+                    {delayMatchesGroup && delayTest.phase !== "idle"
+                      ? LL.routes.delayStateProgress({
+                          completed: completedDelayChildren,
+                          state: getDelayPhaseLabel(LL, delayTest),
+                          total: delayTest.children.length,
+                        })
+                      : LL.routes.delayPolicy({
+                          policy: delayPolicy.id,
+                          seconds: delayPolicy.timeoutMilliseconds / 1000,
+                        })}
+                  </span>
+                </span>
+                {delayMatchesGroup && delayIsActive && delayTest.testId ? (
+                  <Button
+                    aria-label={LL.routes.cancelDelay({ group: group.label })}
+                    disabled={delayCommandPending}
+                    onClick={() => onCancelDelay(delayTest.testId!)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <XCircle aria-hidden="true" data-icon="inline-start" />
+                    {LL.routes.cancelDelayButton()}
+                  </Button>
+                ) : (
+                  <Button
+                    aria-label={LL.routes.startDelay({ group: group.label })}
+                    disabled={
+                      delayCommandPending ||
+                      !delayCommandSupported ||
+                      delayIsActive ||
+                      group.childIds.length === 0
+                    }
+                    onClick={() => onStartDelay(group.id)}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <ArrowClockwise aria-hidden="true" data-icon="inline-start" />
+                    {LL.routes.startDelayButton()}
+                  </Button>
+                )}
+              </div>
             </div>
 
             {visibleChildIds.length > 0 ? (
@@ -287,6 +445,10 @@ function RouteGroup({
                       <RouteGroup
                         commandDescriptionId={commandDescriptionId}
                         commandSupported={commandSupported}
+                        delayCommandPending={delayCommandPending}
+                        delayCommandSupported={delayCommandSupported}
+                        delayPolicy={delayPolicy}
+                        delayTest={delayTest}
                         depth={depth + 1}
                         expandedGroupIds={expandedGroupIds}
                         graph={graph}
@@ -294,10 +456,13 @@ function RouteGroup({
                         isGroupCommandPending={isGroupCommandPending}
                         key={childId}
                         locale={locale}
+                        onCancelDelay={onCancelDelay}
                         onSelect={onSelect}
                         onSort={onSort}
+                        onStartDelay={onStartDelay}
                         onToggle={onToggle}
                         parentGroup={group}
+                        parentDelayResult={getGroupDelayResult(delayTest, group.id, childId)}
                         search={search}
                         sortByGroupId={sortByGroupId}
                       />
@@ -311,6 +476,7 @@ function RouteGroup({
                         commandDescriptionId={commandDescriptionId}
                         commandPending={isGroupCommandPending(group.id)}
                         commandSupported={commandSupported}
+                        delayResult={getGroupDelayResult(delayTest, group.id, childId)}
                         group={group}
                         node={node}
                         onSelect={onSelect}
@@ -333,11 +499,14 @@ export function RoutesPage() {
   const {
     connection,
     error,
+    isCommandPending,
     isCommandSupported,
     isGroupCommandPending,
     isLoading,
+    cancelGroupDelayTest,
     selectGroupChild,
     snapshot,
+    startGroupDelayTest,
   } = useProduct();
   const { LL, locale } = useI18nContext();
   const [query, setQuery] = useState("");
@@ -370,6 +539,8 @@ export function RoutesPage() {
   }
 
   const commandSupported = isCommandSupported("group");
+  const delayCommandSupported = isCommandSupported("group-delay");
+  const delayCommandPending = isCommandPending("group-delay");
   const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
   const activeProfile =
     snapshot.profiles.find((profile) => profile.id === snapshot.activeProfileId)?.label ??
@@ -481,6 +652,10 @@ export function RoutesPage() {
                   <RouteGroup
                     commandDescriptionId={commandDescriptionId}
                     commandSupported={commandSupported}
+                    delayCommandPending={delayCommandPending}
+                    delayCommandSupported={delayCommandSupported}
+                    delayPolicy={snapshot.groupDelayPolicy}
+                    delayTest={snapshot.groupDelayTest}
                     depth={0}
                     expandedGroupIds={expandedGroupIds}
                     graph={graph}
@@ -488,8 +663,10 @@ export function RoutesPage() {
                     isGroupCommandPending={isGroupCommandPending}
                     key={groupId}
                     locale={locale}
+                    onCancelDelay={(testId) => void cancelGroupDelayTest(testId)}
                     onSelect={(groupId, childId) => void selectGroupChild(groupId, childId)}
                     onSort={changeSort}
+                    onStartDelay={(groupId) => void startGroupDelayTest(groupId)}
                     onToggle={toggleGroup}
                     search={search}
                     sortByGroupId={sortByGroupId}

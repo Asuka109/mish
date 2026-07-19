@@ -10,16 +10,18 @@ use std::{
 use futures_util::{StreamExt, future::BoxFuture};
 use mish_mihomo_controller::{
     ConnectionSnapshot, ControllerClient, ControllerError, ControllerLimits, ControllerStream,
-    Endpoint, HttpTransportConfig, LogMessage, MemorySnapshot,
+    Endpoint, HttpTransportConfig, LogMessage, MemorySnapshot, ProxyCatalog,
     RoutingMode as ControllerRoutingMode, TrafficSnapshot, shared_http_transport,
 };
 use mish_runtime::{
     CaptureSelection, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, EVENTS_BUFFER_LIMIT,
     EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
-    EventsDataSource, EventsSnapshot, ProfileSummary, RoutingMode, RuntimePhase, StatusAdapterKind,
-    StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
-    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
-    TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+    EventsDataSource, EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult,
+    GroupDelayFailure, GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, ProfileSummary,
+    RoutingMode, RuntimePhase, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusCommandErrorKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
+    TrafficCommandExecution, TrafficCommandFailureKind, TrafficCommandOperation, TrafficDataPhase,
+    TrafficDataSnapshot, TrafficDataSource,
 };
 use thiserror::Error;
 use tokio::{
@@ -38,6 +40,7 @@ use crate::{
 
 const STARTING_MESSAGE: &str = "Connecting to the configured Mihomo Controller";
 static NEXT_EVENT_SOURCE_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_GROUP_DELAY_TEST_ID: AtomicU64 = AtomicU64::new(1);
 
 pub struct ControllerObservationConfig {
     pub base_url: Url,
@@ -106,6 +109,7 @@ struct SourceState {
     event_session_id: Option<String>,
     event_session_number: u64,
     events: VecDeque<EventRecord>,
+    group_delay_test: GroupDelayTest,
     running_since: Option<Instant>,
     traffic_reconnect_count: u64,
     traffic_sequence: u64,
@@ -125,6 +129,7 @@ impl SourceState {
             event_session_id: None,
             event_session_number: 0,
             events: VecDeque::with_capacity(EVENTS_BUFFER_LIMIT),
+            group_delay_test: GroupDelayTest::idle(),
             running_since: None,
             traffic_reconnect_count: 0,
             traffic_sequence: 0,
@@ -153,6 +158,7 @@ struct SourceInner {
     lifecycle: Arc<dyn CoreRuntime>,
     event_source_id: u64,
     event_updates: broadcast::Sender<()>,
+    group_delay_control: Mutex<Option<(String, CancellationToken)>>,
     profile: ProfileMappingContext,
     reconnect_delay: Duration,
     refresh_interval: Duration,
@@ -163,6 +169,7 @@ struct SourceInner {
 pub struct ControllerStatusSource {
     closed: AtomicBool,
     inner: Arc<SourceInner>,
+    group_delay_task: AsyncMutex<Option<JoinHandle<()>>>,
     started: AtomicBool,
     task: AsyncMutex<Option<JoinHandle<()>>>,
 }
@@ -201,12 +208,14 @@ impl ControllerStatusSource {
                 lifecycle,
                 event_source_id: NEXT_EVENT_SOURCE_ID.fetch_add(1, Ordering::Relaxed),
                 event_updates,
+                group_delay_control: Mutex::new(None),
                 profile: config.profile,
                 reconnect_delay: config.reconnect_delay,
                 refresh_interval: config.refresh_interval,
                 state: Mutex::new(SourceState::new()),
                 status_events: OnceLock::new(),
             }),
+            group_delay_task: AsyncMutex::new(None),
             started: AtomicBool::new(false),
             task: AsyncMutex::new(None),
         }))
@@ -229,7 +238,19 @@ impl ControllerStatusSource {
             return;
         }
         self.inner.cancellation.cancel();
+        if let Some((_, cancellation)) = self
+            .inner
+            .group_delay_control
+            .lock()
+            .expect("group delay control poisoned")
+            .as_ref()
+        {
+            cancellation.cancel();
+        }
         self.inner.client.shutdown();
+        if let Some(task) = self.group_delay_task.lock().await.take() {
+            let _ = task.await;
+        }
         if let Some(task) = self.task.lock().await.take() {
             let _ = task.await;
         }
@@ -289,6 +310,11 @@ impl StatusDataSource for ControllerStatusSource {
             snapshot.runtime.phase = RuntimePhase::Connecting;
             snapshot.runtime.message = STARTING_MESSAGE.into();
         }
+        snapshot.group_delay_policy = GroupDelayPolicy {
+            id: mish_mihomo_controller::ROUTE_DELAY_POLICY_ID.into(),
+            timeout_milliseconds: mish_mihomo_controller::ROUTE_DELAY_TIMEOUT_MILLISECONDS,
+        };
+        snapshot.group_delay_test = state.group_delay_test.clone();
         snapshot
     }
 
@@ -298,7 +324,17 @@ impl StatusDataSource for ControllerStatusSource {
 
     fn supports_command(&self, command: StatusCommand) -> bool {
         !self.closed.load(Ordering::Acquire)
-            && matches!(command, StatusCommand::Routing | StatusCommand::Group)
+            && self
+                .inner
+                .state
+                .lock()
+                .expect("controller source state poisoned")
+                .initial_observation
+                == ControllerInitialObservation::Ready
+            && matches!(
+                command,
+                StatusCommand::Routing | StatusCommand::Group | StatusCommand::GroupDelay
+            )
     }
 
     fn set_routing_mode(&self, mode: RoutingMode) -> BoxFuture<'_, Result<(), StatusCommandError>> {
@@ -312,9 +348,41 @@ impl StatusDataSource for ControllerStatusSource {
     ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
         Box::pin(async move { self.run_group_command(&group_id, &child_id).await })
     }
+
+    fn start_group_delay_test(
+        &self,
+        group_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(async move { self.begin_group_delay_test(group_id).await })
+    }
+
+    fn cancel_group_delay_test(
+        &self,
+        test_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(async move { self.cancel_group_delay(&test_id).await })
+    }
 }
 
 impl ControllerStatusSource {
+    fn require_command_ready(&self) -> Result<(), StatusCommandError> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .expect("controller source state poisoned");
+        if state.initial_observation == ControllerInitialObservation::Ready
+            && state.mapper.is_some()
+        {
+            Ok(())
+        } else {
+            Err(StatusCommandError::new(
+                StatusCommandErrorKind::Disconnected,
+                "Controller commands are unavailable until the initial catalog is confirmed",
+            ))
+        }
+    }
+
     async fn run_routing_command(&self, mode: RoutingMode) -> Result<(), StatusCommandError> {
         let result = self.confirm_routing_command(mode).await;
         if let Err(error) = &result {
@@ -332,6 +400,7 @@ impl ControllerStatusSource {
     }
 
     async fn confirm_routing_command(&self, mode: RoutingMode) -> Result<(), StatusCommandError> {
+        self.require_command_ready()?;
         let _command = self.inner.command.try_lock().map_err(|_| {
             StatusCommandError::new(
                 StatusCommandErrorKind::Conflict,
@@ -459,6 +528,7 @@ impl ControllerStatusSource {
         group_id: &str,
         child_id: &str,
     ) -> Result<(), StatusCommandError> {
+        self.require_command_ready()?;
         let _command = self.inner.command.try_lock().map_err(|_| {
             StatusCommandError::new(
                 StatusCommandErrorKind::Conflict,
@@ -552,6 +622,416 @@ impl ControllerStatusSource {
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    async fn begin_group_delay_test(&self, group_id: String) -> Result<(), StatusCommandError> {
+        self.require_command_ready()?;
+        let _command = self.inner.command.try_lock().map_err(|_| {
+            StatusCommandError::new(
+                StatusCommandErrorKind::Conflict,
+                "A Status command is already pending",
+            )
+        })?;
+        {
+            let control = self
+                .inner
+                .group_delay_control
+                .lock()
+                .expect("group delay control poisoned");
+            if control.is_some() {
+                return Err(StatusCommandError::new(
+                    StatusCommandErrorKind::Conflict,
+                    "A group delay test is already pending",
+                ));
+            }
+        }
+
+        let _authority = self.inner.authority.lock().await;
+        self.inner
+            .client
+            .verify_version()
+            .await
+            .map_err(map_command_error)?;
+        let catalog = self
+            .inner
+            .client
+            .proxies()
+            .await
+            .map_err(map_command_error)?;
+        let mapper = ControllerStatusMapper::new(self.inner.profile.clone());
+        let (_, targets) = mapper
+            .group_delay_targets(&catalog, &group_id)
+            .map_err(map_delay_target_error)?;
+        if targets.is_empty() {
+            return Err(StatusCommandError::new(
+                StatusCommandErrorKind::InvalidRequest,
+                "The requested policy group has no direct children to test",
+            ));
+        }
+        apply_observations(
+            &self.inner,
+            ControllerObservationBatch {
+                proxies: Some(catalog),
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .map_err(map_mapping_error)?;
+
+        let test_id = format!(
+            "group-delay-{}",
+            NEXT_GROUP_DELAY_TEST_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let cancellation = CancellationToken::new();
+        {
+            let mut control = self
+                .inner
+                .group_delay_control
+                .lock()
+                .expect("group delay control poisoned");
+            if control.is_some() {
+                return Err(StatusCommandError::new(
+                    StatusCommandErrorKind::Conflict,
+                    "A group delay test is already pending",
+                ));
+            }
+            *control = Some((test_id.clone(), cancellation.clone()));
+        }
+        {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .expect("controller source state poisoned");
+            state.group_delay_test = GroupDelayTest {
+                children: targets
+                    .iter()
+                    .map(|(child_id, _)| GroupDelayChildResult {
+                        child_id: child_id.clone(),
+                        failure: None,
+                        latency_milliseconds: None,
+                        observed_at: None,
+                        phase: GroupDelayChildPhase::Pending,
+                    })
+                    .collect(),
+                finished_at: None,
+                group_id: Some(group_id.clone()),
+                phase: GroupDelayTestPhase::Pending,
+                profile_id: Some(self.inner.profile.profile_id().into()),
+                started_at: Some(now_unix_milliseconds()),
+                test_id: Some(test_id.clone()),
+            };
+        }
+        publish_change(&self.inner).await;
+        drop(_authority);
+
+        let inner = self.inner.clone();
+        let task = tokio::spawn(async move {
+            run_group_delay_test(inner, test_id, group_id, targets, cancellation).await;
+        });
+        if let Some(previous) = self.group_delay_task.lock().await.replace(task)
+            && !previous.is_finished()
+        {
+            previous.abort();
+        }
+        Ok(())
+    }
+
+    async fn cancel_group_delay(&self, test_id: &str) -> Result<(), StatusCommandError> {
+        let cancellation = {
+            let control = self
+                .inner
+                .group_delay_control
+                .lock()
+                .expect("group delay control poisoned");
+            match control.as_ref() {
+                Some((active_test_id, cancellation)) if active_test_id == test_id => {
+                    cancellation.clone()
+                }
+                Some(_) => {
+                    return Err(StatusCommandError::new(
+                        StatusCommandErrorKind::Conflict,
+                        "The requested delay test is not the active test",
+                    ));
+                }
+                None => {
+                    return Err(StatusCommandError::new(
+                        StatusCommandErrorKind::NotFound,
+                        "The requested delay test is no longer active",
+                    ));
+                }
+            }
+        };
+        cancellation.cancel();
+        mark_group_delay_cancelled(&self.inner, test_id);
+        publish_change(&self.inner).await;
+        Ok(())
+    }
+}
+
+enum ChildDelayOutcome {
+    Success(u16),
+    Failure(GroupDelayFailure),
+    Cancelled,
+}
+
+async fn run_group_delay_test(
+    inner: Arc<SourceInner>,
+    test_id: String,
+    group_id: String,
+    targets: Vec<(String, String)>,
+    cancellation: CancellationToken,
+) {
+    {
+        let mut state = inner
+            .state
+            .lock()
+            .expect("controller source state poisoned");
+        if state.group_delay_test.test_id.as_deref() == Some(&test_id)
+            && state.group_delay_test.phase == GroupDelayTestPhase::Pending
+        {
+            state.group_delay_test.phase = GroupDelayTestPhase::Progress;
+        }
+    }
+    publish_change(&inner).await;
+
+    let mut work =
+        futures_util::stream::iter(targets.into_iter().map(|(child_id, child_label)| {
+            let inner = inner.clone();
+            let cancellation = cancellation.clone();
+            let group_id = group_id.clone();
+            async move {
+                let outcome =
+                    run_child_delay(&inner, &group_id, &child_id, &child_label, &cancellation)
+                        .await;
+                (child_id, outcome)
+            }
+        }))
+        .buffer_unordered(4);
+
+    while let Some((child_id, outcome)) = work.next().await {
+        if cancellation.is_cancelled() || inner.cancellation.is_cancelled() {
+            break;
+        }
+        let observed_at = now_unix_milliseconds();
+        let changed = {
+            let mut state = inner
+                .state
+                .lock()
+                .expect("controller source state poisoned");
+            let test = &mut state.group_delay_test;
+            if test.test_id.as_deref() != Some(&test_id)
+                || !matches!(
+                    test.phase,
+                    GroupDelayTestPhase::Pending | GroupDelayTestPhase::Progress
+                )
+            {
+                continue;
+            }
+            let Some(child) = test
+                .children
+                .iter_mut()
+                .find(|child| child.child_id == child_id)
+            else {
+                continue;
+            };
+            match outcome {
+                ChildDelayOutcome::Success(delay) => {
+                    child.latency_milliseconds = Some(delay);
+                    child.failure = None;
+                    child.phase = GroupDelayChildPhase::Success;
+                }
+                ChildDelayOutcome::Failure(failure) => {
+                    child.latency_milliseconds = None;
+                    child.failure = Some(failure);
+                    child.phase = GroupDelayChildPhase::Failed;
+                }
+                ChildDelayOutcome::Cancelled => {
+                    child.latency_milliseconds = None;
+                    child.failure = Some(GroupDelayFailure::Cancelled);
+                    child.phase = GroupDelayChildPhase::Cancelled;
+                }
+            }
+            child.observed_at = Some(observed_at);
+            test.phase = GroupDelayTestPhase::Progress;
+            true
+        };
+        if changed {
+            publish_change(&inner).await;
+        }
+    }
+
+    if cancellation.is_cancelled() || inner.cancellation.is_cancelled() {
+        mark_group_delay_cancelled(&inner, &test_id);
+    } else {
+        finish_group_delay_test(&inner, &test_id);
+    }
+    {
+        let mut control = inner
+            .group_delay_control
+            .lock()
+            .expect("group delay control poisoned");
+        if control
+            .as_ref()
+            .is_some_and(|(active_test_id, _)| active_test_id == &test_id)
+        {
+            *control = None;
+        }
+    }
+    publish_change(&inner).await;
+}
+
+async fn run_child_delay(
+    inner: &Arc<SourceInner>,
+    group_id: &str,
+    child_id: &str,
+    child_label: &str,
+    cancellation: &CancellationToken,
+) -> ChildDelayOutcome {
+    let delay = tokio::select! {
+        biased;
+        _ = inner.cancellation.cancelled() => return ChildDelayOutcome::Cancelled,
+        _ = cancellation.cancelled() => return ChildDelayOutcome::Cancelled,
+        result = inner.client.proxy_delay(child_label) => result,
+    };
+    if cancellation.is_cancelled() || inner.cancellation.is_cancelled() {
+        return ChildDelayOutcome::Cancelled;
+    }
+
+    let _authority = inner.authority.lock().await;
+    let catalog = match revalidate_group_delay_target(inner, group_id, child_id).await {
+        Ok(catalog) => catalog,
+        Err(failure) => return ChildDelayOutcome::Failure(failure),
+    };
+    if cancellation.is_cancelled() || inner.cancellation.is_cancelled() {
+        return ChildDelayOutcome::Cancelled;
+    }
+    if apply_observations(
+        inner,
+        ControllerObservationBatch {
+            proxies: Some(catalog),
+            ..Default::default()
+        },
+        false,
+    )
+    .await
+    .is_err()
+    {
+        return ChildDelayOutcome::Failure(GroupDelayFailure::InconsistentObservation);
+    }
+    match delay {
+        Ok(delay) => ChildDelayOutcome::Success(delay.delay),
+        Err(error) => ChildDelayOutcome::Failure(map_delay_error(&error)),
+    }
+}
+
+async fn revalidate_group_delay_target(
+    inner: &Arc<SourceInner>,
+    group_id: &str,
+    child_id: &str,
+) -> Result<ProxyCatalog, GroupDelayFailure> {
+    inner
+        .client
+        .verify_version()
+        .await
+        .map_err(|error| map_delay_error(&error))?;
+    let catalog = inner
+        .client
+        .proxies()
+        .await
+        .map_err(|error| map_delay_error(&error))?;
+    let mapper = ControllerStatusMapper::new(inner.profile.clone());
+    let (_, targets) = mapper
+        .group_delay_targets(&catalog, group_id)
+        .map_err(|_| GroupDelayFailure::StaleMembership)?;
+    if !targets.iter().any(|(current_id, _)| current_id == child_id) {
+        return Err(GroupDelayFailure::StaleMembership);
+    }
+    Ok(catalog)
+}
+
+fn mark_group_delay_cancelled(inner: &SourceInner, test_id: &str) {
+    let observed_at = now_unix_milliseconds();
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    let test = &mut state.group_delay_test;
+    if test.test_id.as_deref() != Some(test_id) {
+        return;
+    }
+    for child in &mut test.children {
+        if child.phase != GroupDelayChildPhase::Pending {
+            continue;
+        }
+        child.failure = Some(GroupDelayFailure::Cancelled);
+        child.observed_at = Some(observed_at);
+        child.phase = GroupDelayChildPhase::Cancelled;
+    }
+    test.finished_at = Some(observed_at);
+    test.phase = GroupDelayTestPhase::Cancelled;
+}
+
+fn finish_group_delay_test(inner: &SourceInner, test_id: &str) {
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    let test = &mut state.group_delay_test;
+    if test.test_id.as_deref() != Some(test_id) || test.phase == GroupDelayTestPhase::Cancelled {
+        return;
+    }
+    let success_count = test
+        .children
+        .iter()
+        .filter(|child| child.phase == GroupDelayChildPhase::Success)
+        .count();
+    test.finished_at = Some(now_unix_milliseconds());
+    test.phase = if success_count == test.children.len() {
+        GroupDelayTestPhase::Completed
+    } else if success_count > 0 {
+        GroupDelayTestPhase::Partial
+    } else {
+        GroupDelayTestPhase::Failed
+    };
+}
+
+fn map_delay_target_error(error: SelectionTargetError) -> StatusCommandError {
+    match error {
+        SelectionTargetError::GroupNotFound => StatusCommandError::new(
+            StatusCommandErrorKind::NotFound,
+            "The requested policy group no longer exists",
+        ),
+        SelectionTargetError::ChildNotFound | SelectionTargetError::ChildOutsideGroup => {
+            StatusCommandError::new(
+                StatusCommandErrorKind::StaleMembership,
+                "The policy-group membership changed before the delay test started",
+            )
+        }
+        SelectionTargetError::UnsupportedGroup => StatusCommandError::new(
+            StatusCommandErrorKind::InvalidRequest,
+            "The requested policy group cannot be tested",
+        ),
+    }
+}
+
+fn map_delay_error(error: &ControllerError) -> GroupDelayFailure {
+    match error {
+        ControllerError::HttpStatus { status: 504, .. } | ControllerError::Timeout { .. } => {
+            GroupDelayFailure::Timeout
+        }
+        ControllerError::UnsupportedVersion { .. } => GroupDelayFailure::VersionDrift,
+        ControllerError::Shutdown { .. } => GroupDelayFailure::Cancelled,
+        ControllerError::Transport { .. } | ControllerError::StreamEnded { .. } => {
+            GroupDelayFailure::Disconnected
+        }
+        ControllerError::HttpStatus { .. } => GroupDelayFailure::Unavailable,
+        ControllerError::InvalidConfiguration { .. }
+        | ControllerError::BodyTooLarge { .. }
+        | ControllerError::MessageTooLarge { .. }
+        | ControllerError::Decode { .. }
+        | ControllerError::Validation { .. } => GroupDelayFailure::InconsistentObservation,
     }
 }
 
@@ -1491,6 +1971,14 @@ fn push_event(
     while state.events.len() > EVENTS_BUFFER_LIMIT {
         state.events.pop_front();
     }
+}
+
+fn now_unix_milliseconds() -> u64 {
+    let milliseconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    u64::try_from(milliseconds).unwrap_or(u64::MAX)
 }
 
 fn publish_event_change(inner: &SourceInner) {
