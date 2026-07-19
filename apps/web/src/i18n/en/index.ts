@@ -462,6 +462,15 @@ const en = {
   },
   errors: {
     command: "The command failed.",
+    commandDisconnected: "The local service disconnected before the command could be confirmed.",
+    commandInconsistent:
+      "The Controller returned an inconsistent observation. Status was refreshed.",
+    commandStaleMembership:
+      "That child is no longer a direct member of this selector. Routes were refreshed.",
+    commandTimeout:
+      "The Controller did not confirm the change before the deadline. Status was refreshed.",
+    commandUnsupported: "This command is not supported by the current local service.",
+    commandVersionDrift: "The Mihomo Controller version changed and is no longer supported.",
     loadStatus: "Unable to load Status data.",
   },
 } satisfies BaseTranslation;

@@ -69,11 +69,21 @@ adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
 current mutation surface. The browser fixture supports isolated demo mutations.
-The desktop RPC adapter supports only System Proxy capture and recovery; it
-disables routing, group, service, and TUN actions. Persisted profile activation
-uses the separate authenticated Profiles command seam from both Profiles and the
-Status profile selector. Capture controls also respect the snapshot's
-`supported`, `unavailable`, and `permission-required` platform capabilities.
+The desktop RPC adapter supports System Proxy capture and recovery, and
+advertises routing and group commands only when a Controller source owns their
+reconciliation; lifecycle-only or missing-core composition keeps those
+Controller commands disabled. Persisted profile activation uses the separate
+authenticated Profiles command seam from both Profiles and the Status profile
+selector. Service and TUN actions remain unsupported. Capture controls also
+respect the snapshot's `supported`, `unavailable`, and `permission-required`
+platform capabilities.
+
+Routing and group commands return only after a post-command Controller read
+confirms the requested value and its mapped snapshot has been published.
+Timeout, disconnect, pinned-version drift, inconsistent observation,
+unsupported group type, and stale membership are distinct typed failures. The
+last confirmed snapshot is refreshed and retained on failure; a 2xx Controller
+response alone never produces a success state.
 
 `status.subscribe` returns both the subscription ID and a current validated
 snapshot. The server resets that socket's lifecycle-event cursor before reading
@@ -160,11 +170,11 @@ Controller limits and timing policy, and the same lifecycle object used by
 `MishRuntime`. Without that configuration, runtime construction remains
 lifecycle-only and performs no Controller read or configuration discovery.
 
-The current Rust `PolicyGroupKind` and Controller mapper deliberately emit only
-the backward-compatible selector variant. The broader TypeScript contract and
-fixture let the product UI validate the complete Routes interaction model now;
-extending the Rust enum and pinned Controller mapper remains follow-up work and
-must preserve the same graph validation rules.
+The Rust `PolicyGroupKind` and Controller mapper emit selector, URL test,
+fallback, load-balance, relay, direct, reject, and unsupported variants using
+the same discriminated contract as TypeScript. Only Selector is eligible for a
+manual command. Unknown upstream kinds retain their opaque type and remain
+read-only.
 
 ## Mihomo core source mapping
 
@@ -179,7 +189,7 @@ must preserve the same graph validation rules.
 | Rules                               | `/rules`                                                 | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
 | Routing mode                        | `/configs` read/update                                   | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
 
-For the implemented read-only mapper, profile IDs are caller-supplied. Group
+For the implemented Controller mapper, profile IDs are caller-supplied. Group
 and proxy IDs are deterministic SHA-256-derived identifiers scoped by a
 caller-supplied stable profile fingerprint and prefixed with `group:` or
 `proxy:`. The hash input uses the Controller entity ID when present and the

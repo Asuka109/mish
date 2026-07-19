@@ -133,6 +133,14 @@ pub enum StatusMappingError {
     IdentifierCollision { first: String, second: String },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SelectionTargetError {
+    GroupNotFound,
+    UnsupportedGroup,
+    ChildNotFound,
+    ChildOutsideGroup,
+}
+
 #[derive(Clone, Debug, Default)]
 struct MappedCatalog {
     groups: Vec<PolicyGroup>,
@@ -275,6 +283,54 @@ impl ControllerStatusMapper {
         }
     }
 
+    pub fn selection_target(
+        &self,
+        catalog: &ProxyCatalog,
+        group_id: &str,
+        child_id: &str,
+    ) -> Result<(String, String), SelectionTargetError> {
+        let group = catalog
+            .proxies
+            .iter()
+            .find(|(label, proxy)| {
+                proxy.all.is_some()
+                    && scoped_identifier(
+                        "group",
+                        &self.context.profile_fingerprint,
+                        proxy.id.as_deref().unwrap_or(label),
+                    ) == group_id
+            })
+            .ok_or(SelectionTargetError::GroupNotFound)?;
+        if !group.1.kind.eq_ignore_ascii_case("selector") {
+            return Err(SelectionTargetError::UnsupportedGroup);
+        }
+        let child = catalog
+            .proxies
+            .iter()
+            .find(|(label, proxy)| {
+                let kind = if proxy.all.is_some() {
+                    "group"
+                } else {
+                    "proxy"
+                };
+                scoped_identifier(
+                    kind,
+                    &self.context.profile_fingerprint,
+                    proxy.id.as_deref().unwrap_or(label),
+                ) == child_id
+            })
+            .ok_or(SelectionTargetError::ChildNotFound)?;
+        if !group
+            .1
+            .all
+            .as_ref()
+            .is_some_and(|children| children.iter().any(|label| label == child.0))
+        {
+            return Err(SelectionTargetError::ChildOutsideGroup);
+        }
+        Ok((group.0.clone(), child.0.clone()))
+    }
+
     fn apply_inner(
         &mut self,
         observations: ControllerObservationBatch,
@@ -406,13 +462,16 @@ fn map_catalog(
             continue;
         };
 
+        let kind = map_group_kind(&proxy.kind);
         let selected = proxy
             .now
             .as_deref()
-            .filter(|selection| !selection.is_empty())
-            .ok_or_else(|| StatusMappingError::MissingSelection {
+            .filter(|selection| !selection.is_empty());
+        if kind == PolicyGroupKind::Selector && selected.is_none() {
+            return Err(StatusMappingError::MissingSelection {
                 group: label.clone(),
-            })?;
+            });
+        }
         let mut seen_children = HashSet::with_capacity(children.len());
         let mut child_ids = Vec::with_capacity(children.len());
         for child in children {
@@ -431,26 +490,42 @@ fn map_catalog(
                     })?;
             child_ids.push(child_id.clone());
         }
-        if !seen_children.contains(selected) {
+        if selected.is_some_and(|selection| !seen_children.contains(selection)) {
             return Err(StatusMappingError::SelectionOutsideGroup {
                 group: label.clone(),
-                selected: selected.to_owned(),
+                selected: selected.unwrap_or_default().to_owned(),
             });
         }
-        let selected_child_id = ids_by_label
-            .get(selected)
-            .expect("selected child membership was checked")
-            .clone();
+        let selected_child_id = selected.map(|selection| {
+            ids_by_label
+                .get(selection)
+                .expect("selected child membership was checked")
+                .clone()
+        });
         mapped.group_ids_by_label.insert(label.clone(), id.clone());
         mapped.groups.push(PolicyGroup {
             child_ids,
             id,
             label: label.clone(),
             selected_child_id,
-            kind: PolicyGroupKind::Selector,
+            unsupported_type: (kind == PolicyGroupKind::Unsupported).then(|| proxy.kind.clone()),
+            kind,
         });
     }
     Ok(mapped)
+}
+
+fn map_group_kind(kind: &str) -> PolicyGroupKind {
+    match kind.to_ascii_lowercase().as_str() {
+        "selector" => PolicyGroupKind::Selector,
+        "urltest" | "url-test" => PolicyGroupKind::UrlTest,
+        "fallback" => PolicyGroupKind::Fallback,
+        "loadbalance" | "load-balance" => PolicyGroupKind::LoadBalance,
+        "relay" => PolicyGroupKind::Relay,
+        "direct" => PolicyGroupKind::Direct,
+        "reject" => PolicyGroupKind::Reject,
+        _ => PolicyGroupKind::Unsupported,
+    }
 }
 
 fn scoped_identifier(kind: &str, profile_fingerprint: &str, identity: &str) -> String {

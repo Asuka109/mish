@@ -75,10 +75,13 @@ impl CoreRuntime for TestLifecycle {
 
 struct FakeControllerState {
     active_streams: AtomicUsize,
+    apply_mutations: AtomicBool,
     available: watch::Sender<bool>,
     configs: RwLock<Value>,
     connections: RwLock<Value>,
     memory: watch::Sender<Value>,
+    mutation_count: AtomicUsize,
+    mutation_status: AtomicUsize,
     proxies: RwLock<Value>,
     rules: RwLock<Value>,
     traffic: watch::Sender<Value>,
@@ -99,10 +102,13 @@ impl FakeController {
         let (memory, _) = watch::channel(json!({"inuse": 4096, "oslimit": 8192}));
         let state = Arc::new(FakeControllerState {
             active_streams: AtomicUsize::new(0),
+            apply_mutations: AtomicBool::new(true),
             available,
             configs: RwLock::new(configs("rule")),
             connections: RwLock::new(connections("connection-a")),
             memory,
+            mutation_count: AtomicUsize::new(0),
+            mutation_status: AtomicUsize::new(StatusCode::NO_CONTENT.as_u16().into()),
             proxies: RwLock::new(proxies()),
             rules: RwLock::new(rules()),
             traffic,
@@ -110,8 +116,12 @@ impl FakeController {
         });
         let app = Router::new()
             .route("/version", get(version_endpoint))
-            .route("/configs", get(configs_endpoint))
+            .route("/configs", get(configs_endpoint).put(set_configs_endpoint))
             .route("/proxies", get(proxies_endpoint))
+            .route(
+                "/proxies/{group}",
+                axum::routing::put(select_group_endpoint),
+            )
             .route("/rules", get(rules_endpoint))
             .route("/connections", get(connections_endpoint))
             .route("/traffic", get(traffic_endpoint))
@@ -179,6 +189,40 @@ async fn configs_endpoint(State(state): State<Arc<FakeControllerState>>) -> Resp
 
 async fn proxies_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
     unary(&state, &state.proxies).await
+}
+
+async fn set_configs_endpoint(
+    State(state): State<Arc<FakeControllerState>>,
+    Json(body): Json<Value>,
+) -> Response {
+    let Some(mode) = body.get("mode").and_then(Value::as_str) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    state.mutation_count.fetch_add(1, Ordering::AcqRel);
+    if state.apply_mutations.load(Ordering::Acquire) {
+        *state.configs.write().await = configs(mode);
+    }
+    StatusCode::from_u16(state.mutation_status.load(Ordering::Acquire) as u16)
+        .unwrap()
+        .into_response()
+}
+
+async fn select_group_endpoint(
+    axum::extract::Path(group): axum::extract::Path<String>,
+    State(state): State<Arc<FakeControllerState>>,
+    Json(body): Json<Value>,
+) -> Response {
+    let Some(child) = body.get("name").and_then(Value::as_str) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    state.mutation_count.fetch_add(1, Ordering::AcqRel);
+    if state.apply_mutations.load(Ordering::Acquire) {
+        let mut proxies = state.proxies.write().await;
+        proxies["proxies"][group]["now"] = json!(child);
+    }
+    StatusCode::from_u16(state.mutation_status.load(Ordering::Acquire) as u16)
+        .unwrap()
+        .into_response()
 }
 
 async fn rules_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
@@ -314,9 +358,22 @@ fn proxies() -> Value {
     let mut direct = proxy("DIRECT", "Direct");
     direct["history"] = json!([{"time": "2026-07-19T00:00:00Z", "delay": 7}]);
     let mut group = proxy("SELECT", "Selector");
-    group["all"] = json!(["DIRECT"]);
+    group["all"] = json!(["DIRECT", "节点 🚄"]);
     group["now"] = json!("DIRECT");
-    json!({"proxies": {"DIRECT": direct, "SELECT": group}})
+    let node = proxy("节点 🚄", "VLESS");
+    let mut automatic = proxy("AUTO", "URLTest");
+    automatic["all"] = json!(["DIRECT", "节点 🚄"]);
+    automatic["now"] = json!("DIRECT");
+    let mut other = proxy("OTHER", "Selector");
+    other["all"] = json!(["DIRECT"]);
+    other["now"] = json!("DIRECT");
+    json!({"proxies": {
+        "DIRECT": direct,
+        "节点 🚄": node,
+        "SELECT": group,
+        "AUTO": automatic,
+        "OTHER": other
+    }})
 }
 
 fn rules() -> Value {
@@ -371,6 +428,7 @@ fn source_config(fake: &FakeController) -> ControllerObservationConfig {
     config.request_timeout = Duration::from_millis(250);
     config.refresh_interval = Duration::from_millis(40);
     config.reconnect_delay = Duration::from_millis(30);
+    config.confirmation_timeout = Duration::from_millis(150);
     config
 }
 
@@ -601,6 +659,195 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
         fake.state.active_streams.load(Ordering::Acquire) == 0
     })
     .await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    let bridge = start_loopback_server(bridge_config(), runtime)
+        .await
+        .unwrap();
+    let mut websocket = socket(bridge.address).await;
+    authenticate(&mut websocket).await;
+
+    let subscription = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
+    )
+    .await;
+    let snapshot = if subscription["result"]["snapshot"]["groups"]
+        .as_array()
+        .is_some_and(|groups| !groups.is_empty())
+    {
+        subscription["result"]["snapshot"].clone()
+    } else {
+        next_snapshot(&mut websocket, |snapshot| {
+            snapshot["groups"]
+                .as_array()
+                .is_some_and(|groups| !groups.is_empty())
+        })
+        .await
+    };
+    let groups = snapshot["groups"].as_array().unwrap();
+    let selector = groups
+        .iter()
+        .find(|group| group["label"] == "SELECT")
+        .unwrap();
+    let automatic = groups
+        .iter()
+        .find(|group| group["label"] == "AUTO")
+        .unwrap();
+    let other = groups
+        .iter()
+        .find(|group| group["label"] == "OTHER")
+        .unwrap();
+    assert_eq!(automatic["type"], "url-test");
+    let node = snapshot["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["label"] == "节点 🚄")
+        .unwrap();
+
+    let hostile = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.setRoutingMode", "params":{"mode":"global", "extra":true}}),
+    )
+    .await;
+    assert_eq!(hostile["error"]["code"], -32602);
+    let unsupported_mode = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":31, "method":"status.setRoutingMode", "params":{"mode":"script"}}),
+    )
+    .await;
+    assert_eq!(unsupported_mode["error"]["code"], -32602);
+    let hostile_group = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":32, "method":"status.selectGroupChild", "params":{"groupId":selector["id"], "childId":node["id"], "extra":true}}),
+    )
+    .await;
+    assert_eq!(hostile_group["error"]["code"], -32602);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 0);
+
+    let routing = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.setRoutingMode", "params":{"mode":"global"}}),
+    )
+    .await;
+    assert_eq!(routing["result"]["routingMode"], "global");
+
+    let unsupported = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":5, "method":"status.selectGroupChild", "params":{"groupId":automatic["id"], "childId":node["id"]}}),
+    )
+    .await;
+    assert_eq!(unsupported["error"]["data"]["kind"], "unsupported-group");
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 1);
+
+    let cross_group = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":51, "method":"status.selectGroupChild", "params":{"groupId":other["id"], "childId":node["id"]}}),
+    )
+    .await;
+    assert_eq!(cross_group["error"]["data"]["kind"], "stale-membership");
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 1);
+
+    let selection = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":6, "method":"status.selectGroupChild", "params":{"groupId":selector["id"], "childId":node["id"]}}),
+    )
+    .await;
+    assert_eq!(
+        selection["result"]["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["label"] == "SELECT")
+            .unwrap()["selectedChildId"],
+        node["id"]
+    );
+
+    fake.state.mutation_status.store(
+        StatusCode::INTERNAL_SERVER_ERROR.as_u16().into(),
+        Ordering::Release,
+    );
+    let rejected_after_apply = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":61, "method":"status.setRoutingMode", "params":{"mode":"rule"}}),
+    )
+    .await;
+    assert_eq!(
+        rejected_after_apply["error"]["data"]["kind"],
+        "disconnected"
+    );
+    let refreshed_after_rejection = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":62, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(refreshed_after_rejection["result"]["routingMode"], "rule");
+    fake.state
+        .mutation_status
+        .store(StatusCode::NO_CONTENT.as_u16().into(), Ordering::Release);
+
+    let mut raced = proxies();
+    raced["proxies"]["SELECT"]["all"] = json!(["DIRECT"]);
+    raced["proxies"]["SELECT"]["now"] = json!("DIRECT");
+    *fake.state.proxies.write().await = raced;
+    let before_race = fake.state.mutation_count.load(Ordering::Acquire);
+    let stale = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":7, "method":"status.selectGroupChild", "params":{"groupId":selector["id"], "childId":node["id"]}}),
+    )
+    .await;
+    assert_eq!(stale["error"]["data"]["kind"], "stale-membership");
+    assert!(!stale.to_string().contains("节点 🚄"));
+    assert!(!stale.to_string().contains(CONTROLLER_SECRET));
+    assert_eq!(
+        fake.state.mutation_count.load(Ordering::Acquire),
+        before_race
+    );
+
+    fake.state.apply_mutations.store(false, Ordering::Release);
+    let timeout_response = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":8, "method":"status.setRoutingMode", "params":{"mode":"direct"}}),
+    )
+    .await;
+    assert_eq!(timeout_response["error"]["data"]["kind"], "timeout");
+    let refreshed = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":9, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(refreshed["result"]["routingMode"], "rule");
+
+    *fake.state.version.write().await = "v1.20.0".into();
+    let version_drift = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":91, "method":"status.setRoutingMode", "params":{"mode":"rule"}}),
+    )
+    .await;
+    assert_eq!(version_drift["error"]["data"]["kind"], "version-drift");
+    *fake.state.version.write().await = "v1.19.29".into();
+
+    fake.set_available(false);
+    let disconnected = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":10, "method":"status.setRoutingMode", "params":{"mode":"rule"}}),
+    )
+    .await;
+    assert_eq!(disconnected["error"]["data"]["kind"], "disconnected");
+
+    websocket.close(None).await.unwrap();
+    bridge.shutdown().await;
     fake.shutdown().await;
 }
 

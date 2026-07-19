@@ -52,7 +52,7 @@ export async function resolveStartupStatusClient(
     methods: mishRpcMethods,
     transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
   });
-  const client = new RpcStatusClient(rpc);
+  const client = new RpcStatusClient(rpc, true);
   const profileClient = new RpcProfileClient(rpc, dependencies.invokeLocalProfilePreflight);
   const trafficClient = new RpcTrafficClient(rpc);
   return {

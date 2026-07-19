@@ -10,11 +10,13 @@ use std::{
 use futures_util::{StreamExt, future::BoxFuture};
 use mish_mihomo_controller::{
     ControllerClient, ControllerError, ControllerLimits, ControllerStream, Endpoint,
-    HttpTransportConfig, MemorySnapshot, TrafficSnapshot, shared_http_transport,
+    HttpTransportConfig, MemorySnapshot, RoutingMode as ControllerRoutingMode, TrafficSnapshot,
+    shared_http_transport,
 };
 use mish_runtime::{
     CaptureSelection, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, ProfileSummary,
-    RuntimePhase, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficDataPhase,
+    RoutingMode, RuntimePhase, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusCommandErrorKind, StatusDataSource, StatusSnapshot, TrafficDataPhase,
     TrafficDataSnapshot, TrafficDataSource,
 };
 use thiserror::Error;
@@ -27,7 +29,8 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::{
-    ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext, StatusMappingError,
+    ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext,
+    SelectionTargetError, StatusMappingError,
 };
 
 const STARTING_MESSAGE: &str = "Connecting to the configured Mihomo Controller";
@@ -41,6 +44,7 @@ pub struct ControllerObservationConfig {
     pub request_timeout: Duration,
     pub refresh_interval: Duration,
     pub reconnect_delay: Duration,
+    pub confirmation_timeout: Duration,
 }
 
 impl ControllerObservationConfig {
@@ -54,6 +58,7 @@ impl ControllerObservationConfig {
             request_timeout: Duration::from_secs(10),
             refresh_interval: Duration::from_secs(2),
             reconnect_delay: Duration::from_secs(1),
+            confirmation_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -80,6 +85,7 @@ pub enum ControllerInitialObservation {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum ObservationChannel {
+    Command,
     Session,
     Refresh,
     Traffic,
@@ -123,8 +129,11 @@ impl SourceState {
 }
 
 struct SourceInner {
+    authority: AsyncMutex<()>,
     cancellation: CancellationToken,
     client: ControllerClient,
+    command: AsyncMutex<()>,
+    confirmation_timeout: Duration,
     lifecycle: Arc<dyn CoreRuntime>,
     profile: ProfileMappingContext,
     reconnect_delay: Duration,
@@ -149,6 +158,7 @@ impl ControllerStatusSource {
             || config.request_timeout.is_zero()
             || config.refresh_interval.is_zero()
             || config.reconnect_delay.is_zero()
+            || config.confirmation_timeout.is_zero()
         {
             return Err(ControllerStatusSourceError::InvalidTiming);
         }
@@ -164,8 +174,11 @@ impl ControllerStatusSource {
         Ok(Arc::new(Self {
             closed: AtomicBool::new(false),
             inner: Arc::new(SourceInner {
+                authority: AsyncMutex::new(()),
                 cancellation: CancellationToken::new(),
                 client,
+                command: AsyncMutex::new(()),
+                confirmation_timeout: config.confirmation_timeout,
                 lifecycle,
                 profile: config.profile,
                 reconnect_delay: config.reconnect_delay,
@@ -261,6 +274,334 @@ impl StatusDataSource for ControllerStatusSource {
     fn shutdown(&self) -> BoxFuture<'_, ()> {
         Box::pin(self.close())
     }
+
+    fn supports_command(&self, command: StatusCommand) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && matches!(command, StatusCommand::Routing | StatusCommand::Group)
+    }
+
+    fn set_routing_mode(&self, mode: RoutingMode) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(async move { self.run_routing_command(mode).await })
+    }
+
+    fn select_group_child(
+        &self,
+        group_id: String,
+        child_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(async move { self.run_group_command(&group_id, &child_id).await })
+    }
+}
+
+impl ControllerStatusSource {
+    async fn run_routing_command(&self, mode: RoutingMode) -> Result<(), StatusCommandError> {
+        let result = self.confirm_routing_command(mode).await;
+        if let Err(error) = &result {
+            record_error(
+                &self.inner,
+                ObservationChannel::Command,
+                command_failure_message(error.kind),
+            )
+            .await;
+            self.refresh_after_command_failure().await;
+        } else {
+            clear_diagnostic(&self.inner, ObservationChannel::Command).await;
+        }
+        result
+    }
+
+    async fn confirm_routing_command(&self, mode: RoutingMode) -> Result<(), StatusCommandError> {
+        let _command = self.inner.command.try_lock().map_err(|_| {
+            StatusCommandError::new(
+                StatusCommandErrorKind::Conflict,
+                "A Status command is already pending",
+            )
+        })?;
+        let _authority = self.inner.authority.lock().await;
+        self.inner
+            .client
+            .verify_version()
+            .await
+            .map_err(map_command_error)?;
+        let expected = match mode {
+            RoutingMode::Rule => ControllerRoutingMode::Rule,
+            RoutingMode::Global => ControllerRoutingMode::Global,
+            RoutingMode::Direct => ControllerRoutingMode::Direct,
+        };
+        let initial = self
+            .inner
+            .client
+            .runtime_config()
+            .await
+            .map_err(map_command_error)?;
+        apply_observations(
+            &self.inner,
+            ControllerObservationBatch {
+                runtime_config: Some(initial.clone()),
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .map_err(map_mapping_error)?;
+        if initial.mode == expected {
+            return Ok(());
+        }
+        self.inner
+            .client
+            .set_routing_mode(expected)
+            .await
+            .map_err(map_command_error)?;
+        let deadline = tokio::time::Instant::now() + self.inner.confirmation_timeout;
+        loop {
+            self.inner
+                .client
+                .verify_version()
+                .await
+                .map_err(map_command_error)?;
+            let observed = self
+                .inner
+                .client
+                .runtime_config()
+                .await
+                .map_err(map_command_error)?;
+            let confirmed = observed.mode == expected;
+            apply_observations(
+                &self.inner,
+                ControllerObservationBatch {
+                    runtime_config: Some(observed),
+                    ..Default::default()
+                },
+                false,
+            )
+            .await
+            .map_err(map_mapping_error)?;
+            if confirmed {
+                clear_diagnostic(&self.inner, ObservationChannel::Command).await;
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(StatusCommandError::new(
+                    StatusCommandErrorKind::Timeout,
+                    "The Controller did not confirm the routing mode before the deadline",
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    async fn run_group_command(
+        &self,
+        group_id: &str,
+        child_id: &str,
+    ) -> Result<(), StatusCommandError> {
+        let result = self.confirm_group_command(group_id, child_id).await;
+        if let Err(error) = &result {
+            record_error(
+                &self.inner,
+                ObservationChannel::Command,
+                command_failure_message(error.kind),
+            )
+            .await;
+            self.refresh_after_command_failure().await;
+        } else {
+            clear_diagnostic(&self.inner, ObservationChannel::Command).await;
+        }
+        result
+    }
+
+    async fn refresh_after_command_failure(&self) {
+        let _authority = self.inner.authority.lock().await;
+        if self.inner.client.verify_version().await.is_err() {
+            return;
+        }
+        let Ok((runtime_config, proxies)) = tokio::try_join!(
+            self.inner.client.runtime_config(),
+            self.inner.client.proxies(),
+        ) else {
+            return;
+        };
+        let _ = apply_observations(
+            &self.inner,
+            ControllerObservationBatch {
+                runtime_config: Some(runtime_config),
+                proxies: Some(proxies),
+                ..Default::default()
+            },
+            false,
+        )
+        .await;
+    }
+
+    async fn confirm_group_command(
+        &self,
+        group_id: &str,
+        child_id: &str,
+    ) -> Result<(), StatusCommandError> {
+        let _command = self.inner.command.try_lock().map_err(|_| {
+            StatusCommandError::new(
+                StatusCommandErrorKind::Conflict,
+                "A Status command is already pending",
+            )
+        })?;
+        let _authority = self.inner.authority.lock().await;
+        self.inner
+            .client
+            .verify_version()
+            .await
+            .map_err(map_command_error)?;
+        let initial = self
+            .inner
+            .client
+            .proxies()
+            .await
+            .map_err(map_command_error)?;
+        apply_observations(
+            &self.inner,
+            ControllerObservationBatch {
+                proxies: Some(initial.clone()),
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .map_err(map_mapping_error)?;
+        let mapper = ControllerStatusMapper::new(self.inner.profile.clone());
+        let (group, child) = mapper
+            .selection_target(&initial, group_id, child_id)
+            .map_err(map_selection_error)?;
+        if initial
+            .proxies
+            .get(&group)
+            .and_then(|proxy| proxy.now.as_deref())
+            == Some(&child)
+        {
+            return Ok(());
+        }
+        self.inner
+            .client
+            .select_group_child(&group, &child)
+            .await
+            .map_err(map_command_error)?;
+        let deadline = tokio::time::Instant::now() + self.inner.confirmation_timeout;
+        loop {
+            self.inner
+                .client
+                .verify_version()
+                .await
+                .map_err(map_command_error)?;
+            let observed = self
+                .inner
+                .client
+                .proxies()
+                .await
+                .map_err(map_command_error)?;
+            apply_observations(
+                &self.inner,
+                ControllerObservationBatch {
+                    proxies: Some(observed.clone()),
+                    ..Default::default()
+                },
+                false,
+            )
+            .await
+            .map_err(map_mapping_error)?;
+            let (observed_group, observed_child) = mapper
+                .selection_target(&observed, group_id, child_id)
+                .map_err(|_| {
+                    StatusCommandError::new(
+                        StatusCommandErrorKind::StaleMembership,
+                        "The policy-group membership changed before confirmation",
+                    )
+                })?;
+            let confirmed = observed
+                .proxies
+                .get(&observed_group)
+                .and_then(|proxy| proxy.now.as_deref())
+                == Some(observed_child.as_str());
+            if confirmed {
+                clear_diagnostic(&self.inner, ObservationChannel::Command).await;
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err(StatusCommandError::new(
+                    StatusCommandErrorKind::Timeout,
+                    "The Controller did not confirm the group selection before the deadline",
+                ));
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+}
+
+fn map_selection_error(error: SelectionTargetError) -> StatusCommandError {
+    match error {
+        SelectionTargetError::GroupNotFound | SelectionTargetError::ChildNotFound => {
+            StatusCommandError::new(
+                StatusCommandErrorKind::NotFound,
+                "The requested policy-group target no longer exists",
+            )
+        }
+        SelectionTargetError::UnsupportedGroup => StatusCommandError::new(
+            StatusCommandErrorKind::UnsupportedGroup,
+            "The requested group does not support manual selection",
+        ),
+        SelectionTargetError::ChildOutsideGroup => StatusCommandError::new(
+            StatusCommandErrorKind::StaleMembership,
+            "The requested child is not a current direct member of the group",
+        ),
+    }
+}
+
+fn map_command_error(error: ControllerError) -> StatusCommandError {
+    use mish_mihomo_controller::ControllerErrorKind;
+    match error.kind() {
+        ControllerErrorKind::UnsupportedVersion => StatusCommandError::new(
+            StatusCommandErrorKind::VersionDrift,
+            "The Controller version changed outside the supported contract",
+        ),
+        ControllerErrorKind::Timeout => StatusCommandError::new(
+            StatusCommandErrorKind::Timeout,
+            "The Controller command timed out",
+        ),
+        ControllerErrorKind::Shutdown
+        | ControllerErrorKind::Transport
+        | ControllerErrorKind::HttpStatus
+        | ControllerErrorKind::StreamEnded => StatusCommandError::new(
+            StatusCommandErrorKind::Disconnected,
+            "The Controller disconnected while reconciling the command",
+        ),
+        _ => StatusCommandError::new(
+            StatusCommandErrorKind::InconsistentObservation,
+            "The Controller command could not be reconciled safely",
+        ),
+    }
+}
+
+fn map_mapping_error(_error: StatusMappingError) -> StatusCommandError {
+    StatusCommandError::new(
+        StatusCommandErrorKind::InconsistentObservation,
+        "The Controller observation could not be mapped safely",
+    )
+}
+
+fn command_failure_message(kind: StatusCommandErrorKind) -> &'static str {
+    match kind {
+        StatusCommandErrorKind::Timeout => "the command confirmation timed out",
+        StatusCommandErrorKind::Disconnected => {
+            "the Controller disconnected during command reconciliation"
+        }
+        StatusCommandErrorKind::VersionDrift => {
+            "the Controller version changed during command reconciliation"
+        }
+        StatusCommandErrorKind::StaleMembership => "the requested policy-group membership is stale",
+        StatusCommandErrorKind::UnsupportedGroup => {
+            "the requested group does not support manual selection"
+        }
+        StatusCommandErrorKind::NotFound => "the requested command target was not found",
+        StatusCommandErrorKind::Conflict => "another Status command is already pending",
+        _ => "the command could not be reconciled safely",
+    }
 }
 
 impl TrafficDataSource for ControllerStatusSource {
@@ -292,12 +633,11 @@ impl TrafficDataSource for ControllerStatusSource {
 }
 
 async fn run_collector(inner: Arc<SourceInner>) {
-    let mut mapper = ControllerStatusMapper::new(inner.profile.clone());
     loop {
         if inner.cancellation.is_cancelled() {
             return;
         }
-        match observe_session(&inner, &mut mapper).await {
+        match observe_session(&inner).await {
             Ok(()) => return,
             Err(_) if inner.cancellation.is_cancelled() => return,
             Err(error) => {
@@ -317,10 +657,8 @@ async fn run_collector(inner: Arc<SourceInner>) {
     }
 }
 
-async fn observe_session(
-    inner: &Arc<SourceInner>,
-    mapper: &mut ControllerStatusMapper,
-) -> Result<(), ControllerStatusSourceError> {
+async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatusSourceError> {
+    let _authority = inner.authority.lock().await;
     inner.client.verify_version().await?;
     let (mut traffic, mut memory) =
         tokio::try_join!(inner.client.traffic_stream(), inner.client.memory_stream(),)?;
@@ -334,7 +672,6 @@ async fn observe_session(
     )?;
     apply_observations(
         inner,
-        mapper,
         ControllerObservationBatch {
             runtime_config: Some(runtime_config),
             proxies: Some(proxies),
@@ -346,6 +683,7 @@ async fn observe_session(
         true,
     )
     .await?;
+    drop(_authority);
 
     let mut refresh = interval(inner.refresh_interval);
     refresh.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -357,7 +695,6 @@ async fn observe_session(
                 let sample = stream_item(sample, &inner.client, Endpoint::Traffic)?;
                 apply_channel_observation(
                     inner,
-                    mapper,
                     ObservationChannel::Traffic,
                     ControllerObservationBatch { traffic: Some(sample), ..Default::default() },
                 ).await;
@@ -366,12 +703,12 @@ async fn observe_session(
                 let sample = stream_item(sample, &inner.client, Endpoint::Memory)?;
                 apply_channel_observation(
                     inner,
-                    mapper,
                     ObservationChannel::Memory,
                     ControllerObservationBatch { memory: Some(sample), ..Default::default() },
                 ).await;
             }
             _ = refresh.tick() => {
+                let _authority = inner.authority.lock().await;
                 let (runtime_config, proxies, rules, connections) = tokio::try_join!(
                     inner.client.runtime_config(),
                     inner.client.proxies(),
@@ -380,7 +717,6 @@ async fn observe_session(
                 )?;
                 apply_channel_observation(
                     inner,
-                    mapper,
                     ObservationChannel::Refresh,
                     ControllerObservationBatch {
                         runtime_config: Some(runtime_config),
@@ -456,12 +792,16 @@ fn stream_item<T>(
 
 async fn apply_channel_observation(
     inner: &Arc<SourceInner>,
-    mapper: &mut ControllerStatusMapper,
     channel: ObservationChannel,
     batch: ControllerObservationBatch,
 ) {
-    match apply_observations(inner, mapper, batch, false).await {
-        Ok(()) => clear_diagnostic(inner, channel).await,
+    match apply_observations(inner, batch, false).await {
+        Ok(()) => {
+            clear_diagnostic(inner, channel).await;
+            if channel == ObservationChannel::Refresh {
+                clear_diagnostic(inner, ObservationChannel::Command).await;
+            }
+        }
         Err(_) => {
             record_error(
                 inner,
@@ -475,17 +815,20 @@ async fn apply_channel_observation(
 
 async fn apply_observations(
     inner: &Arc<SourceInner>,
-    mapper: &mut ControllerStatusMapper,
     batch: ControllerObservationBatch,
     new_session: bool,
 ) -> Result<(), StatusMappingError> {
     let traffic_changed = batch.connections.is_some() || batch.rules.is_some();
-    mapper.apply(batch)?;
     {
         let mut state = inner
             .state
             .lock()
             .expect("controller source state poisoned");
+        let mut mapper = state
+            .mapper
+            .clone()
+            .unwrap_or_else(|| ControllerStatusMapper::new(inner.profile.clone()));
+        mapper.apply(batch)?;
         if new_session {
             state.traffic_session_number = state.traffic_session_number.saturating_add(1);
             state.traffic_reconnect_count = state.traffic_session_number.saturating_sub(1);
@@ -496,7 +839,7 @@ async fn apply_observations(
         if traffic_changed {
             state.traffic_sequence = state.traffic_sequence.saturating_add(1);
         }
-        state.mapper = Some(mapper.clone());
+        state.mapper = Some(mapper);
     }
     publish_change(inner).await;
     Ok(())

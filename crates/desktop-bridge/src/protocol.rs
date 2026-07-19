@@ -12,7 +12,8 @@ use subtle::ConstantTimeEq;
 use mish_profile::{ProfileServiceError, RepositoryError};
 use mish_runtime::{
     CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
-    CoreErrorKind, CoreStatus, StatusAdapterKind,
+    CoreErrorKind, CoreStatus, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusCommandErrorKind,
 };
 use tokio::sync::broadcast;
 
@@ -75,6 +76,12 @@ struct ProfileActivationParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetRoutingModeParams {
+    mode: RoutingMode,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetCaptureParams {
     active: bool,
     selection: CaptureSelection,
@@ -99,6 +106,13 @@ struct SocketSubscriptions {
     status_updates: broadcast::Receiver<CoreStatus>,
     traffic_ids: HashSet<String>,
     traffic_updates: broadcast::Receiver<CoreStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SelectGroupChildParams {
+    group_id: String,
+    child_id: String,
 }
 
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
@@ -300,6 +314,10 @@ async fn handle_message(
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
             "protocolVersion": 3,
+            "statusCommands": {
+                "group": state.runtime.supports_status_command(StatusCommand::Group),
+                "routing": state.runtime.supports_status_command(StatusCommand::Routing),
+            },
         }),
         "core.getStatus" => {
             serde_json::to_value(state.runtime.core_status().await).expect("serializable status")
@@ -313,6 +331,40 @@ async fn handle_message(
             Err(error) => return Some(core_error_response(id, error)),
         },
         "status.getSnapshot" => state.runtime.status_snapshot(StatusAdapterKind::Rpc).await,
+        "status.setRoutingMode" => {
+            let params: SetRoutingModeParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match state
+                .runtime
+                .set_routing_mode(params.mode, StatusAdapterKind::Rpc)
+                .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(status_command_error_response(id, error)),
+            }
+        }
+        "status.selectGroupChild" => {
+            let params: SelectGroupChildParams =
+                match serde_json::from_value::<SelectGroupChildParams>(request.params) {
+                    Ok(params)
+                        if valid_identifier(&params.group_id)
+                            && valid_identifier(&params.child_id) =>
+                    {
+                        params
+                    }
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match state
+                .runtime
+                .select_group_child(params.group_id, params.child_id, StatusAdapterKind::Rpc)
+                .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(status_command_error_response(id, error)),
+            }
+        }
         "status.subscribe" => {
             if subscription_count(
                 &subscriptions.profile_ids,
@@ -582,6 +634,10 @@ fn constant_time_equal(left: &str, right: &str) -> bool {
     left.len() == right.len() && left.as_bytes().ct_eq(right.as_bytes()).into()
 }
 
+fn valid_identifier(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 8_192
+}
+
 fn error_response(id: Value, code: i32, message: &str, data: Option<Value>) -> Value {
     let mut error = json!({"code": code, "message": message});
     if let Some(data) = data {
@@ -601,6 +657,25 @@ fn core_error_response(id: Value, error: CoreError) -> Value {
         code,
         message,
         Some(json!({"detail": error.to_string(), "kind": error.kind})),
+    )
+}
+
+fn status_command_error_response(id: Value, error: StatusCommandError) -> Value {
+    let code = match error.kind {
+        StatusCommandErrorKind::Unsupported => -32020,
+        StatusCommandErrorKind::InvalidRequest | StatusCommandErrorKind::UnsupportedGroup => -32602,
+        StatusCommandErrorKind::NotFound => -32004,
+        StatusCommandErrorKind::Conflict | StatusCommandErrorKind::StaleMembership => -32009,
+        StatusCommandErrorKind::Timeout => -32050,
+        StatusCommandErrorKind::Disconnected => -32051,
+        StatusCommandErrorKind::VersionDrift => -32052,
+        StatusCommandErrorKind::InconsistentObservation => -32053,
+    };
+    error_response(
+        id,
+        code,
+        error.to_string().as_str(),
+        Some(json!({"kind": error.kind})),
     )
 }
 

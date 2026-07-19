@@ -157,6 +157,60 @@ impl ControllerClient {
         self.open_stream(Endpoint::Connections).await
     }
 
+    pub async fn set_routing_mode(&self, mode: RoutingMode) -> Result<(), ControllerError> {
+        self.mutate(
+            Endpoint::Configs,
+            None,
+            serde_json::to_vec(&serde_json::json!({ "mode": mode }))
+                .expect("routing mode command must serialize"),
+        )
+        .await
+    }
+
+    pub async fn select_group_child(
+        &self,
+        group: &str,
+        child: &str,
+    ) -> Result<(), ControllerError> {
+        self.validate_command_label("group", group)?;
+        self.validate_command_label("child", child)?;
+        self.mutate(
+            Endpoint::Proxies,
+            Some(group.to_owned()),
+            serde_json::to_vec(&serde_json::json!({ "name": child }))
+                .expect("group selection command must serialize"),
+        )
+        .await
+    }
+
+    fn validate_command_label(
+        &self,
+        field: &'static str,
+        value: &str,
+    ) -> Result<(), ControllerError> {
+        if value.is_empty() || value.len() > self.limits.max_string_bytes {
+            return Err(ControllerError::Validation {
+                endpoint: Endpoint::Proxies,
+                field,
+                detail: "command label must be non-empty and within the configured bound".into(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn mutate(
+        &self,
+        endpoint: Endpoint,
+        path_segment: Option<String>,
+        body: Vec<u8>,
+    ) -> Result<(), ControllerError> {
+        tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => Err(ControllerError::Shutdown { endpoint }),
+            result = self.transport.put(endpoint, path_segment, Bytes::from(body), self.limits.max_body_bytes) => result,
+        }
+    }
+
     async fn read<T>(&self, endpoint: Endpoint) -> Result<T, ControllerError>
     where
         T: DeserializeOwned + Validate,
@@ -315,6 +369,16 @@ mod tests {
         {
             let item = self.streamed.clone();
             async move { Ok(Box::pin(stream::iter([Ok(item)])) as RawMessageStream) }.boxed()
+        }
+
+        fn put(
+            &self,
+            _endpoint: Endpoint,
+            _path_segment: Option<String>,
+            _body: Bytes,
+            _max_body_bytes: usize,
+        ) -> futures_util::future::BoxFuture<'_, Result<(), ControllerError>> {
+            std::future::ready(Ok(())).boxed()
         }
     }
 

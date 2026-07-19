@@ -4,14 +4,14 @@ use crate::{CaptureRuntimeStatus, CorePhase, CoreStatus, SystemProxyRuntimeStatu
 
 pub const STATUS_TRAFFIC_SERIES_LIMIT: usize = 512;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StatusAdapterKind {
     Native,
     Rpc,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RoutingMode {
     Rule,
@@ -141,15 +141,24 @@ pub struct PolicyGroup {
     pub child_ids: Vec<String>,
     pub id: String,
     pub label: String,
-    pub selected_child_id: String,
+    pub selected_child_id: Option<String>,
     #[serde(rename = "type")]
     pub kind: PolicyGroupKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported_type: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum PolicyGroupKind {
     Selector,
+    UrlTest,
+    Fallback,
+    LoadBalance,
+    Relay,
+    Direct,
+    Reject,
+    Unsupported,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

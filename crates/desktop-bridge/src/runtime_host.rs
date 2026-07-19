@@ -1,6 +1,6 @@
 use mish_runtime::{
     CaptureAuditReason, CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError,
-    CoreStatus, MishRuntime, StatusAdapterKind,
+    CoreStatus, MishRuntime, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -59,6 +59,29 @@ impl DesktopRuntimeHost {
     ) -> Result<Value, CaptureTransitionError> {
         self.current()
             .recover_system_proxy(action, adapter_kind)
+            .await
+    }
+
+    pub fn supports_status_command(&self, command: StatusCommand) -> bool {
+        self.current().supports_status_command(command)
+    }
+
+    pub async fn set_routing_mode(
+        &self,
+        mode: RoutingMode,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.current().set_routing_mode(mode, adapter_kind).await
+    }
+
+    pub async fn select_group_child(
+        &self,
+        group_id: String,
+        child_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.current()
+            .select_group_child(group_id, child_id, adapter_kind)
             .await
     }
 

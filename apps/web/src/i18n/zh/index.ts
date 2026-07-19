@@ -432,6 +432,12 @@ const zh = {
   },
   errors: {
     command: "操作失败。",
+    commandDisconnected: "本地服务在命令确认前断开连接。",
+    commandInconsistent: "Controller 返回了不一致的观测；状态已刷新。",
+    commandStaleMembership: "该子项已不再是此选择器的直接成员；路由已刷新。",
+    commandTimeout: "Controller 未在期限内确认变更；状态已刷新。",
+    commandUnsupported: "当前本地服务不支持此命令。",
+    commandVersionDrift: "Mihomo Controller 版本已变化，当前版本不受支持。",
     loadStatus: "无法加载状态数据。",
   },
 } satisfies Translation;
