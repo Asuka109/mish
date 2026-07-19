@@ -132,6 +132,13 @@ interface StatusShimmerProps {
   active: boolean;
 }
 
+export function shouldAnimateStatusShimmer(
+  reducedMotion: boolean,
+  targetDocument: Document = document,
+) {
+  return !reducedMotion && !targetDocument.hidden && targetDocument.hasFocus();
+}
+
 export function StatusShimmer({ active }: StatusShimmerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -200,30 +207,36 @@ export function StatusShimmer({ active }: StatusShimmerProps) {
         lastDrawTime = timestamp;
         draw(timestamp);
       }
-      if (!reducedMotion && !document.hidden) animationFrame = window.requestAnimationFrame(tick);
+      if (shouldAnimateStatusShimmer(reducedMotion)) {
+        animationFrame = window.requestAnimationFrame(tick);
+      }
     }
 
     function start() {
       if (animationFrame === null) animationFrame = window.requestAnimationFrame(tick);
     }
 
-    function handleVisibilityChange() {
-      if (document.hidden && animationFrame !== null) {
+    function handleActivityChange() {
+      if (!shouldAnimateStatusShimmer(reducedMotion) && animationFrame !== null) {
         window.cancelAnimationFrame(animationFrame);
         animationFrame = null;
         return;
       }
-      if (!document.hidden && !reducedMotion) start();
+      if (shouldAnimateStatusShimmer(reducedMotion)) start();
     }
 
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvasElement);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleActivityChange);
+    window.addEventListener("blur", handleActivityChange);
+    window.addEventListener("focus", handleActivityChange);
     start();
 
     return () => {
       if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleActivityChange);
+      window.removeEventListener("blur", handleActivityChange);
+      window.removeEventListener("focus", handleActivityChange);
       resizeObserver.disconnect();
       context.deleteBuffer(positionBuffer);
       context.deleteProgram(program);

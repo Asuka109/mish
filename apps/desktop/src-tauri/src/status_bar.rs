@@ -262,7 +262,7 @@ async fn set_routing_mode(state: &StatusBarState, mode: RoutingMode) {
         .await;
 }
 
-fn show_main_window(app: &tauri::AppHandle, destination: Option<&str>) {
+pub(crate) fn show_main_window(app: &tauri::AppHandle, destination: Option<&str>) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };

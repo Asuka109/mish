@@ -63,6 +63,25 @@ cannot promote a background login launch into a visible window.
 Opening Mish or Routes from the status bar shows, unminimizes, and focuses the
 existing window.
 
+The native shell persists only the main window's size, valid on-screen position,
+and maximized state. It does not persist visibility or fullscreen state. This
+keeps multi-monitor restoration bounded to a currently available display and
+prevents a prior hide-to-status-bar action from making the next manual launch
+invisible. A Dock reopen with no visible windows reveals, unminimizes, and
+focuses that same main window.
+
+Tauri's standard macOS application menu retains native About, Services, edit,
+window, fullscreen, hide, close, and quit behavior. Mish inserts Settings with
+Command-, and Find with Command-F. Settings routes to the fixed Settings
+destination; Find focuses only a page control explicitly marked as the native
+search target. Web fallback handling accepts Command shortcuts on macOS and
+does not reinterpret Control-F or Control-, as their Command equivalents.
+
+After a route change, the WebView moves programmatic focus to the page heading
+without scrolling and updates the document title. This gives VoiceOver a stable
+announcement target while keeping pointer and keyboard navigation on the same
+React route tree.
+
 Unsupported platforms and the browser fixture advertise both status-bar and
 window-lifecycle capabilities as unavailable and cannot report native-operation
 success.

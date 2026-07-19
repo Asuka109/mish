@@ -57,6 +57,59 @@ for Mish only after checking the digest and run identity. Do not disable
 Gatekeeper globally. This exception is appropriate only for this verified Mish
 test app; remove the extracted app when testing is complete.
 
+## Clean-account install and first launch
+
+Use a fresh standard macOS account to validate the prototype boundary. After
+verifying the archive as described above, install the app for that account:
+
+```sh
+mkdir -p "$HOME/Applications"
+ditto Mish.app "$HOME/Applications/Mish.app"
+open "$HOME/Applications/Mish.app"
+```
+
+Approve only the app-scoped Gatekeeper prompt described above. On first launch,
+Mish starts with no active profile, System Proxy off, TUN unavailable, and
+launch at login off. It does not install a privileged helper, system extension,
+certificate, updater, crash reporter, or system-wide daemon. Import and activate
+a known test profile before enabling System Proxy. Closing the default main
+window hides it to the status bar; clicking the Dock icon or choosing **Open
+Mish** from the status menu reveals the same window. Use **Mish > Quit Mish** or
+the status menu's **Quit Mish** command to end the process and run ordered proxy
+restoration.
+
+For a clean-account acceptance pass, confirm that the window restores its last
+on-screen size and position after a quit/relaunch, Command-W follows the selected
+close behavior, Command-M minimizes, Command-, opens Settings, Command-F focuses
+search where the page provides it, and a Dock reopen reveals a hidden window.
+Run VoiceOver through the sidebar, toolbar, current page heading, and primary
+controls. Leave the app hidden and idle for at least ten minutes and confirm that
+its decorative animation is stopped and Activity Monitor does not show sustained
+CPU use.
+
+## Remove the test app and local state
+
+Before removal, turn System Proxy off and confirm the UI reports it off. Disable
+**Launch at login** in Settings, then quit Mish normally. If Mish reports System
+Proxy drift or the app was previously terminated abnormally, reopen it and use
+the offered repair action before deleting its data. `scutil --proxy` can be used
+as a read-only final check.
+
+Move the installed app and its account-local state to the Trash:
+
+```sh
+trash "$HOME/Applications/Mish.app"
+trash "$HOME/Library/Application Support/com.asuka109.mish"
+test ! -e "$HOME/Library/LaunchAgents/Mish.plist" || \
+  trash "$HOME/Library/LaunchAgents/Mish.plist"
+```
+
+If the app was placed in `/Applications`, move `/Applications/Mish.app` to the
+Trash in Finder instead. User-selected exports and backups live at their chosen
+destinations and are intentionally not deleted. The current ad-hoc prototype has
+no TUN helper, launch daemon, system extension, updater, or crash-reporting state
+to remove.
+
 ## Developer ID and notarization secrets
 
 The production path is enabled only when all of these GitHub Actions secrets

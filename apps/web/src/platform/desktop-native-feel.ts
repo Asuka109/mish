@@ -36,16 +36,15 @@ export function installDesktopNativeFeel(
       event.isComposing ||
       event.altKey ||
       event.shiftKey ||
-      (!event.metaKey && !event.ctrlKey) ||
+      !event.metaKey ||
+      event.ctrlKey ||
       event.key.toLowerCase() !== "f"
     ) {
       return;
     }
 
     event.preventDefault();
-    const search = targetDocument.querySelector<HTMLInputElement>(NATIVE_SEARCH_TARGET);
-    search?.focus({ preventScroll: true });
-    search?.select();
+    focusDesktopSearch(targetDocument);
   };
 
   targetDocument.addEventListener("contextmenu", preventBrowserContextMenu);
@@ -57,4 +56,12 @@ export function installDesktopNativeFeel(
     targetDocument.removeEventListener("dragstart", preventWebContentDrag);
     targetDocument.removeEventListener("keydown", routeFindShortcut);
   };
+}
+
+export function focusDesktopSearch(targetDocument: Document = document) {
+  const search = targetDocument.querySelector<HTMLInputElement>(NATIVE_SEARCH_TARGET);
+  if (!search) return false;
+  search.focus({ preventScroll: true });
+  search.select();
+  return true;
 }
