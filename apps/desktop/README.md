@@ -53,6 +53,14 @@ synchronized with the light, dark, or system application preference.
 Reproducible visual checks are documented in
 [`../../docs/quality/native-sidebar-validation.md`](../../docs/quality/native-sidebar-validation.md).
 
+The main window restores its last valid size, on-screen position, and maximized
+state. Visibility is deliberately excluded from persisted window state: a
+manual launch or Dock reopen always reveals the existing window, while a quiet
+login launch still follows its explicit startup preference. The default native
+application menu supplies standard edit, close, minimize, fullscreen, hide,
+and quit commands; Mish adds Settings (Command-,) and Find (Command-F) entries
+that route into the existing WebView.
+
 Tauri's bundled-asset resolver returns `index.html` for an unknown asset path,
 so direct loads of `/status`, `/routes`, and the other React Router paths work in
 the packaged WebView. Vite provides the equivalent fallback during development.
@@ -97,3 +105,8 @@ change this to quit, which runs ordered shutdown and conservative restoration of
 confirmed Mish-owned System Proxy state. This close behavior is independent from
 login launch behavior. See
 [`../../docs/architecture/native-status-bar-lifecycle.md`](../../docs/architecture/native-status-bar-lifecycle.md).
+
+The Apple Silicon test bundle embeds the repository `LICENSE` and
+`THIRD_PARTY_NOTICES.md` beside its other resources. The packaging verifier
+requires exact copies and checks the pinned Mihomo attribution before accepting
+the bundle.

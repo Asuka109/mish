@@ -2,6 +2,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+import { focusDesktopSearch } from "./desktop-native-feel";
 
 const nativeDestinations = new Set([
   "/events",
@@ -14,12 +15,17 @@ const nativeDestinations = new Set([
 
 interface NativeNavigationDependencies {
   isDesktop(): boolean;
-  listen(handler: (destination: string) => void): Promise<UnlistenFn>;
+  listenForFocusSearch(handler: () => void): Promise<UnlistenFn>;
+  listenForNavigation(handler: (destination: string) => void): Promise<UnlistenFn>;
 }
 
 const defaultDependencies: NativeNavigationDependencies = {
   isDesktop: isTauri,
-  listen: (handler) =>
+  listenForFocusSearch: (handler) =>
+    listen("mish:focus-search", () => {
+      handler();
+    }),
+  listenForNavigation: (handler) =>
     listen<string>("mish:navigate", (event) => {
       handler(event.payload);
     }),
@@ -35,7 +41,8 @@ export function isNativeSettingsShortcut(event: KeyboardEvent) {
     !event.isComposing &&
     !event.altKey &&
     !event.shiftKey &&
-    (event.metaKey || event.ctrlKey) &&
+    event.metaKey &&
+    !event.ctrlKey &&
     event.key === ","
   );
 }
@@ -52,7 +59,7 @@ export function NativeNavigationBridge({
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
     void dependencies
-      .listen((destination) => {
+      .listenForNavigation((destination) => {
         if (!disposed && isNativeDestination(destination)) navigate(destination);
       })
       .then((cleanup) => {
@@ -68,6 +75,28 @@ export function NativeNavigationBridge({
       unlisten?.();
     };
   }, [dependencies, navigate]);
+
+  useEffect(() => {
+    if (!dependencies.isDesktop()) return;
+    let disposed = false;
+    let unlisten: UnlistenFn | undefined;
+    void dependencies
+      .listenForFocusSearch(() => {
+        if (!disposed) focusDesktopSearch();
+      })
+      .then((cleanup) => {
+        if (disposed) {
+          cleanup();
+        } else {
+          unlisten = cleanup;
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [dependencies]);
 
   useEffect(() => {
     if (!dependencies.isDesktop()) return;

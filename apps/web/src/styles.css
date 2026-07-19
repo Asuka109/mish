@@ -4753,6 +4753,7 @@ h2 {
 
 :root[data-runtime="desktop"] button,
 :root[data-runtime="desktop"] [role="button"],
-:root[data-runtime="desktop"] a {
+:root[data-runtime="desktop"] a,
+:root[data-runtime="desktop"] summary {
   cursor: default;
 }

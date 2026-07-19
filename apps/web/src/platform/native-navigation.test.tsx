@@ -22,7 +22,7 @@ describe("native settings shortcut", () => {
     ).toBe(true);
     expect(
       isNativeSettingsShortcut(new KeyboardEvent("keydown", { key: ",", ctrlKey: true })),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       isNativeSettingsShortcut(
         new KeyboardEvent("keydown", { key: ",", metaKey: true, shiftKey: true }),
