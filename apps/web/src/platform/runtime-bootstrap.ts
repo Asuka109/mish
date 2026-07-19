@@ -2,6 +2,9 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   mishRpcMethods,
   SettingsSnapshotSchema,
+  type LocalBackupClient,
+  type LocalBackupScopeDto,
+  type LocalRestoreConflictResolution,
   type EventsClient,
   type DiagnosticsClient,
   type ProfileClient,
@@ -20,17 +23,26 @@ import { FixtureSettingsClient } from "../data/fixture-settings-client";
 import { RpcSettingsClient } from "../data/rpc-settings-client";
 import { RpcTrafficClient } from "../data/rpc-traffic-client";
 import { DesktopSupportBundleClient, UnavailableSupportBundleClient } from "./support-bundle";
+import { DesktopLocalBackupClient, UnavailableLocalBackupClient } from "./local-backup";
 
 interface RuntimeBootstrapPayload {
   authToken: string;
+  localBackup: boolean;
   rpcUrl: string;
   settingsSnapshot: SettingsSnapshotDto;
   supportBundleExport: boolean;
 }
 
 interface BootstrapDependencies {
+  invokeCommitLocalRestore(
+    previewId: string,
+    resolution: LocalRestoreConflictResolution,
+  ): Promise<unknown>;
   invokeBootstrap(): Promise<unknown>;
+  invokeLocalBackupPreview(scope: LocalBackupScopeDto): Promise<unknown>;
+  invokeLocalBackupSave(previewId: string): Promise<unknown>;
   invokeLocalProfilePreflight(label?: string): Promise<unknown>;
+  invokeLocalRestorePreview(): Promise<unknown>;
   invokeSupportBundlePreview(): Promise<unknown>;
   invokeSupportBundleSave(previewId: string): Promise<unknown>;
   isDesktop(): boolean;
@@ -46,13 +58,19 @@ export interface StartupStatusClient {
   profileClient?: ProfileClient;
   settingsClient: SettingsClient;
   settingsSnapshot: SettingsSnapshotDto;
+  localBackupClient: LocalBackupClient;
   runtime: "browser" | "desktop";
   supportBundleClient: SupportBundleClient;
 }
 
 const defaultDependencies: BootstrapDependencies = {
+  invokeCommitLocalRestore: (previewId, resolution) =>
+    invoke("local_backup_restore_commit", { previewId, resolution }),
   invokeBootstrap: () => invoke("runtime_bootstrap"),
+  invokeLocalBackupPreview: (scope) => invoke("local_backup_export_preview", { scope }),
+  invokeLocalBackupSave: (previewId) => invoke("local_backup_export_save", { previewId }),
   invokeLocalProfilePreflight: (label) => invoke("profile_preflight_local", { label }),
+  invokeLocalRestorePreview: () => invoke("local_backup_restore_preview"),
   invokeSupportBundlePreview: () => invoke("diagnostics_support_bundle_preview"),
   invokeSupportBundleSave: (previewId) => invoke("diagnostics_support_bundle_save", { previewId }),
   isDesktop: isTauri,
@@ -67,6 +85,7 @@ export async function resolveStartupStatusClient(
     return {
       dispose: () => undefined,
       runtime: "browser",
+      localBackupClient: new UnavailableLocalBackupClient(),
       settingsClient,
       settingsSnapshot: await settingsClient.getSnapshot(),
       supportBundleClient: new UnavailableSupportBundleClient(),
@@ -95,6 +114,14 @@ export async function resolveStartupStatusClient(
     eventsClient,
     diagnosticsClient,
     profileClient,
+    localBackupClient: bootstrap.localBackup
+      ? new DesktopLocalBackupClient({
+          invokeCommitRestore: dependencies.invokeCommitLocalRestore,
+          invokePreviewExport: dependencies.invokeLocalBackupPreview,
+          invokePreviewRestore: dependencies.invokeLocalRestorePreview,
+          invokeSaveExport: dependencies.invokeLocalBackupSave,
+        })
+      : new UnavailableLocalBackupClient(),
     settingsClient,
     settingsSnapshot,
     supportBundleClient: bootstrap.supportBundleExport
@@ -117,7 +144,7 @@ export async function resolveStartupStatusClient(
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   if (!value || typeof value !== "object") throw new Error("Invalid desktop bootstrap");
-  const { authToken, rpcUrl, settingsSnapshot, supportBundleExport } = value as Record<
+  const { authToken, localBackup, rpcUrl, settingsSnapshot, supportBundleExport } = value as Record<
     string,
     unknown
   >;
@@ -126,6 +153,9 @@ export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   }
   if (typeof supportBundleExport !== "boolean") {
     throw new Error("Invalid support bundle export capability");
+  }
+  if (typeof localBackup !== "boolean") {
+    throw new Error("Invalid local backup capability");
   }
   if (typeof rpcUrl !== "string") throw new Error("Invalid desktop RPC endpoint");
 
@@ -144,6 +174,7 @@ export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   }
   return {
     authToken,
+    localBackup,
     rpcUrl: endpoint.href,
     settingsSnapshot: SettingsSnapshotSchema.parse(settingsSnapshot),
     supportBundleExport,

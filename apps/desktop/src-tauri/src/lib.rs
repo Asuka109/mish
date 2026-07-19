@@ -1,6 +1,7 @@
 use std::{
     fmt::Write as _,
     fs, io,
+    io::Read as _,
     io::Write as _,
     net::{Ipv4Addr, SocketAddr, TcpListener},
     path::{Path, PathBuf},
@@ -10,11 +11,14 @@ use std::{
 
 use mish_bridge::{
     ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
-    DesktopRuntimeHost, LoopbackServerConfig, LoopbackServerHandle, ManagedMihomoResolver,
-    ManagedRuntimePolicy, MihomoActivationManager, PreparedSupportBundle,
-    ProfileActivationCoordinator, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
-    SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
-    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
+    DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES, LocalBackupError, LocalBackupPreview,
+    LocalBackupScope, LocalBackupService, LocalRestoreConflictResolution, LocalRestorePreview,
+    LocalRestoreResult, LoopbackServerConfig, LoopbackServerHandle, ManagedMihomoResolver,
+    ManagedRuntimePolicy, MihomoActivationManager, PreparedLocalBackup, PreparedLocalRestore,
+    PreparedSupportBundle, ProfileActivationCoordinator, ReqwestHttpsSourceReader,
+    SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform, SupportBundlePreview,
+    SupportBundleService, compose_desktop_runtime_with_capture,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsSystemProxyPlatform,
@@ -49,6 +53,7 @@ const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
 #[serde(rename_all = "camelCase")]
 struct RuntimeBootstrap {
     auth_token: String,
+    local_backup: bool,
     rpc_url: String,
     settings_snapshot: SettingsSnapshot,
     support_bundle_export: bool,
@@ -71,6 +76,21 @@ struct SettingsState(Arc<SettingsService>);
 struct SupportBundleState {
     pending: Arc<Mutex<Option<PreparedSupportBundle>>>,
     service: SupportBundleService,
+}
+
+#[derive(Clone)]
+struct LocalBackupState {
+    activation: Arc<ProfileActivationCoordinator>,
+    pending_export: Arc<Mutex<Option<PreparedLocalBackup>>>,
+    pending_restore: Arc<Mutex<Option<PreparedLocalRestore>>>,
+    service: LocalBackupService,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalBackupCommandError {
+    code: &'static str,
+    message: &'static str,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -262,6 +282,157 @@ async fn diagnostics_support_bundle_save(
     Ok(SupportBundleSaveResult { status })
 }
 
+#[tauri::command]
+async fn local_backup_export_preview(
+    scope: LocalBackupScope,
+    state: tauri::State<'_, LocalBackupState>,
+) -> Result<LocalBackupPreview, LocalBackupCommandError> {
+    let preview_id = Uuid::new_v4().to_string();
+    let service = state.service.clone();
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        service.prepare_export(preview_id, scope, now_unix_milliseconds())
+    })
+    .await
+    .map_err(|_| local_backup_state_error())?
+    .map_err(local_backup_error)?;
+    let preview = prepared.preview.clone();
+    *state
+        .pending_export
+        .lock()
+        .map_err(|_| local_backup_state_error())? = Some(prepared);
+    Ok(preview)
+}
+
+#[tauri::command]
+async fn local_backup_export_save(
+    app: tauri::AppHandle,
+    preview_id: String,
+    state: tauri::State<'_, LocalBackupState>,
+) -> Result<SupportBundleSaveResult, LocalBackupCommandError> {
+    let prepared = {
+        let mut pending = state
+            .pending_export
+            .lock()
+            .map_err(|_| local_backup_state_error())?;
+        if !pending
+            .as_ref()
+            .is_some_and(|prepared| prepared.preview.preview_id == preview_id)
+        {
+            return Err(LocalBackupCommandError {
+                code: "preview-expired",
+                message: "Generate a new local backup preview before saving",
+            });
+        }
+        pending.take().ok_or_else(local_backup_state_error)?
+    };
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Mish local backup", &["json"])
+            .set_file_name("mish-local-backup.json")
+            .set_title("Save Mish local backup")
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|_| LocalBackupCommandError {
+        code: "dialog-unavailable",
+        message: "The native save dialog is unavailable",
+    })?;
+    let Some(selected) = selected else {
+        return Ok(SupportBundleSaveResult {
+            status: SupportBundleSaveStatus::Cancelled,
+        });
+    };
+    let destination = selected.into_path().map_err(|_| LocalBackupCommandError {
+        code: "unsupported-destination",
+        message: "The selected destination cannot be written by this desktop build",
+    })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        atomic_write_bounded(
+            &destination,
+            &prepared.bytes,
+            LOCAL_BACKUP_MAX_BYTES,
+            "mish-backup",
+        )
+    })
+    .await
+    .map_err(|_| local_backup_write_error())?
+    .map_err(|_| local_backup_write_error())?;
+    Ok(SupportBundleSaveResult {
+        status: SupportBundleSaveStatus::Written,
+    })
+}
+
+#[tauri::command]
+async fn local_backup_restore_preview(
+    state: tauri::State<'_, LocalBackupState>,
+) -> Result<Option<LocalRestorePreview>, LocalBackupCommandError> {
+    let selected = tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .add_filter("Mish local backup", &["json"])
+            .set_title("Choose a Mish local backup")
+            .pick_file()
+    })
+    .await
+    .map_err(|_| LocalBackupCommandError {
+        code: "dialog-unavailable",
+        message: "The native file picker is unavailable",
+    })?;
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+    let bytes = tauri::async_runtime::spawn_blocking(move || read_local_backup(&path))
+        .await
+        .map_err(|_| local_backup_read_error())?
+        .map_err(|_| local_backup_read_error())?;
+    let service = state.service.clone();
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        service.prepare_restore(Uuid::new_v4().to_string(), &bytes)
+    })
+    .await
+    .map_err(|_| local_backup_state_error())?
+    .map_err(local_backup_error)?;
+    let preview = prepared.preview.clone();
+    *state
+        .pending_restore
+        .lock()
+        .map_err(|_| local_backup_state_error())? = Some(prepared);
+    Ok(Some(preview))
+}
+
+#[tauri::command]
+async fn local_backup_restore_commit(
+    preview_id: String,
+    resolution: LocalRestoreConflictResolution,
+    state: tauri::State<'_, LocalBackupState>,
+) -> Result<LocalRestoreResult, LocalBackupCommandError> {
+    let prepared = {
+        let mut pending = state
+            .pending_restore
+            .lock()
+            .map_err(|_| local_backup_state_error())?;
+        if !pending
+            .as_ref()
+            .is_some_and(|prepared| prepared.preview.preview_id == preview_id)
+        {
+            return Err(LocalBackupCommandError {
+                code: "preview-expired",
+                message: "Choose and validate the local backup again before restoring",
+            });
+        }
+        pending.take().ok_or_else(local_backup_state_error)?
+    };
+    let service = state.service.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        service.commit_restore(prepared, resolution, now_unix_milliseconds())
+    })
+    .await
+    .map_err(|_| local_backup_state_error())?
+    .map_err(local_backup_error)?;
+    state.activation.publish().await;
+    Ok(result)
+}
+
 pub fn run() -> Result<i32, String> {
     let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
     let app = tauri::Builder::default()
@@ -278,7 +449,11 @@ pub fn run() -> Result<i32, String> {
             reveal_main_window,
             profile_preflight_local,
             diagnostics_support_bundle_preview,
-            diagnostics_support_bundle_save
+            diagnostics_support_bundle_save,
+            local_backup_export_preview,
+            local_backup_export_save,
+            local_backup_restore_preview,
+            local_backup_restore_commit
         ])
         .build(tauri::generate_context!())
         .map_err(|error| error.to_string())?;
@@ -413,13 +588,13 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         activation.start_scheduler().await;
         let status_bar_state =
             status_bar::StatusBarState::new(runtime_host.clone(), activation.clone());
-        start_loopback_server_with_runtime_host_and_lifecycle(
+        let bridge = start_loopback_server_with_runtime_host_and_lifecycle(
             LoopbackServerConfig {
                 allowed_origins: allowed_origins(tauri::is_dev()),
                 auth_token: auth_token.clone(),
                 bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
                 max_message_bytes: 1_048_576,
-                profile_activation: Some(activation),
+                profile_activation: Some(activation.clone()),
                 profile_service: Some(profile_service.clone()),
                 settings_service: Some(settings_service.clone()),
             },
@@ -427,12 +602,13 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             lifecycle_source,
         )
         .await
-        .map_err(io::Error::other)
-        .map(|bridge| (bridge, status_bar_state, support_bundle))
+        .map_err(io::Error::other)?;
+        Ok::<_, io::Error>((bridge, status_bar_state, support_bundle, activation))
     })?;
-    let (bridge, status_bar_state, support_bundle) = bridge;
+    let (bridge, status_bar_state, support_bundle, activation) = bridge;
     app.manage(RuntimeBootstrap {
         auth_token,
+        local_backup: true,
         rpc_url: format!("ws://{}/rpc", bridge.address),
         settings_snapshot: settings_service.snapshot(SettingsAdapterKind::Rpc),
         support_bundle_export: true,
@@ -452,6 +628,12 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(SupportBundleState {
         pending: Arc::new(Mutex::new(None)),
         service: support_bundle,
+    });
+    app.manage(LocalBackupState {
+        activation,
+        pending_export: Arc::new(Mutex::new(None)),
+        pending_restore: Arc::new(Mutex::new(None)),
+        service: LocalBackupService::new(profile_root, settings_service, env!("CARGO_PKG_VERSION")),
     });
     *app.state::<BridgeState>()
         .0
@@ -497,11 +679,13 @@ fn window_surface_platform(app: &tauri::App) -> Option<Arc<dyn WindowSurfacePlat
 
 fn desktop_settings_capabilities() -> SettingsCapabilities {
     if cfg!(target_os = "macos") {
-        SettingsCapabilities::macos(true)
+        let mut capabilities = SettingsCapabilities::macos(true);
+        capabilities.backup_restore = SettingsAvailability::Supported;
+        capabilities
     } else {
         SettingsCapabilities {
             background_launch: SettingsAvailability::Unavailable,
-            backup_restore: SettingsAvailability::ComingLater,
+            backup_restore: SettingsAvailability::Supported,
             expert_configuration: SettingsAvailability::ComingLater,
             launch_at_login: SettingsAvailability::Unavailable,
             native_sidebar_material: SettingsAvailability::Unavailable,
@@ -651,6 +835,56 @@ fn support_bundle_write_error() -> SupportBundleCommandError {
     }
 }
 
+fn local_backup_error(error: LocalBackupError) -> LocalBackupCommandError {
+    match error {
+        LocalBackupError::InvalidScope => LocalBackupCommandError {
+            code: "invalid-scope",
+            message: "Select at least one valid local backup category",
+        },
+        LocalBackupError::InvalidManifest => LocalBackupCommandError {
+            code: "invalid-manifest",
+            message: "The selected file is not a valid Mish local backup",
+        },
+        LocalBackupError::UnsupportedVersion => LocalBackupCommandError {
+            code: "unsupported-version",
+            message: "The selected Mish local backup version is unsupported",
+        },
+        LocalBackupError::SizeLimitExceeded => LocalBackupCommandError {
+            code: "size-limit",
+            message: "The local backup exceeded its fixed size limit",
+        },
+        LocalBackupError::Storage => LocalBackupCommandError {
+            code: "storage-failed",
+            message: "The local backup storage operation failed",
+        },
+        LocalBackupError::StateChanged => LocalBackupCommandError {
+            code: "preview-expired",
+            message: "Local state changed after preview; validate the backup again",
+        },
+    }
+}
+
+fn local_backup_state_error() -> LocalBackupCommandError {
+    LocalBackupCommandError {
+        code: "state-unavailable",
+        message: "The local backup preview is unavailable",
+    }
+}
+
+fn local_backup_read_error() -> LocalBackupCommandError {
+    LocalBackupCommandError {
+        code: "read-failed",
+        message: "The selected local backup could not be read safely",
+    }
+}
+
+fn local_backup_write_error() -> LocalBackupCommandError {
+    LocalBackupCommandError {
+        code: "write-failed",
+        message: "The local backup could not be saved",
+    }
+}
+
 fn now_unix_milliseconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -732,6 +966,76 @@ fn atomic_write_support_bundle_with_failure(
     Ok(())
 }
 
+fn read_local_backup(path: &Path) -> io::Result<Vec<u8>> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > LOCAL_BACKUP_MAX_BYTES as u64
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local backup is not a bounded regular file",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    fs::File::open(path)?
+        .take((LOCAL_BACKUP_MAX_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > LOCAL_BACKUP_MAX_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local backup size limit exceeded",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn atomic_write_bounded(
+    destination: &Path,
+    contents: &[u8],
+    max_bytes: usize,
+    temporary_prefix: &str,
+) -> io::Result<()> {
+    if contents.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "local file size limit exceeded",
+        ));
+    }
+    let parent = destination
+        .parent()
+        .filter(|parent| parent.is_dir())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "destination is unavailable"))?;
+    if fs::symlink_metadata(destination).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "symbolic link destinations are unsupported",
+        ));
+    }
+    let temporary = parent.join(format!(".{temporary_prefix}-{}.tmp", Uuid::new_v4()));
+    let mut guard = TemporarySupportBundle::new(temporary.clone());
+    let mut options = fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&temporary, destination)?;
+    guard.commit();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(destination, fs::Permissions::from_mode(0o600))?;
+        fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
 struct TemporarySupportBundle {
     committed: bool,
     path: PathBuf,
@@ -763,10 +1067,11 @@ mod tests {
     use std::fs;
 
     use super::{
-        AtomicWriteFailurePoint, DEV_ORIGIN, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES,
-        SupportBundleSaveStatus, allowed_origins, atomic_write_support_bundle_with_failure,
-        generate_auth_token, managed_mihomo_resolver, save_support_bundle_selection,
-        should_hide_main_window_on_close, should_show_main_window,
+        AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, PRODUCTION_ORIGINS,
+        SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
+        atomic_write_support_bundle_with_failure, generate_auth_token, managed_mihomo_resolver,
+        read_local_backup, save_support_bundle_selection, should_hide_main_window_on_close,
+        should_show_main_window,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -902,6 +1207,49 @@ mod tests {
         );
         assert!(!destination.exists());
         assert_no_support_bundle_temporary_files(&root);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn local_backup_file_boundary_is_private_atomic_and_bounded() {
+        let root = support_bundle_test_directory("local-backup");
+        let destination = root.join("backup.json");
+        atomic_write_bounded(
+            &destination,
+            b"{\"formatVersion\":1}",
+            LOCAL_BACKUP_MAX_BYTES,
+            "mish-backup",
+        )
+        .unwrap();
+
+        assert_eq!(
+            read_local_backup(&destination).unwrap(),
+            b"{\"formatVersion\":1}"
+        );
+        assert!(
+            atomic_write_bounded(
+                &root.join("oversized.json"),
+                &vec![b'x'; LOCAL_BACKUP_MAX_BYTES + 1],
+                LOCAL_BACKUP_MAX_BYTES,
+                "mish-backup",
+            )
+            .is_err()
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        assert!(fs::read_dir(&root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".mish-backup-")
+        }));
         fs::remove_dir_all(root).unwrap();
     }
 

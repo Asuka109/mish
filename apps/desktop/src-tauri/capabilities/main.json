@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Allows Mish bootstrap, first-frame window reveal, user-selected profile import, local support bundle export, and native title-bar gestures in the main local WebView.",
+  "description": "Allows Mish bootstrap, first-frame window reveal, user-selected profile import, local support and backup file workflows, and native title-bar gestures in the main local WebView.",
   "local": true,
   "windows": ["main"],
   "permissions": [
@@ -10,6 +10,10 @@
     "allow-profile-preflight-local",
     "allow-diagnostics-support-bundle-preview",
     "allow-diagnostics-support-bundle-save",
+    "allow-local-backup-export-preview",
+    "allow-local-backup-export-save",
+    "allow-local-backup-restore-preview",
+    "allow-local-backup-restore-commit",
     "core:event:allow-listen",
     "core:window:allow-start-dragging",
     "core:window:allow-set-theme",

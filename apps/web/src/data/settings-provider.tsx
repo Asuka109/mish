@@ -1,12 +1,14 @@
 import type {
   AppearancePreference,
   LanguagePreference,
+  LocalBackupClient,
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
   WindowCloseBehavior,
   WindowSurfacePreference,
 } from "@mish/contracts";
+import { UnavailableLocalBackupClient } from "../platform/local-backup";
 import {
   createContext,
   useCallback,
@@ -18,9 +20,11 @@ import {
 } from "react";
 
 interface SettingsContextValue {
+  acceptSnapshot(snapshot: SettingsSnapshotDto): void;
   error: string | null;
   pending: boolean;
   installTunHelper(): Promise<boolean>;
+  localBackupClient: LocalBackupClient;
   removeTunHelper(): Promise<boolean>;
   repairTunHelper(): Promise<boolean>;
   setAppearance(appearance: AppearancePreference): Promise<boolean>;
@@ -32,15 +36,18 @@ interface SettingsContextValue {
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
+const unavailableLocalBackupClient = new UnavailableLocalBackupClient();
 
 export function SettingsProvider({
   children,
   client,
   initialSnapshot,
+  localBackupClient = unavailableLocalBackupClient,
 }: {
   children: ReactNode;
   client: SettingsClient;
   initialSnapshot: SettingsSnapshotDto;
+  localBackupClient?: LocalBackupClient;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [pending, setPending] = useState(false);
@@ -74,8 +81,10 @@ export function SettingsProvider({
 
   const value = useMemo<SettingsContextValue>(
     () => ({
+      acceptSnapshot: setSnapshot,
       error,
       installTunHelper: () => run(() => client.installTunHelper()),
+      localBackupClient,
       pending,
       removeTunHelper: () => run(() => client.removeTunHelper()),
       repairTunHelper: () => run(() => client.repairTunHelper()),
@@ -86,7 +95,7 @@ export function SettingsProvider({
       setWindowSurface: (surface) => run(() => client.setWindowSurface(surface)),
       snapshot,
     }),
-    [client, error, pending, run, snapshot],
+    [client, error, localBackupClient, pending, run, snapshot],
   );
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }

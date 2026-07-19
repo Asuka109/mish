@@ -41,6 +41,10 @@ const settingsSnapshot = {
   },
 };
 const supportBundleDependencies = {
+  invokeCommitLocalRestore: vi.fn(),
+  invokeLocalBackupPreview: vi.fn(),
+  invokeLocalBackupSave: vi.fn(),
+  invokeLocalRestorePreview: vi.fn(),
   invokeSupportBundlePreview: vi.fn(),
   invokeSupportBundleSave: vi.fn(),
 };
@@ -63,6 +67,7 @@ describe("desktop runtime bootstrap", () => {
     expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
     expect(startup.settingsSnapshot.capabilities.launchAtLogin).toBe("unavailable");
     expect(startup.supportBundleClient.availability).toBe("unavailable");
+    expect(startup.localBackupClient.availability).toBe("unavailable");
     expect(invokeBootstrap).not.toHaveBeenCalled();
     expect(invokeLocalProfilePreflight).not.toHaveBeenCalled();
   });
@@ -72,6 +77,7 @@ describe("desktop runtime bootstrap", () => {
     const startup = await resolveStartupStatusClient({
       invokeBootstrap: async () => ({
         authToken: token,
+        localBackup: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
         supportBundleExport: true,
@@ -91,6 +97,7 @@ describe("desktop runtime bootstrap", () => {
     const startup = await resolveStartupStatusClient({
       invokeBootstrap: async () => ({
         authToken: token,
+        localBackup: false,
         nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
@@ -110,12 +117,14 @@ describe("desktop runtime bootstrap", () => {
     expect(
       parseRuntimeBootstrap({
         authToken: token,
+        localBackup: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
         supportBundleExport: true,
       }),
     ).toEqual({
       authToken: token,
+      localBackup: true,
       rpcUrl: "ws://127.0.0.1:43123/rpc",
       settingsSnapshot,
       supportBundleExport: true,
@@ -132,6 +141,7 @@ describe("desktop runtime bootstrap", () => {
       expect(() =>
         parseRuntimeBootstrap({
           authToken: token,
+          localBackup: true,
           rpcUrl,
           settingsSnapshot,
           supportBundleExport: true,
@@ -147,6 +157,7 @@ describe("desktop runtime bootstrap", () => {
     expect(() =>
       parseRuntimeBootstrap({
         authToken: token,
+        localBackup: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot: {
           ...settingsSnapshot,
@@ -168,6 +179,7 @@ describe("desktop runtime bootstrap", () => {
     const startup = await resolveStartupStatusClient({
       invokeBootstrap: async () => ({
         authToken: token,
+        localBackup: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
         supportBundleExport: true,

@@ -4,6 +4,7 @@ mod controller_status;
 mod diagnostics;
 mod event_redaction;
 mod lifecycle;
+mod local_backup;
 mod managed_process;
 mod profile_activation;
 mod profiles;
@@ -29,6 +30,13 @@ pub use controller_status::{
 pub use diagnostics::{DiagnosticCoordinator, DiagnosticNetworkProbe};
 pub use lifecycle::{
     DesktopLifecycleCoordinator, LifecycleCoordinationError, LifecycleEventDisposition,
+};
+pub use local_backup::{
+    LOCAL_BACKUP_FORMAT_VERSION, LOCAL_BACKUP_MAX_BYTES, LocalBackupError,
+    LocalBackupIncludedCounts, LocalBackupPreview, LocalBackupScope, LocalBackupSensitiveData,
+    LocalBackupService, LocalRestoreActionCounts, LocalRestoreConflict, LocalRestoreConflictKind,
+    LocalRestoreConflictResolution, LocalRestorePreview, LocalRestoreResult, PreparedLocalBackup,
+    PreparedLocalRestore,
 };
 pub use managed_process::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,

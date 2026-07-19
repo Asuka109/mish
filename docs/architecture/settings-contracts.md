@@ -128,6 +128,9 @@ feature detection. The macOS composition advertises status-bar and window
 lifecycle support; browser and unsupported desktop compositions do not. TUN is
 supported only when the signed helper is observed healthy; the current
 development build reports its unsigned or unpackaged boundary. Network and DNS
-configuration, signed updates, backup and restore, and expert configuration are
-marked `coming-later` and remain non-interactive summaries until their platform
-and recovery contracts exist.
+configuration, signed updates, and expert configuration remain non-interactive
+summaries until their platform and recovery contracts exist. Local backup and
+restore are supported only by the desktop composition through the native file
+boundary documented in
+[`local-backup-restore.md`](local-backup-restore.md); ordinary browsers report
+the capability as unavailable.

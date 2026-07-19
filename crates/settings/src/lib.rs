@@ -505,6 +505,21 @@ impl SettingsService {
         }
     }
 
+    /// Accept preferences already committed by the local restore transaction.
+    ///
+    /// This deliberately bypasses every platform adapter: restoring preferences
+    /// must not register login startup, apply a native window surface, or change
+    /// any other operating-system state.
+    pub fn accept_restored_preferences(&self, preferences: SettingsPreferences) {
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        let mut state = self.state.lock().expect("settings state lock poisoned");
+        state.preferences = preferences;
+        state.storage_recovered = false;
+    }
+
     fn update(
         &self,
         mutate: impl FnOnce(&mut SettingsPreferences),
@@ -960,6 +975,46 @@ mod tests {
         assert_eq!(
             *platform.0.lock().expect("window surface lock"),
             WindowSurfacePreference::Opaque
+        );
+    }
+
+    #[test]
+    fn restored_preferences_do_not_call_platform_adapters() {
+        let (_root, repository) = repository();
+        let startup = Arc::new(FakeStartupPlatform {
+            enabled: AtomicBool::new(false),
+            fail: false,
+            fail_disable: false,
+        });
+        let surface = Arc::new(FakeWindowSurfacePlatform::default());
+        let service = SettingsService::load(
+            repository,
+            Some(startup.clone()),
+            Some(surface.clone()),
+            SettingsCapabilities::macos(true),
+        )
+        .expect("settings service");
+        let restored = SettingsPreferences {
+            appearance: AppearancePreference::Dark,
+            language: LanguagePreference::Zh,
+            startup: StartupPreferences {
+                launch_at_login: true,
+                login_launch_behavior: LoginLaunchBehavior::Background,
+            },
+            window_close_behavior: WindowCloseBehavior::Quit,
+            window_surface: WindowSurfacePreference::Opaque,
+        };
+
+        service.accept_restored_preferences(restored);
+
+        assert_eq!(
+            service.snapshot(SettingsAdapterKind::Rpc).preferences,
+            restored
+        );
+        assert!(!startup.enabled.load(Ordering::SeqCst));
+        assert_eq!(
+            *surface.0.lock().expect("window surface lock"),
+            WindowSurfacePreference::Material
         );
     }
 

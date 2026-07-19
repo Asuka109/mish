@@ -5,7 +5,7 @@
 `apps/desktop` is a thin Tauri 2 shell around the shared `apps/web` product
 entry. It embeds the Vite production output in the application binary, starts
 the existing Rust loopback desktop bridge in-process, and exposes narrowly
-scoped bootstrap, local-profile-picker, and support-bundle commands to the main
+scoped bootstrap, local-profile-picker, support-bundle, and local-backup commands to the main
 WebView. It does
 not own product state, controller reconciliation, Mihomo lifecycle rules,
 System Proxy reconciliation rules, privileged TUN operations, or mobile
@@ -44,7 +44,7 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
 8. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body. The same payload declares the
-   desktop-only support-bundle capability.
+   desktop-only support-bundle and local-backup capabilities.
 9. The native window remains hidden while React validates bootstrap and commits
    its first complete tree. The WebView then invokes the idempotent
    `reveal_main_window` command. Manual launches and login launches configured to
@@ -94,6 +94,13 @@ The shell writes through a private same-directory temporary file and atomic
 rename; cancellation writes nothing. Static, path-free errors are returned to
 the WebView. The loopback RPC surface has no corresponding method.
 
+Local backup and restore use the same narrow principle but a separate versioned
+format and pending-preview state. Export commands accept only a closed scope DTO
+and opaque preview ID. Restore preview opens the native picker itself and accepts
+no Web-supplied path; commit accepts only the retained preview ID and a closed
+conflict policy. The complete privacy, validation, and transaction contract is
+defined in [`local-backup-restore.md`](local-backup-restore.md).
+
 If a later slice moves frontend hosting to the local HTTP bridge, the host must
 serve exact bundled assets, return `index.html` for unknown non-asset `GET` and
 `HEAD` paths, and preserve ordinary `404` responses for missing asset filenames.
@@ -112,7 +119,7 @@ cannot reveal the token.
 
 Tauri's capability grants no general filesystem, shell, dialog, event, or
 window API to Web content. It grants only the generated bootstrap and
-first-frame reveal commands plus the narrow profile-picker and support-bundle
+first-frame reveal commands plus the narrow profile-picker, support-bundle, and local-backup
 commands described above; native dialogs, window reveal policy, and file writes
 remain internal to those commands. The production CSP permits only local
 bundled resources, Tauri IPC, and an IPv4-loopback WebSocket. It blocks frames,
