@@ -17,11 +17,13 @@ pnpm desktop:bundle:macos
 
 The command downloads only the pinned Mihomo v1.19.29 Darwin ARM64 release with
 `gh`, checks the published archive SHA-256 before extraction, signs the Core and
-application ad hoc when no identity is supplied, and builds `Mish.app`. The
-post-build verifier checks the stable application identifier, ARM64 architecture,
-exact uncompressed Core checksum and version, complete byte-for-byte offline Web
-resource mirror, code-signing structure, and absence of unverified TUN helper
-content.
+application ad hoc when no identity is supplied, then enables the packaging-only
+Tauri resource configuration and builds `Mish.app`. Keeping generated resources
+out of the base Tauri configuration lets clean validation builds remain offline.
+The post-build verifier checks the stable application identifier, ARM64
+architecture, exact uncompressed Core checksum and version, complete
+byte-for-byte offline Web resource mirror, code-signing structure, and absence
+of unverified TUN helper content.
 
 GitHub Actions wraps the app with `ditto` as `Mish-<short-sha>.app.zip` and
 uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a

@@ -46,10 +46,6 @@
       "hardenedRuntime": true,
       "minimumSystemVersion": "13.0"
     },
-    "resources": {
-      "../../../.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29": "mihomo-aarch64-apple-darwin",
-      "../../web/dist/": "web-dist/"
-    },
     "targets": ["app"]
   }
 }

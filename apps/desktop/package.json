@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "tauri build --no-bundle --features custom-protocol",
-    "bundle:macos": "tauri build --bundles app --features custom-protocol",
+    "bundle:macos": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json",
     "dev": "tauri dev",
     "test:run": "cargo test --manifest-path src-tauri/Cargo.toml",
     "typecheck": "cargo check --manifest-path src-tauri/Cargo.toml"
