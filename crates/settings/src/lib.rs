@@ -306,7 +306,8 @@ impl SettingsService {
         let observed = platform
             .is_enabled()
             .map_err(|_| SettingsServiceError::Startup)?;
-        if observed != startup.launch_at_login {
+        let registration_changed = observed != startup.launch_at_login;
+        if registration_changed {
             platform
                 .set_enabled(startup.launch_at_login)
                 .map_err(|_| SettingsServiceError::Startup)?;
@@ -314,7 +315,19 @@ impl SettingsService {
                 return Err(SettingsServiceError::Startup);
             }
         }
-        self.update(|preferences| preferences.startup = startup)
+        match self.update(|preferences| preferences.startup = startup) {
+            Ok(snapshot) => Ok(snapshot),
+            Err(error) if registration_changed => {
+                platform
+                    .set_enabled(observed)
+                    .map_err(|_| SettingsServiceError::Startup)?;
+                if platform.is_enabled().ok() != Some(observed) {
+                    return Err(SettingsServiceError::Startup);
+                }
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn update(
@@ -482,9 +495,25 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use tempfile::tempdir;
 
+    struct FailingSaveRepository;
+
+    impl SettingsRepository for FailingSaveRepository {
+        fn load(&self) -> Result<LoadedSettings, SettingsRepositoryError> {
+            Ok(LoadedSettings {
+                migrated: false,
+                preferences: SettingsPreferences::default(),
+            })
+        }
+
+        fn save(&self, _preferences: &SettingsPreferences) -> Result<(), SettingsRepositoryError> {
+            Err(SettingsRepositoryError::Unavailable)
+        }
+    }
+
     struct FakeStartupPlatform {
         enabled: AtomicBool,
         fail: bool,
+        fail_disable: bool,
     }
 
     impl StartupPlatform for FakeStartupPlatform {
@@ -497,7 +526,7 @@ mod tests {
         }
 
         fn set_enabled(&self, enabled: bool) -> Result<(), StartupPlatformError> {
-            if self.fail {
+            if self.fail || (self.fail_disable && !enabled) {
                 Err(StartupPlatformError)
             } else {
                 self.enabled.store(enabled, Ordering::SeqCst);
@@ -560,6 +589,7 @@ mod tests {
         let platform = Arc::new(FakeStartupPlatform {
             enabled: AtomicBool::new(false),
             fail: false,
+            fail_disable: false,
         });
         let service = SettingsService::load(
             repository.clone(),
@@ -607,6 +637,7 @@ mod tests {
         let platform = Arc::new(FakeStartupPlatform {
             enabled: AtomicBool::new(false),
             fail: false,
+            fail_disable: false,
         });
         let service = SettingsService::load(
             repository,
@@ -638,6 +669,7 @@ mod tests {
                 Some(Arc::new(FakeStartupPlatform {
                     enabled: AtomicBool::new(false),
                     fail: true,
+                    fail_disable: false,
                 }) as Arc<dyn StartupPlatform>),
                 SettingsCapabilities::macos(true),
             ),
@@ -668,5 +700,67 @@ mod tests {
                 StartupPreferences::default()
             );
         }
+    }
+
+    #[test]
+    fn startup_registration_rolls_back_when_persistence_fails() {
+        let platform = Arc::new(FakeStartupPlatform {
+            enabled: AtomicBool::new(false),
+            fail: false,
+            fail_disable: false,
+        });
+        let service = SettingsService::load(
+            Arc::new(FailingSaveRepository),
+            Some(platform.clone()),
+            SettingsCapabilities::macos(true),
+        )
+        .expect("settings service");
+
+        assert!(matches!(
+            service.set_startup(StartupPreferences {
+                launch_at_login: true,
+                login_launch_behavior: LoginLaunchBehavior::Background,
+            }),
+            Err(SettingsServiceError::Persistence)
+        ));
+
+        assert!(!platform.enabled.load(Ordering::SeqCst));
+        let snapshot = service.snapshot(SettingsAdapterKind::Rpc);
+        assert_eq!(snapshot.preferences.startup, StartupPreferences::default());
+        assert_eq!(
+            snapshot.startup_registration.phase,
+            StartupRegistrationPhase::Applied
+        );
+    }
+
+    #[test]
+    fn startup_registration_reports_drift_when_persistence_and_rollback_fail() {
+        let platform = Arc::new(FakeStartupPlatform {
+            enabled: AtomicBool::new(false),
+            fail: false,
+            fail_disable: true,
+        });
+        let service = SettingsService::load(
+            Arc::new(FailingSaveRepository),
+            Some(platform),
+            SettingsCapabilities::macos(true),
+        )
+        .expect("settings service");
+
+        assert!(matches!(
+            service.set_startup(StartupPreferences {
+                launch_at_login: true,
+                login_launch_behavior: LoginLaunchBehavior::Background,
+            }),
+            Err(SettingsServiceError::Startup)
+        ));
+
+        let snapshot = service.snapshot(SettingsAdapterKind::Rpc);
+        assert_eq!(snapshot.preferences.startup, StartupPreferences::default());
+        assert_eq!(snapshot.startup_registration.observed, Some(true));
+        assert_eq!(
+            snapshot.startup_registration.phase,
+            StartupRegistrationPhase::Drift
+        );
     }
 }
