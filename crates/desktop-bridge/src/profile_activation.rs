@@ -55,6 +55,7 @@ pub enum ProfileActivationFailure {
     Controller,
     Timeout,
     Cancelled,
+    Capture,
     PriorStop,
     StateCommit,
 }
@@ -384,6 +385,7 @@ impl ProfileActivationCoordinator {
                     return;
                 };
                 self.host.replace(runtime);
+                self.manager.complete_runtime_handoff().await;
                 state.snapshot.active_profile_id = Some(commit.profile_id().to_owned());
                 state.snapshot.failure = None;
                 state.snapshot.phase = ProfileActivationPhase::Success;
@@ -395,6 +397,7 @@ impl ProfileActivationCoordinator {
                 } else if let Some(runtime) = active_runtime {
                     self.host.replace(runtime);
                 }
+                self.manager.complete_runtime_handoff().await;
                 state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
                 state.snapshot.failure = Some(map_failure(error));
                 state.snapshot.phase = ProfileActivationPhase::Failure;
@@ -476,6 +479,7 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::ControllerFailure => ProfileActivationFailure::Controller,
         MihomoActivationError::ReadinessTimeout => ProfileActivationFailure::Timeout,
         MihomoActivationError::Cancelled => ProfileActivationFailure::Cancelled,
+        MihomoActivationError::CaptureFailed => ProfileActivationFailure::Capture,
         MihomoActivationError::PriorStopFailed => ProfileActivationFailure::PriorStop,
         MihomoActivationError::StateCommitFailed
         | MihomoActivationError::RollbackFailedSafeStopped

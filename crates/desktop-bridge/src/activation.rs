@@ -8,7 +8,10 @@ use std::{
 
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_profile::{Fingerprint, ProfileRecord, ValidationStatus};
-use mish_runtime::{CorePhase, MishRuntime};
+use mish_runtime::{
+    CaptureReconciler, CaptureRequest, CaptureRuntimeTransition, CaptureSelection, CorePhase,
+    LoopbackProxyEndpoint, MishRuntime,
+};
 use serde::{Deserialize, Serialize};
 use serde_norway::{Mapping, Value};
 use thiserror::Error;
@@ -218,6 +221,8 @@ pub enum MihomoActivationError {
     ReadinessTimeout,
     #[error("managed Mihomo activation was cancelled")]
     Cancelled,
+    #[error("System Proxy could not be reconciled during managed activation")]
+    CaptureFailed,
     #[error("the prior managed Mihomo core could not be stopped safely")]
     PriorStopFailed,
     #[error("the managed active state could not be committed atomically")]
@@ -248,6 +253,7 @@ pub enum ActivationFailureKind {
     Controller,
     Timeout,
     Cancelled,
+    Capture,
     PriorStop,
     StateCommit,
 }
@@ -360,10 +366,12 @@ struct ActiveMihomo {
 #[derive(Default)]
 struct ActivationState {
     active: Option<ActiveMihomo>,
+    capture_transition: Option<CaptureRuntimeTransition>,
     managed: ManagedActivationState,
 }
 
 pub struct MihomoActivationManager {
+    capture: Option<Arc<CaptureReconciler>>,
     resolver: ManagedMihomoResolver,
     state: Mutex<ActivationState>,
     timing: ActivationTiming,
@@ -371,7 +379,16 @@ pub struct MihomoActivationManager {
 
 impl MihomoActivationManager {
     pub fn new(resolver: ManagedMihomoResolver, timing: ActivationTiming) -> Self {
+        Self::new_with_capture(resolver, timing, None)
+    }
+
+    pub fn new_with_capture(
+        resolver: ManagedMihomoResolver,
+        timing: ActivationTiming,
+        capture: Option<Arc<CaptureReconciler>>,
+    ) -> Self {
         Self {
+            capture,
             resolver,
             state: Mutex::new(ActivationState::default()),
             timing,
@@ -387,8 +404,11 @@ impl MihomoActivationManager {
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
     ) -> Result<ActivationCommit, MihomoActivationError> {
-        self.activate_cancellable(record, policy, CancellationToken::new())
-            .await
+        let result = self
+            .activate_cancellable(record, policy, CancellationToken::new())
+            .await;
+        self.complete_runtime_handoff().await;
+        result
     }
 
     pub async fn activate_cancellable(
@@ -404,7 +424,7 @@ impl MihomoActivationManager {
         let resolved = self.resolver.resolve()?;
         let mut state = self.state.lock().await;
         let candidate = match self
-            .prepare_candidate(&resolved, record, policy, cancellation.clone())
+            .stage_candidate(&resolved, record, policy, cancellation.clone())
             .await
         {
             Ok(candidate) => candidate,
@@ -422,22 +442,45 @@ impl MihomoActivationManager {
             return Err(MihomoActivationError::Cancelled);
         }
 
+        let mut capture_transition = match &self.capture {
+            Some(capture) => match capture.clone().begin_runtime_transition() {
+                Ok(transition) => Some(transition),
+                Err(_) => {
+                    rollback_candidate(candidate).await;
+                    let error = MihomoActivationError::CaptureFailed;
+                    record_failed_attempt(&mut state.managed, record, error);
+                    persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                    return Err(error);
+                }
+            },
+            None => None,
+        };
+
+        let suspended_capture = if state.active.is_some() {
+            match self.suspend_capture(capture_transition.as_ref()).await {
+                Ok(selection) => selection,
+                Err(error) => {
+                    rollback_candidate(candidate).await;
+                    record_failed_attempt(&mut state.managed, record, error);
+                    persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+
         if let Some(previous) = state.active.as_ref()
             && previous.runtime.stop_core().await.is_err()
         {
             rollback_candidate(candidate).await;
-            let restored = match state.active.as_ref() {
-                Some(previous)
-                    if matches!(
-                        previous.runtime.core_status().await.phase,
-                        CorePhase::Running
-                    ) =>
-                {
-                    true
-                }
-                Some(previous) => previous.runtime.start_core().await.is_ok(),
-                None => true,
-            };
+            let restored = self
+                .restore_previous(
+                    state.active.as_ref(),
+                    suspended_capture.as_ref(),
+                    capture_transition.as_ref(),
+                )
+                .await;
             record_failed_attempt(
                 &mut state.managed,
                 record,
@@ -457,6 +500,60 @@ impl MihomoActivationManager {
             return Err(MihomoActivationError::PriorStopFailed);
         }
 
+        if let Err(error) = self.start_candidate(&candidate, cancellation.clone()).await {
+            rollback_candidate(candidate).await;
+            let restored = self
+                .restore_previous(
+                    state.active.as_ref(),
+                    suspended_capture.as_ref(),
+                    capture_transition.as_ref(),
+                )
+                .await;
+            record_failed_attempt(&mut state.managed, record, error);
+            if !restored {
+                if let Some(previous) = state.active.take() {
+                    previous.source.close().await;
+                }
+                state.managed.active_fingerprint = None;
+                state.managed.active_profile_id = None;
+                state.managed.active_runtime_id = None;
+                persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                return Err(MihomoActivationError::RollbackFailedSafeStopped);
+            }
+            persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            return Err(error);
+        }
+
+        if let Some(selection) = suspended_capture.as_ref()
+            && self
+                .resume_capture(selection, capture_transition.as_ref())
+                .await
+                .is_err()
+        {
+            rollback_candidate(candidate).await;
+            let restored = self
+                .restore_previous(
+                    state.active.as_ref(),
+                    Some(selection),
+                    capture_transition.as_ref(),
+                )
+                .await;
+            let error = MihomoActivationError::CaptureFailed;
+            record_failed_attempt(&mut state.managed, record, error);
+            if !restored {
+                if let Some(previous) = state.active.take() {
+                    previous.source.close().await;
+                }
+                state.managed.active_fingerprint = None;
+                state.managed.active_profile_id = None;
+                state.managed.active_runtime_id = None;
+                persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                return Err(MihomoActivationError::RollbackFailedSafeStopped);
+            }
+            persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            return Err(error);
+        }
+
         let committed_state = ManagedActivationState {
             active_fingerprint: Some(candidate.fingerprint.clone()),
             active_profile_id: Some(candidate.profile_id.clone()),
@@ -471,11 +568,17 @@ impl MihomoActivationManager {
             schema_version: 1,
         };
         if persist_managed_state(resolved.runtime_root(), &committed_state).is_err() {
+            if suspended_capture.is_some() {
+                let _ = self.suspend_capture(capture_transition.as_ref()).await;
+            }
             rollback_candidate(candidate).await;
-            let restored = match state.active.as_ref() {
-                Some(previous) => previous.runtime.start_core().await.is_ok(),
-                None => true,
-            };
+            let restored = self
+                .restore_previous(
+                    state.active.as_ref(),
+                    suspended_capture.as_ref(),
+                    capture_transition.as_ref(),
+                )
+                .await;
             record_failed_attempt(
                 &mut state.managed,
                 record,
@@ -493,6 +596,7 @@ impl MihomoActivationManager {
             return Err(MihomoActivationError::StateCommitFailed);
         }
         let previous = state.active.replace(candidate);
+        state.capture_transition = capture_transition.take();
         state.managed = committed_state;
         if let Some(previous) = previous {
             previous.source.close().await;
@@ -516,8 +620,13 @@ impl MihomoActivationManager {
         self.state.lock().await.managed.clone()
     }
 
+    pub async fn complete_runtime_handoff(&self) {
+        self.state.lock().await.capture_transition = None;
+    }
+
     pub async fn shutdown(&self) -> Result<(), MihomoActivationError> {
         let mut state = self.state.lock().await;
+        state.capture_transition = None;
         if let Some(active) = state.active.as_ref() {
             active
                 .runtime
@@ -532,7 +641,7 @@ impl MihomoActivationManager {
         persist_managed_state(&self.resolver.runtime_root, &state.managed)
     }
 
-    async fn prepare_candidate(
+    async fn stage_candidate(
         &self,
         resolved: &ResolvedManagedMihomo,
         record: &ProfileRecord,
@@ -601,26 +710,12 @@ impl MihomoActivationManager {
         observation.reconnect_delay = self.timing.reconnect_delay;
         let source = ControllerStatusSource::new(observation, process.clone())
             .map_err(|_| MihomoActivationError::ControllerFailure)?;
-        let runtime = MishRuntime::with_data_sources(process, source.clone(), source.clone());
-        if runtime.start_core().await.is_err() {
-            source.close().await;
-            let _ = fs::remove_dir_all(&candidate_root);
-            return Err(MihomoActivationError::StartFailed);
-        }
-        source.start().await;
-        let readiness = wait_for_candidate(
-            &runtime,
-            &source,
-            self.timing.readiness_timeout,
-            cancellation,
-        )
-        .await;
-        if let Err(error) = readiness {
-            source.close().await;
-            let _ = runtime.stop_core().await;
-            let _ = fs::remove_dir_all(&candidate_root);
-            return Err(error);
-        }
+        let runtime = MishRuntime::with_data_sources_and_capture(
+            process,
+            source.clone(),
+            source.clone(),
+            self.capture.clone(),
+        );
         Ok(ActiveMihomo {
             fingerprint: record.metadata.artifact.fingerprint.as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
@@ -628,6 +723,100 @@ impl MihomoActivationManager {
             runtime_id: candidate_id,
             source,
         })
+    }
+
+    async fn start_candidate(
+        &self,
+        candidate: &ActiveMihomo,
+        cancellation: CancellationToken,
+    ) -> Result<(), MihomoActivationError> {
+        if candidate.runtime.start_core().await.is_err() {
+            return Err(MihomoActivationError::StartFailed);
+        }
+        candidate.source.start().await;
+        wait_for_candidate(
+            &candidate.runtime,
+            &candidate.source,
+            self.timing.readiness_timeout,
+            cancellation,
+        )
+        .await
+    }
+
+    async fn suspend_capture(
+        &self,
+        transition: Option<&CaptureRuntimeTransition>,
+    ) -> Result<Option<CaptureSelection>, MihomoActivationError> {
+        let Some(capture) = &self.capture else {
+            return Ok(None);
+        };
+        let status = capture.status();
+        if !status.system_proxy.desired {
+            return Ok(None);
+        }
+        let transition = transition.ok_or(MihomoActivationError::CaptureFailed)?;
+        capture
+            .reconcile_runtime_transition(
+                transition,
+                CaptureRequest {
+                    active: false,
+                    selection: status.capture_selection.clone(),
+                },
+                false,
+            )
+            .await
+            .map_err(|_| MihomoActivationError::CaptureFailed)?;
+        Ok(Some(status.capture_selection))
+    }
+
+    async fn resume_capture(
+        &self,
+        selection: &CaptureSelection,
+        transition: Option<&CaptureRuntimeTransition>,
+    ) -> Result<(), MihomoActivationError> {
+        let Some(capture) = &self.capture else {
+            return Ok(());
+        };
+        let transition = transition.ok_or(MihomoActivationError::CaptureFailed)?;
+        capture
+            .reconcile_runtime_transition(
+                transition,
+                CaptureRequest {
+                    active: true,
+                    selection: selection.clone(),
+                },
+                true,
+            )
+            .await
+            .map(|_| ())
+            .map_err(|_| MihomoActivationError::CaptureFailed)
+    }
+
+    async fn restore_previous(
+        &self,
+        previous: Option<&ActiveMihomo>,
+        capture: Option<&CaptureSelection>,
+        transition: Option<&CaptureRuntimeTransition>,
+    ) -> bool {
+        let core_restored = match previous {
+            Some(previous)
+                if matches!(
+                    previous.runtime.core_status().await.phase,
+                    CorePhase::Running
+                ) =>
+            {
+                true
+            }
+            Some(previous) => previous.runtime.start_core().await.is_ok(),
+            None => true,
+        };
+        if !core_restored {
+            return false;
+        }
+        match capture {
+            Some(selection) => self.resume_capture(selection, transition).await.is_ok(),
+            None => true,
+        }
     }
 }
 
@@ -706,6 +895,7 @@ impl MihomoActivationError {
             Self::ControllerFailure => ActivationFailureKind::Controller,
             Self::ReadinessTimeout => ActivationFailureKind::Timeout,
             Self::Cancelled => ActivationFailureKind::Cancelled,
+            Self::CaptureFailed => ActivationFailureKind::Capture,
             Self::PriorStopFailed => ActivationFailureKind::PriorStop,
             Self::StateCommitFailed | Self::RollbackFailedSafeStopped | Self::ShutdownFailed => {
                 ActivationFailureKind::StateCommit
@@ -781,6 +971,7 @@ fn write_private_file(path: &Path, contents: &[u8]) -> Result<(), MihomoActivati
 pub struct ManagedRuntimePolicy {
     controller_address: SocketAddr,
     controller_secret: String,
+    proxy_endpoint: LoopbackProxyEndpoint,
 }
 
 impl ManagedRuntimePolicy {
@@ -798,6 +989,7 @@ impl ManagedRuntimePolicy {
         Ok(Self {
             controller_address,
             controller_secret,
+            proxy_endpoint: LoopbackProxyEndpoint::managed(),
         })
     }
 
@@ -807,6 +999,10 @@ impl ManagedRuntimePolicy {
 
     pub fn controller_secret(&self) -> &str {
         &self.controller_secret
+    }
+
+    pub fn proxy_endpoint(&self) -> &LoopbackProxyEndpoint {
+        &self.proxy_endpoint
     }
 }
 
@@ -865,17 +1061,20 @@ impl RuntimeConfigGenerator {
             root.remove(Value::String(key.to_owned()));
         }
 
-        for key in [
-            "port",
-            "socks-port",
-            "redir-port",
-            "tproxy-port",
-            "mixed-port",
-        ] {
+        for key in ["port", "socks-port", "redir-port", "tproxy-port"] {
             insert(root, key, Value::Number(0.into()));
         }
+        insert(
+            root,
+            "mixed-port",
+            Value::Number(policy.proxy_endpoint.port().into()),
+        );
         insert(root, "allow-lan", Value::Bool(false));
-        insert(root, "bind-address", Value::String("127.0.0.1".into()));
+        insert(
+            root,
+            "bind-address",
+            Value::String(policy.proxy_endpoint.host().to_string()),
+        );
         insert(
             root,
             "external-controller",

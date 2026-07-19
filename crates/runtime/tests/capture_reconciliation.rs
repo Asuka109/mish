@@ -34,7 +34,9 @@ impl CaptureJournalStore for MemoryJournalStore {
 
 struct FakePlatform {
     active_service_id: Mutex<String>,
+    apply_count: Mutex<usize>,
     fail_applies_remaining: Mutex<usize>,
+    listener_ready: Mutex<bool>,
     fail_observations_remaining: Mutex<usize>,
     services: Mutex<HashMap<String, NetworkServiceProxyState>>,
 }
@@ -43,7 +45,9 @@ impl FakePlatform {
     fn new(service: NetworkServiceProxyState) -> Self {
         Self {
             active_service_id: Mutex::new(service.service_id.clone()),
+            apply_count: Mutex::new(0),
             fail_applies_remaining: Mutex::new(0),
+            listener_ready: Mutex::new(true),
             fail_observations_remaining: Mutex::new(0),
             services: Mutex::new(HashMap::from([(service.service_id.clone(), service)])),
         }
@@ -59,6 +63,14 @@ impl FakePlatform {
 
     fn fail_next_observations(&self, count: usize) {
         *self.fail_observations_remaining.lock().unwrap() = count;
+    }
+
+    fn set_listener_ready(&self, ready: bool) {
+        *self.listener_ready.lock().unwrap() = ready;
+    }
+
+    fn apply_count(&self) -> usize {
+        *self.apply_count.lock().unwrap()
     }
 
     fn service(&self, service_id: &str) -> NetworkServiceProxyState {
@@ -109,6 +121,7 @@ impl CapturePlatform for FakePlatform {
         &self,
         target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        *self.apply_count.lock().unwrap() += 1;
         let mut failures = self.fail_applies_remaining.lock().unwrap();
         if *failures > 0 {
             *failures -= 1;
@@ -129,6 +142,19 @@ impl CapturePlatform for FakePlatform {
             .unwrap()
             .insert(target.service_id.clone(), target);
         Box::pin(ready(Ok(())))
+    }
+
+    fn confirm_proxy_listener(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        if *self.listener_ready.lock().unwrap() {
+            return Box::pin(ready(Ok(())));
+        }
+        Box::pin(ready(Err(CaptureTransitionError::new(
+            mish_runtime::CaptureFailureKind::ListenerUnavailable,
+            "Synthetic listener failure",
+        ))))
     }
 }
 
@@ -895,6 +921,102 @@ async fn enabling_system_proxy_publishes_success_only_after_observation_confirms
             .is_mish_endpoint(&LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap())
     );
     assert_eq!(journal.load().unwrap().unwrap().prior, disabled_service());
+}
+
+#[tokio::test]
+async fn listener_readiness_failure_never_modifies_system_proxy_or_reports_success() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    platform.set_listener_ready(false);
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ListenerUnavailable
+    );
+    assert_eq!(platform.apply_count(), 0);
+    assert_eq!(platform.service("service-a"), disabled_service());
+    assert!(journal.load().unwrap().is_none());
+    assert_eq!(
+        reconciler.status().system_proxy.phase,
+        SystemProxyPhase::Failed
+    );
+    assert!(!reconciler.status().system_proxy_enabled);
+}
+
+#[tokio::test]
+async fn runtime_transition_ownership_blocks_commands_and_stale_health_audits() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = Arc::new(CaptureReconciler::new(
+        platform,
+        journal,
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let request = CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    };
+    reconciler.reconcile(request.clone(), true).await.unwrap();
+    let transition = reconciler.clone().begin_runtime_transition().unwrap();
+
+    let command_error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection: request.selection.clone(),
+            },
+            false,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        command_error.kind,
+        mish_runtime::CaptureFailureKind::RuntimeTransition
+    );
+    let audited = reconciler
+        .audit(CaptureAuditReason::CoreHealthChanged, false)
+        .await
+        .unwrap();
+    assert_eq!(audited.system_proxy.phase, SystemProxyPhase::Applied);
+
+    reconciler
+        .reconcile_runtime_transition(
+            &transition,
+            CaptureRequest {
+                active: false,
+                selection: request.selection,
+            },
+            false,
+        )
+        .await
+        .unwrap();
+    drop(transition);
+    assert_eq!(
+        reconciler.status().system_proxy.phase,
+        SystemProxyPhase::Off
+    );
 }
 
 #[tokio::test]

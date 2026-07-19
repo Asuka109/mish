@@ -186,7 +186,8 @@ composes an activation coordinator.
 `MihomoActivationManager` composes `DesktopMihomoProcess` and
 `ControllerStatusSource` for one persisted normalized artifact. The generator
 reasserts application policy even if an older or tampered artifact still
-contains removed keys: all proxy ingress ports are zero, LAN and listeners are
+contains removed keys: the application-owned loopback mixed proxy endpoint is
+enabled, every other proxy ingress port is zero, LAN and custom listeners are
 off, the bind address and Controller are loopback-only, the Controller secret is
 application-owned, mode is Rule, logging is warning, sniffer capture and TUN are
 off, DNS has no listen socket, and selection/fake-IP persistence is disabled.
@@ -196,8 +197,10 @@ home are rejected.
 Each candidate uses a private `0700` directory and `0600` configuration under
 the managed runtime root. Validation runs `mihomo -d <candidate-home> -f
 <candidate-config> -t` only after the executable reports the exact pinned
-version. The validated candidate then starts without replacing or stopping the
-prior core. Commit requires all of the following:
+version. Because active and candidate cores cannot own the same managed proxy
+port concurrently, switching first restores any confirmed Mish-owned System
+Proxy state, stops the prior core, and then starts the validated candidate.
+Commit requires all of the following:
 
 1. the child remains alive;
 2. the Controller reports v1.19.29;
@@ -205,14 +208,21 @@ prior core. Commit requires all of the following:
 4. the first complete observation batch maps to valid Status and Traffic
    snapshots.
 
-Only then may the manager stop the prior core and atomically replace
-`activation-state.json`. The coordinator then atomically replaces the runtime
-host and publishes the active-profile projection. A validation error, early exit, readiness timeout,
-version mismatch, Controller failure, prior-stop failure, or active-state write
-failure stops the candidate and preserves or restarts the prior core. If the
-prior core cannot be restored, the in-memory state is cleared and the result is
-an explicit safe stopped failure. The state and attempt documents contain no
-configuration, URL, Controller secret, node label, or absolute path.
+If System Proxy was already explicitly active, the same shared capture
+reconciler confirms the candidate listener and reapplies that prior intent before
+the manager atomically replaces `activation-state.json`. An off state remains
+off, so activation never selects or enables capture. The coordinator then
+atomically replaces the runtime host and publishes the active-profile
+projection. The reconciler holds explicit runtime-transition ownership until
+that host replacement, so stale health events from the stopped runtime cannot
+restore or adopt System Proxy and concurrent capture commands fail visibly.
+A validation error, early exit, readiness timeout, version mismatch,
+Controller failure, prior-stop failure, capture failure, or active-state write
+failure stops the candidate and preserves or restarts the prior core and its
+confirmed capture intent. If the prior core cannot be restored, the in-memory
+state is cleared and the result is an explicit safe stopped failure. The state
+and attempt documents contain no configuration, URL, Controller secret, node
+label, or absolute path.
 
 `ManagedMihomoResolver` performs no network access. Development callers must
 pass the explicit path produced by `pnpm mihomo:prepare`. Production callers

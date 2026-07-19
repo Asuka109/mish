@@ -5,7 +5,9 @@ use mish_platform_macos::{
     MacOsCommand, MacOsCommandError, MacOsCommandOutput, MacOsCommandRunner,
     MacOsSystemProxyPlatform,
 };
-use mish_runtime::{CapturePlatform, ManualProxyState, NetworkServiceProxyState};
+use mish_runtime::{
+    CapturePlatform, LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState,
+};
 
 struct FixtureRunner {
     commands: Mutex<Vec<MacOsCommand>>,
@@ -178,4 +180,16 @@ async fn observes_only_the_active_service_manual_and_automatic_proxy_fields() {
     assert!(!observed.pac_enabled);
     assert!(!observed.auto_discovery_enabled);
     assert_eq!(runner.commands.lock().unwrap().len(), 7);
+}
+
+#[tokio::test]
+async fn confirms_the_managed_listener_before_system_proxy_application() {
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let address = listener.local_addr().unwrap();
+    let platform = MacOsSystemProxyPlatform::with_runner(Arc::new(FixtureRunner::new()));
+    let endpoint = LoopbackProxyEndpoint::new(&address.ip().to_string(), address.port()).unwrap();
+
+    platform.confirm_proxy_listener(&endpoint).await.unwrap();
 }

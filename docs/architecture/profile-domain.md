@@ -146,18 +146,21 @@ which rechecks its valid state and artifact fingerprint before
 accepts configuration bytes, filesystem paths, Controller endpoints, or
 Controller secrets. The manager then:
 
-1. injects the application-owned loopback Controller, secret, zero ingress
-   ports, Rule mode, warning logging, and managed resource policy;
+1. injects the application-owned loopback Controller, secret, managed mixed
+   proxy endpoint, zero values for every unused ingress port, Rule mode, warning
+   logging, and managed resource policy;
 2. forces LAN, listeners, sniffer capture, and TUN off;
 3. writes the complete generated configuration to a private candidate staging
    directory and validates it with pinned Mihomo v1.19.29;
-4. starts the candidate from its own managed home without replacing the
-   last-known-good runtime;
+4. restores confirmed System Proxy ownership when needed, stops the prior core,
+   and starts the candidate from its own managed home on the single managed
+   proxy endpoint;
 5. requires the pinned Controller version plus the first complete valid Status
-   and Traffic observations;
+   and Traffic observations and, for previously explicit capture intent,
+   confirms the proxy listener before reapplying System Proxy;
 6. atomically commits a redacted managed active-state record, or stops the
-   candidate and restores the prior healthy core or an explicit safe stopped
-   state; and
+   candidate and restores the prior healthy core and capture intent or an
+   explicit safe stopped state; and
 7. records only profile ID, fingerprint, outcome, and a closed failure category.
 
 The coordinator publishes a typed idle, pending, success, or failure snapshot.

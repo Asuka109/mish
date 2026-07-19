@@ -105,8 +105,10 @@ claim that process memory is a secure enclave.
   A future restore policy requires an explicit recorded policy and the same
   transactional failure recovery; it may not enable System Proxy or TUN.
 - System Proxy is the only network-changing Status command. It defaults off,
-  requires a healthy configured core, confirms every applied change, and
-  restores only state recorded in its private journal. TUN and all other
+  requires a healthy configured core and reachable application-owned mixed
+  proxy listener, confirms every applied change, and restores only state
+  recorded in its private journal. The generated Mihomo configuration and the
+  macOS adapter share that same managed loopback endpoint. TUN and all other
   network-changing Status commands remain unsupported.
 - The Tauri shell has no status-bar menu or native sidebar material yet.
 - Installer packaging, final icon production, entitlements, code signing,

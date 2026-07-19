@@ -1,7 +1,10 @@
 use std::{
     fmt,
-    net::IpAddr,
-    sync::{Arc, Mutex},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use futures_util::future::BoxFuture;
@@ -20,10 +23,12 @@ pub enum CaptureFailureKind {
     CoreUnhealthy,
     ExternalDrift,
     InvalidRecovery,
+    ListenerUnavailable,
     ObservationFailed,
     PermissionDenied,
     PersistenceFailed,
     RollbackFailed,
+    RuntimeTransition,
     UnsafeExistingConfiguration,
     UnsupportedSelection,
 }
@@ -155,6 +160,25 @@ impl LoopbackProxyEndpoint {
         }
         Ok(Self { host, port })
     }
+
+    pub const fn managed() -> Self {
+        Self {
+            host: IpAddr::V4(Ipv4Addr::LOCALHOST),
+            port: 7890,
+        }
+    }
+
+    pub const fn host(&self) -> IpAddr {
+        self.host
+    }
+
+    pub const fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub const fn socket_address(&self) -> SocketAddr {
+        SocketAddr::new(self.host, self.port)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -184,6 +208,12 @@ pub trait CapturePlatform: Send + Sync {
         &self,
         target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>>;
+    fn confirm_proxy_listener(
+        &self,
+        _endpoint: &LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -271,6 +301,19 @@ pub struct CaptureReconciler {
     operation: AsyncMutex<()>,
     platform: Arc<dyn CapturePlatform>,
     status: Mutex<CaptureRuntimeStatus>,
+    runtime_transition: AtomicBool,
+}
+
+pub struct CaptureRuntimeTransition {
+    reconciler: Arc<CaptureReconciler>,
+}
+
+impl Drop for CaptureRuntimeTransition {
+    fn drop(&mut self) {
+        self.reconciler
+            .runtime_transition
+            .store(false, Ordering::Release);
+    }
 }
 
 impl CaptureReconciler {
@@ -285,7 +328,19 @@ impl CaptureReconciler {
             operation: AsyncMutex::new(()),
             platform,
             status: Mutex::new(CaptureRuntimeStatus::off()),
+            runtime_transition: AtomicBool::new(false),
         }
+    }
+
+    pub fn begin_runtime_transition(
+        self: &Arc<Self>,
+    ) -> Result<CaptureRuntimeTransition, CaptureTransitionError> {
+        self.runtime_transition
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| runtime_transition_error())?;
+        Ok(CaptureRuntimeTransition {
+            reconciler: self.clone(),
+        })
     }
 
     pub fn status(&self) -> CaptureRuntimeStatus {
@@ -301,7 +356,36 @@ impl CaptureReconciler {
         request: CaptureRequest,
         core_healthy: bool,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
         let _operation = self.operation.lock().await;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        self.reconcile_locked(request, core_healthy).await
+    }
+
+    pub async fn reconcile_runtime_transition(
+        &self,
+        transition: &CaptureRuntimeTransition,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if !std::ptr::eq(self, Arc::as_ptr(&transition.reconciler))
+            || !self.runtime_transition.load(Ordering::Acquire)
+        {
+            return Err(runtime_transition_error());
+        }
+        let _operation = self.operation.lock().await;
+        self.reconcile_locked(request, core_healthy).await
+    }
+
+    async fn reconcile_locked(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
         let desired = request.active && request.selection.system_proxy;
         if self.availability() != CapabilityAvailability::Supported {
             let error = CaptureTransitionError::new(
@@ -336,6 +420,13 @@ impl CaptureReconciler {
                 CaptureFailureKind::CoreUnhealthy,
                 "System Proxy requires a healthy Mihomo core",
             );
+            self.record_failure(request.selection, true, error.kind, None);
+            return Err(error);
+        }
+        if let Err(error) = self.platform.confirm_proxy_listener(&self.endpoint).await {
+            if existing_journal.is_some() {
+                self.restore(request.selection.clone()).await?;
+            }
             self.record_failure(request.selection, true, error.kind, None);
             return Err(error);
         }
@@ -499,7 +590,13 @@ impl CaptureReconciler {
         _reason: CaptureAuditReason,
         core_healthy: bool,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Ok(self.status());
+        }
         let _operation = self.operation.lock().await;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Ok(self.status());
+        }
         let current = self.status();
         let journal = match self.journal.load() {
             Ok(journal) => journal,
@@ -520,6 +617,15 @@ impl CaptureReconciler {
                 return Err(error);
             }
             return Ok(current);
+        }
+        if journal.is_some()
+            && current.system_proxy.desired
+            && core_healthy
+            && let Err(error) = self.platform.confirm_proxy_listener(&self.endpoint).await
+        {
+            self.restore(current.capture_selection.clone()).await?;
+            self.record_failure(current.capture_selection, true, error.kind, None);
+            return Err(error);
         }
         if journal.is_some() && (!core_healthy || !current.system_proxy.desired) {
             return self.restore(current.capture_selection).await;
@@ -659,7 +765,13 @@ impl CaptureReconciler {
         action: CaptureRecoveryAction,
         core_healthy: bool,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
         let _operation = self.operation.lock().await;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
         let current = self.status();
         if current.system_proxy.phase != SystemProxyPhase::Drift {
             return Err(CaptureTransitionError::new(
@@ -672,6 +784,12 @@ impl CaptureReconciler {
                 CaptureFailureKind::CoreUnhealthy,
                 "System Proxy repair requires a healthy Mihomo core",
             );
+            self.record_drift_failure(current, error.kind);
+            return Err(error);
+        }
+        if action == CaptureRecoveryAction::Repair
+            && let Err(error) = self.platform.confirm_proxy_listener(&self.endpoint).await
+        {
             self.record_drift_failure(current, error.kind);
             return Err(error);
         }
@@ -1002,4 +1120,11 @@ fn observed_state(
         return SystemProxyObservedState::Disabled;
     }
     SystemProxyObservedState::Other
+}
+
+fn runtime_transition_error() -> CaptureTransitionError {
+    CaptureTransitionError::new(
+        CaptureFailureKind::RuntimeTransition,
+        "System Proxy is unavailable while the managed core is switching",
+    )
 }
