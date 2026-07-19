@@ -149,6 +149,16 @@ export function StatusPage() {
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
+        {snapshot.adapterKind !== "fixture" &&
+        (Boolean(error) ||
+          connection.stale ||
+          snapshot.runtime.phase === "inactive" ||
+          snapshot.runtime.phase === "error" ||
+          snapshot.runtime.systemProxy.phase === "drift") ? (
+          <Link className="status-diagnostics-link" to="/events?diagnostics=1">
+            {LL.diagnostics.open()}
+          </Link>
+        ) : null}
         <div className="status-controls">
           <SectionGrid className="status-control-card">
             <SectionGridItem className="status-control-cell">

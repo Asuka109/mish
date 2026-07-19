@@ -165,6 +165,12 @@ struct CancelGroupDelayTestParams {
     test_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CancelDiagnosticRunParams {
+    run_id: String,
+}
+
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let (mut sender, mut receiver) = socket.split();
     let mut runtime_changes = state.runtime.subscribe_changes();
@@ -362,6 +368,8 @@ async fn handle_message(
             | "traffic.subscribe"
             | "events.getSnapshot"
             | "events.subscribe"
+            | "diagnostics.getHistory"
+            | "diagnostics.startRun"
             | "settings.getSnapshot"
     ) && !request
         .params
@@ -400,7 +408,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 6,
+            "protocolVersion": 7,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -615,6 +623,27 @@ async fn handle_message(
                 return Some(error_response(id, -32602, "Invalid params", None));
             };
             json!(subscriptions.event_ids.remove(subscription_id))
+        }
+        "diagnostics.getHistory" => {
+            serde_json::to_value(state.runtime.diagnostic_history(StatusAdapterKind::Rpc))
+                .expect("serializable diagnostic history")
+        }
+        "diagnostics.startRun" => {
+            serde_json::to_value(state.runtime.start_diagnostic_run(StatusAdapterKind::Rpc))
+                .expect("serializable diagnostic history")
+        }
+        "diagnostics.cancelRun" => {
+            let params: CancelDiagnosticRunParams =
+                match serde_json::from_value::<CancelDiagnosticRunParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.run_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            serde_json::to_value(
+                state
+                    .runtime
+                    .cancel_diagnostic_run(&params.run_id, StatusAdapterKind::Rpc),
+            )
+            .expect("serializable diagnostic history")
         }
         "profiles.getSnapshot" => match profile_rpc_snapshot(state).await {
             Ok(snapshot) => snapshot,

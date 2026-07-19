@@ -1,6 +1,7 @@
 mod activation;
 mod controller_source;
 mod controller_status;
+mod diagnostics;
 mod event_redaction;
 mod managed_process;
 mod profile_activation;
@@ -23,6 +24,7 @@ pub use controller_status::{
     ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext,
     SelectionTargetError, StatusMappingError, StatusRetentionPolicy,
 };
+pub use diagnostics::{DiagnosticCoordinator, DiagnosticNetworkProbe};
 pub use managed_process::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,
 };

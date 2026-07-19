@@ -237,3 +237,25 @@ async fn any_runtime_replacement_during_a_traffic_command_invalidates_the_result
     assert_eq!(result["failure"], "runtime-replaced");
     assert_eq!(result["snapshot"]["profileId"], "profile-a");
 }
+
+#[tokio::test]
+async fn runtime_replacement_invalidates_the_active_diagnostic_run_before_switching_context() {
+    let host = DesktopRuntimeHost::new(runtime("profile-a"));
+    let started = host.start_diagnostic_run(StatusAdapterKind::Rpc);
+    assert!(started.active_run_id.is_some());
+
+    host.replace(runtime("profile-b"));
+
+    let history = host.diagnostic_history(StatusAdapterKind::Rpc);
+    assert_eq!(history.active_run_id, None);
+    assert_eq!(
+        history.runs[0].status,
+        mish_runtime::DiagnosticRunStatus::Invalidated
+    );
+    assert!(
+        history.runs[0]
+            .checks
+            .iter()
+            .all(|check| !check.scope.contains("profile-b"))
+    );
+}

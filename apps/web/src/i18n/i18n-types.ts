@@ -2153,6 +2153,124 @@ type RootTranslation = {
 		 */
 		unavailableNotice: string
 	}
+	diagnostics: {
+		/**
+		 * C​a​n​c​e​l​ ​r​u​n
+		 */
+		cancel: string
+		check: {
+			/**
+			 * C​a​p​t​u​r​e​ ​d​e​s​i​r​e​d​ ​/​ ​o​b​s​e​r​v​e​d
+			 */
+			capture: string
+			/**
+			 * P​i​n​n​e​d​ ​c​o​r​e​ ​h​e​a​l​t​h​ ​a​n​d​ ​v​e​r​s​i​o​n
+			 */
+			core: string
+			/**
+			 * D​e​s​k​t​o​p​ ​b​r​i​d​g​e
+			 */
+			desktopBridge: string
+			/**
+			 * D​i​r​e​c​t​ ​r​e​a​c​h​a​b​i​l​i​t​y
+			 */
+			directReachability: string
+			/**
+			 * D​N​S​ ​r​e​s​o​l​u​t​i​o​n
+			 */
+			dns: string
+			/**
+			 * A​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​c​o​n​t​e​x​t
+			 */
+			profile: string
+			/**
+			 * S​c​o​p​e​d​ ​p​r​o​x​y​ ​r​e​a​c​h​a​b​i​l​i​t​y
+			 */
+			proxyReachability: string
+		}
+		/**
+		 * R​u​n​s​ ​o​n​l​y​ ​w​h​e​n​ ​r​e​q​u​e​s​t​e​d​.​ ​R​e​s​u​l​t​s​ ​s​t​a​y​ ​i​n​ ​b​o​u​n​d​e​d​ ​l​o​c​a​l​ ​m​e​m​o​r​y​ ​a​n​d​ ​n​e​v​e​r​ ​u​p​l​o​a​d​ ​o​r​ ​c​h​a​n​g​e​ ​r​o​u​t​i​n​g​,​ ​c​a​p​t​u​r​e​,​ ​g​r​o​u​p​s​,​ ​o​r​ ​c​o​n​n​e​c​t​i​o​n​s​.
+		 */
+		description: string
+		/**
+		 * N​o​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​s​ ​i​n​ ​l​o​c​a​l​ ​h​i​s​t​o​r​y​.
+		 */
+		empty: string
+		/**
+		 * D​i​a​g​n​o​s​t​i​c​s​ ​a​r​e​ ​c​u​r​r​e​n​t​l​y​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		error: string
+		/**
+		 * F​i​c​t​i​o​n​a​l​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​r​e​s​u​l​t​s​.​ ​T​h​e​y​ ​a​r​e​ ​n​o​t​ ​a​ ​d​e​s​k​t​o​p​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​ ​o​r​ ​a​ ​d​e​v​i​c​e​ ​o​b​s​e​r​v​a​t​i​o​n​.
+		 */
+		fixtureNotice: string
+		/**
+		 * I​n​t​e​r​p​r​e​t​a​t​i​o​n
+		 */
+		inference: string
+		/**
+		 * O​b​s​e​r​v​e​d​ ​f​a​c​t
+		 */
+		observation: string
+		/**
+		 * O​p​e​n​ ​d​i​a​g​n​o​s​t​i​c​s
+		 */
+		open: string
+		/**
+		 * P​o​l​i​c​y​ ​{​i​d​}​ ​·​ ​{​e​n​d​p​o​i​n​t​}​ ​·​ ​e​x​p​e​c​t​ ​H​T​T​P​ ​{​s​t​a​t​u​s​}​ ​·​ ​{​t​i​m​e​o​u​t​}​ ​m​s
+		 * @param {string} endpoint
+		 * @param {string} id
+		 * @param {number} status
+		 * @param {number} timeout
+		 */
+		policy: RequiredParams<'endpoint' | 'id' | 'status' | 'timeout'>
+		/**
+		 * R​o​u​t​e​ ​t​a​r​g​e​t
+		 */
+		route: string
+		/**
+		 * R​u​n​ ​d​i​a​g​n​o​s​t​i​c​s
+		 */
+		run: string
+		/**
+		 * S​c​o​p​e
+		 */
+		scope: string
+		status: {
+			/**
+			 * C​a​n​c​e​l​l​e​d
+			 */
+			cancelled: string
+			/**
+			 * C​o​m​p​l​e​t​e​d
+			 */
+			completed: string
+			/**
+			 * F​a​i​l​e​d
+			 */
+			failed: string
+			/**
+			 * I​n​v​a​l​i​d​a​t​e​d​ ​b​y​ ​r​u​n​t​i​m​e​ ​r​e​p​l​a​c​e​m​e​n​t
+			 */
+			invalidated: string
+			/**
+			 * P​a​s​s​e​d
+			 */
+			passed: string
+			/**
+			 * R​u​n​n​i​n​g
+			 */
+			running: string
+			/**
+			 * U​n​a​v​a​i​l​a​b​l​e
+			 */
+			unavailable: string
+		}
+		/**
+		 * G​u​i​d​e​d​ ​d​i​a​g​n​o​s​t​i​c​s
+		 */
+		title: string
+	}
 	destination: {
 		/**
 		 * C​u​r​r​e​n​t​ ​s​t​a​t​e
@@ -4511,6 +4629,120 @@ export type TranslationFunctions = {
 		 * The current runtime has no supported Events source. No desktop observation is claimed.
 		 */
 		unavailableNotice: () => LocalizedString
+	}
+	diagnostics: {
+		/**
+		 * Cancel run
+		 */
+		cancel: () => LocalizedString
+		check: {
+			/**
+			 * Capture desired / observed
+			 */
+			capture: () => LocalizedString
+			/**
+			 * Pinned core health and version
+			 */
+			core: () => LocalizedString
+			/**
+			 * Desktop bridge
+			 */
+			desktopBridge: () => LocalizedString
+			/**
+			 * Direct reachability
+			 */
+			directReachability: () => LocalizedString
+			/**
+			 * DNS resolution
+			 */
+			dns: () => LocalizedString
+			/**
+			 * Active Profile context
+			 */
+			profile: () => LocalizedString
+			/**
+			 * Scoped proxy reachability
+			 */
+			proxyReachability: () => LocalizedString
+		}
+		/**
+		 * Runs only when requested. Results stay in bounded local memory and never upload or change routing, capture, groups, or connections.
+		 */
+		description: () => LocalizedString
+		/**
+		 * No diagnostic runs in local history.
+		 */
+		empty: () => LocalizedString
+		/**
+		 * Diagnostics are currently unavailable.
+		 */
+		error: () => LocalizedString
+		/**
+		 * Fictional browser fixture results. They are not a desktop diagnostic run or a device observation.
+		 */
+		fixtureNotice: () => LocalizedString
+		/**
+		 * Interpretation
+		 */
+		inference: () => LocalizedString
+		/**
+		 * Observed fact
+		 */
+		observation: () => LocalizedString
+		/**
+		 * Open diagnostics
+		 */
+		open: () => LocalizedString
+		/**
+		 * Policy {id} · {endpoint} · expect HTTP {status} · {timeout} ms
+		 */
+		policy: (arg: { endpoint: string, id: string, status: number, timeout: number }) => LocalizedString
+		/**
+		 * Route target
+		 */
+		route: () => LocalizedString
+		/**
+		 * Run diagnostics
+		 */
+		run: () => LocalizedString
+		/**
+		 * Scope
+		 */
+		scope: () => LocalizedString
+		status: {
+			/**
+			 * Cancelled
+			 */
+			cancelled: () => LocalizedString
+			/**
+			 * Completed
+			 */
+			completed: () => LocalizedString
+			/**
+			 * Failed
+			 */
+			failed: () => LocalizedString
+			/**
+			 * Invalidated by runtime replacement
+			 */
+			invalidated: () => LocalizedString
+			/**
+			 * Passed
+			 */
+			passed: () => LocalizedString
+			/**
+			 * Running
+			 */
+			running: () => LocalizedString
+			/**
+			 * Unavailable
+			 */
+			unavailable: () => LocalizedString
+		}
+		/**
+		 * Guided diagnostics
+		 */
+		title: () => LocalizedString
 	}
 	destination: {
 		/**

@@ -9,11 +9,13 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 mod capture;
+mod diagnostics;
 mod events;
 mod status;
 mod traffic;
 
 pub use capture::*;
+pub use diagnostics::*;
 pub use events::*;
 pub use status::*;
 pub use traffic::*;
@@ -116,6 +118,11 @@ pub trait StatusDataSource: Send + Sync {
     }
     fn supports_command(&self, _command: StatusCommand) -> bool {
         false
+    }
+    fn run_proxy_diagnostic(
+        &self,
+    ) -> BoxFuture<'_, Result<ProxyDiagnosticObservation, ProxyDiagnosticFailure>> {
+        unavailable_proxy_diagnostic()
     }
     fn set_routing_mode(
         &self,
@@ -393,7 +400,12 @@ impl MishRuntime {
     }
 
     pub async fn status_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
-        self.snapshot_from_status(&self.core.status().await, adapter_kind)
+        serde_json::to_value(self.status_snapshot_typed(adapter_kind).await)
+            .expect("Status state must serialize")
+    }
+
+    pub async fn status_snapshot_typed(&self, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        self.snapshot_typed_from_status(&self.core.status().await, adapter_kind)
     }
 
     pub async fn set_capture(
@@ -541,11 +553,26 @@ impl MishRuntime {
         self.events_source.subscribe_events()
     }
 
+    pub fn run_proxy_diagnostic(
+        &self,
+    ) -> BoxFuture<'_, Result<ProxyDiagnosticObservation, ProxyDiagnosticFailure>> {
+        self.status_source.run_proxy_diagnostic()
+    }
+
     pub fn snapshot_from_status(
         &self,
         status: &CoreStatus,
         adapter_kind: StatusAdapterKind,
     ) -> Value {
+        serde_json::to_value(self.snapshot_typed_from_status(status, adapter_kind))
+            .expect("Status state must serialize")
+    }
+
+    pub fn snapshot_typed_from_status(
+        &self,
+        status: &CoreStatus,
+        adapter_kind: StatusAdapterKind,
+    ) -> StatusSnapshot {
         let mut snapshot = self.status_source.snapshot(status, adapter_kind);
         if let Some(capture) = &self.capture {
             let capture_status = capture.status();
@@ -556,7 +583,7 @@ impl MishRuntime {
             snapshot.runtime.system_proxy_enabled = capture_status.system_proxy_enabled;
             snapshot.runtime.tun_enabled = false;
         }
-        serde_json::to_value(snapshot).expect("Status state must serialize")
+        snapshot
     }
 
     pub fn subscribe_status(&self) -> broadcast::Receiver<CoreStatus> {
