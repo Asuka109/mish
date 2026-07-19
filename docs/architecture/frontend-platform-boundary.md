@@ -243,10 +243,15 @@ capability unavailable and contains no synthetic device state. Sensitive
 network-service, interface, DNS-server, and search-domain values remain local to
 the Settings response and never enter Events, logs, errors, or support bundles.
 
-The future Android adapter will pair Kotlin `VpnService` with an embedded Go
-core library. The future iOS adapter will pair Swift
-`NEPacketTunnelProvider` with an embedded core framework. These adapters are
-not scaffolded until a native ABI, signing, and lifecycle slice is approved.
+The approved Android direction pairs Kotlin `VpnService` with a reproducibly
+built embedded Go Core library. The approved iOS direction pairs Swift
+`NEPacketTunnelProvider` with the matching embedded Core framework. Both use a
+dedicated mobile native client rather than the desktop RPC bootstrap. Android is
+the first runnable device target; iOS shell, extension, bridge, and framework
+preparation proceeds in parallel while signed device and TestFlight evidence
+remain later gates. The native ABI, lifecycle, ownership, security, and delivery
+order are specified in
+[`mobile-runtime-integration.md`](mobile-runtime-integration.md).
 
 `packages/mock-bridge` implements the same shared contracts in TypeScript over a
 real loopback WebSocket server. It supports deterministic snapshots,
@@ -316,6 +321,7 @@ The production scaffold should prefer boundaries similar to:
 apps/
   web/                 Browser and shared WebView entry
   desktop/             Tauri application
+  mobile/              Android and iOS Tauri shell
 packages/
   domain/              Aggregates, value objects, invariants
   application/         Use cases and derived view models
@@ -329,6 +335,10 @@ crates/
   desktop-bridge/      Desktop bridge and managed-process adapter
   platform-macos/      macOS capability implementation
   privileged-helper/   Narrow elevated operations
+plugins/
+  mobile-core/         Kotlin and Swift native VPN bridge
+mobile-core/
+  wrapper/             Versioned Mihomo native ABI and reproducible builds
 ```
 
 This is a boundary guide, not a requirement to create empty packages before a

@@ -13,6 +13,7 @@ decisions from chat history.
 | How should the Status experience behave?                                        | [`product/status-experience.md`](product/status-experience.md)                                   |
 | What are the implementation-ready product requirements and release slices?      | [`product/prds/README.md`](product/prds/README.md)                                               |
 | What belongs in the web app, desktop bridge, Tauri shell, or native layer?      | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       |
+| How do Android and iOS own VPN lifetime and embedded Mihomo integration?        | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       |
 | How does the desktop bundle and authenticated local startup work?               | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                         |
 | How is the signed macOS TUN helper bounded and observed?                        | [`architecture/macos-tun-helper.md`](architecture/macos-tun-helper.md)                           |
 | How are macOS test and production bundles built and signed?                     | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                 |
@@ -27,8 +28,10 @@ decisions from chat history.
 | How are local backups scoped, validated, written, and restored transactionally? | [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                   |
 | How do the native status bar and main-window lifecycle behave?                  | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     |
 | How should recurring UI structures be composed?                                 | [`design/component-patterns.md`](design/component-patterns.md)                                   |
+| How do mobile navigation, layout, and Android/iOS presentation differ?          | [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md)               |
 | What is real, mocked, verified, or still pending?                               | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
 | How is the production Web foundation run and validated?                         | [`quality/production-web-validation.md`](quality/production-web-validation.md)                   |
+| What proves a mobile shell, installable app, native adapter, or device VPN?     | [`quality/mobile-validation.md`](quality/mobile-validation.md)                                   |
 | How is the native macOS sidebar material validated?                             | [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md)                   |
 
 ## Supporting material
@@ -39,6 +42,10 @@ decisions from chat history.
   records the installed Clash Verge Rev 2.5.1 Computer Use coverage matrix,
   safe secondary surfaces, scroll evidence, a profile-backed runtime follow-up,
   and the remaining proxy-provider and tray blockers.
+- [`research/mobile-runtime-reference-review-2026-07-20.md`](research/mobile-runtime-reference-review-2026-07-20.md)
+  records the adopt, adapt, and reject evidence from Clash Mi, Clash Verge Rev,
+  Clash Meta for Android, and FlClash without making any one client Mish's
+  implementation authority.
 - [`../.claude/plans/development-plan.md`](../.claude/plans/development-plan.md)
   is the Chinese implementation plan. It is useful for sequencing work but is
   not the authority for current product or design behavior.

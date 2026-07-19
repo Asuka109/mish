@@ -1,7 +1,7 @@
 # Mish 五端 Web 客户端研发计划
 
-状态：Draft v0.1  
-日期：2026-07-14  
+状态：Draft v0.2
+日期：2026-07-20
 项目仓库：当前工作仓库（本地目录名属于历史路径，不作为产品品牌）
 目标平台：macOS、Windows、Linux、Android、iOS
 
@@ -33,7 +33,7 @@
 | Web UI | React + TypeScript + Vite | 生态成熟，便于参考 Clash Verge Rev，并支持响应式五端界面 |
 | 状态管理 | Zustand 或等价轻量方案 | 保存应用状态，避免将高频连接数据放入全局状态 |
 | 服务端状态 | TanStack Query | 统一 Mihomo API 查询、缓存、轮询和错误处理 |
-| 路由 | React Router | 桌面侧栏与移动底栏共享页面模型 |
+| 路由 | React Router | 共享路由语义；桌面六入口侧栏与移动五入口底栏分别由独立 Shell 编排 |
 | 桌面壳 | Tauri 2 + Rust | 体积和资源占用低，适合管理 Sidecar 与特权服务 |
 | Android 原生层 | Kotlin + `VpnService` | 负责 VPN 授权、TUN 文件描述符和后台服务生命周期 |
 | iOS 原生层 | Swift + `NEPacketTunnelProvider` | 负责 Packet Tunnel App Extension 和系统 VPN 生命周期 |
@@ -111,7 +111,7 @@ flowchart TD
 
 ### 4.1 Clash Verge Rev
 
-用途：桌面端架构和实现参考。
+用途：桌面端架构，以及跨平台核心生命周期、配置校验和失败回滚的实现参考。
 
 优先研究或选择性移植：
 
@@ -120,6 +120,10 @@ flowchart TD
 - TUN 特权服务与安装流程。
 - 配置合并、订阅更新、日志和连接管理。
 - 桌面系统代理、托盘、更新和诊断逻辑。
+
+移动端只借鉴生命周期语义和控制面契约，不移植桌面 Sidecar、托盘或
+提权模型；移动数据面必须由 Android `VpnService` 或 iOS Packet Tunnel
+Extension 持有。
 
 不直接继承：
 
@@ -132,10 +136,18 @@ Clash Verge Rev 使用 GPL-3.0。若复制或修改其代码，发行方案必�
 
 ### 4.2 移动客户端参考
 
-- Clash Meta for Android：参考 `VpnService`、JNI、后台生命周期和 Android 打包。
-- Clash Mi：参考 Apple Packet Tunnel 工程结构，但其公开仓库当前缺少部分依赖和预构建 XCFramework，不能直接视为可复现基线。
-- FlClash：作为五端 UI 和移动 VPN 行为参考，不采用 Flutter 产品层。
+- Clash Mi：优先参考移动端嵌入式核心、Android `VpnService`、Apple Packet
+  Tunnel 工程结构和原生桥接边界；其公开仓库缺少的部分依赖和预构建产物
+  必须由本项目补齐可复现构建，不能直接视为可发布基线。
+- Clash Meta for Android：交叉验证 `VpnService`、JNI、后台生命周期和
+  Android 打包方式。
+- FlClash：交叉验证 Android `c-shared` 构建、五端 UI 和移动 VPN 行为，
+  不采用 Flutter 产品层。
 - Stash、Clash Pro：作为产品和交互参考，不作为可复制的源码基线。
+
+具体采用、改造和拒绝项见
+`docs/research/mobile-runtime-reference-review-2026-07-20.md`；最终运行时边界见
+`docs/architecture/mobile-runtime-integration.md`。
 
 ### 4.3 Fork 策略
 
@@ -161,7 +173,10 @@ Clash Verge Rev 使用 GPL-3.0。若复制或修改其代码，发行方案必�
 - 基础 DNS、LAN、IPv6 和绕过局域网设置。
 - 启停状态、错误诊断和核心版本展示。
 - 深色/浅色主题。
-- 桌面侧栏与移动底栏响应式布局。
+- 桌面侧栏与移动底栏分别由 `DesktopShell` 和 `MobileShell` 编排，不能只用
+  CSS 将侧栏移动到底部。
+- 移动端固定五个一级入口：Home、Routes、Profiles、Activity、Settings；
+  Connections、Rules、Events、Diagnostics 收入 Activity 二级入口。
 - 五端可重复构建和签名流程。
 
 ### 5.2 首版明确不做
@@ -179,25 +194,28 @@ Clash Verge Rev 使用 GPL-3.0。若复制或修改其代码，发行方案必�
 
 ## 6. 阶段计划
 
-### Phase 0：技术可行性门（第 1 周）
+### Phase 0：Android 优先技术可行性门（第 1 周）
 
 目标：在投入产品开发前消除最大的不确定性。
 
 交付物：
 
-- Tauri 2 五端空壳工程。
+- Tauri 2 桌面空壳、Android 可安装调试壳，以及可编译的 iOS 主应用、插件和
+  Packet Tunnel Extension 工程。
 - 从同一 Mihomo commit 产出桌面二进制、Android `.so` 和 Apple XCFramework。
 - Android 真机完成一次 `VpnService` 连接。
-- iOS 真机完成一次 Packet Tunnel 连接。
-- iOS Archive/TestFlight 构建，确认 Network Extension 和 App Group Entitlements。
+- iOS 在无付费开发者权限条件下完成 XCFramework 链接、插件调用和扩展侧
+  生命周期 fixture；需要签名的真机连接、Archive/TestFlight 和 Entitlements
+  验收延后到权限具备后执行。
 - 桌面三端启动 Mihomo 并通过 IPC 调用 `/version`。
 - 构建记录、SHA-256 和失败清单。
 
 Go/No-Go 条件：
 
-- Android 和 iOS 均能代理 TCP、UDP 和 DNS。
-- 移动端在 WebView 挂起后仍能维持连接。
-- iOS 扩展能通过 CI 或可接受的签名流程稳定构建。
+- Android 能代理 TCP、UDP 和 DNS，且 WebView 挂起后仍能维持连接。
+- Android 调试包能够重复安装，并能稳定加载固定 commit 的 Mihomo `.so`。
+- iOS 主应用、插件、Packet Tunnel Extension 和 XCFramework 能在不依赖付费
+  签名的范围内重复构建和测试。
 - Tauri 重新生成移动工程时不会不可控地破坏扩展配置。
 
 若 iOS Tauri 集成失败，立即切换到降级架构：桌面使用 Tauri，移动端使用薄 Swift/Kotlin WebView 壳，共享同一个 React 构建产物和 TypeScript 业务包。
@@ -224,19 +242,27 @@ Go/No-Go 条件：
 - `VpnService` 权限与前台服务。
 - TUN FD 与 Mihomo Native ABI。
 - 应用休眠、进程回收、重启和网络切换。
-- 移动端触控布局、返回键和通知状态。
+- 完成 Android Material 3 风格 `MobileShell`、五入口底栏、二级 Activity 导航、
+  返回键和通知状态。
+- 持续产出可安装调试包，作为移动功能集成的首要验证载体。
 
 退出条件：通过连续 24 小时运行、Wi-Fi/蜂窝切换、睡眠唤醒、TCP/UDP/DNS 和异常恢复测试。
 
-### Phase 3：iOS MVP（第 5–11 周）
+### Phase 3：iOS 并行准备与延后验收（第 5–11 周）
 
 - Swift 主应用插件与 Packet Tunnel Extension。
 - App Group 配置、状态共享和日志桥接。
 - Mihomo XCFramework 集成。
-- 内存、后台生命周期和 Network Extension 限制验证。
-- 真机 Archive、TestFlight、签名和隐私声明。
+- 完成 iOS 原生风格 `MobileShell`、五入口 Tab Bar、NavigationStack 层级和
+  sheet/toolbar 行为。
+- 在无付费开发者权限阶段完成编译、链接、接口 fixture、模拟器可覆盖的主应用
+  流程，以及 Entitlements/隐私清单的静态检查。
+- 权限到位后再执行真机内存、后台生命周期、Network Extension、Archive、
+  TestFlight、签名和隐私声明验收。
 
-退出条件：通过 TestFlight 安装，并完成持续运行、切网、锁屏、按需连接和异常恢复测试。
+阶段退出条件：无签名阻塞项之外，iOS 工程和运行时集成均达到可交付验证状态。
+正式发布门仍要求通过 TestFlight 安装，并完成持续运行、切网、锁屏、按需连接
+和异常恢复测试。
 
 ### Phase 4：五端统一与公开测试（第 10–16 周）
 
@@ -320,14 +346,14 @@ Clash Verge Rev 的 CVD 争议应转化为项目级约束：
 
 | 风险 | 等级 | 应对 |
 | --- | --- | --- |
-| Tauri iOS App Extension 集成不稳定 | 高 | 第一周真机与 CI 验证；保留原生 WebView 壳降级方案 |
+| Tauri iOS App Extension 集成不稳定 | 高 | 先完成无签名编译与工程生成验证，权限到位后补真机与 CI 签名；保留原生 WebView 壳降级方案 |
 | iOS Network Extension 内存与生命周期 | 高 | 核心裁剪、流式日志、限制缓存、真机压力测试 |
 | 五端 Mihomo Native ABI 分叉 | 高 | 极窄 C ABI、同 commit 构建、自动兼容测试 |
 | 桌面 TUN 提权与卸载残留 | 高 | 最小权限 Helper、幂等安装卸载、系统状态恢复测试 |
 | GPL 污染闭源商业计划 | 高 | 项目启动前确定许可证；复制代码前进行来源登记 |
 | 上游删库或分支伪装 | 中 | 固定 commit、镜像源码、保存 tag 与构建依赖 |
 | 广告/赞助影响产品决策 | 中 | 资金披露、功能评审、隐私红线、禁止供应商控制模块 |
-| 商店审核与地区合规 | 高 | 海外组织账号、隐私披露、分地区发行策略、提前 TestFlight |
+| 商店审核与地区合规 | 高 | 不阻塞 Android 调试版；准备海外组织账号、隐私披露和分地区发行策略，权限到位后尽早 TestFlight |
 
 ## 11. 首周具体任务
 
@@ -335,17 +361,21 @@ Clash Verge Rev 的 CVD 争议应转化为项目级约束：
 2. 确定产品许可证：GPL-3.0 开源或 Clean-room 独立实现。
 3. 固定一个 Mihomo `Meta` 稳定 tag 和对应 commit。
 4. 定义第一版 C ABI 和 TypeScript `CoreAdapter`。
-5. 产出五平台核心构建物及 SBOM。
+5. 优先产出桌面与 Android 核心构建物；同时产出可链接的 Apple XCFramework
+   及全部产物的 SBOM。
 6. 桌面验证 Sidecar、Socket/Named Pipe 和优雅退出。
 7. Android 验证 TUN FD 传递和后台生命周期。
-8. iOS 创建 Packet Tunnel Extension 并完成真机签名。
-9. 验证 Tauri CI 构建不会丢失 App Extension Entitlements。
+8. iOS 创建 Packet Tunnel Extension，完成无付费账号可执行的编译、链接和
+   生命周期 fixture。
+9. 验证 Tauri 重新生成工程不会丢失 App Extension、App Group 和 Entitlements
+   配置；真机签名验证列入权限到位后的发布门。
 10. 输出 Go/No-Go 报告和修订后的工期估算。
 
 ## 12. 待决策事项
 
 - 产品是否必须闭源；这将决定能否直接复用 GPL 客户端代码。
-- 首发是否包含 iOS App Store，还是先通过 TestFlight 验证。
+- iOS App Store 的账号主体、首发地区和签名时间；不影响 Android 优先调试和
+  iOS 工程并行准备。
 - 是否允许订阅增强脚本；首版建议不允许。
 - 是否支持远程 Dashboard；首版建议只将其作为开发诊断能力。
 - 桌面 macOS 是否使用 Network Extension，还是首版沿用 Mihomo TUN + Helper。
@@ -364,3 +394,7 @@ Clash Verge Rev 的 CVD 争议应转化为项目级约束：
 - [Tauri iOS App Extension Entitlements Issue](https://github.com/tauri-apps/tauri/issues/15663)
 - [Clash Verge Rev CVD Discussion](https://github.com/clash-verge-rev/clash-verge-rev/issues/7187)
 - [Clash Verge Rev CVD Revert](https://github.com/clash-verge-rev/clash-verge-rev/commit/fa27d3eae57c8444c440f133e95966f01bdd2b7a)
+- `docs/research/mobile-runtime-reference-review-2026-07-20.md`
+- `docs/architecture/mobile-runtime-integration.md`
+- `docs/design/mobile-navigation-and-layout.md`
+- `docs/quality/mobile-validation.md`
