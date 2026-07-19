@@ -260,7 +260,13 @@ const en = {
     settings: "Settings",
   },
   mobileFixture: {
+    commandFailed: "The native lifecycle command failed. Retry after reopening the app.",
     label: "Native fixture",
+    lifecycleAction: "Run lifecycle check",
+    notificationAction: "Allow status notification",
+    permissionAction: "Review VPN permission",
+    reconcileAction: "Reset lifecycle state",
+    stopAction: "Stop lifecycle check",
     unavailable: "VPN and embedded Core are not implemented in this test build.",
   },
   toolbar: {

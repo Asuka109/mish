@@ -6,6 +6,7 @@ import {
   type LocalBackupScopeDto,
   type LocalRestoreConflictResolution,
   type MobileFixtureBootstrapDto,
+  type MobileVpnSnapshotDto,
   type EventsClient,
   type DiagnosticsClient,
   type ProfileClient,
@@ -25,6 +26,7 @@ import { RpcSettingsClient } from "../data/rpc-settings-client";
 import { RpcTrafficClient } from "../data/rpc-traffic-client";
 import { DesktopSupportBundleClient, UnavailableSupportBundleClient } from "./support-bundle";
 import { DesktopLocalBackupClient, UnavailableLocalBackupClient } from "./local-backup";
+import type { MobileVpnClient } from "./mobile-vpn-client";
 
 interface RuntimeBootstrapPayload {
   authToken: string;
@@ -61,6 +63,8 @@ export interface StartupStatusClient {
   settingsSnapshot: SettingsSnapshotDto;
   localBackupClient: LocalBackupClient;
   mobileFixture?: MobileFixtureBootstrapDto;
+  mobileVpnClient?: MobileVpnClient;
+  mobileVpnSnapshot?: MobileVpnSnapshotDto;
   runtime: "browser" | "desktop" | "mobile";
   supportBundleClient: SupportBundleClient;
 }

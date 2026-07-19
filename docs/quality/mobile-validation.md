@@ -76,6 +76,12 @@ emulator where practical.
   before accepting later events.
 - Unknown, oversized, stale, or malformed native messages are rejected.
 
+For the Phase 0 fixture, the same lifecycle checks apply with one stricter claim
+boundary: consent, foreground notification, serialization, reconstruction, and
+recovery may be exercised, but every start must finish `unavailable` with
+`vpnActive=false` and Core unavailable. No fixture result satisfies any item in
+the VPN behavior subsection below.
+
 ### VPN behavior
 
 - Permission denial leaves the application stopped and actionable.

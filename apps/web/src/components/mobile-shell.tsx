@@ -1,12 +1,14 @@
-import type { MobileFixtureBootstrapDto } from "@mish/contracts";
+import type { MobileFixtureBootstrapDto, MobileVpnSnapshotDto } from "@mish/contracts";
 import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
 import { FileText } from "@phosphor-icons/react/FileText";
 import { GearSix } from "@phosphor-icons/react/GearSix";
 import { House } from "@phosphor-icons/react/House";
 import { Pulse } from "@phosphor-icons/react/Pulse";
 import { NavLink, Outlet, useLocation } from "react-router";
+import { useEffect, useState } from "react";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
+import type { MobileVpnClient } from "../platform/mobile-vpn-client";
 
 const destinations = [
   { icon: House, key: "home", path: "/status" },
@@ -18,6 +20,8 @@ const destinations = [
 
 interface MobileShellProps {
   fixture: MobileFixtureBootstrapDto;
+  vpnClient: MobileVpnClient;
+  vpnSnapshot: MobileVpnSnapshotDto;
 }
 
 function getTitle(LL: TranslationFunctions, pathname: string) {
@@ -32,12 +36,48 @@ function isActivityPath(pathname: string) {
   return pathname === "/traffic" || pathname === "/events" || pathname === "/diagnostics";
 }
 
-export function MobileShell({ fixture }: MobileShellProps) {
+export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProps) {
   const { LL } = useI18nContext();
   const location = useLocation();
+  const [snapshot, setSnapshot] = useState(vpnSnapshot);
+  const [commandPending, setCommandPending] = useState(false);
+  const [commandFailed, setCommandFailed] = useState(false);
   const activity = isActivityPath(location.pathname);
   const diagnostics = location.pathname === "/events" && location.search.includes("diagnostics=1");
   const rules = location.pathname === "/traffic" && location.search.includes("tab=rules");
+
+  useEffect(() => vpnClient.subscribe(setSnapshot), [vpnClient]);
+
+  async function runLifecycleAction() {
+    if (commandPending) return;
+    setCommandPending(true);
+    setCommandFailed(false);
+    try {
+      if (snapshot.foreground || snapshot.phase === "recovery-required") {
+        await vpnClient.stop();
+      } else if (snapshot.permission !== "granted") {
+        await vpnClient.requestVpnConsent();
+      } else if (snapshot.notificationPermission === "required") {
+        await vpnClient.requestNotificationPermission();
+      } else {
+        await vpnClient.startFixtureLifecycle();
+      }
+    } catch {
+      setCommandFailed(true);
+    } finally {
+      setCommandPending(false);
+    }
+  }
+
+  function lifecycleActionLabel() {
+    if (snapshot.foreground) return LL.mobileFixture.stopAction();
+    if (snapshot.phase === "recovery-required") return LL.mobileFixture.reconcileAction();
+    if (snapshot.permission !== "granted") return LL.mobileFixture.permissionAction();
+    if (snapshot.notificationPermission === "required") {
+      return LL.mobileFixture.notificationAction();
+    }
+    return LL.mobileFixture.lifecycleAction();
+  }
 
   return (
     <div className="mobile-shell" data-platform={fixture.platform}>
@@ -46,9 +86,24 @@ export function MobileShell({ fixture }: MobileShellProps) {
           <img alt="" aria-hidden="true" src="/brand/mish-brand.svg" />
           <h1>{getTitle(LL, location.pathname)}</h1>
         </header>
-        <div className="mobile-fixture-banner" role="status">
-          <strong>{LL.mobileFixture.label()}</strong>
-          <span>{LL.mobileFixture.unavailable()}</span>
+        <div className="mobile-fixture-banner">
+          <div role="status">
+            <strong>{LL.mobileFixture.label()}</strong>
+            <span>{LL.mobileFixture.unavailable()}</span>
+            {commandFailed ? <span role="alert">{LL.mobileFixture.commandFailed()}</span> : null}
+          </div>
+          {fixture.platform === "android" ? (
+            <button
+              className="mobile-fixture-action"
+              disabled={
+                commandPending || snapshot.phase === "starting" || snapshot.phase === "stopping"
+              }
+              onClick={() => void runLifecycleAction()}
+              type="button"
+            >
+              {lifecycleActionLabel()}
+            </button>
+          ) : null}
         </div>
         {activity ? (
           <nav aria-label={LL.mobileNavigation.activity()} className="mobile-activity-navigation">

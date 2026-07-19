@@ -12,13 +12,16 @@ import { FixtureTrafficClient } from "../data/fixture-traffic-client";
 import { UnavailableLocalBackupClient } from "./local-backup";
 import type { StartupStatusClient } from "./runtime-bootstrap";
 import { UnavailableSupportBundleClient } from "./support-bundle";
+import { MobileVpnFixtureClient, type MobileVpnClient } from "./mobile-vpn-client";
 
 interface MobileBootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
+  mobileVpnClient: MobileVpnClient;
 }
 
 const defaultDependencies: MobileBootstrapDependencies = {
   invokeBootstrap: () => invoke("mobile_fixture_bootstrap"),
+  mobileVpnClient: new MobileVpnFixtureClient(),
 };
 
 class MobileFixtureStatusClient extends FixtureStatusClient {
@@ -85,13 +88,16 @@ export async function resolveMobileStartup(
   dependencies: MobileBootstrapDependencies = defaultDependencies,
 ): Promise<StartupStatusClient> {
   const fixture = MobileFixtureBootstrapSchema.parse(await dependencies.invokeBootstrap());
+  const mobileVpnSnapshot = await dependencies.mobileVpnClient.initialize();
   const settingsClient = new FixtureSettingsClient();
   return {
     client: new MobileFixtureStatusClient(fixture),
-    dispose: () => undefined,
+    dispose: () => dependencies.mobileVpnClient.dispose(),
     eventsClient: new MobileFixtureEventsClient(),
     localBackupClient: new UnavailableLocalBackupClient(),
     mobileFixture: fixture,
+    mobileVpnClient: dependencies.mobileVpnClient,
+    mobileVpnSnapshot,
     profileClient: new FixtureProfileClient(),
     runtime: "mobile",
     settingsClient,

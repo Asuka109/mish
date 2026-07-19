@@ -1,9 +1,9 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
-  "description": "Allows the Phase 0 mobile WebView to read the bounded native fixture bootstrap.",
+  "description": "Allows the Phase 0 mobile WebView to use the bounded native fixture and Android VPN lifecycle prototype.",
   "local": true,
   "windows": ["main"],
   "platforms": ["android", "iOS"],
-  "permissions": ["allow-mobile-fixture-bootstrap"]
+  "permissions": ["allow-mobile-fixture-bootstrap", "mish-vpn:default"]
 }

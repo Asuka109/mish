@@ -46,6 +46,86 @@ export const MobileFixtureBootstrapSchema = z
   .strict();
 export interface MobileFixtureBootstrapDto extends z.infer<typeof MobileFixtureBootstrapSchema> {}
 
+export const MobileVpnPhaseSchema = z.enum([
+  "stopped",
+  "permission-required",
+  "starting",
+  "running",
+  "stopping",
+  "failed",
+  "recovery-required",
+  "unavailable",
+]);
+export type MobileVpnPhase = z.infer<typeof MobileVpnPhaseSchema>;
+
+export const MobileVpnPermissionSchema = z.enum(["unknown", "required", "granted"]);
+export type MobileVpnPermission = z.infer<typeof MobileVpnPermissionSchema>;
+
+export const MobileVpnNotificationPermissionSchema = z.enum([
+  "not-required",
+  "required",
+  "granted",
+  "denied",
+]);
+export type MobileVpnNotificationPermission = z.infer<typeof MobileVpnNotificationPermissionSchema>;
+
+export const MobileVpnSnapshotSchema = z
+  .object({
+    backendKind: z.literal("fixture"),
+    contractVersion: z.literal(1),
+    coreAvailability: z.literal("unavailable"),
+    foreground: z.boolean(),
+    message: z.string().min(1).max(512),
+    notificationPermission: MobileVpnNotificationPermissionSchema,
+    permission: MobileVpnPermissionSchema,
+    phase: MobileVpnPhaseSchema,
+    sequence: z.number().int().nonnegative(),
+    sessionId: z.string().min(1).max(128),
+    updatedAtMillis: z.number().int().nonnegative(),
+    vpnActive: z.literal(false),
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    if (snapshot.foreground && !["starting", "stopping", "unavailable"].includes(snapshot.phase)) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "The Phase 0 fixture may be foreground only during a transition or its explicit unavailable lifecycle",
+        path: ["foreground"],
+      });
+    }
+    if (snapshot.phase === "running") {
+      context.addIssue({
+        code: "custom",
+        message: "The Phase 0 fixture must never report a running VPN",
+        path: ["phase"],
+      });
+    }
+  });
+export interface MobileVpnSnapshotDto extends z.infer<typeof MobileVpnSnapshotSchema> {}
+
+export const MobileVpnEventSchema = z
+  .object({
+    eventKind: z.literal("snapshot-changed"),
+    eventVersion: z.literal(1),
+    sequence: z.number().int().nonnegative(),
+    sessionId: z.string().min(1).max(128),
+    snapshot: MobileVpnSnapshotSchema,
+  })
+  .strict()
+  .superRefine((event, context) => {
+    if (
+      event.sequence !== event.snapshot.sequence ||
+      event.sessionId !== event.snapshot.sessionId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Mobile VPN event authority must match its snapshot",
+      });
+    }
+  });
+export interface MobileVpnEventDto extends z.infer<typeof MobileVpnEventSchema> {}
+
 export const ProbeStatusSchema = z.enum(["pending", "healthy", "error"]);
 export type ProbeStatus = z.infer<typeof ProbeStatusSchema>;
 
