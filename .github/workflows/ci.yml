@@ -282,15 +282,18 @@ jobs:
             apps/mobile/src-tauri/gen/android/*.gradle*
             apps/mobile/src-tauri/gen/android/**/build.gradle.kts
             apps/mobile/src-tauri/gen/android/**/gradle-wrapper.properties
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: 14742923
+          log-accepted-android-sdk-licenses: false
+          packages: ""
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install pinned Android components
         shell: bash
         run: |
           set -euo pipefail
-          set +o pipefail
-          yes | sdkmanager --licenses > /dev/null
-          set -o pipefail
           sdkmanager \
             "platforms;android-36" \
             "build-tools;36.1.0" \
