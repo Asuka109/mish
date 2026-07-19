@@ -136,6 +136,14 @@ type RootTranslation = {
 		 */
 		comingLater: string
 		/**
+		 * C​l​o​s​e​ ​w​i​n​d​o​w​ ​b​e​h​a​v​i​o​r
+		 */
+		closeWindow: string
+		/**
+		 * B​y​ ​d​e​f​a​u​l​t​,​ ​c​l​o​s​i​n​g​ ​t​h​e​ ​m​a​i​n​ ​w​i​n​d​o​w​ ​h​i​d​e​s​ ​i​t​ ​t​o​ ​t​h​e​ ​s​t​a​t​u​s​ ​b​a​r​ ​w​h​i​l​e​ ​M​i​s​h​ ​k​e​e​p​s​ ​s​u​p​e​r​v​i​s​i​n​g​ ​t​h​e​ ​c​o​r​e​ ​a​n​d​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​.​ ​C​h​o​o​s​e​ ​Q​u​i​t​ ​t​o​ ​r​e​s​t​o​r​e​ ​M​i​s​h​-​o​w​n​e​d​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​s​t​a​t​e​ ​a​n​d​ ​e​x​i​t​ ​i​n​s​t​e​a​d​.​ ​T​h​i​s​ ​i​s​ ​i​n​d​e​p​e​n​d​e​n​t​ ​f​r​o​m​ ​l​o​g​i​n​ ​l​a​u​n​c​h​ ​b​e​h​a​v​i​o​r​.
+		 */
+		closeWindowDescription: string
+		/**
 		 * C​o​n​f​i​r​m​e​d
 		 */
 		confirmed: string
@@ -167,6 +175,10 @@ type RootTranslation = {
 		 * F​o​l​l​o​w​s​ ​s​y​s​t​e​m
 		 */
 		followsSystem: string
+		/**
+		 * H​i​d​e​ ​t​o​ ​s​t​a​t​u​s​ ​b​a​r
+		 */
+		hideToStatusBar: string
 		/**
 		 * L​A​N​ ​c​o​n​t​r​o​l
 		 */
@@ -277,6 +289,10 @@ type RootTranslation = {
 			 */
 			unavailable: string
 		}
+		/**
+		 * Q​u​i​t​ ​M​i​s​h
+		 */
+		quitOnClose: string
 		/**
 		 * S​h​o​w​ ​w​i​n​d​o​w
 		 */
@@ -2668,6 +2684,14 @@ export type TranslationFunctions = {
 		 */
 		comingLater: () => LocalizedString
 		/**
+		 * Close window behavior
+		 */
+		closeWindow: () => LocalizedString
+		/**
+		 * By default, closing the main window hides it to the status bar while Mish keeps supervising the core and capture state. Choose Quit to restore Mish-owned System Proxy state and exit instead. This is independent from login launch behavior.
+		 */
+		closeWindowDescription: () => LocalizedString
+		/**
 		 * Confirmed
 		 */
 		confirmed: () => LocalizedString
@@ -2699,6 +2723,10 @@ export type TranslationFunctions = {
 		 * Follows system
 		 */
 		followsSystem: () => LocalizedString
+		/**
+		 * Hide to status bar
+		 */
+		hideToStatusBar: () => LocalizedString
 		/**
 		 * LAN control
 		 */
@@ -2809,6 +2837,10 @@ export type TranslationFunctions = {
 			 */
 			unavailable: () => LocalizedString
 		}
+		/**
+		 * Quit Mish
+		 */
+		quitOnClose: () => LocalizedString
 		/**
 		 * Show window
 		 */

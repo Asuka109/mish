@@ -17,7 +17,7 @@ use mish_runtime::{
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, SettingsAdapterKind, SettingsService,
-    SettingsServiceError, StartupPreferences,
+    SettingsServiceError, StartupPreferences, WindowCloseBehavior,
 };
 use tokio::sync::broadcast;
 
@@ -120,6 +120,12 @@ struct SetLanguageParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetStartupParams {
     startup: StartupPreferences,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetWindowCloseBehaviorParams {
+    behavior: WindowCloseBehavior,
 }
 
 struct SocketSubscriptions {
@@ -408,7 +414,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 7,
+            "protocolVersion": 8,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -876,6 +882,20 @@ async fn handle_message(
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
             match service.set_startup(params.startup) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.setWindowCloseBehavior" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetWindowCloseBehaviorParams = match serde_json::from_value(request.params)
+            {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.set_window_close_behavior(params.behavior) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
                 Err(error) => return Some(settings_error_response(id, error)),
             }

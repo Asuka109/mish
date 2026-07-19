@@ -17,7 +17,8 @@ Ordinary settings RPC accepts only these bounded commands:
 - set one of `system`, `light`, or `dark` appearance;
 - set one of `en` or `zh` interface language;
 - set a startup DTO containing `launchAtLogin` and exactly one
-  `show-window` or `background` login-launch behavior.
+  `show-window` or `background` login-launch behavior; or
+- set one of `hide-to-status-bar` or `quit` as the main-window close behavior.
 
 It accepts no file path, executable, shell command, endpoint, credential, raw
 configuration object, or arbitrary preference JSON.
@@ -30,9 +31,10 @@ The file has a numeric schema version, rejects unknown fields, and is bounded to
 atomically rename it over the destination, and flush the parent directory.
 
 Missing storage uses safe defaults: system appearance, English, launch at login
-off, and show the window for any future login launch. Version 0 appearance and
-locale data migrates into the current schema. Invalid, unsupported, or oversized
-storage is replaced atomically with safe defaults and reported once through
+off, show the window for any future login launch, and hide the main window to
+the status bar on close. Version 0 appearance/locale data and version 1 settings
+migrate into the current schema. Invalid, unsupported, or oversized storage is
+replaced atomically with safe defaults and reported once through
 `storageRecovered`; no system startup or network state is changed during
 recovery.
 
@@ -73,6 +75,19 @@ Language selection changes only localized Mish copy. Profile, group, node, and
 service labels remain opaque user-authored Unicode strings and are never passed
 through translation functions.
 
+## Window lifecycle
+
+`windowCloseBehavior` is independent from login registration and login-launch
+window behavior. macOS supports `hide-to-status-bar` and `quit`. The default
+hides the existing window while the process-owned bridge, runtime supervision,
+capture reconciliation, and native menu continue. Quit leaves the Tauri event
+loop and therefore runs the existing ordered bridge shutdown and conservative
+System Proxy restoration path. Browser and unsupported-platform adapters expose
+this capability as unavailable.
+
+The full native ownership and menu contract is documented in
+[`native-status-bar-lifecycle.md`](native-status-bar-lifecycle.md).
+
 ## Privacy and capability truthfulness
 
 The RPC settings snapshot confirms the properties enforced by the desktop
@@ -81,7 +96,9 @@ and exact origin validation. It never contains the authentication token. LAN
 control is unavailable and has no switch.
 
 Capability values come from the desktop composition, not the user agent or Web
-feature detection. TUN is unavailable. Network and DNS configuration, signed
+feature detection. The macOS composition advertises status-bar and window
+lifecycle support; browser and unsupported desktop compositions do not. TUN is
+unavailable. Network and DNS configuration, signed
 updates, backup and restore, and expert configuration are marked `coming-later`
 and remain non-interactive summaries until their platform and recovery contracts
 exist.

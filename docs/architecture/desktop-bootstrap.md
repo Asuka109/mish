@@ -120,7 +120,11 @@ claim that process memory is a secure enclave.
   recorded in its private journal. The generated Mihomo configuration and the
   macOS adapter share that same managed loopback endpoint. TUN and all other
   network-changing Status commands remain unsupported.
-- The Tauri shell has no status-bar menu yet.
+- The macOS shell has a native status-bar menu backed by the same runtime host,
+  capture reconciler, and profile activation coordinator as authenticated RPC.
+  It deliberately links to Routes instead of duplicating the complete policy-group
+  child tree, and the ordinary browser client remains unavailable because the
+  bridge does not host the product bundle.
 - Installer packaging, final icon production, entitlements, code signing,
   notarization, update metadata, and release distribution are not configured.
 - The current bundle identifier is a development identifier and must be reviewed

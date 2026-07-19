@@ -38,6 +38,9 @@ const en = {
     captureStartup: "Capture and startup",
     captureStartupDescription: "Owns durable OS capture intent and how Mish starts at login.",
     comingLater: "Coming later",
+    closeWindow: "Close window behavior",
+    closeWindowDescription:
+      "By default, closing the main window hides it to the status bar while Mish keeps supervising the core and capture state. Choose Quit to restore Mish-owned System Proxy state and exit instead. This is independent from login launch behavior.",
     confirmed: "Confirmed",
     description:
       "Settings are sourced from Mish's authenticated desktop bridge and private app data.",
@@ -50,6 +53,7 @@ const en = {
     fixtureDescription:
       "This browser fixture can preview appearance and language only. It cannot perform or confirm native macOS operations.",
     followsSystem: "Follows system",
+    hideToStatusBar: "Hide to status bar",
     lan: "LAN control",
     lanDescription:
       "No LAN listener or enable switch is provided. External control requires a separate security design.",
@@ -89,6 +93,7 @@ const en = {
       failed: "Observation failed",
       unavailable: "Unavailable",
     },
+    quitOnClose: "Quit Mish",
     showWindow: "Show window",
     softwareUpdates: "App, core, and GeoData updates",
     softwareUpdatesDescription:

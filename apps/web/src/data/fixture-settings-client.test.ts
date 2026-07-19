@@ -14,8 +14,15 @@ describe("browser settings fixture", () => {
     await expect(
       client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" }),
     ).rejects.toThrow(/unavailable/i);
+    await expect(client.setWindowCloseBehavior("quit")).rejects.toThrow(/unavailable/i);
     await expect(client.getSnapshot()).resolves.toMatchObject({
-      capabilities: { launchAtLogin: "unavailable", tun: "unavailable" },
+      capabilities: {
+        launchAtLogin: "unavailable",
+        statusBar: "unavailable",
+        tun: "unavailable",
+        windowLifecycle: "unavailable",
+      },
+      preferences: { windowCloseBehavior: "hide-to-status-bar" },
       privacy: { loopbackOnly: "unavailable" },
       startupRegistration: { observed: null, phase: "unavailable" },
     });

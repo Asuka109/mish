@@ -4,6 +4,7 @@ import type {
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
+  WindowCloseBehavior,
 } from "@mish/contracts";
 
 function storedAppearance(): AppearancePreference {
@@ -40,13 +41,16 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       launchAtLogin: "unavailable",
       nativeSidebarMaterial: "unavailable",
       networkDns: "coming-later",
+      statusBar: "unavailable",
       tun: "unavailable",
       updates: "coming-later",
+      windowLifecycle: "unavailable",
     },
     preferences: {
       appearance: storedAppearance(),
       language: storedLanguage(),
       startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" },
+      windowCloseBehavior: "hide-to-status-bar",
     },
     privacy: {
       authenticated: "unavailable",
@@ -78,5 +82,9 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async setStartup(_startup: StartupPreferencesDto): Promise<SettingsSnapshotDto> {
     throw new Error("Native startup operations are unavailable in the browser fixture");
+  }
+
+  async setWindowCloseBehavior(_behavior: WindowCloseBehavior): Promise<SettingsSnapshotDto> {
+    throw new Error("Native window lifecycle operations are unavailable in the browser fixture");
   }
 }

@@ -25,6 +25,8 @@ use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 
+mod status_bar;
+
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
 const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
@@ -43,6 +45,9 @@ struct BridgeState(Arc<Mutex<Option<LoopbackServerHandle>>>);
 
 #[derive(Clone)]
 struct ProfileState(Arc<DesktopProfileService>);
+
+#[derive(Clone)]
+struct SettingsState(Arc<SettingsService>);
 
 struct TauriStartupPlatform(tauri::AppHandle);
 
@@ -122,7 +127,33 @@ pub fn run() -> Result<i32, String> {
         ])
         .build(tauri::generate_context!())
         .map_err(|error| error.to_string())?;
-    let exit_code = app.run_return(|_, _| {});
+    let exit_code = app.run_return(|app, event| {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        if let tauri::RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } = event
+            && label == "main"
+        {
+            let behavior = app
+                .state::<SettingsState>()
+                .0
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .window_close_behavior;
+            if should_hide_main_window_on_close(behavior) {
+                api.prevent_close();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            } else {
+                app.exit(0);
+            }
+        }
+    });
     let bridge = bridge_state
         .0
         .lock()
@@ -193,6 +224,8 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             safe_runtime,
             ephemeral_runtime_policy,
         ));
+        let status_bar_state =
+            status_bar::StatusBarState::new(runtime_host.clone(), activation.clone());
         start_loopback_server_with_runtime_host(
             LoopbackServerConfig {
                 allowed_origins: allowed_origins(tauri::is_dev()),
@@ -207,7 +240,9 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .await
         .map_err(io::Error::other)
+        .map(|bridge| (bridge, status_bar_state))
     })?;
+    let (bridge, status_bar_state) = bridge;
     app.manage(RuntimeBootstrap {
         auth_token,
         native_sidebar_material: cfg!(target_os = "macos"),
@@ -215,10 +250,14 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         settings_snapshot: settings_service.snapshot(SettingsAdapterKind::Rpc),
     });
     app.manage(ProfileState(profile_service));
+    app.manage(SettingsState(settings_service.clone()));
     *app.state::<BridgeState>()
         .0
         .lock()
         .map_err(|_| io::Error::other("desktop bridge state is unavailable"))? = Some(bridge);
+    if cfg!(target_os = "macos") {
+        status_bar::initialize(app, status_bar_state)?;
+    }
     if should_show_main_window(
         std::env::args().any(|argument| argument == LOGIN_STARTUP_ARGUMENT),
         settings_service
@@ -253,8 +292,10 @@ fn desktop_settings_capabilities() -> SettingsCapabilities {
             launch_at_login: SettingsAvailability::Unavailable,
             native_sidebar_material: SettingsAvailability::Unavailable,
             network_dns: SettingsAvailability::ComingLater,
+            status_bar: SettingsAvailability::Unavailable,
             tun: SettingsAvailability::Unavailable,
             updates: SettingsAvailability::ComingLater,
+            window_lifecycle: SettingsAvailability::Unavailable,
         }
     }
 }
@@ -270,6 +311,10 @@ fn settings_initialization_error(error: SettingsServiceError) -> io::Error {
 
 fn should_show_main_window(login_startup: bool, behavior: LoginLaunchBehavior) -> bool {
     !login_startup || behavior == LoginLaunchBehavior::ShowWindow
+}
+
+fn should_hide_main_window_on_close(behavior: mish_settings::WindowCloseBehavior) -> bool {
+    behavior == mish_settings::WindowCloseBehavior::HideToStatusBar
 }
 
 fn managed_mihomo_resolver(
@@ -356,10 +401,10 @@ fn generate_auth_token() -> Result<String, String> {
 mod tests {
     use super::{
         DEV_ORIGIN, PRODUCTION_ORIGINS, allowed_origins, generate_auth_token,
-        managed_mihomo_resolver, should_show_main_window,
+        managed_mihomo_resolver, should_hide_main_window_on_close, should_show_main_window,
     };
     use mish_bridge::MihomoResolveError;
-    use mish_settings::LoginLaunchBehavior;
+    use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
 
     #[test]
     fn authentication_tokens_are_fresh_256_bit_hex_values() {
@@ -417,5 +462,13 @@ mod tests {
             true,
             LoginLaunchBehavior::Background
         ));
+    }
+
+    #[test]
+    fn close_behavior_defaults_to_hiding_but_can_request_exit() {
+        assert!(should_hide_main_window_on_close(
+            WindowCloseBehavior::default()
+        ));
+        assert!(!should_hide_main_window_on_close(WindowCloseBehavior::Quit));
     }
 }

@@ -72,11 +72,24 @@ core is confirmed healthy. Mish journals the minimum prior network-service
 state privately, applies only HTTP, HTTPS, and SOCKS settings, confirms the OS
 result, and restores exact Mish-owned state on shutdown or restart audit. PAC,
 automatic discovery, and authenticated settings are never overwritten. TUN,
-status-bar behavior, packaging icons, signing, and notarization remain separate
-platform slices.
+packaging icons, signing, and notarization remain separate platform slices.
 
 Launch at login uses Tauri's macOS LaunchAgent integration with a fixed login
 startup argument. The preference is persisted only after registration is
 re-observed. Login launches can either show the main window or remain in the
 background; manual launches always show the window. The default remains launch
 at login off.
+
+The macOS shell also installs a native status-bar menu backed directly by the
+same runtime host, capture reconciler, and profile activation coordinator as the
+authenticated Web UI. It exposes current profile state, System Proxy commands
+and recovery, routing mode when supported, a Routes entry, Core restart/recovery,
+and quit. TUN and the ordinary browser client are explicitly unavailable. The
+menu never lists nodes, service URLs, RPC endpoints, paths, or credentials.
+
+Closing the main window defaults to hiding the existing window while the bridge,
+Core supervision, capture reconciliation, and status menu continue. Settings can
+change this to quit, which runs ordered shutdown and conservative restoration of
+confirmed Mish-owned System Proxy state. This close behavior is independent from
+login launch behavior. See
+[`../../docs/architecture/native-status-bar-lifecycle.md`](../../docs/architecture/native-status-bar-lifecycle.md).

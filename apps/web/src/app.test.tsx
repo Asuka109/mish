@@ -126,8 +126,10 @@ class DesktopSettingsClient implements SettingsClient {
       launchAtLogin: "supported",
       nativeSidebarMaterial: "supported",
       networkDns: "coming-later",
+      statusBar: "supported",
       tun: "unavailable",
       updates: "coming-later",
+      windowLifecycle: "supported",
     },
     privacy: {
       authenticated: "confirmed",
@@ -154,6 +156,10 @@ class DesktopSettingsClient implements SettingsClient {
       observed: startup.launchAtLogin,
       phase: "applied",
     };
+    return this.getSnapshot();
+  });
+  setWindowCloseBehavior = vi.fn(async (behavior: "hide-to-status-bar" | "quit") => {
+    this.snapshot.preferences.windowCloseBehavior = behavior;
     return this.getSnapshot();
   });
 }
@@ -422,6 +428,27 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
+  it("keeps close behavior independent from login launch behavior", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    const hide = await screen.findByRole("button", { name: "Hide to status bar" });
+    const quit = screen.getByRole("button", { name: "Quit Mish" });
+    expect(hide).toHaveAttribute("aria-pressed", "true");
+    await user.click(quit);
+
+    await waitFor(() => expect(settingsClient.setWindowCloseBehavior).toHaveBeenCalledWith("quit"));
+    expect(settingsClient.setStartup).not.toHaveBeenCalled();
+  });
+
   it("separates login registration from the exclusive login-window behavior", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();

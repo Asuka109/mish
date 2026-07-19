@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 
-const CURRENT_SCHEMA_VERSION: u8 = 1;
+const CURRENT_SCHEMA_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -41,6 +41,14 @@ pub enum LoginLaunchBehavior {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowCloseBehavior {
+    #[default]
+    HideToStatusBar,
+    Quit,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartupPreferences {
     pub launch_at_login: bool,
@@ -53,6 +61,7 @@ pub struct SettingsPreferences {
     pub appearance: AppearancePreference,
     pub language: LanguagePreference,
     pub startup: StartupPreferences,
+    pub window_close_behavior: WindowCloseBehavior,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -79,8 +88,10 @@ pub struct SettingsCapabilities {
     pub launch_at_login: SettingsAvailability,
     pub network_dns: SettingsAvailability,
     pub native_sidebar_material: SettingsAvailability,
+    pub status_bar: SettingsAvailability,
     pub tun: SettingsAvailability,
     pub updates: SettingsAvailability,
+    pub window_lifecycle: SettingsAvailability,
 }
 
 impl SettingsCapabilities {
@@ -96,8 +107,10 @@ impl SettingsCapabilities {
             } else {
                 SettingsAvailability::Unavailable
             },
+            status_bar: SettingsAvailability::Supported,
             tun: SettingsAvailability::Unavailable,
             updates: SettingsAvailability::ComingLater,
+            window_lifecycle: SettingsAvailability::Supported,
         }
     }
 }
@@ -330,6 +343,20 @@ impl SettingsService {
         }
     }
 
+    pub fn set_window_close_behavior(
+        &self,
+        behavior: WindowCloseBehavior,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        if self.capabilities.window_lifecycle != SettingsAvailability::Supported {
+            return Err(SettingsServiceError::CapabilityUnavailable);
+        }
+        self.update(|preferences| preferences.window_close_behavior = behavior)
+    }
+
     fn update(
         &self,
         mutate: impl FnOnce(&mut SettingsPreferences),
@@ -381,9 +408,24 @@ impl FileSettingsRepository {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct StoredSettingsV1 {
+struct StoredSettingsV2 {
     preferences: SettingsPreferences,
     schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSettingsV1 {
+    preferences: SettingsPreferencesV1,
+    schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettingsPreferencesV1 {
+    appearance: AppearancePreference,
+    language: LanguagePreference,
+    startup: StartupPreferences,
 }
 
 #[derive(Deserialize)]
@@ -417,11 +459,27 @@ impl SettingsRepository for FileSettingsRepository {
             .and_then(serde_json::Value::as_u64)
         {
             Some(version) if version == u64::from(CURRENT_SCHEMA_VERSION) => {
-                let stored: StoredSettingsV1 =
+                let stored: StoredSettingsV2 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
                 Ok(LoadedSettings {
                     migrated: false,
                     preferences: stored.preferences,
+                })
+            }
+            Some(1) => {
+                let stored: StoredSettingsV1 =
+                    serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if stored.schema_version != 1 {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
+                Ok(LoadedSettings {
+                    migrated: true,
+                    preferences: SettingsPreferences {
+                        appearance: stored.preferences.appearance,
+                        language: stored.preferences.language,
+                        startup: stored.preferences.startup,
+                        window_close_behavior: WindowCloseBehavior::default(),
+                    },
                 })
             }
             Some(0) => {
@@ -436,6 +494,7 @@ impl SettingsRepository for FileSettingsRepository {
                         appearance: stored.theme,
                         language: stored.locale,
                         startup: StartupPreferences::default(),
+                        window_close_behavior: WindowCloseBehavior::default(),
                     },
                 })
             }
@@ -444,7 +503,7 @@ impl SettingsRepository for FileSettingsRepository {
     }
 
     fn save(&self, preferences: &SettingsPreferences) -> Result<(), SettingsRepositoryError> {
-        let bytes = serde_json::to_vec(&StoredSettingsV1 {
+        let bytes = serde_json::to_vec(&StoredSettingsV2 {
             preferences: *preferences,
             schema_version: CURRENT_SCHEMA_VERSION,
         })
@@ -561,6 +620,7 @@ mod tests {
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
+            window_close_behavior: WindowCloseBehavior::Quit,
         };
         repository.save(&preferences).expect("save settings");
         assert_eq!(
@@ -605,6 +665,58 @@ mod tests {
             AppearancePreference::Dark
         );
         assert!(!repository.load().expect("rewritten settings").migrated);
+    }
+
+    #[test]
+    fn version_one_preferences_migrate_to_the_safe_hide_default() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":1,"preferences":{"appearance":"light","language":"en","startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"}}}"#,
+        )
+        .expect("version one settings");
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            SettingsCapabilities {
+                launch_at_login: SettingsAvailability::Unavailable,
+                ..SettingsCapabilities::macos(true)
+            },
+        )
+        .expect("migrated settings service");
+
+        assert_eq!(
+            service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .window_close_behavior,
+            WindowCloseBehavior::HideToStatusBar
+        );
+        assert!(!repository.load().expect("rewritten settings").migrated);
+    }
+
+    #[test]
+    fn close_behavior_is_independent_from_login_launch_behavior() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load(
+            repository,
+            None,
+            SettingsCapabilities {
+                launch_at_login: SettingsAvailability::Unavailable,
+                ..SettingsCapabilities::macos(true)
+            },
+        )
+        .expect("settings service");
+
+        let snapshot = service
+            .set_window_close_behavior(WindowCloseBehavior::Quit)
+            .expect("confirmed window lifecycle update");
+
+        assert_eq!(
+            snapshot.preferences.window_close_behavior,
+            WindowCloseBehavior::Quit
+        );
+        assert_eq!(snapshot.preferences.startup, StartupPreferences::default());
     }
 
     #[test]
