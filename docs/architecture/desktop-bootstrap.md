@@ -76,9 +76,13 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
 Apple requires sleep and wake observers to use the `NSWorkspace` notification
 center. Primary-service changes use notification keys in the SystemConfiguration
 dynamic store rather than reachability polling or an application-owned network
-probe. The event source watches only global IPv4/IPv6 configuration keys; it does
+probe. The event source watches only global IPv4/IPv6/DNS configuration keys; it does
 not expose changed keys, service names, routes, or arbitrary network parameters
 to RPC.
+The same lifecycle coordinator invalidates the process-local Network and DNS
+Settings observation before sleep, wake, primary-network changes, and Core
+availability boundaries. Wake, network change, and healthy Core boundaries
+request a new generation; late prior-generation results are discarded.
 
 Local-file profile preflight uses a separate Tauri command granted only to the
 main window. The command accepts no path from Web content: it opens the native

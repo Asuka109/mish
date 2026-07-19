@@ -27,15 +27,24 @@ pub struct DesktopLifecycleCoordinator {
     host: DesktopRuntimeHost,
     last_platform_sequence: Arc<AtomicU64>,
     sleeping: Arc<AtomicBool>,
+    settings: Option<Arc<mish_settings::SettingsService>>,
     transition: Arc<AsyncMutex<()>>,
 }
 
 impl DesktopLifecycleCoordinator {
     pub fn new(host: DesktopRuntimeHost) -> Self {
+        Self::with_settings(host, None)
+    }
+
+    pub fn with_settings(
+        host: DesktopRuntimeHost,
+        settings: Option<Arc<mish_settings::SettingsService>>,
+    ) -> Self {
         Self {
             host,
             last_platform_sequence: Arc::new(AtomicU64::new(0)),
             sleeping: Arc::new(AtomicBool::new(false)),
+            settings,
             transition: Arc::new(AsyncMutex::new(())),
         }
     }
@@ -54,6 +63,7 @@ impl DesktopLifecycleCoordinator {
         match event.kind {
             PlatformLifecycleEventKind::Sleep => {
                 self.sleeping.store(true, Ordering::Release);
+                self.invalidate_network_dns();
                 self.host.invalidate_diagnostics();
                 self.host
                     .current()
@@ -63,13 +73,17 @@ impl DesktopLifecycleCoordinator {
             }
             PlatformLifecycleEventKind::Wake => {
                 self.sleeping.store(false, Ordering::Release);
+                self.invalidate_network_dns();
                 self.rebuild_current_authority(RuntimeObservationPauseReason::NetworkChanged)
                     .await?;
+                self.refresh_network_dns().await;
                 Ok(LifecycleEventDisposition::Applied)
             }
             PlatformLifecycleEventKind::NetworkChanged => {
+                self.invalidate_network_dns();
                 self.rebuild_current_authority(RuntimeObservationPauseReason::NetworkChanged)
                     .await?;
+                self.refresh_network_dns().await;
                 Ok(LifecycleEventDisposition::Applied)
             }
         }
@@ -82,6 +96,7 @@ impl DesktopLifecycleCoordinator {
         let _transition = self.transition.lock().await;
         let runtime = self.host.current();
         self.host.invalidate_diagnostics();
+        self.invalidate_network_dns();
         if !running {
             runtime
                 .pause_observations(RuntimeObservationPauseReason::CoreUnavailable)
@@ -99,8 +114,9 @@ impl DesktopLifecycleCoordinator {
         runtime
             .restore_capture_intent()
             .await
-            .map(|_| ())
-            .map_err(capture_error)
+            .map_err(capture_error)?;
+        self.refresh_network_dns().await;
+        Ok(())
     }
 
     pub async fn periodic_audit(&self) -> Result<(), LifecycleCoordinationError> {
@@ -153,15 +169,28 @@ impl DesktopLifecycleCoordinator {
             .map(|_| ())
             .map_err(capture_error)
     }
+
+    fn invalidate_network_dns(&self) {
+        if let Some(settings) = &self.settings {
+            settings.invalidate_network_dns();
+        }
+    }
+
+    async fn refresh_network_dns(&self) {
+        if let Some(settings) = &self.settings {
+            settings.refresh_network_dns().await;
+        }
+    }
 }
 
 pub(crate) fn spawn_lifecycle_coordination(
     host: DesktopRuntimeHost,
     source: Option<Arc<dyn PlatformLifecycleEventSource>>,
+    settings: Option<Arc<mish_settings::SettingsService>>,
     mut shutdown: oneshot::Receiver<()>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let coordinator = DesktopLifecycleCoordinator::new(host.clone());
+        let coordinator = DesktopLifecycleCoordinator::with_settings(host.clone(), settings);
         let mut platform_events = source.map(|source| source.subscribe());
         let mut runtime_changes = host.subscribe_changes();
         let initial_runtime = runtime_changes.borrow_and_update().clone();

@@ -16,6 +16,10 @@ export class RpcSettingsClient implements SettingsClient {
     return this.rpc.request("settings.getSnapshot", {}, options);
   }
 
+  refreshNetworkDns(options?: RpcRequestOptions) {
+    return this.rpc.request("settings.refreshNetworkDns", {}, options);
+  }
+
   installTunHelper(options?: RpcRequestOptions) {
     return this.rpc.request("settings.installTunHelper", {}, options);
   }

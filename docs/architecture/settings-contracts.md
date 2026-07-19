@@ -28,6 +28,12 @@ last typed failure. Each operation reobserves the helper before returning. The
 closed privileged contract is defined in
 [`macos-tun-helper.md`](macos-tun-helper.md).
 
+`settings.refreshNetworkDns` is also an empty-parameter, read-only action. It
+returns a bounded current/stale/unknown/failed observation and never accepts an
+interface, route, DNS value, executable, path, or shell string. Its source,
+lifecycle authority, parsing, and privacy rules are defined in
+[`network-dns-observation.md`](network-dns-observation.md).
+
 It accepts no file path, executable, shell command, endpoint, credential, raw
 configuration object, or arbitrary preference JSON.
 
@@ -127,10 +133,16 @@ Capability values come from the desktop composition, not the user agent or Web
 feature detection. The macOS composition advertises status-bar and window
 lifecycle support; browser and unsupported desktop compositions do not. TUN is
 supported only when the signed helper is observed healthy; the current
-development build reports its unsigned or unpackaged boundary. Network and DNS
+development build reports its unsigned or unpackaged boundary. macOS Network
+and DNS observation is supported as a read-only, non-persistent snapshot;
+browsers and non-macOS compositions report it unavailable. Network and DNS
 configuration, signed updates, and expert configuration remain non-interactive
-summaries until their platform and recovery contracts exist. Local backup and
+until their separate mutation and rollback contracts exist. Local backup and
 restore are supported only by the desktop composition through the native file
 boundary documented in
 [`local-backup-restore.md`](local-backup-restore.md); ordinary browsers report
 the capability as unavailable.
+
+Full DNS servers, search domains, network-service names, and interface
+identifiers stay only in the authenticated local Settings response. They are
+excluded from Events, logs, error text, persistence, and support bundles.

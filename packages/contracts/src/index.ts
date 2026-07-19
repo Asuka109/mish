@@ -1100,6 +1100,50 @@ export const SettingsSnapshotSchema = z
   .object({
     adapterKind: SettingsAdapterKindSchema,
     capabilities: SettingsCapabilitiesSchema,
+    networkDns: z
+      .object({
+        dns: z
+          .object({
+            resolverCount: z.number().int().min(0).max(64),
+            scopedResolverCount: z.number().int().min(0).max(64),
+            searchDomains: z.array(z.string().min(1).max(253)).max(32),
+            servers: z.array(z.string().min(1).max(253)).max(32),
+          })
+          .strict()
+          .nullable(),
+        failure: z
+          .enum([
+            "command-failed",
+            "command-unavailable",
+            "invalid-output",
+            "output-too-large",
+            "timed-out",
+          ])
+          .nullable(),
+        observedAt: z.number().int().nonnegative().nullable(),
+        phase: z.enum(["failed", "ready", "stale", "unavailable", "unknown"]),
+        interfaces: z
+          .array(
+            z
+              .object({
+                interface: z.string().min(1).max(64),
+                interfaceKind: z.enum([
+                  "ethernet",
+                  "other",
+                  "thunderbolt-bridge",
+                  "unknown",
+                  "wifi",
+                ]),
+                ipv4Available: z.boolean(),
+                ipv6Available: z.boolean(),
+                service: z.string().min(1).max(253).nullable(),
+              })
+              .strict(),
+          )
+          .max(16),
+        source: z.literal("macos-system-configuration").nullable(),
+      })
+      .strict(),
     preferences: SettingsPreferencesSchema,
     privacy: PrivacyAccessSnapshotSchema,
     startupRegistration: StartupRegistrationSnapshotSchema,
@@ -1346,7 +1390,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(12),
+    protocolVersion: z.literal(13),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -2115,6 +2159,10 @@ export const SetWindowSurfacePreferenceCommandSchema = z
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
+  "settings.refreshNetworkDns": {
+    params: EmptyCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
   "settings.installTunHelper": {
     params: EmptyCommandSchema,
     result: RpcSettingsSnapshotSchema,
@@ -2272,6 +2320,7 @@ export interface StatusClient {
 
 export interface SettingsClient {
   getSnapshot(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  refreshNetworkDns(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   installTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   repairTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   removeTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;

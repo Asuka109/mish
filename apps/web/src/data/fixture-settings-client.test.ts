@@ -21,13 +21,16 @@ describe("browser settings fixture", () => {
     await expect(client.installTunHelper()).rejects.toThrow(/unavailable/i);
     await expect(client.repairTunHelper()).rejects.toThrow(/unavailable/i);
     await expect(client.removeTunHelper()).rejects.toThrow(/unavailable/i);
+    await expect(client.refreshNetworkDns()).rejects.toThrow(/unavailable/i);
     await expect(client.getSnapshot()).resolves.toMatchObject({
       capabilities: {
         launchAtLogin: "unavailable",
+        networkDns: "unavailable",
         statusBar: "unavailable",
         tun: "unavailable",
         windowLifecycle: "unavailable",
       },
+      networkDns: { interfaces: [], phase: "unavailable", source: null },
       preferences: { windowCloseBehavior: "hide-to-status-bar", windowSurface: "opaque" },
       privacy: { loopbackOnly: "unavailable" },
       startupRegistration: { observed: null, phase: "unavailable" },

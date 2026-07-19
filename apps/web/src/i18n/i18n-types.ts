@@ -319,11 +319,11 @@ type RootTranslation = {
 		 */
 		description: string
 		/**
-		 * D​N​S​ ​p​o​l​i​c​y
+		 * D​N​S​ ​r​e​s​o​l​v​e​r​s
 		 */
 		dns: string
 		/**
-		 * M​i​s​h​ ​d​o​e​s​ ​n​o​t​ ​e​x​p​o​s​e​ ​D​N​S​ ​f​i​e​l​d​s​ ​u​n​t​i​l​ ​e​f​f​e​c​t​i​v​e​-​s​t​a​t​e​ ​v​a​l​i​d​a​t​i​o​n​ ​a​n​d​ ​s​a​f​e​ ​r​o​l​l​b​a​c​k​ ​e​x​i​s​t​.
+		 * R​e​s​o​l​v​e​r​ ​c​o​u​n​t​s​ ​a​n​d​ ​t​h​e​ ​l​o​c​a​l​l​y​ ​o​b​s​e​r​v​e​d​ ​s​e​r​v​e​r​ ​l​i​s​t​.​ ​M​i​s​h​ ​d​o​e​s​ ​n​o​t​ ​c​h​a​n​g​e​ ​D​N​S​ ​s​e​t​t​i​n​g​s​.
 		 */
 		dnsDescription: string
 		/**
@@ -399,15 +399,162 @@ type RootTranslation = {
 		 */
 		network: string
 		/**
-		 * R​i​s​k​-​s​e​n​s​i​t​i​v​e​ ​c​o​r​e​ ​n​e​t​w​o​r​k​i​n​g​ ​r​e​m​a​i​n​s​ ​s​u​m​m​a​r​y​-​o​n​l​y​ ​u​n​t​i​l​ ​i​t​ ​c​a​n​ ​b​e​ ​o​b​s​e​r​v​e​d​ ​a​n​d​ ​r​e​v​e​r​s​e​d​ ​s​a​f​e​l​y​.
+		 * R​e​a​d​-​o​n​l​y​ ​m​a​c​O​S​ ​o​b​s​e​r​v​a​t​i​o​n​s​ ​f​o​r​ ​t​r​o​u​b​l​e​s​h​o​o​t​i​n​g​.​ ​N​o​ ​i​n​t​e​r​f​a​c​e​,​ ​r​o​u​t​e​,​ ​o​r​ ​D​N​S​ ​s​e​t​t​i​n​g​ ​c​a​n​ ​b​e​ ​c​h​a​n​g​e​d​ ​h​e​r​e​.
 		 */
 		networkDescription: string
+		networkDns: {
+			failure: {
+				/**
+				 * T​h​e​ ​m​a​c​O​S​ ​o​b​s​e​r​v​a​t​i​o​n​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.
+				 */
+				'command-failed': string
+				/**
+				 * T​h​e​ ​r​e​q​u​i​r​e​d​ ​m​a​c​O​S​ ​o​b​s​e​r​v​a​t​i​o​n​ ​c​o​m​m​a​n​d​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+				 */
+				'command-unavailable': string
+				/**
+				 * m​a​c​O​S​ ​r​e​t​u​r​n​e​d​ ​a​n​ ​o​b​s​e​r​v​a​t​i​o​n​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​v​a​l​i​d​a​t​e​.
+				 */
+				'invalid-output': string
+				/**
+				 * m​a​c​O​S​ ​r​e​t​u​r​n​e​d​ ​m​o​r​e​ ​o​b​s​e​r​v​a​t​i​o​n​ ​d​a​t​a​ ​t​h​a​n​ ​M​i​s​h​ ​a​c​c​e​p​t​s​.
+				 */
+				'output-too-large': string
+				/**
+				 * T​h​e​ ​m​a​c​O​S​ ​o​b​s​e​r​v​a​t​i​o​n​ ​d​i​d​ ​n​o​t​ ​f​i​n​i​s​h​ ​b​e​f​o​r​e​ ​t​h​e​ ​d​e​a​d​l​i​n​e​.
+				 */
+				'timed-out': string
+			}
+			interfaceKinds: {
+				/**
+				 * E​t​h​e​r​n​e​t
+				 */
+				ethernet: string
+				/**
+				 * O​t​h​e​r
+				 */
+				other: string
+				/**
+				 * T​h​u​n​d​e​r​b​o​l​t​ ​B​r​i​d​g​e
+				 */
+				'thunderbolt-bridge': string
+				/**
+				 * U​n​k​n​o​w​n
+				 */
+				unknown: string
+				/**
+				 * W​i​-​F​i
+				 */
+				wifi: string
+			}
+			/**
+			 * A​d​d​r​e​s​s​-​f​a​m​i​l​y​ ​a​v​a​i​l​a​b​i​l​i​t​y
+			 */
+			ipAvailability: string
+			/**
+			 * A​v​a​i​l​a​b​i​l​i​t​y​ ​i​s​ ​c​o​n​f​i​r​m​e​d​ ​p​e​r​ ​a​c​t​i​v​e​ ​i​n​t​e​r​f​a​c​e​;​ ​i​n​t​e​r​f​a​c​e​ ​a​d​d​r​e​s​s​e​s​ ​a​r​e​ ​n​o​t​ ​r​e​t​a​i​n​e​d​ ​h​e​r​e​.
+			 */
+			ipAvailabilityDescription: string
+			/**
+			 * N​o​ ​a​c​t​i​v​e​ ​i​n​t​e​r​f​a​c​e​s​ ​r​e​p​o​r​t​e​d
+			 */
+			noActiveInterfaces: string
+			/**
+			 * N​o​ ​s​e​a​r​c​h​ ​d​o​m​a​i​n​s​ ​r​e​p​o​r​t​e​d
+			 */
+			noSearchDomains: string
+			/**
+			 * N​o​ ​D​N​S​ ​s​e​r​v​e​r​s​ ​r​e​p​o​r​t​e​d
+			 */
+			noServers: string
+			/**
+			 * C​u​r​r​e​n​t​ ​o​b​s​e​r​v​a​t​i​o​n
+			 */
+			observation: string
+			/**
+			 * R​e​f​r​e​s​h​ ​f​a​i​l​e​d​.​ ​A​n​y​ ​r​e​t​a​i​n​e​d​ ​v​a​l​u​e​s​ ​b​e​l​o​w​ ​a​r​e​ ​n​o​t​ ​c​u​r​r​e​n​t​.
+			 */
+			observationFailed: string
+			/**
+			 * O​b​s​e​r​v​e​d​ ​{​t​i​m​e​}​ ​f​r​o​m​ ​m​a​c​O​S​ ​S​y​s​t​e​m​ ​C​o​n​f​i​g​u​r​a​t​i​o​n​.
+			 * @param {string} time
+			 */
+			observationReady: RequiredParams<'time'>
+			/**
+			 * T​h​e​ ​l​a​s​t​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​s​t​a​l​e​ ​a​n​d​ ​m​u​s​t​ ​n​o​t​ ​b​e​ ​t​r​e​a​t​e​d​ ​a​s​ ​c​u​r​r​e​n​t​.
+			 */
+			observationStale: string
+			/**
+			 * N​a​t​i​v​e​ ​N​e​t​w​o​r​k​ ​a​n​d​ ​D​N​S​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​l​a​t​f​o​r​m​.
+			 */
+			observationUnavailable: string
+			/**
+			 * N​o​ ​c​u​r​r​e​n​t​ ​m​a​c​O​S​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​a​v​a​i​l​a​b​l​e​ ​y​e​t​.
+			 */
+			observationUnknown: string
+			/**
+			 * A​c​t​i​v​e​ ​n​e​t​w​o​r​k​s
+			 */
+			primary: string
+			/**
+			 * A​c​t​i​v​e​ ​i​n​t​e​r​f​a​c​e​s​ ​a​n​d​ ​m​a​t​c​h​i​n​g​ ​m​a​c​O​S​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​s​ ​w​h​e​n​ ​S​y​s​t​e​m​ ​C​o​n​f​i​g​u​r​a​t​i​o​n​ ​c​a​n​ ​c​o​n​f​i​r​m​ ​t​h​e​m​.
+			 */
+			primaryDescription: string
+			/**
+			 * R​e​f​r​e​s​h​ ​o​b​s​e​r​v​a​t​i​o​n
+			 */
+			refresh: string
+			/**
+			 * {​r​e​s​o​l​v​e​r​s​}​ ​r​e​s​o​l​v​e​r​s​ ​·​ ​{​s​c​o​p​e​d​}​ ​s​c​o​p​e​d
+			 * @param {number} resolvers
+			 * @param {number} scoped
+			 */
+			resolverSummary: RequiredParams<'resolvers' | 'scoped'>
+			/**
+			 * S​e​a​r​c​h​ ​d​o​m​a​i​n​s
+			 */
+			searchDomains: string
+			/**
+			 * F​u​l​l​ ​v​a​l​u​e​s​ ​s​t​a​y​ ​i​n​ ​t​h​i​s​ ​l​o​c​a​l​ ​v​i​e​w​ ​a​n​d​ ​a​r​e​ ​e​x​c​l​u​d​e​d​ ​f​r​o​m​ ​e​v​e​n​t​s​,​ ​l​o​g​s​,​ ​a​n​d​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e​s​.
+			 */
+			searchDomainsDescription: string
+			/**
+			 * F​u​l​l​ ​v​a​l​u​e​s​ ​s​t​a​y​ ​i​n​ ​t​h​i​s​ ​l​o​c​a​l​ ​v​i​e​w​ ​a​n​d​ ​a​r​e​ ​e​x​c​l​u​d​e​d​ ​f​r​o​m​ ​e​v​e​n​t​s​,​ ​l​o​g​s​,​ ​a​n​d​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e​s​.
+			 */
+			serversDescription: string
+			/**
+			 * m​a​c​O​S​ ​S​y​s​t​e​m​ ​C​o​n​f​i​g​u​r​a​t​i​o​n
+			 */
+			source: string
+			state: {
+				/**
+				 * F​a​i​l​e​d
+				 */
+				failed: string
+				/**
+				 * C​u​r​r​e​n​t
+				 */
+				ready: string
+				/**
+				 * S​t​a​l​e
+				 */
+				stale: string
+				/**
+				 * U​n​a​v​a​i​l​a​b​l​e
+				 */
+				unavailable: string
+				/**
+				 * U​n​k​n​o​w​n
+				 */
+				unknown: string
+			}
+		}
 		/**
-		 * P​o​r​t​s​,​ ​I​P​v​6​,​ ​a​n​d​ ​i​n​t​e​r​f​a​c​e​s
+		 * A​c​t​i​v​e​ ​s​e​r​v​i​c​e​s​ ​a​n​d​ ​i​n​t​e​r​f​a​c​e​s
 		 */
 		networkPolicy: string
 		/**
-		 * N​o​ ​l​o​n​g​-​f​o​r​m​ ​n​e​t​w​o​r​k​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​s​l​i​c​e​.
+		 * R​e​a​d​-​o​n​l​y​ ​s​e​r​v​i​c​e​,​ ​d​e​v​i​c​e​,​ ​i​n​t​e​r​f​a​c​e​ ​t​y​p​e​,​ ​I​P​v​4​,​ ​a​n​d​ ​I​P​v​6​ ​s​t​a​t​e​.
 		 */
 		networkPolicyDescription: string
 		/**
@@ -3734,11 +3881,11 @@ export type TranslationFunctions = {
 		 */
 		description: () => LocalizedString
 		/**
-		 * DNS policy
+		 * DNS resolvers
 		 */
 		dns: () => LocalizedString
 		/**
-		 * Mish does not expose DNS fields until effective-state validation and safe rollback exist.
+		 * Resolver counts and the locally observed server list. Mish does not change DNS settings.
 		 */
 		dnsDescription: () => LocalizedString
 		/**
@@ -3814,15 +3961,159 @@ export type TranslationFunctions = {
 		 */
 		network: () => LocalizedString
 		/**
-		 * Risk-sensitive core networking remains summary-only until it can be observed and reversed safely.
+		 * Read-only macOS observations for troubleshooting. No interface, route, or DNS setting can be changed here.
 		 */
 		networkDescription: () => LocalizedString
+		networkDns: {
+			failure: {
+				/**
+				 * The macOS observation command failed.
+				 */
+				'command-failed': () => LocalizedString
+				/**
+				 * The required macOS observation command is unavailable.
+				 */
+				'command-unavailable': () => LocalizedString
+				/**
+				 * macOS returned an observation Mish could not validate.
+				 */
+				'invalid-output': () => LocalizedString
+				/**
+				 * macOS returned more observation data than Mish accepts.
+				 */
+				'output-too-large': () => LocalizedString
+				/**
+				 * The macOS observation did not finish before the deadline.
+				 */
+				'timed-out': () => LocalizedString
+			}
+			interfaceKinds: {
+				/**
+				 * Ethernet
+				 */
+				ethernet: () => LocalizedString
+				/**
+				 * Other
+				 */
+				other: () => LocalizedString
+				/**
+				 * Thunderbolt Bridge
+				 */
+				'thunderbolt-bridge': () => LocalizedString
+				/**
+				 * Unknown
+				 */
+				unknown: () => LocalizedString
+				/**
+				 * Wi-Fi
+				 */
+				wifi: () => LocalizedString
+			}
+			/**
+			 * Address-family availability
+			 */
+			ipAvailability: () => LocalizedString
+			/**
+			 * Availability is confirmed per active interface; interface addresses are not retained here.
+			 */
+			ipAvailabilityDescription: () => LocalizedString
+			/**
+			 * No active interfaces reported
+			 */
+			noActiveInterfaces: () => LocalizedString
+			/**
+			 * No search domains reported
+			 */
+			noSearchDomains: () => LocalizedString
+			/**
+			 * No DNS servers reported
+			 */
+			noServers: () => LocalizedString
+			/**
+			 * Current observation
+			 */
+			observation: () => LocalizedString
+			/**
+			 * Refresh failed. Any retained values below are not current.
+			 */
+			observationFailed: () => LocalizedString
+			/**
+			 * Observed {time} from macOS System Configuration.
+			 */
+			observationReady: (arg: { time: string }) => LocalizedString
+			/**
+			 * The last observation is stale and must not be treated as current.
+			 */
+			observationStale: () => LocalizedString
+			/**
+			 * Native Network and DNS observation is unavailable on this platform.
+			 */
+			observationUnavailable: () => LocalizedString
+			/**
+			 * No current macOS observation is available yet.
+			 */
+			observationUnknown: () => LocalizedString
+			/**
+			 * Active networks
+			 */
+			primary: () => LocalizedString
+			/**
+			 * Active interfaces and matching macOS network services when System Configuration can confirm them.
+			 */
+			primaryDescription: () => LocalizedString
+			/**
+			 * Refresh observation
+			 */
+			refresh: () => LocalizedString
+			/**
+			 * {resolvers} resolvers · {scoped} scoped
+			 */
+			resolverSummary: (arg: { resolvers: number, scoped: number }) => LocalizedString
+			/**
+			 * Search domains
+			 */
+			searchDomains: () => LocalizedString
+			/**
+			 * Full values stay in this local view and are excluded from events, logs, and support bundles.
+			 */
+			searchDomainsDescription: () => LocalizedString
+			/**
+			 * Full values stay in this local view and are excluded from events, logs, and support bundles.
+			 */
+			serversDescription: () => LocalizedString
+			/**
+			 * macOS System Configuration
+			 */
+			source: () => LocalizedString
+			state: {
+				/**
+				 * Failed
+				 */
+				failed: () => LocalizedString
+				/**
+				 * Current
+				 */
+				ready: () => LocalizedString
+				/**
+				 * Stale
+				 */
+				stale: () => LocalizedString
+				/**
+				 * Unavailable
+				 */
+				unavailable: () => LocalizedString
+				/**
+				 * Unknown
+				 */
+				unknown: () => LocalizedString
+			}
+		}
 		/**
-		 * Ports, IPv6, and interfaces
+		 * Active services and interfaces
 		 */
 		networkPolicy: () => LocalizedString
 		/**
-		 * No long-form network controls are available in this slice.
+		 * Read-only service, device, interface type, IPv4, and IPv6 state.
 		 */
 		networkPolicyDescription: () => LocalizedString
 		/**
