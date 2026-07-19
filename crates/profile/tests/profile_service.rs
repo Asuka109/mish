@@ -108,6 +108,62 @@ impl HttpsSourceReader for SequencedReader {
     }
 }
 
+#[derive(Clone)]
+struct GatedRefreshReader {
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl GatedRefreshReader {
+    fn new() -> Self {
+        Self {
+            calls: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            entered: Arc::new(tokio::sync::Notify::new()),
+            release: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+
+    fn read(&self) -> BoxFuture<'static, Result<SourceContent, SourceReadError>> {
+        let call = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let entered = self.entered.clone();
+        let release = self.release.clone();
+        async move {
+            if call > 0 {
+                entered.notify_one();
+                release.notified().await;
+            }
+            Ok(SourceContent {
+                bytes: VALID_PROFILE.as_bytes().to_vec(),
+                content_type: Some("application/yaml".to_owned()),
+                final_url: None,
+                redirects: 0,
+            })
+        }
+        .boxed()
+    }
+}
+
+impl LocalSourceReader for GatedRefreshReader {
+    fn read<'a>(
+        &'a self,
+        _path: &'a SensitivePath,
+        _policy: &'a SourceReadPolicy,
+    ) -> BoxFuture<'a, Result<SourceContent, SourceReadError>> {
+        self.read()
+    }
+}
+
+impl HttpsSourceReader for GatedRefreshReader {
+    fn read<'a>(
+        &'a self,
+        _url: &'a SensitiveUrl,
+        _policy: &'a SourceReadPolicy,
+    ) -> BoxFuture<'a, Result<SourceContent, SourceReadError>> {
+        self.read()
+    }
+}
+
 fn service(
     root: PathBuf,
     reader: SequencedReader,
@@ -536,4 +592,112 @@ async fn patch_authority_and_editor_serialization_do_not_expose_secrets() {
     ] {
         assert!(!json.contains(secret));
     }
+}
+
+#[tokio::test]
+async fn every_profile_write_entry_rejects_a_concurrent_shared_authority_holder() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+        ]),
+    );
+    let first = service
+        .preflight_https(
+            "https://profiles.example/first.yaml",
+            Some("First".to_owned()),
+        )
+        .await
+        .unwrap();
+    let snapshot = service.save_preview(&first.preview_id).await.unwrap();
+    let profile = &snapshot.profiles[0];
+    let pending = service
+        .preflight_https(
+            "https://profiles.example/second.yaml",
+            Some("Second".to_owned()),
+        )
+        .await
+        .unwrap();
+    let editor = service
+        .patch_editor(
+            &profile.id,
+            profile.runtime_provenance.source_revision.as_str(),
+            profile.runtime_provenance.artifact_fingerprint.as_str(),
+        )
+        .unwrap();
+    let permit = service.mutation_authority().try_acquire().unwrap();
+
+    assert!(matches!(
+        service.save_preview(&pending.preview_id).await,
+        Err(ProfileServiceError::Busy)
+    ));
+    assert!(matches!(
+        service.refresh(&profile.id).await,
+        Err(ProfileServiceError::Busy)
+    ));
+    assert!(matches!(
+        service.set_refresh_policy(&profile.id, ProfileRefreshPolicy::Daily),
+        Err(ProfileServiceError::Busy)
+    ));
+    assert!(matches!(
+        service.replace_patches(
+            &profile.id,
+            &editor.authority.source_revision,
+            &editor.authority.artifact_fingerprint,
+            Vec::new(),
+        ),
+        Err(ProfileServiceError::Busy)
+    ));
+    assert!(matches!(
+        service.delete(&profile.id),
+        Err(ProfileServiceError::Busy)
+    ));
+    drop(permit);
+
+    assert_eq!(service.snapshot().unwrap().profiles.len(), 1);
+    assert_eq!(
+        service
+            .save_preview(&pending.preview_id)
+            .await
+            .unwrap()
+            .profiles
+            .len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn refresh_holds_mutation_authority_across_the_network_read() {
+    let temp = TestDir::new();
+    let reader = GatedRefreshReader::new();
+    let service = Arc::new(ProfileService::new(
+        temp.path().to_path_buf(),
+        reader.clone(),
+        reader.clone(),
+        SourceReadPolicy::default(),
+    ));
+    let preview = service
+        .preflight_https(
+            "https://profiles.example/gated.yaml",
+            Some("Gated".to_owned()),
+        )
+        .await
+        .unwrap();
+    let snapshot = service.save_preview(&preview.preview_id).await.unwrap();
+    let profile_id = snapshot.profiles[0].id.clone();
+    let refreshing = {
+        let service = service.clone();
+        tokio::spawn(async move { service.refresh(&profile_id).await })
+    };
+    reader.entered.notified().await;
+
+    assert!(matches!(
+        service.mutation_authority().try_acquire(),
+        Err(mish_state_authority::StateMutationError::Busy)
+    ));
+    reader.release.notify_one();
+    refreshing.await.unwrap().unwrap();
+    assert!(service.mutation_authority().try_acquire().is_ok());
 }

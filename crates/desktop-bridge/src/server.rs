@@ -90,6 +90,21 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     if config.auth_token.len() < 16 {
         return Err("MISH_BRIDGE_TOKEN must contain at least 16 characters".into());
     }
+    if let (Some(profiles), Some(settings)) = (&config.profile_service, &config.settings_service)
+        && !profiles
+            .mutation_authority()
+            .is_same_authority(&settings.mutation_authority())
+    {
+        return Err("Profile and Settings services must share one mutation authority".into());
+    }
+    if let (Some(profiles), Some(activation)) =
+        (&config.profile_service, &config.profile_activation)
+        && !profiles
+            .mutation_authority()
+            .is_same_authority(&activation.mutation_authority())
+    {
+        return Err("Profile service and activation must share one mutation authority".into());
+    }
     let listener = TcpListener::bind(config.bind)
         .await
         .map_err(|error| error.to_string())?;

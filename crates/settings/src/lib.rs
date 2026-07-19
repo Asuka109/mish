@@ -10,6 +10,7 @@ use std::{
 use mish_runtime::{
     TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperSnapshot,
 };
+use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -223,9 +224,12 @@ pub enum SettingsServiceError {
     TunHelper(TunHelperFailureKind),
     #[error("the native window surface could not be applied")]
     WindowSurface,
+    #[error("another Profile or Settings mutation is in progress")]
+    Busy,
 }
 
 pub struct SettingsService {
+    authority: StateMutationAuthority,
     capabilities: SettingsCapabilities,
     operation: Mutex<()>,
     repository: Arc<dyn SettingsRepository>,
@@ -264,6 +268,24 @@ impl SettingsService {
         capabilities: SettingsCapabilities,
         tun_helper: Option<Arc<TunHelperController>>,
     ) -> Result<Self, SettingsServiceError> {
+        Self::load_with_authority(
+            repository,
+            startup_platform,
+            window_surface_platform,
+            capabilities,
+            tun_helper,
+            StateMutationAuthority::new(),
+        )
+    }
+
+    pub fn load_with_authority(
+        repository: Arc<dyn SettingsRepository>,
+        startup_platform: Option<Arc<dyn StartupPlatform>>,
+        window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
+        capabilities: SettingsCapabilities,
+        tun_helper: Option<Arc<TunHelperController>>,
+        authority: StateMutationAuthority,
+    ) -> Result<Self, SettingsServiceError> {
         let (loaded, storage_recovered) = match repository.load() {
             Ok(loaded) => (loaded, false),
             Err(SettingsRepositoryError::Corrupt) => {
@@ -296,6 +318,7 @@ impl SettingsService {
                 .map_err(|_| SettingsServiceError::WindowSurface)?;
         }
         Ok(Self {
+            authority,
             capabilities,
             operation: Mutex::new(()),
             repository,
@@ -356,6 +379,10 @@ impl SettingsService {
         }
     }
 
+    pub fn mutation_authority(&self) -> StateMutationAuthority {
+        self.authority.clone()
+    }
+
     pub async fn install_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         self.tun_helper()?
             .install()
@@ -384,6 +411,7 @@ impl SettingsService {
         &self,
         appearance: AppearancePreference,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -395,6 +423,7 @@ impl SettingsService {
         &self,
         language: LanguagePreference,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -406,6 +435,7 @@ impl SettingsService {
         &self,
         startup: StartupPreferences,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -448,6 +478,7 @@ impl SettingsService {
         &self,
         behavior: WindowCloseBehavior,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -462,6 +493,7 @@ impl SettingsService {
         &self,
         surface: WindowSurfacePreference,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -510,7 +542,22 @@ impl SettingsService {
     /// This deliberately bypasses every platform adapter: restoring preferences
     /// must not register login startup, apply a native window surface, or change
     /// any other operating-system state.
-    pub fn accept_restored_preferences(&self, preferences: SettingsPreferences) {
+    pub fn accept_restored_preferences(
+        &self,
+        preferences: SettingsPreferences,
+    ) -> Result<(), SettingsServiceError> {
+        let permit = self.acquire_mutation()?;
+        self.accept_restored_preferences_authorized(&permit, preferences)
+    }
+
+    pub fn accept_restored_preferences_authorized(
+        &self,
+        permit: &StateMutationPermit,
+        preferences: SettingsPreferences,
+    ) -> Result<(), SettingsServiceError> {
+        self.authority
+            .validate(permit)
+            .map_err(|_| SettingsServiceError::Busy)?;
         let _operation = self
             .operation
             .lock()
@@ -518,6 +565,13 @@ impl SettingsService {
         let mut state = self.state.lock().expect("settings state lock poisoned");
         state.preferences = preferences;
         state.storage_recovered = false;
+        Ok(())
+    }
+
+    fn acquire_mutation(&self) -> Result<StateMutationPermit, SettingsServiceError> {
+        self.authority
+            .try_acquire()
+            .map_err(|_| SettingsServiceError::Busy)
     }
 
     fn update(
@@ -1005,7 +1059,7 @@ mod tests {
             window_surface: WindowSurfacePreference::Opaque,
         };
 
-        service.accept_restored_preferences(restored);
+        service.accept_restored_preferences(restored).unwrap();
 
         assert_eq!(
             service.snapshot(SettingsAdapterKind::Rpc).preferences,

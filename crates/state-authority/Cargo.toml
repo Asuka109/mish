@@ -1,0 +1,9 @@
+[package]
+name = "mish-state-authority"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror = "2.0.18"
+tokio = { version = "1.53.0", features = ["sync"] }

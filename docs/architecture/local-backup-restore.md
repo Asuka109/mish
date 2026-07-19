@@ -10,6 +10,21 @@ application preference record remains `settings.json` version 3 through
 `FileSettingsRepository`. There is no separate scheduler, patch, or backup
 database.
 
+All authoritative Profile and Settings writers share one
+`StateMutationAuthority`. The desktop composition injects the same authority
+into `ProfileService`, `SettingsService`, `ProfileActivationCoordinator`, and
+`LocalBackupService`. A permit is identity-bound to that authority. Direct
+service writers acquire their own permit; coordinator paths acquire once and
+call permit-requiring methods to avoid nested locking.
+
+The authority covers Profile save, manual and scheduled refresh, refresh-policy
+changes, patch replacement, deletion, activation, safe stop, and every persisted
+Settings change. Activation and refresh keep their permit across network and
+process work rather than reserving only their final repository write. Restore
+uses non-blocking acquisition and returns a typed `busy` conflict while one of
+those operations is in progress. It does not cancel that operation. Duplicate
+activation command IDs retain their existing idempotent result.
+
 The JSON backup manifest is a transfer envelope only. Format version 1 records
 the profile, normalized-artifact, patch, and settings schema versions that were
 used to produce it. Unknown envelope fields, unsupported schema versions,
@@ -83,23 +98,70 @@ conflicts:
 The user chooses either to keep current data or use backup data where replacement
 is safe. Backup content can replace a divergent inactive ID and can deduplicate
 an inactive identical fingerprint. Patch- and schedule-only entries are never
-rebound across revisions. Active profiles are never replaced by restore. A
-digest covering current profile records and settings expires the preview if
-state changes before commit.
+rebound across revisions. Active profiles are never replaced by restore. Active
+identity comes from the activation coordinator, not persisted Profile metadata.
+Preview includes that identity in its digest. Commit acquires the shared mutation
+permit, re-reads the coordinator identity under that same permit, and then
+revalidates the complete Profile, Settings, and active-identity digest. An
+activation transition therefore either owns the permit first or expires the
+restore preview; it cannot occur between the active check and replacement.
 
-## Transaction and side-effect rules
+Restore preview and confirmation expose the complete validated scope. They show
+the selected Settings, patches, schedules, Profile contents, and source-locator
+categories and independently mark both sensitive classes as included or
+excluded: Profile credentials/configuration content, and subscription URLs/full
+local paths. The default conflict policy remains `keep-existing`.
+
+## Transaction, recovery, and atomicity terms
 
 Restore first builds a complete staged profile repository and staged settings
 file using the ordinary domain repositories. This validates every reconstructed
 `ProfileRecord`, including schema versions, revision hashes, artifact
 fingerprints, patch authority, structured patch application, and source rules.
-Only after staging succeeds does one transaction rename current selected
-components into a rollback directory and staged components into their
-authoritative names. Any rename or directory-flush failure reverses completed
-renames before returning an error. No per-profile partial commit is retained.
+Only after staging succeeds does the transaction create private mode-0700 stage
+and rollback directories and persist a strict mode-0600 restore journal. The
+journal has schema version 1, one UUID, a closed component enum (`profiles` or
+`settings`), each component's original-existence bit, and one of three phases:
+`committing`, `rolling-back`, or `committed`. It contains no user-controlled or
+absolute path. Journal bytes and the parent-directory entry are fsynced before
+the first authoritative component rename.
 
-The transaction updates the in-memory settings snapshot only after filesystem
-commit. That update deliberately bypasses platform adapters. Restore therefore
+Each original-to-rollback and staged-to-authority rename is followed by fsync of
+both affected parent directories. Ordinary rename or flush failure switches the
+journal durably to `rolling-back` and reverses completed swaps. If rollback or
+cleanup also fails, restore returns `recovery-required` and retains the journal,
+stage, and rollback evidence. It never deletes the only recovery basis or
+reports success. The live mutation authority then fails closed until restart,
+preventing a later writer from obscuring the retained recovery state. A
+successful data swap fsyncs the application-data directory,
+then persists `committed`; only then may cleanup remove rollback data and finally
+the journal.
+
+Startup checks the journal before loading Settings, constructing Profile
+services, starting the scheduler, exposing RPC/Tauri commands, or creating a
+managed runtime. `committing` and `rolling-back` transactions are idempotently
+rolled back to the prior generation. `committed` transactions retain the new
+generation and finish cleanup. Any recovery failure aborts startup and preserves
+diagnostic state for a later retry.
+
+These terms are intentionally distinct:
+
+- repository JSON/file writes are single-file atomic replacement when their
+  same-directory temporary-file rename succeeds;
+- an ordinary multi-component restore failure is rollback-capable while the
+  process remains alive;
+- the journal makes the multi-component restore crash-recoverable across process
+  termination or power loss; and
+- the Profile directory plus `settings.json` do **not** become one filesystem
+  atomic rename. Observers are excluded by the shared mutation authority, while
+  startup recovery resolves any intermediate generation before availability.
+
+## Side-effect rules
+
+Restore keeps its mutation permit from final digest validation through staging,
+filesystem commit, the in-memory Settings snapshot update, and Profile
+publication. The in-memory update happens only after filesystem commit and
+deliberately bypasses platform adapters. Restore therefore
 does not register login startup, apply OS preferences, start or restart Core,
 activate a profile, enable System Proxy, enable TUN, install a helper, or modify
 capture state. Publishing a profile snapshot after commit only informs the UI of
@@ -109,9 +171,14 @@ repository changes; it does not activate or reload runtime configuration.
 
 Rust tests cover safe default exclusions, strict version and unknown-field
 rejection, bounded serialization, settings restore without platform adapters,
-profile reconstruction, conflict planning, state-digest expiry, and rollback
-behavior. Web tests cover the strict DTO schemas, the complete private invoke
+profile reconstruction, conflict planning, active-transition digest expiry,
+active replacement protection, typed busy results for every Profile writer,
+and authority retention during activation. An injectable restore filesystem
+exercises every component-swap crash checkpoint, ordinary rollback, rollback
+failure with retained evidence, committed cleanup, and idempotent startup
+recovery. Web tests cover the strict DTO schemas, the complete private invoke
 client, browser unavailability, default-sensitive scope behavior, preview-before-
-save interaction, and Settings integration. Workspace formatting, lint,
+save interaction, explicit restore-sensitive scope confirmation, and Settings
+integration. Workspace formatting, lint,
 typechecking, Rust checks, Clippy, unit/integration tests, production build,
 design lint, token checks, and documentation links remain release gates.

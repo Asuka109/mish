@@ -9,6 +9,7 @@ use mish_profile::{
     ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{MishRuntime, ProviderSnapshot};
+use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
 use tokio::{
     sync::{Mutex, broadcast},
@@ -134,6 +135,8 @@ pub enum ProfileActivationCoordinatorError {
     InvalidCommand,
     #[error("another profile activation command is pending")]
     Conflict,
+    #[error("another Profile or Settings mutation is in progress")]
+    Busy,
     #[error("profile activation is unavailable")]
     Unavailable,
     #[error("profile activation policy could not be prepared")]
@@ -154,6 +157,7 @@ type PolicyFactory =
     dyn Fn() -> Result<ManagedRuntimePolicy, RuntimeConfigGenerationError> + Send + Sync;
 
 pub struct ProfileActivationCoordinator {
+    authority: StateMutationAuthority,
     host: DesktopRuntimeHost,
     manager: Arc<MihomoActivationManager>,
     policy_factory: Arc<PolicyFactory>,
@@ -182,6 +186,7 @@ impl ProfileActivationCoordinator {
         let availability = map_availability(manager.availability());
         let (updates, _) = broadcast::channel(32);
         Self {
+            authority: profiles.mutation_authority(),
             host,
             manager,
             policy_factory: Arc::new(policy_factory),
@@ -220,6 +225,19 @@ impl ProfileActivationCoordinator {
         {
             return Err(ProfileActivationCoordinatorError::Unavailable);
         }
+        {
+            let state = self.state.lock().await;
+            if state.snapshot.command_id.as_deref() == Some(command_id)
+                || (state.snapshot.phase == ProfileActivationPhase::Pending
+                    && state.snapshot.target_profile_id.as_deref() == Some(profile_id))
+            {
+                return Ok(state.snapshot.clone());
+            }
+            if state.snapshot.phase == ProfileActivationPhase::Pending {
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+        }
+        let permit = self.acquire_mutation()?;
         {
             let mut state = self.state.lock().await;
             if state.snapshot.command_id.as_deref() == Some(command_id) {
@@ -276,6 +294,7 @@ impl ProfileActivationCoordinator {
                 .activate_cancellable(&record, &policy, cancellation)
                 .await;
             coordinator.finish_activation(&command_id, result).await;
+            drop(permit);
         });
         Ok(pending)
     }
@@ -302,6 +321,16 @@ impl ProfileActivationCoordinator {
         command_id: &str,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
+        {
+            let state = self.state.lock().await;
+            if state.snapshot.command_id.as_deref() == Some(command_id) {
+                return Ok(state.snapshot.clone());
+            }
+            if state.snapshot.phase == ProfileActivationPhase::Pending {
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+        }
+        let permit = self.acquire_mutation()?;
         let pending = {
             let mut state = self.state.lock().await;
             if state.snapshot.command_id.as_deref() == Some(command_id) {
@@ -328,6 +357,7 @@ impl ProfileActivationCoordinator {
         tokio::spawn(async move {
             let result = coordinator.manager.shutdown().await;
             coordinator.finish_stop(&command_id, result).await;
+            drop(permit);
         });
         Ok(pending)
     }
@@ -336,6 +366,7 @@ impl ProfileActivationCoordinator {
         &self,
         profile_id: &str,
     ) -> Result<ProfileSnapshot, ProfileActivationCoordinatorError> {
+        let permit = self.acquire_mutation()?;
         let state = self.state.lock().await;
         if state.snapshot.phase == ProfileActivationPhase::Pending
             || state.snapshot.active_profile_id.as_deref() == Some(profile_id)
@@ -344,9 +375,24 @@ impl ProfileActivationCoordinator {
         }
         let active_profile_id = state.snapshot.active_profile_id.clone();
         drop(state);
-        Ok(self
+        let snapshot =
+            self.profiles
+                .delete_authorized(&permit, profile_id, active_profile_id.as_deref())?;
+        self.publish().await;
+        Ok(snapshot)
+    }
+
+    pub async fn save_profile(
+        &self,
+        preview_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileActivationCoordinatorError> {
+        let permit = self.acquire_mutation()?;
+        let snapshot = self
             .profiles
-            .delete_authorized(profile_id, active_profile_id.as_deref())?)
+            .save_preview_authorized(&permit, preview_id)
+            .await?;
+        self.publish().await;
+        Ok(snapshot)
     }
 
     pub async fn activation_snapshot(&self) -> ProfileActivationSnapshot {
@@ -398,21 +444,25 @@ impl ProfileActivationCoordinator {
         profile_id: &str,
         trigger: ProfileRefreshTrigger,
     ) -> Result<ProfileSnapshot, ProfileActivationCoordinatorError> {
+        let permit = self.acquire_mutation()?;
         {
             let mut state = self.state.lock().await;
             if !state.busy_profiles.insert(profile_id.to_owned()) {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
         }
-        if let Err(error) = self.profiles.mark_refresh_pending(profile_id) {
+        if let Err(error) = self
+            .profiles
+            .mark_refresh_pending_authorized(&permit, profile_id)
+        {
             self.release_profile(profile_id).await;
             return Err(error.into());
         }
         self.publish().await;
-        let result = match trigger {
-            ProfileRefreshTrigger::Manual => self.profiles.refresh(profile_id).await,
-            ProfileRefreshTrigger::Scheduled => self.profiles.refresh_scheduled(profile_id).await,
-        };
+        let result = self
+            .profiles
+            .refresh_authorized(&permit, profile_id, trigger)
+            .await;
         self.release_profile(profile_id).await;
         self.publish().await;
         result.map_err(Into::into)
@@ -423,13 +473,16 @@ impl ProfileActivationCoordinator {
         profile_id: &str,
         policy: ProfileRefreshPolicy,
     ) -> Result<ProfileSnapshot, ProfileActivationCoordinatorError> {
+        let permit = self.acquire_mutation()?;
         {
             let mut state = self.state.lock().await;
             if !state.busy_profiles.insert(profile_id.to_owned()) {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
         }
-        let result = self.profiles.set_refresh_policy(profile_id, policy);
+        let result = self
+            .profiles
+            .set_refresh_policy_authorized(&permit, profile_id, policy);
         self.release_profile(profile_id).await;
         self.publish().await;
         result.map_err(Into::into)
@@ -442,13 +495,15 @@ impl ProfileActivationCoordinator {
         artifact_fingerprint: &str,
         patches: Vec<ProfilePatch>,
     ) -> Result<ProfilePatchEditor, ProfileActivationCoordinatorError> {
+        let permit = self.acquire_mutation()?;
         {
             let mut state = self.state.lock().await;
             if !state.busy_profiles.insert(profile_id.to_owned()) {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
         }
-        let result = self.profiles.replace_patches(
+        let result = self.profiles.replace_patches_authorized(
+            &permit,
             profile_id,
             source_revision,
             artifact_fingerprint,
@@ -493,6 +548,26 @@ impl ProfileActivationCoordinator {
 
     pub async fn publish(&self) {
         let _ = self.updates.send(self.activation_snapshot().await);
+    }
+
+    pub fn mutation_authority(&self) -> StateMutationAuthority {
+        self.authority.clone()
+    }
+
+    pub async fn active_profile_id_authorized(
+        &self,
+        permit: &StateMutationPermit,
+    ) -> Result<Option<String>, ProfileActivationCoordinatorError> {
+        self.authority
+            .validate(permit)
+            .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
+        Ok(self.state.lock().await.snapshot.active_profile_id.clone())
+    }
+
+    fn acquire_mutation(&self) -> Result<StateMutationPermit, ProfileActivationCoordinatorError> {
+        self.authority
+            .try_acquire()
+            .map_err(|_| ProfileActivationCoordinatorError::Busy)
     }
 
     pub async fn shutdown(&self) -> Result<(), ProfileActivationCoordinatorError> {

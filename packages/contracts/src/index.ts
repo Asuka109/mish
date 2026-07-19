@@ -1220,14 +1220,22 @@ export const LocalRestorePreviewSchema = z
     actions: LocalRestoreActionCountsSchema,
     conflicts: z.array(LocalRestoreConflictSchema).max(128),
     contentBytes: NonNegativeIntegerSchema.max(8 * 1_024 * 1_024),
+    excludedSensitiveData: z.array(LocalBackupSensitiveDataSchema).max(2),
     fileType: z.literal("application/json"),
     formatVersion: z.literal(1),
     included: LocalBackupIncludedCountsSchema,
+    includedSensitiveData: z.array(LocalBackupSensitiveDataSchema).max(2),
     maxBytes: z.literal(8 * 1_024 * 1_024),
     previewId: IdentifierSchema,
     scope: LocalBackupScopeSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((preview, context) => {
+    const categories = [...preview.excludedSensitiveData, ...preview.includedSensitiveData];
+    if (new Set(categories).size !== 2 || categories.length !== 2) {
+      context.addIssue({ code: "custom", message: "Sensitive categories must form a partition" });
+    }
+  });
 export interface LocalRestorePreviewDto extends z.infer<typeof LocalRestorePreviewSchema> {}
 
 export const LocalRestoreResultSchema = z

@@ -167,6 +167,14 @@ type RootTranslation = {
 			 */
 			contents: string
 			/**
+			 * E​x​c​l​u​d​e​d
+			 */
+			excluded: string
+			/**
+			 * I​n​c​l​u​d​e​d
+			 */
+			included: string
+			/**
 			 * C​r​e​a​t​e​ ​b​a​c​k​u​p
 			 */
 			create: string
@@ -219,6 +227,10 @@ type RootTranslation = {
 			 */
 			profilesSensitiveDescription: string
 			/**
+			 * P​r​o​f​i​l​e​ ​c​r​e​d​e​n​t​i​a​l​s​ ​a​n​d​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​c​o​n​t​e​n​t​s
+			 */
+			profileSecretsScope: string
+			/**
 			 * C​o​n​f​l​i​c​t​ ​p​o​l​i​c​y
 			 */
 			resolution: string
@@ -238,6 +250,14 @@ type RootTranslation = {
 			 * R​e​v​i​e​w​ ​v​a​l​i​d​a​t​e​d​ ​r​e​s​t​o​r​e
 			 */
 			restoreTitle: string
+			/**
+			 * V​a​l​i​d​a​t​e​d​ ​r​e​s​t​o​r​e​ ​s​c​o​p​e
+			 */
+			restoreScope: string
+			/**
+			 * S​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​s​ ​a​n​d​ ​f​u​l​l​ ​l​o​c​a​l​ ​p​a​t​h​s
+			 */
+			sourceLocatorsScope: string
 			result: {
 				/**
 				 * T​h​e​ ​l​o​c​a​l​ ​f​i​l​e​ ​p​a​n​e​l​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.​ ​N​o​t​h​i​n​g​ ​c​h​a​n​g​e​d​.
@@ -248,7 +268,7 @@ type RootTranslation = {
 				 */
 				exported: string
 				/**
-				 * T​h​e​ ​l​o​c​a​l​ ​b​a​c​k​u​p​ ​o​p​e​r​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​N​o​ ​p​a​r​t​i​a​l​ ​r​e​s​t​o​r​e​ ​w​a​s​ ​k​e​p​t​.
+				 * T​h​e​ ​l​o​c​a​l​ ​b​a​c​k​u​p​ ​o​p​e​r​a​t​i​o​n​ ​d​i​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​.​ ​A​n​y​ ​r​e​t​a​i​n​e​d​ ​r​e​c​o​v​e​r​y​ ​e​v​i​d​e​n​c​e​ ​w​i​l​l​ ​b​e​ ​r​e​s​o​l​v​e​d​ ​b​e​f​o​r​e​ ​t​h​e​ ​n​e​x​t​ ​s​t​a​r​t​u​p​.
 				 */
 				failed: string
 				idle: string
@@ -3582,6 +3602,14 @@ export type TranslationFunctions = {
 			 */
 			contents: () => LocalizedString
 			/**
+			 * Excluded
+			 */
+			excluded: () => LocalizedString
+			/**
+			 * Included
+			 */
+			included: () => LocalizedString
+			/**
 			 * Create backup
 			 */
 			create: () => LocalizedString
@@ -3634,6 +3662,10 @@ export type TranslationFunctions = {
 			 */
 			profilesSensitiveDescription: () => LocalizedString
 			/**
+			 * Profile credentials and configuration contents
+			 */
+			profileSecretsScope: () => LocalizedString
+			/**
 			 * Conflict policy
 			 */
 			resolution: () => LocalizedString
@@ -3653,6 +3685,14 @@ export type TranslationFunctions = {
 			 * Review validated restore
 			 */
 			restoreTitle: () => LocalizedString
+			/**
+			 * Validated restore scope
+			 */
+			restoreScope: () => LocalizedString
+			/**
+			 * Subscription URLs and full local paths
+			 */
+			sourceLocatorsScope: () => LocalizedString
 			result: {
 				/**
 				 * The local file panel was cancelled. Nothing changed.
@@ -3663,7 +3703,7 @@ export type TranslationFunctions = {
 				 */
 				exported: () => LocalizedString
 				/**
-				 * The local backup operation failed. No partial restore was kept.
+				 * The local backup operation did not complete. Any retained recovery evidence will be resolved before the next startup.
 				 */
 				failed: () => LocalizedString
 				idle: () => LocalizedString
