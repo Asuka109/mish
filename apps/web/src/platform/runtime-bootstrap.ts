@@ -23,7 +23,6 @@ import { DesktopSupportBundleClient, UnavailableSupportBundleClient } from "./su
 
 interface RuntimeBootstrapPayload {
   authToken: string;
-  nativeSidebarMaterial: boolean;
   rpcUrl: string;
   settingsSnapshot: SettingsSnapshotDto;
   supportBundleExport: boolean;
@@ -48,7 +47,6 @@ export interface StartupStatusClient {
   settingsClient: SettingsClient;
   settingsSnapshot: SettingsSnapshotDto;
   runtime: "browser" | "desktop";
-  nativeSidebarMaterial: boolean;
   supportBundleClient: SupportBundleClient;
 }
 
@@ -68,7 +66,6 @@ export async function resolveStartupStatusClient(
     const settingsClient = new FixtureSettingsClient();
     return {
       dispose: () => undefined,
-      nativeSidebarMaterial: false,
       runtime: "browser",
       settingsClient,
       settingsSnapshot: await settingsClient.getSnapshot(),
@@ -114,20 +111,18 @@ export async function resolveStartupStatusClient(
       trafficClient.dispose();
       client.dispose();
     },
-    nativeSidebarMaterial: bootstrap.nativeSidebarMaterial,
     runtime: "desktop",
   };
 }
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   if (!value || typeof value !== "object") throw new Error("Invalid desktop bootstrap");
-  const { authToken, nativeSidebarMaterial, rpcUrl, settingsSnapshot, supportBundleExport } =
-    value as Record<string, unknown>;
+  const { authToken, rpcUrl, settingsSnapshot, supportBundleExport } = value as Record<
+    string,
+    unknown
+  >;
   if (typeof authToken !== "string" || authToken.length < 32) {
     throw new Error("Invalid desktop authentication token");
-  }
-  if (typeof nativeSidebarMaterial !== "boolean") {
-    throw new Error("Invalid native sidebar material capability");
   }
   if (typeof supportBundleExport !== "boolean") {
     throw new Error("Invalid support bundle export capability");
@@ -149,7 +144,6 @@ export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   }
   return {
     authToken,
-    nativeSidebarMaterial,
     rpcUrl: endpoint.href,
     settingsSnapshot: SettingsSnapshotSchema.parse(settingsSnapshot),
     supportBundleExport,

@@ -3,16 +3,20 @@
 ## Boundary
 
 The macOS Tauri window owns the compositor material. Its window configuration
-enables transparency and installs the semantic Sidebar effect with a state that
-follows whether the window is active. Tauri maps that effect to an AppKit
+enables transparency, while the window-surface adapter installs or clears the
+semantic Sidebar effect from the persisted preference before showing the window.
+The effect follows whether the window is active. Tauri maps it to an AppKit
 `NSVisualEffectView` using behind-window blending.
 
-The desktop bootstrap returns `nativeSidebarMaterial: true` only for a macOS
-shell build. The WebView uses that capability to make the sidebar and exposed
-window base transparent. The inset workspace continues to paint the opaque
+The validated settings snapshot reports native Sidebar material as supported
+only for a macOS shell build. The WebView combines that capability with the
+stored `opaque` or `material` preference. The app shell propagates the effective
+rendering through explicit tree scopes: the sidebar is window-backed, while the
+inset workspace starts an opaque content scope and continues to paint the
 `canvas` token. Browser and unsupported builds never enable the transparent CSS
-path. Reduce Transparency paints `surface-soft` across the transparent regions
-without introducing CSS blur, a gradient, or a captured wallpaper.
+path. Reduce Transparency paints `surface-soft` across the window-backed scope
+without overwriting the preference or introducing CSS blur, a gradient, or a
+captured wallpaper.
 
 The application appearance preference is synchronized to the native window:
 light and dark select the matching native appearance, while system clears the
@@ -32,9 +36,9 @@ pnpm desktop:build
 
 The Web tests cover the explicit native-material bootstrap capability, browser
 fallback, strict bootstrap validation, native light/dark/system synchronization,
-and browser isolation. The Tauri build validates the window-effect configuration,
-macOS private transparency feature, generated permissions, and embedded Web
-artifact together.
+and browser isolation. The Tauri build validates the runtime window-effect adapter,
+macOS private transparency feature, generated permissions, and embedded Web artifact
+together.
 
 ## Manual macOS matrix
 
@@ -54,8 +58,10 @@ Use non-sensitive test content behind the window, then verify:
    not start a window drag.
 3. Move focus to another application without covering Mish. The material should
    adopt the inactive-window treatment and return when Mish becomes active.
-4. Select light, dark, and system appearances. Sidebar material, native controls,
-   Web content, and workspace border should remain visually coherent. Change the
+4. Select light, dark, and system appearances independently from opaque and
+   native-material window surfaces. Sidebar material, native controls, Web
+   content, and workspace border should remain visually coherent. The workspace
+   and every page descendant must stay opaque in both surface modes. Change the
    macOS appearance while Mish uses system mode and confirm it updates without a
    relaunch.
 5. Enable **System Settings → Accessibility → Display → Reduce transparency**.

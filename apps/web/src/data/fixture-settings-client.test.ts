@@ -11,6 +11,9 @@ describe("browser settings fixture", () => {
     await expect(client.setLanguage("zh")).resolves.toMatchObject({
       preferences: { language: "zh" },
     });
+    await expect(client.setWindowSurface("opaque")).resolves.toMatchObject({
+      preferences: { windowSurface: "opaque" },
+    });
     await expect(
       client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" }),
     ).rejects.toThrow(/unavailable/i);
@@ -25,7 +28,7 @@ describe("browser settings fixture", () => {
         tun: "unavailable",
         windowLifecycle: "unavailable",
       },
-      preferences: { windowCloseBehavior: "hide-to-status-bar" },
+      preferences: { windowCloseBehavior: "hide-to-status-bar", windowSurface: "opaque" },
       privacy: { loopbackOnly: "unavailable" },
       startupRegistration: { observed: null, phase: "unavailable" },
       tunHelper: { availability: "unavailable", health: "not-installed", phase: "idle" },

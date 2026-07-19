@@ -23,6 +23,7 @@ use mish_runtime::{
 use mish_settings::{
     LoadedSettings, SettingsCapabilities, SettingsPreferences, SettingsRepository,
     SettingsRepositoryError, SettingsService, StartupPlatform, StartupPlatformError,
+    WindowSurfacePlatform, WindowSurfacePlatformError, WindowSurfacePreference,
 };
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
@@ -136,11 +137,25 @@ impl StartupPlatform for MemoryStartupPlatform {
     }
 }
 
+#[derive(Default)]
+struct MemoryWindowSurfacePlatform(std::sync::Mutex<WindowSurfacePreference>);
+
+impl WindowSurfacePlatform for MemoryWindowSurfacePlatform {
+    fn set_surface(
+        &self,
+        surface: WindowSurfacePreference,
+    ) -> Result<(), WindowSurfacePlatformError> {
+        *self.0.lock().unwrap() = surface;
+        Ok(())
+    }
+}
+
 fn settings_service() -> Arc<SettingsService> {
     Arc::new(
         SettingsService::load(
             Arc::new(MemorySettingsRepository::default()),
             Some(Arc::new(MemoryStartupPlatform::default())),
+            Some(Arc::new(MemoryWindowSurfacePlatform::default())),
             SettingsCapabilities::macos(true),
         )
         .unwrap(),
@@ -401,10 +416,23 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     .await;
     assert_eq!(appearance["result"]["preferences"]["appearance"], "dark");
 
+    let window_surface = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"settings.setWindowSurface",
+            "params":{"surface":"opaque"}
+        }),
+    )
+    .await;
+    assert_eq!(
+        window_surface["result"]["preferences"]["windowSurface"],
+        "opaque"
+    );
+
     let startup = request(
         &mut ws,
         json!({
-            "jsonrpc":"2.0", "id":4, "method":"settings.setStartup",
+            "jsonrpc":"2.0", "id":5, "method":"settings.setStartup",
             "params":{"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background"}}
         }),
     )
@@ -415,7 +443,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     let close_behavior = request(
         &mut ws,
         json!({
-            "jsonrpc":"2.0", "id":5, "method":"settings.setWindowCloseBehavior",
+            "jsonrpc":"2.0", "id":6, "method":"settings.setWindowCloseBehavior",
             "params":{"behavior":"quit"}
         }),
     )
@@ -431,24 +459,29 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
 
     for (id, method, params) in [
         (
-            6,
+            7,
             "settings.setAppearance",
             json!({"appearance":"dark", "path":"/tmp/secret"}),
         ),
         (
-            7,
+            8,
             "settings.setLanguage",
             json!({"language":"zh", "command":"open"}),
         ),
         (
-            8,
+            9,
             "settings.setStartup",
             json!({"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background","configuration":{}}}),
         ),
         (
-            9,
+            10,
             "settings.setWindowCloseBehavior",
             json!({"behavior":"quit","path":"/tmp/secret"}),
+        ),
+        (
+            11,
+            "settings.setWindowSurface",
+            json!({"surface":"opaque","blur":24}),
         ),
     ] {
         let rejected = request(
@@ -475,7 +508,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 11);
+    assert_eq!(info["result"]["protocolVersion"], 12);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})

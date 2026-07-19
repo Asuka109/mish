@@ -40,6 +40,7 @@ import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { handleDesktopWindowDrag } from "../platform/desktop-window";
 import { StatusShimmer } from "./status-shimmer";
+import { SurfaceScope } from "./surface-scope";
 
 const destinations = [
   { icon: Gauge, key: "status", path: "/status" },
@@ -181,7 +182,12 @@ function Sidebar() {
   const { LL } = useI18nContext();
 
   return (
-    <aside aria-label={LL.navigation.primary()} className="sidebar">
+    <SurfaceScope
+      aria-label={LL.navigation.primary()}
+      as="aside"
+      className="sidebar"
+      surfaceRole="window"
+    >
       <div className="sidebar-window-header" data-tauri-drag-region="deep">
         <div className="window-controls-slot">
           <div aria-hidden="true" className="traffic-lights">
@@ -235,7 +241,7 @@ function Sidebar() {
       <div className="sidebar-status-area">
         <ProxyControlButton />
       </div>
-    </aside>
+    </SurfaceScope>
   );
 }
 
@@ -449,10 +455,10 @@ export function AppShell() {
     <div className="app-shell">
       <StatusActionDescriptions />
       <Sidebar />
-      <main className="workspace">
+      <SurfaceScope as="main" className="workspace" surfaceRole="content">
         <Toolbar />
         <Outlet />
-      </main>
+      </SurfaceScope>
     </div>
   );
 }

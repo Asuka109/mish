@@ -56,6 +56,26 @@ function normalize(value: string | number): string {
     .toLowerCase();
 }
 
+function readRuleVariables(source: string, selector: string): Map<string, string> {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const body = source.match(new RegExp(`${escapedSelector}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1];
+  if (!body) throw new Error(`Missing CSS rule ${selector}.`);
+  return readCssVariables(body);
+}
+
+function relativeLuminance(hex: string): number {
+  const normalizedHex = hex.trim().replace(/^#/, "");
+  if (!/^[0-9a-f]{6}$/i.test(normalizedHex))
+    throw new Error(`Expected a hex color, received ${hex}.`);
+  const channels = normalizedHex
+    .match(/.{2}/g)!
+    .map((channel) => Number.parseInt(channel, 16) / 255);
+  const [red, green, blue] = channels.map((channel) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
+  );
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
 function kebabCase(value: string): string {
   return value.replace(/[A-Z]/g, (character) => `-${character.toLowerCase()}`);
 }
@@ -127,6 +147,20 @@ for (const token of requiredThemeTokens) {
   if (!variables.has(token)) throw new Error(`Tailwind theme is missing --${token}.`);
 }
 
+if (variables.get("accent") !== "var(--mish-color-interactive)") {
+  throw new Error("The shadcn/Tailwind accent role must resolve through --mish-color-interactive.");
+}
+
+const darkVariables = readRuleVariables(tokenSource, ':root[data-theme="dark"]');
+const darkCanvas = darkVariables.get("mish-color-canvas");
+const darkInteractive = darkVariables.get("mish-color-interactive");
+if (!darkCanvas || !darkInteractive) {
+  throw new Error("Dark appearance must define canvas and interactive colors.");
+}
+if (relativeLuminance(darkInteractive) <= relativeLuminance(darkCanvas)) {
+  throw new Error("Dark interactive surfaces must be lighter than the dark canvas.");
+}
+
 const consumers = [
   ["apps/web/src/styles.css", '@import "@mish/design-tokens/tokens.css";'],
   ["sketch/src/styles.css", '@import "../../packages/design-tokens/src/tokens.css";'],
@@ -135,6 +169,37 @@ for (const [path, expectedImport] of consumers) {
   const source = readFileSync(`${root}/${path}`, "utf8");
   if (!source.includes(expectedImport))
     throw new Error(`${path} does not import the shared theme.`);
+}
+
+const webStyles = readFileSync(`${root}/apps/web/src/styles.css`, "utf8");
+if (!webStyles.match(/\.sidebar\s*\{[\s\S]*?background:\s*var\(--mish-sidebar-background\);/)) {
+  throw new Error("The sidebar must resolve its background through --mish-sidebar-background.");
+}
+if (
+  !tokenSource.match(
+    /\[data-surface-rendering="material"\]\s*\{[\s\S]*?--mish-sidebar-background:\s*transparent;/,
+  )
+) {
+  throw new Error("The material surface scope must make --mish-sidebar-background transparent.");
+}
+if (
+  !webStyles.match(
+    /\.nav-item:hover\s*\{[\s\S]*?background:\s*var\(--mish-sidebar-item-hover-background\);/,
+  )
+) {
+  throw new Error("Sidebar hover must resolve through --mish-sidebar-item-hover-background.");
+}
+
+const nonSemanticInteractiveBackground = /var\(--color-(?:surface-soft|hairline-soft|canvas)\)/;
+const interactiveSelector =
+  /:(?:hover|active)|\.is-active|\[(?:aria-pressed|data-(?:active|checked|highlighted|popup-open|pressed|selected))/;
+for (const match of webStyles.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  const selector = match[1].trim();
+  const declarations = match[2];
+  if (!interactiveSelector.test(selector)) continue;
+  if (!/background(?:-color)?:/.test(declarations)) continue;
+  if (!nonSemanticInteractiveBackground.test(declarations)) continue;
+  throw new Error(`Interactive selector must consume a semantic state token: ${selector}`);
 }
 
 console.log(

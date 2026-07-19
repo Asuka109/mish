@@ -1,6 +1,12 @@
 import { act, render, screen } from "@testing-library/react";
-import { expect, it, vi } from "vitest";
-import { applyInitialAppearance, AppearanceProvider, useAppearance } from "./appearance";
+import { describe, expect, it, vi } from "vitest";
+import {
+  applyInitialAppearance,
+  applyInitialWindowSurface,
+  AppearanceProvider,
+  resolveWindowSurface,
+  useAppearance,
+} from "./appearance";
 
 function AppearanceProbe() {
   const { preference, resolvedAppearance } = useAppearance();
@@ -49,4 +55,36 @@ it("applies a desktop bootstrap preference before React renders", () => {
   expect(document.documentElement).toHaveAttribute("data-theme", "dark");
   expect(document.documentElement.style.colorScheme).toBe("dark");
   expect(localStorage.getItem("mish.appearance")).toBe("dark");
+});
+
+describe("window surface resolution", () => {
+  it.each([
+    ["opaque", true, false, "opaque", null],
+    ["material", true, false, "native-material", null],
+    ["material", false, false, "opaque", "unsupported"],
+    ["material", true, true, "opaque", "reduced-transparency"],
+  ] as const)(
+    "resolves %s with supported=%s and reduced=%s",
+    (preference, supported, reduced, effectiveSurface, fallbackReason) => {
+      expect(resolveWindowSurface(preference, supported, reduced)).toEqual({
+        effectiveSurface,
+        fallbackReason,
+      });
+    },
+  );
+
+  it("applies the resolved surface before React renders", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query) =>
+        ({ matches: query === "(prefers-reduced-transparency: reduce)" }) as MediaQueryList,
+    );
+
+    applyInitialWindowSurface("material", true);
+
+    expect(document.documentElement).toHaveAttribute("data-window-surface", "opaque");
+    expect(document.documentElement).toHaveAttribute(
+      "data-window-surface-fallback",
+      "reduced-transparency",
+    );
+  });
 });

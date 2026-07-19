@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 
-const CURRENT_SCHEMA_VERSION: u8 = 2;
+const CURRENT_SCHEMA_VERSION: u8 = 3;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -52,6 +52,14 @@ pub enum WindowCloseBehavior {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowSurfacePreference {
+    #[default]
+    Material,
+    Opaque,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartupPreferences {
     pub launch_at_login: bool,
@@ -65,6 +73,7 @@ pub struct SettingsPreferences {
     pub language: LanguagePreference,
     pub startup: StartupPreferences,
     pub window_close_behavior: WindowCloseBehavior,
+    pub window_surface: WindowSurfacePreference,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -168,9 +177,20 @@ pub trait StartupPlatform: Send + Sync {
     fn set_enabled(&self, enabled: bool) -> Result<(), StartupPlatformError>;
 }
 
+pub trait WindowSurfacePlatform: Send + Sync {
+    fn set_surface(
+        &self,
+        surface: WindowSurfacePreference,
+    ) -> Result<(), WindowSurfacePlatformError>;
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 #[error("the startup integration could not confirm the requested state")]
 pub struct StartupPlatformError;
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[error("the native window surface could not be applied")]
+pub struct WindowSurfacePlatformError;
 
 pub trait SettingsRepository: Send + Sync {
     fn load(&self) -> Result<LoadedSettings, SettingsRepositoryError>;
@@ -201,15 +221,18 @@ pub enum SettingsServiceError {
     Startup,
     #[error("the TUN helper lifecycle operation could not be confirmed")]
     TunHelper(TunHelperFailureKind),
+    #[error("the native window surface could not be applied")]
+    WindowSurface,
 }
 
 pub struct SettingsService {
     capabilities: SettingsCapabilities,
     operation: Mutex<()>,
-    platform: Option<Arc<dyn StartupPlatform>>,
     repository: Arc<dyn SettingsRepository>,
+    startup_platform: Option<Arc<dyn StartupPlatform>>,
     state: Mutex<SettingsState>,
     tun_helper: Option<Arc<TunHelperController>>,
+    window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
 }
 
 #[derive(Clone, Copy)]
@@ -221,15 +244,23 @@ struct SettingsState {
 impl SettingsService {
     pub fn load(
         repository: Arc<dyn SettingsRepository>,
-        platform: Option<Arc<dyn StartupPlatform>>,
+        startup_platform: Option<Arc<dyn StartupPlatform>>,
+        window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
         capabilities: SettingsCapabilities,
     ) -> Result<Self, SettingsServiceError> {
-        Self::load_with_tun_helper(repository, platform, capabilities, None)
+        Self::load_with_tun_helper(
+            repository,
+            startup_platform,
+            window_surface_platform,
+            capabilities,
+            None,
+        )
     }
 
     pub fn load_with_tun_helper(
         repository: Arc<dyn SettingsRepository>,
-        platform: Option<Arc<dyn StartupPlatform>>,
+        startup_platform: Option<Arc<dyn StartupPlatform>>,
+        window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
         capabilities: SettingsCapabilities,
         tun_helper: Option<Arc<TunHelperController>>,
     ) -> Result<Self, SettingsServiceError> {
@@ -257,23 +288,31 @@ impl SettingsService {
                 .save(&loaded.preferences)
                 .map_err(|_| SettingsServiceError::Persistence)?;
         }
+        if capabilities.native_sidebar_material == SettingsAvailability::Supported {
+            window_surface_platform
+                .as_ref()
+                .ok_or(SettingsServiceError::CapabilityUnavailable)?
+                .set_surface(loaded.preferences.window_surface)
+                .map_err(|_| SettingsServiceError::WindowSurface)?;
+        }
         Ok(Self {
             capabilities,
             operation: Mutex::new(()),
-            platform,
             repository,
+            startup_platform,
             state: Mutex::new(SettingsState {
                 preferences: loaded.preferences,
                 storage_recovered,
             }),
             tun_helper,
+            window_surface_platform,
         })
     }
 
     pub fn snapshot(&self, adapter_kind: SettingsAdapterKind) -> SettingsSnapshot {
         let state = *self.state.lock().expect("settings state lock poisoned");
         let observed = self
-            .platform
+            .startup_platform
             .as_ref()
             .and_then(|platform| platform.is_enabled().ok());
         let startup_registration = startup_registration(
@@ -375,7 +414,7 @@ impl SettingsService {
             return Err(SettingsServiceError::CapabilityUnavailable);
         }
         let platform = self
-            .platform
+            .startup_platform
             .as_ref()
             .ok_or(SettingsServiceError::CapabilityUnavailable)?;
         let observed = platform
@@ -417,6 +456,53 @@ impl SettingsService {
             return Err(SettingsServiceError::CapabilityUnavailable);
         }
         self.update(|preferences| preferences.window_close_behavior = behavior)
+    }
+
+    pub fn set_window_surface(
+        &self,
+        surface: WindowSurfacePreference,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        let previous = self
+            .state
+            .lock()
+            .expect("settings state lock poisoned")
+            .preferences
+            .window_surface;
+        if previous == surface {
+            return Ok(self.snapshot(SettingsAdapterKind::Rpc));
+        }
+
+        let platform =
+            if self.capabilities.native_sidebar_material == SettingsAvailability::Supported {
+                Some(
+                    self.window_surface_platform
+                        .as_ref()
+                        .ok_or(SettingsServiceError::CapabilityUnavailable)?,
+                )
+            } else {
+                None
+            };
+        if let Some(platform) = platform {
+            platform
+                .set_surface(surface)
+                .map_err(|_| SettingsServiceError::WindowSurface)?;
+        }
+
+        match self.update(|preferences| preferences.window_surface = surface) {
+            Ok(snapshot) => Ok(snapshot),
+            Err(error) => {
+                if let Some(platform) = platform {
+                    platform
+                        .set_surface(previous)
+                        .map_err(|_| SettingsServiceError::WindowSurface)?;
+                }
+                Err(error)
+            }
+        }
     }
 
     fn update(
@@ -476,9 +562,25 @@ impl FileSettingsRepository {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct StoredSettingsV2 {
+struct StoredSettingsV3 {
     preferences: SettingsPreferences,
     schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSettingsV2 {
+    preferences: SettingsPreferencesV2,
+    schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettingsPreferencesV2 {
+    appearance: AppearancePreference,
+    language: LanguagePreference,
+    startup: StartupPreferences,
+    window_close_behavior: WindowCloseBehavior,
 }
 
 #[derive(Deserialize)]
@@ -527,11 +629,28 @@ impl SettingsRepository for FileSettingsRepository {
             .and_then(serde_json::Value::as_u64)
         {
             Some(version) if version == u64::from(CURRENT_SCHEMA_VERSION) => {
-                let stored: StoredSettingsV2 =
+                let stored: StoredSettingsV3 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
                 Ok(LoadedSettings {
                     migrated: false,
                     preferences: stored.preferences,
+                })
+            }
+            Some(2) => {
+                let stored: StoredSettingsV2 =
+                    serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if stored.schema_version != 2 {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
+                Ok(LoadedSettings {
+                    migrated: true,
+                    preferences: SettingsPreferences {
+                        appearance: stored.preferences.appearance,
+                        language: stored.preferences.language,
+                        startup: stored.preferences.startup,
+                        window_close_behavior: stored.preferences.window_close_behavior,
+                        window_surface: WindowSurfacePreference::Material,
+                    },
                 })
             }
             Some(1) => {
@@ -547,6 +666,7 @@ impl SettingsRepository for FileSettingsRepository {
                         language: stored.preferences.language,
                         startup: stored.preferences.startup,
                         window_close_behavior: WindowCloseBehavior::default(),
+                        window_surface: WindowSurfacePreference::Material,
                     },
                 })
             }
@@ -563,6 +683,7 @@ impl SettingsRepository for FileSettingsRepository {
                         language: stored.locale,
                         startup: StartupPreferences::default(),
                         window_close_behavior: WindowCloseBehavior::default(),
+                        window_surface: WindowSurfacePreference::Material,
                     },
                 })
             }
@@ -571,7 +692,7 @@ impl SettingsRepository for FileSettingsRepository {
     }
 
     fn save(&self, preferences: &SettingsPreferences) -> Result<(), SettingsRepositoryError> {
-        let bytes = serde_json::to_vec(&StoredSettingsV2 {
+        let bytes = serde_json::to_vec(&StoredSettingsV3 {
             preferences: *preferences,
             schema_version: CURRENT_SCHEMA_VERSION,
         })
@@ -662,6 +783,23 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FakeWindowSurfacePlatform(Mutex<WindowSurfacePreference>);
+
+    impl WindowSurfacePlatform for FakeWindowSurfacePlatform {
+        fn set_surface(
+            &self,
+            surface: WindowSurfacePreference,
+        ) -> Result<(), WindowSurfacePlatformError> {
+            *self.0.lock().expect("window surface lock") = surface;
+            Ok(())
+        }
+    }
+
+    fn window_surface_platform() -> Arc<dyn WindowSurfacePlatform> {
+        Arc::new(FakeWindowSurfacePlatform::default())
+    }
+
     fn repository() -> (tempfile::TempDir, Arc<FileSettingsRepository>) {
         let root = tempdir().expect("temporary settings directory");
         let repository = Arc::new(FileSettingsRepository::new(
@@ -689,6 +827,7 @@ mod tests {
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
             window_close_behavior: WindowCloseBehavior::Quit,
+            window_surface: WindowSurfacePreference::Opaque,
         };
         repository.save(&preferences).expect("save settings");
         assert_eq!(
@@ -722,6 +861,7 @@ mod tests {
         let service = SettingsService::load(
             repository.clone(),
             Some(platform),
+            Some(window_surface_platform()),
             SettingsCapabilities::macos(true),
         )
         .expect("migrated settings service");
@@ -746,6 +886,7 @@ mod tests {
         let service = SettingsService::load(
             repository.clone(),
             None,
+            Some(window_surface_platform()),
             SettingsCapabilities {
                 launch_at_login: SettingsAvailability::Unavailable,
                 ..SettingsCapabilities::macos(true)
@@ -764,11 +905,102 @@ mod tests {
     }
 
     #[test]
+    fn version_two_preferences_migrate_to_material_without_losing_existing_values() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":2,"preferences":{"appearance":"dark","language":"zh","startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit"}}"#,
+        )
+        .expect("version two settings");
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            Some(window_surface_platform()),
+            SettingsCapabilities {
+                launch_at_login: SettingsAvailability::Unavailable,
+                ..SettingsCapabilities::macos(true)
+            },
+        )
+        .expect("migrated settings service");
+        let preferences = service.snapshot(SettingsAdapterKind::Rpc).preferences;
+
+        assert_eq!(preferences.appearance, AppearancePreference::Dark);
+        assert_eq!(preferences.language, LanguagePreference::Zh);
+        assert_eq!(preferences.window_close_behavior, WindowCloseBehavior::Quit);
+        assert_eq!(
+            preferences.window_surface,
+            WindowSurfacePreference::Material
+        );
+        assert!(!repository.load().expect("rewritten settings").migrated);
+    }
+
+    #[test]
+    fn window_surface_preference_applies_through_the_platform_seam() {
+        let (_root, repository) = repository();
+        let platform = Arc::new(FakeWindowSurfacePlatform::default());
+        let service = SettingsService::load(
+            repository,
+            None,
+            Some(platform.clone()),
+            SettingsCapabilities {
+                launch_at_login: SettingsAvailability::Unavailable,
+                ..SettingsCapabilities::macos(true)
+            },
+        )
+        .expect("settings service");
+
+        let snapshot = service
+            .set_window_surface(WindowSurfacePreference::Opaque)
+            .expect("window surface update");
+
+        assert_eq!(
+            snapshot.preferences.window_surface,
+            WindowSurfacePreference::Opaque
+        );
+        assert_eq!(
+            *platform.0.lock().expect("window surface lock"),
+            WindowSurfacePreference::Opaque
+        );
+    }
+
+    #[test]
+    fn window_surface_rolls_back_when_persistence_fails() {
+        let platform = Arc::new(FakeWindowSurfacePlatform::default());
+        let service = SettingsService::load(
+            Arc::new(FailingSaveRepository),
+            None,
+            Some(platform.clone()),
+            SettingsCapabilities {
+                launch_at_login: SettingsAvailability::Unavailable,
+                ..SettingsCapabilities::macos(true)
+            },
+        )
+        .expect("settings service");
+
+        assert!(matches!(
+            service.set_window_surface(WindowSurfacePreference::Opaque),
+            Err(SettingsServiceError::Persistence)
+        ));
+        assert_eq!(
+            *platform.0.lock().expect("window surface lock"),
+            WindowSurfacePreference::Material
+        );
+        assert_eq!(
+            service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .window_surface,
+            WindowSurfacePreference::Material
+        );
+    }
+
+    #[test]
     fn close_behavior_is_independent_from_login_launch_behavior() {
         let (_root, repository) = repository();
         let service = SettingsService::load(
             repository,
             None,
+            Some(window_surface_platform()),
             SettingsCapabilities {
                 launch_at_login: SettingsAvailability::Unavailable,
                 ..SettingsCapabilities::macos(true)
@@ -794,6 +1026,7 @@ mod tests {
             fs::write(&repository.path, bytes).expect("corrupt settings");
             let service = SettingsService::load(
                 repository.clone(),
+                None,
                 None,
                 SettingsCapabilities {
                     launch_at_login: SettingsAvailability::Unavailable,
@@ -822,6 +1055,7 @@ mod tests {
         let service = SettingsService::load(
             repository,
             Some(platform.clone()),
+            Some(window_surface_platform()),
             SettingsCapabilities::macos(true),
         )
         .expect("settings service");
@@ -862,7 +1096,10 @@ mod tests {
             ),
         ] {
             let (_root, repository) = repository();
-            let service = SettingsService::load(repository, platform, capabilities)
+            let window_surface = (capabilities.native_sidebar_material
+                == SettingsAvailability::Supported)
+                .then(window_surface_platform);
+            let service = SettingsService::load(repository, platform, window_surface, capabilities)
                 .expect("settings service");
             assert!(
                 service
@@ -892,6 +1129,7 @@ mod tests {
         let service = SettingsService::load(
             Arc::new(FailingSaveRepository),
             Some(platform.clone()),
+            Some(window_surface_platform()),
             SettingsCapabilities::macos(true),
         )
         .expect("settings service");
@@ -923,6 +1161,7 @@ mod tests {
         let service = SettingsService::load(
             Arc::new(FailingSaveRepository),
             Some(platform),
+            Some(window_surface_platform()),
             SettingsCapabilities::macos(true),
         )
         .expect("settings service");

@@ -103,6 +103,12 @@ const zh = {
     updatesDescription: "版本和本地数据流程会明确标注尚未实现的能力。",
     version: "版本信息",
     versionDescription: "此构建不会展示路径、凭据或敏感运行数据。",
+    windowSurface: "窗体表面",
+    windowSurfaceDescription: "独立于浅色或深色主题，选择不透明色块或 macOS 原生侧边栏材质。",
+    windowSurfaceMaterial: "原生材质",
+    windowSurfaceOpaque: "不透明",
+    windowSurfaceReducedTransparency:
+      "仍保留原生材质偏好，但系统已开启“降低透明度”，当前使用不透明表面。",
   },
   navigation: {
     events: "事件",

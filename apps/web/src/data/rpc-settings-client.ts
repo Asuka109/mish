@@ -5,6 +5,7 @@ import {
   type SettingsClient,
   type StartupPreferencesDto,
   type WindowCloseBehavior,
+  type WindowSurfacePreference,
 } from "@mish/contracts";
 import type { RpcClient, RpcRequestOptions } from "@mish/rpc-client";
 
@@ -41,5 +42,9 @@ export class RpcSettingsClient implements SettingsClient {
 
   setWindowCloseBehavior(behavior: WindowCloseBehavior, options?: RpcRequestOptions) {
     return this.rpc.request("settings.setWindowCloseBehavior", { behavior }, options);
+  }
+
+  setWindowSurface(surface: WindowSurfacePreference, options?: RpcRequestOptions) {
+    return this.rpc.request("settings.setWindowSurface", { surface }, options);
   }
 }

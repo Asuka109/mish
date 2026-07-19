@@ -4,7 +4,12 @@ import { BrowserRouter } from "react-router";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@mish/ui";
 import { AppRoutes } from "./app";
-import { applyInitialAppearance, AppearanceProvider, useAppearance } from "./appearance";
+import {
+  applyInitialAppearance,
+  applyInitialWindowSurface,
+  AppearanceProvider,
+  useAppearance,
+} from "./appearance";
 import { ProductProvider } from "./data/product-provider";
 import { ProfileProvider } from "./data/profile-provider";
 import { TrafficProvider } from "./data/traffic-provider";
@@ -32,7 +37,12 @@ function ConfiguredAppearanceProvider({ children }: { children: ReactNode }) {
   return (
     <AppearanceProvider
       initialPreference={settings.snapshot.preferences.appearance}
+      initialWindowSurfacePreference={settings.snapshot.preferences.windowSurface}
+      nativeSidebarMaterialSupported={
+        settings.snapshot.capabilities.nativeSidebarMaterial === "supported"
+      }
       onPreferenceChange={settings.setAppearance}
+      onWindowSurfacePreferenceChange={settings.setWindowSurface}
     >
       {children}
     </AppearanceProvider>
@@ -46,11 +56,12 @@ async function startApplication() {
     const startup = await resolveStartupStatusClient();
     const initialLocale = startup.settingsSnapshot.preferences.language ?? resolveInitialLocale();
     applyInitialAppearance(startup.settingsSnapshot.preferences.appearance);
+    applyInitialWindowSurface(
+      startup.settingsSnapshot.preferences.windowSurface,
+      startup.settingsSnapshot.capabilities.nativeSidebarMaterial === "supported",
+    );
     persistLocale(initialLocale);
     document.documentElement.dataset.runtime = startup.runtime;
-    document.documentElement.dataset.nativeSidebarMaterial = startup.nativeSidebarMaterial
-      ? "available"
-      : "fallback";
     window.addEventListener("pagehide", startup.dispose, { once: true });
     createRoot(applicationRoot).render(
       <StrictMode>

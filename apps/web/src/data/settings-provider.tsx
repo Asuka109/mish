@@ -5,6 +5,7 @@ import type {
   SettingsSnapshotDto,
   StartupPreferencesDto,
   WindowCloseBehavior,
+  WindowSurfacePreference,
 } from "@mish/contracts";
 import {
   createContext,
@@ -26,6 +27,7 @@ interface SettingsContextValue {
   setLanguage(language: LanguagePreference): Promise<boolean>;
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
   setWindowCloseBehavior(behavior: WindowCloseBehavior): Promise<boolean>;
+  setWindowSurface(surface: WindowSurfacePreference): Promise<boolean>;
   snapshot: SettingsSnapshotDto;
 }
 
@@ -81,6 +83,7 @@ export function SettingsProvider({
       setLanguage: (language) => run(() => client.setLanguage(language)),
       setStartup: (startup) => run(() => client.setStartup(startup)),
       setWindowCloseBehavior: (behavior) => run(() => client.setWindowCloseBehavior(behavior)),
+      setWindowSurface: (surface) => run(() => client.setWindowSurface(surface)),
       snapshot,
     }),
     [client, error, pending, run, snapshot],

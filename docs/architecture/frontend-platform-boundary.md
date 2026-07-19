@@ -279,11 +279,23 @@ effect. The macOS Tauri window applies the semantic Sidebar material backed by
 active-window state. The matching WebView sidebar and exposed window-base pixels
 are transparent; the foreground workspace remains opaque.
 
-The bootstrap exposes one boolean capability rather than leaking Tauri or
-AppKit branches into product components. The browser and unsupported platforms
-use the deterministic `surface-soft` fallback. Reduce Transparency paints that
-same fallback over the native window. Do not imitate native vibrancy with a
-captured wallpaper, decorative gradient, generic glassmorphism, or CSS blur.
+The settings snapshot exposes the native-material capability rather than leaking
+Tauri or AppKit branches into product modules. The stored `opaque` or `material`
+preference is resolved separately from that capability. The browser and
+unsupported platforms use the deterministic `surface-soft` fallback. Reduce
+Transparency paints that same fallback over the native window without rewriting
+the preference. Do not imitate native vibrancy with a captured wallpaper,
+decorative gradient, generic glassmorphism, or CSS blur.
+
+The Tauri shell applies and clears the native effect through a narrow window-
+surface adapter. The shared Web appearance module consumes only the preference,
+capability, and effective fallback reason. A future automatic product policy or
+appearance preset must sit above the concrete `opaque` and `material` values.
+
+The Web app propagates effective surface state through explicit tree scopes. The
+sidebar is a window-backed scope and may resolve to material; the workspace opens
+an opaque content scope whose complete page subtree remains solid. CSS recipes
+bind to the nearest scope rather than treating window surface as a global theme.
 Validation covers active and inactive windows, Reduce Transparency, light and
 dark appearance, resizing, and energy behavior; see
 [`../quality/native-sidebar-validation.md`](../quality/native-sidebar-validation.md).

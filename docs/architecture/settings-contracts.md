@@ -15,6 +15,7 @@ System Proxy and TUN desired, observed, drift, failure, and recovery state.
 Ordinary settings RPC accepts only these bounded commands:
 
 - set one of `system`, `light`, or `dark` appearance;
+- set one of `opaque` or `material` as the window-surface preference;
 - set one of `en` or `zh` interface language;
 - set a startup DTO containing `launchAtLogin` and exactly one
   `show-window` or `background` login-launch behavior; or
@@ -38,16 +39,21 @@ The file has a numeric schema version, rejects unknown fields, and is bounded to
 atomically rename it over the destination, and flush the parent directory.
 
 Missing storage uses safe defaults: system appearance, English, launch at login
-off, show the window for any future login launch, and hide the main window to
-the status bar on close. Version 0 appearance/locale data and version 1 settings
-migrate into the current schema. Invalid, unsupported, or oversized storage is
-replaced atomically with safe defaults and reported once through
-`storageRecovered`; no system startup or network state is changed during
-recovery.
+off, native material as the desired window surface, show the window for any
+future login launch, and hide the main window to the status bar on close. Version
+0 appearance/locale data and version 1 or 2 settings migrate into the current
+schema. Existing installations migrate to `material` to preserve the prior
+macOS rendering behavior. Invalid, unsupported, or oversized storage is replaced
+atomically with safe defaults and reported once through `storageRecovered`; no
+system startup or network state is changed during recovery.
 
-The browser fixture uses local storage only as an appearance and language
-fallback. It reports startup, native material, privacy confirmations, and TUN as
-unavailable and cannot return native-operation success.
+The browser fixture uses local storage only as an appearance, window-surface,
+and language fallback. It reports startup, native material, privacy
+confirmations, and TUN as unavailable and cannot return native-operation
+success. A stored material preference therefore resolves to an opaque browser
+surface without being rewritten. The Settings UI omits the window-surface row
+entirely whenever `nativeSidebarMaterial` is not `supported`; opaque-only Web,
+mobile, and desktop platforms do not expose an inapplicable preference.
 
 ## Launch at login
 
@@ -77,6 +83,21 @@ small local browser cache preserves the existing no-flash document theme while
 private app data remains authoritative for desktop preferences. System
 appearance continues to react to operating-system changes and synchronize the
 native window theme.
+
+The stored window-surface preference records user intent independently from
+platform capability. `opaque` always paints a deterministic surface. `material`
+requests native Sidebar material, while unsupported platforms and Reduce
+Transparency resolve it to an opaque effective surface with an explicit fallback
+reason. That fallback never rewrites the stored preference, so material returns
+when the constraint is removed. There is no `automatic` window-surface value;
+future product-default or preset policy belongs above this preference.
+
+On supported macOS builds, settings changes apply or clear the native window
+effect through a narrow platform adapter before the new preference is confirmed.
+The Web appearance module independently resolves the matching DOM surface from
+the confirmed preference, capability, and accessibility media query. Native
+material owns blur; Mish may tune a bounded tint opacity but exposes no numeric
+cross-platform blur promise.
 
 Language selection changes only localized Mish copy. Profile, group, node, and
 service labels remain opaque user-authored Unicode strings and are never passed

@@ -19,6 +19,7 @@ import {
   type StatusCommand,
   type StatusConnectionState,
   type StatusSnapshotDto,
+  type WindowSurfacePreference,
 } from "@mish/contracts";
 import { AppRoutes } from "./app";
 import { AppearanceProvider } from "./appearance";
@@ -50,7 +51,21 @@ function renderRoute(
 ) {
   return render(
     <SettingsProvider client={settingsClient} initialSnapshot={settingsSnapshot}>
-      <AppearanceProvider>
+      <AppearanceProvider
+        initialPreference={settingsSnapshot.preferences.appearance}
+        initialWindowSurfacePreference={settingsSnapshot.preferences.windowSurface}
+        nativeSidebarMaterialSupported={
+          settingsSnapshot.capabilities.nativeSidebarMaterial === "supported"
+        }
+        onPreferenceChange={async (appearance) => {
+          await settingsClient.setAppearance(appearance);
+          return true;
+        }}
+        onWindowSurfacePreferenceChange={async (surface) => {
+          await settingsClient.setWindowSurface(surface);
+          return true;
+        }}
+      >
         <TypesafeI18n locale={locale}>
           <MemoryRouter initialEntries={[path]}>
             <ProductProvider client={client}>
@@ -163,6 +178,10 @@ class DesktopSettingsClient implements SettingsClient {
   });
   setWindowCloseBehavior = vi.fn(async (behavior: "hide-to-status-bar" | "quit") => {
     this.snapshot.preferences.windowCloseBehavior = behavior;
+    return this.getSnapshot();
+  });
+  setWindowSurface = vi.fn(async (surface: WindowSurfacePreference) => {
+    this.snapshot.preferences.windowSurface = surface;
     return this.getSnapshot();
   });
 }
@@ -389,6 +408,8 @@ describe("production routes", () => {
       screen.getByRole("button", { name: "Virtual Interface, not selected, not running" }),
     ).toBeDisabled();
     expect(screen.queryByRole("button", { name: /enable lan/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Window surface")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Native material" })).not.toBeInTheDocument();
   });
 
   it("keeps Settings operable by keyboard at the minimum desktop window breakpoint", async () => {
@@ -437,6 +458,44 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
+  it("scopes native material to the sidebar and keeps the workspace opaque", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    const view = renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await screen.findByRole("heading", { name: "Settings" });
+    expect(screen.getByText("Window surface")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Native material" })).toBeInTheDocument();
+    expect(view.container.querySelector(".sidebar")).toHaveAttribute(
+      "data-surface-rendering",
+      "material",
+    );
+    expect(view.container.querySelector(".workspace")).toHaveAttribute(
+      "data-surface-rendering",
+      "opaque",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Opaque" }));
+
+    await waitFor(() => expect(settingsClient.setWindowSurface).toHaveBeenCalledWith("opaque"));
+    expect(view.container.querySelector(".sidebar")).toHaveAttribute(
+      "data-surface-rendering",
+      "opaque",
+    );
+    expect(view.container.querySelector(".workspace")).toHaveAttribute(
+      "data-surface-rendering",
+      "opaque",
+    );
+    expect(settingsClient.setAppearance).not.toHaveBeenCalled();
+  });
+
   it("keeps close behavior independent from login launch behavior", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();

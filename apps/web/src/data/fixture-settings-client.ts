@@ -5,6 +5,7 @@ import type {
   SettingsSnapshotDto,
   StartupPreferencesDto,
   WindowCloseBehavior,
+  WindowSurfacePreference,
 } from "@mish/contracts";
 
 function storedAppearance(): AppearancePreference {
@@ -31,6 +32,16 @@ function storedLanguage(): LanguagePreference {
     : "en";
 }
 
+function storedWindowSurface(): WindowSurfacePreference {
+  try {
+    const value = globalThis.localStorage?.getItem("mish.window-surface");
+    if (value === "opaque" || value === "material") return value;
+  } catch {
+    // Hardened browser contexts may not expose storage.
+  }
+  return "material";
+}
+
 export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
   return {
     adapterKind: "fixture",
@@ -51,6 +62,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       language: storedLanguage(),
       startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" },
       windowCloseBehavior: "hide-to-status-bar",
+      windowSurface: storedWindowSurface(),
     },
     privacy: {
       authenticated: "unavailable",
@@ -106,5 +118,15 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async setWindowCloseBehavior(_behavior: WindowCloseBehavior): Promise<SettingsSnapshotDto> {
     throw new Error("Native window lifecycle operations are unavailable in the browser fixture");
+  }
+
+  async setWindowSurface(surface: WindowSurfacePreference) {
+    this.snapshot.preferences.windowSurface = surface;
+    try {
+      globalThis.localStorage?.setItem("mish.window-surface", surface);
+    } catch {
+      // The in-memory preference still works when persistence is unavailable.
+    }
+    return this.getSnapshot();
   }
 }

@@ -122,6 +122,13 @@ const en = {
       "Versioning and local-data workflows remain explicit about what is not implemented.",
     version: "Version information",
     versionDescription: "This build does not expose paths, credentials, or sensitive runtime data.",
+    windowSurface: "Window surface",
+    windowSurfaceDescription:
+      "Choose an opaque color surface or the native macOS Sidebar material independently from the light or dark theme.",
+    windowSurfaceMaterial: "Native material",
+    windowSurfaceOpaque: "Opaque",
+    windowSurfaceReducedTransparency:
+      "Native material is still preferred, but Reduce Transparency currently renders an opaque surface.",
   },
   navigation: {
     events: "Events",

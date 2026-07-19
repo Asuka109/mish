@@ -11,6 +11,7 @@ colors:
   muted-soft: "#898989"
   canvas: "#FFFFFF"
   surface-soft: "#F8F9FA"
+  interactive: "#F3F4F6"
   hairline-soft: "#F3F4F6"
   hairline: "#E5E7EB"
   accent: "#3B82F6"
@@ -72,7 +73,7 @@ components:
     rounded: "{rounded.md}"
     height: "36px"
   navigation-item-idle:
-    backgroundColor: "{colors.hairline-soft}"
+    backgroundColor: "{colors.interactive}"
     textColor: "{colors.body}"
     typography: "{typography.body}"
     rounded: "{rounded.md}"
@@ -91,7 +92,7 @@ components:
     padding: "0px 16px"
     height: "40px"
   secondary-control-hover:
-    backgroundColor: "{colors.surface-soft}"
+    backgroundColor: "{colors.interactive}"
     textColor: "{colors.ink-active}"
     typography: "{typography.body}"
     rounded: "{rounded.md}"
@@ -124,6 +125,10 @@ components:
     padding: "0px"
   separator:
     backgroundColor: "{colors.hairline}"
+    textColor: "{colors.body}"
+    height: "1px"
+  grouped-list-separator:
+    backgroundColor: "{colors.hairline-soft}"
     textColor: "{colors.body}"
     height: "1px"
   grouped-list:
@@ -167,7 +172,7 @@ components:
     padding: "0px 12px"
     height: "30px"
   button-group-item-selected:
-    backgroundColor: "{colors.hairline-soft}"
+    backgroundColor: "{colors.interactive}"
     textColor: "{colors.ink}"
     typography: "{typography.metadata}"
     padding: "0px 12px"
@@ -214,6 +219,13 @@ with text. The sidebar and exposed app-shell margin share the lighter
 surface-soft neutral rather than splitting into two nearby gray fields. Avoid a
 vertical color seam at the workspace edge.
 
+Keep static layer colors separate from interaction colors. `surface-soft` is a
+passive window or muted-section background and must never be reused for hover,
+pressed, highlighted, or selected feedback. Neutral interactive states consume
+the shadcn/Tailwind `accent` semantic role, backed by `interactive`: it is darker
+than the canvas in light appearance and lighter than the canvas in dark
+appearance. Components must not implement their own light/dark state colors.
+
 The application supports light and dark appearances plus a system-following
 preference. Both appearances preserve the same two-layer hierarchy: the sidebar
 and window base remain quieter than the opaque workspace. Dark appearance uses
@@ -221,6 +233,17 @@ near-black neutral surfaces rather than pure black, raises hairline contrast jus
 enough to preserve grouping, and lightens semantic status colors for legibility.
 Appearance changes must update native form controls and the browser theme color,
 and the system preference must react to operating-system changes without a reload.
+
+Color appearance and window-surface rendering are independent preferences. The
+window surface accepts only `opaque` or `material`; an automatic policy is not a
+peer rendering mode. `opaque` paints the sidebar and exposed window base with the
+deterministic `surface-soft` color. `material` requests the platform semantic
+Sidebar material and falls back to that same opaque color when native material is
+unsupported or Reduce Transparency is enabled. A fallback changes only the
+effective rendering and must not overwrite the stored user preference.
+Render the window-surface setting only when native material capability is
+supported. Web, mobile, and other opaque-only platforms omit the complete row
+rather than showing a disabled or permanently falling-back control.
 
 ## Typography
 
@@ -253,6 +276,24 @@ flat and use whitespace plus single-pixel separators. Grouped policy and session
 rows use one complete hairline without elevation. Only menus, dialogs, popovers,
 and tooltips use a noticeable floating shadow.
 
+Edge and elevation recipes depend on both color appearance and effective window
+surface. Dark opaque surfaces use intentionally higher-contrast hairlines and
+stronger shadows than light opaque surfaces; do not derive them through symmetric
+color inversion. Native material navigation states use tinted color blocks with
+transparent structural borders and no resting elevation. The inactive sidebar
+Proxy control is an outlined exception: it has a transparent resting background
+and a quiet foreground-tinted border, then gains the interaction tint only on
+hover. The opaque workspace and floating overlays retain their own edge and
+elevation recipes even when the sidebar uses native material.
+
+Sidebar interaction feedback also resolves through the effective surface recipe.
+Opaque sidebars use the theme's semantic `accent`. Native material uses restrained
+foreground tints: dark material receives translucent light highlights, while light
+material receives translucent dark highlights. Hover and selected navigation use
+increasing tint strengths to preserve their hierarchy. The idle Proxy control
+stays transparent until hover. Do not encode this with component-local `dark:`
+overrides; components consume the surface-scoped interaction tokens.
+
 On macOS, the exposed sidebar may use the system's native vibrancy material so
 the desktop or windows behind the application contribute to the surface. This
 is a native window-compositor effect, not CSS glassmorphism: the Tauri shell
@@ -264,6 +305,19 @@ gradient or a captured wallpaper. Defer this material until the real Tauri
 window exists, because the standalone Web preview cannot validate behind-window
 sampling, window activation, accessibility transparency settings, or energy
 behavior.
+
+Material tint opacity is a bounded design token layered over the native semantic
+material. The system compositor owns the actual blur. Do not expose Tauri's
+window-effect `radius` as blur strength: it is a corner radius. A future exact
+blur control requires a separately designed native adapter and must not silently
+fall back to CSS `backdrop-filter` for the macOS sidebar.
+
+Surface rendering is tree-scoped, not a global theme. The app shell marks the
+sidebar and exposed window base as the window-backed surface scope, while the
+workspace starts a new opaque content scope for all page descendants. Material
+recipes may cascade only inside a window-backed scope. Pages, dialogs, popovers,
+and other content do not inherit sidebar material merely because the containing
+native window is transparent.
 
 ## Shapes
 
@@ -295,12 +349,20 @@ may be 34px high.
 
 Repeated interactive choices use a grouped-list treatment: one complete
 hairline boundary and 8px radius around the collection, with single-pixel
-internal separators. Hover changes text emphasis instead of painting each row
-as a floating tonal block. Selection may use the soft surface together with a
-checkmark and stronger text. Sidebar tabs reserve a transparent 1px border and
+internal separators. Hover uses the shared interaction accent without adding
+an independent border, radius, or shadow that would turn the row into a floating
+card. Selection may pair the accent with a checkmark and stronger text. Sidebar
+tabs reserve a transparent 1px border and
 reveal the hairline border in the active state so selection does not shift the
 layout. Use the ordinary hairline for this active border and keep its shadow
 almost imperceptible; the border, not elevation, should carry selection.
+
+Across shadcn/Base UI components, every neutral hover, pressed, highlighted, and
+selected background consumes the `accent` semantic token. This includes buttons,
+toggles, tabs, menus, selects, tables, grouped rows, settings controls, and route
+controls. Status-colored actions may keep their semantic status surface, but must
+use a state overlay or equivalent lightness increase for hover. Never consume
+`surface-soft`, `canvas`, or `hairline-soft` directly from an interaction selector.
 
 Build grouped surfaces with the reusable `SectionGrid` and `SectionGridItem`
 components. `SectionGrid` owns one real 1px hairline border, an 8px radius, and
@@ -314,8 +376,8 @@ same anatomy supports vertical lists, horizontal divisions, and mixed layouts.
 
 Compact routing choices use shadcn `ToggleGroup` backed by Base UI. The three
 outline buttons form one joined 30px control, share internal
-hairlines, and expose the current mode with `aria-pressed`. Hover uses
-surface-soft; the selected button uses hairline-soft and stronger ink.
+hairlines, and expose the current mode with `aria-pressed`. Hover and selection
+use the semantic interaction accent with stronger ink.
 
 The sidebar `ProxyControlButton` is a 36px shadcn button aligned to the same icon
 and text columns as navigation. Healthy proxy state uses the brand surface and

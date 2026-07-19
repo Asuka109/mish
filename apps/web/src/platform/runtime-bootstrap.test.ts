@@ -21,6 +21,7 @@ const settingsSnapshot = {
     language: "en" as const,
     startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" as const },
     windowCloseBehavior: "hide-to-status-bar" as const,
+    windowSurface: "material" as const,
   },
   privacy: {
     authenticated: "confirmed" as const,
@@ -58,7 +59,6 @@ describe("desktop runtime bootstrap", () => {
 
     expect(startup.client).toBeUndefined();
     expect(startup.profileClient).toBeUndefined();
-    expect(startup.nativeSidebarMaterial).toBe(false);
     expect(startup.runtime).toBe("browser");
     expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
     expect(startup.settingsSnapshot.capabilities.launchAtLogin).toBe("unavailable");
@@ -72,7 +72,6 @@ describe("desktop runtime bootstrap", () => {
     const startup = await resolveStartupStatusClient({
       invokeBootstrap: async () => ({
         authToken: token,
-        nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
         supportBundleExport: true,
@@ -111,14 +110,12 @@ describe("desktop runtime bootstrap", () => {
     expect(
       parseRuntimeBootstrap({
         authToken: token,
-        nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
         supportBundleExport: true,
       }),
     ).toEqual({
       authToken: token,
-      nativeSidebarMaterial: true,
       rpcUrl: "ws://127.0.0.1:43123/rpc",
       settingsSnapshot,
       supportBundleExport: true,
@@ -135,7 +132,6 @@ describe("desktop runtime bootstrap", () => {
       expect(() =>
         parseRuntimeBootstrap({
           authToken: token,
-          nativeSidebarMaterial: true,
           rpcUrl,
           settingsSnapshot,
           supportBundleExport: true,
@@ -144,17 +140,20 @@ describe("desktop runtime bootstrap", () => {
     }
   });
 
-  it("requires an explicit native material capability instead of inferring one from Tauri", () => {
+  it("takes native material capability only from the validated settings snapshot", () => {
     expect(() =>
       parseRuntimeBootstrap({ authToken: token, rpcUrl: "ws://127.0.0.1:43123/rpc" }),
-    ).toThrow("Invalid native sidebar material capability");
+    ).toThrow();
     expect(() =>
       parseRuntimeBootstrap({
         authToken: token,
-        nativeSidebarMaterial: "macos",
         rpcUrl: "ws://127.0.0.1:43123/rpc",
+        settingsSnapshot: {
+          ...settingsSnapshot,
+          capabilities: { ...settingsSnapshot.capabilities, nativeSidebarMaterial: "macos" },
+        },
       }),
-    ).toThrow("Invalid native sidebar material capability");
+    ).toThrow();
   });
 
   it("keeps the token in the RPC authentication message instead of the endpoint", async () => {
@@ -169,7 +168,6 @@ describe("desktop runtime bootstrap", () => {
     const startup = await resolveStartupStatusClient({
       invokeBootstrap: async () => ({
         authToken: token,
-        nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
         supportBundleExport: true,
@@ -182,7 +180,7 @@ describe("desktop runtime bootstrap", () => {
 
     const request = startup.client?.getSnapshot();
     expect(startup.runtime).toBe("desktop");
-    expect(startup.nativeSidebarMaterial).toBe(true);
+    expect(startup.settingsSnapshot.capabilities.nativeSidebarMaterial).toBe("supported");
     expect(openWebSocket).toHaveBeenCalledWith("ws://127.0.0.1:43123/rpc");
     expect(openWebSocket.mock.calls[0][0]).not.toContain(token);
     startup.dispose();

@@ -27,10 +27,14 @@ use mish_runtime::{
 use mish_settings::{
     FileSettingsRepository, LoginLaunchBehavior, SettingsAdapterKind, SettingsAvailability,
     SettingsCapabilities, SettingsService, SettingsServiceError, SettingsSnapshot, StartupPlatform,
-    StartupPlatformError,
+    StartupPlatformError, WindowSurfacePlatform, WindowSurfacePlatformError,
+    WindowSurfacePreference,
 };
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{
+    Manager,
+    window::{Effect, EffectState, EffectsBuilder},
+};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
@@ -45,7 +49,6 @@ const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
 #[serde(rename_all = "camelCase")]
 struct RuntimeBootstrap {
     auth_token: String,
-    native_sidebar_material: bool,
     rpc_url: String,
     settings_snapshot: SettingsSnapshot,
     support_bundle_export: bool,
@@ -103,6 +106,26 @@ impl StartupPlatform for TauriStartupPlatform {
             manager.disable()
         }
         .map_err(|_| StartupPlatformError)
+    }
+}
+
+struct TauriWindowSurfacePlatform(tauri::WebviewWindow);
+
+impl WindowSurfacePlatform for TauriWindowSurfacePlatform {
+    fn set_surface(
+        &self,
+        surface: WindowSurfacePreference,
+    ) -> Result<(), WindowSurfacePlatformError> {
+        match surface {
+            WindowSurfacePreference::Material => self.0.set_effects(
+                EffectsBuilder::new()
+                    .effect(Effect::Sidebar)
+                    .state(EffectState::FollowsWindowActiveState)
+                    .build(),
+            ),
+            WindowSurfacePreference::Opaque => self.0.set_effects(None),
+        }
+        .map_err(|_| WindowSurfacePlatformError)
     }
 }
 
@@ -298,6 +321,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 profile_root.join("settings.json"),
             )),
             startup_platform(app),
+            window_surface_platform(app),
             desktop_settings_capabilities(),
             Some(tun_helper.clone()),
         )
@@ -392,7 +416,6 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (bridge, status_bar_state, support_bundle) = bridge;
     app.manage(RuntimeBootstrap {
         auth_token,
-        native_sidebar_material: cfg!(target_os = "macos"),
         rpc_url: format!("ws://{}/rpc", bridge.address),
         settings_snapshot: settings_service.snapshot(SettingsAdapterKind::Rpc),
         support_bundle_export: true,
@@ -447,6 +470,16 @@ fn startup_platform(app: &tauri::App) -> Option<Arc<dyn StartupPlatform>> {
     }
 }
 
+fn window_surface_platform(app: &tauri::App) -> Option<Arc<dyn WindowSurfacePlatform>> {
+    if cfg!(target_os = "macos") {
+        app.get_webview_window("main").map(|window| {
+            Arc::new(TauriWindowSurfacePlatform(window)) as Arc<dyn WindowSurfacePlatform>
+        })
+    } else {
+        None
+    }
+}
+
 fn desktop_settings_capabilities() -> SettingsCapabilities {
     if cfg!(target_os = "macos") {
         SettingsCapabilities::macos(true)
@@ -469,7 +502,9 @@ fn desktop_settings_capabilities() -> SettingsCapabilities {
 fn settings_initialization_error(error: SettingsServiceError) -> io::Error {
     io::Error::other(match error {
         SettingsServiceError::Persistence => "application settings storage is unavailable",
-        SettingsServiceError::CapabilityUnavailable | SettingsServiceError::Startup => {
+        SettingsServiceError::CapabilityUnavailable
+        | SettingsServiceError::Startup
+        | SettingsServiceError::WindowSurface => {
             "application settings platform integration is unavailable"
         }
         SettingsServiceError::TunHelper(_) => "TUN helper integration is unavailable",

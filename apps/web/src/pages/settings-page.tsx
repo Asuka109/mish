@@ -15,6 +15,7 @@ import type {
   ConfirmationState,
   LanguagePreference,
   SettingsAvailability,
+  WindowSurfacePreference,
 } from "@mish/contracts";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { useAppearance } from "../appearance";
@@ -90,7 +91,13 @@ function SettingsRow({
 }
 
 export function SettingsPage() {
-  const { preference, setPreference } = useAppearance();
+  const {
+    preference,
+    setPreference,
+    setWindowSurfacePreference,
+    windowSurfaceFallbackReason,
+    windowSurfacePreference,
+  } = useAppearance();
   const {
     error: productError,
     isCommandPending,
@@ -136,6 +143,12 @@ export function SettingsPage() {
     const appearance = values[0] as AppearancePreference | undefined;
     if (!appearance || !["system", "light", "dark"].includes(appearance)) return;
     setPreference(appearance);
+  }
+
+  function changeWindowSurface(values: string[]) {
+    const surface = values[0] as WindowSurfacePreference | undefined;
+    if (surface !== "opaque" && surface !== "material") return;
+    setWindowSurfacePreference(surface);
   }
 
   return (
@@ -387,6 +400,33 @@ export function SettingsPage() {
             ))}
           </ToggleGroup>
         </SettingsRow>
+        {snapshot.capabilities.nativeSidebarMaterial === "supported" ? (
+          <SettingsRow
+            description={
+              windowSurfaceFallbackReason === "reduced-transparency"
+                ? LL.settingsPage.windowSurfaceReducedTransparency()
+                : LL.settingsPage.windowSurfaceDescription()
+            }
+            title={LL.settingsPage.windowSurface()}
+          >
+            <ToggleGroup
+              aria-label={LL.settingsPage.windowSurface()}
+              className="settings-segmented"
+              disabled={settings.pending}
+              onValueChange={changeWindowSurface}
+              spacing={0}
+              value={[windowSurfacePreference]}
+              variant="outline"
+            >
+              <ToggleGroupItem value="opaque">
+                {LL.settingsPage.windowSurfaceOpaque()}
+              </ToggleGroupItem>
+              <ToggleGroupItem value="material">
+                {LL.settingsPage.windowSurfaceMaterial()}
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </SettingsRow>
+        ) : null}
         <SettingsRow
           description={LL.settingsPage.languageDescription()}
           title={LL.language.label()}

@@ -954,6 +954,9 @@ export type LoginLaunchBehavior = z.infer<typeof LoginLaunchBehaviorSchema>;
 export const WindowCloseBehaviorSchema = z.enum(["hide-to-status-bar", "quit"]);
 export type WindowCloseBehavior = z.infer<typeof WindowCloseBehaviorSchema>;
 
+export const WindowSurfacePreferenceSchema = z.enum(["opaque", "material"]);
+export type WindowSurfacePreference = z.infer<typeof WindowSurfacePreferenceSchema>;
+
 export const StartupPreferencesSchema = z
   .object({
     launchAtLogin: z.boolean(),
@@ -968,6 +971,7 @@ export const SettingsPreferencesSchema = z
     language: LanguagePreferenceSchema,
     startup: StartupPreferencesSchema,
     windowCloseBehavior: WindowCloseBehaviorSchema,
+    windowSurface: WindowSurfacePreferenceSchema,
   })
   .strict();
 export interface SettingsPreferencesDto extends z.infer<typeof SettingsPreferencesSchema> {}
@@ -1218,7 +1222,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(11),
+    protocolVersion: z.literal(12),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -1981,6 +1985,9 @@ export const SetStartupPreferencesCommandSchema = z
 export const SetWindowCloseBehaviorCommandSchema = z
   .object({ behavior: WindowCloseBehaviorSchema })
   .strict();
+export const SetWindowSurfacePreferenceCommandSchema = z
+  .object({ surface: WindowSurfacePreferenceSchema })
+  .strict();
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
@@ -2010,6 +2017,10 @@ export const settingsRpcMethods = {
   },
   "settings.setWindowCloseBehavior": {
     params: SetWindowCloseBehaviorCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setWindowSurface": {
+    params: SetWindowSurfacePreferenceCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
 } as const;
@@ -2154,6 +2165,10 @@ export interface SettingsClient {
   ): Promise<SettingsSnapshotDto>;
   setWindowCloseBehavior(
     behavior: WindowCloseBehavior,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  setWindowSurface(
+    surface: WindowSurfacePreference,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
 }

@@ -72,11 +72,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-:root[data-native-sidebar-material="available"],
-:root[data-native-sidebar-material="available"] body,
-:root[data-native-sidebar-material="available"] #root,
-:root[data-native-sidebar-material="available"] .app-shell,
-:root[data-native-sidebar-material="available"] .sidebar {
+:root[data-window-surface="material"],
+:root[data-window-surface="material"] body,
+:root[data-window-surface="material"] #root,
+:root[data-window-surface="material"] :is(.app-shell) {
+  background: transparent;
+}
+
+[data-surface-rendering="material"] {
   background: transparent;
 }
 
@@ -160,7 +163,7 @@ h2 {
   min-width: 0;
   flex-direction: column;
   padding: 14px 10px 10px;
-  background: var(--color-surface-soft);
+  background: var(--mish-sidebar-background);
   color: var(--color-body);
 }
 
@@ -262,15 +265,15 @@ h2 {
 }
 
 .nav-item:hover {
-  background: color-mix(in srgb, var(--color-canvas) 55%, transparent);
+  background: var(--mish-sidebar-item-hover-background);
   color: var(--color-body);
 }
 
 .nav-item.is-active {
-  border-color: var(--color-hairline);
-  background: var(--color-canvas);
+  border-color: var(--mish-sidebar-item-active-border);
+  background: var(--mish-sidebar-item-active-background);
   color: var(--color-ink);
-  box-shadow: 0 1px 1px rgb(0 0 0 / 2%);
+  box-shadow: var(--mish-sidebar-item-active-shadow);
 }
 
 .settings-link {
@@ -280,7 +283,7 @@ h2 {
 .sidebar-status-area {
   margin-top: 7px;
   padding-top: 7px;
-  border-top: 1px solid var(--color-hairline);
+  border-top: 1px solid var(--mish-sidebar-divider);
 }
 
 .proxy-control-button {
@@ -291,9 +294,9 @@ h2 {
   align-items: center;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--color-hairline);
+  border: 1px solid var(--mish-sidebar-control-border);
   border-radius: var(--radius-md);
-  background: transparent;
+  background: var(--mish-sidebar-control-background);
   color: var(--color-text-muted);
   font-size: var(--text-metadata);
   font-weight: var(--font-weight-control);
@@ -306,6 +309,11 @@ h2 {
   background: var(--color-status-water-base);
   color: var(--color-brand-foreground);
   box-shadow: var(--shadow-status);
+}
+
+.proxy-control-button:not([data-status="healthy"]):hover {
+  background: var(--mish-sidebar-control-hover-background);
+  color: var(--color-body);
 }
 
 .proxy-control-button[data-status="healthy"]::before {
@@ -399,16 +407,6 @@ h2 {
   box-shadow: var(--shadow-panel);
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  :root[data-native-sidebar-material="available"],
-  :root[data-native-sidebar-material="available"] body,
-  :root[data-native-sidebar-material="available"] #root,
-  :root[data-native-sidebar-material="available"] .app-shell,
-  :root[data-native-sidebar-material="available"] .sidebar {
-    background: var(--color-surface-soft);
-  }
-}
-
 .toolbar {
   display: flex;
   min-width: 0;
@@ -451,7 +449,7 @@ h2 {
 .toolbar-button:hover,
 .toolbar-button[data-popup-open] {
   border-color: var(--color-hairline);
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-body);
 }
 
@@ -604,7 +602,7 @@ h2 {
 .routing-mode-button:hover,
 .capture-mode-button:hover,
 .capture-help-button:hover {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-body);
 }
 
@@ -612,7 +610,7 @@ h2 {
 .routing-mode-button[data-pressed],
 .capture-mode-button[aria-pressed="true"],
 .capture-mode-button[data-pressed] {
-  background: var(--color-hairline-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-hairline) 56%, transparent);
 }
@@ -881,7 +879,7 @@ h2 {
 }
 
 .policy-group-row:hover {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink-active);
 }
 
@@ -994,7 +992,7 @@ h2 {
 .service-manage-trigger:hover,
 .service-manage-trigger[data-popup-open] {
   border-color: var(--color-hairline);
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -1018,7 +1016,7 @@ h2 {
 }
 
 .service-monitor-row:hover {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -1124,7 +1122,7 @@ h2 {
 .menu-item[data-highlighted],
 .profile-menu-item:hover,
 .profile-menu-item[data-highlighted] {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -1205,7 +1203,7 @@ h2 {
 }
 
 .dialog-close:hover {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -1317,8 +1315,9 @@ h2 {
 }
 
 .secondary-button:hover,
-.ui-button--outline:hover {
-  background: var(--color-surface-soft);
+.ui-button--outline:hover,
+.ui-button--ghost:hover {
+  background: var(--color-accent);
 }
 
 .ui-button--icon-sm {
@@ -1367,7 +1366,7 @@ h2 {
 
 .section-grid > .policy-group-row:hover,
 .section-grid > .service-monitor-row:hover {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
 }
 
 .proxy-picker-dialog {
@@ -1437,7 +1436,7 @@ h2 {
 
 .proxy-picker-option[data-selected="true"],
 .proxy-picker-option[data-checked="true"] {
-  background: var(--color-hairline-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -1550,8 +1549,13 @@ h2 {
   font-weight: var(--font-weight-control);
 }
 
+.ui-tabs-trigger:hover {
+  background: var(--color-accent);
+  color: var(--color-body);
+}
+
 .ui-tabs-trigger[data-active] {
-  background: var(--color-canvas);
+  background: var(--color-accent);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--color-ink) 6%, transparent);
   color: var(--color-ink);
 }
@@ -1626,7 +1630,7 @@ h2 {
 }
 
 .ui-select-item[data-highlighted] {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -1678,7 +1682,7 @@ h2 {
 }
 
 .ui-table-row:hover .ui-table-cell {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
 }
 
 .field-description,
@@ -1929,7 +1933,7 @@ h2 {
 }
 
 .route-group-toggle:not(.route-group-static):hover {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -2074,7 +2078,7 @@ h2 {
 .route-sort-button:hover,
 .route-sort-button[aria-pressed="true"],
 .route-sort-button[data-pressed] {
-  background: var(--color-hairline-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -2118,7 +2122,7 @@ h2 {
 
 .route-child-select:hover,
 .route-child-select[aria-pressed="true"] {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
 }
 
@@ -3125,7 +3129,7 @@ h2 {
 
 .settings-switch:hover,
 .settings-segmented > button:hover {
-  background: var(--color-surface-soft);
+  background: var(--color-accent);
   color: var(--color-body);
 }
 
@@ -3133,7 +3137,7 @@ h2 {
 .settings-switch[data-pressed],
 .settings-segmented > button[aria-pressed="true"],
 .settings-segmented > button[data-pressed] {
-  background: var(--color-hairline-soft);
+  background: var(--color-accent);
   color: var(--color-ink);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-hairline) 56%, transparent);
 }

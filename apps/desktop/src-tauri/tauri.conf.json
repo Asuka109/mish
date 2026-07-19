@@ -26,11 +26,7 @@
         "transparent": true,
         "visible": false,
         "useHttpsScheme": true,
-        "width": 1160,
-        "windowEffects": {
-          "effects": ["sidebar"],
-          "state": "followsWindowActiveState"
-        }
+        "width": 1160
       }
     ],
     "security": {

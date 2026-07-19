@@ -1,17 +1,30 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { WindowSurfacePreference } from "@mish/contracts";
 import { syncDesktopWindowAppearance } from "./platform/desktop-window";
 
 export type AppearancePreference = "light" | "dark" | "system";
 export type ResolvedAppearance = Exclude<AppearancePreference, "system">;
+export type EffectiveWindowSurface = "opaque" | "native-material";
+export type WindowSurfaceFallbackReason = "unsupported" | "reduced-transparency" | null;
+
+export interface WindowSurfaceResolution {
+  effectiveSurface: EffectiveWindowSurface;
+  fallbackReason: WindowSurfaceFallbackReason;
+}
 
 interface AppearanceContextValue {
   preference: AppearancePreference;
   resolvedAppearance: ResolvedAppearance;
+  effectiveWindowSurface: EffectiveWindowSurface;
   setPreference: (preference: AppearancePreference) => void;
+  setWindowSurfacePreference: (preference: WindowSurfacePreference) => void;
+  windowSurfaceFallbackReason: WindowSurfaceFallbackReason;
+  windowSurfacePreference: WindowSurfacePreference;
 }
 
 const appearanceStorageKey = "mish.appearance";
 const darkModeQuery = "(prefers-color-scheme: dark)";
+const reducedTransparencyQuery = "(prefers-reduced-transparency: reduce)";
 const AppearanceContext = createContext<AppearanceContextValue | null>(null);
 
 function isAppearancePreference(value: string | null): value is AppearancePreference {
@@ -34,6 +47,23 @@ function resolveAppearance(preference: AppearancePreference): ResolvedAppearance
   return globalThis.matchMedia?.(darkModeQuery).matches ? "dark" : "light";
 }
 
+export function resolveWindowSurface(
+  preference: WindowSurfacePreference,
+  nativeMaterialSupported: boolean,
+  reducedTransparency: boolean,
+): WindowSurfaceResolution {
+  if (preference === "opaque") {
+    return { effectiveSurface: "opaque", fallbackReason: null };
+  }
+  if (!nativeMaterialSupported) {
+    return { effectiveSurface: "opaque", fallbackReason: "unsupported" };
+  }
+  if (reducedTransparency) {
+    return { effectiveSurface: "opaque", fallbackReason: "reduced-transparency" };
+  }
+  return { effectiveSurface: "native-material", fallbackReason: null };
+}
+
 function applyAppearance(appearance: ResolvedAppearance) {
   document.documentElement.dataset.theme = appearance;
   document.documentElement.style.colorScheme = appearance;
@@ -50,22 +80,56 @@ function persistAppearance(preference: AppearancePreference) {
   }
 }
 
+function applyWindowSurface(resolution: WindowSurfaceResolution) {
+  document.documentElement.dataset.windowSurface =
+    resolution.effectiveSurface === "native-material" ? "material" : "opaque";
+  if (resolution.fallbackReason) {
+    document.documentElement.dataset.windowSurfaceFallback = resolution.fallbackReason;
+  } else {
+    delete document.documentElement.dataset.windowSurfaceFallback;
+  }
+}
+
 export function applyInitialAppearance(preference: AppearancePreference) {
   persistAppearance(preference);
   applyAppearance(resolveAppearance(preference));
 }
 
+export function applyInitialWindowSurface(
+  preference: WindowSurfacePreference,
+  nativeMaterialSupported: boolean,
+) {
+  const reducedTransparency = globalThis.matchMedia?.(reducedTransparencyQuery).matches ?? false;
+  applyWindowSurface(
+    resolveWindowSurface(preference, nativeMaterialSupported, reducedTransparency),
+  );
+}
+
 export function AppearanceProvider({
   children,
   initialPreference,
+  initialWindowSurfacePreference = "material",
+  nativeSidebarMaterialSupported = false,
   onPreferenceChange,
+  onWindowSurfacePreferenceChange,
 }: {
   children: ReactNode;
   initialPreference?: AppearancePreference;
+  initialWindowSurfacePreference?: WindowSurfacePreference;
+  nativeSidebarMaterialSupported?: boolean;
   onPreferenceChange?: (preference: AppearancePreference) => Promise<boolean> | void;
+  onWindowSurfacePreferenceChange?: (
+    preference: WindowSurfacePreference,
+  ) => Promise<boolean> | void;
 }) {
   const [preference, setPreferenceState] = useState(initialPreference ?? resolveInitialAppearance);
   const [resolvedAppearance, setResolvedAppearance] = useState(() => resolveAppearance(preference));
+  const [windowSurfacePreference, setWindowSurfacePreferenceState] = useState(
+    initialWindowSurfacePreference,
+  );
+  const [reducedTransparency, setReducedTransparency] = useState(
+    () => globalThis.matchMedia?.(reducedTransparencyQuery).matches ?? false,
+  );
 
   useEffect(() => {
     const mediaQuery = globalThis.matchMedia?.(darkModeQuery);
@@ -84,10 +148,32 @@ export function AppearanceProvider({
     return () => mediaQuery.removeEventListener("change", updateAppearance);
   }, [preference]);
 
+  useEffect(() => {
+    const mediaQuery = globalThis.matchMedia?.(reducedTransparencyQuery);
+    if (!mediaQuery) return;
+    const updateReducedTransparency = () => setReducedTransparency(mediaQuery.matches);
+    updateReducedTransparency();
+    mediaQuery.addEventListener("change", updateReducedTransparency);
+    return () => mediaQuery.removeEventListener("change", updateReducedTransparency);
+  }, []);
+
+  const windowSurface = useMemo(
+    () =>
+      resolveWindowSurface(
+        windowSurfacePreference,
+        nativeSidebarMaterialSupported,
+        reducedTransparency,
+      ),
+    [nativeSidebarMaterialSupported, reducedTransparency, windowSurfacePreference],
+  );
+
+  useEffect(() => applyWindowSurface(windowSurface), [windowSurface]);
+
   const value = useMemo<AppearanceContextValue>(
     () => ({
       preference,
       resolvedAppearance,
+      effectiveWindowSurface: windowSurface.effectiveSurface,
       setPreference: (nextPreference) => {
         const previousPreference = preference;
         persistAppearance(nextPreference);
@@ -101,8 +187,28 @@ export function AppearanceProvider({
           });
         }
       },
+      setWindowSurfacePreference: (nextPreference) => {
+        const previousPreference = windowSurfacePreference;
+        setWindowSurfacePreferenceState(nextPreference);
+        const result = onWindowSurfacePreferenceChange?.(nextPreference);
+        if (result instanceof Promise) {
+          void result.then((confirmed) => {
+            if (confirmed !== false) return;
+            setWindowSurfacePreferenceState(previousPreference);
+          });
+        }
+      },
+      windowSurfaceFallbackReason: windowSurface.fallbackReason,
+      windowSurfacePreference,
     }),
-    [onPreferenceChange, preference, resolvedAppearance],
+    [
+      onPreferenceChange,
+      onWindowSurfacePreferenceChange,
+      preference,
+      resolvedAppearance,
+      windowSurface,
+      windowSurfacePreference,
+    ],
   );
 
   return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;

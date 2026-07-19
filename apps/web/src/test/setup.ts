@@ -6,6 +6,8 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-window-surface");
+  document.documentElement.removeAttribute("data-window-surface-fallback");
   document.documentElement.style.removeProperty("color-scheme");
 });
 

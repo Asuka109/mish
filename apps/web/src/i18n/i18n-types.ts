@@ -386,6 +386,26 @@ type RootTranslation = {
 		 * T​h​i​s​ ​b​u​i​l​d​ ​d​o​e​s​ ​n​o​t​ ​e​x​p​o​s​e​ ​p​a​t​h​s​,​ ​c​r​e​d​e​n​t​i​a​l​s​,​ ​o​r​ ​s​e​n​s​i​t​i​v​e​ ​r​u​n​t​i​m​e​ ​d​a​t​a​.
 		 */
 		versionDescription: string
+		/**
+		 * W​i​n​d​o​w​ ​s​u​r​f​a​c​e
+		 */
+		windowSurface: string
+		/**
+		 * C​h​o​o​s​e​ ​a​n​ ​o​p​a​q​u​e​ ​c​o​l​o​r​ ​s​u​r​f​a​c​e​ ​o​r​ ​t​h​e​ ​n​a​t​i​v​e​ ​m​a​c​O​S​ ​S​i​d​e​b​a​r​ ​m​a​t​e​r​i​a​l​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​ ​f​r​o​m​ ​t​h​e​ ​l​i​g​h​t​ ​o​r​ ​d​a​r​k​ ​t​h​e​m​e​.
+		 */
+		windowSurfaceDescription: string
+		/**
+		 * N​a​t​i​v​e​ ​m​a​t​e​r​i​a​l
+		 */
+		windowSurfaceMaterial: string
+		/**
+		 * O​p​a​q​u​e
+		 */
+		windowSurfaceOpaque: string
+		/**
+		 * N​a​t​i​v​e​ ​m​a​t​e​r​i​a​l​ ​i​s​ ​s​t​i​l​l​ ​p​r​e​f​e​r​r​e​d​,​ ​b​u​t​ ​R​e​d​u​c​e​ ​T​r​a​n​s​p​a​r​e​n​c​y​ ​c​u​r​r​e​n​t​l​y​ ​r​e​n​d​e​r​s​ ​a​n​ ​o​p​a​q​u​e​ ​s​u​r​f​a​c​e​.
+		 */
+		windowSurfaceReducedTransparency: string
 	}
 	navigation: {
 		/**
@@ -3586,6 +3606,26 @@ export type TranslationFunctions = {
 		 * This build does not expose paths, credentials, or sensitive runtime data.
 		 */
 		versionDescription: () => LocalizedString
+		/**
+		 * Window surface
+		 */
+		windowSurface: () => LocalizedString
+		/**
+		 * Choose an opaque color surface or the native macOS Sidebar material independently from the light or dark theme.
+		 */
+		windowSurfaceDescription: () => LocalizedString
+		/**
+		 * Native material
+		 */
+		windowSurfaceMaterial: () => LocalizedString
+		/**
+		 * Opaque
+		 */
+		windowSurfaceOpaque: () => LocalizedString
+		/**
+		 * Native material is still preferred, but Reduce Transparency currently renders an opaque surface.
+		 */
+		windowSurfaceReducedTransparency: () => LocalizedString
 	}
 	navigation: {
 		/**

@@ -21,7 +21,7 @@ use mish_runtime::{
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, SettingsAdapterKind, SettingsService,
-    SettingsServiceError, StartupPreferences, WindowCloseBehavior,
+    SettingsServiceError, StartupPreferences, WindowCloseBehavior, WindowSurfacePreference,
 };
 use tokio::sync::broadcast;
 
@@ -167,6 +167,12 @@ struct SetStartupParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetWindowCloseBehaviorParams {
     behavior: WindowCloseBehavior,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetWindowSurfaceParams {
+    surface: WindowSurfacePreference,
 }
 
 struct SocketSubscriptions {
@@ -458,7 +464,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 11,
+            "protocolVersion": 12,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1104,6 +1110,19 @@ async fn handle_message(
                 Err(error) => return Some(settings_error_response(id, error)),
             }
         }
+        "settings.setWindowSurface" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetWindowSurfaceParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.set_window_surface(params.surface) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
         "rpc.cancel" => json!(false),
         method if method.starts_with("status.") => {
             return Some(error_response(
@@ -1238,6 +1257,12 @@ fn settings_error_response(id: Value, error: SettingsServiceError) -> Value {
             -32055,
             "TUN helper lifecycle operation could not be confirmed",
             Some(json!({ "kind": kind })),
+        ),
+        SettingsServiceError::WindowSurface => error_response(
+            id,
+            -32056,
+            "Native window surface could not be applied",
+            None,
         ),
     }
 }
