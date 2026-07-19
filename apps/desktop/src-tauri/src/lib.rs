@@ -34,6 +34,7 @@ use mish_settings::{
     StartupPlatformError, WindowSurfacePlatform, WindowSurfacePlatformError,
     WindowSurfacePreference,
 };
+use mish_state_authority::StateMutationAuthority;
 use serde::Serialize;
 use tauri::{
     Manager,
@@ -386,12 +387,28 @@ async fn local_backup_restore_preview(
         .map_err(|_| local_backup_read_error())?
         .map_err(|_| local_backup_read_error())?;
     let service = state.service.clone();
-    let prepared = tauri::async_runtime::spawn_blocking(move || {
-        service.prepare_restore(Uuid::new_v4().to_string(), &bytes)
+    let permit = service.try_begin_restore().map_err(local_backup_error)?;
+    let active_profile_id = state
+        .activation
+        .active_profile_id_authorized(&permit)
+        .await
+        .map_err(|_| LocalBackupCommandError {
+            code: "busy",
+            message: "Another Profile or Settings mutation is in progress",
+        })?;
+    let (prepared, permit) = tauri::async_runtime::spawn_blocking(move || {
+        let prepared = service.prepare_restore_authorized(
+            &permit,
+            Uuid::new_v4().to_string(),
+            &bytes,
+            active_profile_id.as_deref(),
+        );
+        (prepared, permit)
     })
     .await
-    .map_err(|_| local_backup_state_error())?
-    .map_err(local_backup_error)?;
+    .map_err(|_| local_backup_state_error())?;
+    let prepared = prepared.map_err(local_backup_error)?;
+    drop(permit);
     let preview = prepared.preview.clone();
     *state
         .pending_restore
@@ -423,13 +440,30 @@ async fn local_backup_restore_commit(
         pending.take().ok_or_else(local_backup_state_error)?
     };
     let service = state.service.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
-        service.commit_restore(prepared, resolution, now_unix_milliseconds())
+    let permit = service.try_begin_restore().map_err(local_backup_error)?;
+    let active_profile_id = state
+        .activation
+        .active_profile_id_authorized(&permit)
+        .await
+        .map_err(|_| LocalBackupCommandError {
+            code: "busy",
+            message: "Another Profile or Settings mutation is in progress",
+        })?;
+    let (result, permit) = tauri::async_runtime::spawn_blocking(move || {
+        let result = service.commit_restore_authorized(
+            &permit,
+            prepared,
+            resolution,
+            now_unix_milliseconds(),
+            active_profile_id.as_deref(),
+        );
+        (result, permit)
     })
     .await
-    .map_err(|_| local_backup_state_error())?
-    .map_err(local_backup_error)?;
+    .map_err(|_| local_backup_state_error())?;
+    let result = result.map_err(local_backup_error)?;
     state.activation.publish().await;
+    drop(permit);
     Ok(result)
 }
 
@@ -498,6 +532,9 @@ pub fn run() -> Result<i32, String> {
 fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
+    LocalBackupService::recover_pending(&profile_root)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    let mutation_authority = StateMutationAuthority::new();
     let tun_helper = Arc::new(TunHelperController::new(Arc::new(
         MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
             MacOsTunHelperBoundary::UnsupportedSystem
@@ -508,7 +545,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }),
     )));
     let settings_service = Arc::new(
-        SettingsService::load_with_platforms(
+        SettingsService::load_with_platforms_and_authority(
             Arc::new(FileSettingsRepository::new(
                 profile_root.join("settings.json"),
             )),
@@ -520,12 +557,16 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 Arc::new(MacOsNetworkDnsPlatform::new())
                     as Arc<dyn mish_settings::NetworkDnsPlatform>
             }),
+            mutation_authority.clone(),
         )
         .map_err(settings_initialization_error)?,
     );
     let profile_service = Arc::new(
-        ReqwestHttpsSourceReader::profile_service(profile_root.clone())
-            .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
+        ReqwestHttpsSourceReader::profile_service_with_authority(
+            profile_root.clone(),
+            mutation_authority,
+        )
+        .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
     );
     let resolver = managed_mihomo_resolver(
         tauri::is_dev(),
@@ -711,6 +752,7 @@ fn settings_initialization_error(error: SettingsServiceError) -> io::Error {
             "application settings platform integration is unavailable"
         }
         SettingsServiceError::TunHelper(_) => "TUN helper integration is unavailable",
+        SettingsServiceError::Busy => "Profile and Settings mutation authority is unavailable",
     })
 }
 
@@ -792,6 +834,11 @@ fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
             field_identity: None,
             message: "Scheduled refresh is available only for HTTPS profile sources",
         },
+        ProfileServiceError::Busy => ProfileCommandError {
+            code: "busy",
+            field_identity: None,
+            message: "Another Profile or Settings mutation is in progress",
+        },
     }
 }
 
@@ -864,6 +911,14 @@ fn local_backup_error(error: LocalBackupError) -> LocalBackupCommandError {
         LocalBackupError::StateChanged => LocalBackupCommandError {
             code: "preview-expired",
             message: "Local state changed after preview; validate the backup again",
+        },
+        LocalBackupError::Busy => LocalBackupCommandError {
+            code: "busy",
+            message: "Another Profile or Settings mutation is in progress",
+        },
+        LocalBackupError::RecoveryRequired => LocalBackupCommandError {
+            code: "recovery-required",
+            message: "Local restore recovery must complete before another restore",
         },
     }
 }

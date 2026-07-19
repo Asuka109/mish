@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -134,6 +135,8 @@ pub enum ProfileServiceError {
     ActiveProfileDeletionDisabled,
     #[error("scheduled refresh is available only for HTTPS profile sources")]
     SchedulingUnavailable,
+    #[error("another Profile or Settings mutation is in progress")]
+    Busy,
     #[error(transparent)]
     Patch(#[from] ProfilePatchError),
 }
@@ -168,6 +171,7 @@ struct PendingPreflights {
 }
 
 pub struct ProfileService<L, H, W = StdAtomicWriter> {
+    authority: StateMutationAuthority,
     https_reader: H,
     local_reader: L,
     pending: Mutex<PendingPreflights>,
@@ -181,7 +185,24 @@ where
     H: HttpsSourceReader,
 {
     pub fn new(root: PathBuf, local_reader: L, https_reader: H, policy: SourceReadPolicy) -> Self {
+        Self::with_authority(
+            root,
+            local_reader,
+            https_reader,
+            policy,
+            StateMutationAuthority::new(),
+        )
+    }
+
+    pub fn with_authority(
+        root: PathBuf,
+        local_reader: L,
+        https_reader: H,
+        policy: SourceReadPolicy,
+        authority: StateMutationAuthority,
+    ) -> Self {
         Self {
+            authority,
             https_reader,
             local_reader,
             pending: Mutex::new(PendingPreflights::default()),
@@ -205,6 +226,7 @@ where
         writer: W,
     ) -> Self {
         Self {
+            authority: StateMutationAuthority::new(),
             https_reader,
             local_reader,
             pending: Mutex::new(PendingPreflights::default()),
@@ -238,6 +260,10 @@ where
         })
     }
 
+    pub fn mutation_authority(&self) -> StateMutationAuthority {
+        self.authority.clone()
+    }
+
     pub async fn preflight_https(
         &self,
         url: &str,
@@ -262,6 +288,19 @@ where
         &self,
         preview_id: &str,
     ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.save_preview_authorized(&permit, preview_id).await
+    }
+
+    pub async fn save_preview_authorized(
+        &self,
+        permit: &StateMutationPermit,
+        preview_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
         let report = self.take_pending(preview_id).await?;
         let record = report.into_record(ProfileId::new(), Timestamp::now());
         self.repository.save(&record)?;
@@ -269,7 +308,11 @@ where
     }
 
     pub async fn refresh(&self, profile_id: &str) -> Result<ProfileSnapshot, ProfileServiceError> {
-        self.refresh_with_trigger(profile_id, ProfileRefreshTrigger::Manual)
+        let permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.refresh_authorized(&permit, profile_id, ProfileRefreshTrigger::Manual)
             .await
     }
 
@@ -277,14 +320,30 @@ where
         &self,
         profile_id: &str,
     ) -> Result<ProfileSnapshot, ProfileServiceError> {
-        self.refresh_with_trigger(profile_id, ProfileRefreshTrigger::Scheduled)
+        let permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.refresh_authorized(&permit, profile_id, ProfileRefreshTrigger::Scheduled)
             .await
     }
 
-    pub fn mark_refresh_pending(
+    pub async fn refresh_authorized(
         &self,
+        permit: &StateMutationPermit,
+        profile_id: &str,
+        trigger: ProfileRefreshTrigger,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
+        self.refresh_with_trigger(profile_id, trigger).await
+    }
+
+    pub fn mark_refresh_pending_authorized(
+        &self,
+        permit: &StateMutationPermit,
         profile_id: &str,
     ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
         let mut current = self.repository.load(&id)?;
         current.metadata.status.updating = true;
@@ -297,6 +356,20 @@ where
         profile_id: &str,
         policy: ProfileRefreshPolicy,
     ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.set_refresh_policy_authorized(&permit, profile_id, policy)
+    }
+
+    pub fn set_refresh_policy_authorized(
+        &self,
+        permit: &StateMutationPermit,
+        profile_id: &str,
+        policy: ProfileRefreshPolicy,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
         let mut current = self.repository.load(&id)?;
         if current.source.source_type() != ProfileSourceType::Https
@@ -464,6 +537,28 @@ where
         artifact_fingerprint: &str,
         patches: Vec<ProfilePatch>,
     ) -> Result<ProfilePatchEditor, ProfileServiceError> {
+        let permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.replace_patches_authorized(
+            &permit,
+            profile_id,
+            source_revision,
+            artifact_fingerprint,
+            patches,
+        )
+    }
+
+    pub fn replace_patches_authorized(
+        &self,
+        permit: &StateMutationPermit,
+        profile_id: &str,
+        source_revision: &str,
+        artifact_fingerprint: &str,
+        patches: Vec<ProfilePatch>,
+    ) -> Result<ProfilePatchEditor, ProfileServiceError> {
+        self.validate_permit(permit)?;
         let mut record =
             self.authorized_patch_record(profile_id, source_revision, artifact_fingerprint)?;
         let (patch_set, _) = crate::bind_and_apply_profile_patches(
@@ -517,6 +612,19 @@ where
     }
 
     pub fn delete(&self, profile_id: &str) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.delete_with_permit(&permit, profile_id)
+    }
+
+    fn delete_with_permit(
+        &self,
+        permit: &StateMutationPermit,
+        profile_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
         let metadata = self
             .repository
@@ -533,15 +641,23 @@ where
 
     pub fn delete_authorized(
         &self,
+        permit: &StateMutationPermit,
         profile_id: &str,
         active_profile_id: Option<&str>,
     ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
         if active_profile_id == Some(profile_id) {
             return Err(ProfileServiceError::ActiveProfileDeletionDisabled);
         }
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
         self.repository.delete(&id)?;
         self.snapshot()
+    }
+
+    fn validate_permit(&self, permit: &StateMutationPermit) -> Result<(), ProfileServiceError> {
+        self.authority
+            .validate(permit)
+            .map_err(|_| ProfileServiceError::Busy)
     }
 
     async fn preflight(

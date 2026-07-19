@@ -866,7 +866,18 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            match service.save_preview(&params.preview_id).await {
+            let saved = if let Some(activation) = &state.profile_activation {
+                activation
+                    .save_profile(&params.preview_id)
+                    .await
+                    .map_err(|error| profile_activation_error_response(id.clone(), error))
+            } else {
+                service
+                    .save_preview(&params.preview_id)
+                    .await
+                    .map_err(|error| profile_error_response(id.clone(), error))
+            };
+            match saved {
                 Ok(_) => {
                     publish_profile_update(state).await;
                     match profile_rpc_snapshot(state).await {
@@ -874,7 +885,7 @@ async fn handle_message(
                         Err(error) => return Some(profile_error_response(id, error)),
                     }
                 }
-                Err(error) => return Some(profile_error_response(id, error)),
+                Err(response) => return Some(response),
             }
         }
         "profiles.refresh" => {
@@ -1272,6 +1283,12 @@ fn settings_error_response(id: Value, error: SettingsServiceError) -> Value {
             "Native window surface could not be applied",
             None,
         ),
+        SettingsServiceError::Busy => error_response(
+            id,
+            -32009,
+            "Another Profile or Settings mutation is in progress",
+            Some(json!({ "kind": "busy" })),
+        ),
     }
 }
 
@@ -1318,6 +1335,12 @@ fn profile_activation_error_response(
         ProfileActivationCoordinatorError::Conflict => {
             error_response(id, -32009, "Profile activation state conflict", None)
         }
+        ProfileActivationCoordinatorError::Busy => error_response(
+            id,
+            -32009,
+            "Another Profile or Settings mutation is in progress",
+            Some(json!({ "kind": "busy" })),
+        ),
         ProfileActivationCoordinatorError::Unavailable
         | ProfileActivationCoordinatorError::PolicyUnavailable => {
             profile_activation_capability_error(id)
@@ -1351,6 +1374,12 @@ fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {
             -32020,
             "Scheduled refresh is available only for HTTPS profile sources",
             None,
+        ),
+        ProfileServiceError::Busy => error_response(
+            id,
+            -32009,
+            "Another Profile or Settings mutation is in progress",
+            Some(json!({ "kind": "busy" })),
         ),
         ProfileServiceError::Patch(mish_profile::ProfilePatchError::StaleAuthority) => {
             error_response(id, -32009, "Profile patch revision is stale", None)

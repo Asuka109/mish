@@ -6,6 +6,7 @@ use mish_profile::{
     HttpsSourceReader, ProfileService, RedirectTarget, SensitiveUrl, SourceContent,
     SourceReadError, SourceReadPolicy, StdLocalSourceReader,
 };
+use mish_state_authority::StateMutationAuthority;
 use reqwest::{Client, Url, header};
 
 pub type DesktopProfileService = ProfileService<StdLocalSourceReader, ReqwestHttpsSourceReader>;
@@ -26,11 +27,19 @@ impl ReqwestHttpsSourceReader {
     }
 
     pub fn profile_service(root: PathBuf) -> Result<DesktopProfileService, SourceReadError> {
-        Ok(ProfileService::new(
+        Self::profile_service_with_authority(root, StateMutationAuthority::new())
+    }
+
+    pub fn profile_service_with_authority(
+        root: PathBuf,
+        authority: StateMutationAuthority,
+    ) -> Result<DesktopProfileService, SourceReadError> {
+        Ok(ProfileService::with_authority(
             root,
             StdLocalSourceReader,
             Self::new()?,
             SourceReadPolicy::default(),
+            authority,
         ))
     }
 

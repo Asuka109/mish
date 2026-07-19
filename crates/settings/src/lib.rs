@@ -15,6 +15,7 @@ use futures_util::future::BoxFuture;
 use mish_runtime::{
     TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperSnapshot,
 };
+use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -335,9 +336,12 @@ pub enum SettingsServiceError {
     TunHelper(TunHelperFailureKind),
     #[error("the native window surface could not be applied")]
     WindowSurface,
+    #[error("another Profile or Settings mutation is in progress")]
+    Busy,
 }
 
 pub struct SettingsService {
+    authority: StateMutationAuthority,
     capabilities: SettingsCapabilities,
     network_dns: NetworkDnsCoordinator,
     operation: Mutex<()>,
@@ -465,13 +469,14 @@ impl SettingsService {
         capabilities: SettingsCapabilities,
         tun_helper: Option<Arc<TunHelperController>>,
     ) -> Result<Self, SettingsServiceError> {
-        Self::load_with_platforms(
+        Self::load_with_platforms_and_authority(
             repository,
             startup_platform,
             window_surface_platform,
             capabilities,
             tun_helper,
             None,
+            StateMutationAuthority::new(),
         )
     }
 
@@ -479,9 +484,29 @@ impl SettingsService {
         repository: Arc<dyn SettingsRepository>,
         startup_platform: Option<Arc<dyn StartupPlatform>>,
         window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
+        capabilities: SettingsCapabilities,
+        tun_helper: Option<Arc<TunHelperController>>,
+        network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
+    ) -> Result<Self, SettingsServiceError> {
+        Self::load_with_platforms_and_authority(
+            repository,
+            startup_platform,
+            window_surface_platform,
+            capabilities,
+            tun_helper,
+            network_dns_platform,
+            StateMutationAuthority::new(),
+        )
+    }
+
+    pub fn load_with_platforms_and_authority(
+        repository: Arc<dyn SettingsRepository>,
+        startup_platform: Option<Arc<dyn StartupPlatform>>,
+        window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
         mut capabilities: SettingsCapabilities,
         tun_helper: Option<Arc<TunHelperController>>,
         network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
+        authority: StateMutationAuthority,
     ) -> Result<Self, SettingsServiceError> {
         if network_dns_platform.is_none() {
             capabilities.network_dns = SettingsAvailability::Unavailable;
@@ -518,6 +543,7 @@ impl SettingsService {
                 .map_err(|_| SettingsServiceError::WindowSurface)?;
         }
         Ok(Self {
+            authority,
             capabilities,
             network_dns: NetworkDnsCoordinator::new(network_dns_platform),
             operation: Mutex::new(()),
@@ -580,6 +606,10 @@ impl SettingsService {
         }
     }
 
+    pub fn mutation_authority(&self) -> StateMutationAuthority {
+        self.authority.clone()
+    }
+
     pub fn invalidate_network_dns(&self) {
         self.network_dns.invalidate();
     }
@@ -617,6 +647,7 @@ impl SettingsService {
         &self,
         appearance: AppearancePreference,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -628,6 +659,7 @@ impl SettingsService {
         &self,
         language: LanguagePreference,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -639,6 +671,7 @@ impl SettingsService {
         &self,
         startup: StartupPreferences,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -681,6 +714,7 @@ impl SettingsService {
         &self,
         behavior: WindowCloseBehavior,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -695,6 +729,7 @@ impl SettingsService {
         &self,
         surface: WindowSurfacePreference,
     ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
         let _operation = self
             .operation
             .lock()
@@ -743,7 +778,22 @@ impl SettingsService {
     /// This deliberately bypasses every platform adapter: restoring preferences
     /// must not register login startup, apply a native window surface, or change
     /// any other operating-system state.
-    pub fn accept_restored_preferences(&self, preferences: SettingsPreferences) {
+    pub fn accept_restored_preferences(
+        &self,
+        preferences: SettingsPreferences,
+    ) -> Result<(), SettingsServiceError> {
+        let permit = self.acquire_mutation()?;
+        self.accept_restored_preferences_authorized(&permit, preferences)
+    }
+
+    pub fn accept_restored_preferences_authorized(
+        &self,
+        permit: &StateMutationPermit,
+        preferences: SettingsPreferences,
+    ) -> Result<(), SettingsServiceError> {
+        self.authority
+            .validate(permit)
+            .map_err(|_| SettingsServiceError::Busy)?;
         let _operation = self
             .operation
             .lock()
@@ -751,6 +801,13 @@ impl SettingsService {
         let mut state = self.state.lock().expect("settings state lock poisoned");
         state.preferences = preferences;
         state.storage_recovered = false;
+        Ok(())
+    }
+
+    fn acquire_mutation(&self) -> Result<StateMutationPermit, SettingsServiceError> {
+        self.authority
+            .try_acquire()
+            .map_err(|_| SettingsServiceError::Busy)
     }
 
     fn update(
@@ -1316,7 +1373,7 @@ mod tests {
             window_surface: WindowSurfacePreference::Opaque,
         };
 
-        service.accept_restored_preferences(restored);
+        service.accept_restored_preferences(restored).unwrap();
 
         assert_eq!(
             service.snapshot(SettingsAdapterKind::Rpc).preferences,

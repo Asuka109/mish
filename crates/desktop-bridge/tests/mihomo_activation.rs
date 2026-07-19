@@ -804,10 +804,14 @@ async fn duplicate_profile_activation_is_deduplicated_and_cancellable() {
         .await
         .unwrap();
     assert!(matches!(
+        coordinator.mutation_authority().try_acquire(),
+        Err(mish_state_authority::StateMutationError::Busy)
+    ));
+    assert!(matches!(
         coordinator
             .refresh_profile(record.metadata.id.as_str(), ProfileRefreshTrigger::Manual)
             .await,
-        Err(mish_bridge::ProfileActivationCoordinatorError::Conflict)
+        Err(mish_bridge::ProfileActivationCoordinatorError::Busy)
     ));
     let duplicate = coordinator
         .activate(&duplicate_command, record.metadata.id.as_str())

@@ -1,6 +1,9 @@
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -16,6 +19,7 @@ use mish_settings::{
     FileSettingsRepository, SettingsAdapterKind, SettingsPreferences, SettingsRepository,
     SettingsService,
 };
+use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -23,6 +27,9 @@ use uuid::Uuid;
 pub const LOCAL_BACKUP_FORMAT_VERSION: u32 = 1;
 pub const LOCAL_BACKUP_MAX_BYTES: usize = 8 * 1_024 * 1_024;
 const LOCAL_BACKUP_MAX_PROFILES: usize = 128;
+const RESTORE_JOURNAL_FILE: &str = ".restore-journal.json";
+const RESTORE_JOURNAL_VERSION: u32 = 1;
+const RESTORE_JOURNAL_MAX_BYTES: u64 = 32_768;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -134,6 +141,8 @@ pub struct LocalRestorePreview {
     pub file_type: &'static str,
     pub format_version: u32,
     pub included: LocalBackupIncludedCounts,
+    pub excluded_sensitive_data: Vec<LocalBackupSensitiveData>,
+    pub included_sensitive_data: Vec<LocalBackupSensitiveData>,
     pub max_bytes: usize,
     pub preview_id: String,
     pub scope: LocalBackupScope,
@@ -167,16 +176,25 @@ pub enum LocalBackupError {
     Storage,
     #[error("local state changed after the restore preview")]
     StateChanged,
+    #[error("another Profile or Settings mutation is in progress")]
+    Busy,
+    #[error("local restore requires startup recovery before state can be used")]
+    RecoveryRequired,
 }
 
 #[derive(Clone)]
 pub struct LocalBackupService {
     application_version: &'static str,
+    authority: StateMutationAuthority,
     root: PathBuf,
     settings: Arc<SettingsService>,
 }
 
 impl LocalBackupService {
+    pub fn recover_pending(root: &Path) -> Result<(), LocalBackupError> {
+        RestoreTransaction::recover(root)
+    }
+
     pub fn new(
         root: PathBuf,
         settings: Arc<SettingsService>,
@@ -184,6 +202,7 @@ impl LocalBackupService {
     ) -> Self {
         Self {
             application_version,
+            authority: settings.mutation_authority(),
             root,
             settings,
         }
@@ -195,6 +214,10 @@ impl LocalBackupService {
         scope: LocalBackupScope,
         created_at: u64,
     ) -> Result<PreparedLocalBackup, LocalBackupError> {
+        let _permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| LocalBackupError::Busy)?;
         scope.validate()?;
         let repository = FileProfileRepository::new(self.root.clone());
         let mut entries = Vec::new();
@@ -257,15 +280,30 @@ impl LocalBackupService {
         &self,
         preview_id: String,
         bytes: &[u8],
+        active_profile_id: Option<&str>,
     ) -> Result<PreparedLocalRestore, LocalBackupError> {
+        let permit = self.try_begin_restore()?;
+        self.prepare_restore_authorized(&permit, preview_id, bytes, active_profile_id)
+    }
+
+    pub fn prepare_restore_authorized(
+        &self,
+        permit: &StateMutationPermit,
+        preview_id: String,
+        bytes: &[u8],
+        active_profile_id: Option<&str>,
+    ) -> Result<PreparedLocalRestore, LocalBackupError> {
+        self.authority
+            .validate(permit)
+            .map_err(|_| LocalBackupError::Busy)?;
         if bytes.len() > LOCAL_BACKUP_MAX_BYTES {
             return Err(LocalBackupError::SizeLimitExceeded);
         }
         let manifest: LocalBackupManifest =
             serde_json::from_slice(bytes).map_err(|_| LocalBackupError::InvalidManifest)?;
         validate_manifest(&manifest)?;
-        let (actions, conflicts) = self.restore_plan(&manifest)?;
-        let state_digest = self.state_digest()?;
+        let (actions, conflicts) = self.restore_plan(&manifest, active_profile_id)?;
+        let state_digest = self.state_digest(active_profile_id)?;
         Ok(PreparedLocalRestore {
             preview: LocalRestorePreview {
                 actions,
@@ -274,6 +312,8 @@ impl LocalBackupService {
                 file_type: "application/json",
                 format_version: manifest.format_version,
                 included: included_counts(&manifest),
+                excluded_sensitive_data: sensitive_data(false, manifest.scope),
+                included_sensitive_data: sensitive_data(true, manifest.scope),
                 max_bytes: LOCAL_BACKUP_MAX_BYTES,
                 preview_id,
                 scope: manifest.scope,
@@ -283,13 +323,41 @@ impl LocalBackupService {
         })
     }
 
+    pub fn try_begin_restore(&self) -> Result<StateMutationPermit, LocalBackupError> {
+        self.authority
+            .try_acquire()
+            .map_err(|_| LocalBackupError::Busy)
+    }
+
     pub fn commit_restore(
         &self,
         prepared: PreparedLocalRestore,
         resolution: LocalRestoreConflictResolution,
         restored_at: u64,
+        active_profile_id: Option<&str>,
     ) -> Result<LocalRestoreResult, LocalBackupError> {
-        if self.state_digest()? != prepared.state_digest {
+        let permit = self.try_begin_restore()?;
+        self.commit_restore_authorized(
+            &permit,
+            prepared,
+            resolution,
+            restored_at,
+            active_profile_id,
+        )
+    }
+
+    pub fn commit_restore_authorized(
+        &self,
+        permit: &StateMutationPermit,
+        prepared: PreparedLocalRestore,
+        resolution: LocalRestoreConflictResolution,
+        restored_at: u64,
+        active_profile_id: Option<&str>,
+    ) -> Result<LocalRestoreResult, LocalBackupError> {
+        self.authority
+            .validate(permit)
+            .map_err(|_| LocalBackupError::Busy)?;
+        if self.state_digest(active_profile_id)? != prepared.state_digest {
             return Err(LocalBackupError::StateChanged);
         }
         let repository = FileProfileRepository::new(self.root.clone());
@@ -303,20 +371,19 @@ impl LocalBackupService {
 
         let mut applied = LocalRestoreActionCounts::default();
         if prepared.manifest.scope.touches_profiles() {
+            let context = RestoreApplyContext {
+                active_profile_id,
+                resolution,
+                restored_at,
+                root: &self.root,
+                scope: prepared.manifest.scope,
+            };
             for entry in &prepared.manifest.profiles {
-                apply_restore_entry(
-                    &self.root,
-                    &mut desired,
-                    entry,
-                    prepared.manifest.scope,
-                    resolution,
-                    restored_at,
-                    &mut applied,
-                )?;
+                apply_restore_entry(&mut desired, entry, &context, &mut applied)?;
             }
         }
 
-        let transaction = RestoreTransaction::stage(
+        let transaction = match RestoreTransaction::stage(
             &self.root,
             prepared
                 .manifest
@@ -324,10 +391,25 @@ impl LocalBackupService {
                 .touches_profiles()
                 .then_some(desired),
             prepared.manifest.settings,
-        )?;
-        transaction.commit()?;
+        ) {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                if error == LocalBackupError::RecoveryRequired {
+                    self.authority.make_unavailable_until_restart();
+                }
+                return Err(error);
+            }
+        };
+        if let Err(error) = transaction.commit() {
+            if error == LocalBackupError::RecoveryRequired {
+                self.authority.make_unavailable_until_restart();
+            }
+            return Err(error);
+        }
         if let Some(preferences) = prepared.manifest.settings {
-            self.settings.accept_restored_preferences(preferences);
+            self.settings
+                .accept_restored_preferences_authorized(permit, preferences)
+                .map_err(|_| LocalBackupError::Busy)?;
         }
         if prepared.manifest.scope.settings {
             applied.update += 1;
@@ -341,6 +423,7 @@ impl LocalBackupService {
     fn restore_plan(
         &self,
         manifest: &LocalBackupManifest,
+        active_profile_id: Option<&str>,
     ) -> Result<(LocalRestoreActionCounts, Vec<LocalRestoreConflict>), LocalBackupError> {
         let repository = FileProfileRepository::new(self.root.clone());
         let metadata = repository.list_metadata().map_err(map_repository_error)?;
@@ -358,7 +441,7 @@ impl LocalBackupService {
                     && metadata.revision.id == entry.revision
                     && metadata.artifact.fingerprint == entry.fingerprint
             });
-            let conflict = profile_conflict(entry, current, duplicate);
+            let conflict = profile_conflict(entry, current, duplicate, active_profile_id);
             if let Some(conflict) = conflict {
                 actions.skip += 1;
                 conflicts.push(conflict);
@@ -378,7 +461,7 @@ impl LocalBackupService {
         Ok((actions, conflicts))
     }
 
-    fn state_digest(&self) -> Result<String, LocalBackupError> {
+    fn state_digest(&self, active_profile_id: Option<&str>) -> Result<String, LocalBackupError> {
         let repository = FileProfileRepository::new(self.root.clone());
         let mut hasher = Sha256::new();
         for metadata in repository.list_metadata().map_err(map_repository_error)? {
@@ -395,6 +478,7 @@ impl LocalBackupService {
             &mut hasher,
             &self.settings.snapshot(SettingsAdapterKind::Rpc).preferences,
         )?;
+        update_digest(&mut hasher, &active_profile_id)?;
         Ok(format!("{:x}", hasher.finalize()))
     }
 }
@@ -586,9 +670,10 @@ fn profile_conflict(
     entry: &LocalBackupProfile,
     current: Option<&ProfileMetadata>,
     duplicate: Option<&ProfileMetadata>,
+    active_profile_id: Option<&str>,
 ) -> Option<LocalRestoreConflict> {
     let (kind, conflicting, replace_allowed) = if let Some(current) = current {
-        if current.status.active {
+        if current.status.active || active_profile_id == Some(current.id.as_str()) {
             (
                 LocalRestoreConflictKind::ActiveProfile,
                 Some(current),
@@ -608,17 +693,23 @@ fn profile_conflict(
             )
         } else {
             let duplicate = duplicate?;
+            let replace_allowed = entry.profile.is_some()
+                && active_profile_id != Some(duplicate.id.as_str())
+                && !duplicate.status.active;
             (
                 LocalRestoreConflictKind::DuplicateFingerprint,
                 Some(duplicate),
-                entry.profile.is_some() && !duplicate.status.active,
+                replace_allowed,
             )
         }
     } else if let Some(duplicate) = duplicate {
+        let replace_allowed = entry.profile.is_some()
+            && active_profile_id != Some(duplicate.id.as_str())
+            && !duplicate.status.active;
         (
             LocalRestoreConflictKind::DuplicateFingerprint,
             Some(duplicate),
-            entry.profile.is_some() && !duplicate.status.active,
+            replace_allowed,
         )
     } else if entry.profile.is_none() {
         (LocalRestoreConflictKind::MissingProfile, None, false)
@@ -638,13 +729,18 @@ fn profile_conflict(
     })
 }
 
-fn apply_restore_entry(
-    root: &Path,
-    desired: &mut BTreeMap<String, ProfileRecord>,
-    entry: &LocalBackupProfile,
-    scope: LocalBackupScope,
+struct RestoreApplyContext<'a> {
+    active_profile_id: Option<&'a str>,
     resolution: LocalRestoreConflictResolution,
     restored_at: u64,
+    root: &'a Path,
+    scope: LocalBackupScope,
+}
+
+fn apply_restore_entry(
+    desired: &mut BTreeMap<String, ProfileRecord>,
+    entry: &LocalBackupProfile,
+    context: &RestoreApplyContext<'_>,
     applied: &mut LocalRestoreActionCounts,
 ) -> Result<(), LocalBackupError> {
     let current_metadata = desired
@@ -662,8 +758,15 @@ fn apply_restore_entry(
         .as_ref()
         .and_then(|id| desired.get(id))
         .map(|record| &record.metadata);
-    if let Some(conflict) = profile_conflict(entry, current_metadata, duplicate_metadata) {
-        if resolution == LocalRestoreConflictResolution::KeepExisting || !conflict.replace_allowed {
+    if let Some(conflict) = profile_conflict(
+        entry,
+        current_metadata,
+        duplicate_metadata,
+        context.active_profile_id,
+    ) {
+        if context.resolution == LocalRestoreConflictResolution::KeepExisting
+            || !conflict.replace_allowed
+        {
             applied.skip += 1;
             return Ok(());
         }
@@ -675,7 +778,13 @@ fn apply_restore_entry(
 
     if let Some(content) = &entry.profile {
         let existed = desired.contains_key(entry.id.as_str());
-        let record = restore_record(root, entry, content, scope, restored_at)?;
+        let record = restore_record(
+            context.root,
+            entry,
+            content,
+            context.scope,
+            context.restored_at,
+        )?;
         desired.insert(entry.id.as_str().to_owned(), record);
         if existed {
             applied.replace += 1;
@@ -693,7 +802,7 @@ fn apply_restore_entry(
         record.patches = patches.clone();
     }
     if let Some(policy) = entry.schedule {
-        apply_schedule(&mut record, policy, restored_at);
+        apply_schedule(&mut record, policy, context.restored_at);
     }
     desired.insert(entry.id.as_str().to_owned(), record);
     applied.update += 1;
@@ -810,43 +919,176 @@ fn map_repository_error(_error: RepositoryError) -> LocalBackupError {
     LocalBackupError::Storage
 }
 
-struct RestoreTransaction {
-    components: Vec<RestoreComponent>,
+struct RestoreTransaction<F = StdRestoreFilesystem> {
+    filesystem: Arc<F>,
+    journal: RestoreJournal,
     root: PathBuf,
-    rollback_root: PathBuf,
-    stage_root: PathBuf,
 }
 
-struct RestoreComponent {
-    destination: PathBuf,
-    original: PathBuf,
-    staged: PathBuf,
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum RestoreJournalPhase {
+    Committed,
+    Committing,
+    RollingBack,
 }
 
-impl RestoreTransaction {
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum RestoreComponentKind {
+    Profiles,
+    Settings,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestoreJournalComponent {
+    had_original: bool,
+    kind: RestoreComponentKind,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RestoreJournal {
+    components: Vec<RestoreJournalComponent>,
+    phase: RestoreJournalPhase,
+    transaction_id: String,
+    version: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RestoreCheckpoint {
+    ComponentOriginalMoved(RestoreComponentKind),
+    ComponentStagedMoved(RestoreComponentKind),
+    DataSynced,
+    JournalCommitted,
+    JournalCommitting,
+    JournalRollingBack,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RestoreFilesystemFailure {
+    Crash,
+    Io,
+}
+
+trait RestoreFilesystem: Send + Sync {
+    fn checkpoint(&self, _checkpoint: RestoreCheckpoint) -> Result<(), RestoreFilesystemFailure> {
+        Ok(())
+    }
+
+    fn rename(&self, source: &Path, destination: &Path) -> Result<(), RestoreFilesystemFailure>;
+    fn remove_dir_all(&self, path: &Path) -> Result<(), RestoreFilesystemFailure>;
+    fn remove_file(&self, path: &Path) -> Result<(), RestoreFilesystemFailure>;
+    fn sync_directory(&self, path: &Path) -> Result<(), RestoreFilesystemFailure>;
+    fn write_private_atomic(
+        &self,
+        destination: &Path,
+        bytes: &[u8],
+    ) -> Result<(), RestoreFilesystemFailure>;
+}
+
+#[derive(Default)]
+struct StdRestoreFilesystem;
+
+impl RestoreFilesystem for StdRestoreFilesystem {
+    fn rename(&self, source: &Path, destination: &Path) -> Result<(), RestoreFilesystemFailure> {
+        fs::rename(source, destination).map_err(|_| RestoreFilesystemFailure::Io)
+    }
+
+    fn remove_dir_all(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+        if path.exists() {
+            fs::remove_dir_all(path).map_err(|_| RestoreFilesystemFailure::Io)?;
+        }
+        Ok(())
+    }
+
+    fn remove_file(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+        if path.exists() {
+            fs::remove_file(path).map_err(|_| RestoreFilesystemFailure::Io)?;
+        }
+        Ok(())
+    }
+
+    fn sync_directory(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+        fs::File::open(path)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| RestoreFilesystemFailure::Io)
+    }
+
+    fn write_private_atomic(
+        &self,
+        destination: &Path,
+        bytes: &[u8],
+    ) -> Result<(), RestoreFilesystemFailure> {
+        let parent = destination.parent().ok_or(RestoreFilesystemFailure::Io)?;
+        let temporary = parent.join(format!(".restore-journal.tmp-{}", Uuid::new_v4()));
+        let result = (|| {
+            let mut options = fs::OpenOptions::new();
+            options.create_new(true).write(true);
+            #[cfg(unix)]
+            options.mode(0o600);
+            let mut file = options
+                .open(&temporary)
+                .map_err(|_| RestoreFilesystemFailure::Io)?;
+            file.write_all(bytes)
+                .and_then(|()| file.sync_all())
+                .map_err(|_| RestoreFilesystemFailure::Io)?;
+            self.rename(&temporary, destination)?;
+            self.sync_directory(parent)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
+    }
+}
+
+impl RestoreTransaction<StdRestoreFilesystem> {
     fn stage(
         root: &Path,
         profiles: Option<BTreeMap<String, ProfileRecord>>,
         settings: Option<SettingsPreferences>,
     ) -> Result<Self, LocalBackupError> {
+        Self::stage_with_filesystem(root, profiles, settings, Arc::new(StdRestoreFilesystem))
+    }
+
+    fn recover(root: &Path) -> Result<(), LocalBackupError> {
+        Self::recover_with_filesystem(root, Arc::new(StdRestoreFilesystem))
+    }
+}
+
+impl<F> RestoreTransaction<F>
+where
+    F: RestoreFilesystem + 'static,
+{
+    fn stage_with_filesystem(
+        root: &Path,
+        profiles: Option<BTreeMap<String, ProfileRecord>>,
+        settings: Option<SettingsPreferences>,
+        filesystem: Arc<F>,
+    ) -> Result<Self, LocalBackupError> {
         ensure_safe_component(root, &root.join("profiles"))?;
         ensure_safe_component(root, &root.join("settings.json"))?;
+        ensure_safe_component(root, &root.join(RESTORE_JOURNAL_FILE))?;
+        if root.join(RESTORE_JOURNAL_FILE).exists() {
+            return Err(LocalBackupError::RecoveryRequired);
+        }
         let transaction_id = Uuid::new_v4();
         let stage_root = root.join(format!(".restore-stage-{transaction_id}"));
         let rollback_root = root.join(format!(".restore-rollback-{transaction_id}"));
-        fs::create_dir(&stage_root).map_err(|_| LocalBackupError::Storage)?;
+        create_private_restore_dir(&stage_root)?;
         let mut stage_guard = TemporaryRestoreRoot::new(stage_root.clone());
         let mut components = Vec::new();
         if let Some(profiles) = profiles {
             let repository = FileProfileRepository::new(stage_root.clone());
-            fs::create_dir(stage_root.join("profiles")).map_err(|_| LocalBackupError::Storage)?;
+            create_private_restore_dir(&stage_root.join("profiles"))?;
             for record in profiles.into_values() {
                 repository.save(&record).map_err(map_repository_error)?;
             }
-            components.push(RestoreComponent {
-                destination: root.join("profiles"),
-                original: rollback_root.join("profiles"),
-                staged: stage_root.join("profiles"),
+            components.push(RestoreJournalComponent {
+                had_original: root.join("profiles").exists(),
+                kind: RestoreComponentKind::Profiles,
             });
         }
         if let Some(settings) = settings {
@@ -854,67 +1096,247 @@ impl RestoreTransaction {
             repository
                 .save(&settings)
                 .map_err(|_| LocalBackupError::Storage)?;
-            components.push(RestoreComponent {
-                destination: root.join("settings.json"),
-                original: rollback_root.join("settings.json"),
-                staged: stage_root.join("settings.json"),
+            components.push(RestoreJournalComponent {
+                had_original: root.join("settings.json").exists(),
+                kind: RestoreComponentKind::Settings,
             });
         }
+        create_private_restore_dir(&rollback_root)?;
+        if filesystem
+            .sync_directory(&stage_root)
+            .and_then(|()| filesystem.sync_directory(&rollback_root))
+            .and_then(|()| filesystem.sync_directory(root))
+            .is_err()
+        {
+            let _ = fs::remove_dir_all(&rollback_root);
+            return Err(LocalBackupError::Storage);
+        }
         let transaction = Self {
-            components,
+            filesystem,
+            journal: RestoreJournal {
+                components,
+                phase: RestoreJournalPhase::Committing,
+                transaction_id: transaction_id.to_string(),
+                version: RESTORE_JOURNAL_VERSION,
+            },
             root: root.to_path_buf(),
-            rollback_root,
-            stage_root,
         };
         stage_guard.commit();
         Ok(transaction)
     }
 
     fn commit(self) -> Result<(), LocalBackupError> {
-        self.commit_with_failure(None)
+        self.write_journal()?;
+        if let Err(failure) = self
+            .filesystem
+            .checkpoint(RestoreCheckpoint::JournalCommitting)
+            .and_then(|()| self.commit_components())
+        {
+            if failure == RestoreFilesystemFailure::Crash {
+                return Err(LocalBackupError::RecoveryRequired);
+            }
+            return self.rollback_after_failure();
+        }
+        let mut committed = self.journal.clone();
+        committed.phase = RestoreJournalPhase::Committed;
+        self.write_specific_journal(&committed)?;
+        self.filesystem
+            .checkpoint(RestoreCheckpoint::JournalCommitted)
+            .map_err(map_restore_failure)?;
+        self.cleanup(&committed)?;
+        Ok(())
     }
 
-    fn commit_with_failure(
-        self,
-        fail_after_component_count: Option<usize>,
-    ) -> Result<(), LocalBackupError> {
-        fs::create_dir(&self.rollback_root).map_err(|_| LocalBackupError::Storage)?;
-        let mut moved_originals = Vec::new();
-        let mut moved_staged = Vec::new();
-        let result = (|| {
-            for (index, component) in self.components.iter().enumerate() {
-                if component.destination.exists() {
-                    fs::rename(&component.destination, &component.original)
-                        .map_err(|_| LocalBackupError::Storage)?;
-                    moved_originals.push(index);
-                }
-                fs::rename(&component.staged, &component.destination)
-                    .map_err(|_| LocalBackupError::Storage)?;
-                moved_staged.push(index);
-                if fail_after_component_count == Some(moved_staged.len()) {
-                    return Err(LocalBackupError::Storage);
-                }
+    fn commit_components(&self) -> Result<(), RestoreFilesystemFailure> {
+        for component in &self.journal.components {
+            let paths = self.component_paths(component.kind);
+            if component.had_original {
+                self.filesystem
+                    .rename(&paths.destination, &paths.original)?;
+                self.filesystem.sync_directory(&self.root)?;
+                self.filesystem.sync_directory(
+                    paths
+                        .original
+                        .parent()
+                        .ok_or(RestoreFilesystemFailure::Io)?,
+                )?;
+                self.filesystem
+                    .checkpoint(RestoreCheckpoint::ComponentOriginalMoved(component.kind))?;
             }
-            fs::File::open(&self.root)
-                .and_then(|directory| directory.sync_all())
-                .map_err(|_| LocalBackupError::Storage)
-        })();
-        if let Err(error) = result {
-            for index in moved_staged.into_iter().rev() {
-                let component = &self.components[index];
-                let _ = fs::rename(&component.destination, &component.staged);
-            }
-            for index in moved_originals.into_iter().rev() {
-                let component = &self.components[index];
-                let _ = fs::rename(&component.original, &component.destination);
-            }
-            let _ = fs::remove_dir_all(&self.rollback_root);
-            let _ = fs::remove_dir_all(&self.stage_root);
-            return Err(error);
+            self.filesystem.rename(&paths.staged, &paths.destination)?;
+            self.filesystem.sync_directory(&self.root)?;
+            self.filesystem
+                .sync_directory(paths.staged.parent().ok_or(RestoreFilesystemFailure::Io)?)?;
+            self.filesystem
+                .checkpoint(RestoreCheckpoint::ComponentStagedMoved(component.kind))?;
         }
-        let _ = fs::remove_dir_all(&self.rollback_root);
-        let _ = fs::remove_dir_all(&self.stage_root);
+        self.filesystem.sync_directory(&self.root)?;
+        self.filesystem.checkpoint(RestoreCheckpoint::DataSynced)
+    }
+
+    fn rollback_after_failure(&self) -> Result<(), LocalBackupError> {
+        let mut rolling_back = self.journal.clone();
+        rolling_back.phase = RestoreJournalPhase::RollingBack;
+        if self.write_specific_journal(&rolling_back).is_err()
+            || self
+                .filesystem
+                .checkpoint(RestoreCheckpoint::JournalRollingBack)
+                .is_err()
+            || self.rollback_components(&rolling_back).is_err()
+            || self.cleanup(&rolling_back).is_err()
+        {
+            return Err(LocalBackupError::RecoveryRequired);
+        }
+        Err(LocalBackupError::Storage)
+    }
+
+    fn rollback_components(
+        &self,
+        journal: &RestoreJournal,
+    ) -> Result<(), RestoreFilesystemFailure> {
+        for component in journal.components.iter().rev() {
+            let paths = self.component_paths(component.kind);
+            if component.had_original {
+                if paths.original.exists() {
+                    if !paths.staged.exists() && paths.destination.exists() {
+                        self.filesystem.rename(&paths.destination, &paths.staged)?;
+                    }
+                    if !paths.destination.exists() {
+                        self.filesystem
+                            .rename(&paths.original, &paths.destination)?;
+                    }
+                }
+            } else if !paths.staged.exists() && paths.destination.exists() {
+                self.filesystem.rename(&paths.destination, &paths.staged)?;
+            }
+        }
+        self.filesystem.sync_directory(&self.root)
+    }
+
+    fn recover_with_filesystem(root: &Path, filesystem: Arc<F>) -> Result<(), LocalBackupError> {
+        let journal_path = root.join(RESTORE_JOURNAL_FILE);
+        ensure_safe_component(root, &journal_path)?;
+        if !journal_path.exists() {
+            return Ok(());
+        }
+        let metadata =
+            fs::metadata(&journal_path).map_err(|_| LocalBackupError::RecoveryRequired)?;
+        if !metadata.is_file() || metadata.len() > RESTORE_JOURNAL_MAX_BYTES {
+            return Err(LocalBackupError::RecoveryRequired);
+        }
+        let bytes = fs::read(&journal_path).map_err(|_| LocalBackupError::RecoveryRequired)?;
+        let journal: RestoreJournal =
+            serde_json::from_slice(&bytes).map_err(|_| LocalBackupError::RecoveryRequired)?;
+        validate_restore_journal(&journal)?;
+        let transaction = Self {
+            filesystem,
+            journal: journal.clone(),
+            root: root.to_path_buf(),
+        };
+        match journal.phase {
+            RestoreJournalPhase::Committed => transaction.cleanup(&journal),
+            RestoreJournalPhase::Committing | RestoreJournalPhase::RollingBack => {
+                let mut rolling_back = journal;
+                rolling_back.phase = RestoreJournalPhase::RollingBack;
+                transaction.write_specific_journal(&rolling_back)?;
+                transaction
+                    .rollback_components(&rolling_back)
+                    .map_err(|_| LocalBackupError::RecoveryRequired)?;
+                transaction.cleanup(&rolling_back)
+            }
+        }
+    }
+
+    fn write_journal(&self) -> Result<(), LocalBackupError> {
+        self.write_specific_journal(&self.journal)
+    }
+
+    fn write_specific_journal(&self, journal: &RestoreJournal) -> Result<(), LocalBackupError> {
+        let bytes = serde_json::to_vec_pretty(journal).map_err(|_| LocalBackupError::Storage)?;
+        self.filesystem
+            .write_private_atomic(&self.root.join(RESTORE_JOURNAL_FILE), &bytes)
+            .map_err(map_restore_failure)
+    }
+
+    fn cleanup(&self, journal: &RestoreJournal) -> Result<(), LocalBackupError> {
+        let (stage_root, rollback_root) = restore_roots(&self.root, &journal.transaction_id);
+        self.filesystem
+            .remove_dir_all(&rollback_root)
+            .and_then(|()| self.filesystem.remove_dir_all(&stage_root))
+            .and_then(|()| self.filesystem.sync_directory(&self.root))
+            .and_then(|()| {
+                self.filesystem
+                    .remove_file(&self.root.join(RESTORE_JOURNAL_FILE))
+            })
+            .map_err(|_| LocalBackupError::RecoveryRequired)?;
+        if self.filesystem.sync_directory(&self.root).is_err() {
+            let _ = self.write_specific_journal(journal);
+            return Err(LocalBackupError::RecoveryRequired);
+        }
         Ok(())
+    }
+
+    fn component_paths(&self, kind: RestoreComponentKind) -> RestoreComponentPaths {
+        let (stage_root, rollback_root) = restore_roots(&self.root, &self.journal.transaction_id);
+        match kind {
+            RestoreComponentKind::Profiles => RestoreComponentPaths {
+                destination: self.root.join("profiles"),
+                original: rollback_root.join("profiles"),
+                staged: stage_root.join("profiles"),
+            },
+            RestoreComponentKind::Settings => RestoreComponentPaths {
+                destination: self.root.join("settings.json"),
+                original: rollback_root.join("settings.json"),
+                staged: stage_root.join("settings.json"),
+            },
+        }
+    }
+}
+
+struct RestoreComponentPaths {
+    destination: PathBuf,
+    original: PathBuf,
+    staged: PathBuf,
+}
+
+fn restore_roots(root: &Path, transaction_id: &str) -> (PathBuf, PathBuf) {
+    (
+        root.join(format!(".restore-stage-{transaction_id}")),
+        root.join(format!(".restore-rollback-{transaction_id}")),
+    )
+}
+
+fn validate_restore_journal(journal: &RestoreJournal) -> Result<(), LocalBackupError> {
+    if journal.version != RESTORE_JOURNAL_VERSION
+        || journal.components.is_empty()
+        || Uuid::parse_str(&journal.transaction_id).is_err()
+    {
+        return Err(LocalBackupError::RecoveryRequired);
+    }
+    let mut kinds = HashSet::new();
+    if journal.components.len() > 2
+        || journal
+            .components
+            .iter()
+            .any(|component| !kinds.insert(component.kind as u8))
+    {
+        return Err(LocalBackupError::RecoveryRequired);
+    }
+    Ok(())
+}
+
+fn create_private_restore_dir(path: &Path) -> Result<(), LocalBackupError> {
+    fs::create_dir(path).map_err(|_| LocalBackupError::Storage)?;
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|_| LocalBackupError::Storage)?;
+    Ok(())
+}
+
+fn map_restore_failure(failure: RestoreFilesystemFailure) -> LocalBackupError {
+    match failure {
+        RestoreFilesystemFailure::Crash => LocalBackupError::RecoveryRequired,
+        RestoreFilesystemFailure::Io => LocalBackupError::Storage,
     }
 }
 
@@ -946,6 +1368,9 @@ impl Drop for TemporaryRestoreRoot {
 
 fn ensure_safe_component(root: &Path, path: &Path) -> Result<(), LocalBackupError> {
     if !root.is_absolute() {
+        return Err(LocalBackupError::Storage);
+    }
+    if fs::symlink_metadata(root).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(LocalBackupError::Storage);
     }
     if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
@@ -1107,7 +1532,11 @@ rules:
         value["unexpected"] = serde_json::json!(true);
         assert_eq!(
             service
-                .prepare_restore("restore-1".to_owned(), &serde_json::to_vec(&value).unwrap())
+                .prepare_restore(
+                    "restore-1".to_owned(),
+                    &serde_json::to_vec(&value).unwrap(),
+                    None,
+                )
                 .unwrap_err(),
             LocalBackupError::InvalidManifest
         );
@@ -1115,7 +1544,11 @@ rules:
         value["formatVersion"] = serde_json::json!(2);
         assert_eq!(
             service
-                .prepare_restore("restore-1".to_owned(), &serde_json::to_vec(&value).unwrap())
+                .prepare_restore(
+                    "restore-1".to_owned(),
+                    &serde_json::to_vec(&value).unwrap(),
+                    None,
+                )
                 .unwrap_err(),
             LocalBackupError::UnsupportedVersion
         );
@@ -1130,7 +1563,10 @@ rules:
             .snapshot(SettingsAdapterKind::Rpc)
             .preferences;
         preferences.language = mish_settings::LanguagePreference::Zh;
-        source.settings.accept_restored_preferences(preferences);
+        source
+            .settings
+            .accept_restored_preferences(preferences)
+            .unwrap();
         let backup = source
             .prepare_export(
                 "export-1".to_owned(),
@@ -1148,10 +1584,15 @@ rules:
         let destination_root = tempdir().unwrap();
         let destination = service(destination_root.path());
         let prepared = destination
-            .prepare_restore("restore-1".to_owned(), &backup.bytes)
+            .prepare_restore("restore-1".to_owned(), &backup.bytes, None)
             .unwrap();
         let result = destination
-            .commit_restore(prepared, LocalRestoreConflictResolution::KeepExisting, 200)
+            .commit_restore(
+                prepared,
+                LocalRestoreConflictResolution::KeepExisting,
+                200,
+                None,
+            )
             .unwrap();
 
         assert_eq!(
@@ -1187,11 +1628,16 @@ rules:
         let destination_root = tempdir().unwrap();
         let destination = service(destination_root.path());
         let prepared = destination
-            .prepare_restore("restore-1".to_owned(), &backup.bytes)
+            .prepare_restore("restore-1".to_owned(), &backup.bytes, None)
             .unwrap();
         assert_eq!(prepared.preview.actions.add, 1);
         destination
-            .commit_restore(prepared, LocalRestoreConflictResolution::KeepExisting, 200)
+            .commit_restore(
+                prepared,
+                LocalRestoreConflictResolution::KeepExisting,
+                200,
+                None,
+            )
             .unwrap();
 
         let restored = FileProfileRepository::new(destination_root.path().to_path_buf())
@@ -1227,25 +1673,232 @@ rules:
         let destination_root = tempdir().unwrap();
         let destination = service(destination_root.path());
         let prepared = destination
-            .prepare_restore("restore-1".to_owned(), &backup.bytes)
+            .prepare_restore("restore-1".to_owned(), &backup.bytes, None)
             .unwrap();
         let mut changed = destination
             .settings
             .snapshot(SettingsAdapterKind::Rpc)
             .preferences;
         changed.language = mish_settings::LanguagePreference::Zh;
-        destination.settings.accept_restored_preferences(changed);
+        destination
+            .settings
+            .accept_restored_preferences(changed)
+            .unwrap();
 
         assert_eq!(
             destination
-                .commit_restore(prepared, LocalRestoreConflictResolution::KeepExisting, 200,)
+                .commit_restore(
+                    prepared,
+                    LocalRestoreConflictResolution::KeepExisting,
+                    200,
+                    None,
+                )
                 .unwrap_err(),
             LocalBackupError::StateChanged
         );
     }
 
     #[test]
-    fn failed_multi_component_commit_rolls_back_every_completed_rename() {
+    fn restore_returns_typed_busy_instead_of_overwriting_an_in_progress_mutation() {
+        let root = tempdir().unwrap();
+        let service = service(root.path());
+        let backup = service
+            .prepare_export(
+                "export-1".to_owned(),
+                LocalBackupScope {
+                    patches: false,
+                    profiles: false,
+                    schedules: false,
+                    settings: true,
+                    source_locators: false,
+                },
+                100,
+            )
+            .unwrap();
+        let prepared = service
+            .prepare_restore("restore-1".to_owned(), &backup.bytes, None)
+            .unwrap();
+        let permit = service.try_begin_restore().unwrap();
+
+        assert!(matches!(
+            service
+                .settings
+                .set_language(mish_settings::LanguagePreference::Zh),
+            Err(mish_settings::SettingsServiceError::Busy)
+        ));
+        assert_eq!(
+            service
+                .commit_restore(
+                    prepared,
+                    LocalRestoreConflictResolution::KeepExisting,
+                    200,
+                    None,
+                )
+                .unwrap_err(),
+            LocalBackupError::Busy
+        );
+        drop(permit);
+    }
+
+    #[tokio::test]
+    async fn active_profile_transition_expires_preview_and_active_replacement_is_never_allowed() {
+        let source_root = tempdir().unwrap();
+        let source = service(source_root.path());
+        let record = profile_record(VALID_PROFILE, ProfileId::new()).await;
+        let profile_id = record.metadata.id.as_str().to_owned();
+        FileProfileRepository::new(source_root.path().to_path_buf())
+            .save(&record)
+            .unwrap();
+        let backup = source
+            .prepare_export(
+                "export-1".to_owned(),
+                LocalBackupScope {
+                    patches: false,
+                    profiles: true,
+                    schedules: false,
+                    settings: false,
+                    source_locators: false,
+                },
+                100,
+            )
+            .unwrap();
+
+        let destination_root = tempdir().unwrap();
+        let destination = service(destination_root.path());
+        let mut current = record;
+        current.metadata.label = "Current active label".to_owned();
+        FileProfileRepository::new(destination_root.path().to_path_buf())
+            .save(&current)
+            .unwrap();
+
+        let stale = destination
+            .prepare_restore("restore-stale".to_owned(), &backup.bytes, None)
+            .unwrap();
+        assert_eq!(
+            destination
+                .commit_restore(
+                    stale,
+                    LocalRestoreConflictResolution::UseBackup,
+                    200,
+                    Some(&profile_id),
+                )
+                .unwrap_err(),
+            LocalBackupError::StateChanged
+        );
+
+        let active = destination
+            .prepare_restore(
+                "restore-active".to_owned(),
+                &backup.bytes,
+                Some(&profile_id),
+            )
+            .unwrap();
+        assert_eq!(
+            active.preview.conflicts[0].kind,
+            LocalRestoreConflictKind::ActiveProfile
+        );
+        assert!(!active.preview.conflicts[0].replace_allowed);
+        let result = destination
+            .commit_restore(
+                active,
+                LocalRestoreConflictResolution::UseBackup,
+                200,
+                Some(&profile_id),
+            )
+            .unwrap();
+        assert_eq!(result.applied.skip, 1);
+        let persisted = FileProfileRepository::new(destination_root.path().to_path_buf())
+            .load(&ProfileId::parse(profile_id).unwrap())
+            .unwrap();
+        assert_eq!(persisted.metadata.label, "Current active label");
+    }
+
+    struct InjectedFilesystem {
+        crash_at: Option<RestoreCheckpoint>,
+        crashed: std::sync::atomic::AtomicBool,
+        fail_rename_calls: Vec<usize>,
+        rename_calls: std::sync::atomic::AtomicUsize,
+        standard: StdRestoreFilesystem,
+    }
+
+    impl InjectedFilesystem {
+        fn crashing_at(checkpoint: RestoreCheckpoint) -> Self {
+            Self {
+                crash_at: Some(checkpoint),
+                crashed: std::sync::atomic::AtomicBool::new(false),
+                fail_rename_calls: Vec::new(),
+                rename_calls: std::sync::atomic::AtomicUsize::new(0),
+                standard: StdRestoreFilesystem,
+            }
+        }
+
+        fn failing_renames(calls: Vec<usize>) -> Self {
+            Self {
+                crash_at: None,
+                crashed: std::sync::atomic::AtomicBool::new(false),
+                fail_rename_calls: calls,
+                rename_calls: std::sync::atomic::AtomicUsize::new(0),
+                standard: StdRestoreFilesystem,
+            }
+        }
+    }
+
+    impl RestoreFilesystem for InjectedFilesystem {
+        fn checkpoint(
+            &self,
+            checkpoint: RestoreCheckpoint,
+        ) -> Result<(), RestoreFilesystemFailure> {
+            if self.crash_at == Some(checkpoint)
+                && !self.crashed.swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                return Err(RestoreFilesystemFailure::Crash);
+            }
+            Ok(())
+        }
+
+        fn rename(
+            &self,
+            source: &Path,
+            destination: &Path,
+        ) -> Result<(), RestoreFilesystemFailure> {
+            let call = self
+                .rename_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            if self.fail_rename_calls.contains(&call) {
+                return Err(RestoreFilesystemFailure::Io);
+            }
+            self.standard.rename(source, destination)
+        }
+
+        fn remove_dir_all(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+            self.standard.remove_dir_all(path)
+        }
+
+        fn remove_file(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+            self.standard.remove_file(path)
+        }
+
+        fn sync_directory(&self, path: &Path) -> Result<(), RestoreFilesystemFailure> {
+            self.standard.sync_directory(path)
+        }
+
+        fn write_private_atomic(
+            &self,
+            destination: &Path,
+            bytes: &[u8],
+        ) -> Result<(), RestoreFilesystemFailure> {
+            self.standard.write_private_atomic(destination, bytes)
+        }
+    }
+
+    fn transaction_fixture(
+        filesystem: Arc<InjectedFilesystem>,
+    ) -> (
+        tempfile::TempDir,
+        RestoreTransaction<InjectedFilesystem>,
+        SettingsPreferences,
+    ) {
         let root = tempdir().unwrap();
         fs::create_dir(root.path().join("profiles")).unwrap();
         fs::write(root.path().join("profiles/original"), b"profile-state").unwrap();
@@ -1255,27 +1908,101 @@ rules:
             .unwrap();
         let mut replacement_settings = original_settings;
         replacement_settings.language = mish_settings::LanguagePreference::Zh;
-        let transaction = RestoreTransaction::stage(
+        let transaction = RestoreTransaction::stage_with_filesystem(
             root.path(),
             Some(BTreeMap::new()),
             Some(replacement_settings),
+            filesystem,
         )
         .unwrap();
+        (root, transaction, original_settings)
+    }
 
+    fn assert_original_generation(root: &Path, settings: SettingsPreferences) {
         assert_eq!(
-            transaction.commit_with_failure(Some(1)).unwrap_err(),
-            LocalBackupError::Storage
-        );
-        assert_eq!(
-            fs::read(root.path().join("profiles/original")).unwrap(),
+            fs::read(root.join("profiles/original")).unwrap(),
             b"profile-state"
         );
         assert_eq!(
-            FileSettingsRepository::new(root.path().join("settings.json"))
+            FileSettingsRepository::new(root.join("settings.json"))
                 .load()
                 .unwrap()
                 .preferences,
-            original_settings
+            settings
         );
+    }
+
+    #[test]
+    fn ordinary_multi_component_failure_rolls_back_every_completed_rename() {
+        let (root, transaction, original_settings) =
+            transaction_fixture(Arc::new(InjectedFilesystem::failing_renames(vec![2])));
+
+        assert_eq!(transaction.commit().unwrap_err(), LocalBackupError::Storage);
+        assert_original_generation(root.path(), original_settings);
+        assert!(!root.path().join(RESTORE_JOURNAL_FILE).exists());
+    }
+
+    #[test]
+    fn rollback_failure_preserves_the_journal_for_startup_recovery() {
+        let (root, transaction, original_settings) =
+            transaction_fixture(Arc::new(InjectedFilesystem::failing_renames(vec![2, 3])));
+
+        assert_eq!(
+            transaction.commit().unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        assert!(root.path().join(RESTORE_JOURNAL_FILE).exists());
+        RestoreTransaction::recover(root.path()).unwrap();
+        assert_original_generation(root.path(), original_settings);
+        assert!(!root.path().join(RESTORE_JOURNAL_FILE).exists());
+    }
+
+    #[test]
+    fn every_commit_crash_point_recovers_idempotently_without_mixed_generations() {
+        let checkpoints = [
+            RestoreCheckpoint::JournalCommitting,
+            RestoreCheckpoint::ComponentOriginalMoved(RestoreComponentKind::Profiles),
+            RestoreCheckpoint::ComponentStagedMoved(RestoreComponentKind::Profiles),
+            RestoreCheckpoint::ComponentOriginalMoved(RestoreComponentKind::Settings),
+            RestoreCheckpoint::ComponentStagedMoved(RestoreComponentKind::Settings),
+            RestoreCheckpoint::DataSynced,
+            RestoreCheckpoint::JournalCommitted,
+        ];
+        for checkpoint in checkpoints {
+            let (root, transaction, original_settings) =
+                transaction_fixture(Arc::new(InjectedFilesystem::crashing_at(checkpoint)));
+            assert_eq!(
+                transaction.commit().unwrap_err(),
+                LocalBackupError::RecoveryRequired,
+                "checkpoint {checkpoint:?}"
+            );
+            assert!(root.path().join(RESTORE_JOURNAL_FILE).exists());
+            #[cfg(unix)]
+            assert_eq!(
+                fs::metadata(root.path().join(RESTORE_JOURNAL_FILE))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+
+            RestoreTransaction::recover(root.path()).unwrap();
+            RestoreTransaction::recover(root.path()).unwrap();
+            assert!(!root.path().join(RESTORE_JOURNAL_FILE).exists());
+            if checkpoint == RestoreCheckpoint::JournalCommitted {
+                assert!(!root.path().join("profiles/original").exists());
+                assert_eq!(
+                    FileSettingsRepository::new(root.path().join("settings.json"))
+                        .load()
+                        .unwrap()
+                        .preferences
+                        .language,
+                    mish_settings::LanguagePreference::Zh
+                );
+            } else {
+                assert_original_generation(root.path(), original_settings);
+            }
+        }
     }
 }

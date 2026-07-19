@@ -242,7 +242,7 @@ class TestLocalBackupClient implements LocalBackupClient {
     scope,
   }));
   readonly saveExport = vi.fn(async () => ({ status: "written" as const }));
-  readonly previewRestore = vi.fn(async () => null);
+  readonly previewRestore = vi.fn<LocalBackupClient["previewRestore"]>(async () => null);
   readonly commitRestore = vi.fn(async () => ({
     applied: { add: 0, replace: 0, skip: 0, update: 1 },
     settingsSnapshot: createFixtureSettingsSnapshot(),
@@ -643,6 +643,49 @@ describe("desktop RPC experience", () => {
     await user.click(within(dialog).getByRole("button", { name: "Choose location and save" }));
     await waitFor(() => expect(backupClient.saveExport).toHaveBeenCalledWith("preview-1"));
     expect(await screen.findByText("The local backup was written atomically.")).toBeVisible();
+  });
+
+  it("shows the validated restore scope and both sensitive data classes before confirmation", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.backupRestore = "supported";
+    const backupClient = new TestLocalBackupClient();
+    backupClient.previewRestore.mockResolvedValueOnce({
+      actions: { add: 1, replace: 0, skip: 0, update: 1 },
+      conflicts: [],
+      contentBytes: 8_192,
+      excludedSensitiveData: ["subscription-urls-and-full-paths"],
+      fileType: "application/json",
+      formatVersion: 1,
+      included: { patches: 0, profiles: 1, schedules: 0, settings: 1 },
+      includedSensitiveData: ["credentials-and-profile-contents"],
+      maxBytes: 8_388_608,
+      previewId: "restore-preview-1",
+      scope: {
+        patches: false,
+        profiles: true,
+        schedules: false,
+        settings: true,
+        sourceLocators: false,
+      },
+    });
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+      backupClient,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Restore backup" }));
+    const dialog = await screen.findByRole("dialog", { name: "Review validated restore" });
+    const scope = within(dialog).getByRole("region", { name: "Validated restore scope" });
+    expect(scope).toHaveTextContent("Application settings · Profile configuration contents");
+    expect(scope).toHaveTextContent("Profile credentials and configuration contentsIncluded");
+    expect(scope).toHaveTextContent("Subscription URLs and full local pathsExcluded");
+    expect(within(dialog).getByRole("button", { name: "Restore selected data" })).toBeEnabled();
   });
 
   it("scopes native material to the sidebar and keeps the workspace opaque", async () => {

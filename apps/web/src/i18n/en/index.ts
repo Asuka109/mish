@@ -48,6 +48,8 @@ const en = {
       contentCounts:
         "{settings:number} settings · {profiles:number} profiles · {patches:number} patches · {schedules:number} schedules",
       contents: "Included data",
+      excluded: "Excluded",
+      included: "Included",
       create: "Create backup",
       exclusionSummary:
         "Credentials, profile configuration contents, subscription URLs, full local paths, runtime state, and system capture state remain excluded unless a sensitive scope is selected above.",
@@ -65,6 +67,7 @@ const en = {
       profilesSensitive: "Profile configuration contents",
       profilesSensitiveDescription:
         "Sensitive · raw and normalized profile configuration may contain proxy credentials or other secrets.",
+      profileSecretsScope: "Profile credentials and configuration contents",
       resolution: "Conflict policy",
       restore: "Restore backup",
       restoreDescription:
@@ -72,10 +75,13 @@ const en = {
       restoreSafety:
         "Restore is transactional. It will not start Core, activate a profile, enable System Proxy or TUN, register login startup, or otherwise modify operating-system state.",
       restoreTitle: "Review validated restore",
+      restoreScope: "Validated restore scope",
+      sourceLocatorsScope: "Subscription URLs and full local paths",
       result: {
         cancelled: "The local file panel was cancelled. Nothing changed.",
         exported: "The local backup was written atomically.",
-        failed: "The local backup operation failed. No partial restore was kept.",
+        failed:
+          "The local backup operation did not complete. Any retained recovery evidence will be resolved before the next startup.",
         idle: "",
         restored: "The validated backup was restored transactionally.",
       },

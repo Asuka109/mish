@@ -39,9 +39,11 @@ const restorePreview = {
     },
   ],
   contentBytes: 4_096,
+  excludedSensitiveData: ["credentials-and-profile-contents", "subscription-urls-and-full-paths"],
   fileType: "application/json",
   formatVersion: 1,
   included,
+  includedSensitiveData: [],
   maxBytes: 8 * 1_024 * 1_024,
   previewId: "restore-preview-1",
   scope,
@@ -86,6 +88,24 @@ describe("desktop local backup client", () => {
     await expect(client.previewExport(scope)).rejects.toThrow();
     await expect(client.previewRestore()).rejects.toThrow();
     await expect(client.saveExport("export-preview-1")).rejects.toThrow();
+  });
+
+  it("requires restore sensitive categories to form an explicit included/excluded partition", async () => {
+    const client = new DesktopLocalBackupClient({
+      invokeCommitRestore: async () => ({ applied: {}, settingsSnapshot: {} }),
+      invokePreviewExport: async () => exportPreview,
+      invokePreviewRestore: async () => ({
+        ...restorePreview,
+        excludedSensitiveData: [
+          "credentials-and-profile-contents",
+          "subscription-urls-and-full-paths",
+        ],
+        includedSensitiveData: ["credentials-and-profile-contents"],
+      }),
+      invokeSaveExport: async () => ({ status: "written" }),
+    });
+
+    await expect(client.previewRestore()).rejects.toThrow();
   });
 
   it("keeps every browser operation explicitly unavailable", async () => {

@@ -47,6 +47,8 @@ const zh = {
       contentCounts:
         "设置 {settings} 项 · 配置 {profiles} 个 · patch {patches} 条 · 调度 {schedules} 项",
       contents: "包含内容",
+      excluded: "不包含",
+      included: "包含",
       create: "创建备份",
       exclusionSummary:
         "除非在上方单独选择敏感范围，否则凭据、配置原文、订阅 URL、完整本地路径、运行时状态与系统接管状态均不会写入备份。",
@@ -62,16 +64,19 @@ const zh = {
       preview: "生成预览",
       profilesSensitive: "Profile 配置原文",
       profilesSensitiveDescription: "敏感 · 原始与规范化配置可能包含代理凭据或其他秘密。",
+      profileSecretsScope: "Profile 凭据与配置原文",
       resolution: "冲突策略",
       restore: "恢复备份",
       restoreDescription: "文件已通过 schema、大小、ID、revision、fingerprint 与内容完整性校验。",
       restoreSafety:
         "恢复采用事务提交；不会启动 Core、激活 Profile、开启系统代理或 TUN、注册登录启动，也不会修改其他操作系统状态。",
       restoreTitle: "检查已校验的恢复",
+      restoreScope: "已校验恢复范围",
+      sourceLocatorsScope: "订阅 URL 与完整本地路径",
       result: {
         cancelled: "已取消本地文件面板，没有发生任何更改。",
         exported: "本地备份已通过原子写入保存。",
-        failed: "本地备份操作失败，未保留部分恢复结果。",
+        failed: "本地备份操作未完成；如保留了恢复依据，Mish 会在下次启动前处理。",
         idle: "",
         restored: "已通过事务提交恢复校验后的备份。",
       },

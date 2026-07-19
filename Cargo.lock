@@ -2188,6 +2188,7 @@ dependencies = [
  "mish-profile",
  "mish-runtime",
  "mish-settings",
+ "mish-state-authority",
  "nix",
  "regex",
  "reqwest",
@@ -2215,6 +2216,7 @@ dependencies = [
  "mish-profile",
  "mish-runtime",
  "mish-settings",
+ "mish-state-authority",
  "rfd 0.17.2",
  "serde",
  "tauri",
@@ -2263,6 +2265,7 @@ name = "mish-profile"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "mish-state-authority",
  "serde",
  "serde_json",
  "serde_norway",
@@ -2289,12 +2292,21 @@ version = "0.1.0"
 dependencies = [
  "futures-util",
  "mish-runtime",
+ "mish-state-authority",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "mish-state-authority"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]

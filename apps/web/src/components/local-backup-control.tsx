@@ -243,6 +243,7 @@ export function LocalBackupControl() {
                 counts={restorePreview.included}
                 maxBytes={restorePreview.maxBytes}
               />
+              <RestoreScopeSummary preview={restorePreview} />
               {restorePreview.conflicts.length > 0 ? (
                 <div className="local-restore-conflicts">
                   <strong>{LL.settingsPage.backupFlow.conflicts()}</strong>
@@ -369,6 +370,46 @@ function BackupSummary({
         </dd>
       </div>
     </dl>
+  );
+}
+
+function RestoreScopeSummary({ preview }: { preview: LocalRestorePreviewDto }) {
+  const { LL } = useI18nContext();
+  const sensitive = new Set(preview.includedSensitiveData);
+  const scopeLabels = [
+    preview.scope.settings && LL.settingsPage.backupFlow.settings(),
+    preview.scope.patches && LL.settingsPage.backupFlow.patches(),
+    preview.scope.schedules && LL.settingsPage.backupFlow.schedules(),
+    preview.scope.profiles && LL.settingsPage.backupFlow.profilesSensitive(),
+    preview.scope.sourceLocators && LL.settingsPage.backupFlow.locatorsSensitive(),
+  ].filter((label) => label !== false);
+  return (
+    <section aria-label={LL.settingsPage.backupFlow.restoreScope()} className="local-restore-scope">
+      <strong>{LL.settingsPage.backupFlow.restoreScope()}</strong>
+      <p>{scopeLabels.join(" · ")}</p>
+      <dl>
+        <SensitiveScopeRow
+          included={sensitive.has("credentials-and-profile-contents")}
+          label={LL.settingsPage.backupFlow.profileSecretsScope()}
+        />
+        <SensitiveScopeRow
+          included={sensitive.has("subscription-urls-and-full-paths")}
+          label={LL.settingsPage.backupFlow.sourceLocatorsScope()}
+        />
+      </dl>
+    </section>
+  );
+}
+
+function SensitiveScopeRow({ included, label }: { included: boolean; label: string }) {
+  const { LL } = useI18nContext();
+  return (
+    <div data-included={included}>
+      <dt>{label}</dt>
+      <dd>
+        {included ? LL.settingsPage.backupFlow.included() : LL.settingsPage.backupFlow.excluded()}
+      </dd>
+    </div>
   );
 }
 
