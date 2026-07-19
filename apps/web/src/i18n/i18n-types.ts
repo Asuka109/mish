@@ -510,6 +510,15 @@ type RootTranslation = {
 		 */
 		childCount: RequiredParams<'count'>
 		/**
+		 * C​a​n​c​e​l​ ​d​e​l​a​y​ ​t​e​s​t​ ​f​o​r​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		cancelDelay: RequiredParams<'group'>
+		/**
+		 * C​a​n​c​e​l
+		 */
+		cancelDelayButton: string
+		/**
 		 * C​o​l​l​a​p​s​e​ ​{​g​r​o​u​p​}
 		 * @param {string} group
 		 */
@@ -531,6 +540,85 @@ type RootTranslation = {
 		 * P​o​l​i​c​y​ ​g​r​o​u​p​s​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
 		 */
 		desktopDescription: string
+		/**
+		 * C​a​n​c​e​l​l​e​d
+		 */
+		delayCancelled: string
+		/**
+		 * D​i​s​c​o​n​n​e​c​t​e​d
+		 */
+		delayDisconnected: string
+		/**
+		 * I​n​v​a​l​i​d​ ​r​e​s​u​l​t
+		 */
+		delayInconsistent: string
+		/**
+		 * P​e​n​d​i​n​g
+		 */
+		delayPending: string
+		/**
+		 * C​a​n​c​e​l​l​e​d
+		 */
+		delayPhaseCancelled: string
+		/**
+		 * C​o​m​p​l​e​t​e​d
+		 */
+		delayPhaseCompleted: string
+		/**
+		 * F​a​i​l​e​d
+		 */
+		delayPhaseFailed: string
+		/**
+		 * P​a​r​t​i​a​l
+		 */
+		delayPhasePartial: string
+		/**
+		 * P​e​n​d​i​n​g
+		 */
+		delayPhasePending: string
+		/**
+		 * I​n​ ​p​r​o​g​r​e​s​s
+		 */
+		delayPhaseProgress: string
+		/**
+		 * P​o​l​i​c​y​ ​{​p​o​l​i​c​y​}​ ​·​ ​{​s​e​c​o​n​d​s​}​ ​s​ ​t​i​m​e​o​u​t
+		 * @param {string} policy
+		 * @param {number} seconds
+		 */
+		delayPolicy: RequiredParams<'policy' | 'seconds'>
+		/**
+		 * N​o​ ​l​o​n​g​e​r​ ​i​n​ ​g​r​o​u​p
+		 */
+		delayStaleMembership: string
+		/**
+		 * {​s​t​a​t​e​}​ ​·​ ​{​c​o​m​p​l​e​t​e​d​}​/​{​t​o​t​a​l​}
+		 * @param {number} completed
+		 * @param {string} state
+		 * @param {number} total
+		 */
+		delayStateProgress: RequiredParams<'completed' | 'state' | 'total'>
+		/**
+		 * T​e​s​t​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		delayTestGroup: RequiredParams<'group'>
+		/**
+		 * T​e​s​t​i​n​g​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		delayTestingGroup: RequiredParams<'group'>
+		/**
+		 * T​i​m​e​d​ ​o​u​t
+		 */
+		delayTimeout: string
+		/**
+		 * U​n​a​v​a​i​l​a​b​l​e
+		 */
+		delayUnavailable: string
+		/**
+		 * C​o​r​e​ ​c​h​a​n​g​e​d
+		 */
+		delayVersionDrift: string
 		/**
 		 * P​o​l​i​c​y​ ​g​r​o​u​p​s​ ​r​e​p​o​r​t​e​d​ ​b​y​ ​t​h​i​s​ ​d​e​v​i​c​e​.
 		 */
@@ -692,6 +780,15 @@ type RootTranslation = {
 		 * @param {string} group
 		 */
 		sortChildren: RequiredParams<'group'>
+		/**
+		 * S​t​a​r​t​ ​d​e​l​a​y​ ​t​e​s​t​ ​f​o​r​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		startDelay: RequiredParams<'group'>
+		/**
+		 * T​e​s​t
+		 */
+		startDelayButton: string
 		/**
 		 * R​o​u​t​e​s
 		 */
@@ -2392,6 +2489,14 @@ export type TranslationFunctions = {
 		 */
 		childCount: (arg: { count: number }) => LocalizedString
 		/**
+		 * Cancel delay test for {group}
+		 */
+		cancelDelay: (arg: { group: string }) => LocalizedString
+		/**
+		 * Cancel
+		 */
+		cancelDelayButton: () => LocalizedString
+		/**
 		 * Collapse {group}
 		 */
 		collapseGroup: (arg: { group: string }) => LocalizedString
@@ -2411,6 +2516,78 @@ export type TranslationFunctions = {
 		 * Policy groups reported by the desktop local service.
 		 */
 		desktopDescription: () => LocalizedString
+		/**
+		 * Cancelled
+		 */
+		delayCancelled: () => LocalizedString
+		/**
+		 * Disconnected
+		 */
+		delayDisconnected: () => LocalizedString
+		/**
+		 * Invalid result
+		 */
+		delayInconsistent: () => LocalizedString
+		/**
+		 * Pending
+		 */
+		delayPending: () => LocalizedString
+		/**
+		 * Cancelled
+		 */
+		delayPhaseCancelled: () => LocalizedString
+		/**
+		 * Completed
+		 */
+		delayPhaseCompleted: () => LocalizedString
+		/**
+		 * Failed
+		 */
+		delayPhaseFailed: () => LocalizedString
+		/**
+		 * Partial
+		 */
+		delayPhasePartial: () => LocalizedString
+		/**
+		 * Pending
+		 */
+		delayPhasePending: () => LocalizedString
+		/**
+		 * In progress
+		 */
+		delayPhaseProgress: () => LocalizedString
+		/**
+		 * Policy {policy} · {seconds} s timeout
+		 */
+		delayPolicy: (arg: { policy: string, seconds: number }) => LocalizedString
+		/**
+		 * No longer in group
+		 */
+		delayStaleMembership: () => LocalizedString
+		/**
+		 * {state} · {completed}/{total}
+		 */
+		delayStateProgress: (arg: { completed: number, state: string, total: number }) => LocalizedString
+		/**
+		 * Test {group}
+		 */
+		delayTestGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Testing {group}
+		 */
+		delayTestingGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Timed out
+		 */
+		delayTimeout: () => LocalizedString
+		/**
+		 * Unavailable
+		 */
+		delayUnavailable: () => LocalizedString
+		/**
+		 * Core changed
+		 */
+		delayVersionDrift: () => LocalizedString
 		/**
 		 * Policy groups reported by this device.
 		 */
@@ -2557,6 +2734,14 @@ export type TranslationFunctions = {
 		 * Sort children in {group}
 		 */
 		sortChildren: (arg: { group: string }) => LocalizedString
+		/**
+		 * Start delay test for {group}
+		 */
+		startDelay: (arg: { group: string }) => LocalizedString
+		/**
+		 * Test
+		 */
+		startDelayButton: () => LocalizedString
 		/**
 		 * Routes
 		 */

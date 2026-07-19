@@ -92,6 +92,14 @@ export class RpcStatusClient implements StatusClient {
     return this.requestSnapshot("status.selectGroupChild", { childId, groupId }, options);
   }
 
+  startGroupDelayTest(groupId: string, options?: RpcRequestOptions) {
+    return this.requestSnapshot("status.startGroupDelayTest", { groupId }, options);
+  }
+
+  cancelGroupDelayTest(testId: string, options?: RpcRequestOptions) {
+    return this.requestSnapshot("status.cancelGroupDelayTest", { testId }, options);
+  }
+
   setActiveProfile(profileId: string, options?: RpcRequestOptions) {
     return this.requestSnapshot("status.setActiveProfile", { profileId }, options);
   }
@@ -217,6 +225,7 @@ export class RpcStatusClient implements StatusClient {
         this.capabilitiesLoaded = true;
         this.capabilityProfileId = requestedProfileId;
         if (info.statusCommands.group) this.supportedCommands.add("group");
+        if (info.statusCommands.groupDelay) this.supportedCommands.add("group-delay");
         if (info.statusCommands.routing) this.supportedCommands.add("routing");
         this.emitConnectionState(this.getConnectionState());
       })
@@ -237,10 +246,12 @@ export class RpcStatusClient implements StatusClient {
   private async requestSnapshot<
     Method extends
       | "status.getSnapshot"
+      | "status.cancelGroupDelayTest"
       | "status.removeServiceMonitor"
       | "status.recoverSystemProxy"
       | "status.restoreDefaultServices"
       | "status.selectGroupChild"
+      | "status.startGroupDelayTest"
       | "status.setActiveProfile"
       | "status.setCapture"
       | "status.setRoutingMode"

@@ -41,10 +41,12 @@ interface ProductContextValue {
   isGroupCommandPending(groupId: string): boolean;
   isCommandSupported(command: ProductCommand): boolean;
   isLoading: boolean;
+  cancelGroupDelayTest(testId: string): Promise<ProductCommandResult>;
   removeServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
   recoverSystemProxy(action: CaptureRecoveryAction): Promise<ProductCommandResult>;
   restoreDefaultServices(): Promise<ProductCommandResult>;
   selectGroupChild(groupId: string, childId: string): Promise<ProductCommandResult>;
+  startGroupDelayTest(groupId: string): Promise<ProductCommandResult>;
   setActiveProfile(profileId: string): Promise<ProductCommandResult>;
   setCapture(selection: CaptureSelectionDto, active: boolean): Promise<ProductCommandResult>;
   setRoutingMode(mode: RoutingMode): Promise<ProductCommandResult>;
@@ -63,6 +65,7 @@ function createInitialCommandStates(): Record<ProductCommand, ProductCommandStat
   return {
     capture: { phase: "idle" },
     group: { phase: "idle" },
+    "group-delay": { phase: "idle" },
     profile: { phase: "idle" },
     routing: { phase: "idle" },
     services: { phase: "idle" },
@@ -216,6 +219,12 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         (connection.phase === "fixture" || !connection.stale),
       isGroupCommandPending: (groupId) => commandControllers.current.has(`group:${groupId}`),
       isLoading: snapshot === null && !loadFailed,
+      cancelGroupDelayTest: (testId) =>
+        runCommand(
+          "group-delay",
+          (signal) => resolvedClient.cancelGroupDelayTest(testId, { signal }),
+          "group-delay:cancel",
+        ),
       removeServiceMonitor: (monitorId) =>
         runCommand("services", (signal) =>
           resolvedClient.removeServiceMonitor(monitorId, { signal }),
@@ -229,6 +238,12 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           "group",
           (signal) => resolvedClient.selectGroupChild(groupId, childId, { signal }),
           `group:${groupId}`,
+        ),
+      startGroupDelayTest: (groupId) =>
+        runCommand(
+          "group-delay",
+          (signal) => resolvedClient.startGroupDelayTest(groupId, { signal }),
+          "group-delay:start",
         ),
       setActiveProfile: (profileId) =>
         runCommand("profile", (signal) => resolvedClient.setActiveProfile(profileId, { signal })),

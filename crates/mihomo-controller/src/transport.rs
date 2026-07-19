@@ -42,6 +42,28 @@ pub trait ControllerTransport: Send + Sync {
         body: Bytes,
         max_body_bytes: usize,
     ) -> BoxFuture<'_, Result<(), ControllerError>>;
+
+    fn proxy_delay(
+        &self,
+        proxy: String,
+        url: String,
+        timeout_milliseconds: u16,
+        expected_status: String,
+        max_body_bytes: usize,
+    ) -> BoxFuture<'_, Result<Bytes, ControllerError>> {
+        let _ = (
+            proxy,
+            url,
+            timeout_milliseconds,
+            expected_status,
+            max_body_bytes,
+        );
+        Box::pin(async {
+            Err(ControllerError::InvalidConfiguration {
+                detail: "the injected Controller transport does not support delay tests".into(),
+            })
+        })
+    }
 }
 
 pub struct HttpTransportConfig {
@@ -175,6 +197,31 @@ impl HttpTransport {
             request = request.header(reqwest::header::AUTHORIZATION, authorization);
         }
         request
+    }
+
+    fn proxy_delay_request(
+        &self,
+        proxy: &str,
+        test_url: &str,
+        timeout_milliseconds: u16,
+        expected_status: &str,
+    ) -> Result<reqwest::RequestBuilder, ControllerError> {
+        let mut url = self.endpoint_url(Endpoint::Proxies)?;
+        url.path_segments_mut()
+            .map_err(|_| ControllerError::InvalidConfiguration {
+                detail: "controller delay URL could not be constructed".into(),
+            })?
+            .push(proxy)
+            .push("delay");
+        url.query_pairs_mut()
+            .append_pair("url", test_url)
+            .append_pair("timeout", &timeout_milliseconds.to_string())
+            .append_pair("expected", expected_status);
+        let mut request = self.client.get(url);
+        if let Some(authorization) = &self.authorization {
+            request = request.header(reqwest::header::AUTHORIZATION, authorization);
+        }
+        Ok(request)
     }
 
     fn websocket_request(
@@ -334,6 +381,59 @@ impl ControllerTransport for HttpTransport {
             timeout(self.request_timeout, operation)
                 .await
                 .map_err(|_| ControllerError::Timeout { endpoint })?
+        })
+    }
+
+    fn proxy_delay(
+        &self,
+        proxy: String,
+        url: String,
+        timeout_milliseconds: u16,
+        expected_status: String,
+        max_body_bytes: usize,
+    ) -> BoxFuture<'_, Result<Bytes, ControllerError>> {
+        Box::pin(async move {
+            let operation = async {
+                let response = self
+                    .proxy_delay_request(&proxy, &url, timeout_milliseconds, &expected_status)?
+                    .send()
+                    .await
+                    .map_err(|error| {
+                        ControllerError::transport(
+                            Endpoint::Proxies,
+                            error.without_url().to_string(),
+                        )
+                    })?;
+                ensure_success(Endpoint::Proxies, response.status())?;
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > max_body_bytes as u64)
+                {
+                    return Err(ControllerError::BodyTooLarge {
+                        endpoint: Endpoint::Proxies,
+                        limit: max_body_bytes,
+                    });
+                }
+                let mut body = BytesMut::new();
+                let mut chunks = response.bytes_stream();
+                while let Some(chunk) = chunks.try_next().await.map_err(|error| {
+                    ControllerError::transport(Endpoint::Proxies, error.without_url().to_string())
+                })? {
+                    if body.len().saturating_add(chunk.len()) > max_body_bytes {
+                        return Err(ControllerError::BodyTooLarge {
+                            endpoint: Endpoint::Proxies,
+                            limit: max_body_bytes,
+                        });
+                    }
+                    body.extend_from_slice(&chunk);
+                }
+                Ok(body.freeze())
+            };
+            timeout(self.request_timeout, operation)
+                .await
+                .map_err(|_| ControllerError::Timeout {
+                    endpoint: Endpoint::Proxies,
+                })?
         })
     }
 }

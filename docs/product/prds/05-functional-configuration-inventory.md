@@ -54,7 +54,7 @@ traffic capture.
 | Structured source patches | Common proxies, groups, and rules; ordered prefix/suffix insertion; raw fallback | Profiles: object-specific patch editors, never silent source rewriting | P1 common rules/groups; later protocol authoring |
 | Merge and script transforms | Global or profile-scoped YAML merge and JavaScript transform | Profiles: expert transformation pipeline with preview and rollback | Later |
 | Policy-group tree | Selector and core-supported strategy groups, nested children, current selection, hidden groups | Routes: expandable group-owned tree | P0 |
-| Group tools | Current child, configuration/latency/name sorting, text filter, node detail toggle, scoped test URL and timeout | Routes: group-local toolbar, not a page-global toolbar | P0 filter/sort/test; P1 custom probe policy |
+| Group tools | Current child, configuration/latency/name sorting, text filter, node detail toggle, group-scoped fixed delay policy | Routes: group-local toolbar, not a page-global toolbar | P0 filter/sort/test; P1 custom probe policy |
 | Node capability detail | Protocol family, UDP/XUDP support, health result, last test time | Routes: secondary metadata on a child | P0 supported capabilities; P1 richer health history |
 | Routing mode | Rule, Global, Direct | Status command with Routes explanation; never styled as navigation | P0 |
 | Chained outbound | Ordered nodes, policy-group context, minimum-length validation, performance warning, connect/disconnect | Routes: dedicated expert workflow with preview and rollback | P2 |

@@ -1995,20 +1995,51 @@ h2 {
 }
 
 .route-group-tools {
-  display: flex;
-  min-height: 45px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  display: grid;
+  min-height: 78px;
+  gap: 1px;
   padding: 7px 10px 7px 14px;
   color: var(--color-text-muted);
   font-size: 12px;
 }
 
-.route-group-tools > span {
+.route-sort-tools,
+.route-delay-tools {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.route-sort-tools > span,
+.route-delay-copy,
+.route-delay-copy > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.route-delay-tools {
+  padding-top: 5px;
+  border-top: 1px solid var(--color-hairline-soft);
+}
+
+.route-delay-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.route-delay-copy strong {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-weight: var(--font-weight-control);
+  text-overflow: ellipsis;
+}
+
+.route-delay-copy > span {
+  color: var(--color-text-muted);
 }
 
 .route-sort-button {
@@ -2123,6 +2154,28 @@ h2 {
 .route-latency {
   color: var(--color-text-muted);
   font-size: var(--text-metadata);
+}
+
+.route-delay-result {
+  display: grid;
+  min-width: 74px;
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+  text-align: right;
+}
+
+.route-delay-result time {
+  color: var(--color-text-subtle);
+  font-size: 10px;
+}
+
+.route-delay-failed,
+.route-delay-cancelled {
+  color: var(--color-error);
+}
+
+.route-delay-success {
+  color: var(--color-success-text);
 }
 
 .route-selected-status {
@@ -3081,9 +3134,18 @@ h2 {
   }
 
   .route-group-tools {
+    gap: 6px;
+  }
+
+  .route-sort-tools,
+  .route-delay-tools {
     align-items: flex-start;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .route-delay-tools > button {
+    align-self: stretch;
   }
 
   .route-child-row {

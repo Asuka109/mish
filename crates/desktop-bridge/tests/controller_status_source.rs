@@ -1,14 +1,15 @@
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
 use axum::{
     Json, Router,
-    extract::{Request, State, WebSocketUpgrade, ws::Message as AxumMessage},
+    extract::{Path, Query, Request, State, WebSocketUpgrade, ws::Message as AxumMessage},
     http::{StatusCode, header::AUTHORIZATION},
     middleware::{Next, from_fn},
     response::{IntoResponse, Response},
@@ -21,7 +22,7 @@ use mish_bridge::{
 };
 use mish_runtime::{
     CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, RoutingMode, StatusAdapterKind,
-    StatusDataSource,
+    StatusCommand, StatusDataSource,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -83,6 +84,8 @@ struct FakeControllerState {
     configs: RwLock<Value>,
     connections: RwLock<Value>,
     close_limit: AtomicUsize,
+    delay_mode: AtomicUsize,
+    delay_requests: Mutex<Vec<String>>,
     logs: broadcast::Sender<Value>,
     logs_available: watch::Sender<bool>,
     memory: watch::Sender<Value>,
@@ -115,6 +118,8 @@ impl FakeController {
             configs: RwLock::new(configs("rule")),
             connections: RwLock::new(connections("connection-a")),
             close_limit: AtomicUsize::new(usize::MAX),
+            delay_mode: AtomicUsize::new(0),
+            delay_requests: Mutex::new(Vec::new()),
             logs,
             logs_available,
             memory,
@@ -129,6 +134,7 @@ impl FakeController {
             .route("/version", get(version_endpoint))
             .route("/configs", get(configs_endpoint).put(set_configs_endpoint))
             .route("/proxies", get(proxies_endpoint))
+            .route("/proxies/{proxy}/delay", get(proxy_delay_endpoint))
             .route(
                 "/proxies/{group}",
                 axum::routing::put(select_group_endpoint),
@@ -209,6 +215,35 @@ async fn configs_endpoint(State(state): State<Arc<FakeControllerState>>) -> Resp
 
 async fn proxies_endpoint(State(state): State<Arc<FakeControllerState>>) -> Response {
     unary(&state, &state.proxies).await
+}
+
+async fn proxy_delay_endpoint(
+    Path(proxy): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    State(state): State<Arc<FakeControllerState>>,
+) -> Response {
+    state
+        .delay_requests
+        .lock()
+        .expect("delay requests poisoned")
+        .push(proxy.clone());
+    if query.get("url").map(String::as_str) != Some(mish_mihomo_controller::ROUTE_DELAY_TEST_URL)
+        || query.get("timeout").map(String::as_str) != Some("5000")
+        || query.get("expected").map(String::as_str) != Some("204")
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    match state.delay_mode.load(Ordering::Acquire) {
+        1 => sleep(Duration::from_millis(700)).await,
+        2 => sleep(Duration::from_millis(100)).await,
+        3 if proxy != "DIRECT" => sleep(Duration::from_millis(700)).await,
+        _ => {}
+    }
+    match proxy.as_str() {
+        "DIRECT" => Json(json!({"delay": 42})).into_response(),
+        "节点 🚄" => StatusCode::GATEWAY_TIMEOUT.into_response(),
+        _ => Json(json!({"delay": 88})).into_response(),
+    }
 }
 
 async fn set_configs_endpoint(
@@ -491,6 +526,21 @@ fn proxies() -> Value {
     }})
 }
 
+fn many_slow_proxies() -> Value {
+    let child_labels = (0..8)
+        .map(|index| format!("取消候选 {index} 🚦"))
+        .collect::<Vec<_>>();
+    let mut values = serde_json::Map::new();
+    for label in &child_labels {
+        values.insert(label.clone(), proxy(label, "VLESS"));
+    }
+    let mut group = proxy("SELECT", "Selector");
+    group["all"] = json!(child_labels);
+    group["now"] = json!("取消候选 0 🚦");
+    values.insert("SELECT".into(), group);
+    json!({"proxies": values})
+}
+
 fn rules() -> Value {
     json!({"rules": [{
         "index": 0,
@@ -535,12 +585,17 @@ fn traffic(up: i64, down: i64, up_total: i64, down_total: i64) -> Value {
 }
 
 fn source_config(fake: &FakeController) -> ControllerObservationConfig {
-    let profile = ProfileMappingContext::new(
-        "profile-test",
-        "sha256:controller-source-test",
-        "Controller test profile",
-    )
-    .unwrap();
+    source_config_for_profile(fake, "profile-test", "Controller test profile")
+}
+
+fn source_config_for_profile(
+    fake: &FakeController,
+    profile_id: &str,
+    profile_label: &str,
+) -> ControllerObservationConfig {
+    let profile =
+        ProfileMappingContext::new(profile_id, "sha256:controller-source-test", profile_label)
+            .unwrap();
     let mut config = ControllerObservationConfig::new(fake.base_url(), profile);
     config.secret = Some(CONTROLLER_SECRET.into());
     config.connect_timeout = Duration::from_millis(250);
@@ -609,6 +664,23 @@ async fn authenticate(
     )
     .await;
     assert_eq!(response["result"]["authenticated"], true);
+}
+
+async fn runtime_snapshot_until(
+    runtime: &MishRuntime,
+    predicate: impl Fn(&Value) -> bool,
+) -> Value {
+    timeout(Duration::from_secs(3), async {
+        loop {
+            let snapshot = runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+            if predicate(&snapshot) {
+                return snapshot;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("matching runtime snapshot was not published")
 }
 
 async fn next_snapshot(
@@ -788,6 +860,7 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
         stopped: AtomicBool::new(false),
     });
     let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    assert!(!source.supports_command(StatusCommand::GroupDelay));
     let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
     source.start().await;
     let bridge = start_loopback_server(bridge_config(), runtime)
@@ -1459,6 +1532,392 @@ async fn controller_events_are_bounded_redacted_and_restart_at_reconnect_boundar
     assert_eq!(reconnected["events"][0]["source"], "application");
 
     runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_delay_rpc_is_authenticated_private_group_scoped_and_partial() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    let runtime_view = runtime.clone();
+    source.start().await;
+    let ready = runtime_snapshot_until(&runtime_view, |snapshot| {
+        snapshot["groups"]
+            .as_array()
+            .is_some_and(|groups| !groups.is_empty())
+    })
+    .await;
+    let selector = ready["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["label"] == "SELECT")
+        .unwrap();
+    assert!(source.supports_command(StatusCommand::GroupDelay));
+    let selector_id = selector["id"].as_str().unwrap().to_owned();
+    let direct_id = ready["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["label"] == "DIRECT")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let unicode_id = ready["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["label"] == "节点 🚄")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let bridge = start_loopback_server(bridge_config(), runtime)
+        .await
+        .unwrap();
+    let mut websocket = socket(bridge.address).await;
+    let unauthenticated = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":1, "method":"status.startGroupDelayTest", "params":{"groupId":selector_id}}),
+    )
+    .await;
+    assert_eq!(unauthenticated["error"]["code"], -32001);
+    authenticate(&mut websocket).await;
+    let hostile = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"status.startGroupDelayTest",
+            "params":{"groupId":selector_id, "url":"https://private.example.invalid", "timeout":1}
+        }),
+    )
+    .await;
+    assert_eq!(hostile["error"]["code"], -32602);
+    assert!(
+        fake.state
+            .delay_requests
+            .lock()
+            .expect("delay requests poisoned")
+            .is_empty()
+    );
+
+    let started = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.startGroupDelayTest", "params":{"groupId":selector_id}}),
+    )
+    .await;
+    assert_eq!(started["result"]["groupDelayTest"]["groupId"], selector_id);
+    let terminal = runtime_snapshot_until(&runtime_view, |snapshot| {
+        snapshot["groupDelayTest"]["phase"] == "partial"
+    })
+    .await;
+    assert_eq!(terminal["groupDelayTest"]["profileId"], "profile-test");
+    let children = terminal["groupDelayTest"]["children"].as_array().unwrap();
+    let direct = children
+        .iter()
+        .find(|child| child["childId"] == direct_id)
+        .unwrap();
+    assert_eq!(direct["phase"], "success");
+    assert_eq!(direct["latencyMilliseconds"], 42);
+    assert!(direct["observedAt"].as_u64().is_some());
+    let unicode = children
+        .iter()
+        .find(|child| child["childId"] == unicode_id)
+        .unwrap();
+    assert_eq!(unicode["phase"], "failed");
+    assert_eq!(unicode["failure"], "timeout");
+    assert_eq!(unicode["latencyMilliseconds"], Value::Null);
+    let requests = fake
+        .state
+        .delay_requests
+        .lock()
+        .expect("delay requests poisoned")
+        .clone();
+    assert_eq!(requests, vec!["DIRECT", "节点 🚄"]);
+    let serialized = terminal.to_string();
+    assert!(!serialized.contains(CONTROLLER_SECRET));
+    assert!(!serialized.contains(mish_mihomo_controller::ROUTE_DELAY_TEST_URL));
+    assert!(!serialized.contains("private.example.invalid"));
+
+    websocket.close(None).await.unwrap();
+    bridge.shutdown().await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_delay_cancel_preserves_already_confirmed_results() {
+    let fake = FakeController::start().await;
+    fake.state.delay_mode.store(3, Ordering::Release);
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    let ready = runtime_snapshot_until(&runtime, |snapshot| {
+        snapshot["groups"]
+            .as_array()
+            .is_some_and(|groups| !groups.is_empty())
+    })
+    .await;
+    let selector = ready["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["label"] == "SELECT")
+        .unwrap();
+    runtime
+        .start_group_delay_test(
+            selector["id"].as_str().unwrap().to_owned(),
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    let progressed = runtime_snapshot_until(&runtime, |snapshot| {
+        snapshot["groupDelayTest"]["children"]
+            .as_array()
+            .is_some_and(|children| children.iter().any(|child| child["phase"] == "success"))
+    })
+    .await;
+    let test_id = progressed["groupDelayTest"]["testId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let cancelled = runtime
+        .cancel_group_delay_test(test_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    assert_eq!(cancelled["groupDelayTest"]["phase"], "cancelled");
+    let children = cancelled["groupDelayTest"]["children"].as_array().unwrap();
+    assert_eq!(
+        children
+            .iter()
+            .filter(|child| child["phase"] == "success")
+            .count(),
+        1
+    );
+    assert_eq!(
+        children
+            .iter()
+            .filter(|child| child["phase"] == "cancelled")
+            .count(),
+        1
+    );
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_delay_revalidates_membership_before_publishing_results() {
+    let fake = FakeController::start().await;
+    fake.state.delay_mode.store(2, Ordering::Release);
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    let ready = runtime_snapshot_until(&runtime, |snapshot| {
+        snapshot["groups"]
+            .as_array()
+            .is_some_and(|groups| !groups.is_empty())
+    })
+    .await;
+    let selector = ready["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["label"] == "SELECT")
+        .unwrap();
+    let group_id = selector["id"].as_str().unwrap().to_owned();
+    let unicode_id = ready["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["label"] == "节点 🚄")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    runtime
+        .start_group_delay_test(group_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    wait_for(Duration::from_secs(1), || {
+        fake.state
+            .delay_requests
+            .lock()
+            .expect("delay requests poisoned")
+            .len()
+            == 2
+    })
+    .await;
+    fake.state.proxies.write().await["proxies"]["SELECT"]["all"] = json!(["DIRECT"]);
+
+    let terminal = runtime_snapshot_until(&runtime, |snapshot| {
+        matches!(
+            snapshot["groupDelayTest"]["phase"].as_str(),
+            Some("partial" | "failed")
+        )
+    })
+    .await;
+    let unicode = terminal["groupDelayTest"]["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|child| child["childId"] == unicode_id)
+        .unwrap();
+    assert_eq!(unicode["phase"], "failed");
+    assert_eq!(unicode["failure"], "stale-membership");
+    assert_eq!(unicode["latencyMilliseconds"], Value::Null);
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn group_delay_cancel_stops_unstarted_work_and_never_reports_success() {
+    let fake = FakeController::start().await;
+    *fake.state.proxies.write().await = many_slow_proxies();
+    fake.state.delay_mode.store(1, Ordering::Release);
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    let ready = runtime_snapshot_until(&runtime, |snapshot| {
+        snapshot["groups"]
+            .as_array()
+            .is_some_and(|groups| groups.iter().any(|group| group["label"] == "SELECT"))
+    })
+    .await;
+    let group_id = ready["groups"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|group| group["label"] == "SELECT")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    runtime
+        .start_group_delay_test(group_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    wait_for(Duration::from_secs(1), || {
+        fake.state
+            .delay_requests
+            .lock()
+            .expect("delay requests poisoned")
+            .len()
+            == 4
+    })
+    .await;
+    let active = runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+    let test_id = active["groupDelayTest"]["testId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let cancelled = runtime
+        .cancel_group_delay_test(test_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    assert_eq!(cancelled["groupDelayTest"]["phase"], "cancelled");
+    sleep(Duration::from_millis(800)).await;
+    let final_snapshot = runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(final_snapshot["groupDelayTest"]["phase"], "cancelled");
+    assert_eq!(
+        fake.state
+            .delay_requests
+            .lock()
+            .expect("delay requests poisoned")
+            .len(),
+        4
+    );
+    assert!(
+        final_snapshot["groupDelayTest"]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|child| child["phase"] == "cancelled")
+    );
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn runtime_replacement_cancels_old_profile_delay_context() {
+    let fake = FakeController::start().await;
+    *fake.state.proxies.write().await = many_slow_proxies();
+    fake.state.delay_mode.store(1, Ordering::Release);
+    let first_lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let first_source =
+        ControllerStatusSource::new(source_config(&fake), first_lifecycle.clone()).unwrap();
+    let first_runtime =
+        MishRuntime::with_data_sources(first_lifecycle, first_source.clone(), first_source.clone());
+    first_source.start().await;
+    let ready = runtime_snapshot_until(&first_runtime, |snapshot| {
+        snapshot["groups"]
+            .as_array()
+            .is_some_and(|groups| !groups.is_empty())
+    })
+    .await;
+    let group_id = ready["groups"][0]["id"].as_str().unwrap().to_owned();
+    first_runtime
+        .start_group_delay_test(group_id, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    wait_for(Duration::from_secs(1), || {
+        fake.state
+            .delay_requests
+            .lock()
+            .expect("delay requests poisoned")
+            .len()
+            == 4
+    })
+    .await;
+    first_runtime.shutdown().await.unwrap();
+    let old = first_runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(old["groupDelayTest"]["phase"], "cancelled");
+
+    *fake.state.proxies.write().await = proxies();
+    fake.state.delay_mode.store(0, Ordering::Release);
+    let replacement_lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let replacement_source = ControllerStatusSource::new(
+        source_config_for_profile(&fake, "profile-replacement", "Replacement profile"),
+        replacement_lifecycle.clone(),
+    )
+    .unwrap();
+    let replacement_runtime = MishRuntime::with_data_sources(
+        replacement_lifecycle,
+        replacement_source.clone(),
+        replacement_source.clone(),
+    );
+    replacement_source.start().await;
+    let replacement = runtime_snapshot_until(&replacement_runtime, |snapshot| {
+        snapshot["activeProfileId"] == "profile-replacement"
+            && snapshot["runtime"]["phase"] == "healthy"
+    })
+    .await;
+    assert_eq!(replacement["groupDelayTest"]["phase"], "idle");
+    assert_eq!(replacement["groupDelayTest"]["profileId"], Value::Null);
+
+    replacement_runtime.shutdown().await.unwrap();
     fake.shutdown().await;
 }
 

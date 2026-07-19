@@ -92,8 +92,8 @@ async function advertiseTrafficCommands(
     result: {
       bridgeVersion: "test",
       coreConfigured: true,
-      protocolVersion: 4,
-      statusCommands: { group: false, routing: false },
+      protocolVersion: 5,
+      statusCommands: { group: false, groupDelay: false, routing: false },
       trafficCommands: { closeAllActive: supported, closeConnection: supported },
     },
   });

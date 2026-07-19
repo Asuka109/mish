@@ -47,6 +47,16 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
         type: "selector",
       },
     ],
+    groupDelayPolicy: { id: "fixture-only", timeoutMilliseconds: 5_000 },
+    groupDelayTest: {
+      children: [],
+      finishedAt: null,
+      groupId: null,
+      phase: "idle",
+      profileId: null,
+      startedAt: null,
+      testId: null,
+    },
     groupUsage: [{ groupId: "proxy", observedConnectionCount: 4 }],
     metrics: {
       activeConnections: 4,
@@ -238,8 +248,8 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 4,
-              statusCommands: { group: true, routing: true },
+              protocolVersion: 5,
+              statusCommands: { group: true, groupDelay: false, routing: true },
               trafficCommands: { closeAllActive: false, closeConnection: false },
             };
           case "core.getStatus":

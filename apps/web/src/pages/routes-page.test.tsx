@@ -31,7 +31,7 @@ function renderRoutes(client = new FixtureStatusClient()) {
 
 class SnapshotClient extends FixtureStatusClient {
   constructor(
-    private readonly confirmedSnapshot: StatusSnapshotDto,
+    protected readonly confirmedSnapshot: StatusSnapshotDto,
     private readonly commandsSupported = true,
   ) {
     super();
@@ -43,6 +43,48 @@ class SnapshotClient extends FixtureStatusClient {
 
   override supportsCommand(_command: StatusCommand) {
     return this.commandsSupported;
+  }
+}
+
+class DelaySnapshotClient extends SnapshotClient {
+  readonly cancelledTestIds: string[] = [];
+  readonly startedGroupIds: string[] = [];
+
+  override async startGroupDelayTest(groupId: string) {
+    this.startedGroupIds.push(groupId);
+    const group = this.confirmedSnapshot.groups.find((candidate) => candidate.id === groupId)!;
+    this.confirmedSnapshot.groupDelayTest = {
+      children: group.childIds.map((childId) => ({
+        childId,
+        failure: null,
+        latencyMilliseconds: null,
+        observedAt: null,
+        phase: "pending",
+      })),
+      finishedAt: null,
+      groupId,
+      phase: "pending",
+      profileId: this.confirmedSnapshot.activeProfileId,
+      startedAt: 1_720_000_000_000,
+      testId: "group-delay-ui",
+    };
+    return structuredClone(this.confirmedSnapshot);
+  }
+
+  override async cancelGroupDelayTest(testId: string) {
+    this.cancelledTestIds.push(testId);
+    this.confirmedSnapshot.groupDelayTest = {
+      ...this.confirmedSnapshot.groupDelayTest,
+      children: this.confirmedSnapshot.groupDelayTest.children.map((child) => ({
+        ...child,
+        failure: "cancelled",
+        observedAt: 1_720_000_000_100,
+        phase: "cancelled",
+      })),
+      finishedAt: 1_720_000_000_100,
+      phase: "cancelled",
+    };
+    return structuredClone(this.confirmedSnapshot);
   }
 }
 
@@ -159,6 +201,47 @@ describe("Routes workspace", () => {
     expect(
       screen.queryByRole("button", { name: "Select 台北・開発 🚄 in Provider smart policy" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps delay testing and cancellation in the expanded group's local toolbar", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.groupDelayPolicy = {
+      id: "mihomo-google-204-v1",
+      timeoutMilliseconds: 5_000,
+    };
+    const client = new DelaySnapshotClient(snapshot);
+    const user = userEvent.setup();
+    renderRoutes(client);
+
+    await user.click(await screen.findByRole("button", { name: "Expand 🎬 Streaming" }));
+    const streaming = screen
+      .getByRole("button", { name: "Collapse 🎬 Streaming" })
+      .closest("article")!;
+    expect(within(streaming).getByText(/mihomo-google-204-v1/)).toBeVisible();
+    await user.click(
+      within(streaming).getByRole("button", { name: "Start delay test for 🎬 Streaming" }),
+    );
+
+    expect(await within(streaming).findByText("Testing 🎬 Streaming")).toBeVisible();
+    expect(client.startedGroupIds).toEqual([
+      snapshot.groups.find((group) => group.label === "🎬 Streaming")!.id,
+    ]);
+    await user.click(
+      within(streaming).getByRole("button", { name: "Cancel delay test for 🎬 Streaming" }),
+    );
+    expect(await within(streaming).findByText(/Cancelled · 3\/3/)).toBeVisible();
+    expect(client.cancelledTestIds).toEqual(["group-delay-ui"]);
+  });
+
+  it("does not let the browser fixture masquerade as a desktop delay test", async () => {
+    const user = userEvent.setup();
+    renderRoutes();
+    await user.click(await screen.findByRole("button", { name: "Expand 🎬 Streaming" }));
+
+    expect(
+      screen.getByRole("button", { name: "Start delay test for 🎬 Streaming" }),
+    ).toBeDisabled();
   });
 
   it("explains and disables policy selection for the read-only RPC adapter", async () => {

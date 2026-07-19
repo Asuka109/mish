@@ -32,6 +32,8 @@ non-fixture adapter.
 | `RuntimeMetricsDto`       | Memory in use, uptime, active connections, effective rules                                   | Mihomo observations plus local-bridge uptime |
 | `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local bridge persistence                     |
 | `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations    |
+| `GroupDelayPolicyDto`     | Visible application policy ID and bounded timeout                                            | Local bridge application policy              |
+| `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results |
 | `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                      |
 | `ServiceMonitorDto`       | ID, opaque title, URL, icon key, probe policy                                                | Local bridge persistence                     |
 | `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                 |
@@ -60,8 +62,8 @@ groups; each reference remains under its owning group because that is valid
 policy-graph structure rather than duplicate global state.
 
 The current command contracts cover snapshot reads, capture and routing-mode
-changes, active-profile selection, group-scoped child selection, service-monitor
-mutations, and Status subscription lifecycle. Every command returns a newly
+changes, active-profile selection, group-scoped child selection and delay
+testing, service-monitor mutations, and Status subscription lifecycle. Every command returns a newly
 confirmed `StatusSnapshotDto`; a JSON-RPC success envelope with an invalid result
 is a validation failure, not command success. RPC snapshots must identify their
 adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
@@ -85,6 +87,22 @@ unsupported group type, and stale membership are distinct typed failures. The
 last confirmed snapshot is refreshed and retained on failure; a 2xx Controller
 response alone never produces a success state.
 
+Group delay state has explicit `idle`, `pending`, `progress`, `cancelled`,
+`completed`, `partial`, and `failed` phases. Each direct child is independently
+`pending`, `success`, `failed`, or `cancelled`, with a positive latency or typed
+failure and an observation timestamp for every terminal child. Timeout and
+failure are never represented as zero latency. Routes sorts current successful
+measurements by latency and places failed or cancelled measurements after valid
+or unknown values. The browser fixture advertises no delay capability and cannot
+publish synthetic desktop success.
+
+Start accepts only a stable group ID, and cancellation accepts only the
+server-issued test ID. The bridge chooses the fixed visible policy and validates
+group membership before scheduling and again before publishing each result. A
+profile/runtime replacement closes the old source and cancels its active test;
+the replacement begins with an idle test context, so results cannot cross
+profile identity.
+
 `status.subscribe` returns both the subscription ID and a current validated
 snapshot. The server resets that socket's lifecycle-event cursor before reading
 the snapshot, then sends the subscription response before it can send a
@@ -97,6 +115,8 @@ without depending on a later lifecycle change. Protocol version 3 adds the
 typed System Proxy runtime state and recovery command while preserving this
 ordering barrier. Protocol version 4 adds Traffic close-command capability
 discovery and typed confirmed results without changing Status snapshot ordering.
+Protocol version 5 adds the group-delay policy, state, capability, and commands
+while preserving the Status and Traffic ordering barriers.
 
 Profile activation has an independent typed snapshot with idle, pending,
 success, and failure phases. The profile subscription uses the same snapshot
@@ -179,16 +199,16 @@ read-only.
 
 ## Mihomo core source mapping
 
-| Product value                       | Mihomo source                                            | Notes                                                                                                                                                  |
-| ----------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Current rates and totals            | `/traffic` stream (`up`, `down`, `upTotal`, `downTotal`) | The UI formats units; totals reset when their upstream source resets.                                                                                  |
-| Memory in use                       | `/memory` stream (`inuse`)                               | Present as Mihomo memory, not total app memory.                                                                                                        |
-| Active connections                  | `/connections` snapshot or stream                        | Count live connection records, not historical observations.                                                                                            |
-| Policy groups and selected children | `/proxies`                                               | Preserve nested group structure and group-scoped selection.                                                                                            |
-| Select a group child                | `PUT /proxies/{group}` with a child name                 | Validate the child still belongs to the group.                                                                                                         |
-| Proxy or group delay                | `GET /proxies/{name}/delay` with bounded URL and timeout | The result is scoped to the requested proxy or group.                                                                                                  |
-| Rules                               | `/rules`                                                 | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
-| Routing mode                        | `/configs` read/update                                   | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
+| Product value                       | Mihomo source                                                                        | Notes                                                                                                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Current rates and totals            | `/traffic` stream (`up`, `down`, `upTotal`, `downTotal`)                             | The UI formats units; totals reset when their upstream source resets.                                                                                  |
+| Memory in use                       | `/memory` stream (`inuse`)                                                           | Present as Mihomo memory, not total app memory.                                                                                                        |
+| Active connections                  | `/connections` snapshot or stream                                                    | Count live connection records, not historical observations.                                                                                            |
+| Policy groups and selected children | `/proxies`                                                                           | Preserve nested group structure and group-scoped selection.                                                                                            |
+| Select a group child                | `PUT /proxies/{group}` with a child name                                             | Validate the child still belongs to the group.                                                                                                         |
+| Direct-child delay                  | `GET /proxies/{name}/delay` with application-owned URL, timeout, and expected status | Mish schedules only children captured from one current group and revalidates membership before publishing.                                             |
+| Rules                               | `/rules`                                                                             | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
+| Routing mode                        | `/configs` read/update                                                               | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
 
 For the implemented Controller mapper, profile IDs are caller-supplied. Group
 and proxy IDs are deterministic SHA-256-derived identifiers scoped by a

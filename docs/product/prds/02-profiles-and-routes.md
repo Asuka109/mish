@@ -65,9 +65,13 @@ The fixture adapter supports isolated demo selection for interaction tests. The
 desktop RPC Status adapter enables group-scoped selection only when the bridge
 advertises a real Controller command source. Status shortcuts and Routes share
 that client seam, pending ownership, typed failures, and confirmed snapshots.
-Group- and node-scoped latency
-commands remain outside this slice; the page displays and sorts confirmed
-latency observations without simulating a probe.
+Each expanded group now owns a delay-test toolbar. The desktop bridge captures
+that group's current direct children, applies the visible fixed P0 probe policy,
+publishes per-child progress and timestamped outcomes, and supports honest
+cancellation. Results are revalidated against the active profile catalog before
+publication. Browser fixtures keep the command disabled instead of simulating a
+desktop probe. Custom URLs, credentials, timeouts, scheduled probes, and a global
+“test all nodes” action remain outside P0.
 
 The production Profiles destination now lists the private app-data repository,
 preflights HTTPS and user-selected local YAML sources, shows a redacted preview,

@@ -4,8 +4,8 @@
 
 Mish integrates the desktop Mihomo core as a managed operating-system process.
 The desktop local bridge service starts and stops that process, while the
-Controller adapter observes it and exposes four bounded mutation families over Mihomo's
-HTTP and WebSocket API.
+Controller adapter observes it and exposes bounded mutation families plus one
+group-scoped diagnostic operation over Mihomo's HTTP and WebSocket API.
 Mihomo is not linked into the Rust process through a C ABI.
 
 The Controller adapter is a Rust library, not a service and not a proxy engine.
@@ -109,18 +109,19 @@ traffic capture.
 
 `crates/mihomo-controller` implements the following v1.19.29 surface:
 
-| Endpoint            | Transport      | Adapter result                                                                  |
-| ------------------- | -------------- | ------------------------------------------------------------------------------- |
-| `/version`          | HTTP GET       | Version metadata and explicit pinned-version verification                       |
-| `/configs`          | HTTP GET       | Routing mode and the bounded runtime-configuration subset needed by the product |
-| `/proxies`          | HTTP GET       | Proxy metadata, histories, group children, current selection, and fixed choice  |
-| `/traffic`          | WebSocket      | Traffic samples and a first-sample snapshot helper                              |
-| `/memory`           | WebSocket      | Mihomo memory samples and a first-sample snapshot helper                        |
-| `/logs`             | WebSocket      | Structured core events, bounded validation, and source redaction                |
-| `/connections`      | HTTP/WebSocket | Active connection snapshot or stream                                            |
-| `/connections`      | HTTP DELETE    | Close all connections active at Controller command time                         |
-| `/connections/{id}` | HTTP DELETE    | Close one stable active connection ID                                           |
-| `/rules`            | HTTP GET       | Ordered rules, optional wrapper statistics, disabled state, and effective count |
+| Endpoint                | Transport      | Adapter result                                                                  |
+| ----------------------- | -------------- | ------------------------------------------------------------------------------- |
+| `/version`              | HTTP GET       | Version metadata and explicit pinned-version verification                       |
+| `/configs`              | HTTP GET       | Routing mode and the bounded runtime-configuration subset needed by the product |
+| `/proxies`              | HTTP GET       | Proxy metadata, histories, group children, current selection, and fixed choice  |
+| `/proxies/{name}/delay` | HTTP GET       | One bounded delay result for a catalog-confirmed direct group child             |
+| `/traffic`              | WebSocket      | Traffic samples and a first-sample snapshot helper                              |
+| `/memory`               | WebSocket      | Mihomo memory samples and a first-sample snapshot helper                        |
+| `/logs`                 | WebSocket      | Structured core events, bounded validation, and source redaction                |
+| `/connections`          | HTTP/WebSocket | Active connection snapshot or stream                                            |
+| `/connections`          | HTTP DELETE    | Close all connections active at Controller command time                         |
+| `/connections/{id}`     | HTTP DELETE    | Close one stable active connection ID                                           |
+| `/rules`                | HTTP GET       | Ordered rules, optional wrapper statistics, disabled state, and effective count |
 
 The generic `ControllerTransport` boundary permits another host implementation
 without changing DTO validation. The included transport accepts only HTTP or
@@ -143,6 +144,38 @@ current direct member. A successful HTTP response is not product success. The
 source polls a fresh bounded Controller observation until it confirms the mode
 or group selection, then maps and publishes that observation before returning
 the RPC result.
+
+Routes delay testing is a separate, user-initiated diagnostic surface. The
+ordinary RPC accepts only a stable group ID to start and a server-issued test ID
+to cancel; it never accepts a Controller path, URL, credential, timeout, or
+private endpoint. Mish resolves the group against a fresh authoritative catalog,
+captures only its direct children, and schedules at most four
+`GET /proxies/{name}/delay` requests. Opaque Unicode labels become one encoded
+URL path segment. Every Controller result is revalidated against a fresh pinned
+version and catalog before publication, so removed children fail with explicit
+stale membership instead of leaking a cross-profile result.
+
+Pinned v1.19.29 also exposes `GET /group/{name}/delay`. That handler uses the
+request context and returns a child-name-to-delay map when the group operation
+succeeds, or 504 on an operation error. For non-Selector selectable groups it
+also clears the forced selection before testing. Mish deliberately does not call
+that endpoint: its side effect, aggregate error shape, and core-owned concurrent
+scheduling cannot provide the required per-child progress and client-held
+cancellation boundary. Instead Mish snapshots the same group's current direct
+children and invokes the individual endpoint through bounded local scheduling.
+
+The P0 application policy is `mihomo-google-204-v1`: the upstream recommended
+`https://www.gstatic.com/generate_204` target, a 5,000 ms timeout, and expected
+HTTP status 204. The UI displays the policy ID and timeout but the RPC does not
+expose or override the URL. No background or scheduled probe exists.
+
+Cancellation stops unstarted work and drops client-held HTTP work. Pinned
+v1.19.29 creates an individual proxy delay context from
+`context.Background()`, so a request disconnect cannot remotely undo a probe
+already executing inside Mihomo. Mish therefore preserves confirmed child
+results, marks unfinished children cancelled, and never converts a cancelled
+test into overall success. Runtime/profile shutdown cancels the old test context
+before the replacement snapshot becomes authoritative.
 
 ## Desktop observation ownership
 
@@ -376,8 +409,8 @@ The composed managed slice does not:
   the pinned resource;
 - mutate profiles or rules;
 - enable System Proxy, TUN, DNS changes, or privileged operations;
-- call delay-test endpoints, which initiate real network requests and update
-  Mihomo histories;
+- expose arbitrary delay-test URLs, credentials, Controller paths, timeouts, or
+  background schedules;
 - persist closed connections or historical traffic; the Web client derives only
   a bounded in-memory recently Closed view;
 - read proxy-provider or rule-provider inventories; or
@@ -417,5 +450,6 @@ traffic.
 - [v1.19.29 connection snapshot](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/tunnel/statistic/manager.go)
 - [v1.19.29 connection tracker](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/tunnel/statistic/tracker.go)
 - [v1.19.29 proxy endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/proxies.go)
+- [v1.19.29 group endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/groups.go)
 - [v1.19.29 rule endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/rules.go)
 - [Tauri external binary naming](https://v2.tauri.app/develop/sidecar/)

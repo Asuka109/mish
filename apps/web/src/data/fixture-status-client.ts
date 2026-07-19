@@ -172,6 +172,16 @@ const initialSnapshot: StatusSnapshotDto = {
       type: "load-balance",
     },
   ],
+  groupDelayPolicy: { id: "fixture-only", timeoutMilliseconds: 5_000 },
+  groupDelayTest: {
+    children: [],
+    finishedAt: null,
+    groupId: null,
+    phase: "idle",
+    profileId: null,
+    startedAt: null,
+    testId: null,
+  },
   groupUsage: [
     { groupId: "proxy", observedConnectionCount: 12_842 },
     { groupId: "streaming", observedConnectionCount: 4_906 },
@@ -294,8 +304,8 @@ export class FixtureStatusClient implements StatusClient {
     return () => this.snapshotListeners.delete(listener);
   }
 
-  supportsCommand(_command: StatusCommand) {
-    return true;
+  supportsCommand(command: StatusCommand): boolean {
+    return command !== "group-delay";
   }
 
   private async snapshotAfterCommand() {
@@ -383,6 +393,23 @@ export class FixtureStatusClient implements StatusClient {
 
     group.selectedChildId = childId;
     return this.snapshotAfterCommand();
+  }
+
+  async startGroupDelayTest(
+    _groupId: string,
+    _options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto> {
+    throw new StatusClientError(
+      "unsupported",
+      "Browser fixtures do not execute Mihomo delay tests",
+    );
+  }
+
+  async cancelGroupDelayTest(
+    _testId: string,
+    _options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto> {
+    throw new StatusClientError("unsupported", "Browser fixtures do not own Mihomo delay tests");
   }
 
   async upsertServiceMonitor(draft: ServiceMonitorDraft, options?: { signal?: AbortSignal }) {

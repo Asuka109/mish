@@ -47,6 +47,82 @@ pub enum ProbeStatus {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupDelayTestPhase {
+    Idle,
+    Pending,
+    Progress,
+    Cancelled,
+    Completed,
+    Partial,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupDelayChildPhase {
+    Pending,
+    Success,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupDelayFailure {
+    Timeout,
+    Unavailable,
+    StaleMembership,
+    Disconnected,
+    VersionDrift,
+    InconsistentObservation,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupDelayChildResult {
+    pub child_id: String,
+    pub failure: Option<GroupDelayFailure>,
+    pub latency_milliseconds: Option<u16>,
+    pub observed_at: Option<u64>,
+    pub phase: GroupDelayChildPhase,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupDelayTest {
+    pub children: Vec<GroupDelayChildResult>,
+    pub finished_at: Option<u64>,
+    pub group_id: Option<String>,
+    pub phase: GroupDelayTestPhase,
+    pub profile_id: Option<String>,
+    pub started_at: Option<u64>,
+    pub test_id: Option<String>,
+}
+
+impl GroupDelayTest {
+    pub const fn idle() -> Self {
+        Self {
+            children: Vec::new(),
+            finished_at: None,
+            group_id: None,
+            phase: GroupDelayTestPhase::Idle,
+            profile_id: None,
+            started_at: None,
+            test_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupDelayPolicy {
+    pub id: String,
+    pub timeout_milliseconds: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceIcon {
     Apple,
@@ -210,6 +286,8 @@ pub struct StatusSnapshot {
     pub capabilities: PlatformCapabilities,
     pub groups: Vec<PolicyGroup>,
     pub group_usage: Vec<GroupUsage>,
+    pub group_delay_policy: GroupDelayPolicy,
+    pub group_delay_test: GroupDelayTest,
     pub metrics: RuntimeMetrics,
     pub nodes: Vec<ProxyNode>,
     pub probe_results: Vec<ServiceProbeResult>,
@@ -228,6 +306,11 @@ impl StatusSnapshot {
             capabilities: PlatformCapabilities::unavailable(),
             groups: Vec::new(),
             group_usage: Vec::new(),
+            group_delay_policy: GroupDelayPolicy {
+                id: "unavailable".into(),
+                timeout_milliseconds: 0,
+            },
+            group_delay_test: GroupDelayTest::idle(),
             metrics: RuntimeMetrics::default(),
             nodes: Vec::new(),
             probe_results: Vec::new(),

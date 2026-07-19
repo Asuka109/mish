@@ -436,6 +436,109 @@ export const ProxyNodeSchema = z
   .strict();
 export interface ProxyNodeDto extends z.infer<typeof ProxyNodeSchema> {}
 
+export const GroupDelayTestPhaseSchema = z.enum([
+  "idle",
+  "pending",
+  "progress",
+  "cancelled",
+  "completed",
+  "partial",
+  "failed",
+]);
+export type GroupDelayTestPhase = z.infer<typeof GroupDelayTestPhaseSchema>;
+
+export const GroupDelayChildPhaseSchema = z.enum(["pending", "success", "failed", "cancelled"]);
+export type GroupDelayChildPhase = z.infer<typeof GroupDelayChildPhaseSchema>;
+
+export const GroupDelayFailureSchema = z.enum([
+  "timeout",
+  "unavailable",
+  "stale-membership",
+  "disconnected",
+  "version-drift",
+  "inconsistent-observation",
+  "cancelled",
+]);
+export type GroupDelayFailure = z.infer<typeof GroupDelayFailureSchema>;
+
+export const GroupDelayChildResultSchema = z
+  .object({
+    childId: IdentifierSchema,
+    failure: GroupDelayFailureSchema.nullable(),
+    latencyMilliseconds: z.number().int().positive().max(65_535).nullable(),
+    observedAt: NonNegativeIntegerSchema.nullable(),
+    phase: GroupDelayChildPhaseSchema,
+  })
+  .strict()
+  .superRefine((result, context) => {
+    if (
+      result.phase === "pending" &&
+      (result.failure !== null || result.latencyMilliseconds !== null || result.observedAt !== null)
+    ) {
+      context.addIssue({ code: "custom", message: "Pending delay results cannot have an outcome" });
+    }
+    if (
+      result.phase === "success" &&
+      (result.failure !== null || result.latencyMilliseconds === null || result.observedAt === null)
+    ) {
+      context.addIssue({ code: "custom", message: "Successful delay results require a latency" });
+    }
+    if (
+      result.phase === "failed" &&
+      (result.failure === null ||
+        result.failure === "cancelled" ||
+        result.latencyMilliseconds !== null ||
+        result.observedAt === null)
+    ) {
+      context.addIssue({ code: "custom", message: "Failed delay results require a failure" });
+    }
+    if (
+      result.phase === "cancelled" &&
+      (result.failure !== "cancelled" ||
+        result.latencyMilliseconds !== null ||
+        result.observedAt === null)
+    ) {
+      context.addIssue({ code: "custom", message: "Cancelled delay results require cancellation" });
+    }
+  });
+export interface GroupDelayChildResultDto extends z.infer<typeof GroupDelayChildResultSchema> {}
+
+export const GroupDelayPolicySchema = z
+  .object({ id: IdentifierSchema, timeoutMilliseconds: z.number().int().nonnegative().max(32_767) })
+  .strict();
+export interface GroupDelayPolicyDto extends z.infer<typeof GroupDelayPolicySchema> {}
+
+export const GroupDelayTestSchema = z
+  .object({
+    children: z.array(GroupDelayChildResultSchema).max(8_192),
+    finishedAt: NonNegativeIntegerSchema.nullable(),
+    groupId: IdentifierSchema.nullable(),
+    phase: GroupDelayTestPhaseSchema,
+    profileId: IdentifierSchema.nullable(),
+    startedAt: NonNegativeIntegerSchema.nullable(),
+    testId: IdentifierSchema.nullable(),
+  })
+  .strict()
+  .superRefine((test, context) => {
+    const identifiers = [test.groupId, test.profileId, test.startedAt, test.testId];
+    if (
+      test.phase === "idle" &&
+      (test.children.length > 0 ||
+        test.finishedAt !== null ||
+        identifiers.some((value) => value !== null))
+    ) {
+      context.addIssue({ code: "custom", message: "Idle delay tests cannot own group state" });
+    }
+    if (test.phase !== "idle" && identifiers.some((value) => value === null)) {
+      context.addIssue({ code: "custom", message: "Active delay tests require stable identity" });
+    }
+    const terminal = ["cancelled", "completed", "partial", "failed"].includes(test.phase);
+    if (terminal !== (test.finishedAt !== null)) {
+      context.addIssue({ code: "custom", message: "Only terminal delay tests have a finish time" });
+    }
+  });
+export interface GroupDelayTestDto extends z.infer<typeof GroupDelayTestSchema> {}
+
 export const PolicyGroupTypeSchema = z.enum([
   "selector",
   "url-test",
@@ -546,6 +649,8 @@ export const StatusSnapshotSchema = z
     adapterKind: StatusAdapterKindSchema,
     capabilities: PlatformCapabilitiesSchema,
     groups: z.array(PolicyGroupSchema),
+    groupDelayPolicy: GroupDelayPolicySchema,
+    groupDelayTest: GroupDelayTestSchema,
     groupUsage: z.array(GroupUsageSchema),
     metrics: RuntimeMetricsSchema,
     nodes: z.array(ProxyNodeSchema),
@@ -597,6 +702,16 @@ export const SelectGroupChildCommandSchema = z
   .strict();
 export interface SelectGroupChildCommand extends z.infer<typeof SelectGroupChildCommandSchema> {}
 
+export const StartGroupDelayTestCommandSchema = z.object({ groupId: IdentifierSchema }).strict();
+export interface StartGroupDelayTestCommand extends z.infer<
+  typeof StartGroupDelayTestCommandSchema
+> {}
+
+export const CancelGroupDelayTestCommandSchema = z.object({ testId: IdentifierSchema }).strict();
+export interface CancelGroupDelayTestCommand extends z.infer<
+  typeof CancelGroupDelayTestCommandSchema
+> {}
+
 export const UpsertServiceMonitorCommandSchema = z
   .object({ draft: ServiceMonitorDraftSchema })
   .strict();
@@ -636,8 +751,10 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(4),
-    statusCommands: z.object({ group: z.boolean(), routing: z.boolean() }).strict(),
+    protocolVersion: z.literal(5),
+    statusCommands: z
+      .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
+      .strict(),
     trafficCommands: z
       .object({ closeAllActive: z.boolean(), closeConnection: z.boolean() })
       .strict(),
@@ -842,6 +959,10 @@ export interface StatusSnapshotNotificationDto extends z.infer<
 > {}
 
 export const statusRpcMethods = {
+  "status.cancelGroupDelayTest": {
+    params: CancelGroupDelayTestCommandSchema,
+    result: RpcStatusSnapshotSchema,
+  },
   "status.getSnapshot": { params: EmptyCommandSchema, result: RpcStatusSnapshotSchema },
   "status.removeServiceMonitor": {
     params: RemoveServiceMonitorCommandSchema,
@@ -857,6 +978,10 @@ export const statusRpcMethods = {
   },
   "status.selectGroupChild": {
     params: SelectGroupChildCommandSchema,
+    result: RpcStatusSnapshotSchema,
+  },
+  "status.startGroupDelayTest": {
+    params: StartGroupDelayTestCommandSchema,
     result: RpcStatusSnapshotSchema,
   },
   "status.setActiveProfile": {
@@ -995,7 +1120,13 @@ export interface StatusConnectionState {
   stale: boolean;
 }
 
-export type StatusCommand = "capture" | "group" | "profile" | "routing" | "services";
+export type StatusCommand =
+  | "capture"
+  | "group"
+  | "group-delay"
+  | "profile"
+  | "routing"
+  | "services";
 
 export type StatusClientErrorCode =
   | "cancelled"
@@ -1042,6 +1173,14 @@ export interface StatusClient {
   selectGroupChild(
     groupId: string,
     childId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto>;
+  startGroupDelayTest(
+    groupId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto>;
+  cancelGroupDelayTest(
+    testId: string,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   setActiveProfile(

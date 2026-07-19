@@ -115,6 +115,11 @@ pub struct DelaySample {
     pub delay: u16,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ProxyDelay {
+    pub delay: u16,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrafficSnapshot {
@@ -414,6 +419,23 @@ impl Validate for ProxyCatalog {
             if let Some(selected) = &proxy.now {
                 check_string(selected, endpoint, "proxies.now", limits, true)?;
             }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for ProxyDelay {
+    fn validate(
+        &self,
+        endpoint: Endpoint,
+        _limits: &ControllerLimits,
+    ) -> Result<(), ControllerError> {
+        if self.delay == 0 {
+            return Err(validation(
+                endpoint,
+                "delay",
+                "must be greater than zero for a successful delay test",
+            ));
         }
         Ok(())
     }

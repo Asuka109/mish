@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -6,7 +7,7 @@ use std::{
 use axum::{
     Router,
     extract::{
-        State, WebSocketUpgrade,
+        Path, Query, State, WebSocketUpgrade,
         ws::{Message, rejection::WebSocketUpgradeRejection},
     },
     http::{HeaderMap, StatusCode},
@@ -16,6 +17,7 @@ use axum::{
 use futures_util::StreamExt;
 use mish_mihomo_controller::{
     ControllerClient, ControllerErrorKind, ControllerLimits, HttpTransport, HttpTransportConfig,
+    ROUTE_DELAY_TEST_URL,
 };
 use serde_json::{Value, json};
 use tokio::{net::TcpListener, sync::oneshot};
@@ -29,6 +31,102 @@ struct FakeState;
 #[derive(Default)]
 struct MutationState {
     requests: Mutex<Vec<(String, String, String)>>,
+}
+
+type DelayRequest = (String, String, HashMap<String, String>);
+
+#[derive(Default)]
+struct DelayState {
+    request: Mutex<Option<DelayRequest>>,
+}
+
+#[tokio::test]
+async fn encodes_unicode_delay_targets_and_keeps_policy_out_of_errors() {
+    async fn delay(
+        Path(proxy): Path<String>,
+        Query(query): Query<HashMap<String, String>>,
+        headers: HeaderMap,
+        State(state): State<Arc<DelayState>>,
+    ) -> Response {
+        let authorization = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        *state.request.lock().unwrap() = Some((proxy, authorization, query));
+        axum::Json(json!({"delay": 73})).into_response()
+    }
+
+    let state = Arc::new(DelayState::default());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/proxies/{proxy}/delay", get(delay))
+        .with_state(state.clone());
+    let server = tokio::spawn(axum::serve(listener, app).into_future());
+
+    let mut config = HttpTransportConfig::new(Url::parse(&format!("http://{address}/")).unwrap());
+    config.secret = Some("synthetic-controller-token".into());
+    let client = ControllerClient::new(
+        Arc::new(HttpTransport::new(config).unwrap()),
+        ControllerLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        client.proxy_delay("节点 / 東京 🚄").await.unwrap().delay,
+        73
+    );
+    let request = state.request.lock().unwrap();
+    let (proxy, authorization, query) = request.as_ref().unwrap();
+    assert_eq!(proxy, "节点 / 東京 🚄");
+    assert_eq!(authorization, AUTHORIZATION);
+    assert_eq!(
+        query,
+        &HashMap::from([
+            (
+                "expected".into(),
+                mish_mihomo_controller::ROUTE_DELAY_EXPECTED_STATUS.into(),
+            ),
+            (
+                "timeout".into(),
+                mish_mihomo_controller::ROUTE_DELAY_TIMEOUT_MILLISECONDS.to_string(),
+            ),
+            (
+                "url".into(),
+                mish_mihomo_controller::ROUTE_DELAY_TEST_URL.into(),
+            ),
+        ])
+    );
+    drop(request);
+    server.abort();
+}
+
+#[tokio::test]
+async fn rejects_zero_delay_without_treating_it_as_success() {
+    async fn delay() -> Response {
+        axum::Json(json!({"delay": 0})).into_response()
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new().route("/proxies/{proxy}/delay", get(delay));
+    let server = tokio::spawn(axum::serve(listener, app).into_future());
+    let client = ControllerClient::new(
+        Arc::new(
+            HttpTransport::new(HttpTransportConfig::new(
+                Url::parse(&format!("http://{address}/")).unwrap(),
+            ))
+            .unwrap(),
+        ),
+        ControllerLimits::default(),
+    )
+    .unwrap();
+
+    let error = client.proxy_delay("fixture-node").await.unwrap_err();
+    assert_eq!(error.kind(), ControllerErrorKind::Validation);
+    assert!(!error.to_string().contains(ROUTE_DELAY_TEST_URL));
+    server.abort();
 }
 
 #[tokio::test]
