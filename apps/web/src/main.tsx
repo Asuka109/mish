@@ -68,6 +68,7 @@ async function startApplication() {
                       <EventsProvider
                         client={startup.eventsClient}
                         diagnosticsClient={startup.diagnosticsClient}
+                        supportBundleClient={startup.supportBundleClient}
                       >
                         <TooltipProvider delay={500}>
                           <AppRoutes />

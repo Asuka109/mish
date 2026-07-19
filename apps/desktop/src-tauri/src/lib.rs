@@ -1,17 +1,20 @@
 use std::{
     fmt::Write as _,
-    io,
+    fs, io,
+    io::Write as _,
     net::{Ipv4Addr, SocketAddr, TcpListener},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use mish_bridge::{
     ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
     DesktopRuntimeHost, LoopbackServerConfig, LoopbackServerHandle, ManagedMihomoResolver,
-    ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
-    ReqwestHttpsSourceReader, compose_desktop_runtime_with_capture,
-    start_loopback_server_with_runtime_host_and_lifecycle,
+    ManagedRuntimePolicy, MihomoActivationManager, PreparedSupportBundle,
+    ProfileActivationCoordinator, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
+    SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
+    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsSystemProxyPlatform,
@@ -26,6 +29,8 @@ use mish_settings::{
 use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_dialog::DialogExt;
+use uuid::Uuid;
 
 mod status_bar;
 
@@ -40,6 +45,7 @@ struct RuntimeBootstrap {
     native_sidebar_material: bool,
     rpc_url: String,
     settings_snapshot: SettingsSnapshot,
+    support_bundle_export: bool,
 }
 
 #[derive(Clone)]
@@ -50,6 +56,31 @@ struct ProfileState(Arc<DesktopProfileService>);
 
 #[derive(Clone)]
 struct SettingsState(Arc<SettingsService>);
+
+#[derive(Clone)]
+struct SupportBundleState {
+    pending: Arc<Mutex<Option<PreparedSupportBundle>>>,
+    service: SupportBundleService,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupportBundleCommandError {
+    code: &'static str,
+    message: &'static str,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum SupportBundleSaveStatus {
+    Cancelled,
+    Written,
+}
+
+#[derive(Debug, Serialize)]
+struct SupportBundleSaveResult {
+    status: SupportBundleSaveStatus,
+}
 
 struct TauriStartupPlatform(tauri::AppHandle);
 
@@ -114,6 +145,81 @@ async fn profile_preflight_local(
         .map_err(profile_command_error)
 }
 
+#[tauri::command]
+async fn diagnostics_support_bundle_preview(
+    state: tauri::State<'_, SupportBundleState>,
+) -> Result<SupportBundlePreview, SupportBundleCommandError> {
+    let preview_id = Uuid::new_v4().to_string();
+    let prepared = state
+        .service
+        .prepare(preview_id, now_unix_milliseconds())
+        .await
+        .map_err(support_bundle_prepare_error)?;
+    let preview = prepared.preview.clone();
+    *state
+        .pending
+        .lock()
+        .map_err(|_| support_bundle_state_error())? = Some(prepared);
+    Ok(preview)
+}
+
+#[tauri::command]
+async fn diagnostics_support_bundle_save(
+    app: tauri::AppHandle,
+    preview_id: String,
+    state: tauri::State<'_, SupportBundleState>,
+) -> Result<SupportBundleSaveResult, SupportBundleCommandError> {
+    let prepared = {
+        let mut pending = state
+            .pending
+            .lock()
+            .map_err(|_| support_bundle_state_error())?;
+        if !pending
+            .as_ref()
+            .is_some_and(|prepared| prepared.preview.preview_id == preview_id)
+        {
+            return Err(SupportBundleCommandError {
+                code: "preview-expired",
+                message: "Generate a new support bundle preview before saving",
+            });
+        }
+        pending.take().ok_or_else(support_bundle_state_error)?
+    };
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        app.dialog()
+            .file()
+            .add_filter("Mish support bundle", &["json"])
+            .set_file_name("mish-support-bundle.json")
+            .set_title("Save Mish support bundle")
+            .blocking_save_file()
+    })
+    .await
+    .map_err(|_| SupportBundleCommandError {
+        code: "dialog-unavailable",
+        message: "The native save dialog is unavailable",
+    })?;
+    let Some(selected) = selected else {
+        return Ok(SupportBundleSaveResult {
+            status: save_support_bundle_selection(None, &prepared.bytes)
+                .map_err(|_| support_bundle_write_error())?,
+        });
+    };
+    let destination = selected
+        .into_path()
+        .map_err(|_| SupportBundleCommandError {
+            code: "unsupported-destination",
+            message: "The selected destination cannot be written by this desktop build",
+        })?;
+    let bytes = prepared.bytes;
+    let status = tauri::async_runtime::spawn_blocking(move || {
+        save_support_bundle_selection(Some(&destination), &bytes)
+    })
+    .await
+    .map_err(|_| support_bundle_write_error())?
+    .map_err(|_| support_bundle_write_error())?;
+    Ok(SupportBundleSaveResult { status })
+}
+
 pub fn run() -> Result<i32, String> {
     let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
     let app = tauri::Builder::default()
@@ -121,11 +227,15 @@ pub fn run() -> Result<i32, String> {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![LOGIN_STARTUP_ARGUMENT]),
         ))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_os::init())
         .manage(bridge_state.clone())
         .setup(initialize)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
-            profile_preflight_local
+            profile_preflight_local,
+            diagnostics_support_bundle_preview,
+            diagnostics_support_bundle_save
         ])
         .build(tauri::generate_context!())
         .map_err(|error| error.to_string())?;
@@ -220,6 +330,16 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             .shutdown()
             .await
             .map_err(|_| io::Error::other("safe startup state could not be recorded"))?;
+        let support_bundle = SupportBundleService::new(
+            runtime_host.clone(),
+            activation_manager.clone(),
+            env!("CARGO_PKG_VERSION"),
+            SupportBundlePlatform {
+                architecture: tauri_plugin_os::arch().to_owned(),
+                operating_system: tauri_plugin_os::platform().to_owned(),
+                operating_system_version: tauri_plugin_os::version().to_string(),
+            },
+        );
         let activation = Arc::new(ProfileActivationCoordinator::new(
             profile_service.clone(),
             activation_manager,
@@ -245,17 +365,22 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .await
         .map_err(io::Error::other)
-        .map(|bridge| (bridge, status_bar_state))
+        .map(|bridge| (bridge, status_bar_state, support_bundle))
     })?;
-    let (bridge, status_bar_state) = bridge;
+    let (bridge, status_bar_state, support_bundle) = bridge;
     app.manage(RuntimeBootstrap {
         auth_token,
         native_sidebar_material: cfg!(target_os = "macos"),
         rpc_url: format!("ws://{}/rpc", bridge.address),
         settings_snapshot: settings_service.snapshot(SettingsAdapterKind::Rpc),
+        support_bundle_export: true,
     });
     app.manage(ProfileState(profile_service));
     app.manage(SettingsState(settings_service.clone()));
+    app.manage(SupportBundleState {
+        pending: Arc::new(Mutex::new(None)),
+        service: support_bundle,
+    });
     *app.state::<BridgeState>()
         .0
         .lock()
@@ -421,11 +546,149 @@ fn generate_auth_token() -> Result<String, String> {
     Ok(token)
 }
 
+fn support_bundle_prepare_error(error: SupportBundleError) -> SupportBundleCommandError {
+    match error {
+        SupportBundleError::Serialization => SupportBundleCommandError {
+            code: "manifest-failed",
+            message: "The bounded support bundle manifest could not be generated",
+        },
+        SupportBundleError::SizeLimitExceeded => SupportBundleCommandError {
+            code: "size-limit",
+            message: "The support bundle exceeded its fixed size limit",
+        },
+    }
+}
+
+fn support_bundle_state_error() -> SupportBundleCommandError {
+    SupportBundleCommandError {
+        code: "state-unavailable",
+        message: "The support bundle preview is unavailable",
+    }
+}
+
+fn support_bundle_write_error() -> SupportBundleCommandError {
+    SupportBundleCommandError {
+        code: "write-failed",
+        message: "The support bundle could not be saved",
+    }
+}
+
+fn now_unix_milliseconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
+}
+
+fn atomic_write_support_bundle(destination: &Path, contents: &[u8]) -> io::Result<()> {
+    atomic_write_support_bundle_with_failure(destination, contents, None)
+}
+
+fn save_support_bundle_selection(
+    destination: Option<&Path>,
+    contents: &[u8],
+) -> io::Result<SupportBundleSaveStatus> {
+    let Some(destination) = destination else {
+        return Ok(SupportBundleSaveStatus::Cancelled);
+    };
+    atomic_write_support_bundle(destination, contents)?;
+    Ok(SupportBundleSaveStatus::Written)
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum AtomicWriteFailurePoint {
+    AfterCreate,
+    BeforeRename,
+}
+
+fn atomic_write_support_bundle_with_failure(
+    destination: &Path,
+    contents: &[u8],
+    failure: Option<AtomicWriteFailurePoint>,
+) -> io::Result<()> {
+    if contents.len() > SUPPORT_BUNDLE_MAX_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "support bundle size limit exceeded",
+        ));
+    }
+    let parent = destination
+        .parent()
+        .filter(|parent| parent.is_dir())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "destination is unavailable"))?;
+    if fs::symlink_metadata(destination).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "symbolic link destinations are unsupported",
+        ));
+    }
+    let temporary = parent.join(format!(".mish-support-{}.tmp", Uuid::new_v4()));
+    let mut guard = TemporarySupportBundle::new(temporary.clone());
+    let mut options = fs::OpenOptions::new();
+    options.create_new(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&temporary)?;
+    if failure == Some(AtomicWriteFailurePoint::AfterCreate) {
+        return Err(io::Error::other("injected support bundle write failure"));
+    }
+    file.write_all(contents)?;
+    file.sync_all()?;
+    drop(file);
+    if failure == Some(AtomicWriteFailurePoint::BeforeRename) {
+        return Err(io::Error::other("injected support bundle rename failure"));
+    }
+    fs::rename(&temporary, destination)?;
+    guard.commit();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(destination, fs::Permissions::from_mode(0o600))?;
+        fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+struct TemporarySupportBundle {
+    committed: bool,
+    path: PathBuf,
+}
+
+impl TemporarySupportBundle {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            committed: false,
+            path,
+        }
+    }
+
+    fn commit(&mut self) {
+        self.committed = true;
+    }
+}
+
+impl Drop for TemporarySupportBundle {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = fs::remove_file(&self.path);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::{
-        DEV_ORIGIN, PRODUCTION_ORIGINS, allowed_origins, generate_auth_token,
-        managed_mihomo_resolver, should_hide_main_window_on_close, should_show_main_window,
+        AtomicWriteFailurePoint, DEV_ORIGIN, PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES,
+        SupportBundleSaveStatus, allowed_origins, atomic_write_support_bundle_with_failure,
+        generate_auth_token, managed_mihomo_resolver, save_support_bundle_selection,
+        should_hide_main_window_on_close, should_show_main_window,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -494,5 +757,92 @@ mod tests {
             WindowCloseBehavior::default()
         ));
         assert!(!should_hide_main_window_on_close(WindowCloseBehavior::Quit));
+    }
+
+    #[test]
+    fn cancelled_save_writes_nothing() {
+        assert_eq!(
+            save_support_bundle_selection(None, b"{}").unwrap(),
+            SupportBundleSaveStatus::Cancelled
+        );
+    }
+
+    #[test]
+    fn support_bundle_write_is_private_and_atomic() {
+        let root = support_bundle_test_directory("success");
+        let destination = root.join("bundle.json");
+        assert_eq!(
+            save_support_bundle_selection(Some(&destination), b"{\"formatVersion\":1}").unwrap(),
+            SupportBundleSaveStatus::Written
+        );
+        assert_eq!(fs::read(&destination).unwrap(), b"{\"formatVersion\":1}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        assert_no_support_bundle_temporary_files(&root);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn write_and_rename_failures_clean_temporary_files() {
+        for (name, failure) in [
+            ("write", AtomicWriteFailurePoint::AfterCreate),
+            ("rename", AtomicWriteFailurePoint::BeforeRename),
+        ] {
+            let root = support_bundle_test_directory(name);
+            let destination = root.join("bundle.json");
+            assert!(
+                atomic_write_support_bundle_with_failure(
+                    &destination,
+                    b"{\"formatVersion\":1}",
+                    Some(failure),
+                )
+                .is_err()
+            );
+            assert!(!destination.exists());
+            assert_no_support_bundle_temporary_files(&root);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn oversized_support_bundle_is_rejected_without_writing() {
+        let root = support_bundle_test_directory("oversized");
+        let destination = root.join("bundle.json");
+
+        assert!(
+            save_support_bundle_selection(
+                Some(&destination),
+                &vec![b'x'; SUPPORT_BUNDLE_MAX_BYTES + 1],
+            )
+            .is_err()
+        );
+        assert!(!destination.exists());
+        assert_no_support_bundle_temporary_files(&root);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn support_bundle_test_directory(name: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "mish-support-bundle-{name}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir(&root).unwrap();
+        root
+    }
+
+    fn assert_no_support_bundle_temporary_files(root: &std::path::Path) {
+        assert!(fs::read_dir(root).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".mish-support-")
+        }));
     }
 }

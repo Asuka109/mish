@@ -84,9 +84,13 @@ filter, order, single-event safe copy, and Clear Local are view operations only.
 
 Guided diagnostics now adds an explicit user-started, fixed-policy, read-only
 run with eight-run local memory history, cancellation, runtime replacement
-invalidation, and typed partial availability. Diagnostic export remains outside
-this slice. No export, upload, arbitrary file read, telemetry, or runtime
-mutation RPC is defined. See
+invalidation, and typed partial availability. The desktop-only P1 support bundle
+flow adds an exact redaction preview followed by explicit native-save
+confirmation. Its versioned JSON is capped at 256 KiB, uses event aggregates and
+structured diagnostic fields, excludes sensitive categories at the source, and
+is never uploaded or copied to the clipboard. Browser export is explicitly
+unavailable. No export path/content, upload, arbitrary file read, telemetry, or
+runtime mutation RPC is defined. See
 [`../../architecture/events-data-contracts.md`](../../architecture/events-data-contracts.md)
 for event sequence and retention semantics, and
 [`../../architecture/diagnostics-data-contracts.md`](../../architecture/diagnostics-data-contracts.md)

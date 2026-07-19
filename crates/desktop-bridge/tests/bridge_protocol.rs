@@ -555,9 +555,25 @@ async fn authenticates_and_serves_contract_compatible_status() {
     assert_eq!(cancelled["result"]["activeRunId"], Value::Null);
     assert_eq!(cancelled["result"]["runs"][0]["status"], "cancelled");
 
+    for (id, method, params) in [
+        (14, "diagnostics.previewSupportBundle", json!({})),
+        (
+            15,
+            "diagnostics.saveSupportBundle",
+            json!({"path":"/synthetic/private/bundle.json", "contents":"secret"}),
+        ),
+    ] {
+        let unavailable_export = request(
+            &mut ws,
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
+        )
+        .await;
+        assert_eq!(unavailable_export["error"]["code"], -32601);
+    }
+
     let unavailable = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":14, "method":"core.start", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":16, "method":"core.start", "params":{}}),
     )
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);

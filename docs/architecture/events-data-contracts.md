@@ -9,9 +9,11 @@ RPC adapter, and future native adapters.
 
 The Events surface remains read-only. It exposes a bounded local event view,
 one safe-copy action for a single already-redacted event, and an independent
-bounded Guided Diagnostics history. It defines no diagnostic export, upload,
-arbitrary file read, telemetry, core stop, or core mutation command. Guided run
-semantics are specified in
+bounded Guided Diagnostics history. The desktop-only support bundle action
+exports aggregate event counts through a separate private Tauri boundary; the
+Events snapshot and RPC contracts define no export, upload, arbitrary file
+read, telemetry, core stop, or core mutation command. Guided run semantics are
+specified in
 [`diagnostics-data-contracts.md`](diagnostics-data-contracts.md).
 
 ## Snapshot shape
@@ -96,8 +98,9 @@ redactor before they are joined into bounded detail text.
 
 The RPC contract therefore transports only redacted event strings. The UI copy
 action formats exactly one selected DTO and never reads raw Controller data,
-configuration, files, or another event. There is no multi-row copy or export in
-this slice.
+configuration, files, or another event. Support bundles do not copy rows: they
+derive only bounded counts by closed source/severity enums and a time range from
+the runtime snapshot, so event IDs, messages, and details never enter the file.
 
 Repository fixtures use only reserved `.invalid` names, documentation address
 ranges, synthetic labels, and `/synthetic/` paths. Fixture clients perform no

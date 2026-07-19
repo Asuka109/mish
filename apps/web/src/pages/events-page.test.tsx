@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@mish/ui";
+import type { SupportBundleClient, SupportBundlePreviewDto } from "@mish/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
@@ -13,13 +14,13 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderEvents(client: FixtureEventsClient) {
+function renderEvents(client: FixtureEventsClient, supportBundleClient?: SupportBundleClient) {
   return render(
     <AppearanceProvider>
       <TypesafeI18n locale="en">
         <MemoryRouter initialEntries={["/events"]}>
           <ProductProvider>
-            <EventsProvider client={client}>
+            <EventsProvider client={client} supportBundleClient={supportBundleClient}>
               <TooltipProvider>
                 <AppRoutes />
               </TooltipProvider>
@@ -42,7 +43,8 @@ describe("Events page", () => {
 
     expect(await screen.findByText(/Fictional browser fixture events/)).toBeVisible();
     expect(screen.getAllByText("Fixture only")).toHaveLength(4);
-    expect(screen.queryByRole("button", { name: /export|upload/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview support bundle" })).toBeDisabled();
+    expect(screen.getByText(/unavailable in the browser/i)).toBeVisible();
   });
 
   it("filters text, pauses the view while buffering, resumes, and clears only local memory", async () => {
@@ -131,7 +133,7 @@ describe("Events page", () => {
     expect(screen.getAllByText("Interpretation").length).toBeGreaterThan(0);
     expect(screen.getByText(/mish-guided-diagnostics-fixture-v1/)).toBeVisible();
     expect(screen.getByText(/not a desktop diagnostic run/i)).toBeVisible();
-    expect(screen.queryByRole("button", { name: /export|upload/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview support bundle" })).toBeDisabled();
   });
 
   it("links common failure events to the focusable diagnostics section", async () => {
@@ -159,4 +161,119 @@ describe("Events page", () => {
     expect(within(diagnostics).getAllByText("Observed fact").length).toBeGreaterThan(0);
     expect(within(diagnostics).getAllByText("Interpretation").length).toBeGreaterThan(0);
   });
+
+  it("previews exact bounded categories before an explicit keyboard-confirmed native save", async () => {
+    const user = userEvent.setup();
+    const support = new TestSupportBundleClient("written");
+    renderEvents(new FixtureEventsClient(), support);
+
+    const preview = await screen.findByRole("button", { name: "Preview support bundle" });
+    preview.focus();
+    await user.keyboard("{Enter}");
+
+    const dialog = await screen.findByRole("dialog", { name: "Review redacted support bundle" });
+    expect(within(dialog).getByText("JSON · v1")).toBeVisible();
+    expect(within(dialog).getByText("Actual / maximum size").parentElement).toHaveTextContent(
+      "12.0 KiB / 256.0 KiB",
+    );
+    expect(within(dialog).getByText("Recent event aggregates")).toBeVisible();
+    expect(within(dialog).getByText(/Subscription URLs/)).toBeVisible();
+    expect(support.save).not.toHaveBeenCalled();
+
+    const confirmSave = within(dialog).getByRole("button", {
+      name: "Choose location and save",
+    });
+    confirmSave.focus();
+    await user.keyboard("{Enter}");
+    expect(support.save).toHaveBeenCalledWith("preview-support-bundle-1");
+    expect(await screen.findByText("Support bundle saved locally.")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("treats a native save cancellation as neither a write nor a failure", async () => {
+    const user = userEvent.setup();
+    const support = new TestSupportBundleClient("cancelled");
+    renderEvents(new FixtureEventsClient(), support);
+
+    await user.click(await screen.findByRole("button", { name: "Preview support bundle" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Choose location and save",
+      }),
+    );
+
+    expect(await screen.findByText("Save cancelled. Nothing was written.")).toBeVisible();
+    expect(screen.queryByText("Support bundle saved locally.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("reports path-free save failure without mutating diagnostic history", async () => {
+    const user = userEvent.setup();
+    const support = new TestSupportBundleClient("failed");
+    renderEvents(new FixtureEventsClient(), support);
+    await screen.findByText("No diagnostic runs in local history.");
+
+    await user.click(screen.getByRole("button", { name: "Preview support bundle" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Choose location and save",
+      }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The support bundle could not be saved. No runtime state was changed.",
+    );
+    expect(screen.getByText("No diagnostic runs in local history.")).toBeVisible();
+    expect(screen.queryByText(/synthetic\/|bundle\.json/)).not.toBeInTheDocument();
+  });
 });
+
+const supportBundlePreview: SupportBundlePreviewDto = {
+  categories: [
+    { category: "application", itemCount: 1 },
+    { category: "platform", itemCount: 1 },
+    { category: "capabilities", itemCount: 1 },
+    { category: "active-profile", itemCount: 1 },
+    { category: "capture", itemCount: 1 },
+    { category: "events-summary", itemCount: 12 },
+    { category: "diagnostic-runs", itemCount: 7 },
+    { category: "redaction-report", itemCount: 13 },
+  ],
+  contentBytes: 12_288,
+  excludedOrRedacted: [
+    "raw-profile-configuration",
+    "subscription-urls",
+    "credentials-and-secrets",
+    "full-paths",
+    "node-labels",
+    "connection-destinations",
+    "process-paths",
+    "network-addresses-and-hostnames",
+    "private-endpoints",
+    "controller-payloads",
+    "status-bar-labels",
+    "event-text",
+    "diagnostic-prose",
+  ],
+  fileType: "application/json",
+  formatVersion: 1,
+  maxBytes: 256 * 1_024,
+  previewId: "preview-support-bundle-1",
+  timeRange: {
+    endedAt: Date.parse("2026-07-18T08:05:00Z"),
+    startedAt: Date.parse("2026-07-18T08:00:00Z"),
+  },
+};
+
+class TestSupportBundleClient implements SupportBundleClient {
+  readonly availability = "supported" as const;
+  readonly preview = vi.fn(async () => structuredClone(supportBundlePreview));
+  readonly save: SupportBundleClient["save"];
+
+  constructor(result: "cancelled" | "written" | "failed") {
+    this.save = vi.fn(async () => {
+      if (result === "failed") throw new Error("/synthetic/private/bundle.json");
+      return { status: result };
+    });
+  }
+}

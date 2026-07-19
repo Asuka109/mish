@@ -2370,6 +2370,170 @@ type RootTranslation = {
 		 * D​i​a​g​n​o​s​t​i​c​s​ ​a​r​e​ ​c​u​r​r​e​n​t​l​y​ ​u​n​a​v​a​i​l​a​b​l​e​.
 		 */
 		error: string
+		'export': {
+			/**
+			 * I​n​c​l​u​d​e​d​ ​c​a​t​e​g​o​r​i​e​s
+			 */
+			categories: string
+			category: {
+				/**
+				 * A​p​p​l​i​c​a​t​i​o​n​ ​a​n​d​ ​c​o​r​e​ ​v​e​r​s​i​o​n​s
+				 */
+				application: string
+				/**
+				 * P​l​a​t​f​o​r​m​ ​v​e​r​s​i​o​n
+				 */
+				platform: string
+				/**
+				 * C​a​p​a​b​i​l​i​t​y​ ​s​t​a​t​u​s
+				 */
+				capabilities: string
+				/**
+				 * A​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​i​d​e​n​t​i​f​i​e​r​s
+				 */
+				'active-profile': string
+				/**
+				 * C​a​p​t​u​r​e​ ​d​e​s​i​r​e​d​ ​/​ ​o​b​s​e​r​v​e​d​ ​/​ ​d​r​i​f​t
+				 */
+				capture: string
+				/**
+				 * R​e​c​e​n​t​ ​e​v​e​n​t​ ​a​g​g​r​e​g​a​t​e​s
+				 */
+				'events-summary': string
+				/**
+				 * G​u​i​d​e​d​ ​d​i​a​g​n​o​s​t​i​c​ ​c​h​e​c​k​s
+				 */
+				'diagnostic-runs': string
+				/**
+				 * R​e​d​a​c​t​i​o​n​ ​r​e​p​o​r​t​ ​e​n​t​r​i​e​s
+				 */
+				'redaction-report': string
+			}
+			/**
+			 * C​h​o​o​s​e​ ​l​o​c​a​t​i​o​n​ ​a​n​d​ ​s​a​v​e
+			 */
+			confirmSave: string
+			/**
+			 * C​r​e​a​t​e​ ​a​ ​b​o​u​n​d​e​d​ ​l​o​c​a​l​ ​J​S​O​N​ ​b​u​n​d​l​e​ ​a​f​t​e​r​ ​r​e​v​i​e​w​i​n​g​ ​i​t​s​ ​e​x​a​c​t​ ​c​a​t​e​g​o​r​i​e​s​ ​a​n​d​ ​e​x​c​l​u​s​i​o​n​s​.​ ​M​i​s​h​ ​n​e​v​e​r​ ​u​p​l​o​a​d​s​ ​i​t​.
+			 */
+			description: string
+			/**
+			 * F​o​r​m​a​t
+			 */
+			format: string
+			/**
+			 * N​o​ ​r​e​t​a​i​n​e​d​ ​e​v​e​n​t​ ​o​r​ ​d​i​a​g​n​o​s​t​i​c​ ​t​i​m​e​ ​r​a​n​g​e
+			 */
+			noHistory: string
+			/**
+			 * P​r​e​p​a​r​i​n​g​ ​p​r​e​v​i​e​w​…
+			 */
+			preparing: string
+			/**
+			 * P​r​e​v​i​e​w​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e
+			 */
+			preview: string
+			/**
+			 * T​h​i​s​ ​p​r​e​v​i​e​w​ ​d​e​s​c​r​i​b​e​s​ ​t​h​e​ ​e​x​a​c​t​ ​i​n​-​m​e​m​o​r​y​ ​J​S​O​N​ ​b​y​t​e​s​ ​t​h​a​t​ ​w​i​l​l​ ​b​e​ ​o​f​f​e​r​e​d​ ​t​o​ ​t​h​e​ ​n​a​t​i​v​e​ ​s​a​v​e​ ​d​i​a​l​o​g​.
+			 */
+			previewDescription: string
+			/**
+			 * R​e​v​i​e​w​ ​r​e​d​a​c​t​e​d​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e
+			 */
+			previewTitle: string
+			/**
+			 * E​x​c​l​u​d​e​d​ ​o​r​ ​s​t​r​u​c​t​u​r​a​l​l​y​ ​r​e​d​u​c​e​d
+			 */
+			redactions: string
+			redaction: {
+				/**
+				 * R​a​w​ ​P​r​o​f​i​l​e​ ​a​n​d​ ​Y​A​M​L​ ​c​o​n​f​i​g​u​r​a​t​i​o​n
+				 */
+				'raw-profile-configuration': string
+				/**
+				 * S​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​s
+				 */
+				'subscription-urls': string
+				/**
+				 * C​r​e​d​e​n​t​i​a​l​s​,​ ​t​o​k​e​n​s​,​ ​a​n​d​ ​s​e​c​r​e​t​s
+				 */
+				'credentials-and-secrets': string
+				/**
+				 * F​u​l​l​ ​f​i​l​e​s​y​s​t​e​m​ ​p​a​t​h​s
+				 */
+				'full-paths': string
+				/**
+				 * N​o​d​e​ ​a​n​d​ ​p​o​l​i​c​y​ ​l​a​b​e​l​s
+				 */
+				'node-labels': string
+				/**
+				 * C​o​n​n​e​c​t​i​o​n​ ​d​e​s​t​i​n​a​t​i​o​n​s
+				 */
+				'connection-destinations': string
+				/**
+				 * P​r​o​c​e​s​s​ ​p​a​t​h​s
+				 */
+				'process-paths': string
+				/**
+				 * R​a​w​ ​I​P​ ​a​d​d​r​e​s​s​e​s​ ​a​n​d​ ​h​o​s​t​n​a​m​e​s
+				 */
+				'network-addresses-and-hostnames': string
+				/**
+				 * P​r​i​v​a​t​e​ ​e​n​d​p​o​i​n​t​s
+				 */
+				'private-endpoints': string
+				/**
+				 * C​o​n​t​r​o​l​l​e​r​ ​p​a​y​l​o​a​d​s
+				 */
+				'controller-payloads': string
+				/**
+				 * S​t​a​t​u​s​-​b​a​r​ ​l​a​b​e​l​s
+				 */
+				'status-bar-labels': string
+				/**
+				 * E​v​e​n​t​ ​m​e​s​s​a​g​e​ ​a​n​d​ ​d​e​t​a​i​l​ ​t​e​x​t​ ​(​a​g​g​r​e​g​a​t​e​s​ ​o​n​l​y​)
+				 */
+				'event-text': string
+				/**
+				 * D​i​a​g​n​o​s​t​i​c​ ​s​c​o​p​e​ ​a​n​d​ ​i​n​t​e​r​p​r​e​t​a​t​i​o​n​ ​p​r​o​s​e​ ​(​s​t​r​u​c​t​u​r​e​d​ ​f​i​e​l​d​s​ ​o​n​l​y​)
+				 */
+				'diagnostic-prose': string
+			}
+			result: {
+				/**
+				 * S​a​v​e​ ​c​a​n​c​e​l​l​e​d​.​ ​N​o​t​h​i​n​g​ ​w​a​s​ ​w​r​i​t​t​e​n​.
+				 */
+				cancelled: string
+				/**
+				 * T​h​e​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​s​a​v​e​d​.​ ​N​o​ ​r​u​n​t​i​m​e​ ​s​t​a​t​e​ ​w​a​s​ ​c​h​a​n​g​e​d​.
+				 */
+				failed: string
+				/**
+				 * S​u​p​p​o​r​t​ ​b​u​n​d​l​e​ ​s​a​v​e​d​ ​l​o​c​a​l​l​y​.
+				 */
+				written: string
+			}
+			/**
+			 * S​a​v​i​n​g​…
+			 */
+			saving: string
+			/**
+			 * A​c​t​u​a​l​ ​/​ ​m​a​x​i​m​u​m​ ​s​i​z​e
+			 */
+			size: string
+			/**
+			 * I​n​c​l​u​d​e​d​ ​t​i​m​e​ ​r​a​n​g​e
+			 */
+			timeRange: string
+			/**
+			 * L​o​c​a​l​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e
+			 */
+			title: string
+			/**
+			 * S​u​p​p​o​r​t​ ​b​u​n​d​l​e​ ​e​x​p​o​r​t​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​e​ ​b​r​o​w​s​e​r​.​ ​U​s​e​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​a​p​p​l​i​c​a​t​i​o​n​ ​t​o​ ​p​r​e​v​i​e​w​ ​a​n​d​ ​s​a​v​e​ ​l​o​c​a​l​l​y​.
+			 */
+			unavailable: string
+		}
 		/**
 		 * F​i​c​t​i​o​n​a​l​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​r​e​s​u​l​t​s​.​ ​T​h​e​y​ ​a​r​e​ ​n​o​t​ ​a​ ​d​e​s​k​t​o​p​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​ ​o​r​ ​a​ ​d​e​v​i​c​e​ ​o​b​s​e​r​v​a​t​i​o​n​.
 		 */
@@ -5015,6 +5179,170 @@ export type TranslationFunctions = {
 		 * Diagnostics are currently unavailable.
 		 */
 		error: () => LocalizedString
+		'export': {
+			/**
+			 * Included categories
+			 */
+			categories: () => LocalizedString
+			category: {
+				/**
+				 * Application and core versions
+				 */
+				application: () => LocalizedString
+				/**
+				 * Platform version
+				 */
+				platform: () => LocalizedString
+				/**
+				 * Capability status
+				 */
+				capabilities: () => LocalizedString
+				/**
+				 * Active Profile identifiers
+				 */
+				'active-profile': () => LocalizedString
+				/**
+				 * Capture desired / observed / drift
+				 */
+				capture: () => LocalizedString
+				/**
+				 * Recent event aggregates
+				 */
+				'events-summary': () => LocalizedString
+				/**
+				 * Guided diagnostic checks
+				 */
+				'diagnostic-runs': () => LocalizedString
+				/**
+				 * Redaction report entries
+				 */
+				'redaction-report': () => LocalizedString
+			}
+			/**
+			 * Choose location and save
+			 */
+			confirmSave: () => LocalizedString
+			/**
+			 * Create a bounded local JSON bundle after reviewing its exact categories and exclusions. Mish never uploads it.
+			 */
+			description: () => LocalizedString
+			/**
+			 * Format
+			 */
+			format: () => LocalizedString
+			/**
+			 * No retained event or diagnostic time range
+			 */
+			noHistory: () => LocalizedString
+			/**
+			 * Preparing preview…
+			 */
+			preparing: () => LocalizedString
+			/**
+			 * Preview support bundle
+			 */
+			preview: () => LocalizedString
+			/**
+			 * This preview describes the exact in-memory JSON bytes that will be offered to the native save dialog.
+			 */
+			previewDescription: () => LocalizedString
+			/**
+			 * Review redacted support bundle
+			 */
+			previewTitle: () => LocalizedString
+			/**
+			 * Excluded or structurally reduced
+			 */
+			redactions: () => LocalizedString
+			redaction: {
+				/**
+				 * Raw Profile and YAML configuration
+				 */
+				'raw-profile-configuration': () => LocalizedString
+				/**
+				 * Subscription URLs
+				 */
+				'subscription-urls': () => LocalizedString
+				/**
+				 * Credentials, tokens, and secrets
+				 */
+				'credentials-and-secrets': () => LocalizedString
+				/**
+				 * Full filesystem paths
+				 */
+				'full-paths': () => LocalizedString
+				/**
+				 * Node and policy labels
+				 */
+				'node-labels': () => LocalizedString
+				/**
+				 * Connection destinations
+				 */
+				'connection-destinations': () => LocalizedString
+				/**
+				 * Process paths
+				 */
+				'process-paths': () => LocalizedString
+				/**
+				 * Raw IP addresses and hostnames
+				 */
+				'network-addresses-and-hostnames': () => LocalizedString
+				/**
+				 * Private endpoints
+				 */
+				'private-endpoints': () => LocalizedString
+				/**
+				 * Controller payloads
+				 */
+				'controller-payloads': () => LocalizedString
+				/**
+				 * Status-bar labels
+				 */
+				'status-bar-labels': () => LocalizedString
+				/**
+				 * Event message and detail text (aggregates only)
+				 */
+				'event-text': () => LocalizedString
+				/**
+				 * Diagnostic scope and interpretation prose (structured fields only)
+				 */
+				'diagnostic-prose': () => LocalizedString
+			}
+			result: {
+				/**
+				 * Save cancelled. Nothing was written.
+				 */
+				cancelled: () => LocalizedString
+				/**
+				 * The support bundle could not be saved. No runtime state was changed.
+				 */
+				failed: () => LocalizedString
+				/**
+				 * Support bundle saved locally.
+				 */
+				written: () => LocalizedString
+			}
+			/**
+			 * Saving…
+			 */
+			saving: () => LocalizedString
+			/**
+			 * Actual / maximum size
+			 */
+			size: () => LocalizedString
+			/**
+			 * Included time range
+			 */
+			timeRange: () => LocalizedString
+			/**
+			 * Local support bundle
+			 */
+			title: () => LocalizedString
+			/**
+			 * Support bundle export is unavailable in the browser. Use the desktop application to preview and save locally.
+			 */
+			unavailable: () => LocalizedString
+		}
 		/**
 		 * Fictional browser fixture results. They are not a desktop diagnostic run or a device observation.
 		 */

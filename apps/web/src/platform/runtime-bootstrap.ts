@@ -8,6 +8,7 @@ import {
   type SettingsClient,
   type SettingsSnapshotDto,
   type StatusClient,
+  type SupportBundleClient,
   type TrafficClient,
 } from "@mish/contracts";
 import { RpcClient } from "@mish/rpc-client";
@@ -18,17 +19,21 @@ import { RpcStatusClient } from "../data/rpc-status-client";
 import { FixtureSettingsClient } from "../data/fixture-settings-client";
 import { RpcSettingsClient } from "../data/rpc-settings-client";
 import { RpcTrafficClient } from "../data/rpc-traffic-client";
+import { DesktopSupportBundleClient, UnavailableSupportBundleClient } from "./support-bundle";
 
 interface RuntimeBootstrapPayload {
   authToken: string;
   nativeSidebarMaterial: boolean;
   rpcUrl: string;
   settingsSnapshot: SettingsSnapshotDto;
+  supportBundleExport: boolean;
 }
 
 interface BootstrapDependencies {
   invokeBootstrap(): Promise<unknown>;
   invokeLocalProfilePreflight(label?: string): Promise<unknown>;
+  invokeSupportBundlePreview(): Promise<unknown>;
+  invokeSupportBundleSave(previewId: string): Promise<unknown>;
   isDesktop(): boolean;
   openWebSocket(url: string): WebSocket;
 }
@@ -44,11 +49,14 @@ export interface StartupStatusClient {
   settingsSnapshot: SettingsSnapshotDto;
   runtime: "browser" | "desktop";
   nativeSidebarMaterial: boolean;
+  supportBundleClient: SupportBundleClient;
 }
 
 const defaultDependencies: BootstrapDependencies = {
   invokeBootstrap: () => invoke("runtime_bootstrap"),
   invokeLocalProfilePreflight: (label) => invoke("profile_preflight_local", { label }),
+  invokeSupportBundlePreview: () => invoke("diagnostics_support_bundle_preview"),
+  invokeSupportBundleSave: (previewId) => invoke("diagnostics_support_bundle_save", { previewId }),
   isDesktop: isTauri,
   openWebSocket: (url) => new WebSocket(url),
 };
@@ -64,6 +72,7 @@ export async function resolveStartupStatusClient(
       runtime: "browser",
       settingsClient,
       settingsSnapshot: await settingsClient.getSnapshot(),
+      supportBundleClient: new UnavailableSupportBundleClient(),
     };
   }
 
@@ -91,6 +100,12 @@ export async function resolveStartupStatusClient(
     profileClient,
     settingsClient,
     settingsSnapshot,
+    supportBundleClient: bootstrap.supportBundleExport
+      ? new DesktopSupportBundleClient({
+          invokePreview: dependencies.invokeSupportBundlePreview,
+          invokeSave: dependencies.invokeSupportBundleSave,
+        })
+      : new UnavailableSupportBundleClient(),
     trafficClient,
     dispose: () => {
       profileClient.dispose();
@@ -106,15 +121,16 @@ export async function resolveStartupStatusClient(
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   if (!value || typeof value !== "object") throw new Error("Invalid desktop bootstrap");
-  const { authToken, nativeSidebarMaterial, rpcUrl, settingsSnapshot } = value as Record<
-    string,
-    unknown
-  >;
+  const { authToken, nativeSidebarMaterial, rpcUrl, settingsSnapshot, supportBundleExport } =
+    value as Record<string, unknown>;
   if (typeof authToken !== "string" || authToken.length < 32) {
     throw new Error("Invalid desktop authentication token");
   }
   if (typeof nativeSidebarMaterial !== "boolean") {
     throw new Error("Invalid native sidebar material capability");
+  }
+  if (typeof supportBundleExport !== "boolean") {
+    throw new Error("Invalid support bundle export capability");
   }
   if (typeof rpcUrl !== "string") throw new Error("Invalid desktop RPC endpoint");
 
@@ -136,5 +152,6 @@ export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
     nativeSidebarMaterial,
     rpcUrl: endpoint.href,
     settingsSnapshot: SettingsSnapshotSchema.parse(settingsSnapshot),
+    supportBundleExport,
   };
 }
