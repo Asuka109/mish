@@ -120,9 +120,176 @@ type RootTranslation = {
 		 */
 		backup: string
 		/**
-		 * B​a​c​k​u​p​ ​s​c​o​p​e​,​ ​s​e​c​r​e​t​ ​h​a​n​d​l​i​n​g​,​ ​v​a​l​i​d​a​t​i​o​n​,​ ​a​n​d​ ​r​o​l​l​b​a​c​k​ ​a​r​e​ ​n​o​t​ ​i​m​p​l​e​m​e​n​t​e​d​ ​y​e​t​.
+		 * C​r​e​a​t​e​ ​a​ ​b​o​u​n​d​e​d​ ​l​o​c​a​l​ ​b​a​c​k​u​p​ ​o​r​ ​v​a​l​i​d​a​t​e​ ​a​n​d​ ​r​e​s​t​o​r​e​ ​o​n​e​ ​w​i​t​h​o​u​t​ ​c​h​a​n​g​i​n​g​ ​n​e​t​w​o​r​k​ ​o​r​ ​o​p​e​r​a​t​i​n​g​-​s​y​s​t​e​m​ ​s​t​a​t​e​.
 		 */
 		backupDescription: string
+		backupFlow: {
+			/**
+			 * R​e​s​t​o​r​e​ ​s​e​l​e​c​t​e​d​ ​d​a​t​a
+			 */
+			commit: string
+			conflict: {
+				/**
+				 * A​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​i​s​ ​p​r​o​t​e​c​t​e​d
+				 */
+				'active-profile': string
+				/**
+				 * M​a​t​c​h​i​n​g​ ​c​o​n​t​e​n​t​ ​a​l​r​e​a​d​y​ ​e​x​i​s​t​s
+				 */
+				'duplicate-fingerprint': string
+				/**
+				 * I​D​ ​p​o​i​n​t​s​ ​t​o​ ​d​i​f​f​e​r​e​n​t​ ​c​o​n​t​e​n​t
+				 */
+				'id-mismatch': string
+				/**
+				 * M​a​t​c​h​i​n​g​ ​p​r​o​f​i​l​e​ ​i​s​ ​m​i​s​s​i​n​g
+				 */
+				'missing-profile': string
+				/**
+				 * R​e​v​i​s​i​o​n​ ​o​r​ ​f​i​n​g​e​r​p​r​i​n​t​ ​d​i​f​f​e​r​s
+				 */
+				'revision-mismatch': string
+			}
+			/**
+			 * C​o​n​f​l​i​c​t​s​ ​r​e​q​u​i​r​i​n​g​ ​a​ ​d​e​c​i​s​i​o​n
+			 */
+			conflicts: string
+			/**
+			 * {​s​e​t​t​i​n​g​s​}​ ​s​e​t​t​i​n​g​s​ ​·​ ​{​p​r​o​f​i​l​e​s​}​ ​p​r​o​f​i​l​e​s​ ​·​ ​{​p​a​t​c​h​e​s​}​ ​p​a​t​c​h​e​s​ ​·​ ​{​s​c​h​e​d​u​l​e​s​}​ ​s​c​h​e​d​u​l​e​s
+			 * @param {number} patches
+			 * @param {number} profiles
+			 * @param {number} schedules
+			 * @param {number} settings
+			 */
+			contentCounts: RequiredParams<'patches' | 'profiles' | 'schedules' | 'settings'>
+			/**
+			 * I​n​c​l​u​d​e​d​ ​d​a​t​a
+			 */
+			contents: string
+			/**
+			 * C​r​e​a​t​e​ ​b​a​c​k​u​p
+			 */
+			create: string
+			/**
+			 * C​r​e​d​e​n​t​i​a​l​s​,​ ​p​r​o​f​i​l​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​c​o​n​t​e​n​t​s​,​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​s​,​ ​f​u​l​l​ ​l​o​c​a​l​ ​p​a​t​h​s​,​ ​r​u​n​t​i​m​e​ ​s​t​a​t​e​,​ ​a​n​d​ ​s​y​s​t​e​m​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​r​e​m​a​i​n​ ​e​x​c​l​u​d​e​d​ ​u​n​l​e​s​s​ ​a​ ​s​e​n​s​i​t​i​v​e​ ​s​c​o​p​e​ ​i​s​ ​s​e​l​e​c​t​e​d​ ​a​b​o​v​e​.
+			 */
+			exclusionSummary: string
+			/**
+			 * C​h​o​o​s​e​ ​t​h​e​ ​e​x​a​c​t​ ​s​c​o​p​e​,​ ​t​h​e​n​ ​g​e​n​e​r​a​t​e​ ​a​ ​b​y​t​e​-​a​c​c​u​r​a​t​e​ ​p​r​e​v​i​e​w​ ​b​e​f​o​r​e​ ​o​p​e​n​i​n​g​ ​t​h​e​ ​n​a​t​i​v​e​ ​s​a​v​e​ ​p​a​n​e​l​.
+			 */
+			exportDescription: string
+			/**
+			 * C​r​e​a​t​e​ ​l​o​c​a​l​ ​b​a​c​k​u​p
+			 */
+			exportTitle: string
+			/**
+			 * F​o​r​m​a​t
+			 */
+			format: string
+			/**
+			 * K​e​e​p​ ​c​u​r​r​e​n​t​ ​d​a​t​a​ ​w​h​e​n​ ​a​ ​c​o​n​f​l​i​c​t​ ​e​x​i​s​t​s
+			 */
+			keepExisting: string
+			/**
+			 * S​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​s​ ​a​n​d​ ​f​u​l​l​ ​l​o​c​a​l​ ​p​a​t​h​s
+			 */
+			locatorsSensitive: string
+			/**
+			 * S​e​n​s​i​t​i​v​e​ ​·​ ​r​e​s​t​o​r​e​s​ ​o​r​i​g​i​n​a​l​ ​r​e​f​r​e​s​h​ ​s​o​u​r​c​e​s​ ​a​n​d​ ​f​u​l​l​ ​p​r​i​v​a​t​e​ ​p​a​t​h​s​.​ ​A​v​a​i​l​a​b​l​e​ ​o​n​l​y​ ​w​i​t​h​ ​p​r​o​f​i​l​e​ ​c​o​n​t​e​n​t​s​.
+			 */
+			locatorsSensitiveDescription: string
+			/**
+			 * S​t​r​u​c​t​u​r​e​d​ ​p​r​o​f​i​l​e​ ​p​a​t​c​h​e​s
+			 */
+			patches: string
+			/**
+			 * P​o​r​t​a​b​l​e​ ​s​t​r​u​c​t​u​r​e​d​ ​e​d​i​t​s​ ​b​o​u​n​d​ ​t​o​ ​p​r​o​f​i​l​e​ ​r​e​v​i​s​i​o​n​ ​a​n​d​ ​f​i​n​g​e​r​p​r​i​n​t​.
+			 */
+			patchesDescription: string
+			/**
+			 * G​e​n​e​r​a​t​e​ ​p​r​e​v​i​e​w
+			 */
+			preview: string
+			/**
+			 * P​r​o​f​i​l​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​c​o​n​t​e​n​t​s
+			 */
+			profilesSensitive: string
+			/**
+			 * S​e​n​s​i​t​i​v​e​ ​·​ ​r​a​w​ ​a​n​d​ ​n​o​r​m​a​l​i​z​e​d​ ​p​r​o​f​i​l​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​m​a​y​ ​c​o​n​t​a​i​n​ ​p​r​o​x​y​ ​c​r​e​d​e​n​t​i​a​l​s​ ​o​r​ ​o​t​h​e​r​ ​s​e​c​r​e​t​s​.
+			 */
+			profilesSensitiveDescription: string
+			/**
+			 * C​o​n​f​l​i​c​t​ ​p​o​l​i​c​y
+			 */
+			resolution: string
+			/**
+			 * R​e​s​t​o​r​e​ ​b​a​c​k​u​p
+			 */
+			restore: string
+			/**
+			 * T​h​e​ ​f​i​l​e​ ​h​a​s​ ​p​a​s​s​e​d​ ​s​c​h​e​m​a​,​ ​s​i​z​e​,​ ​i​d​e​n​t​i​t​y​,​ ​r​e​v​i​s​i​o​n​,​ ​f​i​n​g​e​r​p​r​i​n​t​,​ ​a​n​d​ ​c​o​n​t​e​n​t​-​i​n​t​e​g​r​i​t​y​ ​v​a​l​i​d​a​t​i​o​n​.
+			 */
+			restoreDescription: string
+			/**
+			 * R​e​s​t​o​r​e​ ​i​s​ ​t​r​a​n​s​a​c​t​i​o​n​a​l​.​ ​I​t​ ​w​i​l​l​ ​n​o​t​ ​s​t​a​r​t​ ​C​o​r​e​,​ ​a​c​t​i​v​a​t​e​ ​a​ ​p​r​o​f​i​l​e​,​ ​e​n​a​b​l​e​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​o​r​ ​T​U​N​,​ ​r​e​g​i​s​t​e​r​ ​l​o​g​i​n​ ​s​t​a​r​t​u​p​,​ ​o​r​ ​o​t​h​e​r​w​i​s​e​ ​m​o​d​i​f​y​ ​o​p​e​r​a​t​i​n​g​-​s​y​s​t​e​m​ ​s​t​a​t​e​.
+			 */
+			restoreSafety: string
+			/**
+			 * R​e​v​i​e​w​ ​v​a​l​i​d​a​t​e​d​ ​r​e​s​t​o​r​e
+			 */
+			restoreTitle: string
+			result: {
+				/**
+				 * T​h​e​ ​l​o​c​a​l​ ​f​i​l​e​ ​p​a​n​e​l​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.​ ​N​o​t​h​i​n​g​ ​c​h​a​n​g​e​d​.
+				 */
+				cancelled: string
+				/**
+				 * T​h​e​ ​l​o​c​a​l​ ​b​a​c​k​u​p​ ​w​a​s​ ​w​r​i​t​t​e​n​ ​a​t​o​m​i​c​a​l​l​y​.
+				 */
+				exported: string
+				/**
+				 * T​h​e​ ​l​o​c​a​l​ ​b​a​c​k​u​p​ ​o​p​e​r​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​N​o​ ​p​a​r​t​i​a​l​ ​r​e​s​t​o​r​e​ ​w​a​s​ ​k​e​p​t​.
+				 */
+				failed: string
+				idle: string
+				/**
+				 * T​h​e​ ​v​a​l​i​d​a​t​e​d​ ​b​a​c​k​u​p​ ​w​a​s​ ​r​e​s​t​o​r​e​d​ ​t​r​a​n​s​a​c​t​i​o​n​a​l​l​y​.
+				 */
+				restored: string
+			}
+			/**
+			 * C​h​o​o​s​e​ ​l​o​c​a​t​i​o​n​ ​a​n​d​ ​s​a​v​e
+			 */
+			save: string
+			/**
+			 * P​r​o​f​i​l​e​ ​r​e​f​r​e​s​h​ ​s​c​h​e​d​u​l​e​s
+			 */
+			schedules: string
+			/**
+			 * F​i​x​e​d​ ​r​e​f​r​e​s​h​ ​p​o​l​i​c​i​e​s​ ​o​n​l​y​.​ ​B​a​c​k​o​f​f​ ​c​o​u​n​t​e​r​s​ ​a​n​d​ ​t​e​m​p​o​r​a​r​y​ ​t​i​m​e​s​t​a​m​p​s​ ​a​r​e​ ​e​x​c​l​u​d​e​d​.
+			 */
+			schedulesDescription: string
+			/**
+			 * B​a​c​k​u​p​ ​s​c​o​p​e
+			 */
+			scope: string
+			/**
+			 * A​p​p​l​i​c​a​t​i​o​n​ ​s​e​t​t​i​n​g​s
+			 */
+			settings: string
+			/**
+			 * A​p​p​e​a​r​a​n​c​e​,​ ​l​a​n​g​u​a​g​e​,​ ​s​t​a​r​t​u​p​ ​p​r​e​f​e​r​e​n​c​e​,​ ​c​l​o​s​e​ ​b​e​h​a​v​i​o​r​,​ ​a​n​d​ ​w​i​n​d​o​w​ ​s​u​r​f​a​c​e​.​ ​O​S​ ​r​e​g​i​s​t​r​a​t​i​o​n​ ​i​s​ ​n​o​t​ ​i​n​c​l​u​d​e​d​.
+			 */
+			settingsDescription: string
+			/**
+			 * A​c​t​u​a​l​ ​/​ ​m​a​x​i​m​u​m​ ​s​i​z​e
+			 */
+			size: string
+			/**
+			 * U​s​e​ ​b​a​c​k​u​p​ ​d​a​t​a​ ​w​h​e​r​e​ ​r​e​p​l​a​c​e​m​e​n​t​ ​i​s​ ​s​a​f​e
+			 */
+			useBackup: string
+		}
 		/**
 		 * C​a​p​t​u​r​e​ ​a​n​d​ ​s​t​a​r​t​u​p
 		 */
@@ -3372,9 +3539,172 @@ export type TranslationFunctions = {
 		 */
 		backup: () => LocalizedString
 		/**
-		 * Backup scope, secret handling, validation, and rollback are not implemented yet.
+		 * Create a bounded local backup or validate and restore one without changing network or operating-system state.
 		 */
 		backupDescription: () => LocalizedString
+		backupFlow: {
+			/**
+			 * Restore selected data
+			 */
+			commit: () => LocalizedString
+			conflict: {
+				/**
+				 * Active profile is protected
+				 */
+				'active-profile': () => LocalizedString
+				/**
+				 * Matching content already exists
+				 */
+				'duplicate-fingerprint': () => LocalizedString
+				/**
+				 * ID points to different content
+				 */
+				'id-mismatch': () => LocalizedString
+				/**
+				 * Matching profile is missing
+				 */
+				'missing-profile': () => LocalizedString
+				/**
+				 * Revision or fingerprint differs
+				 */
+				'revision-mismatch': () => LocalizedString
+			}
+			/**
+			 * Conflicts requiring a decision
+			 */
+			conflicts: () => LocalizedString
+			/**
+			 * {settings} settings · {profiles} profiles · {patches} patches · {schedules} schedules
+			 */
+			contentCounts: (arg: { patches: number, profiles: number, schedules: number, settings: number }) => LocalizedString
+			/**
+			 * Included data
+			 */
+			contents: () => LocalizedString
+			/**
+			 * Create backup
+			 */
+			create: () => LocalizedString
+			/**
+			 * Credentials, profile configuration contents, subscription URLs, full local paths, runtime state, and system capture state remain excluded unless a sensitive scope is selected above.
+			 */
+			exclusionSummary: () => LocalizedString
+			/**
+			 * Choose the exact scope, then generate a byte-accurate preview before opening the native save panel.
+			 */
+			exportDescription: () => LocalizedString
+			/**
+			 * Create local backup
+			 */
+			exportTitle: () => LocalizedString
+			/**
+			 * Format
+			 */
+			format: () => LocalizedString
+			/**
+			 * Keep current data when a conflict exists
+			 */
+			keepExisting: () => LocalizedString
+			/**
+			 * Subscription URLs and full local paths
+			 */
+			locatorsSensitive: () => LocalizedString
+			/**
+			 * Sensitive · restores original refresh sources and full private paths. Available only with profile contents.
+			 */
+			locatorsSensitiveDescription: () => LocalizedString
+			/**
+			 * Structured profile patches
+			 */
+			patches: () => LocalizedString
+			/**
+			 * Portable structured edits bound to profile revision and fingerprint.
+			 */
+			patchesDescription: () => LocalizedString
+			/**
+			 * Generate preview
+			 */
+			preview: () => LocalizedString
+			/**
+			 * Profile configuration contents
+			 */
+			profilesSensitive: () => LocalizedString
+			/**
+			 * Sensitive · raw and normalized profile configuration may contain proxy credentials or other secrets.
+			 */
+			profilesSensitiveDescription: () => LocalizedString
+			/**
+			 * Conflict policy
+			 */
+			resolution: () => LocalizedString
+			/**
+			 * Restore backup
+			 */
+			restore: () => LocalizedString
+			/**
+			 * The file has passed schema, size, identity, revision, fingerprint, and content-integrity validation.
+			 */
+			restoreDescription: () => LocalizedString
+			/**
+			 * Restore is transactional. It will not start Core, activate a profile, enable System Proxy or TUN, register login startup, or otherwise modify operating-system state.
+			 */
+			restoreSafety: () => LocalizedString
+			/**
+			 * Review validated restore
+			 */
+			restoreTitle: () => LocalizedString
+			result: {
+				/**
+				 * The local file panel was cancelled. Nothing changed.
+				 */
+				cancelled: () => LocalizedString
+				/**
+				 * The local backup was written atomically.
+				 */
+				exported: () => LocalizedString
+				/**
+				 * The local backup operation failed. No partial restore was kept.
+				 */
+				failed: () => LocalizedString
+				idle: () => LocalizedString
+				/**
+				 * The validated backup was restored transactionally.
+				 */
+				restored: () => LocalizedString
+			}
+			/**
+			 * Choose location and save
+			 */
+			save: () => LocalizedString
+			/**
+			 * Profile refresh schedules
+			 */
+			schedules: () => LocalizedString
+			/**
+			 * Fixed refresh policies only. Backoff counters and temporary timestamps are excluded.
+			 */
+			schedulesDescription: () => LocalizedString
+			/**
+			 * Backup scope
+			 */
+			scope: () => LocalizedString
+			/**
+			 * Application settings
+			 */
+			settings: () => LocalizedString
+			/**
+			 * Appearance, language, startup preference, close behavior, and window surface. OS registration is not included.
+			 */
+			settingsDescription: () => LocalizedString
+			/**
+			 * Actual / maximum size
+			 */
+			size: () => LocalizedString
+			/**
+			 * Use backup data where replacement is safe
+			 */
+			useBackup: () => LocalizedString
+		}
 		/**
 		 * Capture and startup
 		 */

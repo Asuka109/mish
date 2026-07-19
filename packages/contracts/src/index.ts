@@ -1114,6 +1114,130 @@ export const RpcSettingsSnapshotSchema = SettingsSnapshotSchema.extend({
 });
 export interface RpcSettingsSnapshotDto extends z.infer<typeof RpcSettingsSnapshotSchema> {}
 
+export const LocalBackupAvailabilitySchema = z.enum(["supported", "unavailable"]);
+export type LocalBackupAvailability = z.infer<typeof LocalBackupAvailabilitySchema>;
+
+export const LocalBackupScopeSchema = z
+  .object({
+    patches: z.boolean(),
+    profiles: z.boolean(),
+    schedules: z.boolean(),
+    settings: z.boolean(),
+    sourceLocators: z.boolean(),
+  })
+  .strict()
+  .superRefine((scope, context) => {
+    if (!scope.patches && !scope.profiles && !scope.schedules && !scope.settings) {
+      context.addIssue({ code: "custom", message: "Select at least one backup category" });
+    }
+    if (scope.sourceLocators && !scope.profiles) {
+      context.addIssue({ code: "custom", message: "Source locators require profile contents" });
+    }
+  });
+export interface LocalBackupScopeDto extends z.infer<typeof LocalBackupScopeSchema> {}
+
+export const LocalBackupSensitiveDataSchema = z.enum([
+  "credentials-and-profile-contents",
+  "subscription-urls-and-full-paths",
+]);
+export type LocalBackupSensitiveData = z.infer<typeof LocalBackupSensitiveDataSchema>;
+
+export const LocalBackupIncludedCountsSchema = z
+  .object({
+    patches: NonNegativeIntegerSchema.max(128 * 128),
+    profiles: NonNegativeIntegerSchema.max(128),
+    schedules: NonNegativeIntegerSchema.max(128),
+    settings: NonNegativeIntegerSchema.max(1),
+  })
+  .strict();
+export interface LocalBackupIncludedCountsDto extends z.infer<
+  typeof LocalBackupIncludedCountsSchema
+> {}
+
+export const LocalBackupPreviewSchema = z
+  .object({
+    contentBytes: NonNegativeIntegerSchema.max(8 * 1_024 * 1_024),
+    excludedSensitiveData: z.array(LocalBackupSensitiveDataSchema).max(2),
+    fileType: z.literal("application/json"),
+    formatVersion: z.literal(1),
+    included: LocalBackupIncludedCountsSchema,
+    includedSensitiveData: z.array(LocalBackupSensitiveDataSchema).max(2),
+    maxBytes: z.literal(8 * 1_024 * 1_024),
+    previewId: IdentifierSchema,
+    scope: LocalBackupScopeSchema,
+  })
+  .strict()
+  .superRefine((preview, context) => {
+    const categories = [...preview.excludedSensitiveData, ...preview.includedSensitiveData];
+    if (new Set(categories).size !== 2 || categories.length !== 2) {
+      context.addIssue({ code: "custom", message: "Sensitive categories must form a partition" });
+    }
+  });
+export interface LocalBackupPreviewDto extends z.infer<typeof LocalBackupPreviewSchema> {}
+
+export const LocalRestoreConflictResolutionSchema = z.enum(["keep-existing", "use-backup"]);
+export type LocalRestoreConflictResolution = z.infer<typeof LocalRestoreConflictResolutionSchema>;
+
+export const LocalRestoreConflictKindSchema = z.enum([
+  "active-profile",
+  "duplicate-fingerprint",
+  "id-mismatch",
+  "missing-profile",
+  "revision-mismatch",
+]);
+export type LocalRestoreConflictKind = z.infer<typeof LocalRestoreConflictKindSchema>;
+
+const LocalBackupFingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+
+export const LocalRestoreConflictSchema = z
+  .object({
+    backupFingerprint: LocalBackupFingerprintSchema,
+    backupRevision: LocalBackupFingerprintSchema,
+    currentFingerprint: LocalBackupFingerprintSchema.nullable(),
+    currentRevision: LocalBackupFingerprintSchema.nullable(),
+    kind: LocalRestoreConflictKindSchema,
+    label: z.string().min(1).max(256),
+    profileId: IdentifierSchema,
+    replaceAllowed: z.boolean(),
+  })
+  .strict();
+export interface LocalRestoreConflictDto extends z.infer<typeof LocalRestoreConflictSchema> {}
+
+export const LocalRestoreActionCountsSchema = z
+  .object({
+    add: NonNegativeIntegerSchema.max(128),
+    replace: NonNegativeIntegerSchema.max(128),
+    skip: NonNegativeIntegerSchema.max(128),
+    update: NonNegativeIntegerSchema.max(129),
+  })
+  .strict();
+export interface LocalRestoreActionCountsDto extends z.infer<
+  typeof LocalRestoreActionCountsSchema
+> {}
+
+export const LocalRestorePreviewSchema = z
+  .object({
+    actions: LocalRestoreActionCountsSchema,
+    conflicts: z.array(LocalRestoreConflictSchema).max(128),
+    contentBytes: NonNegativeIntegerSchema.max(8 * 1_024 * 1_024),
+    fileType: z.literal("application/json"),
+    formatVersion: z.literal(1),
+    included: LocalBackupIncludedCountsSchema,
+    maxBytes: z.literal(8 * 1_024 * 1_024),
+    previewId: IdentifierSchema,
+    scope: LocalBackupScopeSchema,
+  })
+  .strict();
+export interface LocalRestorePreviewDto extends z.infer<typeof LocalRestorePreviewSchema> {}
+
+export const LocalRestoreResultSchema = z
+  .object({
+    applied: LocalRestoreActionCountsSchema,
+    settingsSnapshot: SettingsSnapshotSchema,
+  })
+  .strict();
+export interface LocalRestoreResultDto extends z.infer<typeof LocalRestoreResultSchema> {}
+
 export const StatusSnapshotSchema = z
   .object({
     activeProfileId: IdentifierSchema,
@@ -2334,4 +2458,22 @@ export interface SupportBundleClient {
   readonly availability: SupportBundleAvailability;
   preview(options?: { signal?: AbortSignal }): Promise<SupportBundlePreviewDto>;
   save(previewId: string, options?: { signal?: AbortSignal }): Promise<SupportBundleSaveResultDto>;
+}
+
+export interface LocalBackupClient {
+  readonly availability: LocalBackupAvailability;
+  previewExport(
+    scope: LocalBackupScopeDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<LocalBackupPreviewDto>;
+  saveExport(
+    previewId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<SupportBundleSaveResultDto>;
+  previewRestore(options?: { signal?: AbortSignal }): Promise<LocalRestorePreviewDto | null>;
+  commitRestore(
+    previewId: string,
+    resolution: LocalRestoreConflictResolution,
+    options?: { signal?: AbortSignal },
+  ): Promise<LocalRestoreResultDto>;
 }

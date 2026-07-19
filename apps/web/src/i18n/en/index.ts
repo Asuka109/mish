@@ -34,7 +34,62 @@ const en = {
     background: "Background",
     backup: "Backup and restore",
     backupDescription:
-      "Backup scope, secret handling, validation, and rollback are not implemented yet.",
+      "Create a bounded local backup or validate and restore one without changing network or operating-system state.",
+    backupFlow: {
+      commit: "Restore selected data",
+      conflict: {
+        "active-profile": "Active profile is protected",
+        "duplicate-fingerprint": "Matching content already exists",
+        "id-mismatch": "ID points to different content",
+        "missing-profile": "Matching profile is missing",
+        "revision-mismatch": "Revision or fingerprint differs",
+      },
+      conflicts: "Conflicts requiring a decision",
+      contentCounts:
+        "{settings:number} settings · {profiles:number} profiles · {patches:number} patches · {schedules:number} schedules",
+      contents: "Included data",
+      create: "Create backup",
+      exclusionSummary:
+        "Credentials, profile configuration contents, subscription URLs, full local paths, runtime state, and system capture state remain excluded unless a sensitive scope is selected above.",
+      exportDescription:
+        "Choose the exact scope, then generate a byte-accurate preview before opening the native save panel.",
+      exportTitle: "Create local backup",
+      format: "Format",
+      keepExisting: "Keep current data when a conflict exists",
+      locatorsSensitive: "Subscription URLs and full local paths",
+      locatorsSensitiveDescription:
+        "Sensitive · restores original refresh sources and full private paths. Available only with profile contents.",
+      patches: "Structured profile patches",
+      patchesDescription: "Portable structured edits bound to profile revision and fingerprint.",
+      preview: "Generate preview",
+      profilesSensitive: "Profile configuration contents",
+      profilesSensitiveDescription:
+        "Sensitive · raw and normalized profile configuration may contain proxy credentials or other secrets.",
+      resolution: "Conflict policy",
+      restore: "Restore backup",
+      restoreDescription:
+        "The file has passed schema, size, identity, revision, fingerprint, and content-integrity validation.",
+      restoreSafety:
+        "Restore is transactional. It will not start Core, activate a profile, enable System Proxy or TUN, register login startup, or otherwise modify operating-system state.",
+      restoreTitle: "Review validated restore",
+      result: {
+        cancelled: "The local file panel was cancelled. Nothing changed.",
+        exported: "The local backup was written atomically.",
+        failed: "The local backup operation failed. No partial restore was kept.",
+        idle: "",
+        restored: "The validated backup was restored transactionally.",
+      },
+      save: "Choose location and save",
+      schedules: "Profile refresh schedules",
+      schedulesDescription:
+        "Fixed refresh policies only. Backoff counters and temporary timestamps are excluded.",
+      scope: "Backup scope",
+      settings: "Application settings",
+      settingsDescription:
+        "Appearance, language, startup preference, close behavior, and window surface. OS registration is not included.",
+      size: "Actual / maximum size",
+      useBackup: "Use backup data where replacement is safe",
+    },
     captureStartup: "Capture and startup",
     captureStartupDescription: "Owns durable OS capture intent and how Mish starts at login.",
     comingLater: "Coming later",

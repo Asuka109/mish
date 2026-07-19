@@ -18,6 +18,7 @@ import type {
   WindowSurfacePreference,
 } from "@mish/contracts";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
+import { LocalBackupControl } from "../components/local-backup-control";
 import { useAppearance } from "../appearance";
 import { useProduct } from "../data/product-provider";
 import { useSettings } from "../data/settings-provider";
@@ -466,7 +467,7 @@ export function SettingsPage() {
           description={LL.settingsPage.backupDescription()}
           title={LL.settingsPage.backup()}
         >
-          <AvailabilityBadge availability={snapshot.capabilities.backupRestore} />
+          <LocalBackupControl />
         </SettingsRow>
       </SettingsSection>
 

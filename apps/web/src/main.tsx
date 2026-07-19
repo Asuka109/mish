@@ -89,6 +89,7 @@ async function startApplication() {
         <SettingsProvider
           client={startup.settingsClient}
           initialSnapshot={startup.settingsSnapshot}
+          localBackupClient={startup.localBackupClient}
         >
           <ConfiguredAppearanceProvider>
             <TypesafeI18n locale={initialLocale}>

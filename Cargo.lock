@@ -2180,6 +2180,7 @@ name = "mish-bridge"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "bytes",
  "clap",
  "futures-util",
@@ -2195,6 +2196,7 @@ dependencies = [
  "serde_norway",
  "sha2",
  "subtle",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite 0.30.0",

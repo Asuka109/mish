@@ -11,6 +11,8 @@ import {
   type ProfileClient,
   type ProfileSnapshotDto,
   type LanguagePreference,
+  type LocalBackupClient,
+  type LocalBackupScopeDto,
   type RoutingMode,
   type SettingsClient,
   type SettingsSnapshotDto,
@@ -48,9 +50,14 @@ function renderRoute(
   profileClient?: ProfileClient,
   settingsClient: SettingsClient = new FixtureSettingsClient(),
   settingsSnapshot: SettingsSnapshotDto = createFixtureSettingsSnapshot(),
+  localBackupClient?: LocalBackupClient,
 ) {
   return render(
-    <SettingsProvider client={settingsClient} initialSnapshot={settingsSnapshot}>
+    <SettingsProvider
+      client={settingsClient}
+      initialSnapshot={settingsSnapshot}
+      localBackupClient={localBackupClient}
+    >
       <AppearanceProvider
         initialPreference={settingsSnapshot.preferences.appearance}
         initialWindowSurfacePreference={settingsSnapshot.preferences.windowSurface}
@@ -184,6 +191,30 @@ class DesktopSettingsClient implements SettingsClient {
     this.snapshot.preferences.windowSurface = surface;
     return this.getSnapshot();
   });
+}
+
+class TestLocalBackupClient implements LocalBackupClient {
+  readonly availability = "supported" as const;
+  readonly previewExport = vi.fn(async (scope: LocalBackupScopeDto) => ({
+    contentBytes: 4_096,
+    excludedSensitiveData: [
+      "credentials-and-profile-contents" as const,
+      "subscription-urls-and-full-paths" as const,
+    ],
+    fileType: "application/json" as const,
+    formatVersion: 1 as const,
+    included: { patches: 3, profiles: 0, schedules: 2, settings: 1 },
+    includedSensitiveData: [],
+    maxBytes: 8_388_608 as const,
+    previewId: "preview-1",
+    scope,
+  }));
+  readonly saveExport = vi.fn(async () => ({ status: "written" as const }));
+  readonly previewRestore = vi.fn(async () => null);
+  readonly commitRestore = vi.fn(async () => ({
+    applied: { add: 0, replace: 0, skip: 0, update: 1 },
+    settingsSnapshot: createFixtureSettingsSnapshot(),
+  }));
 }
 
 class FailingCaptureClient extends FixtureStatusClient {
@@ -494,6 +525,49 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
+  it("previews exact local backup scope before opening the native save boundary", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.backupRestore = "supported";
+    const backupClient = new TestLocalBackupClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+      backupClient,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Create backup" }));
+    const dialog = screen.getByRole("dialog", { name: "Create local backup" });
+    expect(within(dialog).getByRole("checkbox", { name: /Application settings/ })).toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", { name: /Profile configuration contents/ }),
+    ).not.toBeChecked();
+    expect(
+      within(dialog).getByRole("checkbox", { name: /Subscription URLs and full local paths/ }),
+    ).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Generate preview" }));
+    expect(await within(dialog).findByText("JSON · v1")).toBeVisible();
+    expect(
+      within(dialog).getByText(/1 settings · 0 profiles · 3 patches · 2 schedules/),
+    ).toBeVisible();
+    expect(backupClient.previewExport).toHaveBeenCalledWith({
+      patches: true,
+      profiles: false,
+      schedules: true,
+      settings: true,
+      sourceLocators: false,
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "Choose location and save" }));
+    await waitFor(() => expect(backupClient.saveExport).toHaveBeenCalledWith("preview-1"));
+    expect(await screen.findByText("The local backup was written atomically.")).toBeVisible();
+  });
+
   it("scopes native material to the sidebar and keeps the workspace opaque", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
