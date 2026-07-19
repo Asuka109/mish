@@ -227,3 +227,7 @@ export function useEvents() {
   if (!context) throw new Error("useEvents must be used inside EventsProvider");
   return context;
 }
+
+export function useOptionalEvents() {
+  return useContext(EventsContext);
+}

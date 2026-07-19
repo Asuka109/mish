@@ -39,6 +39,7 @@ import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { handleDesktopWindowDrag } from "../platform/desktop-window";
+import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
 import { SurfaceScope } from "./surface-scope";
 
@@ -413,6 +414,7 @@ function Toolbar() {
         <AppearanceMenu />
         <LanguageMenu />
         <ProfileMenu />
+        <NotificationBubble />
       </div>
     </header>
   );

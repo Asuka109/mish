@@ -375,6 +375,28 @@ describe("production routes", () => {
     expect(brandImages[1]).toHaveAttribute("src", "/brand/mish-brand-dark.svg");
   });
 
+  it("shows important events in the notification popover and marks them read", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    await user.click(await screen.findByRole("button", { name: "Notifications, 2 unread" }));
+
+    expect(await screen.findByRole("heading", { name: "Notifications" })).toBeInTheDocument();
+    expect(screen.getByText("Synthetic route check failed")).toBeInTheDocument();
+    expect(
+      screen.getByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Mark all read" }));
+
+    expect(screen.getByRole("button", { name: "Notifications, 0 unread" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark all read" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "View all events" }));
+
+    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
+  });
+
   it.each([
     ["/status", "Status"],
     ["/routes", "Routes"],
