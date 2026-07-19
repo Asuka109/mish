@@ -7,9 +7,12 @@ use std::{
 
 use mish_bridge::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService, LoopbackServerConfig,
-    LoopbackServerHandle, ReqwestHttpsSourceReader, compose_desktop_runtime, start_loopback_server,
+    LoopbackServerHandle, ReqwestHttpsSourceReader, compose_desktop_runtime_with_capture,
+    start_loopback_server,
 };
+use mish_platform_macos::{FileCaptureJournalStore, MacOsSystemProxyPlatform};
 use mish_profile::{ProfilePreview, ProfileServiceError};
+use mish_runtime::{CaptureReconciler, LoopbackProxyEndpoint};
 use serde::Serialize;
 use tauri::Manager;
 
@@ -95,17 +98,26 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
     let profile_service = Arc::new(
-        ReqwestHttpsSourceReader::profile_service(profile_root)
+        ReqwestHttpsSourceReader::profile_service(profile_root.clone())
             .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
     );
     let bridge = tauri::async_runtime::block_on(async {
-        let runtime = compose_desktop_runtime(
+        let capture = Arc::new(CaptureReconciler::new(
+            Arc::new(MacOsSystemProxyPlatform::new()),
+            Arc::new(FileCaptureJournalStore::new(
+                profile_root.join("system-proxy-journal.json"),
+            )),
+            LoopbackProxyEndpoint::new("127.0.0.1", 7890)
+                .map_err(|error| io::Error::other(error.to_string()))?,
+        ));
+        let runtime = compose_desktop_runtime_with_capture(
             Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
                 binary: None,
                 config_directory: None,
                 config_file: None,
             })),
             None,
+            Some(capture),
         )
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;

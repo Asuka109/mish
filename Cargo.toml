@@ -3,6 +3,7 @@ members = [
   "apps/desktop/src-tauri",
   "crates/desktop-bridge",
   "crates/mihomo-controller",
+  "crates/platform-macos",
   "crates/profile",
   "crates/runtime",
 ]

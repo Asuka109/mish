@@ -73,9 +73,16 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
     ],
     routingMode: "rule",
     runtime: {
-      captureSelection: { systemProxy: true, tun: false },
+      captureSelection: { systemProxy: false, tun: false },
       message: "Mock transport is connected",
       phase: "inactive",
+      systemProxy: {
+        desired: false,
+        failure: null,
+        observed: "disabled",
+        phase: "off",
+        recoveryActions: [],
+      },
       systemProxyEnabled: false,
       tunEnabled: false,
     },
@@ -228,7 +235,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         const values = params as Record<string, unknown>;
         switch (method) {
           case "bridge.getInfo":
-            return { bridgeVersion: "mock", coreConfigured: true, protocolVersion: 2 };
+            return { bridgeVersion: "mock", coreConfigured: true, protocolVersion: 3 };
           case "core.getStatus":
             return core;
           case "core.start":
@@ -253,11 +260,20 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               captureSelection: { ...selection },
               message: captureActive ? "Mock capture is active" : "Mock capture is inactive",
               phase: captureActive ? "healthy" : "inactive",
+              systemProxy: {
+                desired: systemProxyEnabled,
+                failure: null,
+                observed: systemProxyEnabled ? "mish" : "disabled",
+                phase: systemProxyEnabled ? "applied" : "off",
+                recoveryActions: [],
+              },
               systemProxyEnabled,
               tunEnabled,
             };
             return structuredClone(snapshot);
           }
+          case "status.recoverSystemProxy":
+            throw new MockRpcError(-32050, "Mock System Proxy has no observed drift");
           case "status.setActiveProfile": {
             const profileId = String(values.profileId);
             if (!snapshot.profiles.some((profile) => profile.id === profileId))

@@ -85,7 +85,8 @@ Automated tests cover:
   controls;
 - a 160-node scale fixture whose collapsed children are not rendered;
 - group-scoped child validation and selection;
-- aggregate capture state without real system operations;
+- aggregate capture state, default-off fixture behavior, and explicit fixture-only
+  descriptions without real system operations;
 - routing-mode changes through Base UI pressed-state controls;
 - verbatim mixed-script and emoji labels; and
 - English-to-Chinese switching, document language updates, and local locale
@@ -125,7 +126,18 @@ Automated tests cover:
   streams, bounded traffic retention, bounded connection de-duplication, and
   effective-rule counts;
 - explicit desktop-bridge rejection and non-mutation coverage for every
-  network-changing Status command;
+  unsupported network-changing Status command;
+- authenticated System Proxy RPC coverage for confirmed application, typed TUN
+  rejection, drift notifications, bounded recovery actions, and sensitive-state
+  redaction;
+- transport-neutral System Proxy reconciliation coverage for pending/applied/
+  failed/drift state, external modification, partial failure, confirmed
+  rollback, rollback failure, network-service changes, core crash, restart
+  audit, conservative shutdown, unavailable capability, and repair or
+  leave-as-is recovery;
+- macOS adapter coverage for structured fixed-program arguments, current-service
+  observation, HTTP/HTTPS/SOCKS application, permission failure typing,
+  private atomic journaling, and output redaction;
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events;
