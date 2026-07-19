@@ -198,6 +198,11 @@ runtime host so runtime replacement invalidates in-flight work. It defines no
 mutation, export, upload, arbitrary endpoint, or persistent history method; see
 [`diagnostics-data-contracts.md`](diagnostics-data-contracts.md).
 
+Protocol version 8 adds the independent close-window preference and status-bar
+and window-lifecycle capability fields. Native menu commands do not create a
+second RPC protocol: the Tauri shell calls the same runtime, capture, routing,
+and profile-activation application seams composed behind RPC.
+
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift
 `NEPacketTunnelProvider` with an embedded core framework. These adapters are
@@ -230,6 +235,9 @@ native menu should expose stable, common commands such as proxy start/stop,
 capture modes, profile selection, group-scoped proxy selection, opening the
 Tauri window, and opening the local browser client. Menu commands call the same
 desktop-bridge application API as the React UI.
+The implemented ownership, privacy constraints, menu boundary, and close-window
+preference are specified in
+[`native-status-bar-lifecycle.md`](native-status-bar-lifecycle.md).
 
 ## Native sidebar material
 

@@ -15,6 +15,7 @@ import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
 import { persistLocale, resolveInitialLocale } from "./i18n/locale";
 import { resolveStartupStatusClient } from "./platform/runtime-bootstrap";
+import { NativeNavigationBridge } from "./platform/native-navigation";
 import "./styles.css";
 
 const root = document.getElementById("root");
@@ -60,6 +61,7 @@ async function startApplication() {
           <ConfiguredAppearanceProvider>
             <TypesafeI18n locale={initialLocale}>
               <BrowserRouter>
+                <NativeNavigationBridge />
                 <ProductProvider client={startup.client}>
                   <ProfileProvider client={startup.profileClient}>
                     <TrafficProvider client={startup.trafficClient}>

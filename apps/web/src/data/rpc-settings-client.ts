@@ -4,6 +4,7 @@ import {
   type LanguagePreference,
   type SettingsClient,
   type StartupPreferencesDto,
+  type WindowCloseBehavior,
 } from "@mish/contracts";
 import type { RpcClient, RpcRequestOptions } from "@mish/rpc-client";
 
@@ -24,5 +25,9 @@ export class RpcSettingsClient implements SettingsClient {
 
   setStartup(startup: StartupPreferencesDto, options?: RpcRequestOptions) {
     return this.rpc.request("settings.setStartup", { startup }, options);
+  }
+
+  setWindowCloseBehavior(behavior: WindowCloseBehavior, options?: RpcRequestOptions) {
+    return this.rpc.request("settings.setWindowCloseBehavior", { behavior }, options);
   }
 }

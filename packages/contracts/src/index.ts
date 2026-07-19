@@ -828,6 +828,9 @@ export type LanguagePreference = z.infer<typeof LanguagePreferenceSchema>;
 export const LoginLaunchBehaviorSchema = z.enum(["show-window", "background"]);
 export type LoginLaunchBehavior = z.infer<typeof LoginLaunchBehaviorSchema>;
 
+export const WindowCloseBehaviorSchema = z.enum(["hide-to-status-bar", "quit"]);
+export type WindowCloseBehavior = z.infer<typeof WindowCloseBehaviorSchema>;
+
 export const StartupPreferencesSchema = z
   .object({
     launchAtLogin: z.boolean(),
@@ -841,6 +844,7 @@ export const SettingsPreferencesSchema = z
     appearance: AppearancePreferenceSchema,
     language: LanguagePreferenceSchema,
     startup: StartupPreferencesSchema,
+    windowCloseBehavior: WindowCloseBehaviorSchema,
   })
   .strict();
 export interface SettingsPreferencesDto extends z.infer<typeof SettingsPreferencesSchema> {}
@@ -859,8 +863,10 @@ export const SettingsCapabilitiesSchema = z
     launchAtLogin: SettingsAvailabilitySchema,
     nativeSidebarMaterial: SettingsAvailabilitySchema,
     networkDns: SettingsAvailabilitySchema,
+    statusBar: SettingsAvailabilitySchema,
     tun: SettingsAvailabilitySchema,
     updates: SettingsAvailabilitySchema,
+    windowLifecycle: SettingsAvailabilitySchema,
   })
   .strict();
 export interface SettingsCapabilitiesDto extends z.infer<typeof SettingsCapabilitiesSchema> {}
@@ -1028,7 +1034,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(7),
+    protocolVersion: z.literal(8),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -1474,6 +1480,9 @@ export const SetLanguagePreferenceCommandSchema = z
 export const SetStartupPreferencesCommandSchema = z
   .object({ startup: StartupPreferencesSchema })
   .strict();
+export const SetWindowCloseBehaviorCommandSchema = z
+  .object({ behavior: WindowCloseBehaviorSchema })
+  .strict();
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
@@ -1487,6 +1496,10 @@ export const settingsRpcMethods = {
   },
   "settings.setStartup": {
     params: SetStartupPreferencesCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setWindowCloseBehavior": {
+    params: SetWindowCloseBehaviorCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
 } as const;
@@ -1624,6 +1637,10 @@ export interface SettingsClient {
   ): Promise<SettingsSnapshotDto>;
   setStartup(
     startup: StartupPreferencesDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  setWindowCloseBehavior(
+    behavior: WindowCloseBehavior,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
 }

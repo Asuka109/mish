@@ -174,6 +174,20 @@ impl DesktopRuntimeHost {
         }
     }
 
+    pub async fn status_snapshot_typed(
+        &self,
+        adapter_kind: StatusAdapterKind,
+    ) -> mish_runtime::StatusSnapshot {
+        loop {
+            let mut changes = self.subscribe_changes();
+            let runtime = changes.borrow_and_update().clone();
+            let snapshot = runtime.status_snapshot_typed(adapter_kind).await;
+            if !changes.has_changed().unwrap_or(false) {
+                return snapshot;
+            }
+        }
+    }
+
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         loop {
             let mut changes = self.subscribe_changes();

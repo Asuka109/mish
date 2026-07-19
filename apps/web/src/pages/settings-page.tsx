@@ -264,6 +264,37 @@ export function SettingsPage() {
         id="settings-appearance"
         title={LL.settingsPage.appearance()}
       >
+        <SettingsRow
+          description={LL.settingsPage.closeWindowDescription()}
+          title={LL.settingsPage.closeWindow()}
+        >
+          <div className="settings-inline-control">
+            <ToggleGroup
+              aria-label={LL.settingsPage.closeWindow()}
+              className="settings-segmented"
+              disabled={
+                snapshot.adapterKind !== "rpc" ||
+                snapshot.capabilities.windowLifecycle !== "supported" ||
+                settings.pending
+              }
+              onValueChange={(values) => {
+                const behavior = values[0];
+                if (behavior === "hide-to-status-bar" || behavior === "quit") {
+                  void settings.setWindowCloseBehavior(behavior);
+                }
+              }}
+              spacing={0}
+              value={[snapshot.preferences.windowCloseBehavior]}
+              variant="outline"
+            >
+              <ToggleGroupItem value="hide-to-status-bar">
+                {LL.settingsPage.hideToStatusBar()}
+              </ToggleGroupItem>
+              <ToggleGroupItem value="quit">{LL.settingsPage.quitOnClose()}</ToggleGroupItem>
+            </ToggleGroup>
+            <AvailabilityBadge availability={snapshot.capabilities.windowLifecycle} />
+          </div>
+        </SettingsRow>
         <SettingsRow description={LL.settingsPage.themeDescription()} title={LL.appearance.label()}>
           <ToggleGroup
             aria-label={LL.appearance.label()}

@@ -11,13 +11,16 @@ const settingsSnapshot = {
     launchAtLogin: "supported" as const,
     nativeSidebarMaterial: "supported" as const,
     networkDns: "coming-later" as const,
+    statusBar: "supported" as const,
     tun: "unavailable" as const,
     updates: "coming-later" as const,
+    windowLifecycle: "supported" as const,
   },
   preferences: {
     appearance: "system" as const,
     language: "en" as const,
     startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" as const },
+    windowCloseBehavior: "hide-to-status-bar" as const,
   },
   privacy: {
     authenticated: "confirmed" as const,

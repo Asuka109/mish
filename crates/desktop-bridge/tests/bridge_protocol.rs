@@ -341,21 +341,43 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     assert_eq!(startup["result"]["startupRegistration"]["phase"], "applied");
     assert_eq!(startup["result"]["startupRegistration"]["observed"], true);
 
+    let close_behavior = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"settings.setWindowCloseBehavior",
+            "params":{"behavior":"quit"}
+        }),
+    )
+    .await;
+    assert_eq!(
+        close_behavior["result"]["preferences"]["windowCloseBehavior"],
+        "quit"
+    );
+    assert_eq!(
+        close_behavior["result"]["preferences"]["startup"]["loginLaunchBehavior"],
+        "background"
+    );
+
     for (id, method, params) in [
         (
-            5,
+            6,
             "settings.setAppearance",
             json!({"appearance":"dark", "path":"/tmp/secret"}),
         ),
         (
-            6,
+            7,
             "settings.setLanguage",
             json!({"language":"zh", "command":"open"}),
         ),
         (
-            7,
+            8,
             "settings.setStartup",
             json!({"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background","configuration":{}}}),
+        ),
+        (
+            9,
+            "settings.setWindowCloseBehavior",
+            json!({"behavior":"quit","path":"/tmp/secret"}),
         ),
     ] {
         let rejected = request(
@@ -382,7 +404,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 7);
+    assert_eq!(info["result"]["protocolVersion"], 8);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})

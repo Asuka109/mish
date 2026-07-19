@@ -13,6 +13,7 @@ describe("RPC settings client", () => {
     await client.setAppearance("dark");
     await client.setLanguage("zh");
     await client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" });
+    await client.setWindowCloseBehavior("quit");
 
     expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
       ["settings.setAppearance", { appearance: "dark" }],
@@ -21,6 +22,7 @@ describe("RPC settings client", () => {
         "settings.setStartup",
         { startup: { launchAtLogin: true, loginLaunchBehavior: "background" } },
       ],
+      ["settings.setWindowCloseBehavior", { behavior: "quit" }],
     ]);
   });
 });
