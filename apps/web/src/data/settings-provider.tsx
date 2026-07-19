@@ -13,6 +13,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -25,6 +26,7 @@ interface SettingsContextValue {
   pending: boolean;
   installTunHelper(): Promise<boolean>;
   localBackupClient: LocalBackupClient;
+  refreshNetworkDns(): Promise<boolean>;
   removeTunHelper(): Promise<boolean>;
   repairTunHelper(): Promise<boolean>;
   setAppearance(appearance: AppearancePreference): Promise<boolean>;
@@ -52,6 +54,7 @@ export function SettingsProvider({
   const [snapshot, setSnapshot] = useState(initialSnapshot);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
+  const networkRefreshController = useRef<AbortController | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const run = useCallback(
@@ -79,6 +82,27 @@ export function SettingsProvider({
     [client],
   );
 
+  const refreshNetworkDns = useCallback(async () => {
+    if (networkRefreshController.current) return false;
+    const controller = new AbortController();
+    networkRefreshController.current = controller;
+    try {
+      return await run(() => client.refreshNetworkDns({ signal: controller.signal }));
+    } finally {
+      if (networkRefreshController.current === controller) {
+        networkRefreshController.current = null;
+      }
+    }
+  }, [client, run]);
+
+  useEffect(
+    () => () => {
+      networkRefreshController.current?.abort();
+      networkRefreshController.current = null;
+    },
+    [],
+  );
+
   const value = useMemo<SettingsContextValue>(
     () => ({
       acceptSnapshot: setSnapshot,
@@ -86,6 +110,7 @@ export function SettingsProvider({
       installTunHelper: () => run(() => client.installTunHelper()),
       localBackupClient,
       pending,
+      refreshNetworkDns,
       removeTunHelper: () => run(() => client.removeTunHelper()),
       repairTunHelper: () => run(() => client.repairTunHelper()),
       setAppearance: (appearance) => run(() => client.setAppearance(appearance)),
@@ -95,7 +120,7 @@ export function SettingsProvider({
       setWindowSurface: (surface) => run(() => client.setWindowSurface(surface)),
       snapshot,
     }),
-    [client, error, localBackupClient, pending, run, snapshot],
+    [client, error, localBackupClient, pending, refreshNetworkDns, run, snapshot],
   );
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }

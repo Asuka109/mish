@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use futures_util::future::{BoxFuture, ready};
@@ -12,6 +15,11 @@ use mish_runtime::{
     PlatformLifecycleEvent, PlatformLifecycleEventKind, PlatformLifecycleEventSource,
     RuntimeObservationPauseReason, StatusAdapterKind, StatusDataSource, StatusSnapshot,
     SystemProxyPhase, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+};
+use mish_settings::{
+    DnsObservation, FileSettingsRepository, NetworkDnsObservation, NetworkDnsObservationError,
+    NetworkDnsPhase, NetworkDnsPlatform, NetworkDnsSource, NetworkInterfaceKind,
+    NetworkInterfaceObservation, SettingsAdapterKind, SettingsCapabilities, SettingsService,
 };
 use tokio::sync::{Notify, broadcast};
 
@@ -147,6 +155,31 @@ impl TrafficDataSource for RecordingSource {
         snapshot.phase = TrafficDataPhase::Ready;
         snapshot.session_id = Some("recording-session".into());
         snapshot
+    }
+}
+
+#[derive(Default)]
+struct RecordingNetworkDnsPlatform(AtomicUsize);
+
+impl NetworkDnsPlatform for RecordingNetworkDnsPlatform {
+    fn observe(&self) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>> {
+        self.0.fetch_add(1, Ordering::AcqRel);
+        Box::pin(ready(Ok(NetworkDnsObservation {
+            dns: DnsObservation {
+                resolver_count: 1,
+                scoped_resolver_count: 0,
+                search_domains: Vec::new(),
+                servers: vec!["192.0.2.53".into()],
+            },
+            interfaces: vec![NetworkInterfaceObservation {
+                interface: "en0".into(),
+                interface_kind: NetworkInterfaceKind::Ethernet,
+                ipv4_available: true,
+                ipv6_available: false,
+                service: Some("Test Ethernet".into()),
+            }],
+            source: NetworkDnsSource::MacosSystemConfiguration,
+        })))
     }
 }
 
@@ -337,6 +370,86 @@ async fn fake_sleep_and_wake_events_pause_then_rebuild_observation_authority() {
         ]
     );
     assert_eq!(fixture.source.resume_count(), 1);
+}
+
+#[tokio::test]
+async fn lifecycle_boundaries_mark_network_dns_stale_before_reobservation() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let root = tempfile::tempdir().unwrap();
+    let platform = Arc::new(RecordingNetworkDnsPlatform::default());
+    let settings = Arc::new(
+        SettingsService::load_with_platforms(
+            Arc::new(FileSettingsRepository::new(
+                root.path().join("settings.json"),
+            )),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+            None,
+            Some(platform.clone()),
+        )
+        .unwrap(),
+    );
+    let coordinator = DesktopLifecycleCoordinator::with_settings(
+        DesktopRuntimeHost::new(fixture.runtime.clone()),
+        Some(settings.clone()),
+    );
+    settings.refresh_network_dns().await;
+    assert_eq!(
+        settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .network_dns
+            .phase,
+        NetworkDnsPhase::Ready
+    );
+
+    coordinator
+        .handle_platform_event(PlatformLifecycleEvent {
+            kind: PlatformLifecycleEventKind::Sleep,
+            sequence: 1,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .network_dns
+            .phase,
+        NetworkDnsPhase::Stale
+    );
+
+    coordinator
+        .handle_platform_event(PlatformLifecycleEvent {
+            kind: PlatformLifecycleEventKind::Wake,
+            sequence: 2,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .network_dns
+            .phase,
+        NetworkDnsPhase::Ready
+    );
+
+    coordinator.handle_core_availability(false).await.unwrap();
+    assert_eq!(
+        settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .network_dns
+            .phase,
+        NetworkDnsPhase::Stale
+    );
+    coordinator.handle_core_availability(true).await.unwrap();
+    assert_eq!(
+        settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .network_dns
+            .phase,
+        NetworkDnsPhase::Ready
+    );
+    assert_eq!(platform.0.load(Ordering::Acquire), 3);
 }
 
 #[tokio::test]

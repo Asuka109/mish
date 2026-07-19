@@ -21,9 +21,11 @@ use mish_runtime::{
     MishRuntime, NetworkServiceProxyState,
 };
 use mish_settings::{
-    LoadedSettings, SettingsCapabilities, SettingsPreferences, SettingsRepository,
-    SettingsRepositoryError, SettingsService, StartupPlatform, StartupPlatformError,
-    WindowSurfacePlatform, WindowSurfacePlatformError, WindowSurfacePreference,
+    DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
+    NetworkDnsPlatform, NetworkDnsSource, NetworkInterfaceKind, NetworkInterfaceObservation,
+    SettingsCapabilities, SettingsPreferences, SettingsRepository, SettingsRepositoryError,
+    SettingsService, StartupPlatform, StartupPlatformError, WindowSurfacePlatform,
+    WindowSurfacePlatformError, WindowSurfacePreference,
 };
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
@@ -150,13 +152,38 @@ impl WindowSurfacePlatform for MemoryWindowSurfacePlatform {
     }
 }
 
+struct MemoryNetworkDnsPlatform;
+
+impl NetworkDnsPlatform for MemoryNetworkDnsPlatform {
+    fn observe(&self) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>> {
+        Box::pin(ready(Ok(NetworkDnsObservation {
+            dns: DnsObservation {
+                resolver_count: 1,
+                scoped_resolver_count: 1,
+                search_domains: vec!["private.example".into()],
+                servers: vec!["192.0.2.53".into()],
+            },
+            interfaces: vec![NetworkInterfaceObservation {
+                interface: "en0".into(),
+                interface_kind: NetworkInterfaceKind::Ethernet,
+                ipv4_available: true,
+                ipv6_available: false,
+                service: Some("Office LAN".into()),
+            }],
+            source: NetworkDnsSource::MacosSystemConfiguration,
+        })))
+    }
+}
+
 fn settings_service() -> Arc<SettingsService> {
     Arc::new(
-        SettingsService::load(
+        SettingsService::load_with_platforms(
             Arc::new(MemorySettingsRepository::default()),
             Some(Arc::new(MemoryStartupPlatform::default())),
             Some(Arc::new(MemoryWindowSurfacePlatform::default())),
             SettingsCapabilities::macos(true),
+            None,
+            Some(Arc::new(MemoryNetworkDnsPlatform)),
         )
         .unwrap(),
     )
@@ -382,6 +409,39 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     );
     assert!(initial["result"].get("authToken").is_none());
 
+    let arbitrary_network_argument = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":20, "method":"settings.refreshNetworkDns",
+            "params":{"interface":"en0", "dns":"private.example"}
+        }),
+    )
+    .await;
+    assert_eq!(arbitrary_network_argument["error"]["code"], -32602);
+    assert!(
+        !arbitrary_network_argument
+            .to_string()
+            .contains("private.example")
+    );
+
+    let network = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":23, "method":"settings.refreshNetworkDns", "params":{}
+        }),
+    )
+    .await;
+    assert_eq!(network["result"]["networkDns"]["phase"], "ready");
+    assert_eq!(
+        network["result"]["networkDns"]["source"],
+        "macos-system-configuration"
+    );
+    assert_eq!(
+        network["result"]["networkDns"]["interfaces"][0]["interface"],
+        "en0"
+    );
+    assert_eq!(network["result"]["networkDns"]["dns"]["resolverCount"], 1);
+
     let arbitrary_helper_argument = request(
         &mut ws,
         json!({
@@ -508,7 +568,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 12);
+    assert_eq!(info["result"]["protocolVersion"], 13);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})

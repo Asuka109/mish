@@ -23,6 +23,7 @@ decisions from chat history.
 | How are Events buffered, redacted, and separated across sessions?               | [`architecture/events-data-contracts.md`](architecture/events-data-contracts.md)                 |
 | How do guided diagnostic runs stay scoped, fixed, bounded, and read-only?       | [`architecture/diagnostics-data-contracts.md`](architecture/diagnostics-data-contracts.md)       |
 | How are application settings stored, reconciled, and exposed?                   | [`architecture/settings-contracts.md`](architecture/settings-contracts.md)                       |
+| How is current macOS Network and DNS state observed without mutation?           | [`architecture/network-dns-observation.md`](architecture/network-dns-observation.md)             |
 | How are local backups scoped, validated, written, and restored transactionally? | [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                   |
 | How do the native status bar and main-window lifecycle behave?                  | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     |
 | How should recurring UI structures be composed?                                 | [`design/component-patterns.md`](design/component-patterns.md)                                   |

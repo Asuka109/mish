@@ -424,6 +424,7 @@ async fn handle_message(
             | "diagnostics.getHistory"
             | "diagnostics.startRun"
             | "settings.getSnapshot"
+            | "settings.refreshNetworkDns"
             | "settings.installTunHelper"
             | "settings.repairTunHelper"
             | "settings.removeTunHelper"
@@ -464,7 +465,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 12,
+            "protocolVersion": 13,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1022,6 +1023,13 @@ async fn handle_message(
                 return Some(settings_capability_error(id));
             };
             serde_json::to_value(service.snapshot(SettingsAdapterKind::Rpc))
+                .expect("serializable settings snapshot")
+        }
+        "settings.refreshNetworkDns" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            serde_json::to_value(service.refresh_network_dns().await)
                 .expect("serializable settings snapshot")
         }
         "settings.installTunHelper" => {

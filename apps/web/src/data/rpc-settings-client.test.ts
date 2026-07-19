@@ -15,6 +15,7 @@ describe("RPC settings client", () => {
     await client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" });
     await client.setWindowCloseBehavior("quit");
     await client.setWindowSurface("opaque");
+    await client.refreshNetworkDns();
 
     expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
       ["settings.setAppearance", { appearance: "dark" }],
@@ -25,6 +26,7 @@ describe("RPC settings client", () => {
       ],
       ["settings.setWindowCloseBehavior", { behavior: "quit" }],
       ["settings.setWindowSurface", { surface: "opaque" }],
+      ["settings.refreshNetworkDns", {}],
     ]);
   });
 });

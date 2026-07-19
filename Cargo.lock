@@ -2250,6 +2250,7 @@ dependencies = [
  "block2",
  "futures-util",
  "mish-runtime",
+ "mish-settings",
  "objc2-app-kit",
  "objc2-foundation",
  "serde_json",
@@ -2286,11 +2287,13 @@ dependencies = [
 name = "mish-settings"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "mish-runtime",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
  "uuid",
 ]
 

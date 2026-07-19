@@ -4,9 +4,14 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{SystemTime, UNIX_EPOCH},
 };
 
+use futures_util::future::BoxFuture;
 use mish_runtime::{
     TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperSnapshot,
 };
@@ -113,7 +118,7 @@ impl SettingsCapabilities {
             backup_restore: SettingsAvailability::ComingLater,
             expert_configuration: SettingsAvailability::ComingLater,
             launch_at_login: SettingsAvailability::Supported,
-            network_dns: SettingsAvailability::ComingLater,
+            network_dns: SettingsAvailability::Supported,
             native_sidebar_material: if native_sidebar_material {
                 SettingsAvailability::Supported
             } else {
@@ -165,11 +170,118 @@ pub struct StartupRegistrationSnapshot {
 pub struct SettingsSnapshot {
     pub adapter_kind: SettingsAdapterKind,
     pub capabilities: SettingsCapabilities,
+    pub network_dns: NetworkDnsSnapshot,
     pub preferences: SettingsPreferences,
     pub privacy: PrivacyAccessSnapshot,
     pub startup_registration: StartupRegistrationSnapshot,
     pub storage_recovered: bool,
     pub tun_helper: TunHelperSnapshot,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetworkDnsPhase {
+    Failed,
+    Ready,
+    Stale,
+    Unavailable,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetworkDnsFailureKind {
+    CommandFailed,
+    CommandUnavailable,
+    InvalidOutput,
+    OutputTooLarge,
+    TimedOut,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetworkInterfaceKind {
+    Ethernet,
+    Other,
+    ThunderboltBridge,
+    Unknown,
+    Wifi,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkInterfaceObservation {
+    pub interface: String,
+    pub interface_kind: NetworkInterfaceKind,
+    pub ipv4_available: bool,
+    pub ipv6_available: bool,
+    pub service: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DnsObservation {
+    pub resolver_count: u16,
+    pub scoped_resolver_count: u16,
+    pub search_domains: Vec<String>,
+    pub servers: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetworkDnsSource {
+    MacosSystemConfiguration,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkDnsSnapshot {
+    pub dns: Option<DnsObservation>,
+    pub failure: Option<NetworkDnsFailureKind>,
+    pub observed_at: Option<u64>,
+    pub phase: NetworkDnsPhase,
+    pub interfaces: Vec<NetworkInterfaceObservation>,
+    pub source: Option<NetworkDnsSource>,
+}
+
+impl NetworkDnsSnapshot {
+    fn unavailable() -> Self {
+        Self {
+            dns: None,
+            failure: None,
+            interfaces: Vec::new(),
+            observed_at: None,
+            phase: NetworkDnsPhase::Unavailable,
+            source: None,
+        }
+    }
+
+    fn unknown() -> Self {
+        Self {
+            dns: None,
+            failure: None,
+            interfaces: Vec::new(),
+            observed_at: None,
+            phase: NetworkDnsPhase::Unknown,
+            source: Some(NetworkDnsSource::MacosSystemConfiguration),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NetworkDnsObservation {
+    pub dns: DnsObservation,
+    pub interfaces: Vec<NetworkInterfaceObservation>,
+    pub source: NetworkDnsSource,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NetworkDnsObservationError {
+    pub kind: NetworkDnsFailureKind,
+}
+
+pub trait NetworkDnsPlatform: Send + Sync {
+    fn observe(&self) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>>;
 }
 
 pub trait StartupPlatform: Send + Sync {
@@ -227,6 +339,7 @@ pub enum SettingsServiceError {
 
 pub struct SettingsService {
     capabilities: SettingsCapabilities,
+    network_dns: NetworkDnsCoordinator,
     operation: Mutex<()>,
     repository: Arc<dyn SettingsRepository>,
     startup_platform: Option<Arc<dyn StartupPlatform>>,
@@ -239,6 +352,94 @@ pub struct SettingsService {
 struct SettingsState {
     preferences: SettingsPreferences,
     storage_recovered: bool,
+}
+
+struct NetworkDnsCoordinator {
+    authority: AtomicU64,
+    completed: AtomicU64,
+    operation: tokio::sync::Mutex<()>,
+    platform: Option<Arc<dyn NetworkDnsPlatform>>,
+    state: Mutex<NetworkDnsSnapshot>,
+}
+
+impl NetworkDnsCoordinator {
+    fn new(platform: Option<Arc<dyn NetworkDnsPlatform>>) -> Self {
+        let state = if platform.is_some() {
+            NetworkDnsSnapshot::unknown()
+        } else {
+            NetworkDnsSnapshot::unavailable()
+        };
+        Self {
+            authority: AtomicU64::new(1),
+            completed: AtomicU64::new(0),
+            operation: tokio::sync::Mutex::new(()),
+            platform,
+            state: Mutex::new(state),
+        }
+    }
+
+    fn invalidate(&self) {
+        if self.platform.is_none() {
+            return;
+        }
+        self.authority.fetch_add(1, Ordering::AcqRel);
+        let mut snapshot = self.state.lock().expect("network DNS state lock poisoned");
+        snapshot.failure = None;
+        snapshot.phase = if snapshot.observed_at.is_some() {
+            NetworkDnsPhase::Stale
+        } else {
+            NetworkDnsPhase::Unknown
+        };
+    }
+
+    fn snapshot(&self) -> NetworkDnsSnapshot {
+        self.state
+            .lock()
+            .expect("network DNS state lock poisoned")
+            .clone()
+    }
+
+    async fn refresh(&self) -> NetworkDnsSnapshot {
+        let Some(platform) = &self.platform else {
+            return self.snapshot();
+        };
+        let completed_before = self.completed.load(Ordering::Acquire);
+        let _operation = self.operation.lock().await;
+        if self.completed.load(Ordering::Acquire) != completed_before {
+            return self.snapshot();
+        }
+        let authority = self.authority.load(Ordering::Acquire);
+        let result = platform.observe().await;
+        if self.authority.load(Ordering::Acquire) != authority {
+            return self.snapshot();
+        }
+        let mut snapshot = self.state.lock().expect("network DNS state lock poisoned");
+        match result {
+            Ok(observation) => {
+                snapshot.dns = Some(observation.dns);
+                snapshot.failure = None;
+                snapshot.observed_at = Some(observation_time());
+                snapshot.phase = NetworkDnsPhase::Ready;
+                snapshot.interfaces = observation.interfaces;
+                snapshot.source = Some(observation.source);
+            }
+            Err(error) => {
+                snapshot.failure = Some(error.kind);
+                snapshot.phase = NetworkDnsPhase::Failed;
+            }
+        }
+        self.completed.fetch_add(1, Ordering::AcqRel);
+        snapshot.clone()
+    }
+}
+
+fn observation_time() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 impl SettingsService {
@@ -264,6 +465,27 @@ impl SettingsService {
         capabilities: SettingsCapabilities,
         tun_helper: Option<Arc<TunHelperController>>,
     ) -> Result<Self, SettingsServiceError> {
+        Self::load_with_platforms(
+            repository,
+            startup_platform,
+            window_surface_platform,
+            capabilities,
+            tun_helper,
+            None,
+        )
+    }
+
+    pub fn load_with_platforms(
+        repository: Arc<dyn SettingsRepository>,
+        startup_platform: Option<Arc<dyn StartupPlatform>>,
+        window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
+        mut capabilities: SettingsCapabilities,
+        tun_helper: Option<Arc<TunHelperController>>,
+        network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
+    ) -> Result<Self, SettingsServiceError> {
+        if network_dns_platform.is_none() {
+            capabilities.network_dns = SettingsAvailability::Unavailable;
+        }
         let (loaded, storage_recovered) = match repository.load() {
             Ok(loaded) => (loaded, false),
             Err(SettingsRepositoryError::Corrupt) => {
@@ -297,6 +519,7 @@ impl SettingsService {
         }
         Ok(Self {
             capabilities,
+            network_dns: NetworkDnsCoordinator::new(network_dns_platform),
             operation: Mutex::new(()),
             repository,
             startup_platform,
@@ -343,6 +566,7 @@ impl SettingsService {
         SettingsSnapshot {
             adapter_kind,
             capabilities,
+            network_dns: self.network_dns.snapshot(),
             preferences: state.preferences,
             privacy: PrivacyAccessSnapshot {
                 authenticated: ConfirmationState::Confirmed,
@@ -354,6 +578,15 @@ impl SettingsService {
             storage_recovered: state.storage_recovered,
             tun_helper,
         }
+    }
+
+    pub fn invalidate_network_dns(&self) {
+        self.network_dns.invalidate();
+    }
+
+    pub async fn refresh_network_dns(&self) -> SettingsSnapshot {
+        self.network_dns.refresh().await;
+        self.snapshot(SettingsAdapterKind::Rpc)
     }
 
     pub async fn install_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
@@ -755,8 +988,9 @@ fn temporary_path(destination: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use tempfile::tempdir;
+    use tokio::sync::Notify;
 
     struct FailingSaveRepository;
 
@@ -777,6 +1011,42 @@ mod tests {
         enabled: AtomicBool,
         fail: bool,
         fail_disable: bool,
+    }
+
+    struct BlockingNetworkDnsPlatform {
+        calls: AtomicUsize,
+        first_started: Notify,
+        release_first: Notify,
+    }
+
+    impl NetworkDnsPlatform for BlockingNetworkDnsPlatform {
+        fn observe(
+            &self,
+        ) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>> {
+            Box::pin(async move {
+                let call = self.calls.fetch_add(1, Ordering::AcqRel);
+                if call == 0 {
+                    self.first_started.notify_one();
+                    self.release_first.notified().await;
+                }
+                Ok(NetworkDnsObservation {
+                    dns: DnsObservation {
+                        resolver_count: 1,
+                        scoped_resolver_count: 0,
+                        search_domains: Vec::new(),
+                        servers: vec!["192.0.2.53".into()],
+                    },
+                    interfaces: vec![NetworkInterfaceObservation {
+                        interface: "en0".into(),
+                        interface_kind: NetworkInterfaceKind::Ethernet,
+                        ipv4_available: true,
+                        ipv6_available: false,
+                        service: Some(if call == 0 { "Old" } else { "Current" }.into()),
+                    }],
+                    source: NetworkDnsSource::MacosSystemConfiguration,
+                })
+            })
+        }
     }
 
     impl StartupPlatform for FakeStartupPlatform {
@@ -829,6 +1099,47 @@ mod tests {
         let loaded = repository.load().expect("default settings");
         assert_eq!(loaded.preferences, SettingsPreferences::default());
         assert!(!loaded.migrated);
+    }
+
+    #[tokio::test]
+    async fn invalidated_network_observation_cannot_publish_after_a_new_authority() {
+        let (_root, repository) = repository();
+        let platform = Arc::new(BlockingNetworkDnsPlatform {
+            calls: AtomicUsize::new(0),
+            first_started: Notify::new(),
+            release_first: Notify::new(),
+        });
+        let service = Arc::new(
+            SettingsService::load_with_platforms(
+                repository,
+                None,
+                None,
+                SettingsCapabilities::macos(false),
+                None,
+                Some(platform.clone()),
+            )
+            .unwrap(),
+        );
+        let first_service = service.clone();
+        let first = tokio::spawn(async move { first_service.refresh_network_dns().await });
+        platform.first_started.notified().await;
+        service.invalidate_network_dns();
+        let second_service = service.clone();
+        let second = tokio::spawn(async move { second_service.refresh_network_dns().await });
+        platform.release_first.notify_one();
+        first.await.unwrap();
+        second.await.unwrap();
+
+        let snapshot = service.snapshot(SettingsAdapterKind::Rpc).network_dns;
+        assert_eq!(snapshot.phase, NetworkDnsPhase::Ready);
+        assert_eq!(
+            snapshot
+                .interfaces
+                .first()
+                .and_then(|interface| interface.service.clone()),
+            Some("Current".into())
+        );
+        assert_eq!(platform.calls.load(Ordering::Acquire), 2);
     }
 
     #[test]

@@ -35,6 +35,7 @@ flowchart LR
 | Desktop local bridge service       | Local HTTP/WebSocket origin, authentication and desktop adapter composition                            | Android `VpnService` or iOS Packet Tunnel lifecycle                                      |
 | Desktop managed-process adapter    | Mihomo executable paths, child process, PID, signal and cleanup                                        | Cross-platform application semantics                                                     |
 | macOS System Proxy adapter         | Structured observation and application of HTTP, HTTPS, and SOCKS settings for one network service      | Capture intent, recovery policy, shell strings, PAC, automatic discovery, or UI state    |
+| macOS Network/DNS adapter          | Bounded read-only active-interface, address-family, resolver, server, and search-domain observation    | Network mutation, arbitrary arguments, persistence, logging, Events, or support bundles  |
 | Android/iOS adapters               | Native VPN permission, TUN/Packet Tunnel lifecycle, native Mihomo integration                          | A spawned desktop executable or persistent WebView lifetime                              |
 | Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge              | Core business rules or an alternative application state store                            |
 | Privileged helper                  | Narrow desktop TUN, DNS, and system-proxy operations requiring elevation                               | General application logic or remote access                                               |
@@ -234,6 +235,13 @@ and bounded typed patch DTOs. The desktop serializes patch writes with refresh
 and activation, revalidates against repository-owned bytes, and returns only
 display-safe catalog and provenance fields. Browser fixtures show one fictional
 patch but do not claim validation, persistence, or activation.
+
+Protocol version 13 adds the empty-parameter
+`settings.refreshNetworkDns` observation. The result carries explicit source,
+freshness, observation time, and typed failure. The browser fixture reports the
+capability unavailable and contains no synthetic device state. Sensitive
+network-service, interface, DNS-server, and search-domain values remain local to
+the Settings response and never enter Events, logs, errors, or support bundles.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift
