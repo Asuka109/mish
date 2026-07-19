@@ -61,8 +61,10 @@ failures without opening a terminal or a second administration dashboard.
    forms and broad protocol catalog should not define the default desktop
    experience.
 4. The project should keep six stable desktop destinations: **Status, Routes,
-   Profiles, Traffic, Events, and Settings**. Mobile may map the same jobs into
-   four bottom tabs with secondary destinations nested inside them.
+   Profiles, Traffic, Events, and Settings**. Mobile maps the same jobs into
+   five bottom destinations: **Home, Routes, Profiles, Activity, and Settings**.
+   Activity owns secondary Connections, Rules, Events, and Diagnostics
+   navigation without changing their domain ownership.
 5. Rule mode has no canonical globally active node. Every shortcut and native
    menu selection must preserve the hierarchy `policy group -> child`.
 6. DNS, TUN, backup, runtime configuration, and interface inspection are too

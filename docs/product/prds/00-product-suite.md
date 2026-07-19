@@ -87,10 +87,12 @@ therefore product requirements, not implementation details.
 | Events | Follow app/core/platform events and run guided diagnostics | General settings and rule editing |
 | Settings | Configure application, capture, network, platform, update, and privacy behavior | Repeating live dashboard state |
 
-On compact mobile layouts, Status remains Home; Routes becomes the primary
-group tab; Profiles and diagnostic utilities may be nested under Tools; Settings
-remains a bottom-level destination. This is a navigation adaptation, not a
-different domain model.
+Installed mobile applications use five stable bottom destinations: Home, Routes,
+Profiles, Activity, and Settings. Home retains Status ownership. Activity groups
+Traffic and Events with secondary Connections, Rules, Events, and Diagnostics
+navigation. The desktop URLs and domain ownership remain stable. This is a
+navigation adaptation, not a different product model; see
+[`../../design/mobile-navigation-and-layout.md`](../../design/mobile-navigation-and-layout.md).
 
 ## Release slices
 
@@ -99,7 +101,7 @@ different domain model.
 | P0 macOS alpha | A valid profile can produce an observable System Proxy session | Local/URL import, validation, activation, Routes, Rule/Global/Direct, System Proxy, Status, Traffic, Events, stop/recovery | End-to-end acceptance journey passes on a clean macOS account |
 | P1 macOS beta | Mish can replace an everyday desktop proxy client powered by the Mihomo core | TUN helper, status-bar commands, signed updates, guided diagnostics, profile refresh, robust sleep/wake/restart handling | Native validation gate and recovery tests pass on Intel and Apple Silicon |
 | P2 desktop expansion | Shared product works on Windows and Linux | Platform adapters, packaging, service/privilege differences | Capability matrix and signed build gates pass per OS |
-| P2 mobile feasibility | Shared UI can coexist with native VPN lifecycle | Android `VpnService` spike and iOS Packet Tunnel/TestFlight spike | Device VPN, entitlement, sleep/wake, and network-switch gates pass |
+| P2 mobile feasibility | Shared UI can coexist with native VPN lifetime and platform-familiar navigation | Android `VpnService` device slice first; iOS shell, extension, and XCFramework in parallel; signed iOS device/TestFlight later | Android device VPN gates pass; iOS compile and native-fixture evidence is explicit; signed iOS device gates remain tracked |
 
 ## Suite requirements
 
@@ -146,6 +148,6 @@ different domain model.
 | Item | Current position | Resolution |
 | --- | --- | --- |
 | Product brand | The independent product name is Mish; Mihomo is reserved for the upstream core and its integration boundaries. | Apply Mish consistently before public branding and signing. |
-| Mobile shell feasibility | Shared React is confirmed; Apple extension integration remains the gate. | Complete device/TestFlight spike before scheduling mobile product work. |
+| Mobile shell feasibility | Shared React is confirmed; Android device VPN and Apple extension integration remain separate gates. | Ship the Android debug slice first; complete unsigned iOS preparation in parallel and signed device/TestFlight gates when authorized. |
 | Profile transforms | Merge/script systems are useful but add a second configuration language and security surface. | Keep out of P0; review after profile lifecycle is reliable. |
 | Update and crash evidence | No vendor or privacy contract is selected. | Choose an explicitly consented, open-source-compatible approach before beta metrics are finalized. |

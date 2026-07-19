@@ -91,7 +91,13 @@ validation surface rather than a fully observed competitor behavior.
   tray, proxy, DNS, TUN, and packaging adapters.
 - **Android/iOS P2:** native VPN lifecycle remains outside the WebView process.
   The shared UI consumes capabilities and application state; it does not own the
-  packet tunnel.
+  packet tunnel. Android owns permission, TUN, foreground lifetime, and the
+  embedded Core in `VpnService`. iOS owns Packet Tunnel settings, provider
+  messaging, and the embedded Core in its App Extension. Android is the first
+  runnable device target while iOS shell, bridge, extension, and framework work
+  proceeds in parallel. See
+  [`../../architecture/mobile-runtime-integration.md`](../../architecture/mobile-runtime-integration.md)
+  and [`../../quality/mobile-validation.md`](../../quality/mobile-validation.md).
 
 ## Failure and recovery behavior
 

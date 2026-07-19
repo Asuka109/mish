@@ -269,6 +269,15 @@ destination labels. The shell itself must not impose a hard minimum width or
 height: page scrollers own vertical overflow, and dense data tables own their
 local horizontal overflow.
 
+Installed mobile applications do not reuse that responsive browser shell as
+their product navigation. They replace the desktop sidebar with a dedicated
+five-destination bottom-navigation shell and adapt dense pages through drill-down
+flows, lists, sheets, and child routes. Android and iOS share product semantics
+and Mish status tokens, but use separate platform recipes for navigation bars,
+top bars, sheets, feedback, motion, typography, and safe areas. The binding
+mobile hierarchy and platform rules live in
+[`docs/design/mobile-navigation-and-layout.md`](docs/design/mobile-navigation-and-layout.md).
+
 ## Elevation & Depth
 
 The workspace uses a hairline and a faint panel shadow. Ordinary sections stay
