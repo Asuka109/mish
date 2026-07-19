@@ -1,0 +1,356 @@
+import { ArrowDown } from "@phosphor-icons/react/ArrowDown";
+import { Copy } from "@phosphor-icons/react/Copy";
+import { Pause } from "@phosphor-icons/react/Pause";
+import { Play } from "@phosphor-icons/react/Play";
+import {
+  Badge,
+  Button,
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+  Input,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@mish/ui";
+import type { EventLevel, EventRecordDto, EventSource, EventSourcePhase } from "@mish/contracts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useEvents } from "../data/events-provider";
+import { useI18nContext } from "../i18n/i18n-react";
+import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
+import { filterEvents, sortEvents, type EventsOrder } from "./events-model";
+
+const eventLevels: EventLevel[] = ["debug", "info", "warning", "error"];
+const eventSources: EventSource[] = ["application", "core", "platform", "rpc"];
+
+export function EventsPage() {
+  const { clearLocal, connection, error, events, isLoading, snapshot } = useEvents();
+  const { LL, locale } = useI18nContext();
+  const [query, setQuery] = useState("");
+  const [level, setLevel] = useState<EventLevel | "all">("all");
+  const [source, setSource] = useState<EventSource | "all">("all");
+  const [order, setOrder] = useState<EventsOrder>("oldest");
+  const [paused, setPaused] = useState(false);
+  const [pausedEvents, setPausedEvents] = useState<EventRecordDto[]>([]);
+  const [pausedSessionId, setPausedSessionId] = useState<string | null>(null);
+  const [followLatest, setFollowLatest] = useState(true);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+
+  const viewPaused = paused && pausedSessionId === snapshot?.sessionId;
+  const displayedEvents = viewPaused ? pausedEvents : events;
+  const filteredEvents = useMemo(
+    () =>
+      sortEvents(
+        filterEvents(
+          displayedEvents,
+          query,
+          level === "all" ? new Set() : new Set([level]),
+          source === "all" ? new Set() : new Set([source]),
+        ),
+        order,
+      ),
+    [displayedEvents, level, order, query, source],
+  );
+  const pausedIds = useMemo(() => new Set(pausedEvents.map(({ id }) => id)), [pausedEvents]);
+  const bufferedWhilePaused = viewPaused ? events.filter(({ id }) => !pausedIds.has(id)).length : 0;
+
+  useEffect(() => {
+    if (!followLatest || viewPaused) return;
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = order === "oldest" ? list.scrollHeight : 0;
+  }, [filteredEvents.length, followLatest, order, viewPaused]);
+
+  useEffect(() => {
+    if (!paused || pausedSessionId === snapshot?.sessionId) return;
+    setPaused(false);
+    setPausedEvents([]);
+    setPausedSessionId(null);
+  }, [paused, pausedSessionId, snapshot?.sessionId]);
+
+  function togglePause() {
+    if (viewPaused) {
+      setPaused(false);
+      setPausedEvents([]);
+      setPausedSessionId(null);
+      return;
+    }
+    setPausedEvents(events);
+    setPausedSessionId(snapshot?.sessionId ?? null);
+    setPaused(true);
+  }
+
+  function clearVisibleLocal() {
+    clearLocal();
+    setPausedEvents([]);
+  }
+
+  function followNow() {
+    setFollowLatest(true);
+    requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (!list) return;
+      list.scrollTop = order === "oldest" ? list.scrollHeight : 0;
+    });
+  }
+
+  function observeScroll() {
+    const list = listRef.current;
+    if (!list || viewPaused) return;
+    const atLatest =
+      order === "oldest"
+        ? list.scrollHeight - list.scrollTop - list.clientHeight < 8
+        : list.scrollTop < 8;
+    setFollowLatest(atLatest);
+  }
+
+  async function copyEvent(event: EventRecordDto) {
+    if (!navigator.clipboard?.writeText) return;
+    await navigator.clipboard.writeText(formatEventForCopy(event));
+    setCopiedId(event.id);
+    window.setTimeout(
+      () => setCopiedId((current) => (current === event.id ? null : current)),
+      1_500,
+    );
+  }
+
+  const sourceState = getSourceState(LL, connection.stale, error, isLoading, snapshot);
+  const hasFilters = Boolean(query || level !== "all" || source !== "all");
+
+  return (
+    <div className="events-page page-scroll">
+      <div className="page-heading events-heading">
+        <div>
+          <h1>{LL.events.title()}</h1>
+          <p>{LL.events.description()}</p>
+        </div>
+        <span className="events-retention">{LL.events.retention()}</span>
+      </div>
+
+      <div className="events-source-status" data-state={sourceState.state} role="status">
+        <span>{sourceState.message}</span>
+        {snapshot?.sessionId ? (
+          <span className="tabular">
+            {LL.events.session({
+              count: snapshot.reconnectCount,
+              session: snapshot.sessionId,
+            })}
+          </span>
+        ) : null}
+      </div>
+
+      {snapshot ? (
+        <div aria-label={LL.events.sourceAvailability()} className="events-source-grid">
+          {snapshot.sourceStatuses.map((status) => (
+            <div className="events-source-item" key={status.source}>
+              <span>{sourceLabel(LL, status.source)}</span>
+              <Badge variant={sourceBadge(status.phase)}>
+                {sourcePhaseLabel(LL, status.phase)}
+              </Badge>
+              <small>{status.detail}</small>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="events-controls">
+        <Input
+          aria-label={LL.events.searchLabel()}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder={LL.events.searchPlaceholder()}
+          type="search"
+          value={query}
+        />
+        <EventFilterSelect
+          label={LL.events.levelLabel()}
+          onChange={(value) => setLevel(value as EventLevel | "all")}
+          options={["all", ...eventLevels]}
+          value={level}
+          valueLabel={(value) => levelLabel(LL, value as EventLevel | "all")}
+        />
+        <EventFilterSelect
+          label={LL.events.sourceLabel()}
+          onChange={(value) => setSource(value as EventSource | "all")}
+          options={["all", ...eventSources]}
+          value={source}
+          valueLabel={(value) => sourceFilterLabel(LL, value as EventSource | "all")}
+        />
+        <EventFilterSelect
+          label={LL.events.orderLabel()}
+          onChange={(value) => setOrder(value as EventsOrder)}
+          options={["oldest", "newest"]}
+          value={order}
+          valueLabel={(value) =>
+            value === "newest" ? LL.events.newestFirst() : LL.events.oldestFirst()
+          }
+        />
+        <Button onClick={togglePause} variant="outline">
+          {viewPaused ? (
+            <Play aria-hidden="true" data-icon="inline-start" />
+          ) : (
+            <Pause aria-hidden="true" data-icon="inline-start" />
+          )}
+          {viewPaused ? LL.events.resume() : LL.events.pause()}
+        </Button>
+        <Button disabled={followLatest || viewPaused} onClick={followNow} variant="outline">
+          <ArrowDown aria-hidden="true" data-icon="inline-start" />
+          {followLatest ? LL.events.followingLatest() : LL.events.followLatest()}
+        </Button>
+        <Button disabled={events.length === 0} onClick={clearVisibleLocal} variant="outline">
+          {LL.events.clearLocal()}
+        </Button>
+      </div>
+
+      <p className="events-local-note">{LL.events.clearLocalDescription()}</p>
+      {viewPaused ? (
+        <p className="events-paused-note" role="status">
+          {LL.events.paused({ count: bufferedWhilePaused })}
+        </p>
+      ) : null}
+
+      {filteredEvents.length === 0 ? (
+        <Empty className="events-empty">
+          <EmptyHeader>
+            <EmptyTitle>{hasFilters ? LL.events.noMatches() : LL.events.noEvents()}</EmptyTitle>
+            <EmptyDescription>
+              {hasFilters ? LL.events.noMatchesDescription() : LL.events.noEventsDescription()}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <ol className="events-list" onScroll={observeScroll} ref={listRef}>
+          {filteredEvents.map((event) => (
+            <li className="event-row" data-level={event.level} key={event.id}>
+              <time className="tabular" dateTime={new Date(event.observedAt).toISOString()}>
+                {formatEventTime(event.observedAt, locale)}
+              </time>
+              <Badge variant={levelBadge(event.level)}>{levelLabel(LL, event.level)}</Badge>
+              <span className="event-source">{sourceLabel(LL, event.source)}</span>
+              <div className="event-copy">
+                <strong>{event.message}</strong>
+                {event.detail ? <small>{event.detail}</small> : null}
+              </div>
+              <Button
+                aria-label={copiedId === event.id ? LL.events.copied() : LL.events.copyEvent()}
+                onClick={() => void copyEvent(event)}
+                size="icon-sm"
+                variant="ghost"
+              >
+                <Copy aria-hidden="true" data-icon="icon-only" />
+              </Button>
+            </li>
+          ))}
+        </ol>
+      )}
+      <span aria-live="polite" className="sr-only">
+        {copiedId ? LL.events.copied() : ""}
+      </span>
+    </div>
+  );
+}
+
+interface EventFilterSelectProps {
+  label: string;
+  onChange(value: string): void;
+  options: string[];
+  value: string;
+  valueLabel(value: string): string;
+}
+
+function EventFilterSelect({
+  label,
+  onChange,
+  options,
+  value,
+  valueLabel,
+}: EventFilterSelectProps) {
+  const items = options.map((option) => ({ label: valueLabel(option), value: option }));
+  return (
+    <Select
+      items={items}
+      onValueChange={(next) => (typeof next === "string" ? onChange(next) : undefined)}
+      value={value}
+    >
+      <SelectTrigger aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {items.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function getSourceState(
+  LL: TranslationFunctions,
+  connectionStale: boolean,
+  error: string | null,
+  isLoading: boolean,
+  snapshot: ReturnType<typeof useEvents>["snapshot"],
+) {
+  if (error) return { message: LL.events.loadError(), state: "unavailable" };
+  if (snapshot?.adapterKind === "fixture") {
+    return { message: LL.events.fixtureNotice(), state: "fixture" };
+  }
+  if (connectionStale || snapshot?.phase === "stale") {
+    return { message: LL.events.staleNotice(), state: "stale" };
+  }
+  if (isLoading || snapshot?.phase === "connecting") {
+    return { message: LL.events.connectingNotice(), state: "connecting" };
+  }
+  if (snapshot?.phase === "ready") return { message: LL.events.liveNotice(), state: "ready" };
+  return { message: LL.events.unavailableNotice(), state: "unavailable" };
+}
+
+function levelLabel(LL: TranslationFunctions, level: EventLevel | "all") {
+  if (level === "all") return LL.events.allLevels();
+  return LL.events.level[level]();
+}
+
+function sourceLabel(LL: TranslationFunctions, source: EventSource) {
+  return LL.events.source[source]();
+}
+
+function sourceFilterLabel(LL: TranslationFunctions, source: EventSource | "all") {
+  return source === "all" ? LL.events.allSources() : sourceLabel(LL, source);
+}
+
+function sourcePhaseLabel(LL: TranslationFunctions, phase: EventSourcePhase) {
+  return LL.events.sourcePhase[phase]();
+}
+
+function sourceBadge(phase: EventSourcePhase) {
+  if (phase === "ready") return "success" as const;
+  if (phase === "stale") return "warning" as const;
+  return "outline" as const;
+}
+
+function levelBadge(level: EventLevel) {
+  if (level === "error") return "destructive" as const;
+  if (level === "warning") return "warning" as const;
+  return "outline" as const;
+}
+
+function formatEventTime(value: number, locale: Locales) {
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(value);
+}
+
+export function formatEventForCopy(event: EventRecordDto) {
+  const header = `${new Date(event.observedAt).toISOString()} [${event.level.toUpperCase()}] [${event.source}] ${event.message}`;
+  return event.detail ? `${header}\n${event.detail}` : header;
+}

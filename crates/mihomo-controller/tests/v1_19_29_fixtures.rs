@@ -1,6 +1,6 @@
 use mish_mihomo_controller::{
-    ConnectionSnapshot, MemorySnapshot, ProxyCatalog, RoutingMode, RuleList, RuntimeConfig,
-    TrafficSnapshot, VersionInfo,
+    ConnectionSnapshot, LogMessage, MemorySnapshot, ProxyCatalog, RoutingMode, RuleList,
+    RuntimeConfig, TrafficSnapshot, VersionInfo,
 };
 
 #[test]
@@ -29,6 +29,9 @@ fn decodes_sanitized_real_core_payloads() {
 
     let connections: ConnectionSnapshot = fixture("connections.json");
     assert!(connections.connections.is_empty());
+
+    let log: LogMessage = fixture("log.json");
+    assert_eq!(log.level, "warn");
 }
 
 #[test]
@@ -56,6 +59,7 @@ where
         "traffic.json" => include_str!("fixtures/v1.19.29/traffic.json"),
         "memory.json" => include_str!("fixtures/v1.19.29/memory.json"),
         "connections.json" => include_str!("fixtures/v1.19.29/connections.json"),
+        "log.json" => include_str!("fixtures/v1.19.29/log.json"),
         _ => panic!("unknown fixture: {name}"),
     };
     serde_json::from_str(payload).unwrap()

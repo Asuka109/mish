@@ -8,6 +8,7 @@ import { AppearanceProvider, useAppearance } from "./appearance";
 import { ProductProvider } from "./data/product-provider";
 import { ProfileProvider } from "./data/profile-provider";
 import { TrafficProvider } from "./data/traffic-provider";
+import { EventsProvider } from "./data/events-provider";
 import { StartupFailure } from "./components/startup-failure";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
@@ -44,10 +45,12 @@ async function startApplication() {
               <ProductProvider client={startup.client}>
                 <ProfileProvider client={startup.profileClient}>
                   <TrafficProvider client={startup.trafficClient}>
-                    <TooltipProvider delay={500}>
-                      <AppRoutes />
-                      <AppearanceToaster />
-                    </TooltipProvider>
+                    <EventsProvider client={startup.eventsClient}>
+                      <TooltipProvider delay={500}>
+                        <AppRoutes />
+                        <AppearanceToaster />
+                      </TooltipProvider>
+                    </EventsProvider>
                   </TrafficProvider>
                 </ProfileProvider>
               </ProductProvider>

@@ -100,6 +100,8 @@ struct RecoverSystemProxyParams {
 }
 
 struct SocketSubscriptions {
+    event_ids: HashSet<String>,
+    event_updates: broadcast::Receiver<()>,
     profile_ids: HashSet<String>,
     profile_updates: broadcast::Receiver<crate::ProfileActivationSnapshot>,
     status_ids: HashSet<String>,
@@ -121,6 +123,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let initial_runtime = runtime_changes.borrow_and_update().clone();
     let status_updates = initial_runtime.subscribe_status();
     let traffic_updates = initial_runtime.subscribe_status();
+    let event_updates = initial_runtime.subscribe_events();
     let (inactive_profile_updates, inactive_profile_receiver) = broadcast::channel(1);
     let _inactive_profile_updates = inactive_profile_updates;
     let profile_updates = state
@@ -130,6 +133,8 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         .unwrap_or(inactive_profile_receiver);
     let mut authenticated = false;
     let mut subscriptions = SocketSubscriptions {
+        event_ids: HashSet::new(),
+        event_updates,
         profile_ids: HashSet::new(),
         profile_updates,
         status_ids: HashSet::new(),
@@ -146,6 +151,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 let runtime = runtime_changes.borrow_and_update().clone();
                 subscriptions.status_updates = runtime.subscribe_status();
                 subscriptions.traffic_updates = runtime.subscribe_status();
+                subscriptions.event_updates = runtime.subscribe_events();
                 if authenticated && !subscriptions.status_ids.is_empty() {
                     let snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
                     for subscription_id in &subscriptions.status_ids {
@@ -165,6 +171,19 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                         let notification = json!({
                             "jsonrpc": "2.0",
                             "method": "traffic.snapshot",
+                            "params": { "snapshot": snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                if authenticated && !subscriptions.event_ids.is_empty() {
+                    let snapshot = state.runtime.events_snapshot(StatusAdapterKind::Rpc);
+                    for subscription_id in &subscriptions.event_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "events.snapshot",
                             "params": { "snapshot": snapshot, "subscriptionId": subscription_id },
                         });
                         if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
@@ -213,6 +232,23 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                         "jsonrpc": "2.0",
                         "method": "traffic.snapshot",
                         "params": { "snapshot": traffic_snapshot, "subscriptionId": subscription_id },
+                    });
+                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            update = subscriptions.event_updates.recv(), if authenticated && !subscriptions.event_ids.is_empty() => {
+                match update {
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
+                }
+                let events_snapshot = state.runtime.events_snapshot(StatusAdapterKind::Rpc);
+                for subscription_id in &subscriptions.event_ids {
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "events.snapshot",
+                        "params": { "snapshot": events_snapshot, "subscriptionId": subscription_id },
                     });
                     if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
                         return;
@@ -276,6 +312,8 @@ async fn handle_message(
             | "profiles.subscribe"
             | "traffic.getSnapshot"
             | "traffic.subscribe"
+            | "events.getSnapshot"
+            | "events.subscribe"
     ) && !request
         .params
         .as_object()
@@ -367,6 +405,7 @@ async fn handle_message(
         }
         "status.subscribe" => {
             if subscription_count(
+                &subscriptions.event_ids,
                 &subscriptions.profile_ids,
                 &subscriptions.status_ids,
                 &subscriptions.traffic_ids,
@@ -399,6 +438,7 @@ async fn handle_message(
         "traffic.getSnapshot" => state.runtime.traffic_snapshot(StatusAdapterKind::Rpc),
         "traffic.subscribe" => {
             if subscription_count(
+                &subscriptions.event_ids,
                 &subscriptions.profile_ids,
                 &subscriptions.status_ids,
                 &subscriptions.traffic_ids,
@@ -428,12 +468,46 @@ async fn handle_message(
             };
             json!(subscriptions.traffic_ids.remove(subscription_id))
         }
+        "events.getSnapshot" => state.runtime.events_snapshot(StatusAdapterKind::Rpc),
+        "events.subscribe" => {
+            if subscription_count(
+                &subscriptions.event_ids,
+                &subscriptions.profile_ids,
+                &subscriptions.status_ids,
+                &subscriptions.traffic_ids,
+            ) >= 16
+            {
+                return Some(error_response(
+                    id,
+                    -32030,
+                    "Subscription limit reached",
+                    None,
+                ));
+            }
+            subscriptions.event_updates = state.runtime.current().subscribe_events();
+            let subscription_id = format!(
+                "events-{}",
+                NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
+            );
+            subscriptions.event_ids.insert(subscription_id.clone());
+            let snapshot = state.runtime.events_snapshot(StatusAdapterKind::Rpc);
+            json!({"snapshot": snapshot, "subscriptionId": subscription_id})
+        }
+        "events.unsubscribe" => {
+            let Some(subscription_id) =
+                request.params.get("subscriptionId").and_then(Value::as_str)
+            else {
+                return Some(error_response(id, -32602, "Invalid params", None));
+            };
+            json!(subscriptions.event_ids.remove(subscription_id))
+        }
         "profiles.getSnapshot" => match profile_rpc_snapshot(state).await {
             Ok(snapshot) => snapshot,
             Err(error) => return Some(profile_error_response(id, error)),
         },
         "profiles.subscribe" => {
             if subscription_count(
+                &subscriptions.event_ids,
                 &subscriptions.profile_ids,
                 &subscriptions.status_ids,
                 &subscriptions.traffic_ids,
@@ -711,11 +785,12 @@ async fn publish_profile_update(state: &ProtocolState) {
 }
 
 fn subscription_count(
+    events: &HashSet<String>,
     profiles: &HashSet<String>,
     status: &HashSet<String>,
     traffic: &HashSet<String>,
 ) -> usize {
-    profiles.len() + status.len() + traffic.len()
+    events.len() + profiles.len() + status.len() + traffic.len()
 }
 
 fn profile_activation_error_response(

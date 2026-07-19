@@ -206,6 +206,13 @@ async fn rejects_unauthenticated_and_malformed_requests() {
     .await;
     assert_eq!(unauthenticated["error"]["code"], -32001);
 
+    let unauthenticated_events = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"events.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(unauthenticated_events["error"]["code"], -32001);
+
     ws.send(Message::Text("{".into())).await.unwrap();
     let Message::Text(response) = ws.next().await.unwrap().unwrap() else {
         panic!("expected text response")
@@ -274,9 +281,45 @@ async fn authenticates_and_serves_contract_compatible_status() {
     .await;
     assert_eq!(invalid["error"]["code"], -32602);
 
+    let events = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":7, "method":"events.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(events["result"]["adapterKind"], "rpc");
+    assert_eq!(events["result"]["phase"], "unavailable");
+    assert_eq!(events["result"]["events"], json!([]));
+    assert_eq!(
+        events["result"]["sourceStatuses"].as_array().unwrap().len(),
+        4
+    );
+
+    let events_subscription = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":8, "method":"events.subscribe", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        events_subscription["result"]["snapshot"]["phase"],
+        "unavailable"
+    );
+    assert!(
+        events_subscription["result"]["subscriptionId"]
+            .as_str()
+            .unwrap()
+            .starts_with("events-")
+    );
+
+    let invalid_events = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":9, "method":"events.getSnapshot", "params":{"extra":true}}),
+    )
+    .await;
+    assert_eq!(invalid_events["error"]["code"], -32602);
+
     let unavailable = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":7, "method":"core.start", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":10, "method":"core.start", "params":{}}),
     )
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);

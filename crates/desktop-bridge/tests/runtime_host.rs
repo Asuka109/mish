@@ -3,9 +3,12 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use mish_bridge::DesktopRuntimeHost;
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, StatusAdapterKind,
-    StatusDataSource, StatusSnapshot, TrafficDataSnapshot, TrafficDataSource,
+    CoreError, CorePhase, CoreRuntime, CoreStatus, EventLevel, EventRecord, EventSource,
+    EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource, EventsSnapshot,
+    MishRuntime, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficDataSnapshot,
+    TrafficDataSource,
 };
+use tokio::sync::broadcast;
 
 struct RunningCore;
 
@@ -42,6 +45,7 @@ impl CoreRuntime for RunningCore {
 }
 
 struct ProfileSource {
+    event_updates: broadcast::Sender<()>,
     profile_id: &'static str,
 }
 
@@ -62,13 +66,53 @@ impl TrafficDataSource for ProfileSource {
     }
 }
 
+impl EventsDataSource for ProfileSource {
+    fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot {
+        EventsSnapshot {
+            adapter_kind,
+            events: vec![EventRecord {
+                detail: None,
+                id: format!("{}:1", self.profile_id),
+                level: EventLevel::Info,
+                message: "runtime replacement boundary".into(),
+                observed_at: 1,
+                sequence: 1,
+                source: EventSource::Application,
+            }],
+            phase: EventsDataPhase::Ready,
+            profile_id: self.profile_id.into(),
+            reconnect_count: 0,
+            sequence: 1,
+            session_id: Some(format!("events-{}", self.profile_id)),
+            source_statuses: vec![EventSourceStatus {
+                detail: None,
+                phase: EventSourcePhase::Ready,
+                source: EventSource::Application,
+            }],
+        }
+    }
+
+    fn subscribe_events(&self) -> broadcast::Receiver<()> {
+        self.event_updates.subscribe()
+    }
+}
+
 fn runtime(profile_id: &'static str) -> MishRuntime {
-    let source = Arc::new(ProfileSource { profile_id });
-    MishRuntime::with_data_sources(Arc::new(RunningCore), source.clone(), source)
+    let (event_updates, _) = broadcast::channel(1);
+    let source = Arc::new(ProfileSource {
+        event_updates,
+        profile_id,
+    });
+    MishRuntime::with_data_sources_and_events(
+        Arc::new(RunningCore),
+        source.clone(),
+        source.clone(),
+        source,
+    )
 }
 
 #[tokio::test]
-async fn replacing_the_runtime_changes_status_and_traffic_as_one_profile_context() {
+async fn replacing_the_runtime_changes_status_traffic_and_events_as_one_profile_context() {
     let host = DesktopRuntimeHost::new(runtime("profile-a"));
     let mut changes = host.subscribe_changes();
 
@@ -77,6 +121,10 @@ async fn replacing_the_runtime_changes_status_and_traffic_as_one_profile_context
     changes.changed().await.unwrap();
     let status = host.status_snapshot(StatusAdapterKind::Rpc).await;
     let traffic = host.traffic_snapshot(StatusAdapterKind::Rpc);
+    let events = host.events_snapshot(StatusAdapterKind::Rpc);
     assert_eq!(status["activeProfileId"], "profile-b");
     assert_eq!(traffic["profileId"], "profile-b");
+    assert_eq!(events["profileId"], "profile-b");
+    assert_eq!(events["sessionId"], "events-profile-b");
+    assert_eq!(events["events"][0]["id"], "profile-b:1");
 }

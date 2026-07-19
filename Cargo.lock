@@ -2136,6 +2136,7 @@ dependencies = [
  "mish-profile",
  "mish-runtime",
  "nix",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

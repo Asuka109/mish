@@ -131,6 +131,21 @@ pub struct MemorySnapshot {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct LogMessage {
+    pub time: String,
+    pub level: String,
+    pub message: String,
+    #[serde(default)]
+    pub fields: Vec<LogStructuredField>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct LogStructuredField {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionSnapshot {
     pub download_total: i64,
@@ -420,6 +435,40 @@ impl Validate for MemorySnapshot {
         _endpoint: Endpoint,
         _limits: &ControllerLimits,
     ) -> Result<(), ControllerError> {
+        Ok(())
+    }
+}
+
+impl Validate for LogMessage {
+    fn validate(
+        &self,
+        endpoint: Endpoint,
+        limits: &ControllerLimits,
+    ) -> Result<(), ControllerError> {
+        check_string(&self.time, endpoint, "logs.time", limits, false)?;
+        check_string(&self.level, endpoint, "logs.level", limits, false)?;
+        check_string(&self.message, endpoint, "logs.message", limits, true)?;
+        if !matches!(
+            self.level.as_str(),
+            "debug" | "info" | "warn" | "warning" | "error"
+        ) {
+            return Err(validation(
+                endpoint,
+                "logs.level",
+                "contained an unsupported log level",
+            ));
+        }
+        if self.fields.len() > limits.max_log_fields {
+            return Err(validation(
+                endpoint,
+                "logs.fields",
+                format!("exceeded {} entries", limits.max_log_fields),
+            ));
+        }
+        for field in &self.fields {
+            check_string(&field.key, endpoint, "logs.fields.key", limits, false)?;
+            check_string(&field.value, endpoint, "logs.fields.value", limits, true)?;
+        }
         Ok(())
     }
 }

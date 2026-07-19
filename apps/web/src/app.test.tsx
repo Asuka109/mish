@@ -20,6 +20,7 @@ import { AppearanceProvider } from "./appearance";
 import { FixtureStatusClient } from "./data/fixture-status-client";
 import { FixtureProfileClient } from "./data/fixture-profile-client";
 import { ProductProvider } from "./data/product-provider";
+import { EventsProvider } from "./data/events-provider";
 import { ProfileProvider } from "./data/profile-provider";
 import { TrafficProvider } from "./data/traffic-provider";
 import { StartupFailure } from "./components/startup-failure";
@@ -42,9 +43,11 @@ function renderRoute(
           <ProductProvider client={client}>
             <ProfileProvider client={profileClient}>
               <TrafficProvider>
-                <TooltipProvider>
-                  <AppRoutes />
-                </TooltipProvider>
+                <EventsProvider>
+                  <TooltipProvider>
+                    <AppRoutes />
+                  </TooltipProvider>
+                </EventsProvider>
               </TrafficProvider>
             </ProfileProvider>
           </ProductProvider>

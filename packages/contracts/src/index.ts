@@ -230,6 +230,106 @@ export const RpcTrafficDataSnapshotSchema = TrafficDataSnapshotBaseSchema.extend
 });
 export interface RpcTrafficDataSnapshotDto extends z.infer<typeof RpcTrafficDataSnapshotSchema> {}
 
+export const EventLevelSchema = z.enum(["debug", "info", "warning", "error"]);
+export type EventLevel = z.infer<typeof EventLevelSchema>;
+
+export const EventSourceSchema = z.enum(["application", "core", "platform", "rpc"]);
+export type EventSource = z.infer<typeof EventSourceSchema>;
+
+export const EventsDataPhaseSchema = z.enum(["connecting", "ready", "stale", "unavailable"]);
+export type EventsDataPhase = z.infer<typeof EventsDataPhaseSchema>;
+
+export const EventSourcePhaseSchema = z.enum(["fixture-only", "ready", "stale", "unavailable"]);
+export type EventSourcePhase = z.infer<typeof EventSourcePhaseSchema>;
+
+export const EventRecordSchema = z
+  .object({
+    detail: BoundedTextSchema.nullable(),
+    id: IdentifierSchema,
+    level: EventLevelSchema,
+    message: BoundedTextSchema,
+    observedAt: NonNegativeIntegerSchema,
+    sequence: NonNegativeIntegerSchema,
+    source: EventSourceSchema,
+  })
+  .strict();
+export interface EventRecordDto extends z.infer<typeof EventRecordSchema> {}
+
+export const EventSourceStatusSchema = z
+  .object({
+    detail: BoundedTextSchema.nullable(),
+    phase: EventSourcePhaseSchema,
+    source: EventSourceSchema,
+  })
+  .strict();
+export interface EventSourceStatusDto extends z.infer<typeof EventSourceStatusSchema> {}
+
+const EventsSnapshotBaseSchema = z
+  .object({
+    adapterKind: StatusAdapterKindSchema,
+    events: z.array(EventRecordSchema).max(1_024),
+    phase: EventsDataPhaseSchema,
+    profileId: IdentifierSchema,
+    reconnectCount: NonNegativeIntegerSchema,
+    sequence: NonNegativeIntegerSchema,
+    sessionId: IdentifierSchema.nullable(),
+    sourceStatuses: z.array(EventSourceStatusSchema).length(4),
+  })
+  .strict();
+
+function validateEventsSnapshot(
+  snapshot: z.infer<typeof EventsSnapshotBaseSchema>,
+  context: z.RefinementCtx,
+) {
+  if ((snapshot.phase === "ready" || snapshot.phase === "stale") && snapshot.sessionId === null) {
+    context.addIssue({
+      code: "custom",
+      message: "A ready or stale Events snapshot requires a session ID",
+      path: ["sessionId"],
+    });
+  }
+  if (snapshot.sessionId === null && snapshot.events.length > 0) {
+    context.addIssue({
+      code: "custom",
+      message: "An Events snapshot without a session cannot contain event rows",
+      path: ["events"],
+    });
+  }
+  if (new Set(snapshot.events.map(({ id }) => id)).size !== snapshot.events.length) {
+    context.addIssue({
+      code: "custom",
+      message: "Event IDs must be unique within a snapshot",
+      path: ["events"],
+    });
+  }
+  for (let index = 1; index < snapshot.events.length; index += 1) {
+    if (snapshot.events[index - 1].sequence < snapshot.events[index].sequence) continue;
+    context.addIssue({
+      code: "custom",
+      message: "Events must use a strictly increasing sequence order",
+      path: ["events", index, "sequence"],
+    });
+  }
+  if (
+    new Set(snapshot.sourceStatuses.map(({ source }) => source)).size !==
+    snapshot.sourceStatuses.length
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Events source statuses must be unique",
+      path: ["sourceStatuses"],
+    });
+  }
+}
+
+export const EventsSnapshotSchema = EventsSnapshotBaseSchema.superRefine(validateEventsSnapshot);
+export interface EventsSnapshotDto extends z.infer<typeof EventsSnapshotSchema> {}
+
+export const RpcEventsSnapshotSchema = EventsSnapshotBaseSchema.extend({
+  adapterKind: z.literal("rpc"),
+}).superRefine(validateEventsSnapshot);
+export interface RpcEventsSnapshotDto extends z.infer<typeof RpcEventsSnapshotSchema> {}
+
 export const RuntimeMetricsSchema = z
   .object({
     activeConnections: NonNegativeIntegerSchema,
@@ -749,8 +849,28 @@ export const trafficRpcMethods = {
   "traffic.unsubscribe": { params: TrafficSubscriptionIdSchema, result: z.boolean() },
 } as const;
 
+export const EventsSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const EventsSubscriptionSchema = EventsSubscriptionIdSchema.extend({
+  snapshot: RpcEventsSnapshotSchema,
+}).strict();
+export interface EventsSubscriptionDto extends z.infer<typeof EventsSubscriptionSchema> {}
+
+export const EventsSnapshotNotificationSchema = z
+  .object({ snapshot: RpcEventsSnapshotSchema, subscriptionId: IdentifierSchema })
+  .strict();
+export interface EventsSnapshotNotificationDto extends z.infer<
+  typeof EventsSnapshotNotificationSchema
+> {}
+
+export const eventsRpcMethods = {
+  "events.getSnapshot": { params: EmptyCommandSchema, result: RpcEventsSnapshotSchema },
+  "events.subscribe": { params: EmptyCommandSchema, result: EventsSubscriptionSchema },
+  "events.unsubscribe": { params: EventsSubscriptionIdSchema, result: z.boolean() },
+} as const;
+
 export const mishRpcMethods = {
   ...bridgeRpcMethods,
+  ...eventsRpcMethods,
   ...profileRpcMethods,
   ...statusRpcMethods,
   ...trafficRpcMethods,
@@ -766,6 +886,10 @@ export const profileRpcNotifications = {
 
 export const trafficRpcNotifications = {
   "traffic.snapshot": TrafficSnapshotNotificationSchema,
+} as const;
+
+export const eventsRpcNotifications = {
+  "events.snapshot": EventsSnapshotNotificationSchema,
 } as const;
 
 export type StatusConnectionPhase =
@@ -941,4 +1065,26 @@ export interface TrafficClient {
   getSnapshot(options?: { signal?: AbortSignal }): Promise<TrafficDataSnapshotDto>;
   subscribeConnection(listener: (state: TrafficConnectionState) => void): () => void;
   subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void): () => void;
+}
+
+export type EventsConnectionState = TrafficConnectionState;
+
+export class EventsClientError extends Error {
+  readonly code: StatusClientErrorCode;
+  readonly retryable: boolean;
+
+  constructor(code: StatusClientErrorCode, message: string, retryable = false) {
+    super(message);
+    this.name = "EventsClientError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
+
+export interface EventsClient {
+  dispose(): void;
+  getConnectionState(): EventsConnectionState;
+  getSnapshot(options?: { signal?: AbortSignal }): Promise<EventsSnapshotDto>;
+  subscribeConnection(listener: (state: EventsConnectionState) => void): () => void;
+  subscribeSnapshots(listener: (snapshot: EventsSnapshotDto) => void): () => void;
 }

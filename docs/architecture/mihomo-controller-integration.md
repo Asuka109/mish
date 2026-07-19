@@ -95,7 +95,7 @@ There are three independent paths:
    loopback Controller configuration, the desktop observation source verifies the
    pinned version, owns unary refreshes and streams, reconciles validated
    observations through the mapper, and publishes changes through the runtime
-   to the independent Status and Traffic snapshot/subscription contracts.
+   to the independent Status, Traffic, and Events snapshot/subscription contracts.
 3. **Device traffic:** application traffic enters Mihomo through a local proxy,
    System Proxy, or TUN path and leaves through Mihomo's selected outbound.
    This traffic never passes through the Controller adapter.
@@ -115,6 +115,7 @@ traffic capture.
 | `/proxies`     | HTTP GET       | Proxy metadata, histories, group children, current selection, and fixed choice  |
 | `/traffic`     | WebSocket      | Traffic samples and a first-sample snapshot helper                              |
 | `/memory`      | WebSocket      | Mihomo memory samples and a first-sample snapshot helper                        |
+| `/logs`        | WebSocket      | Structured core events, bounded validation, and source redaction                |
 | `/connections` | HTTP/WebSocket | Active connection snapshot or stream                                            |
 | `/rules`       | HTTP GET       | Ordered rules, optional wrapper statistics, disabled state, and effective count |
 
@@ -154,12 +155,13 @@ The source starts only after `MishRuntime` attaches its status-event sink. One
 observation session proceeds in this order:
 
 1. Read `/version` and require exactly `v1.19.29`.
-2. Open the `/traffic` and `/memory` WebSocket streams.
+2. Open the `/traffic`, `/memory`, and structured `/logs` WebSocket streams.
 3. Read an initial coalesced batch from `/configs`, `/proxies`, `/rules`,
    `/connections`, and the first traffic and memory stream messages.
 4. Apply the complete initial batch transactionally and publish the first valid
-   Status change.
-5. Continue long-lived traffic and memory reads while a bounded interval
+   Status, Traffic, and Events session. Readiness does not wait for a log message
+   because an idle healthy core may emit none.
+5. Continue long-lived traffic, memory, and redacted log reads while a bounded interval
    refreshes configs, proxies, rules, and connections as one batch.
 
 The source uses the existing `ControllerClient` and therefore inherits its
@@ -327,6 +329,11 @@ The same validated observation batch also maps detailed connections and ordered
 rules into the independent read-only Traffic snapshot documented in
 [`traffic-data-contracts.md`](traffic-data-contracts.md). Exact connection byte
 counters cross that boundary as decimal strings.
+
+Structured `/logs` messages use a separate Events source documented in
+[`events-data-contracts.md`](events-data-contracts.md). Their message and field
+values are redacted before they enter the bounded runtime DTO. Reconnect creates
+a new Events session rather than joining logs across an observation gap.
 
 ## Shutdown order
 

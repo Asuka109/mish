@@ -106,4 +106,8 @@ impl DesktopRuntimeHost {
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         self.current().traffic_snapshot(adapter_kind)
     }
+
+    pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
+        self.current().events_snapshot(adapter_kind)
+    }
 }

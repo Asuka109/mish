@@ -70,6 +70,20 @@ for sequence, reconnect, stale, retention, precision, and privacy semantics.
 | DIAG-F-008   | P1       | Endpoint and service probes shall retain scoped result metadata.                                                            | Given a probe completes, then its result includes endpoint or service identity, route scope, observed status, relevant region only when the check supplies it, completion time, and typed failure without changing the user's route selection. |
 | EVENT-NF-001 | P0       | Default event retention shall be bounded and local.                                                                         | Restart, size, and time retention follow a documented policy; telemetry transmission does not occur without explicit opt-in.                                                                                                                   |
 
+### Current read-only Events vertical slice
+
+The first Events delivery uses an independent snapshot/subscription contract
+for redacted Mihomo core logs plus local session-boundary observations. It keeps
+at most 1,024 events in each desktop and Web memory buffer, replaces rather than
+joins buffers across reconnect and runtime/profile boundaries, and exposes
+explicit unavailable states for RPC tracing and platform events. Pause, follow,
+filter, order, single-event safe copy, and Clear Local are view operations only.
+
+Guided diagnostics and diagnostic export remain outside this slice. No export,
+upload, arbitrary file read, telemetry, or runtime mutation RPC is defined. See
+[`../../architecture/events-data-contracts.md`](../../architecture/events-data-contracts.md)
+for sequence, session, retention, redaction, fixture, and copy semantics.
+
 ## Empty, reconnect, and failure behavior
 
 - A genuine empty connection or rule dataset uses a specific explanation, not
