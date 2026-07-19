@@ -5,12 +5,15 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -18,40 +21,56 @@ env:
   CI: true
 
 jobs:
-  validate:
-    name: Validate
+  pr-gate:
+    name: Fast PR gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run fast pull-request gate
+        run: pnpm validate:pr
+
+  inspect-main:
+    name: Inspect main
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: main
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.13.1
+          run_install: false
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Enable pnpm
-        run: corepack enable
-      - name: Resolve pnpm store
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-      - name: Cache pnpm store
-        uses: actions/cache@v5
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
         with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-pnpm-
-      - name: Cache Cargo
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+          shared-key: main-inspection
+          cache-on-failure: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install Playwright Chromium
@@ -78,33 +97,22 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.13.1
+          run_install: false
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Enable pnpm
-        run: corepack enable
-      - name: Resolve pnpm store
-        id: pnpm-store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-      - name: Cache pnpm store
-        uses: actions/cache@v5
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
         with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-pnpm-
-      - name: Cache Cargo
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-
+          shared-key: macos-package
+          cache-on-failure: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Configure Apple signing
@@ -240,17 +248,27 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.13.1
+          run_install: false
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - name: Enable pnpm
-        run: corepack enable
+          cache: gradle
+          cache-dependency-path: |
+            apps/mobile/src-tauri/gen/android/*.gradle*
+            apps/mobile/src-tauri/gen/android/**/build.gradle.kts
+            apps/mobile/src-tauri/gen/android/**/gradle-wrapper.properties
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Install pinned Android components
@@ -267,6 +285,11 @@ jobs:
             "ndk;29.0.14206865"
           rustup target add aarch64-linux-android x86_64-linux-android
           echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+      - name: Cache Rust dependencies and Android build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: android-package
+          cache-on-failure: true
       - name: Build Android debug APKs
         run: pnpm mobile:android:build
       - name: Verify Android debug APKs

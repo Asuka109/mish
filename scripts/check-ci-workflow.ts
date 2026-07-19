@@ -17,13 +17,17 @@ type Job = {
   needs?: unknown;
   "runs-on"?: string;
   steps?: Step[];
+  "timeout-minutes"?: number;
 };
 
 type Workflow = {
+  concurrency?: { group?: string };
   jobs?: Record<string, Job>;
   on?: {
     pull_request?: unknown;
     push?: { branches?: string[] };
+    schedule?: Array<{ cron?: string }>;
+    workflow_dispatch?: unknown;
   };
 };
 
@@ -36,7 +40,13 @@ if (document.errors.length > 0) {
 }
 
 const workflow = document.toJS() as Workflow;
+const packageJson = JSON.parse(
+  readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"),
+) as { scripts?: Record<string, string> };
 const mainOnly = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
+const pullRequestOnly = "github.event_name == 'pull_request'";
+const inspectionOnly =
+  "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'";
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -54,6 +64,34 @@ function step(jobValue: Job, name: string): Step {
   return value;
 }
 
+function assertNodeCache(jobValue: Job, label: string): void {
+  const pnpm = step(jobValue, "Set up pnpm");
+  invariant(pnpm.uses === "pnpm/action-setup@v6", `${label} must use pnpm/action-setup v6.`);
+  invariant(pnpm.with?.version === "11.13.1", `${label} must pin the workspace pnpm version.`);
+  invariant(pnpm.with?.run_install === false, `${label} must keep dependency install explicit.`);
+
+  const node = step(jobValue, "Set up Node.js");
+  invariant(node.uses === "actions/setup-node@v7", `${label} must use setup-node v7.`);
+  invariant(node.with?.cache === "pnpm", `${label} must restore the pnpm store cache.`);
+  invariant(
+    node.with?.["cache-dependency-path"] === "pnpm-lock.yaml",
+    `${label} must key the pnpm cache from pnpm-lock.yaml.`,
+  );
+}
+
+function assertRustCache(jobValue: Job, stepName: string, sharedKey: string): void {
+  const cache = step(jobValue, stepName);
+  invariant(cache.uses === "Swatinem/rust-cache@v2", `${stepName} must use rust-cache v2.`);
+  invariant(
+    cache.with?.["shared-key"] === sharedKey,
+    `${stepName} has the wrong shared cache key.`,
+  );
+  invariant(
+    cache.with?.["cache-on-failure"] === true,
+    `${stepName} must retain useful failed-run outputs.`,
+  );
+}
+
 invariant(
   workflow.on && Object.prototype.hasOwnProperty.call(workflow.on, "pull_request"),
   "CI must validate pull requests.",
@@ -62,40 +100,67 @@ invariant(
   JSON.stringify(workflow.on?.push?.branches) === JSON.stringify(["main"]),
   "Push CI must remain scoped to main.",
 );
+invariant(
+  JSON.stringify(workflow.on?.schedule) === JSON.stringify([{ cron: "23 3 * * *" }]),
+  "Full main inspection must run once per day at the pinned UTC time.",
+);
+invariant(
+  workflow.on && Object.prototype.hasOwnProperty.call(workflow.on, "workflow_dispatch"),
+  "Full main inspection must support manual dispatch.",
+);
+invariant(
+  workflow.concurrency?.group?.includes("github.event_name"),
+  "CI concurrency must not let an inspection cancel a package run.",
+);
 
-const validate = job("validate");
-invariant(validate["runs-on"] === "macos-15", "Validation must use macos-15.");
-const validateSteps = validate.steps ?? [];
-const installDependenciesIndex = validateSteps.findIndex(
-  (candidate) => candidate.run === "pnpm install --frozen-lockfile",
-);
-const installBrowserIndex = validateSteps.findIndex(
-  (candidate) => candidate.run === "pnpm test:browser:install",
-);
-const repositoryValidationIndex = validateSteps.findIndex(
-  (candidate) => candidate.run === "pnpm validate",
-);
-const browserTestIndex = validateSteps.findIndex(
-  (candidate) => candidate.run === "pnpm test:browser",
-);
-invariant(installDependenciesIndex >= 0, "Validation must install frozen dependencies.");
+const prGate = job("pr-gate");
+invariant(prGate.if === pullRequestOnly, "The fast gate must run only for pull requests.");
+invariant(prGate["runs-on"] === "ubuntu-24.04", "The fast gate must use Ubuntu 24.04.");
+invariant(prGate["timeout-minutes"] === 10, "The fast gate must retain its ten-minute ceiling.");
+assertNodeCache(prGate, "The fast gate");
 invariant(
-  installBrowserIndex > installDependenciesIndex,
-  "Validation must install the Playwright-pinned Chromium after dependencies.",
+  step(prGate, "Install dependencies").run === "pnpm install --frozen-lockfile",
+  "The fast gate must install frozen dependencies.",
 );
 invariant(
-  repositoryValidationIndex > installBrowserIndex,
-  "Repository validation must run after Chromium installation.",
+  step(prGate, "Run fast pull-request gate").run === "pnpm validate:pr",
+  "Pull requests must use the bounded validation command.",
+);
+const expectedPrValidation =
+  "pnpm android:check && pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck:ts && pnpm test:ts && pnpm rust:format:check && pnpm tokens:check && pnpm docs:links";
+invariant(
+  packageJson.scripts?.["validate:pr"] === expectedPrValidation,
+  "validate:pr must stay bounded to fast static, TypeScript, unit, format, token, and documentation checks.",
+);
+
+const inspectMain = job("inspect-main");
+invariant(inspectMain.if === inspectionOnly, "Heavy validation must be inspection-only.");
+invariant(inspectMain["runs-on"] === "macos-15", "Main inspection must use macos-15.");
+assertNodeCache(inspectMain, "Main inspection");
+assertRustCache(inspectMain, "Cache Rust dependencies and build outputs", "main-inspection");
+invariant(
+  step(inspectMain, "Check out repository").with?.ref === "main",
+  "Inspection must always check out the latest main branch.",
 );
 invariant(
-  browserTestIndex > repositoryValidationIndex,
-  "The real-browser suite must run in the validation job.",
+  step(inspectMain, "Install Playwright Chromium").run === "pnpm test:browser:install",
+  "Inspection must install the Playwright-pinned Chromium.",
+);
+invariant(
+  step(inspectMain, "Run complete validation").run === "pnpm validate",
+  "Inspection must run complete repository validation.",
+);
+invariant(
+  step(inspectMain, "Run real-browser responsive suite").run === "pnpm test:browser",
+  "Inspection must run the real-browser suite.",
 );
 
 const packageMacos = job("package-macos");
 invariant(packageMacos["runs-on"] === "macos-15", "Packaging must use macos-15 ARM64.");
 invariant(packageMacos.if === mainOnly, "Packaging must remain main-push-only.");
 invariant(packageMacos.needs === undefined, "Packaging must remain independent from validation.");
+assertNodeCache(packageMacos, "macOS packaging");
+assertRustCache(packageMacos, "Cache Rust dependencies and build outputs", "macos-package");
 
 const upload = step(packageMacos, "Upload Apple Silicon test package");
 invariant(upload.id === "package-upload", "The upload step must expose traceable outputs.");
@@ -194,6 +259,19 @@ invariant(
   packageAndroid.needs === undefined,
   "Android packaging must remain independent from validation.",
 );
+assertNodeCache(packageAndroid, "Android packaging");
+assertRustCache(
+  packageAndroid,
+  "Cache Rust dependencies and Android build outputs",
+  "android-package",
+);
+
+const javaSetup = step(packageAndroid, "Set up Java");
+invariant(javaSetup.with?.cache === "gradle", "Android packaging must cache Gradle dependencies.");
+invariant(
+  String(javaSetup.with?.["cache-dependency-path"]).includes("gradle-wrapper.properties"),
+  "The Gradle cache key must include the wrapper and build scripts.",
+);
 
 const androidSetup = step(packageAndroid, "Install pinned Android components").run ?? "";
 for (const component of [
@@ -248,5 +326,5 @@ invariant(
 );
 
 console.log(
-  "CI workflow contract valid: PRs validate only; macOS and Android packaging and uploads are main-only.",
+  "CI workflow contract valid: PRs use the fast gate, main pushes package, and scheduled/manual main inspections run the heavy suite.",
 );
