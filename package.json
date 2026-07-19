@@ -6,6 +6,7 @@
   "scripts": {
     "bridge": "cargo run -p mish-bridge --",
     "build": "pnpm --filter @mish/web build",
+    "ci:check": "node scripts/check-ci-workflow.ts",
     "desktop:build": "pnpm --filter @mish/desktop build",
     "desktop:bundle:macos": "node scripts/build-macos-bundle.ts",
     "desktop:dev": "pnpm --filter @mish/desktop dev",
@@ -31,12 +32,13 @@
     "rust:test": "cargo test --workspace -- --test-threads=1",
     "tokens:check": "node scripts/check-design-tokens.ts",
     "typecheck": "pnpm --recursive --if-present typecheck",
-    "validate": "pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
+    "validate": "pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
   },
   "devDependencies": {
     "oxfmt": "0.59.0",
     "oxlint": "1.74.0",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "yaml": "2.9.0"
   },
   "packageManager": "pnpm@11.13.1"
 }
