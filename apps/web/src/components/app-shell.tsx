@@ -90,7 +90,9 @@ function ProxyControlButton() {
       : "connecting"
     : needsAttention
       ? "error"
-      : (runtime?.phase ?? "inactive");
+      : active
+        ? (runtime?.phase ?? "inactive")
+        : "inactive";
   const selectedCapture = {
     systemProxy: Boolean(runtime?.captureSelection.systemProxy && systemProxyAvailable),
     tun: Boolean(runtime?.captureSelection.tun && tunAvailable),

@@ -614,7 +614,7 @@ describe("desktop RPC experience", () => {
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(/reconnecting/i);
 
-    const proxyControl = screen.getByRole("button", { name: "Enable proxy" });
+    const proxyControl = screen.getByRole("button", { name: "Launch proxy" });
     expect(proxyControl).toBeDisabled();
     expect(proxyControl).toHaveAccessibleDescription(/capture is unavailable/i);
 
@@ -725,14 +725,16 @@ describe("Status fixture experience", () => {
   it("keeps capture actions explicitly described as fixture-only", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    const startButton = await screen.findByRole("button", { name: "Enable the proxy demo state" });
+    const startButton = await screen.findByRole("button", { name: "Launch the proxy demo state" });
     expect(startButton).toHaveAccessibleDescription(/local fixture data only/);
+    expect(startButton).toHaveAttribute("data-status", "inactive");
+    expect(startButton.querySelector(".sidebar-status-shimmer")).not.toBeInTheDocument();
     await user.click(startButton);
     const stopButton = await screen.findByRole("button", { name: "Disable the proxy demo state" });
     expect(stopButton).toHaveAccessibleDescription(/local fixture data only/);
     await user.click(stopButton);
     expect(
-      await screen.findByRole("button", { name: "Enable the proxy demo state" }),
+      await screen.findByRole("button", { name: "Launch the proxy demo state" }),
     ).toBeInTheDocument();
   });
 
@@ -740,7 +742,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    await user.click(await screen.findByRole("button", { name: "Enable the proxy demo state" }));
+    await user.click(await screen.findByRole("button", { name: "Launch the proxy demo state" }));
 
     const systemProxy = await screen.findByRole("button", { name: /^System Proxy/ });
     expect(systemProxy).toHaveAttribute("aria-pressed", "true");
@@ -753,7 +755,7 @@ describe("Status fixture experience", () => {
       expect(systemProxy).toHaveAccessibleName("System Proxy, selected, not running");
     });
 
-    await user.click(screen.getByRole("button", { name: "Enable the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Launch the proxy demo state" }));
 
     await waitFor(() => {
       expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
@@ -805,9 +807,9 @@ describe("Status fixture experience", () => {
     expect(
       screen.getByRole("button", { name: "Virtual Interface, selected, not running" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Enable the proxy demo state" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Launch the proxy demo state" })).toHaveAttribute(
       "title",
-      "Start proxy with Virtual Interface",
+      "Launch proxy with Virtual Interface",
     );
   });
 
@@ -818,12 +820,12 @@ describe("Status fixture experience", () => {
     expect(
       await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
     ).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Enable the proxy demo state" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Launch the proxy demo state" })).toHaveAttribute(
       "title",
-      "Start proxy with System Proxy",
+      "Launch proxy with System Proxy",
     );
 
-    await user.click(screen.getByRole("button", { name: "Enable the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Launch the proxy demo state" }));
 
     expect(
       await screen.findByRole("button", { name: "System Proxy, selected, running" }),
@@ -890,7 +892,7 @@ describe("Status fixture experience", () => {
     const client = new DeferredCaptureClient(snapshot);
     renderRoute("/status", "en", client);
 
-    await user.click(await screen.findByRole("button", { name: "Enable proxy" }));
+    await user.click(await screen.findByRole("button", { name: "Launch proxy" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(
       "System Proxy is pending macOS confirmation.",
