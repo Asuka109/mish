@@ -168,7 +168,7 @@ bounded output and duration, and no shell, `sudo`, or AppleScript. This is a
 narrow seam that can be replaced by a privileged helper without changing the
 UI or RPC contract.
 
-System Proxy is the only implemented platform-capture mutation. It defaults off and
+System Proxy is the production-capable platform-capture mutation. It defaults off and
 requires a configured, healthy core plus a reachable managed Mihomo listener
 before Mish writes the shared loopback HTTP, HTTPS, and SOCKS endpoint. A
 private, size-bounded journal stores only the
@@ -181,7 +181,10 @@ PAC, automatic discovery, and enabled authenticated proxy settings are observed
 but never overwritten.
 
 Commands not backed by real controller or platform reconciliation return a
-typed capability error instead of fake success. TUN remains unavailable.
+typed capability error instead of fake success. TUN now has a shared lifecycle,
+status, and rollback contract, but the current desktop build remains truthfully
+unsigned or unpackaged until the signed `SMAppService` composition in
+[`macos-tun-helper.md`](macos-tun-helper.md) exists.
 When the Controller source is present, the RPC Status client also discovers
 only the reconciled routing-mode and group-selection commands. Missing-core and
 lifecycle-only compositions advertise neither Controller command.

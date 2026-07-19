@@ -7,6 +7,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use mish_runtime::{
+    TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperSnapshot,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -148,7 +151,7 @@ pub struct StartupRegistrationSnapshot {
     pub phase: StartupRegistrationPhase,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsSnapshot {
     pub adapter_kind: SettingsAdapterKind,
@@ -157,6 +160,7 @@ pub struct SettingsSnapshot {
     pub privacy: PrivacyAccessSnapshot,
     pub startup_registration: StartupRegistrationSnapshot,
     pub storage_recovered: bool,
+    pub tun_helper: TunHelperSnapshot,
 }
 
 pub trait StartupPlatform: Send + Sync {
@@ -195,6 +199,8 @@ pub enum SettingsServiceError {
     Persistence,
     #[error("startup registration could not be confirmed")]
     Startup,
+    #[error("the TUN helper lifecycle operation could not be confirmed")]
+    TunHelper(TunHelperFailureKind),
 }
 
 pub struct SettingsService {
@@ -203,6 +209,7 @@ pub struct SettingsService {
     platform: Option<Arc<dyn StartupPlatform>>,
     repository: Arc<dyn SettingsRepository>,
     state: Mutex<SettingsState>,
+    tun_helper: Option<Arc<TunHelperController>>,
 }
 
 #[derive(Clone, Copy)]
@@ -216,6 +223,15 @@ impl SettingsService {
         repository: Arc<dyn SettingsRepository>,
         platform: Option<Arc<dyn StartupPlatform>>,
         capabilities: SettingsCapabilities,
+    ) -> Result<Self, SettingsServiceError> {
+        Self::load_with_tun_helper(repository, platform, capabilities, None)
+    }
+
+    pub fn load_with_tun_helper(
+        repository: Arc<dyn SettingsRepository>,
+        platform: Option<Arc<dyn StartupPlatform>>,
+        capabilities: SettingsCapabilities,
+        tun_helper: Option<Arc<TunHelperController>>,
     ) -> Result<Self, SettingsServiceError> {
         let (loaded, storage_recovered) = match repository.load() {
             Ok(loaded) => (loaded, false),
@@ -250,6 +266,7 @@ impl SettingsService {
                 preferences: loaded.preferences,
                 storage_recovered,
             }),
+            tun_helper,
         })
     }
 
@@ -264,9 +281,29 @@ impl SettingsService {
             observed,
             self.capabilities.launch_at_login,
         );
+        let tun_helper = self
+            .tun_helper
+            .as_ref()
+            .map_or_else(TunHelperSnapshot::browser_unavailable, |helper| {
+                helper.snapshot()
+            });
+        let mut capabilities = self.capabilities;
+        capabilities.tun = match tun_helper.availability {
+            TunHelperAvailability::Available if tun_helper.is_healthy() => {
+                SettingsAvailability::Supported
+            }
+            TunHelperAvailability::PermissionRequired | TunHelperAvailability::RepairRequired => {
+                SettingsAvailability::Supported
+            }
+            TunHelperAvailability::Available
+            | TunHelperAvailability::Unpackaged
+            | TunHelperAvailability::UnsignedApp
+            | TunHelperAvailability::UnsupportedSystem
+            | TunHelperAvailability::Unavailable => SettingsAvailability::Unavailable,
+        };
         SettingsSnapshot {
             adapter_kind,
-            capabilities: self.capabilities,
+            capabilities,
             preferences: state.preferences,
             privacy: PrivacyAccessSnapshot {
                 authenticated: ConfirmationState::Confirmed,
@@ -276,7 +313,32 @@ impl SettingsService {
             },
             startup_registration,
             storage_recovered: state.storage_recovered,
+            tun_helper,
         }
+    }
+
+    pub async fn install_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
+        self.tun_helper()?
+            .install()
+            .await
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
+        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+    }
+
+    pub async fn repair_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
+        self.tun_helper()?
+            .repair()
+            .await
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
+        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+    }
+
+    pub async fn remove_tun_helper(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
+        self.tun_helper()?
+            .remove()
+            .await
+            .map_err(|error| SettingsServiceError::TunHelper(error.kind))?;
+        Ok(self.snapshot(SettingsAdapterKind::Rpc))
     }
 
     pub fn set_appearance(
@@ -371,6 +433,12 @@ impl SettingsService {
         state.storage_recovered = false;
         drop(state);
         Ok(self.snapshot(SettingsAdapterKind::Rpc))
+    }
+
+    fn tun_helper(&self) -> Result<&TunHelperController, SettingsServiceError> {
+        self.tun_helper
+            .as_deref()
+            .ok_or(SettingsServiceError::CapabilityUnavailable)
     }
 }
 

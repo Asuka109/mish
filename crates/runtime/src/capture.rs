@@ -11,8 +11,10 @@ use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::CapabilityAvailability;
-use crate::CaptureSelection;
+use crate::{
+    CapabilityAvailability, CaptureSelection, TunHelperAvailability, TunHelperController,
+    TunHelperFailureKind, TunHelperHealth,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -272,7 +274,63 @@ pub struct CaptureRuntimeStatus {
     pub capture_selection: CaptureSelection,
     pub system_proxy: SystemProxyRuntimeStatus,
     pub system_proxy_enabled: bool,
+    pub tun: TunRuntimeStatus,
     pub tun_enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TunPhase {
+    Off,
+    Pending,
+    Applied,
+    Failed,
+    Drift,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TunObservedState {
+    Disabled,
+    Enabled,
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TunFailureKind {
+    CapabilityUnavailable,
+    ConfirmationFailed,
+    CoreUnhealthy,
+    HelperConnectionFailed,
+    HelperIdentityRejected,
+    HelperInvalidSignature,
+    HelperOperationFailed,
+    HelperPermissionDenied,
+    HelperProtocolMismatch,
+    HelperVersionMismatch,
+    RollbackFailed,
+    RuntimeTransition,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TunRuntimeStatus {
+    pub desired: bool,
+    pub failure: Option<TunFailureKind>,
+    pub observed: TunObservedState,
+    pub phase: TunPhase,
+}
+
+impl TunRuntimeStatus {
+    pub const fn off() -> Self {
+        Self {
+            desired: false,
+            failure: None,
+            observed: TunObservedState::Unknown,
+            phase: TunPhase::Off,
+        }
+    }
 }
 
 impl CaptureRuntimeStatus {
@@ -290,12 +348,13 @@ impl CaptureRuntimeStatus {
                 recovery_actions: Vec::new(),
             },
             system_proxy_enabled: false,
+            tun: TunRuntimeStatus::off(),
             tun_enabled: false,
         }
     }
 }
 
-pub struct CaptureReconciler {
+pub struct SystemProxyReconciler {
     endpoint: LoopbackProxyEndpoint,
     journal: Arc<dyn CaptureJournalStore>,
     operation: AsyncMutex<()>,
@@ -304,11 +363,11 @@ pub struct CaptureReconciler {
     runtime_transition: AtomicBool,
 }
 
-pub struct CaptureRuntimeTransition {
-    reconciler: Arc<CaptureReconciler>,
+pub struct SystemProxyRuntimeTransition {
+    reconciler: Arc<SystemProxyReconciler>,
 }
 
-impl Drop for CaptureRuntimeTransition {
+impl Drop for SystemProxyRuntimeTransition {
     fn drop(&mut self) {
         self.reconciler
             .runtime_transition
@@ -316,7 +375,7 @@ impl Drop for CaptureRuntimeTransition {
     }
 }
 
-impl CaptureReconciler {
+impl SystemProxyReconciler {
     pub fn new(
         platform: Arc<dyn CapturePlatform>,
         journal: Arc<dyn CaptureJournalStore>,
@@ -334,11 +393,11 @@ impl CaptureReconciler {
 
     pub fn begin_runtime_transition(
         self: &Arc<Self>,
-    ) -> Result<CaptureRuntimeTransition, CaptureTransitionError> {
+    ) -> Result<SystemProxyRuntimeTransition, CaptureTransitionError> {
         self.runtime_transition
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .map_err(|_| runtime_transition_error())?;
-        Ok(CaptureRuntimeTransition {
+        Ok(SystemProxyRuntimeTransition {
             reconciler: self.clone(),
         })
     }
@@ -368,7 +427,7 @@ impl CaptureReconciler {
 
     pub async fn reconcile_runtime_transition(
         &self,
-        transition: &CaptureRuntimeTransition,
+        transition: &SystemProxyRuntimeTransition,
         request: CaptureRequest,
         core_healthy: bool,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
@@ -455,6 +514,7 @@ impl CaptureReconciler {
                             recovery_actions: Vec::new(),
                         },
                         system_proxy_enabled: true,
+                        tun: TunRuntimeStatus::off(),
                         tun_enabled: false,
                     };
                     *self.status.lock().unwrap() = status.clone();
@@ -538,6 +598,7 @@ impl CaptureReconciler {
                 recovery_actions: Vec::new(),
             },
             system_proxy_enabled: true,
+            tun: TunRuntimeStatus::off(),
             tun_enabled: false,
         };
         *self.status.lock().unwrap() = status.clone();
@@ -563,6 +624,7 @@ impl CaptureReconciler {
                 recovery_actions: Vec::new(),
             },
             system_proxy_enabled: false,
+            tun: TunRuntimeStatus::off(),
             tun_enabled: false,
         };
         *self.status.lock().unwrap() = status;
@@ -580,6 +642,7 @@ impl CaptureReconciler {
                 recovery_actions: Vec::new(),
             },
             system_proxy_enabled: previous.system_proxy_enabled,
+            tun: TunRuntimeStatus::off(),
             tun_enabled: false,
         };
         *self.status.lock().unwrap() = status;
@@ -743,6 +806,7 @@ impl CaptureReconciler {
                         recovery_actions: Vec::new(),
                     },
                     system_proxy_enabled: true,
+                    tun: TunRuntimeStatus::off(),
                     tun_enabled: false,
                 };
                 *self.status.lock().unwrap() = status.clone();
@@ -855,6 +919,7 @@ impl CaptureReconciler {
                     recovery_actions: Vec::new(),
                 },
                 system_proxy_enabled: true,
+                tun: TunRuntimeStatus::off(),
                 tun_enabled: false,
             };
             *self.status.lock().unwrap() = status.clone();
@@ -875,6 +940,7 @@ impl CaptureReconciler {
                 recovery_actions: Vec::new(),
             },
             system_proxy_enabled: false,
+            tun: TunRuntimeStatus::off(),
             tun_enabled: false,
         };
         *self.status.lock().unwrap() = status.clone();
@@ -963,6 +1029,7 @@ impl CaptureReconciler {
                 recovery_actions: Vec::new(),
             },
             system_proxy_enabled: false,
+            tun: TunRuntimeStatus::off(),
             tun_enabled: false,
         };
         *self.status.lock().unwrap() = status;
@@ -993,6 +1060,7 @@ impl CaptureReconciler {
                 ],
             },
             system_proxy_enabled: false,
+            tun: TunRuntimeStatus::off(),
             tun_enabled: false,
         };
         *self.status.lock().unwrap() = status;
@@ -1107,6 +1175,535 @@ impl CaptureReconciler {
         *self.status.lock().unwrap() = status.clone();
         Ok(status)
     }
+}
+
+struct TunReconciler {
+    helper: Arc<TunHelperController>,
+    status: Mutex<TunRuntimeStatus>,
+}
+
+impl TunReconciler {
+    fn new(helper: Arc<TunHelperController>) -> Self {
+        Self {
+            helper,
+            status: Mutex::new(TunRuntimeStatus::off()),
+        }
+    }
+
+    fn availability(&self) -> CapabilityAvailability {
+        match self.helper.snapshot().availability {
+            TunHelperAvailability::Available if self.helper.snapshot().is_healthy() => {
+                CapabilityAvailability::Supported
+            }
+            TunHelperAvailability::PermissionRequired => CapabilityAvailability::PermissionRequired,
+            TunHelperAvailability::RepairRequired => CapabilityAvailability::RepairRequired,
+            TunHelperAvailability::Available
+            | TunHelperAvailability::Unpackaged
+            | TunHelperAvailability::UnsignedApp
+            | TunHelperAvailability::UnsupportedSystem
+            | TunHelperAvailability::Unavailable => CapabilityAvailability::Unavailable,
+        }
+    }
+
+    fn status(&self) -> TunRuntimeStatus {
+        self.status
+            .lock()
+            .expect("TUN status lock poisoned")
+            .clone()
+    }
+
+    async fn reconcile(
+        &self,
+        desired: bool,
+        core_healthy: bool,
+    ) -> Result<TunRuntimeStatus, CaptureTransitionError> {
+        let previous = self.status();
+        if !desired && previous.phase == TunPhase::Off && !previous.desired {
+            return Ok(previous);
+        }
+        if desired && self.availability() != CapabilityAvailability::Supported {
+            let failure = helper_snapshot_failure(&self.helper.snapshot());
+            self.record_failure(true, failure, previous.observed);
+            return Err(capture_error_from_tun_failure(failure));
+        }
+        if desired && !core_healthy {
+            self.record_failure(true, TunFailureKind::CoreUnhealthy, previous.observed);
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CoreUnhealthy,
+                "TUN capture requires a healthy Mihomo core",
+            ));
+        }
+        self.set_pending(desired);
+        match self.helper.set_tun_enabled(desired).await {
+            Ok(observed) if observed == desired => {
+                let status = TunRuntimeStatus {
+                    desired,
+                    failure: None,
+                    observed: if observed {
+                        TunObservedState::Enabled
+                    } else {
+                        TunObservedState::Disabled
+                    },
+                    phase: if observed {
+                        TunPhase::Applied
+                    } else {
+                        TunPhase::Off
+                    },
+                };
+                *self.status.lock().expect("TUN status lock poisoned") = status.clone();
+                Ok(status)
+            }
+            Ok(_) => {
+                self.record_failure(
+                    desired,
+                    TunFailureKind::ConfirmationFailed,
+                    TunObservedState::Unknown,
+                );
+                Err(CaptureTransitionError::new(
+                    CaptureFailureKind::ConfirmationFailed,
+                    "TUN state could not be confirmed",
+                ))
+            }
+            Err(error) => {
+                let failure = map_helper_failure(error.kind);
+                let observed = self.helper.observe_tun().await.ok().map_or(
+                    TunObservedState::Unknown,
+                    |enabled| {
+                        if enabled {
+                            TunObservedState::Enabled
+                        } else {
+                            TunObservedState::Disabled
+                        }
+                    },
+                );
+                self.record_failure(desired, failure, observed);
+                Err(capture_error_from_tun_failure(failure))
+            }
+        }
+    }
+
+    async fn audit(&self, core_healthy: bool) -> Result<TunRuntimeStatus, CaptureTransitionError> {
+        let current = self.status();
+        if current.desired && !core_healthy {
+            return self.reconcile(false, false).await.map(|mut status| {
+                status.desired = true;
+                status.failure = Some(TunFailureKind::CoreUnhealthy);
+                status.phase = TunPhase::Failed;
+                *self.status.lock().expect("TUN status lock poisoned") = status.clone();
+                status
+            });
+        }
+        if self.availability() != CapabilityAvailability::Supported {
+            if current.desired || current.observed == TunObservedState::Enabled {
+                let failure = helper_snapshot_failure(&self.helper.snapshot());
+                self.record_drift(failure);
+                return Err(capture_error_from_tun_failure(failure));
+            }
+            return Ok(current);
+        }
+        let observed = self.helper.observe_tun().await.map_err(|error| {
+            let failure = map_helper_failure(error.kind);
+            self.record_drift(failure);
+            capture_error_from_tun_failure(failure)
+        })?;
+        if observed == current.desired {
+            let status = TunRuntimeStatus {
+                desired: current.desired,
+                failure: None,
+                observed: if observed {
+                    TunObservedState::Enabled
+                } else {
+                    TunObservedState::Disabled
+                },
+                phase: if observed {
+                    TunPhase::Applied
+                } else {
+                    TunPhase::Off
+                },
+            };
+            *self.status.lock().expect("TUN status lock poisoned") = status.clone();
+            return Ok(status);
+        }
+        self.record_drift(TunFailureKind::ConfirmationFailed);
+        Err(CaptureTransitionError::new(
+            CaptureFailureKind::ExternalDrift,
+            "TUN state changed outside Mish",
+        ))
+    }
+
+    fn set_pending(&self, desired: bool) {
+        let previous = self.status();
+        *self.status.lock().expect("TUN status lock poisoned") = TunRuntimeStatus {
+            desired,
+            failure: None,
+            observed: previous.observed,
+            phase: TunPhase::Pending,
+        };
+    }
+
+    fn record_failure(&self, desired: bool, failure: TunFailureKind, observed: TunObservedState) {
+        *self.status.lock().expect("TUN status lock poisoned") = TunRuntimeStatus {
+            desired,
+            failure: Some(failure),
+            observed,
+            phase: TunPhase::Failed,
+        };
+    }
+
+    fn record_drift(&self, failure: TunFailureKind) {
+        let mut status = self.status();
+        status.failure = Some(failure);
+        status.phase = TunPhase::Drift;
+        status.observed = TunObservedState::Unknown;
+        *self.status.lock().expect("TUN status lock poisoned") = status;
+    }
+}
+
+pub struct CaptureReconciler {
+    operation: AsyncMutex<()>,
+    runtime_transition: AtomicBool,
+    status: Mutex<CaptureRuntimeStatus>,
+    system_proxy: Arc<SystemProxyReconciler>,
+    tun: Option<Arc<TunReconciler>>,
+}
+
+pub struct CaptureRuntimeTransition {
+    reconciler: Arc<CaptureReconciler>,
+}
+
+impl Drop for CaptureRuntimeTransition {
+    fn drop(&mut self) {
+        self.reconciler
+            .runtime_transition
+            .store(false, Ordering::Release);
+    }
+}
+
+impl CaptureReconciler {
+    pub fn new(
+        platform: Arc<dyn CapturePlatform>,
+        journal: Arc<dyn CaptureJournalStore>,
+        endpoint: LoopbackProxyEndpoint,
+    ) -> Self {
+        Self::new_with_tun(platform, journal, endpoint, None)
+    }
+
+    pub fn new_with_tun(
+        platform: Arc<dyn CapturePlatform>,
+        journal: Arc<dyn CaptureJournalStore>,
+        endpoint: LoopbackProxyEndpoint,
+        helper: Option<Arc<TunHelperController>>,
+    ) -> Self {
+        let system_proxy = Arc::new(SystemProxyReconciler::new(platform, journal, endpoint));
+        let tun = helper.map(|helper| Arc::new(TunReconciler::new(helper)));
+        let mut status = system_proxy.status();
+        if let Some(tun) = &tun {
+            status.tun = tun.status();
+        }
+        Self {
+            operation: AsyncMutex::new(()),
+            runtime_transition: AtomicBool::new(false),
+            status: Mutex::new(status),
+            system_proxy,
+            tun,
+        }
+    }
+
+    pub fn begin_runtime_transition(
+        self: &Arc<Self>,
+    ) -> Result<CaptureRuntimeTransition, CaptureTransitionError> {
+        self.runtime_transition
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| runtime_transition_error())?;
+        Ok(CaptureRuntimeTransition {
+            reconciler: self.clone(),
+        })
+    }
+
+    pub fn status(&self) -> CaptureRuntimeStatus {
+        self.status
+            .lock()
+            .expect("capture status lock poisoned")
+            .clone()
+    }
+
+    pub fn availability(&self) -> CapabilityAvailability {
+        self.system_proxy.availability()
+    }
+
+    pub fn tun_availability(&self) -> CapabilityAvailability {
+        self.tun
+            .as_ref()
+            .map_or(CapabilityAvailability::Unavailable, |tun| {
+                tun.availability()
+            })
+    }
+
+    pub async fn reconcile(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        let _operation = self.operation.lock().await;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        self.reconcile_locked(request, core_healthy).await
+    }
+
+    pub async fn reconcile_runtime_transition(
+        &self,
+        transition: &CaptureRuntimeTransition,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if !std::ptr::eq(self, Arc::as_ptr(&transition.reconciler))
+            || !self.runtime_transition.load(Ordering::Acquire)
+        {
+            return Err(runtime_transition_error());
+        }
+        let _operation = self.operation.lock().await;
+        self.reconcile_locked(request, core_healthy).await
+    }
+
+    async fn reconcile_locked(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        let previous = self.status();
+        let system_proxy_desired = request.active && request.selection.system_proxy;
+        let tun_desired = request.active && request.selection.tun;
+        if tun_desired && self.tun_availability() != CapabilityAvailability::Supported {
+            let failure = self
+                .tun
+                .as_ref()
+                .map(|tun| helper_snapshot_failure(&tun.helper.snapshot()))
+                .unwrap_or(TunFailureKind::CapabilityUnavailable);
+            let mut status = previous;
+            status.tun.desired = true;
+            status.tun.failure = Some(failure);
+            status.tun.phase = TunPhase::Failed;
+            *self.status.lock().expect("capture status lock poisoned") = status;
+            return Err(capture_error_from_tun_failure(failure));
+        }
+        self.set_pending(request.selection.clone(), system_proxy_desired, tun_desired);
+
+        let tun_was_disabled = previous.tun_enabled && !tun_desired;
+        if tun_was_disabled && let Err(error) = self.set_tun(false, core_healthy).await {
+            let status = self.combined_status(request.selection);
+            *self.status.lock().expect("capture status lock poisoned") = status;
+            return Err(error);
+        }
+
+        if let Err(error) = self
+            .set_system_proxy(system_proxy_desired, &request.selection, core_healthy)
+            .await
+        {
+            if tun_was_disabled && self.set_tun(true, core_healthy).await.is_err() {
+                let mut status = self.combined_status(request.selection);
+                status.tun.failure = Some(TunFailureKind::RollbackFailed);
+                status.tun.phase = TunPhase::Drift;
+                *self.status.lock().expect("capture status lock poisoned") = status;
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "Traffic capture failed and the prior TUN state could not be confirmed",
+                ));
+            }
+            let status = self.combined_status(request.selection);
+            *self.status.lock().expect("capture status lock poisoned") = status;
+            return Err(error);
+        }
+
+        if tun_desired && let Err(original) = self.set_tun(true, core_healthy).await {
+            let rollback_system = self
+                .set_system_proxy(
+                    previous.system_proxy_enabled,
+                    &previous.capture_selection,
+                    core_healthy,
+                )
+                .await;
+            let rollback_tun = self.set_tun(previous.tun_enabled, core_healthy).await;
+            let mut status = self.combined_status(previous.capture_selection.clone());
+            if rollback_system.is_err() || rollback_tun.is_err() {
+                status.system_proxy.failure = Some(CaptureFailureKind::RollbackFailed);
+                status.system_proxy.phase = SystemProxyPhase::Drift;
+                status.tun.failure = Some(TunFailureKind::RollbackFailed);
+                status.tun.phase = TunPhase::Drift;
+                *self.status.lock().expect("capture status lock poisoned") = status;
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "Traffic capture failed and the prior state could not be confirmed",
+                ));
+            }
+            *self.status.lock().expect("capture status lock poisoned") = status;
+            return Err(original);
+        }
+
+        let status = self.combined_status(request.selection);
+        *self.status.lock().expect("capture status lock poisoned") = status.clone();
+        Ok(status)
+    }
+
+    pub async fn audit(
+        &self,
+        reason: CaptureAuditReason,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Ok(self.status());
+        }
+        let _operation = self.operation.lock().await;
+        let selection = self.status().capture_selection;
+        let system_result = self.system_proxy.audit(reason, core_healthy).await;
+        let tun_result = match &self.tun {
+            Some(tun) => tun.audit(core_healthy).await,
+            None => Ok(TunRuntimeStatus::off()),
+        };
+        let status = self.combined_status(selection);
+        *self.status.lock().expect("capture status lock poisoned") = status.clone();
+        system_result?;
+        tun_result?;
+        Ok(status)
+    }
+
+    pub async fn recover(
+        &self,
+        action: CaptureRecoveryAction,
+        core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        let _operation = self.operation.lock().await;
+        let selection = self.status().capture_selection;
+        self.system_proxy.recover(action, core_healthy).await?;
+        let status = self.combined_status(selection);
+        *self.status.lock().expect("capture status lock poisoned") = status.clone();
+        Ok(status)
+    }
+
+    fn set_pending(&self, selection: CaptureSelection, system_proxy: bool, tun: bool) {
+        let previous = self.status();
+        let mut status = previous;
+        status.capture_selection = selection;
+        status.system_proxy.desired = system_proxy;
+        status.system_proxy.failure = None;
+        status.system_proxy.phase = SystemProxyPhase::Pending;
+        status.tun.desired = tun;
+        status.tun.failure = None;
+        status.tun.phase = TunPhase::Pending;
+        *self.status.lock().expect("capture status lock poisoned") = status;
+    }
+
+    async fn set_system_proxy(
+        &self,
+        enabled: bool,
+        selection: &CaptureSelection,
+        core_healthy: bool,
+    ) -> Result<(), CaptureTransitionError> {
+        self.system_proxy
+            .reconcile(
+                CaptureRequest {
+                    active: enabled,
+                    selection: CaptureSelection {
+                        system_proxy: selection.system_proxy,
+                        tun: false,
+                    },
+                },
+                core_healthy,
+            )
+            .await
+            .map(|_| ())
+    }
+
+    async fn set_tun(
+        &self,
+        enabled: bool,
+        core_healthy: bool,
+    ) -> Result<(), CaptureTransitionError> {
+        match &self.tun {
+            Some(tun) => tun.reconcile(enabled, core_healthy).await.map(|_| ()),
+            None if enabled => Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "TUN capture is unavailable in this runtime",
+            )),
+            None => Ok(()),
+        }
+    }
+
+    fn combined_status(&self, selection: CaptureSelection) -> CaptureRuntimeStatus {
+        let system_proxy = self.system_proxy.status();
+        let tun = self
+            .tun
+            .as_ref()
+            .map_or_else(TunRuntimeStatus::off, |tun| tun.status());
+        CaptureRuntimeStatus {
+            capture_selection: selection,
+            system_proxy: system_proxy.system_proxy,
+            system_proxy_enabled: system_proxy.system_proxy_enabled,
+            tun_enabled: tun.phase == TunPhase::Applied
+                && tun.observed == TunObservedState::Enabled,
+            tun,
+        }
+    }
+}
+
+fn helper_snapshot_failure(snapshot: &crate::TunHelperSnapshot) -> TunFailureKind {
+    if snapshot.health == TunHelperHealth::VersionMismatch {
+        return TunFailureKind::HelperVersionMismatch;
+    }
+    if snapshot.health == TunHelperHealth::InvalidSignature {
+        return TunFailureKind::HelperInvalidSignature;
+    }
+    match snapshot.last_failure {
+        Some(failure) => map_helper_failure(failure),
+        None => TunFailureKind::CapabilityUnavailable,
+    }
+}
+
+fn map_helper_failure(failure: TunHelperFailureKind) -> TunFailureKind {
+    match failure {
+        TunHelperFailureKind::ConfirmationFailed => TunFailureKind::ConfirmationFailed,
+        TunHelperFailureKind::IdentityRejected => TunFailureKind::HelperIdentityRejected,
+        TunHelperFailureKind::InvalidSignature | TunHelperFailureKind::UnsignedApp => {
+            TunFailureKind::HelperInvalidSignature
+        }
+        TunHelperFailureKind::PermissionDenied
+        | TunHelperFailureKind::RegistrationRequiresApproval => {
+            TunFailureKind::HelperPermissionDenied
+        }
+        TunHelperFailureKind::ProtocolMismatch | TunHelperFailureKind::MessageTooLarge => {
+            TunFailureKind::HelperProtocolMismatch
+        }
+        TunHelperFailureKind::VersionMismatch => TunFailureKind::HelperVersionMismatch,
+        TunHelperFailureKind::OperationFailed => TunFailureKind::HelperOperationFailed,
+        TunHelperFailureKind::ConnectionFailed
+        | TunHelperFailureKind::RegistrationFailed
+        | TunHelperFailureKind::Unpackaged
+        | TunHelperFailureKind::UnsupportedSystem => TunFailureKind::HelperConnectionFailed,
+    }
+}
+
+fn capture_error_from_tun_failure(failure: TunFailureKind) -> CaptureTransitionError {
+    let kind = match failure {
+        TunFailureKind::HelperPermissionDenied => CaptureFailureKind::PermissionDenied,
+        TunFailureKind::ConfirmationFailed => CaptureFailureKind::ConfirmationFailed,
+        TunFailureKind::CoreUnhealthy => CaptureFailureKind::CoreUnhealthy,
+        TunFailureKind::RollbackFailed => CaptureFailureKind::RollbackFailed,
+        TunFailureKind::RuntimeTransition => CaptureFailureKind::RuntimeTransition,
+        TunFailureKind::HelperOperationFailed => CaptureFailureKind::ApplyFailed,
+        TunFailureKind::CapabilityUnavailable
+        | TunFailureKind::HelperConnectionFailed
+        | TunFailureKind::HelperIdentityRejected
+        | TunFailureKind::HelperInvalidSignature
+        | TunFailureKind::HelperProtocolMismatch
+        | TunFailureKind::HelperVersionMismatch => CaptureFailureKind::CapabilityUnavailable,
+    };
+    CaptureTransitionError::new(kind, "TUN reconciliation failed")
 }
 
 fn observed_state(

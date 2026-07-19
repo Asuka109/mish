@@ -193,9 +193,9 @@ async fn normal_preflight_summarizes_and_classifies_without_silent_platform_enab
             && item.disposition == PolicyDisposition::ApplicationOverridden
     }));
     assert!(report.classifications.iter().any(|item| {
-        item.field_identity == "tun.enable"
+        item.field_identity == "tun"
             && item.owner == PolicyOwner::PlatformIntegration
-            && item.disposition == PolicyDisposition::Disabled
+            && item.disposition == PolicyDisposition::PlatformOverridden
     }));
     assert!(report.classifications.iter().any(|item| {
         item.field_identity == "rule-providers.*.path"
@@ -206,7 +206,7 @@ async fn normal_preflight_summarizes_and_classifies_without_silent_platform_enab
     assert!(normalized.contains("experimental-safe-key"));
     assert!(!normalized.contains("mixed-port"));
     assert!(normalized.contains("providers/rules.yaml"));
-    assert!(normalized.contains("enable: false"));
+    assert!(!normalized.contains("tun:"));
     assert!(
         report
             .summary

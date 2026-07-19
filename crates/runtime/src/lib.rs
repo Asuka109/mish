@@ -15,6 +15,7 @@ mod lifecycle;
 mod provider;
 mod status;
 mod traffic;
+mod tun_helper;
 
 pub use capture::*;
 pub use diagnostics::*;
@@ -23,6 +24,7 @@ pub use lifecycle::*;
 pub use provider::*;
 pub use status::*;
 pub use traffic::*;
+pub use tun_helper::*;
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -511,7 +513,7 @@ impl MishRuntime {
         let core = self.core.status().await;
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let selection = before.capture_selection.clone();
-        let result = if selection.system_proxy {
+        let result = if selection.system_proxy || selection.tun {
             capture
                 .reconcile(
                     CaptureRequest {
@@ -679,11 +681,12 @@ impl MishRuntime {
         if let Some(capture) = &self.capture {
             let capture_status = capture.status();
             snapshot.capabilities.system_proxy = capture.availability();
-            snapshot.capabilities.tun = CapabilityAvailability::Unavailable;
+            snapshot.capabilities.tun = capture.tun_availability();
             snapshot.runtime.capture_selection = capture_status.capture_selection;
             snapshot.runtime.system_proxy = capture_status.system_proxy;
             snapshot.runtime.system_proxy_enabled = capture_status.system_proxy_enabled;
-            snapshot.runtime.tun_enabled = false;
+            snapshot.runtime.tun = capture_status.tun;
+            snapshot.runtime.tun_enabled = capture_status.tun_enabled;
         }
         snapshot
     }

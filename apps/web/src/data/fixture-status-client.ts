@@ -258,6 +258,7 @@ const initialSnapshot: StatusSnapshotDto = {
       recoveryActions: [],
     },
     systemProxyEnabled: false,
+    tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
     tunEnabled: false,
   },
   services: defaultServices,
@@ -352,6 +353,12 @@ export class FixtureStatusClient implements StatusClient {
         recoveryActions: [],
       },
       systemProxyEnabled,
+      tun: {
+        desired: tunEnabled,
+        failure: null,
+        observed: tunEnabled ? "enabled" : "disabled",
+        phase: tunEnabled ? "applied" : "off",
+      },
       tunEnabled,
     };
     return this.snapshotAfterCommand();

@@ -15,6 +15,9 @@ describe("browser settings fixture", () => {
       client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" }),
     ).rejects.toThrow(/unavailable/i);
     await expect(client.setWindowCloseBehavior("quit")).rejects.toThrow(/unavailable/i);
+    await expect(client.installTunHelper()).rejects.toThrow(/unavailable/i);
+    await expect(client.repairTunHelper()).rejects.toThrow(/unavailable/i);
+    await expect(client.removeTunHelper()).rejects.toThrow(/unavailable/i);
     await expect(client.getSnapshot()).resolves.toMatchObject({
       capabilities: {
         launchAtLogin: "unavailable",
@@ -25,6 +28,7 @@ describe("browser settings fixture", () => {
       preferences: { windowCloseBehavior: "hide-to-status-bar" },
       privacy: { loopbackOnly: "unavailable" },
       startupRegistration: { observed: null, phase: "unavailable" },
+      tunHelper: { availability: "unavailable", health: "not-installed", phase: "idle" },
     });
   });
 });

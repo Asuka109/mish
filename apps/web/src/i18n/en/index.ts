@@ -54,6 +54,7 @@ const en = {
       "This browser fixture can preview appearance and language only. It cannot perform or confirm native macOS operations.",
     followsSystem: "Follows system",
     hideToStatusBar: "Hide to status bar",
+    installTunHelper: "Install helper",
     lan: "LAN control",
     lanDescription:
       "No LAN listener or enable switch is provided. External control requires a separate security design.",
@@ -93,6 +94,8 @@ const en = {
       failed: "Observation failed",
       unavailable: "Unavailable",
     },
+    removeTunHelper: "Remove helper",
+    repairTunHelper: "Repair helper",
     quitOnClose: "Quit Mish",
     showWindow: "Show window",
     softwareUpdates: "App, core, and GeoData updates",
@@ -104,7 +107,15 @@ const en = {
     title: "Settings",
     trafficCapture: "Traffic capture",
     trafficCaptureDescription:
-      "System Proxy uses the same desired, observed, drift, and recovery model as Status. TUN remains unavailable.",
+      "System Proxy and TUN use the same desired, observed, drift, and recovery model as Status.",
+    tunHelper: "TUN system helper",
+    tunHelperDescription:
+      "Installing, repairing, or removing the signed helper is always explicit and may require administrator approval. Mish rechecks the observed state after every step.",
+    tunHelperHealthy: "Healthy · version {version:string}",
+    tunHelperNotInstalled: "Not installed",
+    tunHelperRepairRequired: "Repair required",
+    tunHelperUnpackaged: "Not packaged in this build",
+    tunHelperUnsigned: "Unsigned development build",
     updateFailed: "The setting could not be confirmed. The last confirmed state is still shown.",
     updatesData: "Updates and data",
     updatesDescription:
@@ -219,7 +230,12 @@ const en = {
     title: "System Proxy and Virtual Interface",
     tun: "Virtual Interface",
     tunDescription: "Uses a TUN virtual network interface to capture broader traffic.",
+    tunApplied: "Virtual Interface is enabled and confirmed by the signed helper.",
+    tunDrift: "Virtual Interface differs from the requested state and was not reported as active.",
+    tunFailure: "Virtual Interface was not confirmed. The prior capture state was restored.",
     tunFixtureDescription: "Simulates a TUN virtual network interface for broader traffic.",
+    tunOff: "Virtual Interface is off.",
+    tunPending: "Virtual Interface is waiting for helper confirmation.",
   },
   capabilities: {
     capturePermission: "A traffic-capture capability requires permission before it can change.",

@@ -418,6 +418,9 @@ async fn handle_message(
             | "diagnostics.getHistory"
             | "diagnostics.startRun"
             | "settings.getSnapshot"
+            | "settings.installTunHelper"
+            | "settings.repairTunHelper"
+            | "settings.removeTunHelper"
     ) && !request
         .params
         .as_object()
@@ -455,7 +458,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 10,
+            "protocolVersion": 11,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1015,6 +1018,39 @@ async fn handle_message(
             serde_json::to_value(service.snapshot(SettingsAdapterKind::Rpc))
                 .expect("serializable settings snapshot")
         }
+        "settings.installTunHelper" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            match service.install_tun_helper().await {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.repairTunHelper" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
+                return Some(capture_error_response(id, error));
+            }
+            match service.repair_tun_helper().await {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.removeTunHelper" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            if let Err(error) = disable_tun_for_helper_lifecycle(state).await {
+                return Some(capture_error_response(id, error));
+            }
+            match service.remove_tun_helper().await {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
         "settings.setAppearance" => {
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
@@ -1080,6 +1116,31 @@ async fn handle_message(
         _ => return Some(error_response(id, -32601, "Method not found", None)),
     };
     Some(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+}
+
+async fn disable_tun_for_helper_lifecycle(
+    state: &ProtocolState,
+) -> Result<(), CaptureTransitionError> {
+    let snapshot = state
+        .runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    if !snapshot.runtime.capture_selection.tun && !snapshot.runtime.tun_enabled {
+        return Ok(());
+    }
+    let mut selection = snapshot.runtime.capture_selection;
+    selection.tun = false;
+    state
+        .runtime
+        .set_capture(
+            CaptureRequest {
+                active: snapshot.runtime.system_proxy_enabled,
+                selection,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .map(|_| ())
 }
 
 fn constant_time_equal(left: &str, right: &str) -> bool {
@@ -1171,6 +1232,12 @@ fn settings_error_response(id: Value, error: SettingsServiceError) -> Value {
             -32054,
             "Startup registration could not be confirmed",
             None,
+        ),
+        SettingsServiceError::TunHelper(kind) => error_response(
+            id,
+            -32055,
+            "TUN helper lifecycle operation could not be confirmed",
+            Some(json!({ "kind": kind })),
         ),
     }
 }

@@ -130,6 +130,7 @@ pub struct ManagedRuntimeValues {
     pub controller_secret: String,
     pub mixed_port: u16,
     pub proxy_host: String,
+    pub tun_enabled: bool,
 }
 
 impl std::fmt::Debug for ManagedRuntimeValues {
@@ -140,6 +141,7 @@ impl std::fmt::Debug for ManagedRuntimeValues {
             .field("controller_secret", &"[redacted]")
             .field("mixed_port", &"[managed]")
             .field("proxy_host", &"[redacted]")
+            .field("tun_enabled", &self.tun_enabled)
             .finish()
     }
 }
@@ -156,6 +158,7 @@ enum RuleOperation {
     SetWarning,
     SetRule,
     SetEmptySequence,
+    SetManagedTun,
 }
 
 #[derive(Clone, Copy)]
@@ -283,11 +286,11 @@ const PLATFORM_RULES: &[ManagedFieldRule] = &[
         RuleOperation::Remove,
     ),
     platform(
-        "tun.enable",
-        PolicyDisposition::Disabled,
+        "tun",
+        PolicyDisposition::PlatformOverridden,
         PolicyReason::CaptureRequiresExplicitPermission,
-        ActivationImpact::ForcedOff,
-        RuleOperation::SetFalse,
+        ActivationImpact::ExcludedFromEffectiveRuntime,
+        RuleOperation::SetManagedTun,
     ),
     platform(
         "sniffer.enable",
@@ -663,7 +666,32 @@ fn apply_root_rule(
         (RuleOperation::SetEmptySequence, Some(_)) => {
             insert(root, rule.field_identity, Value::Sequence(Vec::new()))
         }
+        (RuleOperation::SetManagedTun, Some(values)) => {
+            insert(root, rule.field_identity, managed_tun(values.tun_enabled))
+        }
     }
+}
+
+fn managed_tun(enabled: bool) -> Value {
+    let mut tun = Mapping::new();
+    tun.insert(Value::String("enable".to_owned()), Value::Bool(enabled));
+    if enabled {
+        tun.insert(
+            Value::String("stack".to_owned()),
+            Value::String("gvisor".to_owned()),
+        );
+        tun.insert(
+            Value::String("dns-hijack".to_owned()),
+            Value::Sequence(vec![Value::String("any:53".to_owned())]),
+        );
+        tun.insert(Value::String("auto-route".to_owned()), Value::Bool(true));
+        tun.insert(
+            Value::String("auto-detect-interface".to_owned()),
+            Value::Bool(true),
+        );
+        tun.insert(Value::String("strict-route".to_owned()), Value::Bool(true));
+    }
+    Value::Mapping(tun)
 }
 
 fn apply_nested_rule(

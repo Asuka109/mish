@@ -777,7 +777,7 @@ impl MihomoActivationManager {
             return Ok(None);
         };
         let status = capture.status();
-        if !status.system_proxy.desired {
+        if !status.system_proxy.desired && !status.tun.desired {
             return Ok(None);
         }
         let transition = transition.ok_or(MihomoActivationError::CaptureFailed)?;
@@ -1008,6 +1008,7 @@ pub struct ManagedRuntimePolicy {
     controller_address: SocketAddr,
     controller_secret: String,
     proxy_endpoint: LoopbackProxyEndpoint,
+    tun_enabled: bool,
 }
 
 impl ManagedRuntimePolicy {
@@ -1026,7 +1027,20 @@ impl ManagedRuntimePolicy {
             controller_address,
             controller_secret,
             proxy_endpoint: LoopbackProxyEndpoint::managed(),
+            tun_enabled: false,
         })
+    }
+
+    pub fn with_tun_enabled(
+        mut self,
+        helper: &mish_runtime::TunHelperSnapshot,
+        explicitly_selected: bool,
+    ) -> Result<Self, RuntimeConfigGenerationError> {
+        if explicitly_selected && !helper.is_healthy() {
+            return Err(RuntimeConfigGenerationError::TunHelperUnavailable);
+        }
+        self.tun_enabled = explicitly_selected;
+        Ok(self)
     }
 
     pub fn controller_address(&self) -> SocketAddr {
@@ -1048,6 +1062,7 @@ impl fmt::Debug for ManagedRuntimePolicy {
             .debug_struct("ManagedRuntimePolicy")
             .field("controller_address", &"[redacted]")
             .field("controller_secret", &"[redacted]")
+            .field("tun_enabled", &self.tun_enabled)
             .finish()
     }
 }
@@ -1066,6 +1081,8 @@ pub enum RuntimeConfigGenerationError {
     UnsafeManagedPath,
     #[error("profile patches could not be applied safely")]
     InvalidPatches,
+    #[error("TUN requires an explicitly selected, healthy signed helper")]
+    TunHelperUnavailable,
 }
 
 pub struct RuntimeConfigGenerator;
@@ -1120,6 +1137,7 @@ impl RuntimeConfigGenerator {
                 controller_secret: policy.controller_secret.clone(),
                 mixed_port: policy.proxy_endpoint.port(),
                 proxy_host: policy.proxy_endpoint.host().to_string(),
+                tun_enabled: policy.tun_enabled,
             },
         )
         .map_err(|violation| match violation.kind {

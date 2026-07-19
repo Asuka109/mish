@@ -71,14 +71,15 @@ adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
 current mutation surface. The browser fixture supports isolated demo mutations.
-The desktop RPC adapter supports System Proxy capture and recovery, and
-advertises routing and group commands only when a Controller source owns their
-reconciliation; lifecycle-only or missing-core composition keeps those
+The desktop RPC adapter supports System Proxy capture and recovery plus the
+shared TUN enable/disable command when its signed helper is confirmed healthy,
+and advertises routing and group commands only when a Controller source owns
+their reconciliation; lifecycle-only or missing-core composition keeps those
 Controller commands disabled. Persisted profile activation uses the separate
 authenticated Profiles command seam from both Profiles and the Status profile
-selector. Service and TUN actions remain unsupported. Capture controls also
-respect the snapshot's `supported`, `unavailable`, and `permission-required`
-platform capabilities.
+selector. Service actions remain unsupported. Capture controls also respect
+the snapshot's `supported`, `unavailable`, `permission-required`, and
+`repair-required` platform capabilities.
 
 Routing and group commands return only after a post-command Controller read
 confirms the requested value and its mapped snapshot has been published.
@@ -170,14 +171,18 @@ connection, event-session, group-delay, and guided-diagnostic authority before
 starting a fresh pinned-version and complete-initial-batch confirmation. A core
 exit performs the same hard invalidation and conservatively restores only an
 exact Mish-owned System Proxy endpoint. A later confirmed core restart creates
-new Traffic and Events sessions and reapplies System Proxy only when the stored
-user capture selection is still explicit and the managed listener is ready.
+new Traffic and Events sessions and reapplies a capture mode only when the
+stored user selection is still explicit and its System Proxy listener or signed
+TUN helper is confirmed ready.
 Network-service changes reuse the capture transaction: restore the prior service
 first, then apply the new active service only under that same explicit intent.
 Observation, listener, apply, rollback, and confirmation failures remain typed
 failed or drift state. If an external actor changed the settings, Mish leaves
-them untouched. TUN remains unavailable and is rejected as a closed typed
-selection rather than simulated.
+them untouched. TUN uses the same serialized transition authority and never
+derives success from selection alone. Unsupported, unsigned, unpackaged,
+permission-refused, version-drifted, or unconfirmed helper states remain typed
+unavailable or failed as defined by
+[`macos-tun-helper.md`](macos-tun-helper.md).
 
 The shared desktop-bridge contract also defines `BridgeInfoDto` and
 `CoreStatusDto`.

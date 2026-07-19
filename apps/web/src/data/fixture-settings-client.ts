@@ -60,6 +60,14 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
     },
     startupRegistration: { desired: false, observed: null, phase: "unavailable" },
     storageRecovered: false,
+    tunHelper: {
+      availability: "unavailable",
+      expectedVersion: "1",
+      health: "not-installed",
+      installedVersion: null,
+      lastFailure: null,
+      phase: "idle",
+    },
   };
 }
 
@@ -68,6 +76,18 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async getSnapshot() {
     return structuredClone(this.snapshot);
+  }
+
+  async installTunHelper(): Promise<SettingsSnapshotDto> {
+    throw new Error("The signed TUN helper is unavailable in the browser fixture");
+  }
+
+  async repairTunHelper(): Promise<SettingsSnapshotDto> {
+    throw new Error("The signed TUN helper is unavailable in the browser fixture");
+  }
+
+  async removeTunHelper(): Promise<SettingsSnapshotDto> {
+    throw new Error("The signed TUN helper is unavailable in the browser fixture");
   }
 
   async setAppearance(appearance: AppearancePreference) {

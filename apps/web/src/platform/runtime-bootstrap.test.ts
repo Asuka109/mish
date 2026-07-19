@@ -30,6 +30,14 @@ const settingsSnapshot = {
   },
   startupRegistration: { desired: false, observed: false, phase: "applied" as const },
   storageRecovered: false,
+  tunHelper: {
+    availability: "unpackaged" as const,
+    expectedVersion: "1",
+    health: "not-installed" as const,
+    installedVersion: null,
+    lastFailure: "unpackaged" as const,
+    phase: "idle" as const,
+  },
 };
 const supportBundleDependencies = {
   invokeSupportBundlePreview: vi.fn(),

@@ -2284,6 +2284,7 @@ dependencies = [
 name = "mish-settings"
 version = "0.1.0"
 dependencies = [
+ "mish-runtime",
  "serde",
  "serde_json",
  "tempfile",
