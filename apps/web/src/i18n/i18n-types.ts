@@ -1114,13 +1114,92 @@ type RootTranslation = {
 		 */
 		close: string
 		/**
-		 * C​l​o​s​e​ ​a​l​l
+		 * C​l​o​s​e​ ​a​l​l​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s
 		 */
-		closeAll: string
+		closeAllActiveConfirm: string
 		/**
-		 * R​e​a​l​ ​c​o​n​n​e​c​t​i​o​n​-​c​l​o​s​e​ ​c​o​m​m​a​n​d​s​ ​a​r​e​ ​n​o​t​ ​i​n​c​l​u​d​e​d​ ​i​n​ ​t​h​i​s​ ​r​e​a​d​-​o​n​l​y​ ​s​l​i​c​e​.​ ​N​o​ ​c​o​m​m​a​n​d​ ​w​i​l​l​ ​b​e​ ​s​e​n​t​.
+		 * C​l​o​s​e​ ​a​l​l​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s
 		 */
-		closeDisabled: string
+		closeAllActiveConnections: string
+		/**
+		 * C​l​o​s​e​ ​a​l​l​ ​{​c​o​u​n​t​}​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​c​t​i​v​e​ ​i​n​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​o​b​s​e​r​v​a​t​i​o​n​ ​s​e​s​s​i​o​n​.​ ​T​h​i​s​ ​i​n​c​l​u​d​e​s​ ​c​o​n​n​e​c​t​i​o​n​s​ ​h​i​d​d​e​n​ ​b​y​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​s​e​a​r​c​h​,​ ​n​e​t​w​o​r​k​ ​f​i​l​t​e​r​,​ ​o​r​ ​r​e​n​d​e​r​ ​l​i​m​i​t​.​ ​N​e​w​ ​c​o​n​n​e​c​t​i​o​n​s​ ​o​p​e​n​e​d​ ​a​f​t​e​r​ ​c​o​n​f​i​r​m​a​t​i​o​n​ ​m​a​y​ ​r​e​m​a​i​n​ ​a​c​t​i​v​e​.
+		 * @param {number} count
+		 */
+		closeAllActiveDescription: RequiredParams<'count'>
+		/**
+		 * C​l​o​s​e​d​ ​{​c​o​u​n​t​}​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s
+		 * @param {number} count
+		 */
+		closeAllActiveSucceeded: RequiredParams<'count'>
+		/**
+		 * C​l​o​s​e​ ​a​l​l​ ​c​u​r​r​e​n​t​l​y​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s​?
+		 */
+		closeAllActiveTitle: string
+		/**
+		 * A​f​f​e​c​t​s​ ​a​l​l​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​c​t​i​v​e​ ​i​n​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​o​b​s​e​r​v​a​t​i​o​n​ ​s​e​s​s​i​o​n​,​ ​n​o​t​ ​o​n​l​y​ ​f​i​l​t​e​r​e​d​ ​o​r​ ​v​i​s​i​b​l​e​ ​r​o​w​s​.
+		 */
+		closeAllScope: string
+		/**
+		 * A​n​o​t​h​e​r​ ​T​r​a​f​f​i​c​ ​c​o​m​m​a​n​d​ ​i​s​ ​a​l​r​e​a​d​y​ ​p​e​n​d​i​n​g​.​ ​T​h​e​ ​a​c​t​i​v​e​ ​s​n​a​p​s​h​o​t​ ​w​a​s​ ​r​e​f​r​e​s​h​e​d​.
+		 */
+		closeConflict: string
+		/**
+		 * C​l​o​s​e​ ​c​o​n​n​e​c​t​i​o​n
+		 */
+		closeConnectionConfirm: string
+		/**
+		 * C​l​o​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​ ​t​o​ ​{​d​e​s​t​i​n​a​t​i​o​n​}​.​ ​M​i​s​h​ ​w​i​l​l​ ​r​e​p​o​r​t​ ​s​u​c​c​e​s​s​ ​o​n​l​y​ ​a​f​t​e​r​ ​a​ ​c​u​r​r​e​n​t​ ​M​i​h​o​m​o​ ​s​n​a​p​s​h​o​t​ ​c​o​n​f​i​r​m​s​ ​t​h​a​t​ ​i​t​s​ ​s​t​a​b​l​e​ ​c​o​n​n​e​c​t​i​o​n​ ​I​D​ ​d​i​s​a​p​p​e​a​r​e​d​.
+		 * @param {string} destination
+		 */
+		closeConnectionDescription: RequiredParams<'destination'>
+		/**
+		 * C​o​n​n​e​c​t​i​o​n​ ​c​l​o​s​e​d
+		 */
+		closeConnectionSucceeded: string
+		/**
+		 * C​l​o​s​e​ ​t​h​i​s​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​?
+		 */
+		closeConnectionTitle: string
+		/**
+		 * M​i​h​o​m​o​ ​r​e​j​e​c​t​e​d​ ​t​h​e​ ​c​l​o​s​e​ ​c​o​m​m​a​n​d​.​ ​T​h​e​ ​a​c​t​i​v​e​ ​s​n​a​p​s​h​o​t​ ​w​a​s​ ​r​e​f​r​e​s​h​e​d​ ​w​i​t​h​o​u​t​ ​c​l​a​i​m​i​n​g​ ​s​u​c​c​e​s​s​.
+		 */
+		closeControllerRejected: string
+		/**
+		 * T​h​e​ ​c​o​n​n​e​c​t​i​o​n​ ​c​l​o​s​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​n​f​i​r​m​e​d​ ​s​a​f​e​l​y​.​ ​T​h​e​ ​l​a​t​e​s​t​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​s​n​a​p​s​h​o​t​ ​i​s​ ​s​h​o​w​n​.
+		 */
+		closeFailed: string
+		/**
+		 * S​o​m​e​ ​t​a​r​g​e​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​s​ ​r​e​m​a​i​n​ ​a​c​t​i​v​e​.​ ​T​h​e​ ​l​a​t​e​s​t​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​s​n​a​p​s​h​o​t​ ​s​h​o​w​s​ ​t​h​e​ ​p​a​r​t​i​a​l​ ​r​e​s​u​l​t​.
+		 */
+		closePartialRemaining: string
+		/**
+		 * T​h​e​ ​a​c​t​i​v​e​ ​r​u​n​t​i​m​e​ ​c​h​a​n​g​e​d​ ​d​u​r​i​n​g​ ​t​h​e​ ​c​o​m​m​a​n​d​.​ ​N​o​ ​s​u​c​c​e​s​s​ ​w​a​s​ ​p​u​b​l​i​s​h​e​d​ ​f​o​r​ ​t​h​e​ ​r​e​p​l​a​c​e​d​ ​r​u​n​t​i​m​e​.
+		 */
+		closeRuntimeReplaced: string
+		/**
+		 * T​h​a​t​ ​c​o​n​n​e​c​t​i​o​n​ ​w​a​s​ ​a​l​r​e​a​d​y​ ​c​l​o​s​e​d​ ​o​r​ ​i​t​s​ ​s​t​a​b​l​e​ ​I​D​ ​i​s​ ​n​o​ ​l​o​n​g​e​r​ ​a​c​t​i​v​e​.​ ​T​h​e​ ​s​n​a​p​s​h​o​t​ ​w​a​s​ ​r​e​f​r​e​s​h​e​d​.
+		 */
+		closeStaleConnection: string
+		/**
+		 * T​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​,​ ​o​b​s​e​r​v​a​t​i​o​n​ ​s​e​s​s​i​o​n​,​ ​o​r​ ​c​o​n​n​e​c​t​i​o​n​ ​s​e​t​ ​c​h​a​n​g​e​d​ ​b​e​f​o​r​e​ ​t​h​e​ ​c​o​m​m​a​n​d​.​ ​R​e​v​i​e​w​ ​t​h​e​ ​r​e​f​r​e​s​h​e​d​ ​s​n​a​p​s​h​o​t​ ​a​n​d​ ​c​o​n​f​i​r​m​ ​a​g​a​i​n​.
+		 */
+		closeStaleSnapshot: string
+		/**
+		 * M​i​h​o​m​o​ ​d​i​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​c​l​o​s​e​ ​b​e​f​o​r​e​ ​t​h​e​ ​d​e​a​d​l​i​n​e​.​ ​T​h​e​ ​l​a​t​e​s​t​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​s​n​a​p​s​h​o​t​ ​i​s​ ​s​h​o​w​n​.
+		 */
+		closeTimeout: string
+		/**
+		 * C​o​n​n​e​c​t​i​o​n​ ​c​l​o​s​i​n​g​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​r​u​n​t​i​m​e​.​ ​B​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​d​a​t​a​ ​n​e​v​e​r​ ​r​e​p​o​r​t​s​ ​d​e​s​k​t​o​p​ ​m​u​t​a​t​i​o​n​ ​s​u​c​c​e​s​s​.
+		 */
+		closeUnsupported: string
+		/**
+		 * C​l​o​s​i​n​g​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s​…
+		 */
+		closingAllActive: string
+		/**
+		 * C​l​o​s​i​n​g​…
+		 */
+		closingConnection: string
 		/**
 		 * C​l​o​s​e​d
 		 */
@@ -1178,7 +1257,7 @@ type RootTranslation = {
 		 */
 		hits: string
 		/**
-		 * R​e​a​d​-​o​n​l​y​ ​o​b​s​e​r​v​a​t​i​o​n​s​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 * A​u​t​h​o​r​i​t​a​t​i​v​e​ ​o​b​s​e​r​v​a​t​i​o​n​s​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
 		 */
 		liveNotice: string
 		/**
@@ -2893,13 +2972,89 @@ export type TranslationFunctions = {
 		 */
 		close: () => LocalizedString
 		/**
-		 * Close all
+		 * Close all active connections
 		 */
-		closeAll: () => LocalizedString
+		closeAllActiveConfirm: () => LocalizedString
 		/**
-		 * Real connection-close commands are not included in this read-only slice. No command will be sent.
+		 * Close all active connections
 		 */
-		closeDisabled: () => LocalizedString
+		closeAllActiveConnections: () => LocalizedString
+		/**
+		 * Close all {count} connections active in the current profile and observation session. This includes connections hidden by the current search, network filter, or render limit. New connections opened after confirmation may remain active.
+		 */
+		closeAllActiveDescription: (arg: { count: number }) => LocalizedString
+		/**
+		 * Closed {count} active connections
+		 */
+		closeAllActiveSucceeded: (arg: { count: number }) => LocalizedString
+		/**
+		 * Close all currently active connections?
+		 */
+		closeAllActiveTitle: () => LocalizedString
+		/**
+		 * Affects all connections active in the current profile and observation session, not only filtered or visible rows.
+		 */
+		closeAllScope: () => LocalizedString
+		/**
+		 * Another Traffic command is already pending. The active snapshot was refreshed.
+		 */
+		closeConflict: () => LocalizedString
+		/**
+		 * Close connection
+		 */
+		closeConnectionConfirm: () => LocalizedString
+		/**
+		 * Close the active connection to {destination}. Mish will report success only after a current Mihomo snapshot confirms that its stable connection ID disappeared.
+		 */
+		closeConnectionDescription: (arg: { destination: string }) => LocalizedString
+		/**
+		 * Connection closed
+		 */
+		closeConnectionSucceeded: () => LocalizedString
+		/**
+		 * Close this active connection?
+		 */
+		closeConnectionTitle: () => LocalizedString
+		/**
+		 * Mihomo rejected the close command. The active snapshot was refreshed without claiming success.
+		 */
+		closeControllerRejected: () => LocalizedString
+		/**
+		 * The connection close could not be confirmed safely. The latest authoritative snapshot is shown.
+		 */
+		closeFailed: () => LocalizedString
+		/**
+		 * Some targeted connections remain active. The latest authoritative snapshot shows the partial result.
+		 */
+		closePartialRemaining: () => LocalizedString
+		/**
+		 * The active runtime changed during the command. No success was published for the replaced runtime.
+		 */
+		closeRuntimeReplaced: () => LocalizedString
+		/**
+		 * That connection was already closed or its stable ID is no longer active. The snapshot was refreshed.
+		 */
+		closeStaleConnection: () => LocalizedString
+		/**
+		 * The active profile, observation session, or connection set changed before the command. Review the refreshed snapshot and confirm again.
+		 */
+		closeStaleSnapshot: () => LocalizedString
+		/**
+		 * Mihomo did not confirm the close before the deadline. The latest authoritative snapshot is shown.
+		 */
+		closeTimeout: () => LocalizedString
+		/**
+		 * Connection closing is unavailable in this runtime. Browser fixture data never reports desktop mutation success.
+		 */
+		closeUnsupported: () => LocalizedString
+		/**
+		 * Closing active connections…
+		 */
+		closingAllActive: () => LocalizedString
+		/**
+		 * Closing…
+		 */
+		closingConnection: () => LocalizedString
 		/**
 		 * Closed
 		 */
@@ -2957,7 +3112,7 @@ export type TranslationFunctions = {
 		 */
 		hits: () => LocalizedString
 		/**
-		 * Read-only observations from the desktop local service.
+		 * Authoritative observations from the desktop local service.
 		 */
 		liveNotice: () => LocalizedString
 		/**

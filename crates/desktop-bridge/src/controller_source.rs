@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -9,16 +9,17 @@ use std::{
 
 use futures_util::{StreamExt, future::BoxFuture};
 use mish_mihomo_controller::{
-    ControllerClient, ControllerError, ControllerLimits, ControllerStream, Endpoint,
-    HttpTransportConfig, LogMessage, MemorySnapshot, RoutingMode as ControllerRoutingMode,
-    TrafficSnapshot, shared_http_transport,
+    ConnectionSnapshot, ControllerClient, ControllerError, ControllerLimits, ControllerStream,
+    Endpoint, HttpTransportConfig, LogMessage, MemorySnapshot,
+    RoutingMode as ControllerRoutingMode, TrafficSnapshot, shared_http_transport,
 };
 use mish_runtime::{
     CaptureSelection, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, EVENTS_BUFFER_LIMIT,
     EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
     EventsDataSource, EventsSnapshot, ProfileSummary, RoutingMode, RuntimePhase, StatusAdapterKind,
     StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
-    TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
 };
 use thiserror::Error;
 use tokio::{
@@ -650,6 +651,296 @@ impl TrafficDataSource for ControllerStatusSource {
             state.traffic_reconnect_count,
         )
     }
+
+    fn supports_traffic_command(&self, operation: TrafficCommandOperation) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && matches!(
+                operation,
+                TrafficCommandOperation::CloseConnection | TrafficCommandOperation::CloseAllActive
+            )
+    }
+
+    fn close_connection(
+        &self,
+        authority: TrafficCommandAuthority,
+        connection_id: String,
+    ) -> BoxFuture<'_, TrafficCommandExecution> {
+        Box::pin(async move {
+            self.run_traffic_command(
+                TrafficCommandOperation::CloseConnection,
+                authority,
+                Some(connection_id),
+            )
+            .await
+        })
+    }
+
+    fn close_all_active(
+        &self,
+        authority: TrafficCommandAuthority,
+    ) -> BoxFuture<'_, TrafficCommandExecution> {
+        Box::pin(async move {
+            self.run_traffic_command(TrafficCommandOperation::CloseAllActive, authority, None)
+                .await
+        })
+    }
+}
+
+impl ControllerStatusSource {
+    async fn run_traffic_command(
+        &self,
+        operation: TrafficCommandOperation,
+        authority: TrafficCommandAuthority,
+        connection_id: Option<String>,
+    ) -> TrafficCommandExecution {
+        let execution = self
+            .confirm_traffic_command(operation, authority, connection_id)
+            .await;
+        if execution.failure.is_some() {
+            self.refresh_connections_after_command().await;
+        }
+        execution
+    }
+
+    async fn confirm_traffic_command(
+        &self,
+        operation: TrafficCommandOperation,
+        authority: TrafficCommandAuthority,
+        connection_id: Option<String>,
+    ) -> TrafficCommandExecution {
+        let Ok(_command) = self.inner.command.try_lock() else {
+            return TrafficCommandExecution::failure(
+                operation,
+                TrafficCommandFailureKind::Conflict,
+                0,
+                Vec::new(),
+            );
+        };
+        let _authority_lock = self.inner.authority.lock().await;
+        let current = self.traffic_snapshot(StatusAdapterKind::Rpc);
+        if !traffic_authority_matches(&current, &authority) {
+            return TrafficCommandExecution::failure(
+                operation,
+                TrafficCommandFailureKind::StaleSnapshot,
+                0,
+                Vec::new(),
+            );
+        }
+
+        let target_ids = match operation {
+            TrafficCommandOperation::CloseConnection => {
+                let Some(connection_id) = connection_id else {
+                    return TrafficCommandExecution::failure(
+                        operation,
+                        TrafficCommandFailureKind::InvalidRequest,
+                        0,
+                        Vec::new(),
+                    );
+                };
+                if !current
+                    .active_connections
+                    .iter()
+                    .any(|connection| connection.id == connection_id)
+                {
+                    return TrafficCommandExecution::failure(
+                        operation,
+                        TrafficCommandFailureKind::StaleConnection,
+                        0,
+                        Vec::new(),
+                    );
+                }
+                vec![connection_id]
+            }
+            TrafficCommandOperation::CloseAllActive => current
+                .active_connections
+                .iter()
+                .map(|connection| connection.id.clone())
+                .collect(),
+        };
+        let target_count = target_ids.len();
+        if target_count == 0 {
+            return TrafficCommandExecution::success(operation, 0);
+        }
+
+        if let Err(error) = self.inner.client.verify_version().await {
+            return traffic_controller_failure(operation, target_count, &target_ids, error);
+        }
+        let initial = match self.inner.client.connections().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return traffic_controller_failure(operation, target_count, &target_ids, error);
+            }
+        };
+        if apply_connection_observation(&self.inner, initial.clone())
+            .await
+            .is_err()
+        {
+            return TrafficCommandExecution::failure(
+                operation,
+                TrafficCommandFailureKind::InconsistentObservation,
+                target_count,
+                target_ids,
+            );
+        }
+        let observed_ids = connection_ids(&initial);
+        if matches!(operation, TrafficCommandOperation::CloseConnection)
+            && !observed_ids.contains(&target_ids[0])
+        {
+            return TrafficCommandExecution::failure(
+                operation,
+                TrafficCommandFailureKind::StaleConnection,
+                target_count,
+                Vec::new(),
+            );
+        }
+        if matches!(operation, TrafficCommandOperation::CloseAllActive)
+            && connection_id_set(&observed_ids) != connection_id_set(&target_ids)
+        {
+            return TrafficCommandExecution::failure(
+                operation,
+                TrafficCommandFailureKind::StaleSnapshot,
+                target_count,
+                target_ids,
+            );
+        }
+
+        let mutation = match operation {
+            TrafficCommandOperation::CloseConnection => {
+                self.inner.client.close_connection(&target_ids[0]).await
+            }
+            TrafficCommandOperation::CloseAllActive => {
+                self.inner.client.close_all_connections().await
+            }
+        };
+        if let Err(error) = mutation {
+            return traffic_controller_failure(operation, target_count, &target_ids, error);
+        }
+
+        let deadline = tokio::time::Instant::now() + self.inner.confirmation_timeout;
+        loop {
+            if let Err(error) = self.inner.client.verify_version().await {
+                return traffic_controller_failure(operation, target_count, &target_ids, error);
+            }
+            let observed = match self.inner.client.connections().await {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    return traffic_controller_failure(operation, target_count, &target_ids, error);
+                }
+            };
+            let observed_ids = connection_ids(&observed);
+            let remaining = target_ids
+                .iter()
+                .filter(|id| observed_ids.contains(id))
+                .cloned()
+                .collect::<Vec<_>>();
+            if apply_connection_observation(&self.inner, observed)
+                .await
+                .is_err()
+            {
+                return TrafficCommandExecution::failure(
+                    operation,
+                    TrafficCommandFailureKind::InconsistentObservation,
+                    target_count,
+                    remaining,
+                );
+            }
+            if remaining.is_empty() {
+                return TrafficCommandExecution::success(operation, target_count);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                let failure = if matches!(operation, TrafficCommandOperation::CloseAllActive)
+                    && remaining.len() < target_count
+                {
+                    TrafficCommandFailureKind::PartialRemaining
+                } else {
+                    TrafficCommandFailureKind::Timeout
+                };
+                return TrafficCommandExecution::failure(
+                    operation,
+                    failure,
+                    target_count,
+                    remaining,
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    async fn refresh_connections_after_command(&self) {
+        let _authority = self.inner.authority.lock().await;
+        if self.inner.client.verify_version().await.is_err() {
+            return;
+        }
+        let Ok(connections) = self.inner.client.connections().await else {
+            return;
+        };
+        let _ = apply_connection_observation(&self.inner, connections).await;
+    }
+}
+
+fn traffic_authority_matches(
+    snapshot: &TrafficDataSnapshot,
+    authority: &TrafficCommandAuthority,
+) -> bool {
+    snapshot.phase == TrafficDataPhase::Ready
+        && snapshot.profile_id == authority.profile_id
+        && snapshot.session_id.as_deref() == Some(authority.session_id.as_str())
+        && snapshot.sequence == authority.sequence
+}
+
+fn connection_ids(snapshot: &ConnectionSnapshot) -> Vec<String> {
+    snapshot
+        .connections
+        .iter()
+        .map(|connection| connection.id.clone())
+        .collect()
+}
+
+fn connection_id_set(ids: &[String]) -> BTreeSet<&str> {
+    ids.iter().map(String::as_str).collect()
+}
+
+async fn apply_connection_observation(
+    inner: &Arc<SourceInner>,
+    connections: ConnectionSnapshot,
+) -> Result<(), StatusMappingError> {
+    apply_observations(
+        inner,
+        ControllerObservationBatch {
+            connections: Some(connections),
+            ..Default::default()
+        },
+        false,
+    )
+    .await
+}
+
+fn traffic_controller_failure(
+    operation: TrafficCommandOperation,
+    target_count: usize,
+    remaining_connection_ids: &[String],
+    error: ControllerError,
+) -> TrafficCommandExecution {
+    use mish_mihomo_controller::ControllerErrorKind;
+    let failure = match error.kind() {
+        ControllerErrorKind::Timeout => TrafficCommandFailureKind::Timeout,
+        ControllerErrorKind::UnsupportedVersion => TrafficCommandFailureKind::VersionDrift,
+        ControllerErrorKind::HttpStatus => TrafficCommandFailureKind::ControllerRejected,
+        ControllerErrorKind::Shutdown
+        | ControllerErrorKind::Transport
+        | ControllerErrorKind::StreamEnded => TrafficCommandFailureKind::Disconnected,
+        ControllerErrorKind::InvalidConfiguration
+        | ControllerErrorKind::BodyTooLarge
+        | ControllerErrorKind::MessageTooLarge
+        | ControllerErrorKind::Decode
+        | ControllerErrorKind::Validation => TrafficCommandFailureKind::InconsistentObservation,
+    };
+    TrafficCommandExecution::failure(
+        operation,
+        failure,
+        target_count,
+        remaining_connection_ids.to_vec(),
+    )
 }
 
 impl EventsDataSource for ControllerStatusSource {

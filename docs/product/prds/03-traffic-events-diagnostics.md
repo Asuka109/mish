@@ -42,13 +42,16 @@ route tests are diagnostic tools, not a top-level entertainment-unlock promise.
 | TRAFFIC-F-009  | P0       | Closed history shall have explicit local retention and clear semantics.                                                                                | Given recently closed rows exist, when Clear is invoked, then only the local bounded history is removed and no core configuration, persistent log, or active connection is affected.            |
 | TRAFFIC-NF-001 | P0       | High-volume streams shall remain responsive.                                                                                                           | Under the agreed connection-rate fixture, input, scrolling, and command controls remain responsive and memory stays within budget.                                                              |
 
-### Current read-only vertical slice
+### Current confirmed-command vertical slice
 
-The first Traffic delivery uses an independent snapshot/subscription contract
-for Active connections and effective Rules. Recently Closed is a bounded,
-in-memory client derivation. Close one and Close all remain visible but disabled:
-this slice defines no connection-mutation RPC and never converts an unsupported
-command into fixture or synthetic success. See
+Traffic uses an independent snapshot/subscription contract for Active
+connections and effective Rules. Recently Closed remains a bounded, in-memory
+client derivation. The desktop runtime now supports confirmed close-one and
+“Close all active connections” commands. The latter always targets the complete
+current active snapshot and explicitly ignores UI filters. Both commands use
+snapshot/session/profile authority, refresh on typed failure, and require a
+post-command Controller snapshot before success. Browser fixtures advertise the
+commands as unsupported and never simulate desktop mutation success. See
 [`../../architecture/traffic-data-contracts.md`](../../architecture/traffic-data-contracts.md)
 for sequence, reconnect, stale, retention, precision, and privacy semantics.
 

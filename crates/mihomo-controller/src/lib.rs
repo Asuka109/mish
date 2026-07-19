@@ -190,6 +190,27 @@ impl ControllerClient {
         .await
     }
 
+    pub async fn close_connection(&self, connection_id: &str) -> Result<(), ControllerError> {
+        self.validate_connection_id(connection_id)?;
+        self.delete(Endpoint::Connections, Some(connection_id.to_owned()))
+            .await
+    }
+
+    pub async fn close_all_connections(&self) -> Result<(), ControllerError> {
+        self.delete(Endpoint::Connections, None).await
+    }
+
+    fn validate_connection_id(&self, connection_id: &str) -> Result<(), ControllerError> {
+        if connection_id.is_empty() || connection_id.len() > self.limits.max_string_bytes {
+            return Err(ControllerError::Validation {
+                endpoint: Endpoint::Connections,
+                field: "connectionId",
+                detail: "connection ID must be non-empty and within the configured bound".into(),
+            });
+        }
+        Ok(())
+    }
+
     fn validate_command_label(
         &self,
         field: &'static str,
@@ -215,6 +236,18 @@ impl ControllerClient {
             biased;
             _ = self.shutdown.cancelled() => Err(ControllerError::Shutdown { endpoint }),
             result = self.transport.put(endpoint, path_segment, Bytes::from(body), self.limits.max_body_bytes) => result,
+        }
+    }
+
+    async fn delete(
+        &self,
+        endpoint: Endpoint,
+        path_segment: Option<String>,
+    ) -> Result<(), ControllerError> {
+        tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => Err(ControllerError::Shutdown { endpoint }),
+            result = self.transport.delete(endpoint, path_segment) => result,
         }
     }
 
@@ -360,6 +393,14 @@ mod tests {
     }
 
     impl ControllerTransport for FixedTransport {
+        fn delete(
+            &self,
+            _endpoint: Endpoint,
+            _path_segment: Option<String>,
+        ) -> futures_util::future::BoxFuture<'_, Result<(), ControllerError>> {
+            std::future::ready(Ok(())).boxed()
+        }
+
         fn get(
             &self,
             _endpoint: Endpoint,

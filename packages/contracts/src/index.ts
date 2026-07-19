@@ -230,6 +230,84 @@ export const RpcTrafficDataSnapshotSchema = TrafficDataSnapshotBaseSchema.extend
 });
 export interface RpcTrafficDataSnapshotDto extends z.infer<typeof RpcTrafficDataSnapshotSchema> {}
 
+export const TrafficCommandAuthoritySchema = z
+  .object({
+    profileId: BoundedTextSchema.min(1),
+    sequence: NonNegativeIntegerSchema,
+    sessionId: BoundedTextSchema.min(1),
+  })
+  .strict();
+export interface TrafficCommandAuthorityDto extends z.infer<typeof TrafficCommandAuthoritySchema> {}
+
+export const TrafficCommandOperationSchema = z.enum(["close-connection", "close-all-active"]);
+export type TrafficCommandOperation = z.infer<typeof TrafficCommandOperationSchema>;
+
+export const TrafficCommandFailureSchema = z.enum([
+  "unsupported",
+  "invalid-request",
+  "conflict",
+  "stale-snapshot",
+  "stale-connection",
+  "timeout",
+  "disconnected",
+  "version-drift",
+  "controller-rejected",
+  "runtime-replaced",
+  "partial-remaining",
+  "inconsistent-observation",
+]);
+export type TrafficCommandFailure = z.infer<typeof TrafficCommandFailureSchema>;
+
+export const TrafficCommandResultSchema = z
+  .object({
+    failure: TrafficCommandFailureSchema.nullable(),
+    operation: TrafficCommandOperationSchema,
+    remainingConnectionIds: z.array(IdentifierSchema).max(20_000),
+    snapshot: TrafficDataSnapshotSchema,
+    status: z.enum(["success", "failure"]),
+    targetCount: NonNegativeIntegerSchema,
+  })
+  .strict()
+  .superRefine((result, context) => {
+    if (result.status === "success" && result.failure !== null) {
+      context.addIssue({ code: "custom", message: "Successful Traffic commands cannot fail" });
+    }
+    if (result.status === "failure" && result.failure === null) {
+      context.addIssue({ code: "custom", message: "Failed Traffic commands require a failure" });
+    }
+    if (result.remainingConnectionIds.length > result.targetCount) {
+      context.addIssue({
+        code: "custom",
+        message: "Remaining Traffic targets cannot exceed the command target count",
+      });
+    }
+    if (result.status === "success" && result.remainingConnectionIds.length > 0) {
+      context.addIssue({
+        code: "custom",
+        message: "Successful Traffic commands cannot retain target IDs",
+      });
+    }
+  });
+export interface TrafficCommandResultDto extends z.infer<typeof TrafficCommandResultSchema> {}
+
+export const RpcTrafficCommandResultSchema = TrafficCommandResultSchema.superRefine(
+  (result, context) => {
+    if (result.snapshot.adapterKind === "rpc") return;
+    context.addIssue({
+      code: "custom",
+      message: "Desktop Traffic command results require an RPC snapshot",
+      path: ["snapshot", "adapterKind"],
+    });
+  },
+);
+
+export const CloseTrafficConnectionCommandSchema = z
+  .object({ authority: TrafficCommandAuthoritySchema, connectionId: BoundedTextSchema.min(1) })
+  .strict();
+export const CloseAllActiveTrafficCommandSchema = z
+  .object({ authority: TrafficCommandAuthoritySchema })
+  .strict();
+
 export const EventLevelSchema = z.enum(["debug", "info", "warning", "error"]);
 export type EventLevel = z.infer<typeof EventLevelSchema>;
 
@@ -558,8 +636,11 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(3),
+    protocolVersion: z.literal(4),
     statusCommands: z.object({ group: z.boolean(), routing: z.boolean() }).strict(),
+    trafficCommands: z
+      .object({ closeAllActive: z.boolean(), closeConnection: z.boolean() })
+      .strict(),
   })
   .strict();
 export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
@@ -844,6 +925,14 @@ export interface TrafficSnapshotNotificationDto extends z.infer<
 > {}
 
 export const trafficRpcMethods = {
+  "traffic.closeAllActive": {
+    params: CloseAllActiveTrafficCommandSchema,
+    result: RpcTrafficCommandResultSchema,
+  },
+  "traffic.closeConnection": {
+    params: CloseTrafficConnectionCommandSchema,
+    result: RpcTrafficCommandResultSchema,
+  },
   "traffic.getSnapshot": { params: EmptyCommandSchema, result: RpcTrafficDataSnapshotSchema },
   "traffic.subscribe": { params: EmptyCommandSchema, result: TrafficSubscriptionSchema },
   "traffic.unsubscribe": { params: TrafficSubscriptionIdSchema, result: z.boolean() },
@@ -1060,9 +1149,19 @@ export interface ProfileClient {
 }
 
 export interface TrafficClient {
+  closeAllActive(
+    authority: TrafficCommandAuthorityDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto>;
+  closeConnection(
+    authority: TrafficCommandAuthorityDto,
+    connectionId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto>;
   dispose(): void;
   getConnectionState(): TrafficConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<TrafficDataSnapshotDto>;
+  supportsCommand(command: TrafficCommandOperation): boolean;
   subscribeConnection(listener: (state: TrafficConnectionState) => void): () => void;
   subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void): () => void;
 }

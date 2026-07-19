@@ -17,6 +17,12 @@ use crate::{ControllerError, Endpoint};
 pub type RawMessageStream = BoxStream<'static, Result<Bytes, ControllerError>>;
 
 pub trait ControllerTransport: Send + Sync {
+    fn delete(
+        &self,
+        endpoint: Endpoint,
+        path_segment: Option<String>,
+    ) -> BoxFuture<'_, Result<(), ControllerError>>;
+
     fn get(
         &self,
         endpoint: Endpoint,
@@ -148,12 +154,11 @@ impl HttpTransport {
         Ok(request)
     }
 
-    fn mutation_request(
+    fn mutation_url(
         &self,
         endpoint: Endpoint,
         path_segment: Option<&str>,
-        body: Bytes,
-    ) -> Result<reqwest::RequestBuilder, ControllerError> {
+    ) -> Result<Url, ControllerError> {
         let mut url = self.endpoint_url(endpoint)?;
         if let Some(segment) = path_segment {
             url.path_segments_mut()
@@ -162,11 +167,14 @@ impl HttpTransport {
                 })?
                 .push(segment);
         }
-        let mut request = self.client.put(url).body(body);
+        Ok(url)
+    }
+
+    fn authorize(&self, mut request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         if let Some(authorization) = &self.authorization {
             request = request.header(reqwest::header::AUTHORIZATION, authorization);
         }
-        Ok(request.header(reqwest::header::CONTENT_TYPE, "application/json"))
+        request
     }
 
     fn websocket_request(
@@ -198,6 +206,27 @@ impl HttpTransport {
 }
 
 impl ControllerTransport for HttpTransport {
+    fn delete(
+        &self,
+        endpoint: Endpoint,
+        path_segment: Option<String>,
+    ) -> BoxFuture<'_, Result<(), ControllerError>> {
+        Box::pin(async move {
+            let operation = async {
+                let request = self
+                    .client
+                    .delete(self.mutation_url(endpoint, path_segment.as_deref())?);
+                let response = self.authorize(request).send().await.map_err(|error| {
+                    ControllerError::transport(endpoint, error.without_url().to_string())
+                })?;
+                ensure_success(endpoint, response.status())
+            };
+            timeout(self.request_timeout, operation)
+                .await
+                .map_err(|_| ControllerError::Timeout { endpoint })?
+        })
+    }
+
     fn get(
         &self,
         endpoint: Endpoint,
@@ -292,13 +321,14 @@ impl ControllerTransport for HttpTransport {
                         limit: max_body_bytes,
                     });
                 }
-                let response = self
-                    .mutation_request(endpoint, path_segment.as_deref(), body)?
-                    .send()
-                    .await
-                    .map_err(|error| {
-                        ControllerError::transport(endpoint, error.without_url().to_string())
-                    })?;
+                let request = self
+                    .client
+                    .put(self.mutation_url(endpoint, path_segment.as_deref())?)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json");
+                let response = self.authorize(request).send().await.map_err(|error| {
+                    ControllerError::transport(endpoint, error.without_url().to_string())
+                })?;
                 ensure_success(endpoint, response.status())
             };
             timeout(self.request_timeout, operation)

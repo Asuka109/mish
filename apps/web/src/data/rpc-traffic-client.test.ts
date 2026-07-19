@@ -79,6 +79,27 @@ async function authenticate(transport: FakeTransport) {
   });
 }
 
+async function advertiseTrafficCommands(
+  transport: FakeTransport,
+  supported = true,
+  requestIndex = 1,
+) {
+  const request = await waitForRequest(transport, requestIndex);
+  expect(request.method).toBe("bridge.getInfo");
+  transport.respond({
+    id: request.id,
+    jsonrpc: "2.0",
+    result: {
+      bridgeVersion: "test",
+      coreConfigured: true,
+      protocolVersion: 4,
+      statusCommands: { group: false, routing: false },
+      trafficCommands: { closeAllActive: supported, closeConnection: supported },
+    },
+  });
+  await flushMicrotasks();
+}
+
 async function flushMicrotasks() {
   for (let index = 0; index < 5; index += 1) await Promise.resolve();
 }
@@ -86,9 +107,9 @@ async function flushMicrotasks() {
 afterEach(() => vi.useRealTimers());
 
 describe("RpcTrafficClient", () => {
-  it("does not expose unsupported close commands in the RPC method map", () => {
-    expect("traffic.closeConnection" in mishRpcMethods).toBe(false);
-    expect("traffic.closeAll" in mishRpcMethods).toBe(false);
+  it("exposes strictly typed close commands in the RPC method map", () => {
+    expect("traffic.closeConnection" in mishRpcMethods).toBe(true);
+    expect("traffic.closeAllActive" in mishRpcMethods).toBe(true);
   });
 
   it("resubscribes with an authoritative snapshot and exposes the reconnect gap as stale", async () => {
@@ -108,7 +129,8 @@ describe("RpcTrafficClient", () => {
     client.subscribeConnection((state) => states.push(`${state.phase}:${state.stale}`));
 
     await authenticate(transports[0]);
-    const firstSubscribe = await waitForRequest(transports[0], 1);
+    await advertiseTrafficCommands(transports[0]);
+    const firstSubscribe = await waitForRequest(transports[0], 2);
     transports[0].respond({
       id: firstSubscribe.id,
       jsonrpc: "2.0",
@@ -121,7 +143,8 @@ describe("RpcTrafficClient", () => {
     expect(states.at(-1)).toContain("true");
     await vi.advanceTimersByTimeAsync(5);
     await authenticate(transports[1]);
-    const secondSubscribe = await waitForRequest(transports[1], 1);
+    await advertiseTrafficCommands(transports[1]);
+    const secondSubscribe = await waitForRequest(transports[1], 2);
     transports[1].respond({
       id: secondSubscribe.id,
       jsonrpc: "2.0",
@@ -148,7 +171,8 @@ describe("RpcTrafficClient", () => {
     const client = new RpcTrafficClient(rpc);
     const requestPromise = client.getSnapshot();
     await authenticate(transport);
-    const request = await waitForRequest(transport, 1);
+    await advertiseTrafficCommands(transport);
+    const request = await waitForRequest(transport, 2);
     transport.respond({
       id: request.id,
       jsonrpc: "2.0",
@@ -171,7 +195,8 @@ describe("RpcTrafficClient", () => {
     const controller = new AbortController();
     const requestPromise = client.getSnapshot({ signal: controller.signal });
     await authenticate(transport);
-    const request = await waitForRequest(transport, 1);
+    await advertiseTrafficCommands(transport);
+    const request = await waitForRequest(transport, 2);
     controller.abort();
 
     await expect(requestPromise).rejects.toMatchObject({ code: "cancelled" });
@@ -180,6 +205,43 @@ describe("RpcTrafficClient", () => {
       params: { requestId: request.id },
     });
     transport.respond({ id: request.id, jsonrpc: "2.0", result: trafficSnapshot() });
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("sends only stable snapshot authority and accepts a confirmed typed result", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcTrafficClient(rpc);
+    const authority = { profileId: "profile-a", sequence: 7, sessionId: "controller-1" };
+    const command = client.closeConnection(authority, "stable-connection-id");
+    await authenticate(transport);
+    await advertiseTrafficCommands(transport);
+    const request = await waitForRequest(transport, 2);
+    expect(request).toMatchObject({
+      method: "traffic.closeConnection",
+      params: { authority, connectionId: "stable-connection-id" },
+    });
+    expect(JSON.stringify(request.params)).not.toMatch(/destination|process|path|url/iu);
+    transport.respond({
+      id: request.id,
+      jsonrpc: "2.0",
+      result: {
+        failure: null,
+        operation: "close-connection",
+        remainingConnectionIds: [],
+        snapshot: trafficSnapshot({ activeConnections: [], sequence: 8 }),
+        status: "success",
+        targetCount: 1,
+      },
+    });
+
+    await expect(command).resolves.toMatchObject({ status: "success", targetCount: 1 });
+    expect(client.supportsCommand("close-connection")).toBe(true);
     client.dispose();
     rpc.dispose();
   });

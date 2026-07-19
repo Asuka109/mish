@@ -5,10 +5,10 @@ use mish_bridge::DesktopRuntimeHost;
 use mish_runtime::{
     CoreError, CorePhase, CoreRuntime, CoreStatus, EventLevel, EventRecord, EventSource,
     EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource, EventsSnapshot,
-    MishRuntime, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficDataSnapshot,
-    TrafficDataSource,
+    MishRuntime, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
+    TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot, TrafficDataSource,
 };
-use tokio::sync::broadcast;
+use tokio::sync::{Notify, broadcast};
 
 struct RunningCore;
 
@@ -45,6 +45,8 @@ impl CoreRuntime for RunningCore {
 }
 
 struct ProfileSource {
+    command_continue: Option<Arc<Notify>>,
+    command_started: Option<Arc<Notify>>,
     event_updates: broadcast::Sender<()>,
     profile_id: &'static str,
 }
@@ -63,6 +65,22 @@ impl TrafficDataSource for ProfileSource {
         let mut snapshot = TrafficDataSnapshot::unavailable(adapter_kind);
         snapshot.profile_id = self.profile_id.into();
         snapshot
+    }
+
+    fn supports_traffic_command(&self, _operation: TrafficCommandOperation) -> bool {
+        self.command_started.is_some()
+    }
+
+    fn close_connection(
+        &self,
+        _authority: TrafficCommandAuthority,
+        _connection_id: String,
+    ) -> BoxFuture<'_, TrafficCommandExecution> {
+        Box::pin(async move {
+            self.command_started.as_ref().unwrap().notify_one();
+            self.command_continue.as_ref().unwrap().notified().await;
+            TrafficCommandExecution::success(TrafficCommandOperation::CloseConnection, 1)
+        })
     }
 }
 
@@ -100,6 +118,28 @@ impl EventsDataSource for ProfileSource {
 fn runtime(profile_id: &'static str) -> MishRuntime {
     let (event_updates, _) = broadcast::channel(1);
     let source = Arc::new(ProfileSource {
+        command_continue: None,
+        command_started: None,
+        event_updates,
+        profile_id,
+    });
+    MishRuntime::with_data_sources_and_events(
+        Arc::new(RunningCore),
+        source.clone(),
+        source.clone(),
+        source,
+    )
+}
+
+fn blocking_runtime(
+    profile_id: &'static str,
+    command_started: Arc<Notify>,
+    command_continue: Arc<Notify>,
+) -> MishRuntime {
+    let (event_updates, _) = broadcast::channel(1);
+    let source = Arc::new(ProfileSource {
+        command_continue: Some(command_continue),
+        command_started: Some(command_started),
         event_updates,
         profile_id,
     });
@@ -127,4 +167,73 @@ async fn replacing_the_runtime_changes_status_traffic_and_events_as_one_profile_
     assert_eq!(events["profileId"], "profile-b");
     assert_eq!(events["sessionId"], "events-profile-b");
     assert_eq!(events["events"][0]["id"], "profile-b:1");
+}
+
+#[tokio::test]
+async fn replacing_the_runtime_during_a_traffic_command_returns_the_new_authority() {
+    let command_started = Arc::new(Notify::new());
+    let command_continue = Arc::new(Notify::new());
+    let host = DesktopRuntimeHost::new(blocking_runtime(
+        "profile-a",
+        command_started.clone(),
+        command_continue.clone(),
+    ));
+    let command_host = host.clone();
+    let command = tokio::spawn(async move {
+        command_host
+            .close_connection(
+                TrafficCommandAuthority {
+                    profile_id: "profile-a".into(),
+                    sequence: 1,
+                    session_id: "session-a".into(),
+                },
+                "connection-a".into(),
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+
+    command_started.notified().await;
+    host.replace(runtime("profile-b"));
+    command_continue.notify_one();
+    let result = command.await.unwrap();
+
+    assert_eq!(result["status"], "failure");
+    assert_eq!(result["failure"], "runtime-replaced");
+    assert_eq!(result["snapshot"]["profileId"], "profile-b");
+}
+
+#[tokio::test]
+async fn any_runtime_replacement_during_a_traffic_command_invalidates_the_result() {
+    let command_started = Arc::new(Notify::new());
+    let command_continue = Arc::new(Notify::new());
+    let original = blocking_runtime(
+        "profile-a",
+        command_started.clone(),
+        command_continue.clone(),
+    );
+    let host = DesktopRuntimeHost::new(original.clone());
+    let command_host = host.clone();
+    let command = tokio::spawn(async move {
+        command_host
+            .close_connection(
+                TrafficCommandAuthority {
+                    profile_id: "profile-a".into(),
+                    sequence: 1,
+                    session_id: "session-a".into(),
+                },
+                "connection-a".into(),
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+
+    command_started.notified().await;
+    host.replace(original);
+    command_continue.notify_one();
+    let result = command.await.unwrap();
+
+    assert_eq!(result["status"], "failure");
+    assert_eq!(result["failure"], "runtime-replaced");
+    assert_eq!(result["snapshot"]["profileId"], "profile-a");
 }

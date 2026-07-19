@@ -213,6 +213,21 @@ async fn rejects_unauthenticated_and_malformed_requests() {
     .await;
     assert_eq!(unauthenticated_events["error"]["code"], -32001);
 
+    let unauthenticated_traffic_mutation = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"traffic.closeConnection",
+            "params":{
+                "authority":{"profileId":"local", "sequence":0, "sessionId":"session"},
+                "connectionId":"connection"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(unauthenticated_traffic_mutation["error"]["code"], -32001);
+
     ws.send(Message::Text("{".into())).await.unwrap();
     let Message::Text(response) = ws.next().await.unwrap().unwrap() else {
         panic!("expected text response")
@@ -235,10 +250,14 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 3);
+    assert_eq!(info["result"]["protocolVersion"], 4);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "routing": false})
+    );
+    assert_eq!(
+        info["result"]["trafficCommands"],
+        json!({"closeAllActive": false, "closeConnection": false})
     );
     assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
@@ -498,17 +517,25 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
         (
             7,
             "traffic.closeConnection",
-            json!({"connectionId": "fixture"}),
+            json!({
+                "authority":{"profileId":"local", "sequence":0, "sessionId":"session"},
+                "connectionId": "fixture"
+            }),
         ),
-        (8, "traffic.closeAll", json!({})),
+        (
+            8,
+            "traffic.closeAllActive",
+            json!({"authority":{"profileId":"local", "sequence":0, "sessionId":"session"}}),
+        ),
     ] {
         let response = request(
             &mut ws,
             json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
         )
         .await;
-        assert_eq!(response["error"]["code"], -32601);
-        assert!(response.get("result").is_none());
+        assert_eq!(response["result"]["status"], "failure");
+        assert_eq!(response["result"]["failure"], "unsupported");
+        assert_eq!(response["result"]["snapshot"]["phase"], "unavailable");
     }
 
     let after = request(

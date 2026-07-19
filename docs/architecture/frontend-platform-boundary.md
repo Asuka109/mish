@@ -159,7 +159,7 @@ bounded output and duration, and no shell, `sudo`, or AppleScript. This is a
 narrow seam that can be replaced by a privileged helper without changing the
 UI or RPC contract.
 
-System Proxy is the only implemented RPC Status mutation. It defaults off and
+System Proxy is the only implemented platform-capture mutation. It defaults off and
 requires a configured, healthy core plus a reachable managed Mihomo listener
 before Mish writes the shared loopback HTTP, HTTPS, and SOCKS endpoint. A
 private, size-bounded journal stores only the
@@ -182,6 +182,14 @@ seam from Profiles and the Status selector. Service and TUN controls remain
 unavailable rather than runnable. Active deletion requires
 successful replacement activation or an explicit safe stop. Profile activation
 never implicitly enables System Proxy.
+
+Protocol version 4 adds Traffic command capabilities and typed results for
+closing one stable current connection ID or every connection in the complete
+current active snapshot. The Web client sends only profile/session/sequence
+authority and connection IDs. It disables duplicate commands while pending,
+applies the returned authoritative snapshot on success and failure, and derives
+Closed history through the existing same-session snapshot diff. Browser
+fixtures advertise these commands as unsupported.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift

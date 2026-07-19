@@ -182,6 +182,32 @@ impl std::error::Error for StatusCommandError {}
 
 pub trait TrafficDataSource: Send + Sync {
     fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot;
+    fn supports_traffic_command(&self, _operation: TrafficCommandOperation) -> bool {
+        false
+    }
+    fn close_connection(
+        &self,
+        _authority: TrafficCommandAuthority,
+        _connection_id: String,
+    ) -> BoxFuture<'_, TrafficCommandExecution> {
+        Box::pin(std::future::ready(TrafficCommandExecution::failure(
+            TrafficCommandOperation::CloseConnection,
+            TrafficCommandFailureKind::Unsupported,
+            0,
+            Vec::new(),
+        )))
+    }
+    fn close_all_active(
+        &self,
+        _authority: TrafficCommandAuthority,
+    ) -> BoxFuture<'_, TrafficCommandExecution> {
+        Box::pin(std::future::ready(TrafficCommandExecution::failure(
+            TrafficCommandOperation::CloseAllActive,
+            TrafficCommandFailureKind::Unsupported,
+            0,
+            Vec::new(),
+        )))
+    }
 }
 
 pub trait EventsDataSource: Send + Sync {
@@ -230,6 +256,7 @@ pub struct MishRuntime {
     events_source: Arc<dyn EventsDataSource>,
     status_source: Arc<dyn StatusDataSource>,
     traffic_source: Arc<dyn TrafficDataSource>,
+    identity: Arc<()>,
 }
 
 impl MishRuntime {
@@ -328,6 +355,7 @@ impl MishRuntime {
             events_source,
             status_source,
             traffic_source,
+            identity: Arc::new(()),
         }
     }
 
@@ -440,8 +468,37 @@ impl MishRuntime {
     }
 
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
-        serde_json::to_value(self.traffic_source.traffic_snapshot(adapter_kind))
+        serde_json::to_value(self.traffic_snapshot_typed(adapter_kind))
             .expect("Traffic state must serialize")
+    }
+
+    pub fn traffic_snapshot_typed(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
+        self.traffic_source.traffic_snapshot(adapter_kind)
+    }
+
+    pub fn supports_traffic_command(&self, operation: TrafficCommandOperation) -> bool {
+        self.traffic_source.supports_traffic_command(operation)
+    }
+
+    pub async fn close_connection(
+        &self,
+        authority: TrafficCommandAuthority,
+        connection_id: String,
+    ) -> TrafficCommandExecution {
+        self.traffic_source
+            .close_connection(authority, connection_id)
+            .await
+    }
+
+    pub async fn close_all_active(
+        &self,
+        authority: TrafficCommandAuthority,
+    ) -> TrafficCommandExecution {
+        self.traffic_source.close_all_active(authority).await
+    }
+
+    pub fn is_same_instance(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
     }
 
     pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {

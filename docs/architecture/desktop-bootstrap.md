@@ -103,8 +103,9 @@ claim that process memory is a secure enclave.
 
 - The in-process bridge does not start Mihomo automatically. It reports the
   explicit safe stopped state until a persisted valid profile is activated.
-- The shared desktop composition can inject an explicit loopback Controller and
-  publish read-only Controller-derived Status values. The desktop bridge also
+- The shared desktop composition can inject an explicit loopback Controller,
+  publish Controller-derived Status, Traffic, and Events values, and reconcile
+  bounded routing, group-selection, and active-connection commands. The desktop bridge also
   provides transactional activation and managed binary/resource resolution.
 - The Tauri shell composes the Profile service, activation coordinator, private
   application-data runtime root, and managed binary resolver. A missing explicit

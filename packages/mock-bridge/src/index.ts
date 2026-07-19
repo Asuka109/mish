@@ -238,8 +238,9 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 3,
+              protocolVersion: 4,
               statusCommands: { group: true, routing: true },
+              trafficCommands: { closeAllActive: false, closeConnection: false },
             };
           case "core.getStatus":
             return core;

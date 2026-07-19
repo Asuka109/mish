@@ -13,7 +13,7 @@ use mish_profile::{ProfileServiceError, RepositoryError};
 use mish_runtime::{
     CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
     CoreErrorKind, CoreStatus, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusCommandErrorKind,
+    StatusCommandErrorKind, TrafficCommandAuthority, TrafficCommandOperation,
 };
 use tokio::sync::broadcast;
 
@@ -115,6 +115,19 @@ struct SocketSubscriptions {
 struct SelectGroupChildParams {
     group_id: String,
     child_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CloseConnectionParams {
+    authority: TrafficCommandAuthority,
+    connection_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CloseAllActiveParams {
+    authority: TrafficCommandAuthority,
 }
 
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
@@ -351,10 +364,14 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 3,
+            "protocolVersion": 4,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "routing": state.runtime.supports_status_command(StatusCommand::Routing),
+            },
+            "trafficCommands": {
+                "closeAllActive": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseAllActive),
+                "closeConnection": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseConnection),
             },
         }),
         "core.getStatus" => {
@@ -436,6 +453,37 @@ async fn handle_message(
             json!(subscriptions.status_ids.remove(subscription_id))
         }
         "traffic.getSnapshot" => state.runtime.traffic_snapshot(StatusAdapterKind::Rpc),
+        "traffic.closeConnection" => {
+            let params: CloseConnectionParams =
+                match serde_json::from_value::<CloseConnectionParams>(request.params) {
+                    Ok(params)
+                        if valid_identifier(&params.connection_id)
+                            && valid_traffic_authority(&params.authority) =>
+                    {
+                        params
+                    }
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            state
+                .runtime
+                .close_connection(
+                    params.authority,
+                    params.connection_id,
+                    StatusAdapterKind::Rpc,
+                )
+                .await
+        }
+        "traffic.closeAllActive" => {
+            let params: CloseAllActiveParams =
+                match serde_json::from_value::<CloseAllActiveParams>(request.params) {
+                    Ok(params) if valid_traffic_authority(&params.authority) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            state
+                .runtime
+                .close_all_active(params.authority, StatusAdapterKind::Rpc)
+                .await
+        }
         "traffic.subscribe" => {
             if subscription_count(
                 &subscriptions.event_ids,
@@ -710,6 +758,10 @@ fn constant_time_equal(left: &str, right: &str) -> bool {
 
 fn valid_identifier(value: &str) -> bool {
     !value.is_empty() && value.len() <= 8_192
+}
+
+fn valid_traffic_authority(authority: &TrafficCommandAuthority) -> bool {
+    valid_identifier(&authority.profile_id) && valid_identifier(&authority.session_id)
 }
 
 fn error_response(id: Value, code: i32, message: &str, data: Option<Value>) -> Value {
