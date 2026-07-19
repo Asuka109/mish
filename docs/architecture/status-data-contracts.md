@@ -69,8 +69,10 @@ adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
 current mutation surface. The browser fixture supports local demo mutations;
-the current desktop RPC adapter is read-only, so the shared UI disables its
-capture, routing, profile, group, and service actions. Capture controls also
+the current desktop Status RPC adapter is read-only, so the shared UI disables
+its capture, routing, group, and service actions. Persisted profile activation
+uses the separate authenticated Profiles command seam from both Profiles and the
+Status profile selector. Capture controls also
 respect the snapshot's `supported`, `unavailable`, and `permission-required`
 platform capabilities.
 
@@ -84,6 +86,12 @@ on every initial subscription and resubscription, and clears stale state only
 after contract validation succeeds. A reconnect therefore becomes authoritative
 without depending on a later lifecycle change. This response-shape change is
 bridge protocol version 2.
+
+Profile activation has an independent typed snapshot with idle, pending,
+success, and failure phases. The profile subscription uses the same snapshot
+ordering barrier and authoritative resubscription rule as Status. A committed
+activation replaces the runtime host before the profile success snapshot is
+published, so subsequent Status and Traffic reads use the same active profile.
 
 Capture selection is device-level intent and is distinct from confirmed runtime
 state. The capture command carries the complete selection plus an aggregate

@@ -39,9 +39,11 @@ Any future local HTTP asset host must preserve that same rule for unknown
 non-asset `GET`/`HEAD` paths while returning ordinary `404` responses for
 missing files with extensions.
 
-The current Tauri composition reports a real but deliberately sparse RPC
-snapshot and does not automatically start Mihomo. The desktop bridge library has
-a transactional pinned-core activation manager, but this shell does not yet
-select a persisted profile, package/resolve the production sidecar, or expose an
-activation command. System Proxy, TUN, status-bar behavior, native material,
-packaging icons, signing, and notarization remain separate platform slices.
+The Tauri composition starts in an explicit safe stopped state and does not
+automatically select or restore a private profile. Authenticated activation
+reloads a repository-validated artifact and uses the transactional pinned-core
+manager. Development requires an explicit `MISH_MIHOMO_BIN`; production resolves
+only a packaged pinned resource. Missing binaries remain visibly unavailable,
+and neither mode downloads at runtime. System Proxy, TUN, status-bar behavior,
+native material, packaging icons, signing, and notarization remain separate
+platform slices.

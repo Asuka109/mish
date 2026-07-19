@@ -181,8 +181,15 @@ const en = {
   },
   profiles: {
     activation: "Activate",
-    activationUnavailable:
-      "Activation remains disabled until Mish can validate, switch, and roll back the core configuration transactionally.",
+    activationCancelled: "Activation cancelled. The previous healthy profile was preserved.",
+    activationFailed:
+      "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
+    activationUnavailable: "Activation is unavailable in this runtime.",
+    activating: "Activating…",
+    binaryMissing:
+      "The pinned Mihomo binary is missing. Prepare it explicitly for development or include the packaged production resource; Mish will not download it at runtime.",
+    cancelActivation: "Cancel activation",
+    chooseReplacement: "Choose a validated replacement before deleting the active profile.",
     active: "Active",
     activeDeleteUnavailable:
       "The active profile cannot be deleted without a safe replacement or stopped-state transaction.",
@@ -241,6 +248,9 @@ const en = {
     savedToast: "Profile saved",
     saveProfile: "Save profile",
     saving: "Saving…",
+    stopForDeletion: "Stop safely",
+    safeStopped: "Safely stopped",
+    stopping: "Stopping…",
     sensitiveNotice:
       "Sensitive source or configuration data will stay in Mish's private app-data storage.",
     source: "Source",

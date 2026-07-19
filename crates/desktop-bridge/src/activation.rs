@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_norway::{Mapping, Value};
 use thiserror::Error;
 use tokio::{sync::Mutex, time::Instant};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 use uuid::Uuid;
 
@@ -82,6 +83,9 @@ impl ManagedMihomoResolver {
                 }
             }
         };
+        if !binary.is_absolute() {
+            return Err(MihomoResolveError::UnsafeManagedPath);
+        }
         let metadata =
             fs::symlink_metadata(&binary).map_err(|_| MihomoResolveError::BinaryMissing)?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -212,6 +216,8 @@ pub enum MihomoActivationError {
     ControllerFailure,
     #[error("the candidate Mihomo Controller did not become ready before the deadline")]
     ReadinessTimeout,
+    #[error("managed Mihomo activation was cancelled")]
+    Cancelled,
     #[error("the prior managed Mihomo core could not be stopped safely")]
     PriorStopFailed,
     #[error("the managed active state could not be committed atomically")]
@@ -241,6 +247,7 @@ pub enum ActivationFailureKind {
     VersionMismatch,
     Controller,
     Timeout,
+    Cancelled,
     PriorStop,
     StateCommit,
 }
@@ -371,10 +378,24 @@ impl MihomoActivationManager {
         }
     }
 
+    pub fn availability(&self) -> Result<(), MihomoResolveError> {
+        self.resolver.resolve().map(|_| ())
+    }
+
     pub async fn activate(
         &self,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
+    ) -> Result<ActivationCommit, MihomoActivationError> {
+        self.activate_cancellable(record, policy, CancellationToken::new())
+            .await
+    }
+
+    pub async fn activate_cancellable(
+        &self,
+        record: &ProfileRecord,
+        policy: &ManagedRuntimePolicy,
+        cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
         if !self.timing.valid() {
             return Err(MihomoActivationError::InvalidTiming);
@@ -382,7 +403,10 @@ impl MihomoActivationManager {
         validate_activation_record(record)?;
         let resolved = self.resolver.resolve()?;
         let mut state = self.state.lock().await;
-        let candidate = match self.prepare_candidate(&resolved, record, policy).await {
+        let candidate = match self
+            .prepare_candidate(&resolved, record, policy, cancellation.clone())
+            .await
+        {
             Ok(candidate) => candidate,
             Err(error) => {
                 record_failed_attempt(&mut state.managed, record, error);
@@ -390,6 +414,13 @@ impl MihomoActivationManager {
                 return Err(error);
             }
         };
+
+        if cancellation.is_cancelled() {
+            rollback_candidate(candidate).await;
+            record_failed_attempt(&mut state.managed, record, MihomoActivationError::Cancelled);
+            persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            return Err(MihomoActivationError::Cancelled);
+        }
 
         if let Some(previous) = state.active.as_ref()
             && previous.runtime.stop_core().await.is_err()
@@ -487,20 +518,18 @@ impl MihomoActivationManager {
 
     pub async fn shutdown(&self) -> Result<(), MihomoActivationError> {
         let mut state = self.state.lock().await;
-        let active = state.active.take();
-        let Some(active) = active else {
-            return Ok(());
-        };
-        active
-            .runtime
-            .shutdown()
-            .await
-            .map_err(|_| MihomoActivationError::ShutdownFailed)?;
+        if let Some(active) = state.active.as_ref() {
+            active
+                .runtime
+                .shutdown()
+                .await
+                .map_err(|_| MihomoActivationError::ShutdownFailed)?;
+        }
+        state.active = None;
         state.managed.active_fingerprint = None;
         state.managed.active_profile_id = None;
         state.managed.active_runtime_id = None;
-        let resolved = self.resolver.resolve()?;
-        persist_managed_state(resolved.runtime_root(), &state.managed)
+        persist_managed_state(&self.resolver.runtime_root, &state.managed)
     }
 
     async fn prepare_candidate(
@@ -508,6 +537,7 @@ impl MihomoActivationManager {
         resolved: &ResolvedManagedMihomo,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
+        cancellation: CancellationToken,
     ) -> Result<ActiveMihomo, MihomoActivationError> {
         let candidate_id = Uuid::new_v4().to_string();
         let candidates_root = resolved.runtime_root().join("candidates");
@@ -530,17 +560,18 @@ impl MihomoActivationManager {
             },
             PINNED_MIHOMO_VERSION,
         );
-        if let Err(error) = staging_process
-            .validate_config(self.timing.config_validation_timeout)
-            .await
-        {
+        let validation = tokio::select! {
+            _ = cancellation.cancelled() => Err(MihomoActivationError::Cancelled),
+            result = staging_process.validate_config(self.timing.config_validation_timeout) => {
+                result.map_err(|error| match error {
+                    ManagedProcessValidationError::VersionMismatch => MihomoActivationError::VersionMismatch,
+                    _ => MihomoActivationError::ValidationFailed,
+                })
+            }
+        };
+        if let Err(error) = validation {
             let _ = fs::remove_dir_all(&staging_root);
-            return Err(match error {
-                ManagedProcessValidationError::VersionMismatch => {
-                    MihomoActivationError::VersionMismatch
-                }
-                _ => MihomoActivationError::ValidationFailed,
-            });
+            return Err(error);
         }
 
         let candidate_root = candidates_root.join(&candidate_id);
@@ -577,7 +608,13 @@ impl MihomoActivationManager {
             return Err(MihomoActivationError::StartFailed);
         }
         source.start().await;
-        let readiness = wait_for_candidate(&runtime, &source, self.timing.readiness_timeout).await;
+        let readiness = wait_for_candidate(
+            &runtime,
+            &source,
+            self.timing.readiness_timeout,
+            cancellation,
+        )
+        .await;
         if let Err(error) = readiness {
             source.close().await;
             let _ = runtime.stop_core().await;
@@ -610,6 +647,7 @@ async fn wait_for_candidate(
     runtime: &MishRuntime,
     source: &ControllerStatusSource,
     timeout_after: Duration,
+    cancellation: CancellationToken,
 ) -> Result<(), MihomoActivationError> {
     let deadline = Instant::now() + timeout_after;
     loop {
@@ -629,7 +667,10 @@ async fn wait_for_candidate(
         if Instant::now() >= deadline {
             return Err(MihomoActivationError::ReadinessTimeout);
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::select! {
+            _ = cancellation.cancelled() => return Err(MihomoActivationError::Cancelled),
+            _ = tokio::time::sleep(Duration::from_millis(20)) => {}
+        }
     }
 }
 
@@ -664,6 +705,7 @@ impl MihomoActivationError {
             Self::VersionMismatch => ActivationFailureKind::VersionMismatch,
             Self::ControllerFailure => ActivationFailureKind::Controller,
             Self::ReadinessTimeout => ActivationFailureKind::Timeout,
+            Self::Cancelled => ActivationFailureKind::Cancelled,
             Self::PriorStopFailed => ActivationFailureKind::PriorStop,
             Self::StateCommitFailed | Self::RollbackFailedSafeStopped | Self::ShutdownFailed => {
                 ActivationFailureKind::StateCommit
@@ -676,6 +718,8 @@ fn persist_managed_state(
     runtime_root: &Path,
     state: &ManagedActivationState,
 ) -> Result<(), MihomoActivationError> {
+    create_private_runtime_directory(runtime_root)
+        .map_err(|_| MihomoActivationError::StateCommitFailed)?;
     let contents =
         serde_json::to_vec_pretty(state).map_err(|_| MihomoActivationError::StateCommitFailed)?;
     let temporary = runtime_root.join(format!(".activation-state-{}", Uuid::new_v4()));

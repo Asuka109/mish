@@ -26,6 +26,7 @@ import {
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useProduct } from "../data/product-provider";
+import { useOptionalProfiles } from "../data/profile-provider";
 import {
   getAggregateCaptureDescriptionId,
   getCommandDescriptionId,
@@ -213,8 +214,8 @@ function Sidebar() {
 }
 
 function ProfileMenu() {
-  const { connection, isCommandPending, isCommandSupported, setActiveProfile, snapshot } =
-    useProduct();
+  const { connection, snapshot } = useProduct();
+  const profiles = useOptionalProfiles();
   const { LL } = useI18nContext();
   if (!snapshot) {
     return (
@@ -224,33 +225,44 @@ function ProfileMenu() {
     );
   }
 
-  const activeProfile =
-    snapshot.profiles.find((profile) => profile.id === snapshot.activeProfileId) ??
-    snapshot.profiles[0];
-  if (!activeProfile) return <span className="toolbar-loading">{LL.common.unavailable()}</span>;
+  const managedProfiles =
+    profiles?.snapshot?.capabilities.activation === "supported"
+      ? profiles.snapshot.profiles
+      : snapshot.profiles;
+  const managedActiveProfileId =
+    profiles?.snapshot?.activation.activeProfileId ?? snapshot.activeProfileId;
+  const activeProfile = managedProfiles.find((profile) => profile.id === managedActiveProfileId);
+  const activeLabel = activeProfile?.label ?? LL.profiles.safeStopped();
 
-  const profilePending = isCommandPending("profile");
-  const profileSupported = isCommandSupported("profile");
+  const profilePending = profiles?.isPending("activate") ?? false;
+  const profileSupported = profiles?.snapshot?.capabilities.activation === "supported";
   const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, profileSupported);
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-describedby={actionDescriptionId}
-        aria-label={LL.toolbar.switchProfile({ profile: activeProfile.label })}
+        aria-label={LL.toolbar.switchProfile({ profile: activeLabel })}
         className="toolbar-button profile-menu-trigger"
-        disabled={profilePending || !profileSupported || snapshot.profiles.length < 2}
+        disabled={
+          profilePending ||
+          !profileSupported ||
+          !managedProfiles.some((profile) => profile.id !== managedActiveProfileId)
+        }
       >
         <FileText aria-hidden="true" />
-        <span className="user-authored-label">{activeProfile.label}</span>
+        <span className="user-authored-label">{activeLabel}</span>
         <CaretDown aria-hidden="true" weight="bold" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="profile-menu" sideOffset={8}>
-        <DropdownMenuRadioGroup onValueChange={setActiveProfile} value={activeProfile.id}>
+        <DropdownMenuRadioGroup
+          onValueChange={(profileId) => void profiles?.activateProfile(profileId)}
+          value={activeProfile?.id ?? ""}
+        >
           <DropdownMenuLabel className="profile-menu-label">
             {LL.toolbar.profiles()}
           </DropdownMenuLabel>
-          {snapshot.profiles.map((profile) => (
+          {managedProfiles.map((profile) => (
             <DropdownMenuRadioItem
               className="profile-menu-item"
               disabled={profilePending}

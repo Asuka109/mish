@@ -138,10 +138,11 @@ production looks only in the supplied sidecar resource directory.
 `crates/mihomo-controller` implements a transport-neutral, read-only client for
 the pinned Mihomo Controller surface. The desktop bridge composes its validated,
 bounded observations into the Status source, the independent Traffic source,
-and the transactional activation manager. The current Tauri shell and RPC
-profile command surface do not select or activate a profile; default startup
-therefore reports Traffic unavailable rather than discovering private
-configuration. See
+and the transactional activation manager. The Tauri shell starts safely stopped
+and the authenticated Profile command surface activates only a repository-owned
+valid artifact. A successful transaction replaces the shared Status and Traffic
+runtime host; default startup still reports Traffic unavailable rather than
+discovering private configuration. See
 [`mihomo-controller-integration.md`](mihomo-controller-integration.md) for the
 process boundaries, data flow, terminology, and remaining mapping gaps.
 
@@ -150,10 +151,10 @@ System Proxy and TUN as unavailable. Commands not backed by real controller or
 platform reconciliation return a typed capability error instead of fake
 success. The RPC Status client therefore advertises no supported mutations.
 Profile import, persistence, refresh, and inactive deletion use the separate
-Profile application service; activation, routing, group, service, System Proxy,
-and TUN controls remain unavailable rather than runnable. Wiring a selected
-persisted profile through the existing activation manager into the live
-Tauri/RPC composition remains follow-up work.
+Profile application service. Activation uses its own typed, cancellable command
+seam from Profiles and the Status selector. Routing, group, service, System
+Proxy, and TUN controls remain unavailable rather than runnable. Active deletion
+requires successful replacement activation or an explicit safe stop.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift

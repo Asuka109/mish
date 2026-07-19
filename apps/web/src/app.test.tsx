@@ -7,6 +7,8 @@ import { TooltipProvider } from "@mish/ui";
 import {
   StatusClientError,
   type CaptureSelectionDto,
+  type ProfileClient,
+  type ProfileSnapshotDto,
   type RoutingMode,
   type StatusClient,
   type StatusCommand,
@@ -16,6 +18,7 @@ import {
 import { AppRoutes } from "./app";
 import { AppearanceProvider } from "./appearance";
 import { FixtureStatusClient } from "./data/fixture-status-client";
+import { FixtureProfileClient } from "./data/fixture-profile-client";
 import { ProductProvider } from "./data/product-provider";
 import { ProfileProvider } from "./data/profile-provider";
 import { TrafficProvider } from "./data/traffic-provider";
@@ -26,13 +29,18 @@ import { loadAllLocales } from "./i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderRoute(path: string, locale: Locales = "en", client?: StatusClient) {
+function renderRoute(
+  path: string,
+  locale: Locales = "en",
+  client?: StatusClient,
+  profileClient?: ProfileClient,
+) {
   return render(
     <AppearanceProvider>
       <TypesafeI18n locale={locale}>
         <MemoryRouter initialEntries={[path]}>
           <ProductProvider client={client}>
-            <ProfileProvider>
+            <ProfileProvider client={profileClient}>
               <TrafficProvider>
                 <TooltipProvider>
                   <AppRoutes />
@@ -132,6 +140,46 @@ class SnapshotStatusClient extends FixtureStatusClient {
   }
 }
 
+async function managedProfileSnapshot(): Promise<ProfileSnapshotDto> {
+  const snapshot: ProfileSnapshotDto = await new FixtureProfileClient().getSnapshot();
+  snapshot.adapterKind = "rpc";
+  snapshot.activation.availability = "available";
+  snapshot.capabilities.activation = "supported";
+  return snapshot;
+}
+
+function createActivationProfileClient() {
+  const fixture = new FixtureProfileClient();
+  const activateProfile = vi.fn(async (commandId: string, profileId: string) => {
+    const snapshot = await managedProfileSnapshot();
+    return {
+      ...snapshot.activation,
+      commandId,
+      operation: "activate" as const,
+      phase: "pending" as const,
+      targetProfileId: profileId,
+    };
+  });
+  return {
+    activateProfile,
+    cancelActivation: fixture.cancelActivation.bind(fixture),
+    deleteProfile: fixture.deleteProfile.bind(fixture),
+    dispose: fixture.dispose.bind(fixture),
+    getConnectionState: () => ({ attempt: 0, phase: "connected" as const, stale: false }),
+    getSnapshot: managedProfileSnapshot,
+    preflightHttps: fixture.preflightHttps.bind(fixture),
+    preflightLocal: fixture.preflightLocal.bind(fixture),
+    refreshProfile: fixture.refreshProfile.bind(fixture),
+    savePreview: fixture.savePreview.bind(fixture),
+    stopActiveProfile: fixture.stopActiveProfile.bind(fixture),
+    subscribeConnection: (listener) => {
+      listener({ attempt: 0, phase: "connected", stale: false });
+      return () => undefined;
+    },
+    subscribeSnapshots: () => () => undefined,
+  } satisfies ProfileClient;
+}
+
 async function createRpcSnapshot(sparse = false) {
   const snapshot = await new FixtureStatusClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -221,6 +269,29 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
+  it("uses the Profile activation command seam from the Status selector", async () => {
+    const user = userEvent.setup();
+    const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
+    const profileClient = createActivationProfileClient();
+    const legacyStatusActivation = vi.spyOn(statusClient, "setActiveProfile");
+    renderRoute("/status", "en", statusClient, profileClient);
+
+    const trigger = await screen.findByRole("button", {
+      name: "Switch profile. Current profile: Safely stopped",
+    });
+    expect(trigger).toBeEnabled();
+    await user.click(trigger);
+    await user.click(await screen.findByRole("menuitemradio", { name: "Studio route set" }));
+
+    await waitFor(() =>
+      expect(profileClient.activateProfile).toHaveBeenCalledWith(
+        expect.any(String),
+        "fixture-profile-studio",
+      ),
+    );
+    expect(legacyStatusActivation).not.toHaveBeenCalled();
+  });
+
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
     const snapshot = await createRpcSnapshot(true);
     const client = new SnapshotStatusClient(snapshot, {

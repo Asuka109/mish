@@ -72,8 +72,11 @@ The production Profiles destination now lists the private app-data repository,
 preflights HTTPS and user-selected local YAML sources, shows a redacted preview,
 saves valid previews, refreshes persisted sources manually, and deletes inactive
 profiles after confirmation. Browser mode remains explicitly fixture-only and
-does not simulate local-file import. Activation and active-profile deletion stay
-disabled until the transactional core-activation slice exists.
+does not simulate local-file import or activation. Desktop activation reloads a
+repository-validated artifact and exposes a typed transactional command state.
+Deleting the active profile requires either successful activation of a selected
+replacement or an explicit safe stop before deletion becomes available. The
+Status profile selector uses the same Profiles command seam.
 
 ## Requirements: Profiles
 

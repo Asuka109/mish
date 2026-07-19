@@ -250,3 +250,38 @@ async fn inactive_profiles_can_be_deleted_but_active_profiles_cannot() {
     ));
     assert_eq!(service.snapshot().unwrap().profiles.len(), 1);
 }
+
+#[tokio::test]
+async fn activation_records_are_reloaded_and_revalidated_from_private_storage() {
+    let temp = TestDir::new();
+    let reader = SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]);
+    let service = service(temp.path().to_path_buf(), reader);
+    let preview = service
+        .preflight_local(
+            "/fictional/activation.yaml".into(),
+            Some("Activation".into()),
+        )
+        .await
+        .unwrap();
+    let saved = service.save_preview(&preview.preview_id).await.unwrap();
+    let profile_id = saved.profiles[0].id.clone();
+
+    let record = service.activation_record(&profile_id).unwrap();
+    let artifact = temp
+        .path()
+        .join("profiles")
+        .join(&profile_id)
+        .join("artifacts")
+        .join(format!(
+            "{}.yaml",
+            record.metadata.artifact.fingerprint.as_str()
+        ));
+    fs::write(artifact, b"tampered: true\n").unwrap();
+
+    assert!(matches!(
+        service.activation_record(&profile_id),
+        Err(ProfileServiceError::Repository(
+            mish_profile::RepositoryError::IntegrityMismatch
+        ))
+    ));
+}

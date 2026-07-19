@@ -33,9 +33,18 @@ import {
   Input,
   SectionGrid,
   SectionGridItem,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Spinner,
 } from "@mish/ui";
-import type { ProfileListItemDto, ProfilePreviewDto } from "@mish/contracts";
+import type {
+  ProfileActivationSnapshotDto,
+  ProfileListItemDto,
+  ProfilePreviewDto,
+} from "@mish/contracts";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
@@ -48,6 +57,7 @@ export function ProfilesPage() {
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ProfileListItemDto | null>(null);
+  const [replacementProfileId, setReplacementProfileId] = useState<string | null>(null);
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
     [locale],
@@ -58,6 +68,12 @@ export function ProfilesPage() {
   const localSupported =
     snapshot?.capabilities.localFileImport === "supported" ||
     snapshot?.capabilities.localFileImport === "permission-required";
+  const activationSupported = snapshot?.capabilities.activation === "supported";
+  const currentDeleteTarget = snapshot?.profiles.find((profile) => profile.id === deleteTarget?.id);
+  const replacementProfiles =
+    snapshot?.profiles.filter(
+      (profile) => profile.id !== deleteTarget?.id && profile.status.valid,
+    ) ?? [];
 
   function openHttpsImport() {
     setUrl("");
@@ -111,6 +127,21 @@ export function ProfilesPage() {
     if (!result.ok) {
       toast.error(LL.profiles.refreshFailed());
     }
+  }
+
+  async function activateProfile(profileId: string) {
+    const result = await profiles.activateProfile(profileId);
+    if (!result.ok) toast.error(LL.profiles.activationFailed());
+  }
+
+  async function cancelActivation() {
+    const result = await profiles.cancelActivation();
+    if (!result.ok) toast.error(LL.profiles.activationFailed());
+  }
+
+  async function stopForDeletion() {
+    const result = await profiles.stopActiveProfile();
+    if (!result.ok) toast.error(LL.profiles.activationFailed());
   }
 
   async function deleteProfile() {
@@ -181,7 +212,11 @@ export function ProfilesPage() {
               LL={LL}
               dateFormatter={dateFormatter}
               deletionSupported={snapshot.capabilities.deletion === "supported"}
+              activation={snapshot.activation}
+              activationSupported={activationSupported}
               key={profile.id}
+              onActivate={() => activateProfile(profile.id)}
+              onCancelActivation={cancelActivation}
               onDelete={() => setDeleteTarget(profile)}
               onRefresh={() => refreshProfile(profile.id)}
               profile={profile}
@@ -270,7 +305,10 @@ export function ProfilesPage() {
 
       <AlertDialog
         onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+          if (!open) {
+            setDeleteTarget(null);
+            setReplacementProfileId(null);
+          }
         }}
         open={deleteTarget !== null}
       >
@@ -281,12 +319,58 @@ export function ProfilesPage() {
             </AlertDialogTitle>
             <AlertDialogDescription>{LL.profiles.deleteDescription()}</AlertDialogDescription>
           </AlertDialogHeader>
+          {currentDeleteTarget?.status.active ? (
+            <div className="profile-delete-active-options">
+              <p>{LL.profiles.chooseReplacement()}</p>
+              {replacementProfiles.length > 0 ? (
+                <div className="profile-delete-replacement">
+                  <Select
+                    onValueChange={(value) => setReplacementProfileId(value)}
+                    value={replacementProfileId}
+                  >
+                    <SelectTrigger aria-label={LL.profiles.chooseReplacement()}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {replacementProfiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          <span className="user-authored-label">{profile.label}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    disabled={!replacementProfileId || profiles.isPending("activate")}
+                    onClick={() => replacementProfileId && activateProfile(replacementProfileId)}
+                    type="button"
+                    variant="outline"
+                  >
+                    {profiles.isPending("activate") ? <Spinner data-icon="inline-start" /> : null}
+                    {profiles.isPending("activate")
+                      ? LL.profiles.activating()
+                      : LL.profiles.activation()}
+                  </Button>
+                </div>
+              ) : null}
+              <Button
+                disabled={profiles.isPending("stop") || profiles.isPending("activate")}
+                onClick={stopForDeletion}
+                type="button"
+                variant="outline"
+              >
+                {profiles.isPending("stop") ? <Spinner data-icon="inline-start" /> : null}
+                {profiles.isPending("stop")
+                  ? LL.profiles.stopping()
+                  : LL.profiles.stopForDeletion()}
+              </Button>
+            </div>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
             <AlertDialogAction
               disabled={
                 !deleteTarget ||
-                deleteTarget.status.active ||
+                currentDeleteTarget?.status.active ||
                 profiles.isPending("delete", deleteTarget.id)
               }
               onClick={deleteProfile}
@@ -306,8 +390,12 @@ export function ProfilesPage() {
 
 interface ProfileRowProps {
   LL: TranslationFunctions;
+  activation: ProfileActivationSnapshotDto;
+  activationSupported: boolean;
   dateFormatter: Intl.DateTimeFormat;
   deletionSupported: boolean;
+  onActivate(): void;
+  onCancelActivation(): void;
   onDelete(): void;
   onRefresh(): void;
   profile: ProfileListItemDto;
@@ -317,14 +405,30 @@ interface ProfileRowProps {
 
 function ProfileRow({
   LL,
+  activation,
+  activationSupported,
   dateFormatter,
   deletionSupported,
+  onActivate,
+  onCancelActivation,
   onDelete,
   onRefresh,
   profile,
   refreshPending,
   refreshSupported,
 }: ProfileRowProps) {
+  const activationPending =
+    activation.phase === "pending" && activation.targetProfileId === profile.id;
+  const activationMessage =
+    activation.availability === "missing-binary"
+      ? LL.profiles.binaryMissing()
+      : activation.phase === "failure" && activation.targetProfileId === profile.id
+        ? activation.failure === "cancelled"
+          ? LL.profiles.activationCancelled()
+          : LL.profiles.activationFailed()
+        : !activationSupported
+          ? LL.profiles.activationUnavailable()
+          : null;
   return (
     <SectionGridItem className="profile-row">
       <div className="profile-row-main">
@@ -377,8 +481,17 @@ function ProfileRow({
         ) : null}
       </div>
       <div className="profile-row-actions">
-        <Button disabled variant="outline">
-          {LL.profiles.activation()}
+        <Button
+          disabled={
+            !activationSupported ||
+            profile.status.active ||
+            (activation.phase === "pending" && !activationPending)
+          }
+          onClick={activationPending ? onCancelActivation : onActivate}
+          variant="outline"
+        >
+          {activationPending ? <Spinner data-icon="inline-start" /> : null}
+          {activationPending ? LL.profiles.cancelActivation() : LL.profiles.activation()}
         </Button>
         <Button
           disabled={!refreshSupported || refreshPending}
@@ -394,16 +507,18 @@ function ProfileRow({
         </Button>
         <Button
           aria-label={`${LL.common.delete()} ${profile.label}`}
-          disabled={!deletionSupported || profile.status.active}
+          disabled={!deletionSupported}
           onClick={onDelete}
           size="icon-sm"
-          title={profile.status.active ? LL.profiles.activeDeleteUnavailable() : LL.common.delete()}
+          title={profile.status.active ? LL.profiles.chooseReplacement() : LL.common.delete()}
           variant="ghost"
         >
           <Trash aria-hidden="true" />
         </Button>
       </div>
-      <p className="profile-activation-explanation">{LL.profiles.activationUnavailable()}</p>
+      {activationMessage ? (
+        <p className="profile-activation-explanation">{activationMessage}</p>
+      ) : null}
     </SectionGridItem>
   );
 }

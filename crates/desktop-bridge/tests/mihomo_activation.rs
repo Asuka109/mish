@@ -1,6 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
+    sync::Arc,
     time::Duration,
 };
 
@@ -12,8 +13,10 @@ use axum::{
     routing::get,
 };
 use mish_bridge::{
-    ActivationFailureKind, ActivationOutcome, ActivationTiming, ManagedMihomoResolver,
-    ManagedRuntimePolicy, MihomoActivationError, MihomoActivationManager, MihomoResolveError,
+    ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopMihomoProcess,
+    DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedMihomoResolver, ManagedRuntimePolicy,
+    MihomoActivationError, MihomoActivationManager, MihomoResolveError,
+    ProfileActivationCoordinator, ProfileActivationPhase, ReqwestHttpsSourceReader,
     RuntimeConfigGenerator,
 };
 use mish_profile::{
@@ -22,10 +25,11 @@ use mish_profile::{
     ProfileRecord, ProfileSource, ProfileStatus, Provenance, RevisionId, SourceSummary, Timestamp,
     ValidationResult, ValidationStatus,
 };
-use mish_runtime::StatusAdapterKind;
+use mish_runtime::{MishRuntime, StatusAdapterKind};
 use serde_json::json;
 use serde_norway::Value;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 #[test]
@@ -164,6 +168,26 @@ fn managed_binary_resolution_is_explicit_and_offline() {
 }
 
 #[tokio::test]
+async fn startup_records_an_explicit_safe_stopped_state_without_a_binary() {
+    let root = std::env::temp_dir().join(format!("mish-safe-startup-{}", Uuid::new_v4()));
+    let manager = MihomoActivationManager::new(
+        ManagedMihomoResolver::development(
+            root.join("missing-explicit-binary"),
+            root.join("runtime"),
+        ),
+        ActivationTiming::default(),
+    );
+
+    manager.shutdown().await.unwrap();
+
+    let persisted = std::fs::read_to_string(root.join("runtime/activation-state.json")).unwrap();
+    let state: serde_json::Value = serde_json::from_str(&persisted).unwrap();
+    assert!(state["activeProfileId"].is_null());
+    assert!(state["activeFingerprint"].is_null());
+    assert!(state["activeRuntimeId"].is_null());
+}
+
+#[tokio::test]
 async fn activation_commits_only_after_controller_readiness_and_first_snapshot() {
     let controller = FakeController::start("v1.19.29").await;
     let root = std::env::temp_dir().join(format!("mish-activation-{}", Uuid::new_v4()));
@@ -252,6 +276,283 @@ rules:
     }
 
     manager.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn repository_backed_activation_atomically_replaces_the_profile_context() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-coordinator-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.clone())
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let manager = Arc::new(activation_manager(&root, Duration::from_secs(2)));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-coordinator-secret"),
+    ));
+    let mut updates = coordinator.subscribe();
+    let command_id = Uuid::new_v4().to_string();
+
+    let pending = coordinator
+        .activate(&command_id, record.metadata.id.as_str())
+        .await
+        .unwrap();
+
+    assert_eq!(pending.phase, ProfileActivationPhase::Pending);
+    let completed = loop {
+        updates.recv().await.unwrap();
+        let snapshot = coordinator.activation_snapshot().await;
+        if snapshot.phase != ProfileActivationPhase::Pending {
+            break snapshot;
+        }
+    };
+    assert_eq!(completed.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        completed.active_profile_id.as_deref(),
+        Some(record.metadata.id.as_str())
+    );
+    let status = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    let traffic = host.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(status["activeProfileId"], record.metadata.id.as_str());
+    assert_eq!(traffic["profileId"], record.metadata.id.as_str());
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn coordinator_republishes_the_restored_runtime_after_commit_failure() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-coordinator-rollback-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let candidate = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
+    let repository = FileProfileRepository::new(profile_root.clone());
+    repository.save(&prior).unwrap();
+    repository.save(&candidate).unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let manager = Arc::new(activation_manager(&root, Duration::from_secs(2)));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-rollback-secret"),
+    ));
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), prior.metadata.id.as_str())
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
+
+    let state_path = root.join("runtime/activation-state.json");
+    let saved_state = root.join("runtime/activation-state.saved");
+    std::fs::rename(&state_path, &saved_state).unwrap();
+    std::fs::create_dir(&state_path).unwrap();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), candidate.metadata.id.as_str())
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
+
+    let failed = coordinator.activation_snapshot().await;
+    assert_eq!(failed.phase, ProfileActivationPhase::Failure);
+    assert_eq!(
+        failed.failure,
+        Some(mish_bridge::ProfileActivationFailure::StateCommit)
+    );
+    assert_eq!(
+        failed.active_profile_id.as_deref(),
+        Some(prior.metadata.id.as_str())
+    );
+    let status = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    let traffic = host.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(status["activeProfileId"], prior.metadata.id.as_str());
+    assert_eq!(status["runtime"]["phase"], "healthy");
+    assert_eq!(traffic["profileId"], prior.metadata.id.as_str());
+
+    std::fs::rename(&state_path, root.join("runtime/activation-state.blocked")).unwrap();
+    std::fs::rename(saved_state, &state_path).unwrap();
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn duplicate_profile_activation_is_deduplicated_and_cancellable() {
+    let root = std::env::temp_dir().join(format!("mish-coordinator-cancel-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.clone())
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let manager = Arc::new(activation_manager(&root, Duration::from_secs(5)));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let unavailable = unused_loopback_address();
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host,
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(unavailable, "synthetic-cancel-secret"),
+    ));
+    let first_command = Uuid::new_v4().to_string();
+    let duplicate_command = Uuid::new_v4().to_string();
+    let mut updates = coordinator.subscribe();
+
+    let first = coordinator
+        .activate(&first_command, record.metadata.id.as_str())
+        .await
+        .unwrap();
+    let duplicate = coordinator
+        .activate(&duplicate_command, record.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert_eq!(duplicate.command_id, first.command_id);
+    coordinator.cancel(&first_command).await.unwrap();
+
+    let completed = loop {
+        updates.recv().await.unwrap();
+        let snapshot = coordinator.activation_snapshot().await;
+        if snapshot.phase != ProfileActivationPhase::Pending {
+            break snapshot;
+        }
+    };
+    assert_eq!(completed.phase, ProfileActivationPhase::Failure);
+    assert_eq!(
+        completed.failure,
+        Some(mish_bridge::ProfileActivationFailure::Cancelled)
+    );
+    assert!(completed.safe_stopped);
+}
+
+#[tokio::test]
+async fn active_profile_deletion_requires_replacement_or_an_explicit_safe_stop() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-active-delete-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let replacement = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
+    let repository = FileProfileRepository::new(profile_root.clone());
+    repository.save(&record).unwrap();
+    repository.save(&replacement).unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let manager = Arc::new(activation_manager(&root, Duration::from_secs(2)));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-delete-secret"),
+    ));
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), record.metadata.id.as_str())
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
+
+    assert!(matches!(
+        coordinator
+            .delete_profile(record.metadata.id.as_str())
+            .await,
+        Err(mish_bridge::ProfileActivationCoordinatorError::Conflict)
+    ));
+
+    coordinator
+        .activate(
+            &Uuid::new_v4().to_string(),
+            replacement.metadata.id.as_str(),
+        )
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
+    let replaced = coordinator.activation_snapshot().await;
+    assert_eq!(replaced.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        replaced.active_profile_id.as_deref(),
+        Some(replacement.metadata.id.as_str())
+    );
+    coordinator
+        .delete_profile(record.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert!(matches!(
+        coordinator
+            .delete_profile(replacement.metadata.id.as_str())
+            .await,
+        Err(mish_bridge::ProfileActivationCoordinatorError::Conflict)
+    ));
+
+    let stop_command = Uuid::new_v4().to_string();
+    coordinator.stop(&stop_command).await.unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        updates.recv().await.unwrap();
+    }
+    let stopped = coordinator.activation_snapshot().await;
+    assert_eq!(stopped.phase, ProfileActivationPhase::Success);
+    assert!(stopped.safe_stopped);
+    assert!(stopped.active_profile_id.is_none());
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["phase"],
+        "inactive"
+    );
+
+    let profiles = coordinator
+        .delete_profile(replacement.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert!(profiles.profiles.is_empty());
     controller.shutdown().await;
 }
 
@@ -412,6 +713,33 @@ async fn controller_timeout_preserves_the_prior_healthy_core() {
     );
     manager.shutdown().await.unwrap();
     controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn cancellation_stops_the_candidate_without_committing_a_profile() {
+    let root = std::env::temp_dir().join(format!("mish-cancelled-{}", Uuid::new_v4()));
+    let manager = activation_manager(&root, Duration::from_secs(5));
+    let candidate = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let policy = ManagedRuntimePolicy::new(unused_loopback_address(), "candidate-secret").unwrap();
+    let cancellation = CancellationToken::new();
+    let trigger = cancellation.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        trigger.cancel();
+    });
+
+    let error = manager
+        .activate_cancellable(&candidate, &policy, cancellation)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error, MihomoActivationError::Cancelled);
+    let managed = manager.managed_state().await;
+    assert!(managed.is_safe_stopped());
+    assert_eq!(
+        managed.last_attempt().unwrap().failure(),
+        Some(ActivationFailureKind::Cancelled)
+    );
 }
 
 #[tokio::test]

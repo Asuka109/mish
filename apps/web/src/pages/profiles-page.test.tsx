@@ -27,9 +27,21 @@ const preview = {
 
 function desktopSnapshot(): ProfileSnapshotDto {
   return {
+    activation: {
+      activeProfileId: "profile-active",
+      attemptedAt: 1,
+      availability: "available",
+      commandId: null,
+      failure: null,
+      operation: null,
+      phase: "success",
+      safeStopped: false,
+      startupPolicy: "safe-stopped",
+      targetProfileId: null,
+    },
     adapterKind: "rpc",
     capabilities: {
-      activation: "unavailable",
+      activation: "supported",
       deletion: "supported",
       httpsImport: "supported",
       localFileImport: "permission-required",
@@ -78,12 +90,25 @@ function desktopSnapshot(): ProfileSnapshotDto {
 function createDesktopClient() {
   const snapshot = desktopSnapshot();
   return {
+    activateProfile: vi.fn(async (commandId: string, profileId: string) => ({
+      ...snapshot.activation,
+      commandId,
+      operation: "activate" as const,
+      phase: "pending" as const,
+      targetProfileId: profileId,
+    })),
+    cancelActivation: vi.fn(async () => snapshot.activation),
     deleteProfile: vi.fn(async () => snapshot),
+    dispose: vi.fn(),
+    getConnectionState: vi.fn(() => ({ attempt: 0, phase: "connected" as const, stale: false })),
     getSnapshot: vi.fn(async () => snapshot),
     preflightHttps: vi.fn(async () => preview),
     preflightLocal: vi.fn(async () => ({ ...preview, sourceType: "local-file" as const })),
     refreshProfile: vi.fn(async () => snapshot),
     savePreview: vi.fn(async () => snapshot),
+    stopActiveProfile: vi.fn(async () => snapshot.activation),
+    subscribeConnection: vi.fn(() => () => undefined),
+    subscribeSnapshots: vi.fn(() => () => undefined),
   } satisfies ProfileClient;
 }
 
@@ -156,8 +181,12 @@ describe("profiles page", () => {
     expect(client.refreshProfile).toHaveBeenCalledWith("profile-inactive");
 
     const activeDelete = screen.getByRole("button", { name: "Delete Active fictional profile" });
-    expect(activeDelete).toBeDisabled();
+    expect(activeDelete).toBeEnabled();
+    await user.click(activeDelete);
+    expect(screen.getByText(/choose a validated replacement/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
     expect(screen.getByText(/cannot be deleted without a safe replacement/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     await user.click(screen.getByRole("button", { name: "Delete Fictional profile" }));
     const dialog = screen.getByRole("alertdialog");

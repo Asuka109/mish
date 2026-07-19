@@ -7,8 +7,10 @@ use std::{
 
 use futures_util::{SinkExt, StreamExt};
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig,
-    ReqwestHttpsSourceReader, start_loopback_server,
+    ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost,
+    LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationManager,
+    ProfileActivationCoordinator, ReqwestHttpsSourceReader, start_loopback_server,
+    start_loopback_server_with_runtime_host,
 };
 use mish_runtime::MishRuntime;
 use serde_json::{Value, json};
@@ -24,6 +26,7 @@ fn config() -> LoopbackServerConfig {
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         max_message_bytes: 1_048_576,
+        profile_activation: None,
         profile_service: None,
     }
 }
@@ -224,6 +227,72 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
     let error_json = invalid_remote.to_string();
     assert!(!error_json.contains("private-password"));
     assert!(!error_json.contains("private-token"));
+
+    bridge.shutdown().await;
+    let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn profile_rpc_reports_safe_stopped_startup_and_a_missing_managed_binary() {
+    let root = env::temp_dir().join(format!(
+        "mish-bridge-missing-binary-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let profile_service =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.join("profiles")).unwrap());
+    let safe_runtime = runtime(no_core());
+    let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let activation = Arc::new(ProfileActivationCoordinator::new(
+        profile_service.clone(),
+        Arc::new(MihomoActivationManager::new(
+            ManagedMihomoResolver::development(
+                root.join("explicitly-unavailable-mihomo"),
+                root.join("runtime"),
+            ),
+            ActivationTiming::default(),
+        )),
+        runtime_host.clone(),
+        safe_runtime,
+        || ManagedRuntimePolicy::new(SocketAddr::from((Ipv4Addr::LOCALHOST, 1)), "unused"),
+    ));
+    let mut bridge_config = config();
+    bridge_config.profile_activation = Some(activation);
+    bridge_config.profile_service = Some(profile_service);
+    let bridge = start_loopback_server_with_runtime_host(bridge_config, runtime_host)
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let snapshot = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"profiles.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(snapshot["result"]["activation"]["phase"], "idle");
+    assert_eq!(
+        snapshot["result"]["activation"]["startupPolicy"],
+        "safe-stopped"
+    );
+    assert_eq!(
+        snapshot["result"]["activation"]["availability"],
+        "missing-binary"
+    );
+    assert_eq!(
+        snapshot["result"]["capabilities"]["activation"],
+        "unavailable"
+    );
+
+    let rejected = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"profiles.activate",
+            "params":{"commandId":uuid::Uuid::new_v4().to_string(), "profileId":uuid::Uuid::new_v4().to_string()}
+        }),
+    )
+    .await;
+    assert_eq!(rejected["error"]["code"], -32020);
+    assert!(!rejected.to_string().contains(root.to_str().unwrap()));
 
     bridge.shutdown().await;
     let _ = fs::remove_dir_all(root);

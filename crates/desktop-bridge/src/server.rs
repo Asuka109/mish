@@ -15,8 +15,8 @@ use mish_runtime::MishRuntime;
 use serde_json::json;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
-use crate::DesktopProfileService;
 use crate::protocol::{ProtocolState, serve_socket};
+use crate::{DesktopProfileService, DesktopRuntimeHost, ProfileActivationCoordinator};
 
 #[derive(Clone)]
 pub struct LoopbackServerConfig {
@@ -24,6 +24,7 @@ pub struct LoopbackServerConfig {
     pub auth_token: String,
     pub bind: SocketAddr,
     pub max_message_bytes: usize,
+    pub profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     pub profile_service: Option<Arc<DesktopProfileService>>,
 }
 
@@ -37,13 +38,18 @@ struct HttpState {
 pub struct LoopbackServerHandle {
     pub address: SocketAddr,
     join: JoinHandle<()>,
+    profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     shutdown: Option<oneshot::Sender<()>>,
-    runtime: MishRuntime,
+    runtime: DesktopRuntimeHost,
 }
 
 impl LoopbackServerHandle {
     pub async fn shutdown(mut self) {
-        let _ = self.runtime.shutdown().await;
+        if let Some(profile_activation) = &self.profile_activation {
+            let _ = profile_activation.shutdown().await;
+        } else {
+            let _ = self.runtime.current().shutdown().await;
+        }
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -54,6 +60,13 @@ impl LoopbackServerHandle {
 pub async fn start_loopback_server(
     config: LoopbackServerConfig,
     runtime: MishRuntime,
+) -> Result<LoopbackServerHandle, String> {
+    start_loopback_server_with_runtime_host(config, DesktopRuntimeHost::new(runtime)).await
+}
+
+pub async fn start_loopback_server_with_runtime_host(
+    config: LoopbackServerConfig,
+    runtime: DesktopRuntimeHost,
 ) -> Result<LoopbackServerHandle, String> {
     if !config.bind.ip().is_loopback() {
         return Err("The Mish desktop bridge may only bind to a loopback address".into());
@@ -79,11 +92,13 @@ pub async fn start_loopback_server(
     } else {
         config.allowed_origins.into_iter().collect()
     };
+    let profile_activation = config.profile_activation.clone();
     let state = Arc::new(HttpState {
         allowed_hosts,
         allowed_origins,
         protocol: ProtocolState {
             auth_token: config.auth_token,
+            profile_activation: config.profile_activation,
             profile_service: config.profile_service,
             runtime: runtime.clone(),
         },
@@ -107,6 +122,7 @@ pub async fn start_loopback_server(
     Ok(LoopbackServerHandle {
         address,
         join,
+        profile_activation,
         shutdown: Some(shutdown_tx),
         runtime,
     })

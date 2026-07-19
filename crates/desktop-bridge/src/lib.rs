@@ -2,8 +2,10 @@ mod activation;
 mod controller_source;
 mod controller_status;
 mod managed_process;
+mod profile_activation;
 mod profiles;
 mod protocol;
+mod runtime_host;
 mod server;
 
 pub use activation::{
@@ -23,8 +25,17 @@ pub use controller_status::{
 pub use managed_process::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,
 };
+pub use profile_activation::{
+    ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,
+    ProfileActivationCoordinatorError, ProfileActivationFailure, ProfileActivationOperation,
+    ProfileActivationPhase, ProfileActivationSnapshot, ProfileStartupPolicy,
+};
 pub use profiles::{DesktopProfileService, ReqwestHttpsSourceReader};
-pub use server::{LoopbackServerConfig, LoopbackServerHandle, start_loopback_server};
+pub use runtime_host::DesktopRuntimeHost;
+pub use server::{
+    LoopbackServerConfig, LoopbackServerHandle, start_loopback_server,
+    start_loopback_server_with_runtime_host,
+};
 
 use std::sync::Arc;
 

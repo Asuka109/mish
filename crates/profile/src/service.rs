@@ -271,6 +271,14 @@ where
         }
     }
 
+    pub fn activation_record(
+        &self,
+        profile_id: &str,
+    ) -> Result<crate::ProfileRecord, ProfileServiceError> {
+        let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
+        Ok(self.repository.load(&id)?)
+    }
+
     pub fn delete(&self, profile_id: &str) -> Result<ProfileSnapshot, ProfileServiceError> {
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
         let metadata = self
@@ -282,6 +290,19 @@ where
         if metadata.status.active {
             return Err(ProfileServiceError::ActiveProfileDeletionDisabled);
         }
+        self.repository.delete(&id)?;
+        self.snapshot()
+    }
+
+    pub fn delete_authorized(
+        &self,
+        profile_id: &str,
+        active_profile_id: Option<&str>,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        if active_profile_id == Some(profile_id) {
+            return Err(ProfileServiceError::ActiveProfileDeletionDisabled);
+        }
+        let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
         self.repository.delete(&id)?;
         self.snapshot()
     }

@@ -1,6 +1,8 @@
 import {
   ProfileClientError,
+  type ProfileActivationSnapshotDto,
   type ProfileClient,
+  type ProfileConnectionState,
   type ProfilePreviewDto,
   type ProfileSnapshotDto,
 } from "@mish/contracts";
@@ -16,13 +18,16 @@ import {
 } from "react";
 import { createFixtureProfileClient } from "./fixture-profile-client";
 
-export type ProfileOperation = "delete" | "preflight" | "refresh" | "save";
+export type ProfileOperation = "activate" | "delete" | "preflight" | "refresh" | "save" | "stop";
 export type ProfileOperationResult = { ok: true } | { error: ProfileClientError; ok: false };
 export type ProfilePreviewResult =
   | { ok: true; preview: ProfilePreviewDto | null }
   | { error: ProfileClientError; ok: false };
 
 interface ProfileContextValue {
+  activateProfile(profileId: string): Promise<ProfileOperationResult>;
+  cancelActivation(): Promise<ProfileOperationResult>;
+  connection: ProfileConnectionState;
   deleteProfile(profileId: string): Promise<ProfileOperationResult>;
   error: ProfileClientError | null;
   isLoading: boolean;
@@ -32,6 +37,7 @@ interface ProfileContextValue {
   refreshProfile(profileId: string): Promise<ProfileOperationResult>;
   savePreview(previewId: string): Promise<ProfileOperationResult>;
   snapshot: ProfileSnapshotDto | null;
+  stopActiveProfile(): Promise<ProfileOperationResult>;
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -44,12 +50,20 @@ interface ProfileProviderProps {
 export function ProfileProvider({ children, client }: ProfileProviderProps) {
   const resolvedClient = useMemo(() => client ?? createFixtureProfileClient(), [client]);
   const [snapshot, setSnapshot] = useState<ProfileSnapshotDto | null>(null);
+  const [connection, setConnection] = useState<ProfileConnectionState>(() =>
+    resolvedClient.getConnectionState(),
+  );
   const [error, setError] = useState<ProfileClientError | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const pending = useRef(false);
 
   useEffect(() => {
     const controller = new AbortController();
+    const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
+    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot) => {
+      setSnapshot(nextSnapshot);
+      setError(null);
+    });
     resolvedClient
       .getSnapshot({ signal: controller.signal })
       .then((nextSnapshot) => {
@@ -60,7 +74,11 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         if (controller.signal.aborted) return;
         setError(toProfileClientError(failure));
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      unsubscribeConnection();
+      unsubscribeSnapshots();
+    };
   }, [resolvedClient]);
 
   const runMutation = useCallback(
@@ -115,13 +133,59 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     [],
   );
 
+  const runActivation = useCallback(
+    async (
+      operation: "activate" | "stop",
+      mutate: () => Promise<ProfileActivationSnapshotDto>,
+      allowPending = false,
+    ): Promise<ProfileOperationResult> => {
+      if (pending.current || (!allowPending && snapshot?.activation.phase === "pending")) {
+        return conflict();
+      }
+      pending.current = true;
+      setPendingKey(operationKey(operation));
+      setError(null);
+      try {
+        const activation = await mutate();
+        setSnapshot((current) => (current ? { ...current, activation } : current));
+        return { ok: true };
+      } catch (failure) {
+        const typedError = toProfileClientError(failure);
+        setError(typedError);
+        return { error: typedError, ok: false };
+      } finally {
+        pending.current = false;
+        setPendingKey(null);
+      }
+    },
+    [snapshot?.activation.phase],
+  );
+
   const value = useMemo<ProfileContextValue>(
     () => ({
+      activateProfile: (profileId) =>
+        runActivation("activate", () =>
+          resolvedClient.activateProfile(crypto.randomUUID(), profileId),
+        ),
+      cancelActivation: () => {
+        const commandId = snapshot?.activation.commandId;
+        if (!commandId) return Promise.resolve(conflict());
+        return runActivation("activate", () => resolvedClient.cancelActivation(commandId), true);
+      },
+      connection,
       deleteProfile: (profileId) =>
         runMutation("delete", profileId, () => resolvedClient.deleteProfile(profileId)),
       error,
       isLoading: snapshot === null && error === null,
-      isPending: (operation, profileId) => pendingKey === operationKey(operation, profileId),
+      isPending: (operation, profileId) => {
+        if (
+          snapshot?.activation.phase === "pending" &&
+          snapshot.activation.operation === operation
+        ) {
+          return !profileId || snapshot.activation.targetProfileId === profileId;
+        }
+        return pendingKey === operationKey(operation, profileId);
+      },
       preflightHttps: (url, label) => runPreflight(() => resolvedClient.preflightHttps(url, label)),
       preflightLocal: (label) => runPreflight(() => resolvedClient.preflightLocal(label)),
       refreshProfile: (profileId) =>
@@ -129,8 +193,19 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       savePreview: (previewId) =>
         runMutation("save", undefined, () => resolvedClient.savePreview(previewId)),
       snapshot,
+      stopActiveProfile: () =>
+        runActivation("stop", () => resolvedClient.stopActiveProfile(crypto.randomUUID())),
     }),
-    [error, pendingKey, resolvedClient, runMutation, runPreflight, snapshot],
+    [
+      connection,
+      error,
+      pendingKey,
+      resolvedClient,
+      runActivation,
+      runMutation,
+      runPreflight,
+      snapshot,
+    ],
   );
 
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
@@ -140,6 +215,10 @@ export function useProfiles() {
   const context = useContext(ProfileContext);
   if (!context) throw new Error("useProfiles must be used inside ProfileProvider");
   return context;
+}
+
+export function useOptionalProfiles() {
+  return useContext(ProfileContext);
 }
 
 function operationKey(operation: ProfileOperation, profileId?: string) {
