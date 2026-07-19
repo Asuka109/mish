@@ -536,6 +536,42 @@ const en = {
     unavailableNotice:
       "The current runtime has no supported Events source. No desktop observation is claimed.",
   },
+  diagnostics: {
+    cancel: "Cancel run",
+    check: {
+      capture: "Capture desired / observed",
+      core: "Pinned core health and version",
+      desktopBridge: "Desktop bridge",
+      directReachability: "Direct reachability",
+      dns: "DNS resolution",
+      profile: "Active Profile context",
+      proxyReachability: "Scoped proxy reachability",
+    },
+    description:
+      "Runs only when requested. Results stay in bounded local memory and never upload or change routing, capture, groups, or connections.",
+    empty: "No diagnostic runs in local history.",
+    error: "Diagnostics are currently unavailable.",
+    fixtureNotice:
+      "Fictional browser fixture results. They are not a desktop diagnostic run or a device observation.",
+    inference: "Interpretation",
+    observation: "Observed fact",
+    open: "Open diagnostics",
+    policy:
+      "Policy {id:string} · {endpoint:string} · expect HTTP {status:number} · {timeout:number} ms",
+    route: "Route target",
+    run: "Run diagnostics",
+    scope: "Scope",
+    status: {
+      cancelled: "Cancelled",
+      completed: "Completed",
+      failed: "Failed",
+      invalidated: "Invalidated by runtime replacement",
+      passed: "Passed",
+      running: "Running",
+      unavailable: "Unavailable",
+    },
+    title: "Guided diagnostics",
+  },
   destination: {
     currentState: "Current state",
     foundation: "Production foundation",

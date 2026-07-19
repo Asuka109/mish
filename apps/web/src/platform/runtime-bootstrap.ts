@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   mishRpcMethods,
   type EventsClient,
+  type DiagnosticsClient,
   type ProfileClient,
   type StatusClient,
   type TrafficClient,
@@ -9,6 +10,7 @@ import {
 import { RpcClient } from "@mish/rpc-client";
 import { RpcProfileClient } from "../data/rpc-profile-client";
 import { RpcEventsClient } from "../data/rpc-events-client";
+import { RpcDiagnosticsClient } from "../data/rpc-diagnostics-client";
 import { RpcStatusClient } from "../data/rpc-status-client";
 import { RpcTrafficClient } from "../data/rpc-traffic-client";
 
@@ -28,6 +30,7 @@ interface BootstrapDependencies {
 export interface StartupStatusClient {
   client?: StatusClient;
   eventsClient?: EventsClient;
+  diagnosticsClient?: DiagnosticsClient;
   trafficClient?: TrafficClient;
   dispose(): void;
   profileClient?: ProfileClient;
@@ -65,15 +68,18 @@ export async function resolveStartupStatusClient(
   });
   const client = new RpcStatusClient(rpc, true);
   const eventsClient = new RpcEventsClient(rpc);
+  const diagnosticsClient = new RpcDiagnosticsClient(rpc);
   const profileClient = new RpcProfileClient(rpc, dependencies.invokeLocalProfilePreflight);
   const trafficClient = new RpcTrafficClient(rpc);
   return {
     client,
     eventsClient,
+    diagnosticsClient,
     profileClient,
     trafficClient,
     dispose: () => {
       profileClient.dispose();
+      diagnosticsClient.dispose();
       eventsClient.dispose();
       trafficClient.dispose();
       client.dispose();

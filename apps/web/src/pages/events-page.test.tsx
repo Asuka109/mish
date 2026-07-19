@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@mish/ui";
@@ -113,5 +113,50 @@ describe("Events page", () => {
     await user.click(screen.getByRole("button", { name: "Copy safe event text" }));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("[redacted-url]"));
     expect(writeText.mock.calls[0]?.[0]).not.toContain("fixture.invalid/list?token=");
+  });
+
+  it("runs only on explicit keyboard activation and separates observation from interpretation", async () => {
+    const user = userEvent.setup();
+    renderEvents(new FixtureEventsClient());
+
+    const run = await screen.findByRole("button", { name: "Run diagnostics" });
+    expect(screen.getByText(/Fictional browser fixture results/)).toBeVisible();
+    expect(screen.queryByText("Synthetic fixture DNS failure")).not.toBeInTheDocument();
+
+    run.focus();
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByText("Synthetic fixture DNS failure")).toBeVisible();
+    expect(screen.getAllByText("Observed fact").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Interpretation").length).toBeGreaterThan(0);
+    expect(screen.getByText(/mish-guided-diagnostics-fixture-v1/)).toBeVisible();
+    expect(screen.getByText(/not a desktop diagnostic run/i)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /export|upload/i })).not.toBeInTheDocument();
+  });
+
+  it("links common failure events to the focusable diagnostics section", async () => {
+    const user = userEvent.setup();
+    renderEvents(new FixtureEventsClient());
+    await screen.findByText(/Synthetic DNS lookup timed out/);
+
+    const links = screen.getAllByRole("link", { name: "Open diagnostics" });
+    expect(links[0]).toHaveAttribute("href", "/events?diagnostics=1");
+    await user.click(links[0]);
+
+    expect(screen.getByRole("region", { name: "Guided diagnostics" })).toHaveFocus();
+  });
+
+  it("retains complete scoped result labels in a narrow window", async () => {
+    vi.stubGlobal("innerWidth", 560);
+    window.dispatchEvent(new Event("resize"));
+    const user = userEvent.setup();
+    renderEvents(new FixtureEventsClient());
+    await user.click(await screen.findByRole("button", { name: "Run diagnostics" }));
+
+    const diagnostics = screen.getByRole("region", { name: "Guided diagnostics" });
+    expect(within(diagnostics).getAllByText("Scope").length).toBeGreaterThan(0);
+    expect(within(diagnostics).getAllByText("Route target").length).toBeGreaterThan(0);
+    expect(within(diagnostics).getAllByText("Observed fact").length).toBeGreaterThan(0);
+    expect(within(diagnostics).getAllByText("Interpretation").length).toBeGreaterThan(0);
   });
 });

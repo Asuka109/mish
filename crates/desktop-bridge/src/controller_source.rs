@@ -18,10 +18,10 @@ use mish_runtime::{
     EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
     EventsDataSource, EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult,
     GroupDelayFailure, GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, ProfileSummary,
-    RoutingMode, RuntimePhase, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusCommandErrorKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
-    TrafficCommandExecution, TrafficCommandFailureKind, TrafficCommandOperation, TrafficDataPhase,
-    TrafficDataSnapshot, TrafficDataSource,
+    ProxyDiagnosticFailure, ProxyDiagnosticObservation, RoutingMode, RuntimePhase,
+    StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusDataSource,
+    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
 };
 use thiserror::Error;
 use tokio::{
@@ -337,6 +337,12 @@ impl StatusDataSource for ControllerStatusSource {
             )
     }
 
+    fn run_proxy_diagnostic(
+        &self,
+    ) -> BoxFuture<'_, Result<ProxyDiagnosticObservation, ProxyDiagnosticFailure>> {
+        Box::pin(self.run_scoped_proxy_diagnostic())
+    }
+
     fn set_routing_mode(&self, mode: RoutingMode) -> BoxFuture<'_, Result<(), StatusCommandError>> {
         Box::pin(async move { self.run_routing_command(mode).await })
     }
@@ -365,6 +371,106 @@ impl StatusDataSource for ControllerStatusSource {
 }
 
 impl ControllerStatusSource {
+    async fn run_scoped_proxy_diagnostic(
+        &self,
+    ) -> Result<ProxyDiagnosticObservation, ProxyDiagnosticFailure> {
+        let mapper = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .expect("controller source state poisoned");
+            if state.initial_observation != ControllerInitialObservation::Ready {
+                return Err(ProxyDiagnosticFailure::Disconnected);
+            }
+            state
+                .mapper
+                .clone()
+                .ok_or(ProxyDiagnosticFailure::Disconnected)?
+        };
+        let snapshot = mapper
+            .snapshot(
+                &CoreStatus {
+                    error: None,
+                    phase: CorePhase::Running,
+                    pid: None,
+                    version: None,
+                },
+                StatusAdapterKind::Native,
+                0,
+            )
+            .map_err(|_| ProxyDiagnosticFailure::InconsistentObservation)?;
+        let group = snapshot
+            .groups
+            .iter()
+            .find(|group| group.selected_child_id.is_some())
+            .ok_or(ProxyDiagnosticFailure::NoScopedTarget)?;
+        let child_id = group
+            .selected_child_id
+            .clone()
+            .ok_or(ProxyDiagnosticFailure::NoScopedTarget)?;
+
+        self.inner
+            .client
+            .verify_version()
+            .await
+            .map_err(map_proxy_diagnostic_error)?;
+        let catalog = self
+            .inner
+            .client
+            .proxies()
+            .await
+            .map_err(map_proxy_diagnostic_error)?;
+        let (group_label, targets) = mapper
+            .group_delay_targets(&catalog, &group.id)
+            .map_err(|_| ProxyDiagnosticFailure::NoScopedTarget)?;
+        let child_label = targets
+            .iter()
+            .find_map(|(current_id, label)| (current_id == &child_id).then(|| label.clone()))
+            .ok_or(ProxyDiagnosticFailure::NoScopedTarget)?;
+        let delay = self
+            .inner
+            .client
+            .proxy_delay(&child_label)
+            .await
+            .map_err(map_proxy_diagnostic_error)?;
+
+        self.inner
+            .client
+            .verify_version()
+            .await
+            .map_err(map_proxy_diagnostic_error)?;
+        let current_catalog = self
+            .inner
+            .client
+            .proxies()
+            .await
+            .map_err(map_proxy_diagnostic_error)?;
+        let (_, current_targets) = mapper
+            .group_delay_targets(&current_catalog, &group.id)
+            .map_err(|_| ProxyDiagnosticFailure::InconsistentObservation)?;
+        if !current_targets
+            .iter()
+            .any(|(current_id, _)| current_id == &child_id)
+        {
+            return Err(ProxyDiagnosticFailure::InconsistentObservation);
+        }
+        if current_catalog
+            .proxies
+            .get(&group_label)
+            .and_then(|group| group.now.as_deref())
+            != Some(child_label.as_str())
+        {
+            return Err(ProxyDiagnosticFailure::InconsistentObservation);
+        }
+
+        Ok(ProxyDiagnosticObservation {
+            child_id,
+            group_id: group.id.clone(),
+            latency_milliseconds: u64::from(delay.delay),
+        })
+    }
+
     fn require_command_ready(&self) -> Result<(), StatusCommandError> {
         let state = self
             .inner
@@ -767,6 +873,23 @@ impl ControllerStatusSource {
         mark_group_delay_cancelled(&self.inner, test_id);
         publish_change(&self.inner).await;
         Ok(())
+    }
+}
+
+fn map_proxy_diagnostic_error(error: ControllerError) -> ProxyDiagnosticFailure {
+    use mish_mihomo_controller::ControllerErrorKind;
+    match error.kind() {
+        ControllerErrorKind::UnsupportedVersion => ProxyDiagnosticFailure::VersionDrift,
+        ControllerErrorKind::Timeout => ProxyDiagnosticFailure::Timeout,
+        ControllerErrorKind::Shutdown => ProxyDiagnosticFailure::Cancelled,
+        ControllerErrorKind::Transport
+        | ControllerErrorKind::HttpStatus
+        | ControllerErrorKind::StreamEnded => ProxyDiagnosticFailure::Disconnected,
+        ControllerErrorKind::InvalidConfiguration
+        | ControllerErrorKind::BodyTooLarge
+        | ControllerErrorKind::MessageTooLarge
+        | ControllerErrorKind::Decode
+        | ControllerErrorKind::Validation => ProxyDiagnosticFailure::InconsistentObservation,
     }
 }
 

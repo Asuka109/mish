@@ -213,6 +213,13 @@ async fn rejects_unauthenticated_and_malformed_requests() {
     .await;
     assert_eq!(unauthenticated_events["error"]["code"], -32001);
 
+    let unauthenticated_diagnostics = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":3, "method":"diagnostics.getHistory", "params":{}}),
+    )
+    .await;
+    assert_eq!(unauthenticated_diagnostics["error"]["code"], -32001);
+
     let unauthenticated_traffic_mutation = request(
         &mut ws,
         json!({
@@ -250,7 +257,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 5);
+    assert_eq!(info["result"]["protocolVersion"], 6);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})
@@ -336,9 +343,51 @@ async fn authenticates_and_serves_contract_compatible_status() {
     .await;
     assert_eq!(invalid_events["error"]["code"], -32602);
 
+    let diagnostic_history = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":10, "method":"diagnostics.getHistory", "params":{}}),
+    )
+    .await;
+    assert_eq!(diagnostic_history["result"]["adapterKind"], "rpc");
+    assert_eq!(diagnostic_history["result"]["runs"], json!([]));
+
+    let arbitrary_probe = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":11,
+            "method":"diagnostics.startRun",
+            "params":{"url":"https://secret.invalid", "timeout":999999}
+        }),
+    )
+    .await;
+    assert_eq!(arbitrary_probe["error"]["code"], -32602);
+
+    let started = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":12, "method":"diagnostics.startRun", "params":{}}),
+    )
+    .await;
+    let run_id = started["result"]["activeRunId"]
+        .as_str()
+        .expect("diagnostic run ID");
+    assert_eq!(started["result"]["runs"][0]["status"], "running");
+    let cancelled = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":13,
+            "method":"diagnostics.cancelRun",
+            "params":{"runId":run_id}
+        }),
+    )
+    .await;
+    assert_eq!(cancelled["result"]["activeRunId"], Value::Null);
+    assert_eq!(cancelled["result"]["runs"][0]["status"], "cancelled");
+
     let unavailable = request(
         &mut ws,
-        json!({"jsonrpc":"2.0", "id":10, "method":"core.start", "params":{}}),
+        json!({"jsonrpc":"2.0", "id":14, "method":"core.start", "params":{}}),
     )
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);

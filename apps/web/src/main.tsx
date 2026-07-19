@@ -45,7 +45,10 @@ async function startApplication() {
               <ProductProvider client={startup.client}>
                 <ProfileProvider client={startup.profileClient}>
                   <TrafficProvider client={startup.trafficClient}>
-                    <EventsProvider client={startup.eventsClient}>
+                    <EventsProvider
+                      client={startup.eventsClient}
+                      diagnosticsClient={startup.diagnosticsClient}
+                    >
                       <TooltipProvider delay={500}>
                         <AppRoutes />
                         <AppearanceToaster />

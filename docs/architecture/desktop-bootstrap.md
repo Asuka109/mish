@@ -53,7 +53,8 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
     `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
     downloads a binary at runtime.
 12. When the Tauri event loop exits, the shell shuts down the in-process bridge.
-    The runtime stops its capture audit loop, restores a still-confirmed
+    The runtime invalidates any active diagnostic run, stops its capture audit
+    loop, restores a still-confirmed
     Mish-owned System Proxy state, then the coordinator closes the active Status,
     Traffic, and Events sources, stops the core, and finally closes the RPC server.
 

@@ -1652,6 +1652,46 @@ async fn group_delay_rpc_is_authenticated_private_group_scoped_and_partial() {
 }
 
 #[tokio::test]
+async fn diagnostic_proxy_probe_is_fixed_scoped_redacted_and_non_mutating() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    runtime_snapshot_until(&runtime, |snapshot| {
+        snapshot["groups"]
+            .as_array()
+            .is_some_and(|groups| !groups.is_empty())
+    })
+    .await;
+
+    let mutations_before = fake.state.mutation_count.load(Ordering::Acquire);
+    let observation = runtime.run_proxy_diagnostic().await.unwrap();
+    assert!(observation.group_id.starts_with("group:"));
+    assert!(
+        observation.child_id.starts_with("proxy:") || observation.child_id.starts_with("group:")
+    );
+    assert!(observation.latency_milliseconds > 0);
+    assert_eq!(
+        fake.state.mutation_count.load(Ordering::Acquire),
+        mutations_before
+    );
+    assert_eq!(
+        fake.state
+            .delay_requests
+            .lock()
+            .expect("delay requests poisoned")
+            .len(),
+        1
+    );
+
+    runtime.shutdown().await.unwrap();
+    fake.shutdown().await;
+}
+
+#[tokio::test]
 async fn group_delay_cancel_preserves_already_confirmed_results() {
     let fake = FakeController::start().await;
     fake.state.delay_mode.store(3, Ordering::Release);

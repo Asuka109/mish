@@ -16,9 +16,21 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SectionGrid,
+  SectionGridItem,
 } from "@mish/ui";
-import type { EventLevel, EventRecordDto, EventSource, EventSourcePhase } from "@mish/contracts";
+import type {
+  DiagnosticCheckDto,
+  DiagnosticObservedFactDto,
+  DiagnosticRouteTargetDto,
+  DiagnosticRunDto,
+  EventLevel,
+  EventRecordDto,
+  EventSource,
+  EventSourcePhase,
+} from "@mish/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { useEvents } from "../data/events-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -28,7 +40,19 @@ const eventLevels: EventLevel[] = ["debug", "info", "warning", "error"];
 const eventSources: EventSource[] = ["application", "core", "platform", "rpc"];
 
 export function EventsPage() {
-  const { clearLocal, connection, error, events, isLoading, snapshot } = useEvents();
+  const {
+    cancelDiagnosticRun,
+    clearLocal,
+    connection,
+    diagnosticError,
+    diagnosticHistory,
+    diagnosticPending,
+    error,
+    events,
+    isLoading,
+    snapshot,
+    startDiagnosticRun,
+  } = useEvents();
   const { LL, locale } = useI18nContext();
   const [query, setQuery] = useState("");
   const [level, setLevel] = useState<EventLevel | "all">("all");
@@ -40,6 +64,8 @@ export function EventsPage() {
   const [followLatest, setFollowLatest] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
+  const diagnosticsRef = useRef<HTMLElement>(null);
+  const [searchParams] = useSearchParams();
 
   const viewPaused = paused && pausedSessionId === snapshot?.sessionId;
   const displayedEvents = viewPaused ? pausedEvents : events;
@@ -72,6 +98,12 @@ export function EventsPage() {
     setPausedEvents([]);
     setPausedSessionId(null);
   }, [paused, pausedSessionId, snapshot?.sessionId]);
+
+  useEffect(() => {
+    if (searchParams.get("diagnostics") !== "1") return;
+    diagnosticsRef.current?.focus();
+    diagnosticsRef.current?.scrollIntoView({ block: "start" });
+  }, [searchParams]);
 
   function togglePause() {
     if (viewPaused) {
@@ -158,6 +190,53 @@ export function EventsPage() {
         </div>
       ) : null}
 
+      <section
+        aria-labelledby="guided-diagnostics-title"
+        className="diagnostics-section"
+        id="diagnostics"
+        ref={diagnosticsRef}
+        tabIndex={-1}
+      >
+        <div className="section-heading diagnostics-heading">
+          <div>
+            <h2 id="guided-diagnostics-title">{LL.diagnostics.title()}</h2>
+            <p>{LL.diagnostics.description()}</p>
+          </div>
+          {diagnosticHistory?.activeRunId ? (
+            <Button
+              disabled={diagnosticPending}
+              onClick={() => void cancelDiagnosticRun(diagnosticHistory.activeRunId!)}
+              variant="outline"
+            >
+              {LL.diagnostics.cancel()}
+            </Button>
+          ) : (
+            <Button disabled={diagnosticPending} onClick={() => void startDiagnosticRun()}>
+              {LL.diagnostics.run()}
+            </Button>
+          )}
+        </div>
+        {diagnosticHistory?.adapterKind === "fixture" ? (
+          <p className="diagnostics-fixture-note" role="status">
+            {LL.diagnostics.fixtureNotice()}
+          </p>
+        ) : null}
+        {diagnosticError ? (
+          <p className="diagnostics-error" role="alert">
+            {LL.diagnostics.error()}
+          </p>
+        ) : null}
+        {diagnosticHistory?.runs.length ? (
+          <div className="diagnostic-history">
+            {diagnosticHistory.runs.map((run) => (
+              <DiagnosticRun key={run.id} locale={locale} run={run} translations={LL} />
+            ))}
+          </div>
+        ) : (
+          <p className="diagnostics-empty">{LL.diagnostics.empty()}</p>
+        )}
+      </section>
+
       <div className="events-controls">
         <Input
           aria-label={LL.events.searchLabel()}
@@ -234,6 +313,11 @@ export function EventsPage() {
               <div className="event-copy">
                 <strong>{event.message}</strong>
                 {event.detail ? <small>{event.detail}</small> : null}
+                {offersDiagnostics(event) ? (
+                  <Link className="event-diagnostics-link" to="/events?diagnostics=1">
+                    {LL.diagnostics.open()}
+                  </Link>
+                ) : null}
               </div>
               <Button
                 aria-label={copiedId === event.id ? LL.events.copied() : LL.events.copyEvent()}
@@ -252,6 +336,122 @@ export function EventsPage() {
       </span>
     </div>
   );
+}
+
+function DiagnosticRun({
+  locale,
+  run,
+  translations: LL,
+}: {
+  locale: Locales;
+  run: DiagnosticRunDto;
+  translations: TranslationFunctions;
+}) {
+  return (
+    <div className="diagnostic-run" data-status={run.status}>
+      <div className="diagnostic-run-summary">
+        <Badge variant={runBadge(run)}>{LL.diagnostics.status[run.status]()}</Badge>
+        <span className="tabular">{formatEventTime(run.startedAt, locale)}</span>
+        <span>
+          {LL.diagnostics.policy({
+            endpoint: run.policy.endpointLabel,
+            id: run.policy.id,
+            status: run.policy.expectedHttpStatus,
+            timeout: run.policy.timeoutMilliseconds,
+          })}
+        </span>
+      </div>
+      <SectionGrid className="diagnostic-checks">
+        {run.checks.map((check) => (
+          <SectionGridItem className="diagnostic-check" data-status={check.status} key={check.id}>
+            <div className="diagnostic-check-heading">
+              <strong>{diagnosticCheckLabel(LL, check)}</strong>
+              <Badge variant={checkBadge(check.status)}>
+                {LL.diagnostics.status[check.status]()}
+              </Badge>
+            </div>
+            <dl>
+              <div>
+                <dt>{LL.diagnostics.scope()}</dt>
+                <dd>{check.scope}</dd>
+              </div>
+              <div>
+                <dt>{LL.diagnostics.route()}</dt>
+                <dd>{formatRouteTarget(check.routeTarget)}</dd>
+              </div>
+              <div>
+                <dt>{LL.diagnostics.observation()}</dt>
+                <dd>{formatObservedFact(check.observedFact)}</dd>
+              </div>
+              <div>
+                <dt>{LL.diagnostics.inference()}</dt>
+                <dd>{check.interpretation}</dd>
+              </div>
+            </dl>
+          </SectionGridItem>
+        ))}
+      </SectionGrid>
+    </div>
+  );
+}
+
+function diagnosticCheckLabel(LL: TranslationFunctions, check: DiagnosticCheckDto) {
+  const labels = LL.diagnostics.check;
+  if (check.kind === "desktop-bridge") return labels.desktopBridge();
+  if (check.kind === "direct-reachability") return labels.directReachability();
+  if (check.kind === "proxy-reachability") return labels.proxyReachability();
+  return labels[check.kind]();
+}
+
+function formatRouteTarget(target: DiagnosticRouteTargetDto) {
+  if (target.kind === "policy-group") {
+    return `group:${shortIdentifier(target.groupId)} → child:${shortIdentifier(target.childId)}`;
+  }
+  if (target.kind === "fixed-endpoint") return `${target.route}:fixed-policy-endpoint`;
+  return target.kind;
+}
+
+function formatObservedFact(fact: DiagnosticObservedFactDto) {
+  if (fact.kind === "bridge") return `authenticated=${String(fact.authenticated)}`;
+  if (fact.kind === "core") return `phase=${fact.phase}; version=${fact.version ?? "redacted"}`;
+  if (fact.kind === "profile")
+    return `present=${String(fact.present)}; valid=${String(fact.valid)}`;
+  if (fact.kind === "capture") {
+    return `desired=${String(fact.desired)}; observed=${fact.observed}; drift=${String(fact.drift)}`;
+  }
+  if (fact.kind === "dns") return `address-record-count=${fact.addressCount}; values=redacted`;
+  if (fact.kind === "reachability") {
+    return `HTTP ${fact.httpStatus}; ${fact.latencyMilliseconds} ms`;
+  }
+  return fact.reason;
+}
+
+function shortIdentifier(value: string) {
+  const separator = value.indexOf(":");
+  const suffix = separator >= 0 ? value.slice(separator + 1) : value;
+  return suffix.slice(0, 12);
+}
+
+function offersDiagnostics(event: EventRecordDto) {
+  if (event.level !== "warning" && event.level !== "error") return false;
+  return /core|start|profile|valid|permission|dns|system proxy|drift/iu.test(
+    `${event.message} ${event.detail ?? ""}`,
+  );
+}
+
+function runBadge(run: DiagnosticRunDto) {
+  if (run.status === "completed" && run.checks.every((check) => check.status === "passed")) {
+    return "success" as const;
+  }
+  if (run.status === "running") return "warning" as const;
+  return "outline" as const;
+}
+
+function checkBadge(status: DiagnosticCheckDto["status"]) {
+  if (status === "passed") return "success" as const;
+  if (status === "failed") return "destructive" as const;
+  if (status === "cancelled") return "warning" as const;
+  return "outline" as const;
 }
 
 interface EventFilterSelectProps {

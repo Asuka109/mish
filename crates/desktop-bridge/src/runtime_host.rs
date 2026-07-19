@@ -1,21 +1,25 @@
 use mish_runtime::{
     CaptureAuditReason, CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError,
-    CoreStatus, MishRuntime, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
-    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
-    TrafficCommandOperation, TrafficCommandResult,
+    CoreStatus, DiagnosticHistory, MishRuntime, RoutingMode, StatusAdapterKind, StatusCommand,
+    StatusCommandError, TrafficCommandAuthority, TrafficCommandExecution,
+    TrafficCommandFailureKind, TrafficCommandOperation, TrafficCommandResult,
 };
 use serde_json::Value;
 use tokio::sync::watch;
 
 #[derive(Clone)]
 pub struct DesktopRuntimeHost {
+    diagnostics: crate::DiagnosticCoordinator,
     runtime: watch::Sender<MishRuntime>,
 }
 
 impl DesktopRuntimeHost {
     pub fn new(runtime: MishRuntime) -> Self {
         let (runtime, _) = watch::channel(runtime);
-        Self { runtime }
+        Self {
+            diagnostics: crate::DiagnosticCoordinator::new(),
+            runtime,
+        }
     }
 
     pub fn current(&self) -> MishRuntime {
@@ -23,7 +27,25 @@ impl DesktopRuntimeHost {
     }
 
     pub fn replace(&self, runtime: MishRuntime) {
+        self.diagnostics.invalidate_active();
         self.runtime.send_replace(runtime);
+    }
+
+    pub fn diagnostic_history(&self, adapter_kind: StatusAdapterKind) -> DiagnosticHistory {
+        self.diagnostics.history(adapter_kind)
+    }
+
+    pub fn start_diagnostic_run(&self, adapter_kind: StatusAdapterKind) -> DiagnosticHistory {
+        self.diagnostics
+            .start(self.current(), self.subscribe_changes(), adapter_kind)
+    }
+
+    pub fn cancel_diagnostic_run(
+        &self,
+        run_id: &str,
+        adapter_kind: StatusAdapterKind,
+    ) -> DiagnosticHistory {
+        self.diagnostics.cancel(run_id, adapter_kind)
     }
 
     pub fn subscribe_changes(&self) -> watch::Receiver<MishRuntime> {

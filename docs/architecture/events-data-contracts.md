@@ -7,9 +7,12 @@ not belong in the compact Status snapshot and do not share Traffic retention.
 The same transport-neutral contract is consumed by the browser fixture, desktop
 RPC adapter, and future native adapters.
 
-This P0 slice is read-only. It exposes a bounded local view and one safe-copy
-action for a single already-redacted event. It defines no diagnostic export,
-upload, arbitrary file read, telemetry, core stop, or core mutation command.
+The Events surface remains read-only. It exposes a bounded local event view,
+one safe-copy action for a single already-redacted event, and an independent
+bounded Guided Diagnostics history. It defines no diagnostic export, upload,
+arbitrary file read, telemetry, core stop, or core mutation command. Guided run
+semantics are specified in
+[`diagnostics-data-contracts.md`](diagnostics-data-contracts.md).
 
 ## Snapshot shape
 

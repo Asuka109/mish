@@ -94,9 +94,10 @@ preventing an older queued lifecycle event from overwriting the reconciliation
 snapshot. Cancellation removes local correlation state and emits
 `rpc.cancel` metadata when the authenticated transport is still available.
 
-`apps/web/src/data/rpc-status-client.ts`, `rpc-traffic-client.ts`, and
-`rpc-events-client.ts` map this generic transport to independent Status,
-Traffic, and Events view boundaries. Ordinary
+`apps/web/src/data/rpc-status-client.ts`, `rpc-traffic-client.ts`,
+`rpc-events-client.ts`, and `rpc-diagnostics-client.ts` map this generic
+transport to independent Status, Traffic, Events, and Guided Diagnostics view
+boundaries. Ordinary
 browser startup constructs fixture clients without network or IPC access. The
 Tauri WebView obtains a validated private endpoint and in-memory token through
 its narrow bootstrap IPC surface, then composes the adapters over one
@@ -190,6 +191,12 @@ authority and connection IDs. It disables duplicate commands while pending,
 applies the returned authoritative snapshot on success and failure, and derives
 Closed history through the existing same-session snapshot diff. Browser
 fixtures advertise these commands as unsupported.
+
+Protocol version 6 adds authenticated, fixed-parameter Guided Diagnostics
+history, start, and cancellation methods. The run is owned by the desktop
+runtime host so runtime replacement invalidates in-flight work. It defines no
+mutation, export, upload, arbitrary endpoint, or persistent history method; see
+[`diagnostics-data-contracts.md`](diagnostics-data-contracts.md).
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift
