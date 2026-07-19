@@ -27,7 +27,11 @@ type Workflow = {
     pull_request?: unknown;
     push?: { branches?: string[] };
     schedule?: Array<{ cron?: string }>;
-    workflow_dispatch?: unknown;
+    workflow_dispatch?: {
+      inputs?: {
+        task?: { default?: string; options?: string[]; required?: boolean; type?: string };
+      };
+    };
   };
 };
 
@@ -43,10 +47,11 @@ const workflow = document.toJS() as Workflow;
 const packageJson = JSON.parse(
   readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8"),
 ) as { scripts?: Record<string, string> };
-const mainOnly = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
 const pullRequestOnly = "github.event_name == 'pull_request'";
 const inspectionOnly =
-  "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'";
+  "github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))";
+const packageTrigger =
+  "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))";
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -108,6 +113,14 @@ invariant(
   workflow.on && Object.prototype.hasOwnProperty.call(workflow.on, "workflow_dispatch"),
   "Full main inspection must support manual dispatch.",
 );
+const dispatchTask = workflow.on?.workflow_dispatch?.inputs?.task;
+invariant(dispatchTask?.type === "choice", "Manual CI dispatch must use a bounded task choice.");
+invariant(dispatchTask.required === true, "Manual CI dispatch must require an explicit task.");
+invariant(dispatchTask.default === "inspection", "Manual CI dispatch must default to inspection.");
+invariant(
+  JSON.stringify(dispatchTask.options) === JSON.stringify(["inspection", "packages", "all"]),
+  "Manual CI dispatch must support inspection, packages, or both.",
+);
 invariant(
   workflow.concurrency?.group?.includes("github.event_name"),
   "CI concurrency must not let an inspection cancel a package run.",
@@ -157,7 +170,10 @@ invariant(
 
 const packageMacos = job("package-macos");
 invariant(packageMacos["runs-on"] === "macos-15", "Packaging must use macos-15 ARM64.");
-invariant(packageMacos.if === mainOnly, "Packaging must remain main-push-only.");
+invariant(
+  packageMacos.if === packageTrigger,
+  "Packaging must use only main push or manual package dispatch.",
+);
 invariant(packageMacos.needs === undefined, "Packaging must remain independent from validation.");
 assertNodeCache(packageMacos, "macOS packaging");
 assertRustCache(packageMacos, "Cache Rust dependencies and build outputs", "macos-package");
@@ -165,7 +181,7 @@ assertRustCache(packageMacos, "Cache Rust dependencies and build outputs", "maco
 const upload = step(packageMacos, "Upload Apple Silicon test package");
 invariant(upload.id === "package-upload", "The upload step must expose traceable outputs.");
 invariant(upload.uses === "actions/upload-artifact@v7", "Packaging must use upload-artifact v7.");
-invariant(upload.if === mainOnly, "Artifact upload must remain main-push-only.");
+invariant(upload.if === packageTrigger, "Artifact upload must follow the bounded package trigger.");
 invariant(upload.with?.["retention-days"] === 14, "The package must be retained for 14 days.");
 
 for (const [jobName, candidateJob] of Object.entries(workflow.jobs ?? {})) {
@@ -254,7 +270,10 @@ invariant(
 
 const packageAndroid = job("package-android");
 invariant(packageAndroid["runs-on"] === "ubuntu-24.04", "Android packaging must use Ubuntu 24.04.");
-invariant(packageAndroid.if === mainOnly, "Android packaging must remain main-push-only.");
+invariant(
+  packageAndroid.if === packageTrigger,
+  "Android packaging must use only main push or manual package dispatch.",
+);
 invariant(
   packageAndroid.needs === undefined,
   "Android packaging must remain independent from validation.",
@@ -300,7 +319,10 @@ invariant(
   androidUpload.uses === "actions/upload-artifact@v7",
   "Android packaging must use upload-artifact v7.",
 );
-invariant(androidUpload.if === mainOnly, "Android artifact upload must remain main-push-only.");
+invariant(
+  androidUpload.if === packageTrigger,
+  "Android artifact upload must follow the bounded package trigger.",
+);
 invariant(
   androidUpload.with?.["retention-days"] === 14,
   "Android test APKs must be retained for 14 days.",
