@@ -105,9 +105,9 @@ const en = {
     confirmed: "Confirmed",
     description:
       "Settings are sourced from Mish's authenticated desktop bridge and private app data.",
-    dns: "DNS policy",
+    dns: "DNS resolvers",
     dnsDescription:
-      "Mish does not expose DNS fields until effective-state validation and safe rollback exist.",
+      "Resolver counts and the locally observed server list. Mish does not change DNS settings.",
     expert: "Expert configuration",
     expertDescription:
       "Raw configuration, directories, developer tools, and reset actions require dedicated validation and scope.",
@@ -135,9 +135,55 @@ const en = {
       "Non-essential motion follows the operating-system reduced-motion preference.",
     network: "Network and DNS",
     networkDescription:
-      "Risk-sensitive core networking remains summary-only until it can be observed and reversed safely.",
-    networkPolicy: "Ports, IPv6, and interfaces",
-    networkPolicyDescription: "No long-form network controls are available in this slice.",
+      "Read-only macOS observations for troubleshooting. No interface, route, or DNS setting can be changed here.",
+    networkDns: {
+      failure: {
+        "command-failed": "The macOS observation command failed.",
+        "command-unavailable": "The required macOS observation command is unavailable.",
+        "invalid-output": "macOS returned an observation Mish could not validate.",
+        "output-too-large": "macOS returned more observation data than Mish accepts.",
+        "timed-out": "The macOS observation did not finish before the deadline.",
+      },
+      interfaceKinds: {
+        ethernet: "Ethernet",
+        other: "Other",
+        "thunderbolt-bridge": "Thunderbolt Bridge",
+        unknown: "Unknown",
+        wifi: "Wi-Fi",
+      },
+      ipAvailability: "Address-family availability",
+      ipAvailabilityDescription:
+        "Availability is confirmed per active interface; interface addresses are not retained here.",
+      noActiveInterfaces: "No active interfaces reported",
+      noSearchDomains: "No search domains reported",
+      noServers: "No DNS servers reported",
+      observation: "Current observation",
+      observationFailed: "Refresh failed. Any retained values below are not current.",
+      observationReady: "Observed {time:string} from macOS System Configuration.",
+      observationStale: "The last observation is stale and must not be treated as current.",
+      observationUnavailable: "Native Network and DNS observation is unavailable on this platform.",
+      observationUnknown: "No current macOS observation is available yet.",
+      primary: "Active networks",
+      primaryDescription:
+        "Active interfaces and matching macOS network services when System Configuration can confirm them.",
+      refresh: "Refresh observation",
+      resolverSummary: "{resolvers:number} resolvers · {scoped:number} scoped",
+      searchDomains: "Search domains",
+      searchDomainsDescription:
+        "Full values stay in this local view and are excluded from events, logs, and support bundles.",
+      serversDescription:
+        "Full values stay in this local view and are excluded from events, logs, and support bundles.",
+      source: "macOS System Configuration",
+      state: {
+        failed: "Failed",
+        ready: "Current",
+        stale: "Stale",
+        unavailable: "Unavailable",
+        unknown: "Unknown",
+      },
+    },
+    networkPolicy: "Active services and interfaces",
+    networkPolicyDescription: "Read-only service, device, interface type, IPv4, and IPv6 state.",
     off: "Off",
     on: "On",
     origin: "Origin validation",

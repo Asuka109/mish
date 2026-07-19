@@ -124,6 +124,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         config.allowed_origins.into_iter().collect()
     };
     let profile_activation = config.profile_activation.clone();
+    let settings_service = config.settings_service.clone();
     let state = Arc::new(HttpState {
         allowed_hosts,
         allowed_origins,
@@ -142,8 +143,12 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         .with_state(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (audit_shutdown_tx, audit_shutdown_rx) = oneshot::channel();
-    let audit_join =
-        spawn_lifecycle_coordination(runtime.clone(), lifecycle_source, audit_shutdown_rx);
+    let audit_join = spawn_lifecycle_coordination(
+        runtime.clone(),
+        lifecycle_source,
+        settings_service,
+        audit_shutdown_rx,
+    );
     let join = tokio::spawn(async move {
         let _ = axum::serve(
             listener,

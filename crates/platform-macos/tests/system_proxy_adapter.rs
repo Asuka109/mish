@@ -57,6 +57,9 @@ impl MacOsCommandRunner for FixtureRunner {
             MacOsCommand::GetAutoProxyUrl { .. } => "URL: (null)\nEnabled: No\n",
             MacOsCommand::GetProxyAutoDiscovery { .. } => "Auto Proxy Discovery: Off\n",
             MacOsCommand::SetProxy { .. } | MacOsCommand::SetProxyState { .. } => "",
+            MacOsCommand::DnsConfiguration | MacOsCommand::NetworkInformation => {
+                panic!("Network and DNS commands do not belong to the System Proxy fixture")
+            }
         };
         Box::pin(ready(Ok(MacOsCommandOutput {
             stdout: stdout.into(),

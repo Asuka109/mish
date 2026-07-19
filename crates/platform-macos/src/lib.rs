@@ -1,11 +1,13 @@
 //! Narrow macOS System Proxy adapter.
 
 use std::{
+    collections::HashSet,
     fmt,
     fs::{self, OpenOptions},
     io::Write,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::PathBuf,
+    process::Stdio,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -23,8 +25,13 @@ use mish_runtime::{
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
     TunHelperSnapshot,
 };
+use mish_settings::{
+    DnsObservation, NetworkDnsFailureKind, NetworkDnsObservation, NetworkDnsObservationError,
+    NetworkDnsPlatform, NetworkDnsSource, NetworkInterfaceKind, NetworkInterfaceObservation,
+};
 use tokio::sync::broadcast;
 use tokio::{
+    io::{AsyncRead, AsyncReadExt},
     net::TcpStream,
     process::Command,
     time::{sleep, timeout},
@@ -304,8 +311,10 @@ fn start_network_change_monitor(
             let keys = CFArray::from_CFTypes(&[
                 CFString::from("State:/Network/Global/IPv4"),
                 CFString::from("State:/Network/Global/IPv6"),
+                CFString::from("State:/Network/Global/DNS"),
                 CFString::from("Setup:/Network/Global/IPv4"),
                 CFString::from("Setup:/Network/Global/IPv6"),
+                CFString::from("Setup:/Network/Global/DNS"),
             ]);
             let patterns: CFArray<CFString> = CFArray::from_CFTypes(&[]);
             let Some(source) = store.create_run_loop_source() else {
@@ -409,6 +418,7 @@ pub enum MacOsProxyKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MacOsCommand {
     DefaultRoute,
+    DnsConfiguration,
     GetAutoProxyUrl {
         service: String,
     },
@@ -420,6 +430,7 @@ pub enum MacOsCommand {
         service: String,
     },
     ListNetworkServiceOrder,
+    NetworkInformation,
     SetProxy {
         host: String,
         kind: MacOsProxyKind,
@@ -447,6 +458,14 @@ impl MacOsCommand {
                 program: "/sbin/route",
             },
             Self::ListNetworkServiceOrder => networksetup_spec(["-listnetworkserviceorder"]),
+            Self::DnsConfiguration => MacOsCommandSpec {
+                arguments: vec!["--dns".into()],
+                program: "/usr/sbin/scutil",
+            },
+            Self::NetworkInformation => MacOsCommandSpec {
+                arguments: vec!["--nwi".into()],
+                program: "/usr/sbin/scutil",
+            },
             Self::GetProxy { kind, service } => networksetup_spec([proxy_get_flag(*kind), service]),
             Self::GetAutoProxyUrl { service } => networksetup_spec(["-getautoproxyurl", service]),
             Self::GetProxyAutoDiscovery { service } => {
@@ -485,6 +504,7 @@ pub struct MacOsCommandOutput {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MacOsCommandErrorKind {
     Failed,
+    OutputTooLarge,
     PermissionDenied,
     TimedOut,
     Unavailable,
@@ -520,26 +540,51 @@ impl MacOsCommandRunner for MacOsSystemCommandRunner {
         Box::pin(async move {
             let spec = command.spec();
             let mut process = Command::new(spec.program);
-            process.args(&spec.arguments).kill_on_drop(true);
-            let output = timeout(COMMAND_TIMEOUT, process.output())
-                .await
-                .map_err(|_| MacOsCommandError {
-                    kind: MacOsCommandErrorKind::TimedOut,
-                })?
-                .map_err(|error| MacOsCommandError {
-                    kind: if error.kind() == std::io::ErrorKind::NotFound {
-                        MacOsCommandErrorKind::Unavailable
-                    } else {
-                        MacOsCommandErrorKind::Failed
+            process
+                .args(&spec.arguments)
+                .kill_on_drop(true)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            let mut child = process.spawn().map_err(|error| MacOsCommandError {
+                kind: if error.kind() == std::io::ErrorKind::NotFound {
+                    MacOsCommandErrorKind::Unavailable
+                } else {
+                    MacOsCommandErrorKind::Failed
+                },
+            })?;
+            let stdout = child.stdout.take().ok_or(MacOsCommandError {
+                kind: MacOsCommandErrorKind::Failed,
+            })?;
+            let stderr = child.stderr.take().ok_or(MacOsCommandError {
+                kind: MacOsCommandErrorKind::Failed,
+            })?;
+            let collected = timeout(COMMAND_TIMEOUT, async {
+                tokio::try_join!(
+                    read_bounded(stdout, COMMAND_MAX_BYTES),
+                    read_bounded(stderr, COMMAND_MAX_BYTES),
+                    async {
+                        child.wait().await.map_err(|_| MacOsCommandError {
+                            kind: MacOsCommandErrorKind::Failed,
+                        })
                     },
-                })?;
-            if output.stdout.len() > COMMAND_MAX_BYTES || output.stderr.len() > COMMAND_MAX_BYTES {
-                return Err(MacOsCommandError {
-                    kind: MacOsCommandErrorKind::Failed,
-                });
-            }
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr).to_ascii_lowercase();
+                )
+            })
+            .await;
+            let (stdout, stderr, status) = match collected {
+                Ok(Ok(output)) => output,
+                Ok(Err(error)) => {
+                    let _ = child.kill().await;
+                    return Err(error);
+                }
+                Err(_) => {
+                    let _ = child.kill().await;
+                    return Err(MacOsCommandError {
+                        kind: MacOsCommandErrorKind::TimedOut,
+                    });
+                }
+            };
+            if !status.success() {
+                let stderr = String::from_utf8_lossy(&stderr).to_ascii_lowercase();
                 let permission_denied = stderr.contains("permission")
                     || stderr.contains("must be root")
                     || stderr.contains("not authorized");
@@ -551,7 +596,7 @@ impl MacOsCommandRunner for MacOsSystemCommandRunner {
                     },
                 });
             }
-            let stdout = String::from_utf8(output.stdout).map_err(|_| MacOsCommandError {
+            let stdout = String::from_utf8(stdout).map_err(|_| MacOsCommandError {
                 kind: MacOsCommandErrorKind::Failed,
             })?;
             Ok(MacOsCommandOutput { stdout })
@@ -559,9 +604,90 @@ impl MacOsCommandRunner for MacOsSystemCommandRunner {
     }
 }
 
+async fn read_bounded(
+    reader: impl AsyncRead + Unpin,
+    maximum: usize,
+) -> Result<Vec<u8>, MacOsCommandError> {
+    let mut bytes = Vec::with_capacity(maximum.min(8_192));
+    reader
+        .take(maximum.saturating_add(1) as u64)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|_| MacOsCommandError {
+            kind: MacOsCommandErrorKind::Failed,
+        })?;
+    if bytes.len() > maximum {
+        return Err(MacOsCommandError {
+            kind: MacOsCommandErrorKind::OutputTooLarge,
+        });
+    }
+    Ok(bytes)
+}
+
 pub struct MacOsSystemProxyPlatform {
     availability: CapabilityAvailability,
     runner: Arc<dyn MacOsCommandRunner>,
+}
+
+pub struct MacOsNetworkDnsPlatform {
+    available: bool,
+    runner: Arc<dyn MacOsCommandRunner>,
+}
+
+impl MacOsNetworkDnsPlatform {
+    pub fn new() -> Self {
+        Self {
+            available: cfg!(target_os = "macos")
+                && std::path::Path::new("/usr/sbin/networksetup").is_file()
+                && std::path::Path::new("/usr/sbin/scutil").is_file(),
+            runner: Arc::new(MacOsSystemCommandRunner),
+        }
+    }
+
+    pub fn with_runner(runner: Arc<dyn MacOsCommandRunner>) -> Self {
+        Self {
+            available: true,
+            runner,
+        }
+    }
+}
+
+impl Default for MacOsNetworkDnsPlatform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NetworkDnsPlatform for MacOsNetworkDnsPlatform {
+    fn observe(&self) -> BoxFuture<'_, Result<NetworkDnsObservation, NetworkDnsObservationError>> {
+        Box::pin(async move {
+            if !self.available {
+                return Err(network_dns_error(NetworkDnsFailureKind::CommandUnavailable));
+            }
+            let (network, dns, services) = tokio::join!(
+                self.runner.run(MacOsCommand::NetworkInformation),
+                self.runner.run(MacOsCommand::DnsConfiguration),
+                self.runner.run(MacOsCommand::ListNetworkServiceOrder),
+            );
+            let network = network.map_err(map_network_dns_command_error)?;
+            let dns = dns.map_err(map_network_dns_command_error)?;
+            let services = services.map_err(map_network_dns_command_error)?;
+            let mut interfaces = parse_network_information(&network.stdout)?;
+            for interface in &mut interfaces {
+                if let Some(metadata) =
+                    parse_network_service_metadata(&services.stdout, &interface.interface)
+                {
+                    interface.interface_kind = classify_interface(&metadata.hardware_port);
+                    interface.service = Some(metadata.service);
+                }
+            }
+            Ok(NetworkDnsObservation {
+                dns: parse_dns_configuration(&dns.stdout)?,
+                interfaces,
+                source: NetworkDnsSource::MacosSystemConfiguration,
+            })
+        })
+    }
 }
 
 impl MacOsSystemProxyPlatform {
@@ -791,6 +917,238 @@ fn parse_default_route_device(output: &str) -> Result<String, CaptureTransitionE
         .ok_or_else(observation_error)
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct NetworkServiceMetadata {
+    hardware_port: String,
+    service: String,
+}
+
+fn parse_network_information(
+    output: &str,
+) -> Result<Vec<NetworkInterfaceObservation>, NetworkDnsObservationError> {
+    #[derive(Clone, Copy)]
+    enum Family {
+        Ipv4,
+        Ipv6,
+        None,
+    }
+
+    if !output
+        .lines()
+        .any(|line| line.trim() == "Network information")
+    {
+        return Err(network_dns_error(NetworkDnsFailureKind::InvalidOutput));
+    }
+    let mut family = Family::None;
+    let mut ipv4 = HashSet::new();
+    let mut ipv6 = HashSet::new();
+    let mut active = Vec::new();
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed == "IPv4 network interface information" {
+            family = Family::Ipv4;
+            continue;
+        }
+        if trimmed == "IPv6 network interface information" {
+            family = Family::Ipv6;
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("Network interfaces:") {
+            for candidate in value
+                .split(|character: char| character.is_ascii_whitespace() || character == ',')
+                .filter(|candidate| valid_interface_name(candidate))
+            {
+                if active.iter().any(|existing| existing == candidate) {
+                    continue;
+                }
+                if active.len() >= 16 {
+                    return Err(network_dns_error(NetworkDnsFailureKind::InvalidOutput));
+                }
+                active.push(candidate.to_owned());
+            }
+            continue;
+        }
+        let Some((candidate, rest)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let candidate = candidate.trim();
+        if !rest.trim_start().starts_with("flags") || !valid_interface_name(candidate) {
+            continue;
+        }
+        match family {
+            Family::Ipv4 => {
+                ipv4.insert(candidate.to_owned());
+            }
+            Family::Ipv6 => {
+                ipv6.insert(candidate.to_owned());
+            }
+            Family::None => {}
+        }
+    }
+    Ok(active
+        .into_iter()
+        .map(|interface| NetworkInterfaceObservation {
+            ipv4_available: ipv4.contains(&interface),
+            ipv6_available: ipv6.contains(&interface),
+            interface,
+            interface_kind: NetworkInterfaceKind::Unknown,
+            service: None,
+        })
+        .collect())
+}
+
+fn valid_interface_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
+}
+
+fn parse_network_service_metadata(output: &str, device: &str) -> Option<NetworkServiceMetadata> {
+    let mut service = None;
+    for line in output.lines().map(str::trim) {
+        if line.starts_with('(') && !line.starts_with("(Hardware Port:") {
+            service = line
+                .split_once(") ")
+                .and_then(|(_, name)| (!name.starts_with('*')).then_some(name))
+                .and_then(bounded_display_value)
+                .map(str::to_owned);
+            continue;
+        }
+        let Some(body) = line
+            .strip_prefix("(Hardware Port:")
+            .and_then(|value| value.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let Some((hardware_port, candidate_device)) = body.split_once(", Device:") else {
+            continue;
+        };
+        if candidate_device.trim() != device {
+            continue;
+        }
+        let service = service.take()?;
+        let hardware_port = bounded_display_value(hardware_port.trim())?.to_owned();
+        return Some(NetworkServiceMetadata {
+            hardware_port,
+            service,
+        });
+    }
+    None
+}
+
+fn classify_interface(hardware_port: &str) -> NetworkInterfaceKind {
+    let normalized = hardware_port.to_ascii_lowercase();
+    if normalized == "wi-fi" || normalized == "airport" {
+        return NetworkInterfaceKind::Wifi;
+    }
+    if normalized.contains("thunderbolt") && normalized.contains("bridge") {
+        return NetworkInterfaceKind::ThunderboltBridge;
+    }
+    if normalized.contains("ethernet") {
+        return NetworkInterfaceKind::Ethernet;
+    }
+    NetworkInterfaceKind::Other
+}
+
+fn parse_dns_configuration(output: &str) -> Result<DnsObservation, NetworkDnsObservationError> {
+    if matches!(
+        output.trim(),
+        "DNS configuration not available" | "No DNS configuration available"
+    ) {
+        return Ok(DnsObservation {
+            resolver_count: 0,
+            scoped_resolver_count: 0,
+            search_domains: Vec::new(),
+            servers: Vec::new(),
+        });
+    }
+    if !output
+        .lines()
+        .any(|line| line.trim() == "DNS configuration")
+    {
+        return Err(network_dns_error(NetworkDnsFailureKind::InvalidOutput));
+    }
+    let mut resolver_count = 0_u16;
+    let mut scoped = false;
+    let mut scoped_resolver_count = 0_u16;
+    let mut search_domains = Vec::new();
+    let mut servers = Vec::new();
+    for line in output.lines().map(str::trim) {
+        if line == "DNS configuration (for scoped queries)" {
+            scoped = true;
+            continue;
+        }
+        if line.strip_prefix("resolver #").is_some() {
+            let count = if scoped {
+                &mut scoped_resolver_count
+            } else {
+                &mut resolver_count
+            };
+            *count = count
+                .checked_add(1)
+                .ok_or_else(|| network_dns_error(NetworkDnsFailureKind::InvalidOutput))?;
+            if *count > 64 {
+                return Err(network_dns_error(NetworkDnsFailureKind::InvalidOutput));
+            }
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let Some(value) = bounded_display_value(value.trim()) else {
+            continue;
+        };
+        if key.trim().starts_with("nameserver[") {
+            push_unique_bounded(&mut servers, value, 32)?;
+        } else if key.trim().starts_with("search domain[") {
+            push_unique_bounded(&mut search_domains, value, 32)?;
+        }
+    }
+    Ok(DnsObservation {
+        resolver_count,
+        scoped_resolver_count,
+        search_domains,
+        servers,
+    })
+}
+
+fn bounded_display_value(value: &str) -> Option<&str> {
+    (!value.is_empty() && value.len() <= 253 && !value.chars().any(char::is_control))
+        .then_some(value)
+}
+
+fn push_unique_bounded(
+    values: &mut Vec<String>,
+    value: &str,
+    maximum: usize,
+) -> Result<(), NetworkDnsObservationError> {
+    if values.iter().any(|candidate| candidate == value) {
+        return Ok(());
+    }
+    if values.len() >= maximum {
+        return Err(network_dns_error(NetworkDnsFailureKind::InvalidOutput));
+    }
+    values.push(value.to_owned());
+    Ok(())
+}
+
+const fn network_dns_error(kind: NetworkDnsFailureKind) -> NetworkDnsObservationError {
+    NetworkDnsObservationError { kind }
+}
+
+fn map_network_dns_command_error(error: MacOsCommandError) -> NetworkDnsObservationError {
+    network_dns_error(match error.kind {
+        MacOsCommandErrorKind::Failed | MacOsCommandErrorKind::PermissionDenied => {
+            NetworkDnsFailureKind::CommandFailed
+        }
+        MacOsCommandErrorKind::OutputTooLarge => NetworkDnsFailureKind::OutputTooLarge,
+        MacOsCommandErrorKind::TimedOut => NetworkDnsFailureKind::TimedOut,
+        MacOsCommandErrorKind::Unavailable => NetworkDnsFailureKind::CommandUnavailable,
+    })
+}
+
 fn parse_service_for_device(output: &str, device: &str) -> Result<String, CaptureTransitionError> {
     let mut candidate: Option<String> = None;
     for line in output.lines().map(str::trim) {
@@ -860,9 +1218,9 @@ fn apply_error(error: MacOsCommandError) -> CaptureTransitionError {
     let kind = match error.kind {
         MacOsCommandErrorKind::PermissionDenied => CaptureFailureKind::PermissionDenied,
         MacOsCommandErrorKind::Unavailable => CaptureFailureKind::CapabilityUnavailable,
-        MacOsCommandErrorKind::Failed | MacOsCommandErrorKind::TimedOut => {
-            CaptureFailureKind::ApplyFailed
-        }
+        MacOsCommandErrorKind::Failed
+        | MacOsCommandErrorKind::OutputTooLarge
+        | MacOsCommandErrorKind::TimedOut => CaptureFailureKind::ApplyFailed,
     };
     CaptureTransitionError::new(kind, "The macOS System Proxy change failed")
 }
@@ -872,4 +1230,168 @@ fn persistence_error() -> CaptureTransitionError {
         CaptureFailureKind::PersistenceFailed,
         "The System Proxy recovery journal is unavailable",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const NETWORK_FIXTURE: &str = r#"Network information
+
+IPv4 network interface information
+     en0 : flags      : 0x5 (IPv4,DNS)
+           address    : 192.0.2.10
+     en1 : flags      : 0x5 (IPv4,DNS)
+           address    : 198.51.100.10
+
+IPv6 network interface information
+     en0 : flags      : 0x7 (IPv6,DNS)
+           address    : 2001:db8::10
+
+Network interfaces: en0 en1
+"#;
+    const DNS_FIXTURE: &str = r#"DNS configuration
+
+resolver #1
+  search domain[0] : office.example
+  nameserver[0] : 192.0.2.53
+  nameserver[1] : 2001:db8::53
+
+resolver #2
+  domain : local
+
+DNS configuration (for scoped queries)
+
+resolver #1
+  nameserver[0] : 192.0.2.53
+"#;
+    const SERVICES_FIXTURE: &str = r#"An asterisk (*) denotes that a network service is disabled.
+(1) Office LAN
+(Hardware Port: Ethernet, Device: en0)
+
+(2) Wi-Fi
+(Hardware Port: Wi-Fi, Device: en1)
+"#;
+
+    struct FixtureRunner {
+        failure: Option<MacOsCommandErrorKind>,
+    }
+
+    impl MacOsCommandRunner for FixtureRunner {
+        fn run(
+            &self,
+            command: MacOsCommand,
+        ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+            let failure = self.failure;
+            Box::pin(async move {
+                if let Some(kind) = failure {
+                    return Err(MacOsCommandError { kind });
+                }
+                let stdout = match command {
+                    MacOsCommand::NetworkInformation => NETWORK_FIXTURE,
+                    MacOsCommand::DnsConfiguration => DNS_FIXTURE,
+                    MacOsCommand::ListNetworkServiceOrder => SERVICES_FIXTURE,
+                    _ => panic!("unexpected fixture command"),
+                };
+                Ok(MacOsCommandOutput {
+                    stdout: stdout.to_owned(),
+                })
+            })
+        }
+    }
+
+    #[test]
+    fn observation_commands_use_fixed_absolute_executables_and_arguments() {
+        assert_eq!(
+            MacOsCommand::NetworkInformation.spec(),
+            MacOsCommandSpec {
+                arguments: vec!["--nwi".into()],
+                program: "/usr/sbin/scutil",
+            }
+        );
+        assert_eq!(
+            MacOsCommand::DnsConfiguration.spec(),
+            MacOsCommandSpec {
+                arguments: vec!["--dns".into()],
+                program: "/usr/sbin/scutil",
+            }
+        );
+        assert_eq!(
+            MacOsCommand::ListNetworkServiceOrder.spec(),
+            MacOsCommandSpec {
+                arguments: vec!["-listnetworkserviceorder".into()],
+                program: "/usr/sbin/networksetup",
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn fixture_adapter_reports_authoritative_active_interfaces_and_dns_summary() {
+        let adapter =
+            MacOsNetworkDnsPlatform::with_runner(Arc::new(FixtureRunner { failure: None }));
+        let observation = adapter.observe().await.expect("fixture observation");
+        let interface = observation.interfaces.first().expect("active interface");
+        assert_eq!(interface.interface, "en0");
+        assert_eq!(interface.service.as_deref(), Some("Office LAN"));
+        assert_eq!(interface.interface_kind, NetworkInterfaceKind::Ethernet);
+        assert!(interface.ipv4_available);
+        assert!(interface.ipv6_available);
+        let wifi = observation
+            .interfaces
+            .get(1)
+            .expect("second active interface");
+        assert_eq!(wifi.interface, "en1");
+        assert_eq!(wifi.interface_kind, NetworkInterfaceKind::Wifi);
+        assert!(wifi.ipv4_available);
+        assert!(!wifi.ipv6_available);
+        assert_eq!(observation.dns.resolver_count, 2);
+        assert_eq!(observation.dns.scoped_resolver_count, 1);
+        assert_eq!(observation.dns.servers, vec!["192.0.2.53", "2001:db8::53"]);
+        assert_eq!(observation.dns.search_domains, vec!["office.example"]);
+    }
+
+    #[test]
+    fn parser_rejects_missing_authority_and_bounds_resolvers() {
+        assert_eq!(
+            parse_network_information("Network information\n").unwrap(),
+            Vec::new()
+        );
+        let excessive = format!(
+            "DNS configuration\n{}",
+            (1..=65)
+                .map(|index| format!("resolver #{index}\n"))
+                .collect::<String>()
+        );
+        assert_eq!(
+            parse_dns_configuration(&excessive).unwrap_err().kind,
+            NetworkDnsFailureKind::InvalidOutput
+        );
+    }
+
+    #[tokio::test]
+    async fn adapter_maps_timeout_and_oversized_output_without_exposing_output() {
+        for (command, expected) in [
+            (
+                MacOsCommandErrorKind::TimedOut,
+                NetworkDnsFailureKind::TimedOut,
+            ),
+            (
+                MacOsCommandErrorKind::OutputTooLarge,
+                NetworkDnsFailureKind::OutputTooLarge,
+            ),
+        ] {
+            let adapter = MacOsNetworkDnsPlatform::with_runner(Arc::new(FixtureRunner {
+                failure: Some(command),
+            }));
+            assert_eq!(adapter.observe().await.unwrap_err().kind, expected);
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_reader_stops_after_the_hard_output_limit() {
+        let error = read_bounded(std::io::Cursor::new(vec![b'x'; 17]), 16)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind, MacOsCommandErrorKind::OutputTooLarge);
+    }
 }

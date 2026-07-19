@@ -51,11 +51,19 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       expertConfiguration: "coming-later",
       launchAtLogin: "unavailable",
       nativeSidebarMaterial: "unavailable",
-      networkDns: "coming-later",
+      networkDns: "unavailable",
       statusBar: "unavailable",
       tun: "unavailable",
       updates: "coming-later",
       windowLifecycle: "unavailable",
+    },
+    networkDns: {
+      dns: null,
+      failure: null,
+      interfaces: [],
+      observedAt: null,
+      phase: "unavailable",
+      source: null,
     },
     preferences: {
       appearance: storedAppearance(),
@@ -88,6 +96,10 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async getSnapshot() {
     return structuredClone(this.snapshot);
+  }
+
+  async refreshNetworkDns(): Promise<SettingsSnapshotDto> {
+    throw new Error("Native Network and DNS observation is unavailable in the browser fixture");
   }
 
   async installTunHelper(): Promise<SettingsSnapshotDto> {

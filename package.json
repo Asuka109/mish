@@ -6,14 +6,15 @@
   "scripts": {
     "bridge": "cargo run -p mish-bridge --",
     "build": "pnpm --filter @mish/web build",
+    "ci:check": "node scripts/check-ci-workflow.ts",
     "desktop:build": "pnpm --filter @mish/desktop build",
     "desktop:bundle:macos": "node scripts/build-macos-bundle.ts",
     "desktop:dev": "pnpm --filter @mish/desktop dev",
     "design:lint": "pnpm dlx @google/design.md lint DESIGN.md",
     "dev": "pnpm --filter @mish/web dev",
     "docs:links": "node scripts/check-markdown-links.ts",
-    "format": "oxfmt --write .github package.json pnpm-workspace.yaml tsconfig.json apps packages scripts README.md docs/README.md docs/architecture/desktop-bootstrap.md docs/architecture/diagnostics-data-contracts.md docs/architecture/events-data-contracts.md docs/architecture/frontend-platform-boundary.md docs/architecture/local-backup-restore.md docs/architecture/macos-tun-helper.md docs/architecture/mihomo-controller-integration.md docs/architecture/native-status-bar-lifecycle.md docs/architecture/profile-domain.md docs/architecture/settings-contracts.md docs/architecture/status-data-contracts.md docs/architecture/traffic-data-contracts.md docs/operations docs/quality",
-    "format:check": "oxfmt --check .github package.json pnpm-workspace.yaml tsconfig.json apps packages scripts README.md docs/README.md docs/architecture/desktop-bootstrap.md docs/architecture/diagnostics-data-contracts.md docs/architecture/events-data-contracts.md docs/architecture/frontend-platform-boundary.md docs/architecture/local-backup-restore.md docs/architecture/macos-tun-helper.md docs/architecture/mihomo-controller-integration.md docs/architecture/native-status-bar-lifecycle.md docs/architecture/profile-domain.md docs/architecture/settings-contracts.md docs/architecture/status-data-contracts.md docs/architecture/traffic-data-contracts.md docs/operations docs/quality",
+    "format": "oxfmt --write .github package.json pnpm-workspace.yaml tsconfig.json apps packages scripts README.md docs/README.md docs/architecture/desktop-bootstrap.md docs/architecture/diagnostics-data-contracts.md docs/architecture/events-data-contracts.md docs/architecture/frontend-platform-boundary.md docs/architecture/local-backup-restore.md docs/architecture/macos-tun-helper.md docs/architecture/mihomo-controller-integration.md docs/architecture/native-status-bar-lifecycle.md docs/architecture/network-dns-observation.md docs/architecture/profile-domain.md docs/architecture/settings-contracts.md docs/architecture/status-data-contracts.md docs/architecture/traffic-data-contracts.md docs/operations docs/quality",
+    "format:check": "oxfmt --check .github package.json pnpm-workspace.yaml tsconfig.json apps packages scripts README.md docs/README.md docs/architecture/desktop-bootstrap.md docs/architecture/diagnostics-data-contracts.md docs/architecture/events-data-contracts.md docs/architecture/frontend-platform-boundary.md docs/architecture/local-backup-restore.md docs/architecture/macos-tun-helper.md docs/architecture/mihomo-controller-integration.md docs/architecture/native-status-bar-lifecycle.md docs/architecture/network-dns-observation.md docs/architecture/profile-domain.md docs/architecture/settings-contracts.md docs/architecture/status-data-contracts.md docs/architecture/traffic-data-contracts.md docs/operations docs/quality",
     "i18n:check": "node scripts/check-i18n-generated.ts",
     "i18n:generate": "pnpm --filter @mish/web i18n:generate",
     "lint": "oxlint apps packages",
@@ -31,12 +32,13 @@
     "rust:test": "cargo test --workspace -- --test-threads=1",
     "tokens:check": "node scripts/check-design-tokens.ts",
     "typecheck": "pnpm --recursive --if-present typecheck",
-    "validate": "pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
+    "validate": "pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
   },
   "devDependencies": {
     "oxfmt": "0.59.0",
     "oxlint": "1.74.0",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "yaml": "2.9.0"
   },
   "packageManager": "pnpm@11.13.1"
 }

@@ -54,8 +54,12 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm test:browser:install
       - name: Run complete validation
         run: pnpm validate
+      - name: Run real-browser responsive suite
+        run: pnpm test:browser
 
   package-macos:
     name: Package macOS ARM64
@@ -133,6 +137,7 @@ jobs:
           fi
 
           command -v trash > /dev/null || brew install trash
+          umask 077
           keychain="$RUNNER_TEMP/mish-signing.keychain-db"
           keychain_password="$(openssl rand -hex 24)"
           certificate="$RUNNER_TEMP/mish-developer-id.p12"
@@ -140,6 +145,7 @@ jobs:
           echo "::add-mask::$keychain_password"
           printf '%s' "$MISH_APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
           printf '%s' "$MISH_APPLE_NOTARY_API_PRIVATE_KEY" > "$notary_key"
+          chmod 600 "$certificate" "$notary_key"
           security create-keychain -p "$keychain_password" "$keychain"
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
@@ -169,17 +175,52 @@ jobs:
             target/release/bundle/macos/Mish.app \
             ".scratch/artifacts/Mish-${short_sha}.app.zip"
           unzip -t ".scratch/artifacts/Mish-${short_sha}.app.zip"
+          archive_sha256="$(shasum -a 256 ".scratch/artifacts/Mish-${short_sha}.app.zip" | awk '{print $1}')"
+          artifact_name="mish-macos-arm64-${short_sha}"
           echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
           echo "archive=.scratch/artifacts/Mish-${short_sha}.app.zip" >> "$GITHUB_OUTPUT"
+          echo "archive_sha256=$archive_sha256" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
       - name: Upload Apple Silicon test package
+        id: package-upload
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v7
         with:
-          name: mish-macos-arm64-${{ steps.revision.outputs.short_sha }}
+          name: ${{ steps.revision.outputs.artifact_name }}
           path: ${{ steps.revision.outputs.archive }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
+      - name: Write package summary
+        shell: bash
+        env:
+          ARCHIVE_SHA256: ${{ steps.revision.outputs.archive_sha256 }}
+          ARTIFACT_ID: ${{ steps.package-upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.revision.outputs.artifact_name }}
+          SHORT_SHA: ${{ steps.revision.outputs.short_sha }}
+          SIGNING_MODE: ${{ steps.apple-signing.outputs.mode }}
+        run: |
+          set -euo pipefail
+          notarized="no"
+          if [[ "$SIGNING_MODE" == "developer-id" ]]; then
+            notarized="yes"
+          fi
+          {
+            echo "## macOS ARM64 test package"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Short SHA | \`$SHORT_SHA\` |"
+            echo "| Artifact name | \`$ARTIFACT_NAME\` |"
+            echo "| Artifact ID | \`$ARTIFACT_ID\` |"
+            echo "| App ID | \`com.asuka109.mish\` |"
+            echo "| Architecture | \`arm64\` |"
+            echo "| Mihomo version | \`v1.19.29\` |"
+            echo "| Signing mode | \`$SIGNING_MODE\` |"
+            echo "| Notarized | \`$notarized\` |"
+            echo "| Archive SHA-256 | \`$ARCHIVE_SHA256\` |"
+            echo "| Retention | 14 days |"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Remove temporary signing material
         if: always()
         shell: bash

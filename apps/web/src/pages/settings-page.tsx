@@ -25,7 +25,7 @@ import { useSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 function AvailabilityBadge({ availability }: { availability: SettingsAvailability }) {
   const { LL } = useI18nContext();
@@ -91,6 +91,17 @@ function SettingsRow({
   );
 }
 
+function ObservedValues({ empty, values }: { empty: string; values: string[] }) {
+  if (values.length === 0) return <span className="network-dns-empty">{empty}</span>;
+  return (
+    <span className="network-dns-values">
+      {values.map((value) => (
+        <code key={value}>{value}</code>
+      ))}
+    </span>
+  );
+}
+
 export function SettingsPage() {
   const {
     preference,
@@ -108,6 +119,7 @@ export function SettingsPage() {
     snapshot: product,
   } = useProduct();
   const settings = useSettings();
+  const networkAutoRefreshStarted = useRef(false);
   const { LL, locale, setLocale } = useI18nContext();
   const snapshot = settings.snapshot;
   const startup = snapshot.preferences.startup;
@@ -124,6 +136,17 @@ export function SettingsPage() {
     helper.installedVersion === helper.expectedVersion &&
     helper.phase === "idle" &&
     helper.lastFailure === null;
+  const network = snapshot.networkDns;
+  const networkSupported =
+    snapshot.adapterKind === "rpc" && snapshot.capabilities.networkDns === "supported";
+
+  useEffect(() => {
+    if (!networkSupported || network.phase !== "unknown" || networkAutoRefreshStarted.current) {
+      return;
+    }
+    networkAutoRefreshStarted.current = true;
+    void settings.refreshNetworkDns();
+  }, [network.phase, networkSupported, settings]);
 
   function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureRuntime || !captureSupported) return;
@@ -150,6 +173,27 @@ export function SettingsPage() {
     const surface = values[0] as WindowSurfacePreference | undefined;
     if (surface !== "opaque" && surface !== "material") return;
     setWindowSurfacePreference(surface);
+  }
+
+  function networkObservationDescription() {
+    if (network.phase === "ready" && network.observedAt !== null) {
+      const time = new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en", {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      }).format(new Date(network.observedAt));
+      return LL.settingsPage.networkDns.observationReady({ time });
+    }
+    if (network.phase === "failed") {
+      const failure = network.failure;
+      return failure
+        ? `${LL.settingsPage.networkDns.observationFailed()} ${LL.settingsPage.networkDns.failure[failure]()}`
+        : LL.settingsPage.networkDns.observationFailed();
+    }
+    if (network.phase === "stale") return LL.settingsPage.networkDns.observationStale();
+    if (network.phase === "unavailable") {
+      return LL.settingsPage.networkDns.observationUnavailable();
+    }
+    return LL.settingsPage.networkDns.observationUnknown();
   }
 
   return (
@@ -338,14 +382,110 @@ export function SettingsPage() {
         id="settings-network"
         title={LL.settingsPage.network()}
       >
-        <SettingsRow description={LL.settingsPage.dnsDescription()} title={LL.settingsPage.dns()}>
-          <AvailabilityBadge availability={snapshot.capabilities.networkDns} />
+        <SettingsRow
+          description={networkObservationDescription()}
+          title={LL.settingsPage.networkDns.observation()}
+        >
+          <div className="settings-inline-control">
+            <Badge
+              variant={
+                network.phase === "ready"
+                  ? "success"
+                  : network.phase === "failed" || network.phase === "stale"
+                    ? "warning"
+                    : "outline"
+              }
+            >
+              {LL.settingsPage.networkDns.state[network.phase]()}
+            </Badge>
+            {networkSupported ? (
+              <Button
+                disabled={settings.pending}
+                onClick={() => void settings.refreshNetworkDns()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {LL.settingsPage.networkDns.refresh()}
+              </Button>
+            ) : null}
+          </div>
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.networkPolicyDescription()}
           title={LL.settingsPage.networkPolicy()}
         >
-          <AvailabilityBadge availability={snapshot.capabilities.networkDns} />
+          {network.interfaces.length > 0 ? (
+            <span className="network-interface-list" data-phase={network.phase}>
+              {network.interfaces.map((interfaceState) => (
+                <span className="network-dns-primary" key={interfaceState.interface}>
+                  <strong>{interfaceState.service ?? LL.common.unavailable()}</strong>
+                  <span>
+                    {interfaceState.interface} ·{" "}
+                    {LL.settingsPage.networkDns.interfaceKinds[interfaceState.interfaceKind]()}
+                  </span>
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="network-dns-empty">
+              {LL.settingsPage.networkDns.noActiveInterfaces()}
+            </span>
+          )}
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.networkDns.ipAvailabilityDescription()}
+          title={LL.settingsPage.networkDns.ipAvailability()}
+        >
+          <span className="network-interface-addresses" data-phase={network.phase}>
+            {network.interfaces.length > 0
+              ? network.interfaces.map((interfaceState) => (
+                  <span className="settings-inline-control" key={interfaceState.interface}>
+                    <code>{interfaceState.interface}</code>
+                    <Badge variant={interfaceState.ipv4Available ? "success" : "outline"}>
+                      IPv4 ·{" "}
+                      {interfaceState.ipv4Available
+                        ? LL.settingsPage.available()
+                        : LL.common.unavailable()}
+                    </Badge>
+                    <Badge variant={interfaceState.ipv6Available ? "success" : "outline"}>
+                      IPv6 ·{" "}
+                      {interfaceState.ipv6Available
+                        ? LL.settingsPage.available()
+                        : LL.common.unavailable()}
+                    </Badge>
+                  </span>
+                ))
+              : LL.settingsPage.networkDns.noActiveInterfaces()}
+          </span>
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.networkDns.serversDescription()}
+          title={LL.settingsPage.dns()}
+        >
+          <div className="network-dns-detail" data-phase={network.phase}>
+            <span>
+              {network.dns
+                ? LL.settingsPage.networkDns.resolverSummary({
+                    resolvers: network.dns.resolverCount,
+                    scoped: network.dns.scopedResolverCount,
+                  })
+                : LL.common.unavailable()}
+            </span>
+            <ObservedValues
+              empty={LL.settingsPage.networkDns.noServers()}
+              values={network.dns?.servers ?? []}
+            />
+          </div>
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.networkDns.searchDomainsDescription()}
+          title={LL.settingsPage.networkDns.searchDomains()}
+        >
+          <ObservedValues
+            empty={LL.settingsPage.networkDns.noSearchDomains()}
+            values={network.dns?.searchDomains ?? []}
+          />
         </SettingsRow>
       </SettingsSection>
 

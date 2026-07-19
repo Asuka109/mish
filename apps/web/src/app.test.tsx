@@ -147,11 +147,19 @@ class DesktopSettingsClient implements SettingsClient {
       expertConfiguration: "coming-later",
       launchAtLogin: "supported",
       nativeSidebarMaterial: "supported",
-      networkDns: "coming-later",
+      networkDns: "supported",
       statusBar: "supported",
       tun: "unavailable",
       updates: "coming-later",
       windowLifecycle: "supported",
+    },
+    networkDns: {
+      dns: null,
+      failure: null,
+      interfaces: [],
+      observedAt: null,
+      phase: "unknown",
+      source: "macos-system-configuration",
     },
     privacy: {
       authenticated: "confirmed",
@@ -163,6 +171,30 @@ class DesktopSettingsClient implements SettingsClient {
   };
 
   getSnapshot = vi.fn(async () => structuredClone(this.snapshot));
+  refreshNetworkDns = vi.fn(async () => {
+    this.snapshot.networkDns = {
+      dns: {
+        resolverCount: 2,
+        scopedResolverCount: 1,
+        searchDomains: ["office.example"],
+        servers: ["192.0.2.53", "2001:db8::53"],
+      },
+      failure: null,
+      interfaces: [
+        {
+          interface: "en0",
+          interfaceKind: "ethernet",
+          ipv4Available: true,
+          ipv6Available: true,
+          service: "Office LAN",
+        },
+      ],
+      observedAt: 1_789_824_600_000,
+      phase: "ready",
+      source: "macos-system-configuration",
+    };
+    return this.getSnapshot();
+  });
   installTunHelper = vi.fn(async () => this.getSnapshot());
   repairTunHelper = vi.fn(async () => this.getSnapshot());
   removeTunHelper = vi.fn(async () => this.getSnapshot());
@@ -525,6 +557,51 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
+  it("shows a source-labeled read-only macOS Network and DNS observation", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByText("Office LAN")).toBeVisible();
+    expect(screen.getByText("en0 · Ethernet")).toBeVisible();
+    expect(screen.getByText("2 resolvers · 1 scoped")).toBeVisible();
+    expect(screen.getByText("192.0.2.53")).toBeVisible();
+    expect(screen.getByText("office.example")).toBeVisible();
+    expect(settingsClient.refreshNetworkDns).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Refresh observation" }));
+    await waitFor(() => expect(settingsClient.refreshNetworkDns).toHaveBeenCalledTimes(2));
+  });
+
+  it("labels retained Network and DNS values stale instead of current", async () => {
+    const settingsClient = new DesktopSettingsClient();
+    await settingsClient.refreshNetworkDns();
+    settingsClient.refreshNetworkDns.mockClear();
+    settingsClient.snapshot.networkDns.phase = "stale";
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByText("Stale")).toBeVisible();
+    expect(
+      screen.getByText("The last observation is stale and must not be treated as current."),
+    ).toBeVisible();
+    expect(screen.getByText("Office LAN")).toBeVisible();
+    expect(settingsClient.refreshNetworkDns).not.toHaveBeenCalled();
+  });
+
   it("previews exact local backup scope before opening the native save boundary", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();

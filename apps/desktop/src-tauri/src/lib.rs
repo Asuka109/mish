@@ -21,8 +21,8 @@ use mish_bridge::{
     start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
-    FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsSystemProxyPlatform,
-    MacOsTunHelperBoundary, MacOsTunHelperPlatform,
+    FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsNetworkDnsPlatform,
+    MacOsSystemProxyPlatform, MacOsTunHelperBoundary, MacOsTunHelperPlatform,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -545,7 +545,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         }),
     )));
     let settings_service = Arc::new(
-        SettingsService::load_with_authority(
+        SettingsService::load_with_platforms_and_authority(
             Arc::new(FileSettingsRepository::new(
                 profile_root.join("settings.json"),
             )),
@@ -553,6 +553,10 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             window_surface_platform(app),
             desktop_settings_capabilities(),
             Some(tun_helper.clone()),
+            cfg!(target_os = "macos").then(|| {
+                Arc::new(MacOsNetworkDnsPlatform::new())
+                    as Arc<dyn mish_settings::NetworkDnsPlatform>
+            }),
             mutation_authority.clone(),
         )
         .map_err(settings_initialization_error)?,
@@ -730,7 +734,7 @@ fn desktop_settings_capabilities() -> SettingsCapabilities {
             expert_configuration: SettingsAvailability::ComingLater,
             launch_at_login: SettingsAvailability::Unavailable,
             native_sidebar_material: SettingsAvailability::Unavailable,
-            network_dns: SettingsAvailability::ComingLater,
+            network_dns: SettingsAvailability::Unavailable,
             status_bar: SettingsAvailability::Unavailable,
             tun: SettingsAvailability::Unavailable,
             updates: SettingsAvailability::ComingLater,
