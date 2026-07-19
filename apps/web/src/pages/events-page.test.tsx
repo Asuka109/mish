@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@mish/ui";
@@ -30,6 +30,16 @@ function renderEvents(client: FixtureEventsClient, supportBundleClient?: Support
       </TypesafeI18n>
     </AppearanceProvider>,
   );
+}
+
+async function findEnabledButton(name: string) {
+  const button = await screen.findByRole("button", { name });
+  await waitFor(() => expect(button).toBeEnabled());
+  return button;
+}
+
+async function waitForInitialRouteFocus() {
+  await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
 }
 
 afterEach(() => {
@@ -121,10 +131,11 @@ describe("Events page", () => {
     const user = userEvent.setup();
     renderEvents(new FixtureEventsClient());
 
-    const run = await screen.findByRole("button", { name: "Run diagnostics" });
+    const run = await findEnabledButton("Run diagnostics");
     expect(screen.getByText(/Fictional browser fixture results/)).toBeVisible();
     expect(screen.queryByText("Synthetic fixture DNS failure")).not.toBeInTheDocument();
 
+    await waitForInitialRouteFocus();
     run.focus();
     await user.keyboard("{Enter}");
 
@@ -167,7 +178,8 @@ describe("Events page", () => {
     const support = new TestSupportBundleClient("written");
     renderEvents(new FixtureEventsClient(), support);
 
-    const preview = await screen.findByRole("button", { name: "Preview support bundle" });
+    const preview = await findEnabledButton("Preview support bundle");
+    await waitForInitialRouteFocus();
     preview.focus();
     await user.keyboard("{Enter}");
 
@@ -195,7 +207,7 @@ describe("Events page", () => {
     const support = new TestSupportBundleClient("cancelled");
     renderEvents(new FixtureEventsClient(), support);
 
-    await user.click(await screen.findByRole("button", { name: "Preview support bundle" }));
+    await user.click(await findEnabledButton("Preview support bundle"));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "Choose location and save",
@@ -213,7 +225,7 @@ describe("Events page", () => {
     renderEvents(new FixtureEventsClient(), support);
     await screen.findByText("No diagnostic runs in local history.");
 
-    await user.click(screen.getByRole("button", { name: "Preview support bundle" }));
+    await user.click(await findEnabledButton("Preview support bundle"));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "Choose location and save",

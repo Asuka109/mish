@@ -57,6 +57,12 @@ for Mish only after checking the digest and run identity. Do not disable
 Gatekeeper globally. This exception is appropriate only for this verified Mish
 test app; remove the extracted app when testing is complete.
 
+If an automated merge credential does not emit a follow-up push workflow,
+manually dispatch the CI workflow on `main` with task `packages`. The bounded
+recovery path checks out the latest `main` and rebuilds the macOS and Android
+test packages without running the heavy inspection. Manual task `inspection`
+remains the default.
+
 ## Clean-account install and first launch
 
 Use a fresh standard macOS account to validate the prototype boundary. After

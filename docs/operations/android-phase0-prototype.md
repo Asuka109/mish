@@ -123,3 +123,8 @@ entries; publishes hashes and provenance in the job summary; and uploads a
 14-day, explicitly non-production test artifact. Complete repository and
 real-browser validation run as a daily or manually dispatched inspection of the
 latest `main`.
+
+If an automated merge credential does not emit a follow-up push workflow, run
+the CI workflow manually on `main` with task `packages`. This recovery path
+checks out the latest `main` and runs only the two package jobs; task
+`inspection` remains the default for manual dispatch.

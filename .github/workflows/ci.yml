@@ -8,6 +8,16 @@ on:
   schedule:
     - cron: "23 3 * * *"
   workflow_dispatch:
+    inputs:
+      task:
+        description: Work to run against the latest main branch
+        required: true
+        default: inspection
+        type: choice
+        options:
+          - inspection
+          - packages
+          - all
 
 permissions:
   contents: read
@@ -47,7 +57,7 @@ jobs:
 
   inspect-main:
     name: Inspect main
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.task == 'inspection' || inputs.task == 'all'))
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -82,8 +92,7 @@ jobs:
 
   package-macos:
     name: Package macOS ARM64
-    # To exercise packaging on PRs later, widen this condition but keep upload main-only.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -97,6 +106,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: main
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -191,7 +202,7 @@ jobs:
           echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
       - name: Upload Apple Silicon test package
         id: package-upload
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.revision.outputs.artifact_name }}
@@ -242,12 +253,14 @@ jobs:
 
   package-android:
     name: Package Android test APKs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: main
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -331,7 +344,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Upload Android non-production test APKs
         id: android-package-upload
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.task == 'packages' || inputs.task == 'all'))
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.revision.outputs.artifact_name }}
