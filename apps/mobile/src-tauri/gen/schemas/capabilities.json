@@ -1,1 +1,0 @@
-{"mobile":{"identifier":"mobile","description":"Allows the Phase 0 mobile WebView to read the bounded native fixture bootstrap.","local":true,"windows":["main"],"permissions":["allow-mobile-fixture-bootstrap"],"platforms":["android","iOS"]}}
