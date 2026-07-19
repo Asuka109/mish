@@ -602,6 +602,41 @@ h2 {
   gap: 8px;
 }
 
+.traffic-capture-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.system-proxy-reconciliation {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+  line-height: 18px;
+}
+
+.system-proxy-reconciliation[data-phase="applied"] {
+  color: var(--color-success-text);
+}
+
+.system-proxy-reconciliation[data-phase="drift"],
+.system-proxy-reconciliation[data-phase="failed"] {
+  color: var(--color-error);
+}
+
+.system-proxy-recovery-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .capture-mode-button {
   gap: 7px;
   padding: 0 10px;

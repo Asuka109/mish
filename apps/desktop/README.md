@@ -43,5 +43,13 @@ The current Tauri composition reports a real but deliberately sparse RPC
 snapshot and does not automatically start Mihomo. The desktop bridge library has
 a transactional pinned-core activation manager, but this shell does not yet
 select a persisted profile, package/resolve the production sidecar, or expose an
-activation command. System Proxy, TUN, status-bar behavior, native material,
-packaging icons, signing, and notarization remain separate platform slices.
+activation command.
+
+On macOS, the shell composes a real System Proxy adapter through the shared
+runtime. System Proxy defaults off and can be enabled only when a configured
+core is confirmed healthy. Mish journals the minimum prior network-service
+state privately, applies only HTTP, HTTPS, and SOCKS settings, confirms the OS
+result, and restores exact Mish-owned state on shutdown or restart audit. PAC,
+automatic discovery, and authenticated settings are never overwritten. TUN,
+status-bar behavior, native material, packaging icons, signing, and notarization
+remain separate platform slices.

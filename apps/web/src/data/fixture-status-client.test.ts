@@ -11,6 +11,8 @@ describe("FixtureStatusClient", () => {
     const second = await client.getSnapshot();
     expect(second.profiles[0].label).toBe("Home");
     expect(second.adapterKind).toBe("fixture");
+    expect(second.runtime.systemProxy.phase).toBe("off");
+    expect(second.runtime.captureSelection.systemProxy).toBe(false);
   });
 
   it("keeps group selections scoped to group membership", async () => {
@@ -49,5 +51,16 @@ describe("FixtureStatusClient", () => {
       systemProxyEnabled: true,
       tunEnabled: false,
     });
+  });
+
+  it("does not enable System Proxy when a profile is selected", async () => {
+    const client = new FixtureStatusClient();
+
+    const next = await client.setActiveProfile("work");
+
+    expect(next.activeProfileId).toBe("work");
+    expect(next.runtime.captureSelection.systemProxy).toBe(false);
+    expect(next.runtime.systemProxyEnabled).toBe(false);
+    expect(next.runtime.systemProxy.phase).toBe("off");
   });
 });

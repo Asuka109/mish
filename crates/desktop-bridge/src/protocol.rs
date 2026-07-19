@@ -10,7 +10,10 @@ use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
 use mish_profile::{ProfileServiceError, RepositoryError};
-use mish_runtime::{CoreError, CoreErrorKind, CoreStatus, MishRuntime, StatusAdapterKind};
+use mish_runtime::{
+    CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
+    CoreErrorKind, CoreStatus, MishRuntime, StatusAdapterKind,
+};
 use tokio::sync::broadcast;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
@@ -60,6 +63,19 @@ struct ProfileIdParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProfileSaveParams {
     preview_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetCaptureParams {
+    active: bool,
+    selection: CaptureSelection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RecoverSystemProxyParams {
+    action: CaptureRecoveryAction,
 }
 
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
@@ -203,7 +219,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 2,
+            "protocolVersion": 3,
         }),
         "core.getStatus" => {
             serde_json::to_value(state.runtime.core_status().await).expect("serializable status")
@@ -331,6 +347,40 @@ async fn handle_message(
                 Err(error) => return Some(profile_error_response(id, error)),
             }
         }
+        "status.setCapture" => {
+            let params: SetCaptureParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match state
+                .runtime
+                .set_capture(
+                    CaptureRequest {
+                        active: params.active,
+                        selection: params.selection,
+                    },
+                    StatusAdapterKind::Rpc,
+                )
+                .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(capture_error_response(id, error)),
+            }
+        }
+        "status.recoverSystemProxy" => {
+            let params: RecoverSystemProxyParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match state
+                .runtime
+                .recover_system_proxy(params.action, StatusAdapterKind::Rpc)
+                .await
+            {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(capture_error_response(id, error)),
+            }
+        }
         "rpc.cancel" => json!(false),
         method if method.starts_with("status.") => {
             return Some(error_response(
@@ -401,4 +451,13 @@ fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {
             error_response(id, -32041, "Profile storage operation failed", None)
         }
     }
+}
+
+fn capture_error_response(id: Value, error: CaptureTransitionError) -> Value {
+    error_response(
+        id,
+        -32050,
+        "System Proxy reconciliation failed",
+        Some(json!({"kind": error.kind})),
+    )
 }

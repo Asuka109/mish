@@ -3,6 +3,7 @@ import {
   mishRpcMethods,
   statusRpcNotifications,
   type CaptureSelectionDto,
+  type CaptureRecoveryAction,
   type RoutingMode,
   type ServiceMonitorDraft,
   type StatusClient,
@@ -71,6 +72,10 @@ export class RpcStatusClient implements StatusClient {
     return this.requestSnapshot("status.removeServiceMonitor", { monitorId }, options);
   }
 
+  recoverSystemProxy(action: CaptureRecoveryAction, options?: RpcRequestOptions) {
+    return this.requestSnapshot("status.recoverSystemProxy", { action }, options);
+  }
+
   restoreDefaultServices(options?: RpcRequestOptions) {
     return this.requestSnapshot("status.restoreDefaultServices", {}, options);
   }
@@ -109,8 +114,8 @@ export class RpcStatusClient implements StatusClient {
     };
   }
 
-  supportsCommand(_command: StatusCommand) {
-    return false;
+  supportsCommand(command: StatusCommand) {
+    return command === "capture";
   }
 
   upsertServiceMonitor(draft: ServiceMonitorDraft, options?: RpcRequestOptions) {
@@ -176,6 +181,7 @@ export class RpcStatusClient implements StatusClient {
     Method extends
       | "status.getSnapshot"
       | "status.removeServiceMonitor"
+      | "status.recoverSystemProxy"
       | "status.restoreDefaultServices"
       | "status.selectGroupChild"
       | "status.setActiveProfile"

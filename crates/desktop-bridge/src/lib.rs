@@ -28,17 +28,34 @@ pub use server::{LoopbackServerConfig, LoopbackServerHandle, start_loopback_serv
 
 use std::sync::Arc;
 
+use mish_runtime::CaptureReconciler;
 use mish_runtime::{CoreRuntime, MishRuntime};
 
 pub async fn compose_desktop_runtime(
     lifecycle: Arc<dyn CoreRuntime>,
     controller: Option<ControllerObservationConfig>,
 ) -> Result<MishRuntime, ControllerStatusSourceError> {
+    compose_desktop_runtime_with_capture(lifecycle, controller, None).await
+}
+
+pub async fn compose_desktop_runtime_with_capture(
+    lifecycle: Arc<dyn CoreRuntime>,
+    controller: Option<ControllerObservationConfig>,
+    capture: Option<Arc<CaptureReconciler>>,
+) -> Result<MishRuntime, ControllerStatusSourceError> {
     let Some(controller) = controller else {
-        return Ok(MishRuntime::new(lifecycle));
+        return Ok(match capture {
+            Some(capture) => MishRuntime::with_capture(lifecycle, capture),
+            None => MishRuntime::new(lifecycle),
+        });
     };
     let source = ControllerStatusSource::new(controller, lifecycle.clone())?;
-    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    let runtime = MishRuntime::with_data_sources_and_capture(
+        lifecycle,
+        source.clone(),
+        source.clone(),
+        capture,
+    );
     source.start().await;
     Ok(runtime)
 }

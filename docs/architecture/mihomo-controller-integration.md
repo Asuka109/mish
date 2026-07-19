@@ -228,6 +228,10 @@ does not depend on the Controller crate or any desktop transport.
 | Group usage              | Bounded recent connection-ID de-duplication and exact chain intersection with visible group labels                  |
 | Capabilities and capture | System Proxy and TUN are unavailable, disabled, and unselected                                                      |
 
+That capability row describes the Controller mapper alone. A desktop host may
+compose the independent capture reconciler afterward; the macOS Tauri host does
+so for System Proxy while leaving TUN unavailable.
+
 Catalog application is transactional. A missing selection, duplicate child,
 unknown child, out-of-group selection, or derived identifier collision rejects
 the whole catalog update and preserves the last valid state. This is necessary

@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::{CorePhase, CoreStatus};
+use crate::{CaptureRuntimeStatus, CorePhase, CoreStatus, SystemProxyRuntimeStatus};
 
 pub const STATUS_TRAFFIC_SERIES_LIMIT: usize = 512;
 
@@ -58,7 +58,7 @@ pub enum ServiceIcon {
     Microsoft,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureSelection {
     pub system_proxy: bool,
@@ -72,6 +72,7 @@ pub struct RuntimeStatus {
     pub message: String,
     pub phase: RuntimePhase,
     pub system_proxy_enabled: bool,
+    pub system_proxy: SystemProxyRuntimeStatus,
     pub tun_enabled: bool,
 }
 
@@ -84,6 +85,7 @@ impl RuntimeStatus {
             CorePhase::Stopping => (RuntimePhase::Stopping, "Mihomo is stopping"),
             CorePhase::Failed => (RuntimePhase::Error, "Mihomo failed"),
         };
+        let capture = CaptureRuntimeStatus::off();
         Self {
             capture_selection,
             message: core
@@ -92,6 +94,7 @@ impl RuntimeStatus {
                 .unwrap_or_else(|| fallback_message.to_owned()),
             phase,
             system_proxy_enabled: false,
+            system_proxy: capture.system_proxy,
             tun_enabled: false,
         }
     }
@@ -227,7 +230,7 @@ impl StatusSnapshot {
             runtime: RuntimeStatus::from_core(
                 core,
                 CaptureSelection {
-                    system_proxy: true,
+                    system_proxy: false,
                     tun: false,
                 },
             ),

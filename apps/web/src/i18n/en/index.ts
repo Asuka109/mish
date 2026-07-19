@@ -55,6 +55,7 @@ const en = {
     enableFixtureAria: "Enable the proxy demo state",
     enableWithModes: "Start proxy with {modes:string}",
     enable: "Enable proxy",
+    needsAttention: "Proxy needs attention",
     running: "Proxy running",
   },
   status: {
@@ -104,10 +105,27 @@ const en = {
     notSelected: "not selected",
     running: "running",
     selected: "selected",
+    leaveAsIs: "Leave OS settings as is",
+    repairSystemProxy: "Repair System Proxy",
     systemProxy: "System Proxy",
+    systemProxyApplied: "System Proxy is applied and confirmed by macOS.",
+    systemProxyCoreFailure:
+      "System Proxy was not enabled because the active profile and Mihomo core are unavailable.",
     systemProxyDescription: "Routes applications that follow the system proxy settings.",
+    systemProxyDrift:
+      "System Proxy differs from Mish's requested state. Repair it or leave the current OS settings as is.",
+    systemProxyFailure: "System Proxy was not confirmed. The prior state was retained or restored.",
     systemProxyFixtureDescription:
       "Simulates routing applications that follow the system proxy settings.",
+    systemProxyLeftAsIs:
+      "Current OS proxy settings are left unchanged and are no longer managed by Mish.",
+    systemProxyOff: "System Proxy is off and confirmed by macOS.",
+    systemProxyPending: "System Proxy is pending macOS confirmation.",
+    systemProxyPermissionFailure:
+      "macOS did not allow the System Proxy change. No success was recorded.",
+    systemProxyUnsafeFailure:
+      "Automatic or authenticated proxy settings are active. Mish left them unchanged.",
+    systemProxyUnknown: "System Proxy is selected off, but the macOS state is not available.",
     title: "System Proxy and Virtual Interface",
     tun: "Virtual Interface",
     tunDescription: "Uses a TUN virtual network interface to capture broader traffic.",

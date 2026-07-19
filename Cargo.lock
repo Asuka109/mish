@@ -2156,6 +2156,7 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "mish-bridge",
+ "mish-platform-macos",
  "mish-profile",
  "mish-runtime",
  "rfd",
@@ -2179,6 +2180,16 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "tokio-util",
  "url",
+]
+
+[[package]]
+name = "mish-platform-macos"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "mish-runtime",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

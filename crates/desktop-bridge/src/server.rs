@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use mish_runtime::MishRuntime;
+use mish_runtime::{CaptureAuditReason, CorePhase, MishRuntime};
 use serde_json::json;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
@@ -36,6 +36,8 @@ struct HttpState {
 
 pub struct LoopbackServerHandle {
     pub address: SocketAddr,
+    audit_join: JoinHandle<()>,
+    audit_shutdown: Option<oneshot::Sender<()>>,
     join: JoinHandle<()>,
     shutdown: Option<oneshot::Sender<()>>,
     runtime: MishRuntime,
@@ -43,6 +45,10 @@ pub struct LoopbackServerHandle {
 
 impl LoopbackServerHandle {
     pub async fn shutdown(mut self) {
+        if let Some(shutdown) = self.audit_shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        let _ = self.audit_join.await;
         let _ = self.runtime.shutdown().await;
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
@@ -61,6 +67,7 @@ pub async fn start_loopback_server(
     if config.auth_token.len() < 16 {
         return Err("MISH_BRIDGE_TOKEN must contain at least 16 characters".into());
     }
+    let _ = runtime.audit_capture(CaptureAuditReason::Restart).await;
     let listener = TcpListener::bind(config.bind)
         .await
         .map_err(|error| error.to_string())?;
@@ -94,6 +101,30 @@ pub async fn start_loopback_server(
         .route("/rpc", get(rpc))
         .with_state(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (audit_shutdown_tx, mut audit_shutdown_rx) = oneshot::channel();
+    let audit_runtime = runtime.clone();
+    let mut audit_updates = audit_runtime.subscribe_status();
+    let audit_join = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                _ = &mut audit_shutdown_rx => break,
+                update = audit_updates.recv() => {
+                    let Ok(status) = update else { continue };
+                    if !matches!(status.phase, CorePhase::Running) {
+                        let _ = audit_runtime
+                            .audit_capture(CaptureAuditReason::CoreHealthChanged)
+                            .await;
+                    }
+                }
+                _ = interval.tick() => {
+                    let _ = audit_runtime.audit_capture(CaptureAuditReason::Periodic).await;
+                }
+            }
+        }
+    });
     let join = tokio::spawn(async move {
         let _ = axum::serve(
             listener,
@@ -106,6 +137,8 @@ pub async fn start_loopback_server(
     });
     Ok(LoopbackServerHandle {
         address,
+        audit_join,
+        audit_shutdown: Some(audit_shutdown_tx),
         join,
         shutdown: Some(shutdown_tx),
         runtime,
