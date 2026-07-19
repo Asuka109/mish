@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "apps/desktop/src-tauri",
+  "apps/mobile/src-tauri",
   "crates/desktop-bridge",
   "crates/mihomo-controller",
   "crates/platform-macos",

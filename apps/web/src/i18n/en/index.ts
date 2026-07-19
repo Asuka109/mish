@@ -247,6 +247,22 @@ const en = {
     status: "Status",
     traffic: "Traffic",
   },
+  mobileNavigation: {
+    activity: "Activity",
+    connections: "Connections",
+    diagnostics: "Diagnostics",
+    events: "Events",
+    home: "Home",
+    primary: "Mobile navigation",
+    profiles: "Profiles",
+    routes: "Routes",
+    rules: "Rules",
+    settings: "Settings",
+  },
+  mobileFixture: {
+    label: "Native fixture",
+    unavailable: "VPN and embedded Core are not implemented in this test build.",
+  },
   toolbar: {
     deviceDescription: "Status is read from this device.",
     deviceMode: "Device status",

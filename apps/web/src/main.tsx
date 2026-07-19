@@ -22,6 +22,8 @@ import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
 import { persistLocale, resolveInitialLocale } from "./i18n/locale";
 import { resolveStartupStatusClient } from "./platform/runtime-bootstrap";
+import { resolveMobileStartup } from "./platform/mobile-runtime-bootstrap";
+import { resolveRuntimeKind } from "./platform/runtime-kind";
 import { installDesktopNativeFeel } from "./platform/desktop-native-feel";
 import { signalDesktopWindowReady } from "./platform/desktop-window";
 import { NativeNavigationBridge } from "./platform/native-navigation";
@@ -61,9 +63,10 @@ function ConfiguredAppearanceProvider({ children }: { children: ReactNode }) {
 
 async function startApplication() {
   loadAllLocales();
-  const runtime = isTauri() ? "desktop" : "browser";
+  const runtime = resolveRuntimeKind({ buildMode: import.meta.env.MODE, tauri: isTauri() });
   document.documentElement.dataset.runtime = runtime;
-  const releaseNativeFeel = installDesktopNativeFeel(runtime);
+  const releaseNativeFeel =
+    runtime === "mobile" ? () => undefined : installDesktopNativeFeel(runtime);
   let disposeStartup: () => void = () => undefined;
   window.addEventListener(
     "pagehide",
@@ -75,7 +78,8 @@ async function startApplication() {
   );
 
   try {
-    const startup = await resolveStartupStatusClient();
+    const startup =
+      runtime === "mobile" ? await resolveMobileStartup() : await resolveStartupStatusClient();
     disposeStartup = startup.dispose;
     const initialLocale = startup.settingsSnapshot.preferences.language ?? resolveInitialLocale();
     applyInitialAppearance(startup.settingsSnapshot.preferences.appearance);
@@ -104,7 +108,7 @@ async function startApplication() {
                         supportBundleClient={startup.supportBundleClient}
                       >
                         <TooltipProvider delay={500}>
-                          <AppRoutes />
+                          <AppRoutes mobileFixture={startup.mobileFixture} runtime={runtime} />
                           <AppearanceToaster />
                         </TooltipProvider>
                       </EventsProvider>

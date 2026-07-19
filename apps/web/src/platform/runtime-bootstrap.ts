@@ -5,6 +5,7 @@ import {
   type LocalBackupClient,
   type LocalBackupScopeDto,
   type LocalRestoreConflictResolution,
+  type MobileFixtureBootstrapDto,
   type EventsClient,
   type DiagnosticsClient,
   type ProfileClient,
@@ -59,7 +60,8 @@ export interface StartupStatusClient {
   settingsClient: SettingsClient;
   settingsSnapshot: SettingsSnapshotDto;
   localBackupClient: LocalBackupClient;
-  runtime: "browser" | "desktop";
+  mobileFixture?: MobileFixtureBootstrapDto;
+  runtime: "browser" | "desktop" | "mobile";
   supportBundleClient: SupportBundleClient;
 }
 

@@ -104,7 +104,7 @@ invariant(upload.if === mainOnly, "Artifact upload must remain main-push-only.")
 invariant(upload.with?.["retention-days"] === 14, "The package must be retained for 14 days.");
 
 for (const [jobName, candidateJob] of Object.entries(workflow.jobs ?? {})) {
-  if (jobName === "package-macos") continue;
+  if (jobName === "package-macos" || jobName === "package-android") continue;
   invariant(
     !candidateJob.steps?.some((candidate) =>
       candidate.uses?.startsWith("actions/upload-artifact@"),
@@ -187,6 +187,66 @@ invariant(
   "The package summary must not expose signing secret variables.",
 );
 
+const packageAndroid = job("package-android");
+invariant(packageAndroid["runs-on"] === "ubuntu-24.04", "Android packaging must use Ubuntu 24.04.");
+invariant(packageAndroid.if === mainOnly, "Android packaging must remain main-push-only.");
+invariant(
+  packageAndroid.needs === undefined,
+  "Android packaging must remain independent from validation.",
+);
+
+const androidSetup = step(packageAndroid, "Install pinned Android components").run ?? "";
+for (const component of [
+  "platforms;android-36",
+  "build-tools;36.1.0",
+  "platform-tools",
+  "ndk;29.0.14206865",
+  "aarch64-linux-android",
+  "x86_64-linux-android",
+]) {
+  invariant(androidSetup.includes(component), `Android setup must pin ${component}.`);
+}
+
+const androidBuild = step(packageAndroid, "Build Android debug APKs");
+invariant(
+  androidBuild.run === "pnpm mobile:android:build",
+  "Android packaging must use the repository build command.",
+);
+
+const androidUpload = step(packageAndroid, "Upload Android non-production test APKs");
+invariant(
+  androidUpload.id === "android-package-upload",
+  "Android upload must expose traceable outputs.",
+);
+invariant(
+  androidUpload.uses === "actions/upload-artifact@v7",
+  "Android packaging must use upload-artifact v7.",
+);
+invariant(androidUpload.if === mainOnly, "Android artifact upload must remain main-push-only.");
+invariant(
+  androidUpload.with?.["retention-days"] === 14,
+  "Android test APKs must be retained for 14 days.",
+);
+
+const androidSummary = JSON.stringify(step(packageAndroid, "Write Android package summary"));
+for (const field of [
+  "Source revision",
+  "Artifact ID",
+  "Supported ABIs",
+  "Signing mode",
+  "Core",
+  "ARM64 SHA-256",
+  "x86_64 SHA-256",
+  "Production use",
+  "Retention",
+]) {
+  invariant(androidSummary.includes(field), `The Android package summary is missing ${field}.`);
+}
+invariant(
+  !androidSummary.includes("subscription") && !androidSummary.includes("token"),
+  "The Android package summary must not mention sensitive Profile material.",
+);
+
 console.log(
-  "CI workflow contract valid: PR validation includes pinned Chromium; packaging and upload are main-only; signing fails closed.",
+  "CI workflow contract valid: PRs validate only; macOS and Android packaging and uploads are main-only.",
 );

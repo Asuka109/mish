@@ -2246,6 +2246,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mish-mobile"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-build",
+]
+
+[[package]]
 name = "mish-platform-macos"
 version = "0.1.0"
 dependencies = [

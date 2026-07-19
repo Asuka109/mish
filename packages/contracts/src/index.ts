@@ -22,6 +22,30 @@ export type RuntimePhase = z.infer<typeof RuntimePhaseSchema>;
 export const StatusAdapterKindSchema = z.enum(["fixture", "native", "rpc"]);
 export type StatusAdapterKind = z.infer<typeof StatusAdapterKindSchema>;
 
+export const MobilePlatformKindSchema = z.enum(["android", "ios"]);
+export type MobilePlatformKind = z.infer<typeof MobilePlatformKindSchema>;
+
+export const MobileFixtureCapabilitySchema = z
+  .object({ availability: z.literal("unavailable"), kind: z.literal("fixture") })
+  .strict();
+export interface MobileFixtureCapabilityDto extends z.infer<typeof MobileFixtureCapabilitySchema> {}
+
+export const MobileFixtureBootstrapSchema = z
+  .object({
+    adapterKind: z.literal("native"),
+    contractVersion: z.literal(1),
+    core: MobileFixtureCapabilitySchema,
+    message: z.string().min(1).max(512),
+    platform: MobilePlatformKindSchema,
+    targetAbis: z
+      .array(z.enum(["arm64-v8a", "x86_64"]))
+      .length(2)
+      .refine((abis) => new Set(abis).size === abis.length, "Target ABIs must be unique"),
+    vpn: MobileFixtureCapabilitySchema,
+  })
+  .strict();
+export interface MobileFixtureBootstrapDto extends z.infer<typeof MobileFixtureBootstrapSchema> {}
+
 export const ProbeStatusSchema = z.enum(["pending", "healthy", "error"]);
 export type ProbeStatus = z.infer<typeof ProbeStatusSchema>;
 

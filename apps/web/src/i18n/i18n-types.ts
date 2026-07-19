@@ -775,6 +775,58 @@ type RootTranslation = {
 		 */
 		traffic: string
 	}
+	mobileNavigation: {
+		/**
+		 * A​c​t​i​v​i​t​y
+		 */
+		activity: string
+		/**
+		 * C​o​n​n​e​c​t​i​o​n​s
+		 */
+		connections: string
+		/**
+		 * D​i​a​g​n​o​s​t​i​c​s
+		 */
+		diagnostics: string
+		/**
+		 * E​v​e​n​t​s
+		 */
+		events: string
+		/**
+		 * H​o​m​e
+		 */
+		home: string
+		/**
+		 * M​o​b​i​l​e​ ​n​a​v​i​g​a​t​i​o​n
+		 */
+		primary: string
+		/**
+		 * P​r​o​f​i​l​e​s
+		 */
+		profiles: string
+		/**
+		 * R​o​u​t​e​s
+		 */
+		routes: string
+		/**
+		 * R​u​l​e​s
+		 */
+		rules: string
+		/**
+		 * S​e​t​t​i​n​g​s
+		 */
+		settings: string
+	}
+	mobileFixture: {
+		/**
+		 * N​a​t​i​v​e​ ​f​i​x​t​u​r​e
+		 */
+		label: string
+		/**
+		 * V​P​N​ ​a​n​d​ ​e​m​b​e​d​d​e​d​ ​C​o​r​e​ ​a​r​e​ ​n​o​t​ ​i​m​p​l​e​m​e​n​t​e​d​ ​i​n​ ​t​h​i​s​ ​t​e​s​t​ ​b​u​i​l​d​.
+		 */
+		unavailable: string
+	}
 	toolbar: {
 		/**
 		 * S​t​a​t​u​s​ ​i​s​ ​r​e​a​d​ ​f​r​o​m​ ​t​h​i​s​ ​d​e​v​i​c​e​.
@@ -4352,6 +4404,58 @@ export type TranslationFunctions = {
 		 * Traffic
 		 */
 		traffic: () => LocalizedString
+	}
+	mobileNavigation: {
+		/**
+		 * Activity
+		 */
+		activity: () => LocalizedString
+		/**
+		 * Connections
+		 */
+		connections: () => LocalizedString
+		/**
+		 * Diagnostics
+		 */
+		diagnostics: () => LocalizedString
+		/**
+		 * Events
+		 */
+		events: () => LocalizedString
+		/**
+		 * Home
+		 */
+		home: () => LocalizedString
+		/**
+		 * Mobile navigation
+		 */
+		primary: () => LocalizedString
+		/**
+		 * Profiles
+		 */
+		profiles: () => LocalizedString
+		/**
+		 * Routes
+		 */
+		routes: () => LocalizedString
+		/**
+		 * Rules
+		 */
+		rules: () => LocalizedString
+		/**
+		 * Settings
+		 */
+		settings: () => LocalizedString
+	}
+	mobileFixture: {
+		/**
+		 * Native fixture
+		 */
+		label: () => LocalizedString
+		/**
+		 * VPN and embedded Core are not implemented in this test build.
+		 */
+		unavailable: () => LocalizedString
 	}
 	toolbar: {
 		/**
