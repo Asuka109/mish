@@ -7,13 +7,16 @@ use std::{
 };
 
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
-use mish_profile::{Fingerprint, ProfileRecord, ValidationStatus};
+use mish_profile::{
+    Fingerprint, ManagedRuntimeValues, PolicyClassification, PolicyViolationKind, ProfileRecord,
+    ValidationStatus, apply_runtime_policy,
+};
 use mish_runtime::{
     CaptureReconciler, CaptureRequest, CaptureRuntimeTransition, CaptureSelection, CorePhase,
     LoopbackProxyEndpoint, MishRuntime,
 };
 use serde::{Deserialize, Serialize};
-use serde_norway::{Mapping, Value};
+use serde_norway::Value;
 use thiserror::Error;
 use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -1033,131 +1036,53 @@ pub enum RuntimeConfigGenerationError {
 
 pub struct RuntimeConfigGenerator;
 
+pub struct GeneratedRuntimeConfig {
+    pub bytes: Vec<u8>,
+    pub classifications: Vec<PolicyClassification>,
+}
+
 impl RuntimeConfigGenerator {
     pub fn generate(
         normalized_artifact: &[u8],
         policy: &ManagedRuntimePolicy,
     ) -> Result<Vec<u8>, RuntimeConfigGenerationError> {
+        Ok(Self::generate_with_review(normalized_artifact, policy)?.bytes)
+    }
+
+    pub fn generate_with_review(
+        normalized_artifact: &[u8],
+        policy: &ManagedRuntimePolicy,
+    ) -> Result<GeneratedRuntimeConfig, RuntimeConfigGenerationError> {
         let mut document: Value = serde_norway::from_slice(normalized_artifact)
             .map_err(|_| RuntimeConfigGenerationError::InvalidArtifact)?;
-        let root = document
-            .as_mapping_mut()
-            .ok_or(RuntimeConfigGenerationError::InvalidArtifact)?;
-
-        validate_managed_provider_paths(root)?;
-        for key in [
-            "authentication",
-            "skip-auth-prefixes",
-            "lan-allowed-ips",
-            "lan-disallowed-ips",
-            "external-controller-tls",
-            "external-controller-unix",
-            "external-controller-pipe",
-            "external-controller-cors",
-            "external-ui",
-            "external-ui-name",
-            "external-ui-url",
-            "external-doh-server",
-        ] {
-            root.remove(Value::String(key.to_owned()));
+        if document.as_mapping().is_none() {
+            return Err(RuntimeConfigGenerationError::InvalidArtifact);
         }
-
-        for key in ["port", "socks-port", "redir-port", "tproxy-port"] {
-            insert(root, key, Value::Number(0.into()));
-        }
-        insert(
-            root,
-            "mixed-port",
-            Value::Number(policy.proxy_endpoint.port().into()),
-        );
-        insert(root, "allow-lan", Value::Bool(false));
-        insert(
-            root,
-            "bind-address",
-            Value::String(policy.proxy_endpoint.host().to_string()),
-        );
-        insert(
-            root,
-            "external-controller",
-            Value::String(policy.controller_address.to_string()),
-        );
-        insert(
-            root,
-            "secret",
-            Value::String(policy.controller_secret.clone()),
-        );
-        insert(root, "log-level", Value::String("warning".into()));
-        insert(root, "mode", Value::String("rule".into()));
-        insert(root, "listeners", Value::Sequence(Vec::new()));
-        managed_nested_flag(root, "tun", "enable", false)?;
-        managed_nested_flag(root, "sniffer", "enable", false)?;
-        managed_nested_flag(root, "profile", "store-selected", false)?;
-        managed_nested_flag(root, "profile", "store-fake-ip", false)?;
-        if let Some(dns) = root
-            .get_mut(Value::String("dns".to_owned()))
-            .and_then(Value::as_mapping_mut)
-        {
-            dns.remove(Value::String("listen".to_owned()));
-        }
-
-        serde_norway::to_string(&document)
-            .map(String::into_bytes)
-            .map_err(|_| RuntimeConfigGenerationError::SerializationFailed)
-    }
-}
-
-fn validate_managed_provider_paths(root: &Mapping) -> Result<(), RuntimeConfigGenerationError> {
-    for section in ["proxy-providers", "rule-providers"] {
-        let Some(providers) = root
-            .get(Value::String(section.to_owned()))
-            .and_then(Value::as_mapping)
-        else {
-            continue;
-        };
-        for provider in providers.values() {
-            let Some(path) = provider
-                .as_mapping()
-                .and_then(|provider| provider.get(Value::String("path".to_owned())))
-                .and_then(Value::as_str)
-            else {
-                continue;
-            };
-            let path = Path::new(path);
-            if path.is_absolute()
-                || path.components().any(|component| {
-                    matches!(
-                        component,
-                        std::path::Component::ParentDir
-                            | std::path::Component::RootDir
-                            | std::path::Component::Prefix(_)
-                    )
-                })
-            {
-                return Err(RuntimeConfigGenerationError::UnsafeManagedPath);
+        let classifications = apply_runtime_policy(
+            &mut document,
+            &ManagedRuntimeValues {
+                controller_address: policy.controller_address.to_string(),
+                controller_secret: policy.controller_secret.clone(),
+                mixed_port: policy.proxy_endpoint.port(),
+                proxy_host: policy.proxy_endpoint.host().to_string(),
+            },
+        )
+        .map_err(|violation| match violation.kind {
+            PolicyViolationKind::UnsafeProviderPath => {
+                RuntimeConfigGenerationError::UnsafeManagedPath
             }
-        }
-    }
-    Ok(())
-}
+            PolicyViolationKind::InvalidManagedShape
+            | PolicyViolationKind::UnsafeDeviceIntegration => {
+                RuntimeConfigGenerationError::InvalidArtifact
+            }
+        })?;
 
-fn insert(mapping: &mut Mapping, key: &str, value: Value) {
-    mapping.insert(Value::String(key.to_owned()), value);
-}
-
-fn managed_nested_flag(
-    root: &mut Mapping,
-    section: &str,
-    field: &str,
-    value: bool,
-) -> Result<(), RuntimeConfigGenerationError> {
-    let key = Value::String(section.to_owned());
-    if !root.contains_key(&key) {
-        root.insert(key.clone(), Value::Mapping(Mapping::new()));
+        let bytes = serde_norway::to_string(&document)
+            .map(String::into_bytes)
+            .map_err(|_| RuntimeConfigGenerationError::SerializationFailed)?;
+        Ok(GeneratedRuntimeConfig {
+            bytes,
+            classifications,
+        })
     }
-    let section = root
-        .get_mut(&key)
-        .and_then(Value::as_mapping_mut)
-        .ok_or(RuntimeConfigGenerationError::InvalidArtifact)?;
-    insert(section, field, Value::Bool(value));
-    Ok(())
 }

@@ -10,10 +10,11 @@ use std::{
 use futures_util::{FutureExt, future::BoxFuture};
 use mish_profile::{
     AtomicWriter, FileProfileRepository, HttpsSourceReader, ImportError, ImportPreflight,
-    ImportRequest, LocalSourceReader, PolicyDisposition, PolicyOwner, ProfileId, ProfileSource,
-    RedirectTarget, RejectingHttpsSourceReader, RepositoryComponent, RepositoryError,
-    SensitiveDataNotice, SensitivePath, SensitiveUrl, SourceContent, SourceReadError,
-    SourceReadPolicy, StdAtomicWriter, StdLocalSourceReader, Timestamp, ValidationIssueCode,
+    ImportRequest, LocalSourceReader, PROFILE_SCHEMA_VERSION, PolicyDisposition, PolicyOwner,
+    ProfileId, ProfileSource, RedirectTarget, RejectingHttpsSourceReader, RepositoryComponent,
+    RepositoryError, SensitiveDataNotice, SensitivePath, SensitiveUrl, SourceContent,
+    SourceReadError, SourceReadPolicy, StdAtomicWriter, StdLocalSourceReader, Timestamp,
+    ValidationIssueCode,
 };
 
 struct TestDir(PathBuf);
@@ -59,7 +60,7 @@ tun:
 rule-providers:
   private-rules:
     type: file
-    path: /private/device/rules.yaml
+    path: providers/rules.yaml
 "#;
 
 #[derive(Clone)]
@@ -187,23 +188,24 @@ async fn normal_preflight_summarizes_and_classifies_without_silent_platform_enab
         SensitiveDataNotice::ConfigurationContainsSensitiveData
     );
     assert!(report.classifications.iter().any(|item| {
-        item.key_path == "mixed-port"
-            && item.owner == PolicyOwner::Application
-            && item.disposition == PolicyDisposition::Overridden
+        item.field_identity == "mixed-port"
+            && item.owner == PolicyOwner::ApplicationPolicy
+            && item.disposition == PolicyDisposition::ApplicationOverridden
     }));
     assert!(report.classifications.iter().any(|item| {
-        item.key_path == "tun.enable"
-            && item.owner == PolicyOwner::Platform
+        item.field_identity == "tun.enable"
+            && item.owner == PolicyOwner::PlatformIntegration
             && item.disposition == PolicyDisposition::Disabled
     }));
     assert!(report.classifications.iter().any(|item| {
-        item.key_path.ends_with(".path") && item.disposition == PolicyDisposition::Rejected
+        item.field_identity == "rule-providers.*.path"
+            && item.disposition == PolicyDisposition::Preserved
     }));
 
     let normalized = String::from_utf8(report.normalized_bytes).unwrap();
     assert!(normalized.contains("experimental-safe-key"));
     assert!(!normalized.contains("mixed-port"));
-    assert!(!normalized.contains("/private/device/rules.yaml"));
+    assert!(normalized.contains("providers/rules.yaml"));
     assert!(normalized.contains("enable: false"));
     assert!(
         report
@@ -212,6 +214,52 @@ async fn normal_preflight_summarizes_and_classifies_without_silent_platform_enab
             .iter()
             .any(|warning| { warning.code == ValidationIssueCode::UnknownKeysPreserved })
     );
+}
+
+#[tokio::test]
+async fn unsafe_provider_paths_are_hard_rejected_with_safe_field_identity() {
+    for path in ["/private/device/rules.yaml", "../../private/rules.yaml"] {
+        let yaml = format!(
+            "rule-providers:\n  private-provider:\n    type: file\n    path: {path}\nrules: [MATCH,DIRECT]\n"
+        );
+        let error = pipeline_with_bytes(yaml.into_bytes())
+            .run(ImportRequest {
+                label: None,
+                source: local_source(),
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            ImportError::UnsafeProviderPath {
+                field_identity: "rule-providers.*.path"
+            }
+        );
+        assert!(!error.to_string().contains(path));
+        assert!(!error.to_string().contains("private-provider"));
+    }
+}
+
+#[tokio::test]
+async fn unsafe_device_integration_is_hard_rejected_without_echoing_values() {
+    let error = pipeline_with_bytes(
+        b"listeners:\n  - name: private-listener\n    port: 1234\nrules: [MATCH,DIRECT]\n".to_vec(),
+    )
+    .run(ImportRequest {
+        label: None,
+        source: local_source(),
+    })
+    .await
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ImportError::UnsafeDeviceIntegration {
+            field_identity: "listeners"
+        }
+    );
+    assert!(!error.to_string().contains("private-listener"));
+    assert!(!error.to_string().contains("1234"));
 }
 
 #[tokio::test]
@@ -431,6 +479,46 @@ async fn fingerprint_is_stable_for_the_same_normalized_input() {
     assert_eq!(first.revision.id, second.revision.id);
 }
 
+#[tokio::test]
+async fn unknown_and_nested_values_are_preserved_and_bound_to_the_artifact() {
+    let yaml = r#"
+dns:
+  enable: true
+  nested-extension:
+    unicode-label: "虚构规则 🛰️"
+experimental-extension:
+  nested:
+    sequence: [one, two]
+rules: [MATCH,DIRECT]
+"#;
+    let report = pipeline_with_bytes(yaml.as_bytes().to_vec())
+        .run(ImportRequest {
+            label: Some("Unicode 配置 🛰️".to_owned()),
+            source: local_source(),
+        })
+        .await
+        .unwrap();
+
+    let normalized: serde_norway::Value =
+        serde_norway::from_slice(&report.normalized_bytes).unwrap();
+    assert_eq!(
+        normalized["dns"]["nested-extension"]["unicode-label"].as_str(),
+        Some("虚构规则 🛰️")
+    );
+    assert_eq!(
+        normalized["experimental-extension"]["nested"]["sequence"]
+            .as_sequence()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert!(
+        report
+            .provenance_review
+            .is_bound_to(&report.revision.id, &report.artifact.fingerprint)
+    );
+    assert_eq!(report.provenance_review.unknown_key_count, 1);
+}
+
 #[derive(Clone, Copy)]
 struct FailingWriter;
 
@@ -610,6 +698,39 @@ async fn corrupt_hash_cannot_escape_the_profile_directory() {
         Err(RepositoryError::CorruptData {
             component: RepositoryComponent::Metadata
         })
+    ));
+}
+
+#[tokio::test]
+async fn prior_metadata_schema_gets_a_bound_migrated_policy_baseline() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let repository = FileProfileRepository::new(root.clone());
+    let id = ProfileId::new();
+    let record = record_for_repository(id.clone()).await;
+    repository.save(&record).unwrap();
+    let metadata_path = root
+        .join("profiles")
+        .join(id.as_str())
+        .join("metadata.json");
+    let mut metadata: serde_json::Value =
+        serde_json::from_slice(&fs::read(&metadata_path).unwrap()).unwrap();
+    metadata["schemaVersion"] = serde_json::json!(1);
+    metadata
+        .as_object_mut()
+        .unwrap()
+        .remove("runtimeProvenance");
+    fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+
+    let migrated = repository.load(&id).unwrap();
+    assert_eq!(migrated.metadata.schema_version, PROFILE_SCHEMA_VERSION);
+    assert_eq!(
+        migrated.metadata.runtime_provenance.authority,
+        mish_profile::ProvenanceReviewAuthority::MigratedLegacyBaseline
+    );
+    assert!(migrated.metadata.runtime_provenance.is_bound_to(
+        &migrated.metadata.revision.id,
+        &migrated.metadata.artifact.fingerprint
     ));
 }
 

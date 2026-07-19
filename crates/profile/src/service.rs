@@ -60,6 +60,7 @@ pub struct ProfileListItem {
     pub last_success_at: Option<u64>,
     pub source: crate::SourceSummary,
     pub status: crate::ProfileStatus,
+    pub runtime_provenance: crate::RuntimeProvenanceReview,
     pub warning_codes: Vec<ValidationIssueCode>,
 }
 
@@ -83,8 +84,9 @@ pub enum PreviewSensitiveDataNotice {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewClassificationCounts {
+    pub application_overridden: usize,
     pub disabled: usize,
-    pub overridden: usize,
+    pub platform_overridden: usize,
     pub preserved: usize,
     pub rejected: usize,
 }
@@ -98,6 +100,7 @@ pub struct ProfilePreview {
     pub preview_id: String,
     pub proxy_count: usize,
     pub rule_count: usize,
+    pub runtime_provenance: crate::RuntimeProvenanceReview,
     pub sensitive_data_notice: PreviewSensitiveDataNotice,
     pub source_type: ProfileSourceType,
     pub warning_codes: Vec<ValidationIssueCode>,
@@ -385,21 +388,24 @@ fn profile_list_item(metadata: ProfileMetadata) -> ProfileListItem {
             .map(|success| success.succeeded_at.as_unix_milliseconds()),
         source: metadata.provenance.source,
         status: metadata.status,
+        runtime_provenance: metadata.runtime_provenance,
         warning_codes,
     }
 }
 
 fn profile_preview(preview_id: &str, report: &PreflightReport) -> ProfilePreview {
     let mut counts = PreviewClassificationCounts {
+        application_overridden: 0,
         disabled: 0,
-        overridden: 0,
+        platform_overridden: 0,
         preserved: 0,
         rejected: 0,
     };
     for classification in &report.classifications {
         match classification.disposition {
             PolicyDisposition::Disabled => counts.disabled += 1,
-            PolicyDisposition::Overridden => counts.overridden += 1,
+            PolicyDisposition::ApplicationOverridden => counts.application_overridden += 1,
+            PolicyDisposition::PlatformOverridden => counts.platform_overridden += 1,
             PolicyDisposition::Preserved => counts.preserved += 1,
             PolicyDisposition::Rejected => counts.rejected += 1,
         }
@@ -411,6 +417,7 @@ fn profile_preview(preview_id: &str, report: &PreflightReport) -> ProfilePreview
         preview_id: preview_id.to_owned(),
         proxy_count: report.summary.proxy_count,
         rule_count: report.summary.rule_count,
+        runtime_provenance: report.provenance_review.clone(),
         sensitive_data_notice: match report.summary.sensitive_data_notice {
             crate::SensitiveDataNotice::None => PreviewSensitiveDataNotice::None,
             crate::SensitiveDataNotice::SourceUrlContainsSensitiveData => {

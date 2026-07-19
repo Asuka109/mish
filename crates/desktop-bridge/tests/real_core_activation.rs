@@ -81,7 +81,7 @@ rules:
         metadata: ProfileMetadata {
             artifact: NormalizedArtifact {
                 byte_length: normalized_bytes.len() as u64,
-                fingerprint,
+                fingerprint: fingerprint.clone(),
                 revision_id: revision_id.clone(),
                 schema_version: NORMALIZED_ARTIFACT_SCHEMA_VERSION,
             },
@@ -100,8 +100,16 @@ rules:
             revision: ImmutableRevision {
                 byte_length: source_bytes.len() as u64,
                 created_at: timestamp,
-                id: revision_id,
+                id: revision_id.clone(),
                 media_type: Some("application/yaml".into()),
+            },
+            runtime_provenance: mish_profile::RuntimeProvenanceReview {
+                artifact_fingerprint: fingerprint,
+                authority: mish_profile::ProvenanceReviewAuthority::DesktopPolicy,
+                items: Vec::new(),
+                layers: mish_profile::runtime_layers(),
+                source_revision: revision_id,
+                unknown_key_count: 0,
             },
             schema_version: PROFILE_SCHEMA_VERSION,
             status: ProfileStatus {

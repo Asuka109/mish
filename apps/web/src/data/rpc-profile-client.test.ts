@@ -51,6 +51,9 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
   const profileId = activeProfileId ?? "profile-a";
   return {
     activation: {
+      activeFingerprint: activeProfileId
+        ? "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        : null,
       activeProfileId,
       attemptedAt: activeProfileId ? 2 : null,
       availability: "available",
@@ -86,6 +89,14 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
           updating: false,
           valid: true,
           warning: false,
+        },
+        runtimeProvenance: {
+          artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          authority: "desktop-policy",
+          items: [],
+          layers: ["source", "application-policy", "platform-integration", "effective-runtime"],
+          sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          unknownKeyCount: 0,
         },
         warningCodes: [],
       },

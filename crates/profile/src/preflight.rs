@@ -1,41 +1,19 @@
-use std::{collections::BTreeSet, path::Path};
-
 use serde_norway::{Mapping, Value};
 
 use crate::{
     AttemptOutcome, Fingerprint, HttpsSourceReader, ImmutableRevision, LocalSourceReader,
-    NORMALIZED_ARTIFACT_SCHEMA_VERSION, NormalizedArtifact, PROFILE_SCHEMA_VERSION, ProfileAttempt,
+    NORMALIZED_ARTIFACT_SCHEMA_VERSION, NormalizedArtifact, PROFILE_SCHEMA_VERSION,
+    PolicyClassification, PolicyDisposition, PolicyOwner, PolicyViolationKind, ProfileAttempt,
     ProfileId, ProfileMetadata, ProfileRecord, ProfileSource, ProfileSourceType, ProfileStatus,
-    ProfileSuccess, Provenance, RevisionId, SourceReadError, SourceReadPolicy, Timestamp,
-    ValidationIssue, ValidationIssueCode, ValidationResult, ValidationStatus, read_source,
+    ProfileSuccess, Provenance, ProvenanceReviewAuthority, RevisionId, RuntimeProvenanceReview,
+    SourceReadError, SourceReadPolicy, Timestamp, ValidationIssue, ValidationIssueCode,
+    ValidationResult, ValidationStatus, normalize_source_policy, read_source, runtime_layers,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImportRequest {
     pub label: Option<String>,
     pub source: ProfileSource,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PolicyOwner {
-    Source,
-    Application,
-    Platform,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PolicyDisposition {
-    Preserved,
-    Overridden,
-    Disabled,
-    Rejected,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PolicyClassification {
-    pub disposition: PolicyDisposition,
-    pub key_path: String,
-    pub owner: PolicyOwner,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,6 +39,7 @@ pub struct PreflightReport {
     pub artifact: NormalizedArtifact,
     pub classifications: Vec<PolicyClassification>,
     pub normalized_bytes: Vec<u8>,
+    pub provenance_review: RuntimeProvenanceReview,
     pub revision: ImmutableRevision,
     pub source: ProfileSource,
     pub source_bytes: Vec<u8>,
@@ -75,6 +54,7 @@ impl std::fmt::Debug for PreflightReport {
             .field("artifact", &self.artifact)
             .field("classifications", &self.classifications)
             .field("normalized_bytes", &"[redacted]")
+            .field("provenance_review", &self.provenance_review)
             .field("revision", &self.revision)
             .field("source", &self.source.safe_summary())
             .field("source_bytes", &"[redacted]")
@@ -106,6 +86,7 @@ impl PreflightReport {
                 source_revision: self.revision.id.clone(),
             },
             revision: self.revision,
+            runtime_provenance: self.provenance_review,
             schema_version: PROFILE_SCHEMA_VERSION,
             status: ProfileStatus {
                 active: false,
@@ -150,6 +131,10 @@ pub enum ImportError {
     SourceValidation(#[from] crate::SourceValidationError),
     #[error("normalized profile could not be generated")]
     NormalizationFailed,
+    #[error("profile field {field_identity} requests unsafe device integration")]
+    UnsafeDeviceIntegration { field_identity: &'static str },
+    #[error("profile field {field_identity} contains an unsafe provider path")]
+    UnsafeProviderPath { field_identity: &'static str },
 }
 
 pub struct ImportPreflight<L, H> {
@@ -201,9 +186,18 @@ where
             ProfileSource::Https { url } if url.has_sensitive_query()
         );
 
-        let mut classifications = Vec::new();
-        classify_and_normalize(&mut document, &mut classifications);
-        let unknown_count = classify_unknown_keys(&document, &mut classifications);
+        let (classifications, unknown_count) =
+            normalize_source_policy(&mut document).map_err(|violation| match violation.kind {
+                PolicyViolationKind::InvalidManagedShape => ImportError::NormalizationFailed,
+                PolicyViolationKind::UnsafeDeviceIntegration => {
+                    ImportError::UnsafeDeviceIntegration {
+                        field_identity: violation.field_identity,
+                    }
+                }
+                PolicyViolationKind::UnsafeProviderPath => ImportError::UnsafeProviderPath {
+                    field_identity: violation.field_identity,
+                },
+            })?;
 
         let mut warnings = vec![ValidationIssue {
             code: ValidationIssueCode::SourceFormattingNotRoundTripped,
@@ -218,8 +212,9 @@ where
             });
         }
         if classifications.iter().any(|item| {
-            item.owner == PolicyOwner::Application
-                && item.disposition == PolicyDisposition::Overridden
+            item.owner == PolicyOwner::ApplicationPolicy
+                && item.disposition == PolicyDisposition::ApplicationOverridden
+                && item.source_present
         }) {
             warnings.push(ValidationIssue {
                 code: ValidationIssueCode::ApplicationSettingsOverridden,
@@ -227,10 +222,13 @@ where
             });
         }
         if classifications.iter().any(|item| {
-            item.owner == PolicyOwner::Platform
+            item.owner == PolicyOwner::PlatformIntegration
+                && item.source_present
                 && matches!(
                     item.disposition,
-                    PolicyDisposition::Disabled | PolicyDisposition::Rejected
+                    PolicyDisposition::Disabled
+                        | PolicyDisposition::PlatformOverridden
+                        | PolicyDisposition::Rejected
                 )
         }) {
             warnings.push(ValidationIssue {
@@ -239,7 +237,9 @@ where
             });
         }
         if classifications.iter().any(|item| {
-            item.disposition == PolicyDisposition::Rejected && item.key_path.ends_with(".path")
+            item.disposition == PolicyDisposition::Rejected
+                && item.source_present
+                && item.field_identity.ends_with(".path")
         }) {
             warnings.push(ValidationIssue {
                 code: ValidationIssueCode::UnsafePathsRejected,
@@ -265,6 +265,14 @@ where
             status: ValidationStatus::Valid,
             warnings: warnings.clone(),
         };
+        let provenance_review = RuntimeProvenanceReview {
+            artifact_fingerprint: fingerprint.clone(),
+            authority: ProvenanceReviewAuthority::DesktopPolicy,
+            items: classifications.clone(),
+            layers: runtime_layers(),
+            source_revision: revision_id.clone(),
+            unknown_key_count: unknown_count,
+        };
 
         Ok(PreflightReport {
             artifact: NormalizedArtifact {
@@ -275,6 +283,7 @@ where
             },
             classifications,
             normalized_bytes: normalized,
+            provenance_review,
             revision: ImmutableRevision {
                 byte_length: content.bytes.len() as u64,
                 created_at: now,
@@ -362,6 +371,10 @@ fn validate_collection_shapes(mapping: &Mapping) -> Result<(), ImportError> {
     for (key, path) in [
         ("proxy-providers", "proxy-providers"),
         ("rule-providers", "rule-providers"),
+        ("dns", "dns"),
+        ("profile", "profile"),
+        ("sniffer", "sniffer"),
+        ("tun", "tun"),
     ] {
         if mapping
             .get(Value::String(key.to_owned()))
@@ -381,153 +394,6 @@ fn sequence_len(mapping: &Mapping, key: &str) -> usize {
         .get(Value::String(key.to_owned()))
         .and_then(Value::as_sequence)
         .map_or(0, Vec::len)
-}
-
-fn classify_and_normalize(document: &mut Value, output: &mut Vec<PolicyClassification>) {
-    let Some(mapping) = document.as_mapping_mut() else {
-        return;
-    };
-
-    const APPLICATION_KEYS: &[&str] = &[
-        "port",
-        "socks-port",
-        "redir-port",
-        "tproxy-port",
-        "mixed-port",
-        "authentication",
-        "skip-auth-prefixes",
-        "lan-allowed-ips",
-        "lan-disallowed-ips",
-        "allow-lan",
-        "bind-address",
-        "external-controller",
-        "external-controller-tls",
-        "external-ui",
-        "external-ui-name",
-        "external-ui-url",
-        "external-doh-server",
-        "secret",
-        "log-level",
-        "mode",
-    ];
-    for key in APPLICATION_KEYS {
-        if mapping.remove(Value::String((*key).to_owned())).is_some() {
-            output.push(PolicyClassification {
-                disposition: PolicyDisposition::Overridden,
-                key_path: (*key).to_owned(),
-                owner: PolicyOwner::Application,
-            });
-        }
-    }
-
-    for key in ["listeners", "interface-name", "routing-mark"] {
-        if mapping.remove(Value::String(key.to_owned())).is_some() {
-            output.push(PolicyClassification {
-                disposition: PolicyDisposition::Rejected,
-                key_path: key.to_owned(),
-                owner: PolicyOwner::Platform,
-            });
-        }
-    }
-
-    if let Some(tun) = mapping.get_mut(Value::String("tun".to_owned()))
-        && let Some(tun_mapping) = tun.as_mapping_mut()
-    {
-        let enable_key = Value::String("enable".to_owned());
-        if tun_mapping.contains_key(&enable_key) {
-            tun_mapping.insert(enable_key, Value::Bool(false));
-            output.push(PolicyClassification {
-                disposition: PolicyDisposition::Disabled,
-                key_path: "tun.enable".to_owned(),
-                owner: PolicyOwner::Platform,
-            });
-        }
-    }
-
-    reject_absolute_provider_paths(mapping, "proxy-providers", output);
-    reject_absolute_provider_paths(mapping, "rule-providers", output);
-}
-
-fn reject_absolute_provider_paths(
-    mapping: &mut Mapping,
-    provider_key: &str,
-    output: &mut Vec<PolicyClassification>,
-) {
-    let Some(providers) = mapping
-        .get_mut(Value::String(provider_key.to_owned()))
-        .and_then(Value::as_mapping_mut)
-    else {
-        return;
-    };
-    for (name, provider) in providers {
-        let Some(provider_mapping) = provider.as_mapping_mut() else {
-            continue;
-        };
-        let path_key = Value::String("path".to_owned());
-        let is_absolute = provider_mapping
-            .get(&path_key)
-            .and_then(Value::as_str)
-            .is_some_and(|path| Path::new(path).is_absolute());
-        if is_absolute {
-            provider_mapping.remove(&path_key);
-            let safe_name = name.as_str().unwrap_or("[non-string-name]");
-            output.push(PolicyClassification {
-                disposition: PolicyDisposition::Rejected,
-                key_path: format!("{provider_key}.{safe_name}.path"),
-                owner: PolicyOwner::Platform,
-            });
-        }
-    }
-}
-
-fn classify_unknown_keys(document: &Value, output: &mut Vec<PolicyClassification>) -> usize {
-    const KNOWN_KEYS: &[&str] = &[
-        "proxies",
-        "proxy-groups",
-        "proxy-providers",
-        "rules",
-        "rule-providers",
-        "sub-rules",
-        "dns",
-        "hosts",
-        "sniffer",
-        "tun",
-        "profile",
-        "geodata-mode",
-        "geodata-loader",
-        "geo-auto-update",
-        "geo-update-interval",
-        "geox-url",
-        "find-process-mode",
-        "unified-delay",
-        "tcp-concurrent",
-        "global-client-fingerprint",
-        "global-ua",
-        "ntp",
-        "keep-alive-interval",
-        "keep-alive-idle",
-        "disable-keep-alive",
-    ];
-    let known: BTreeSet<&str> = KNOWN_KEYS.iter().copied().collect();
-    let Some(mapping) = document.as_mapping() else {
-        return 0;
-    };
-    let mut count = 0;
-    for (key, _) in mapping {
-        let Some(key) = key.as_str() else {
-            count += 1;
-            continue;
-        };
-        if !known.contains(key) {
-            count += 1;
-            output.push(PolicyClassification {
-                disposition: PolicyDisposition::Preserved,
-                key_path: key.to_owned(),
-                owner: PolicyOwner::Source,
-            });
-        }
-    }
-    count
 }
 
 fn contains_sensitive_key(value: &Value) -> bool {

@@ -853,10 +853,15 @@ type RootTranslation = {
 		 */
 		classificationDisabled: RequiredParams<'count'>
 		/**
-		 * O​v​e​r​r​i​d​d​e​n​:​ ​{​c​o​u​n​t​}
+		 * A​p​p​l​i​c​a​t​i​o​n​-​o​v​e​r​r​i​d​d​e​n​:​ ​{​c​o​u​n​t​}
 		 * @param {number} count
 		 */
-		classificationOverridden: RequiredParams<'count'>
+		classificationApplicationOverridden: RequiredParams<'count'>
+		/**
+		 * P​l​a​t​f​o​r​m​-​o​v​e​r​r​i​d​d​e​n​:​ ​{​c​o​u​n​t​}
+		 * @param {number} count
+		 */
+		classificationPlatformOverridden: RequiredParams<'count'>
 		/**
 		 * P​r​e​s​e​r​v​e​d​:​ ​{​c​o​u​n​t​}
 		 * @param {number} count
@@ -996,6 +1001,180 @@ type RootTranslation = {
 		 * P​r​o​x​i​e​s
 		 */
 		proxies: string
+		/**
+		 * A​c​t​i​v​a​t​i​o​n​ ​i​m​p​a​c​t
+		 */
+		provenanceActivationImpact: string
+		/**
+		 * A​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y
+		 */
+		provenanceApplicationPolicy: string
+		/**
+		 * V​a​l​i​d​a​t​e​d​ ​b​y​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​p​o​l​i​c​y​ ​e​n​g​i​n​e
+		 */
+		provenanceAuthorityDesktop: string
+		/**
+		 * I​l​l​u​s​t​r​a​t​i​v​e​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​—​ ​n​o​t​ ​d​e​s​k​t​o​p​ ​v​a​l​i​d​a​t​i​o​n
+		 */
+		provenanceAuthorityFixture: string
+		/**
+		 * M​i​g​r​a​t​e​d​ ​p​o​l​i​c​y​ ​b​a​s​e​l​i​n​e​ ​—​ ​r​e​f​r​e​s​h​ ​t​h​i​s​ ​p​r​o​f​i​l​e​ ​t​o​ ​r​e​v​i​e​w​ ​s​o​u​r​c​e​-​f​i​e​l​d​ ​p​r​e​s​e​n​c​e
+		 */
+		provenanceAuthorityMigrated: string
+		/**
+		 * M​a​n​a​g​e​d​ ​b​a​s​e​l​i​n​e
+		 */
+		provenanceBaseline: string
+		/**
+		 * R​u​n​t​i​m​e​-​l​a​y​e​r​ ​p​r​o​v​e​n​a​n​c​e
+		 */
+		provenanceDetail: string
+		/**
+		 * D​i​s​a​b​l​e​d
+		 */
+		provenanceDisabled: string
+		/**
+		 * E​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
+		 */
+		provenanceEffectiveRuntime: string
+		/**
+		 * F​i​e​l​d
+		 */
+		provenanceField: string
+		/**
+		 * B​l​o​c​k​s​ ​i​m​p​o​r​t​ ​a​n​d​ ​a​c​t​i​v​a​t​i​o​n
+		 */
+		provenanceImpactBlocksImport: string
+		/**
+		 * E​x​c​l​u​d​e​d​ ​f​r​o​m​ ​t​h​e​ ​e​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
+		 */
+		provenanceImpactExcluded: string
+		/**
+		 * F​o​r​c​e​d​ ​o​f​f​ ​b​e​f​o​r​e​ ​a​c​t​i​v​a​t​i​o​n
+		 */
+		provenanceImpactForcedOff: string
+		/**
+		 * P​r​e​s​e​r​v​e​d​ ​i​n​ ​t​h​e​ ​e​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
+		 */
+		provenanceImpactPreserved: string
+		/**
+		 * R​e​p​l​a​c​e​d​ ​b​y​ ​a​n​ ​a​p​p​l​i​c​a​t​i​o​n​-​m​a​n​a​g​e​d​ ​v​a​l​u​e
+		 */
+		provenanceImpactReplacedApplication: string
+		/**
+		 * R​e​p​l​a​c​e​d​ ​b​y​ ​a​ ​p​l​a​t​f​o​r​m​-​m​a​n​a​g​e​d​ ​v​a​l​u​e
+		 */
+		provenanceImpactReplacedPlatform: string
+		/**
+		 * S​o​u​r​c​e​ ​→​ ​A​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y​ ​→​ ​P​l​a​t​f​o​r​m​ ​i​n​t​e​g​r​a​t​i​o​n​ ​→​ ​E​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
+		 */
+		provenanceLayerFlow: string
+		/**
+		 * A​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y
+		 */
+		provenanceOwnerApplication: string
+		/**
+		 * P​l​a​t​f​o​r​m​ ​i​n​t​e​g​r​a​t​i​o​n
+		 */
+		provenanceOwnerPlatform: string
+		/**
+		 * S​o​u​r​c​e
+		 */
+		provenanceOwnerSource: string
+		/**
+		 * P​l​a​t​f​o​r​m​ ​i​n​t​e​g​r​a​t​i​o​n
+		 */
+		provenancePlatformIntegration: string
+		/**
+		 * P​r​e​s​e​r​v​e​d
+		 */
+		provenancePreserved: string
+		/**
+		 * C​a​p​t​u​r​e​ ​r​e​q​u​i​r​e​s​ ​e​x​p​l​i​c​i​t​ ​p​l​a​t​f​o​r​m​ ​p​e​r​m​i​s​s​i​o​n
+		 */
+		provenanceReasonCapture: string
+		/**
+		 * C​o​n​t​r​o​l​l​e​r​ ​t​r​a​n​s​p​o​r​t​ ​a​n​d​ ​c​r​e​d​e​n​t​i​a​l​s​ ​s​t​a​y​ ​p​r​i​v​a​t​e​ ​t​o​ ​M​i​s​h
+		 */
+		provenanceReasonController: string
+		/**
+		 * D​e​v​i​c​e​ ​i​n​t​e​g​r​a​t​i​o​n​ ​c​a​n​n​o​t​ ​b​e​ ​i​m​p​o​r​t​e​d​ ​s​a​f​e​l​y
+		 */
+		provenanceReasonDevice: string
+		/**
+		 * D​N​S​ ​l​i​s​t​e​n​e​r​ ​i​n​t​e​g​r​a​t​i​o​n​ ​i​s​ ​p​l​a​t​f​o​r​m​-​m​a​n​a​g​e​d
+		 */
+		provenanceReasonDns: string
+		/**
+		 * E​x​t​e​r​n​a​l​ ​c​o​n​t​r​o​l​ ​a​n​d​ ​U​I​ ​s​u​r​f​a​c​e​s​ ​a​r​e​ ​d​i​s​a​b​l​e​d
+		 */
+		provenanceReasonExternal: string
+		/**
+		 * D​e​s​k​t​o​p​ ​i​n​g​r​e​s​s​ ​i​s​ ​r​e​s​t​r​i​c​t​e​d​ ​t​o​ ​l​o​o​p​b​a​c​k
+		 */
+		provenanceReasonLoopback: string
+		/**
+		 * M​i​s​h​ ​o​w​n​s​ ​t​h​e​ ​m​a​n​a​g​e​d​ ​p​r​o​x​y​ ​i​n​g​r​e​s​s
+		 */
+		provenanceReasonManagedIngress: string
+		/**
+		 * M​i​s​h​ ​p​i​n​s​ ​r​u​n​t​i​m​e​ ​b​e​h​a​v​i​o​r​ ​f​o​r​ ​c​o​m​p​a​t​i​b​i​l​i​t​y
+		 */
+		provenanceReasonManagedRuntime: string
+		/**
+		 * P​a​s​s​i​v​e​ ​i​n​s​p​e​c​t​i​o​n​ ​i​s​ ​d​i​s​a​b​l​e​d​ ​b​y​ ​p​l​a​t​f​o​r​m​ ​p​o​l​i​c​y
+		 */
+		provenanceReasonPassive: string
+		/**
+		 * P​o​r​t​a​b​l​e​ ​p​r​o​f​i​l​e​ ​p​o​l​i​c​y​ ​r​e​m​a​i​n​s​ ​s​o​u​r​c​e​-​o​w​n​e​d
+		 */
+		provenanceReasonPortable: string
+		/**
+		 * P​r​o​v​i​d​e​r​ ​p​a​t​h​ ​i​s​ ​d​e​v​i​c​e​-​s​p​e​c​i​f​i​c​ ​o​r​ ​e​s​c​a​p​e​s​ ​m​a​n​a​g​e​d​ ​s​t​o​r​a​g​e
+		 */
+		provenanceReasonProviderPath: string
+		/**
+		 * R​e​l​a​t​i​v​e​ ​p​r​o​v​i​d​e​r​ ​p​a​t​h​ ​r​e​m​a​i​n​s​ ​s​o​u​r​c​e​-​o​w​n​e​d
+		 */
+		provenanceReasonRelativeProviderPath: string
+		/**
+		 * R​u​n​t​i​m​e​ ​s​e​l​e​c​t​i​o​n​ ​p​e​r​s​i​s​t​e​n​c​e​ ​i​s​ ​d​i​s​a​b​l​e​d
+		 */
+		provenanceReasonRuntimePersistence: string
+		/**
+		 * U​n​k​n​o​w​n​ ​s​y​n​t​a​c​t​i​c​a​l​l​y​ ​v​a​l​i​d​ ​k​e​y​ ​i​s​ ​p​r​e​s​e​r​v​e​d​ ​s​e​m​a​n​t​i​c​a​l​l​y
+		 */
+		provenanceReasonUnknown: string
+		/**
+		 * R​e​j​e​c​t​e​d
+		 */
+		provenanceRejected: string
+		/**
+		 * R​e​v​i​s​i​o​n​ ​{​r​e​v​i​s​i​o​n​}​ ​·​ ​a​r​t​i​f​a​c​t​ ​{​f​i​n​g​e​r​p​r​i​n​t​}
+		 * @param {string} fingerprint
+		 * @param {string} revision
+		 */
+		provenanceRevisionBinding: RequiredParams<'fingerprint' | 'revision'>
+		/**
+		 * T​h​i​s​ ​s​a​v​e​d​ ​r​e​v​i​s​i​o​n​ ​i​s​ ​n​e​w​e​r​ ​t​h​a​n​ ​t​h​e​ ​a​c​t​i​v​e​ ​r​u​n​t​i​m​e​.​ ​A​c​t​i​v​a​t​e​ ​i​t​ ​b​e​f​o​r​e​ ​t​r​e​a​t​i​n​g​ ​t​h​i​s​ ​r​e​p​o​r​t​ ​a​s​ ​e​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e​ ​p​r​o​v​e​n​a​n​c​e​.
+		 */
+		provenanceRevisionMismatch: string
+		/**
+		 * I​m​m​u​t​a​b​l​e​ ​s​o​u​r​c​e
+		 */
+		provenanceSource: string
+		/**
+		 * P​r​e​s​e​n​t​ ​i​n​ ​s​o​u​r​c​e
+		 */
+		provenanceSourceField: string
+		/**
+		 * P​l​a​t​f​o​r​m​-​o​v​e​r​r​i​d​d​e​n
+		 */
+		provenancePlatformOverridden: string
+		/**
+		 * A​p​p​l​i​c​a​t​i​o​n​-​o​v​e​r​r​i​d​d​e​n
+		 */
+		provenanceApplicationOverridden: string
 		/**
 		 * R​e​f​r​e​s​h
 		 */
@@ -2805,9 +2984,13 @@ export type TranslationFunctions = {
 		 */
 		classificationDisabled: (arg: { count: number }) => LocalizedString
 		/**
-		 * Overridden: {count}
+		 * Application-overridden: {count}
 		 */
-		classificationOverridden: (arg: { count: number }) => LocalizedString
+		classificationApplicationOverridden: (arg: { count: number }) => LocalizedString
+		/**
+		 * Platform-overridden: {count}
+		 */
+		classificationPlatformOverridden: (arg: { count: number }) => LocalizedString
 		/**
 		 * Preserved: {count}
 		 */
@@ -2944,6 +3127,178 @@ export type TranslationFunctions = {
 		 * Proxies
 		 */
 		proxies: () => LocalizedString
+		/**
+		 * Activation impact
+		 */
+		provenanceActivationImpact: () => LocalizedString
+		/**
+		 * Application policy
+		 */
+		provenanceApplicationPolicy: () => LocalizedString
+		/**
+		 * Validated by the desktop policy engine
+		 */
+		provenanceAuthorityDesktop: () => LocalizedString
+		/**
+		 * Illustrative browser fixture — not desktop validation
+		 */
+		provenanceAuthorityFixture: () => LocalizedString
+		/**
+		 * Migrated policy baseline — refresh this profile to review source-field presence
+		 */
+		provenanceAuthorityMigrated: () => LocalizedString
+		/**
+		 * Managed baseline
+		 */
+		provenanceBaseline: () => LocalizedString
+		/**
+		 * Runtime-layer provenance
+		 */
+		provenanceDetail: () => LocalizedString
+		/**
+		 * Disabled
+		 */
+		provenanceDisabled: () => LocalizedString
+		/**
+		 * Effective runtime
+		 */
+		provenanceEffectiveRuntime: () => LocalizedString
+		/**
+		 * Field
+		 */
+		provenanceField: () => LocalizedString
+		/**
+		 * Blocks import and activation
+		 */
+		provenanceImpactBlocksImport: () => LocalizedString
+		/**
+		 * Excluded from the effective runtime
+		 */
+		provenanceImpactExcluded: () => LocalizedString
+		/**
+		 * Forced off before activation
+		 */
+		provenanceImpactForcedOff: () => LocalizedString
+		/**
+		 * Preserved in the effective runtime
+		 */
+		provenanceImpactPreserved: () => LocalizedString
+		/**
+		 * Replaced by an application-managed value
+		 */
+		provenanceImpactReplacedApplication: () => LocalizedString
+		/**
+		 * Replaced by a platform-managed value
+		 */
+		provenanceImpactReplacedPlatform: () => LocalizedString
+		/**
+		 * Source → Application policy → Platform integration → Effective runtime
+		 */
+		provenanceLayerFlow: () => LocalizedString
+		/**
+		 * Application policy
+		 */
+		provenanceOwnerApplication: () => LocalizedString
+		/**
+		 * Platform integration
+		 */
+		provenanceOwnerPlatform: () => LocalizedString
+		/**
+		 * Source
+		 */
+		provenanceOwnerSource: () => LocalizedString
+		/**
+		 * Platform integration
+		 */
+		provenancePlatformIntegration: () => LocalizedString
+		/**
+		 * Preserved
+		 */
+		provenancePreserved: () => LocalizedString
+		/**
+		 * Capture requires explicit platform permission
+		 */
+		provenanceReasonCapture: () => LocalizedString
+		/**
+		 * Controller transport and credentials stay private to Mish
+		 */
+		provenanceReasonController: () => LocalizedString
+		/**
+		 * Device integration cannot be imported safely
+		 */
+		provenanceReasonDevice: () => LocalizedString
+		/**
+		 * DNS listener integration is platform-managed
+		 */
+		provenanceReasonDns: () => LocalizedString
+		/**
+		 * External control and UI surfaces are disabled
+		 */
+		provenanceReasonExternal: () => LocalizedString
+		/**
+		 * Desktop ingress is restricted to loopback
+		 */
+		provenanceReasonLoopback: () => LocalizedString
+		/**
+		 * Mish owns the managed proxy ingress
+		 */
+		provenanceReasonManagedIngress: () => LocalizedString
+		/**
+		 * Mish pins runtime behavior for compatibility
+		 */
+		provenanceReasonManagedRuntime: () => LocalizedString
+		/**
+		 * Passive inspection is disabled by platform policy
+		 */
+		provenanceReasonPassive: () => LocalizedString
+		/**
+		 * Portable profile policy remains source-owned
+		 */
+		provenanceReasonPortable: () => LocalizedString
+		/**
+		 * Provider path is device-specific or escapes managed storage
+		 */
+		provenanceReasonProviderPath: () => LocalizedString
+		/**
+		 * Relative provider path remains source-owned
+		 */
+		provenanceReasonRelativeProviderPath: () => LocalizedString
+		/**
+		 * Runtime selection persistence is disabled
+		 */
+		provenanceReasonRuntimePersistence: () => LocalizedString
+		/**
+		 * Unknown syntactically valid key is preserved semantically
+		 */
+		provenanceReasonUnknown: () => LocalizedString
+		/**
+		 * Rejected
+		 */
+		provenanceRejected: () => LocalizedString
+		/**
+		 * Revision {revision} · artifact {fingerprint}
+		 */
+		provenanceRevisionBinding: (arg: { fingerprint: string, revision: string }) => LocalizedString
+		/**
+		 * This saved revision is newer than the active runtime. Activate it before treating this report as effective runtime provenance.
+		 */
+		provenanceRevisionMismatch: () => LocalizedString
+		/**
+		 * Immutable source
+		 */
+		provenanceSource: () => LocalizedString
+		/**
+		 * Present in source
+		 */
+		provenanceSourceField: () => LocalizedString
+		/**
+		 * Platform-overridden
+		 */
+		provenancePlatformOverridden: () => LocalizedString
+		/**
+		 * Application-overridden
+		 */
+		provenanceApplicationOverridden: () => LocalizedString
 		/**
 		 * Refresh
 		 */

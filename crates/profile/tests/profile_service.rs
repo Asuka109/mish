@@ -133,12 +133,14 @@ async fn failed_refresh_keeps_the_last_known_valid_revision() {
     let saved_profile = saved.profiles.first().unwrap();
     let profile_id = saved_profile.id.clone();
     let last_success = saved_profile.last_success_at;
+    let saved_provenance = saved_profile.runtime_provenance.clone();
 
     assert!(service.refresh(&profile_id).await.is_err());
     let snapshot = service.snapshot().unwrap();
     let failed = snapshot.profiles.first().unwrap();
     assert!(failed.last_known_valid);
     assert_eq!(failed.last_success_at, last_success);
+    assert_eq!(failed.runtime_provenance, saved_provenance);
     assert!(failed.status.error);
     assert!(failed.status.stale);
     assert!(failed.status.valid);
@@ -152,6 +154,30 @@ async fn failed_refresh_keeps_the_last_known_valid_revision() {
         .load(&mish_profile::ProfileId::parse(profile_id).unwrap())
         .unwrap();
     assert_eq!(stored.source_bytes, VALID_PROFILE.as_bytes());
+}
+
+#[tokio::test]
+async fn successful_refresh_rebinds_provenance_to_the_new_revision_and_fingerprint() {
+    let temp = TestDir::new();
+    let updated = VALID_PROFILE.replace("MATCH,Fictional group", "MATCH,DIRECT");
+    let reader = SequencedReader::new([
+        VALID_PROFILE.as_bytes().to_vec(),
+        updated.as_bytes().to_vec(),
+    ]);
+    let service = service(temp.path().to_path_buf(), reader);
+    let preview = service
+        .preflight_local("/fictional/profile.yaml".into(), Some("配置 🛰️".into()))
+        .await
+        .unwrap();
+    let saved = service.save_preview(&preview.preview_id).await.unwrap();
+    let profile_id = saved.profiles[0].id.clone();
+    let prior = saved.profiles[0].runtime_provenance.clone();
+
+    let refreshed = service.refresh(&profile_id).await.unwrap();
+    let current = &refreshed.profiles[0].runtime_provenance;
+    assert_ne!(current.source_revision, prior.source_revision);
+    assert_ne!(current.artifact_fingerprint, prior.artifact_fingerprint);
+    assert!(current.is_bound_to(&current.source_revision, &current.artifact_fingerprint));
 }
 
 #[tokio::test]

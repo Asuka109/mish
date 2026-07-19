@@ -43,7 +43,9 @@ import {
 import type {
   ProfileActivationSnapshotDto,
   ProfileListItemDto,
+  ProfilePolicyClassificationDto,
   ProfilePreviewDto,
+  ProfileRuntimeProvenanceDto,
 } from "@mish/contracts";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -519,6 +521,12 @@ function ProfileRow({
       {activationMessage ? (
         <p className="profile-activation-explanation">{activationMessage}</p>
       ) : null}
+      <ProfileProvenance
+        LL={LL}
+        activeFingerprint={activation.activeFingerprint}
+        isActive={profile.status.active}
+        review={profile.runtimeProvenance}
+      />
     </SectionGridItem>
   );
 }
@@ -552,7 +560,14 @@ function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: Pr
           {LL.profiles.classificationPreserved({ count: preview.classificationCounts.preserved })}
         </span>
         <span>
-          {LL.profiles.classificationOverridden({ count: preview.classificationCounts.overridden })}
+          {LL.profiles.classificationApplicationOverridden({
+            count: preview.classificationCounts.applicationOverridden,
+          })}
+        </span>
+        <span>
+          {LL.profiles.classificationPlatformOverridden({
+            count: preview.classificationCounts.platformOverridden,
+          })}
         </span>
         <span>
           {LL.profiles.classificationDisabled({ count: preview.classificationCounts.disabled })}
@@ -565,6 +580,172 @@ function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: Pr
       <Badge variant="warning">
         {LL.profiles.warnings({ count: preview.warningCodes.length })}
       </Badge>
+      <ProfileProvenance LL={LL} preview review={preview.runtimeProvenance} />
     </div>
   );
+}
+
+interface ProfileProvenanceProps {
+  LL: TranslationFunctions;
+  activeFingerprint?: string | null;
+  isActive?: boolean;
+  preview?: boolean;
+  review: ProfileRuntimeProvenanceDto;
+}
+
+function ProfileProvenance({
+  LL,
+  activeFingerprint,
+  isActive = false,
+  preview = false,
+  review,
+}: ProfileProvenanceProps) {
+  const revisionMatchesRuntime = !isActive || activeFingerprint === review.artifactFingerprint;
+  return (
+    <details className="profile-provenance" open={preview || undefined}>
+      <summary>
+        <span>{LL.profiles.provenanceDetail()}</span>
+        <span className="profile-provenance-authority">
+          {review.authority === "desktop-policy"
+            ? LL.profiles.provenanceAuthorityDesktop()
+            : review.authority === "illustrative-browser-fixture"
+              ? LL.profiles.provenanceAuthorityFixture()
+              : LL.profiles.provenanceAuthorityMigrated()}
+        </span>
+      </summary>
+      <div className="profile-provenance-content">
+        <p className="profile-provenance-flow">{LL.profiles.provenanceLayerFlow()}</p>
+        <p className="profile-provenance-binding">
+          {LL.profiles.provenanceRevisionBinding({
+            fingerprint: shortHash(review.artifactFingerprint),
+            revision: shortHash(review.sourceRevision),
+          })}
+        </p>
+        {!revisionMatchesRuntime ? (
+          <p className="profile-provenance-mismatch">{LL.profiles.provenanceRevisionMismatch()}</p>
+        ) : null}
+        <ul className="profile-provenance-items">
+          {review.items.map((item) => (
+            <ProvenanceItem LL={LL} item={item} key={`${item.fieldIdentity}:${item.owner}`} />
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
+function ProvenanceItem({
+  LL,
+  item,
+}: {
+  LL: TranslationFunctions;
+  item: ProfilePolicyClassificationDto;
+}) {
+  return (
+    <li className="profile-provenance-item">
+      <div className="profile-provenance-item-heading">
+        <code>{item.fieldIdentity}</code>
+        <Badge variant={item.disposition === "rejected" ? "destructive" : "outline"}>
+          {policyDisposition(LL, item.disposition)}
+        </Badge>
+      </div>
+      <p>
+        {policyOwner(LL, item.owner)} · {policyReason(LL, item.reason)}
+      </p>
+      <p>
+        {LL.profiles.provenanceActivationImpact()}: {activationImpact(LL, item.activationImpact)}
+      </p>
+      <span className="profile-provenance-presence">
+        {item.sourcePresent
+          ? LL.profiles.provenanceSourceField()
+          : LL.profiles.provenanceBaseline()}
+      </span>
+    </li>
+  );
+}
+
+function shortHash(value: string) {
+  return `${value.slice(0, 8)}…`;
+}
+
+function policyDisposition(
+  LL: TranslationFunctions,
+  disposition: ProfilePolicyClassificationDto["disposition"],
+) {
+  switch (disposition) {
+    case "preserved":
+      return LL.profiles.provenancePreserved();
+    case "application-overridden":
+      return LL.profiles.provenanceApplicationOverridden();
+    case "platform-overridden":
+      return LL.profiles.provenancePlatformOverridden();
+    case "disabled":
+      return LL.profiles.provenanceDisabled();
+    case "rejected":
+      return LL.profiles.provenanceRejected();
+  }
+}
+
+function policyOwner(LL: TranslationFunctions, owner: ProfilePolicyClassificationDto["owner"]) {
+  switch (owner) {
+    case "source":
+      return LL.profiles.provenanceOwnerSource();
+    case "application-policy":
+      return LL.profiles.provenanceOwnerApplication();
+    case "platform-integration":
+      return LL.profiles.provenanceOwnerPlatform();
+  }
+}
+
+function policyReason(LL: TranslationFunctions, reason: ProfilePolicyClassificationDto["reason"]) {
+  switch (reason) {
+    case "portable-source-policy":
+      return LL.profiles.provenanceReasonPortable();
+    case "unknown-key-preserved":
+      return LL.profiles.provenanceReasonUnknown();
+    case "managed-proxy-ingress":
+      return LL.profiles.provenanceReasonManagedIngress();
+    case "loopback-only-binding":
+      return LL.profiles.provenanceReasonLoopback();
+    case "private-controller":
+      return LL.profiles.provenanceReasonController();
+    case "managed-runtime-behavior":
+      return LL.profiles.provenanceReasonManagedRuntime();
+    case "capture-requires-explicit-permission":
+      return LL.profiles.provenanceReasonCapture();
+    case "passive-inspection-only":
+      return LL.profiles.provenanceReasonPassive();
+    case "runtime-persistence-disabled":
+      return LL.profiles.provenanceReasonRuntimePersistence();
+    case "dns-integration-managed":
+      return LL.profiles.provenanceReasonDns();
+    case "external-surface-disabled":
+      return LL.profiles.provenanceReasonExternal();
+    case "device-integration-unsafe":
+      return LL.profiles.provenanceReasonDevice();
+    case "provider-path-unsafe":
+      return LL.profiles.provenanceReasonProviderPath();
+    case "relative-provider-path":
+      return LL.profiles.provenanceReasonRelativeProviderPath();
+  }
+}
+
+function activationImpact(
+  LL: TranslationFunctions,
+  impact: ProfilePolicyClassificationDto["activationImpact"],
+) {
+  switch (impact) {
+    case "preserved-in-effective-runtime":
+      return LL.profiles.provenanceImpactPreserved();
+    case "replaced-by-application-value":
+      return LL.profiles.provenanceImpactReplacedApplication();
+    case "replaced-by-platform-value":
+      return LL.profiles.provenanceImpactReplacedPlatform();
+    case "forced-off":
+      return LL.profiles.provenanceImpactForcedOff();
+    case "blocks-import":
+      return LL.profiles.provenanceImpactBlocksImport();
+    case "excluded-from-effective-runtime":
+      return LL.profiles.provenanceImpactExcluded();
+  }
 }

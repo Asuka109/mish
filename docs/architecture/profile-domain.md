@@ -66,18 +66,40 @@ Preflight emits one classification for each imported setting that crosses an
 ownership boundary. Activation must consume this classification; it must not
 silently restore removed values.
 
+The classification is a typed, display-safe runtime provenance report. Each
+item contains only a bounded field identity, owning layer, disposition, reason,
+activation impact, and whether the field was present in the source. It never
+contains a configuration value, provider name, endpoint, URL token, node
+content, or complete filesystem path. The report records its immutable source
+revision and normalized-artifact fingerprint; repository validation rejects a
+report attached to any other revision or artifact. Saved Profile details and
+import preview render this report as the read-only sequence Source → Application
+policy → Platform integration → Effective runtime.
+
+Metadata schema 2 stores the complete report. Schema-1 records are loaded as a
+revision-bound migrated policy baseline so existing last-known-valid Profiles
+remain activatable; the UI identifies that baseline and asks for a refresh
+before claiming source-field presence. A successful refresh persists the full
+schema-2 report without mutating the prior immutable source revision.
+
 | Source content                                                   | Owner       | P0 disposition |
 | ---------------------------------------------------------------- | ----------- | -------------- |
 | Proxies, groups, rules, providers, DNS, hosts, and unknown keys  | Source      | Preserved      |
 | Ports, LAN bindings, Controller/UI settings, secrets, mode, logs | Application | Overridden     |
-| `tun.enable`                                                     | Platform    | Disabled       |
-| Listeners, interface/routing marks                               | Platform    | Rejected       |
-| Absolute proxy-provider or rule-provider paths                   | Platform    | Rejected       |
+| `tun.enable`, `sniffer.enable`                                   | Platform    | Disabled       |
+| DNS listen                                                       | Platform    | Overridden     |
+| Profile selection/fake-IP persistence                            | Application | Overridden     |
+| External UI, CORS, TLS, pipe, and Unix controller surfaces       | Application | Overridden     |
+| Listeners, interface/routing marks                               | Platform    | Hard rejected  |
+| Absolute or escaping proxy-provider and rule-provider paths      | Platform    | Hard rejected  |
 
-`tun.enable` is normalized to `false`; rejected and overridden keys are absent
+Disabled nested flags are normalized to `false`; overridden keys are absent
 from the normalized source layer. Relative provider paths remain source-owned.
-Application and platform layers may supply reviewed values only during the
-future activation transaction.
+Hard-rejected fields fail preflight with a safe wildcard field identity and no
+source value. Application and platform layers supply reviewed values only
+during activation. The preflight normalizer and runtime generator share the
+same managed-field rule table, so UI classification cannot diverge from the
+generated runtime behavior.
 
 ## App-local storage
 
