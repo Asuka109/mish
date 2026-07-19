@@ -143,9 +143,17 @@ MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
   cargo test -p mish-bridge --test real_core_activation -- --nocapture
 ```
 
-No ordinary test, application startup, or activation path downloads Mihomo. A
-production host must package the target-specific sidecar resource; a missing
-resource is reported as unavailable.
+No ordinary test, application startup, or activation path downloads Mihomo. The
+Apple Silicon packaging command verifies and embeds the target-specific Core;
+a missing production resource is reported as unavailable:
+
+```sh
+pnpm desktop:bundle:macos
+```
+
+See [`docs/operations/macos-packaging.md`](docs/operations/macos-packaging.md)
+for CI triggers, ad-hoc and Developer ID signing modes, notarization secrets,
+and the production TUN helper gates.
 
 For transport and UI-adapter development without Mihomo, run the TypeScript
 mock server explicitly:
