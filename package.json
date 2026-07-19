@@ -25,6 +25,7 @@
     "test": "pnpm --filter @mish/web test",
     "test:browser": "pnpm --filter @mish/web test:browser",
     "test:browser:install": "pnpm --filter @mish/web test:browser:install",
+    "test:macos:p0": "cargo test -p mish-bridge --test mihomo_activation macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops -- --test-threads=1",
     "test:run": "pnpm --recursive --if-present test:run",
     "rust:check": "cargo check --workspace",
     "rust:clippy": "cargo clippy --workspace --all-targets -- -D warnings",

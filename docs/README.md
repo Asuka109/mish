@@ -31,6 +31,7 @@ decisions from chat history.
 | How do mobile navigation, layout, and Android/iOS presentation differ?          | [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md)               |
 | What is real, mocked, verified, or still pending?                               | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
 | How is the production Web foundation run and validated?                         | [`quality/production-web-validation.md`](quality/production-web-validation.md)                   |
+| How is the complete macOS P0 daily journey validated?                           | [`quality/macos-p0-acceptance.md`](quality/macos-p0-acceptance.md)                               |
 | What proves a mobile shell, installable app, native adapter, or device VPN?     | [`quality/mobile-validation.md`](quality/mobile-validation.md)                                   |
 | How is the native macOS sidebar material validated?                             | [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md)                   |
 
