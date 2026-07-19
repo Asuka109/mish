@@ -115,8 +115,11 @@ acceptance work.
 
 ## CI policy
 
-Pull requests run repository validation and upload no Android package. Only a
+Pull requests run the bounded fast gate and upload no Android package. Only a
 push to `main` runs the independent Android packaging job. That job installs the
-pinned JDK, SDK, NDK, and Rust targets; builds separate ARM64 and x86_64 debug
-APKs; verifies signatures and ABI entries; publishes hashes and provenance in
-the job summary; and uploads a 14-day, explicitly non-production test artifact.
+pinned JDK, SDK, NDK, and Rust targets; restores pnpm, Gradle, and Rust build
+caches; builds separate ARM64 and x86_64 debug APKs; verifies signatures and ABI
+entries; publishes hashes and provenance in the job summary; and uploads a
+14-day, explicitly non-production test artifact. Complete repository and
+real-browser validation run as a daily or manually dispatched inspection of the
+latest `main`.

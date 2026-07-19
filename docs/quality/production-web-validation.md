@@ -76,13 +76,40 @@ pnpm docs:links
 git diff --check
 ```
 
-`pnpm validate` runs the non-browser repository checks. Browser installation,
-the browser suite, and `git diff --check` remain explicit checks.
+`pnpm validate:pr` is the rapid pull-request gate. It keeps Android project and
+workflow contracts, generated i18n, lint, formatting, TypeScript type checks and
+unit tests, Rust formatting, design tokens, and documentation links blocking.
+It intentionally excludes Rust compilation, Clippy, Rust integration tests,
+production builds, Design.md lint, and real-browser coverage.
+
+`pnpm validate` runs the complete non-browser repository checks for local work
+and main-branch inspection. Browser installation, the browser suite, and
+`git diff --check` remain explicit checks.
 
 `pnpm test:browser:install` installs the Chromium version pinned by Playwright
 and is required once per developer machine or CI image. `pnpm test:browser`
 runs the responsive shell suite in Vitest Browser Mode against the real browser
 layout engine.
+
+## CI execution tiers
+
+Mish separates merge latency from broad regression detection during rapid
+preview development:
+
+- pull requests run `pnpm validate:pr` on Ubuntu with a ten-minute job ceiling
+  and never build or upload application packages;
+- every push to `main` independently builds the macOS ARM64 and Android test
+  packages but does not repeat the complete validation suite; and
+- a daily scheduled inspection at 03:23 UTC, plus manual dispatch, checks out
+  the latest `main` and runs `pnpm validate` plus the real-browser suite on
+  macOS.
+
+The pnpm store is keyed by `pnpm-lock.yaml`. Rust inspection and package jobs use
+job-specific dependency/build caches instead of uploading the entire Cargo
+target directory through a generic immutable cache. Android packaging also
+caches Gradle dependencies from the wrapper and build-script inputs. Scheduled
+inspection failures are regression signals on `main`; they do not retroactively
+claim that a prior pull request received the heavy suite.
 
 ## Automated coverage
 

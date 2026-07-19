@@ -30,12 +30,15 @@
     "test:browser:install": "pnpm --filter @mish/web test:browser:install",
     "test:macos:p0": "cargo test -p mish-bridge --test mihomo_activation macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops -- --test-threads=1",
     "test:run": "pnpm --recursive --if-present test:run",
+    "test:ts": "pnpm --filter @mish/web --filter @mish/mock-bridge --filter @mish/rpc-client test:run",
     "rust:check": "cargo check --workspace",
     "rust:clippy": "cargo clippy --workspace --all-targets -- -D warnings",
     "rust:format:check": "cargo fmt --all -- --check",
     "rust:test": "cargo test --workspace -- --test-threads=1",
     "tokens:check": "node scripts/check-design-tokens.ts",
     "typecheck": "pnpm --recursive --if-present typecheck",
+    "typecheck:ts": "pnpm --filter @mish/web --filter @mish/contracts --filter @mish/mock-bridge --filter @mish/rpc-client --filter @mish/ui typecheck",
+    "validate:pr": "pnpm android:check && pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck:ts && pnpm test:ts && pnpm rust:format:check && pnpm tokens:check && pnpm docs:links",
     "validate": "pnpm android:check && pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
   },
   "devDependencies": {
