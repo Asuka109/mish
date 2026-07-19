@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { AppearanceProvider, useAppearance } from "./appearance";
+import { applyInitialAppearance, AppearanceProvider, useAppearance } from "./appearance";
 
 function AppearanceProbe() {
   const { preference, resolvedAppearance } = useAppearance();
@@ -41,4 +41,12 @@ it("follows system appearance changes without reloading", () => {
 
   expect(screen.getByText("system:dark")).toBeInTheDocument();
   expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+});
+
+it("applies a desktop bootstrap preference before React renders", () => {
+  applyInitialAppearance("dark");
+
+  expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  expect(document.documentElement.style.colorScheme).toBe("dark");
+  expect(localStorage.getItem("mish.appearance")).toBe("dark");
 });

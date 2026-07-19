@@ -248,7 +248,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 5,
+              protocolVersion: 6,
               statusCommands: { group: true, groupDelay: false, routing: true },
               trafficCommands: { closeAllActive: false, closeConnection: false },
             };

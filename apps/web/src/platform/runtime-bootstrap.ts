@@ -1,8 +1,11 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
   mishRpcMethods,
+  SettingsSnapshotSchema,
   type EventsClient,
   type ProfileClient,
+  type SettingsClient,
+  type SettingsSnapshotDto,
   type StatusClient,
   type TrafficClient,
 } from "@mish/contracts";
@@ -10,12 +13,15 @@ import { RpcClient } from "@mish/rpc-client";
 import { RpcProfileClient } from "../data/rpc-profile-client";
 import { RpcEventsClient } from "../data/rpc-events-client";
 import { RpcStatusClient } from "../data/rpc-status-client";
+import { FixtureSettingsClient } from "../data/fixture-settings-client";
+import { RpcSettingsClient } from "../data/rpc-settings-client";
 import { RpcTrafficClient } from "../data/rpc-traffic-client";
 
 interface RuntimeBootstrapPayload {
   authToken: string;
   nativeSidebarMaterial: boolean;
   rpcUrl: string;
+  settingsSnapshot: SettingsSnapshotDto;
 }
 
 interface BootstrapDependencies {
@@ -31,6 +37,8 @@ export interface StartupStatusClient {
   trafficClient?: TrafficClient;
   dispose(): void;
   profileClient?: ProfileClient;
+  settingsClient: SettingsClient;
+  settingsSnapshot: SettingsSnapshotDto;
   runtime: "browser" | "desktop";
   nativeSidebarMaterial: boolean;
 }
@@ -46,10 +54,13 @@ export async function resolveStartupStatusClient(
   dependencies: BootstrapDependencies = defaultDependencies,
 ): Promise<StartupStatusClient> {
   if (!dependencies.isDesktop()) {
+    const settingsClient = new FixtureSettingsClient();
     return {
       dispose: () => undefined,
       nativeSidebarMaterial: false,
       runtime: "browser",
+      settingsClient,
+      settingsSnapshot: await settingsClient.getSnapshot(),
     };
   }
 
@@ -67,10 +78,14 @@ export async function resolveStartupStatusClient(
   const eventsClient = new RpcEventsClient(rpc);
   const profileClient = new RpcProfileClient(rpc, dependencies.invokeLocalProfilePreflight);
   const trafficClient = new RpcTrafficClient(rpc);
+  const settingsClient = new RpcSettingsClient(rpc);
+  const settingsSnapshot = bootstrap.settingsSnapshot;
   return {
     client,
     eventsClient,
     profileClient,
+    settingsClient,
+    settingsSnapshot,
     trafficClient,
     dispose: () => {
       profileClient.dispose();
@@ -85,7 +100,10 @@ export async function resolveStartupStatusClient(
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   if (!value || typeof value !== "object") throw new Error("Invalid desktop bootstrap");
-  const { authToken, nativeSidebarMaterial, rpcUrl } = value as Record<string, unknown>;
+  const { authToken, nativeSidebarMaterial, rpcUrl, settingsSnapshot } = value as Record<
+    string,
+    unknown
+  >;
   if (typeof authToken !== "string" || authToken.length < 32) {
     throw new Error("Invalid desktop authentication token");
   }
@@ -107,5 +125,10 @@ export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   ) {
     throw new Error("Desktop RPC must use an uncredentialed IPv4 loopback WebSocket URL");
   }
-  return { authToken, nativeSidebarMaterial, rpcUrl: endpoint.href };
+  return {
+    authToken,
+    nativeSidebarMaterial,
+    rpcUrl: endpoint.href,
+    settingsSnapshot: SettingsSnapshotSchema.parse(settingsSnapshot),
+  };
 }

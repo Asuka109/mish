@@ -50,8 +50,21 @@ function persistAppearance(preference: AppearancePreference) {
   }
 }
 
-export function AppearanceProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreferenceState] = useState(resolveInitialAppearance);
+export function applyInitialAppearance(preference: AppearancePreference) {
+  persistAppearance(preference);
+  applyAppearance(resolveAppearance(preference));
+}
+
+export function AppearanceProvider({
+  children,
+  initialPreference,
+  onPreferenceChange,
+}: {
+  children: ReactNode;
+  initialPreference?: AppearancePreference;
+  onPreferenceChange?: (preference: AppearancePreference) => Promise<boolean> | void;
+}) {
+  const [preference, setPreferenceState] = useState(initialPreference ?? resolveInitialAppearance);
   const [resolvedAppearance, setResolvedAppearance] = useState(() => resolveAppearance(preference));
 
   useEffect(() => {
@@ -76,11 +89,20 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       preference,
       resolvedAppearance,
       setPreference: (nextPreference) => {
+        const previousPreference = preference;
         persistAppearance(nextPreference);
         setPreferenceState(nextPreference);
+        const result = onPreferenceChange?.(nextPreference);
+        if (result instanceof Promise) {
+          void result.then((confirmed) => {
+            if (confirmed !== false) return;
+            persistAppearance(previousPreference);
+            setPreferenceState(previousPreference);
+          });
+        }
       },
     }),
-    [preference, resolvedAppearance],
+    [onPreferenceChange, preference, resolvedAppearance],
   );
 
   return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;

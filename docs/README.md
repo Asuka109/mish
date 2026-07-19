@@ -19,6 +19,7 @@ decisions from chat history.
 | Where do Status values come from and how are they derived?                  | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)                 |
 | How do detailed Traffic snapshots, reconnects, and local Closed work?       | [`architecture/traffic-data-contracts.md`](architecture/traffic-data-contracts.md)               |
 | How are Events buffered, redacted, and separated across sessions?           | [`architecture/events-data-contracts.md`](architecture/events-data-contracts.md)                 |
+| How are application settings stored, reconciled, and exposed?               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md)                       |
 | How should recurring UI structures be composed?                             | [`design/component-patterns.md`](design/component-patterns.md)                                   |
 | What is real, mocked, verified, or still pending?                           | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
 | How is the production Web foundation run and validated?                     | [`quality/production-web-validation.md`](quality/production-web-validation.md)                   |

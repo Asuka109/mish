@@ -46,6 +46,7 @@ async fn main() -> Result<(), String> {
             max_message_bytes: arguments.max_message_bytes,
             profile_activation: None,
             profile_service: None,
+            settings_service: None,
         },
         runtime,
     )
