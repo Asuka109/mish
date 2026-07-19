@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createDesktopWindowAppearanceSync,
   createDesktopWindowDragHandler,
+  createDesktopWindowReadySignal,
 } from "./desktop-window";
 
 function createEvent(target: Element, detail = 1) {
@@ -18,6 +19,7 @@ function createEvent(target: Element, detail = 1) {
 function createDependencies(isDesktop = true) {
   return {
     isDesktop: () => isDesktop,
+    revealMainWindow: vi.fn().mockResolvedValue(undefined),
     setTheme: vi.fn().mockResolvedValue(undefined),
     startDragging: vi.fn().mockResolvedValue(undefined),
     toggleMaximize: vi.fn().mockResolvedValue(undefined),
@@ -104,5 +106,25 @@ describe("desktop window appearance", () => {
     syncAppearance("dark");
 
     expect(dependencies.setTheme).not.toHaveBeenCalled();
+  });
+});
+
+describe("desktop first-frame reveal", () => {
+  it("reveals the native window only after the desktop frontend is ready", async () => {
+    const dependencies = createDependencies();
+    const signalReady = createDesktopWindowReadySignal(dependencies);
+
+    await signalReady();
+
+    expect(dependencies.revealMainWindow).toHaveBeenCalledOnce();
+  });
+
+  it("does not invoke the reveal command in an ordinary browser", async () => {
+    const dependencies = createDependencies(false);
+    const signalReady = createDesktopWindowReadySignal(dependencies);
+
+    await signalReady();
+
+    expect(dependencies.revealMainWindow).not.toHaveBeenCalled();
   });
 });

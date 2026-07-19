@@ -224,9 +224,12 @@ export function TrafficPage() {
             <div className="traffic-search-control">
               <MagnifyingGlass aria-hidden="true" />
               <Input
+                autoComplete="off"
+                data-native-search
                 id="traffic-search"
                 onValueChange={setQuery}
                 placeholder={LL.traffic.searchPlaceholder()}
+                spellCheck={false}
                 value={query}
               />
             </div>

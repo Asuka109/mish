@@ -56,6 +56,10 @@ product destinations.
 
 Login launch behavior still applies only to launches carrying the fixed login
 startup argument. A manual launch shows the window regardless of that setting.
+The shell now defers that initial reveal until the WebView has validated desktop
+bootstrap and React has committed its first tree. A bounded `reveal_main_window`
+command applies the previously computed login-launch policy, so the WebView
+cannot promote a background login launch into a visible window.
 Opening Mish or Routes from the status bar shows, unminimizes, and focuses the
 existing window.
 

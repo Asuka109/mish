@@ -361,8 +361,11 @@ export function EventsPage() {
       <div className="events-controls">
         <Input
           aria-label={LL.events.searchLabel()}
+          autoComplete="off"
+          data-native-search
           onChange={(event) => setQuery(event.currentTarget.value)}
           placeholder={LL.events.searchPlaceholder()}
+          spellCheck={false}
           type="search"
           value={query}
         />

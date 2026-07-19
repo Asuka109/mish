@@ -368,11 +368,17 @@ async function createRpcSnapshot(sparse = false) {
 
 describe("production routes", () => {
   it("presents Mish as the product brand", () => {
-    renderRoute("/status");
+    const { container } = renderRoute("/status");
     const brandImages = screen.getByLabelText("Mish").querySelectorAll("img");
     expect(brandImages).toHaveLength(2);
     expect(brandImages[0]).toHaveAttribute("src", "/brand/mish-brand.svg");
     expect(brandImages[1]).toHaveAttribute("src", "/brand/mish-brand-dark.svg");
+    expect(brandImages[0]).toHaveAttribute("draggable", "false");
+    expect(brandImages[1]).toHaveAttribute("draggable", "false");
+    expect(container.querySelector("[data-window-drag-surface='workspace-top']")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
   });
 
   it("shows important events in the notification popover and marks them read", async () => {

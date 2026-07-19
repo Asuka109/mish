@@ -607,9 +607,11 @@ export function RoutesPage() {
             <MagnifyingGlass aria-hidden="true" />
             <Input
               autoComplete="off"
+              data-native-search
               id="routes-search"
               onValueChange={setQuery}
               placeholder={LL.routes.searchPlaceholder()}
+              spellCheck={false}
               type="search"
               value={query}
             />
