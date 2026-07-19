@@ -26,6 +26,7 @@ const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.local
 #[serde(rename_all = "camelCase")]
 struct RuntimeBootstrap {
     auth_token: String,
+    native_sidebar_material: bool,
     rpc_url: String,
 }
 
@@ -76,7 +77,9 @@ async fn profile_preflight_local(
 }
 
 pub fn run() -> Result<i32, String> {
+    let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
     let app = tauri::Builder::default()
+        .manage(bridge_state.clone())
         .setup(initialize)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
@@ -84,7 +87,6 @@ pub fn run() -> Result<i32, String> {
         ])
         .build(tauri::generate_context!())
         .map_err(|error| error.to_string())?;
-    let bridge_state = app.state::<BridgeState>().inner().clone();
     let exit_code = app.run_return(|_, _| {});
     let bridge = bridge_state
         .0
@@ -162,10 +164,14 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     })?;
     app.manage(RuntimeBootstrap {
         auth_token,
+        native_sidebar_material: cfg!(target_os = "macos"),
         rpc_url: format!("ws://{}/rpc", bridge.address),
     });
     app.manage(ProfileState(profile_service));
-    app.manage(BridgeState(Arc::new(Mutex::new(Some(bridge)))));
+    *app.state::<BridgeState>()
+        .0
+        .lock()
+        .map_err(|_| io::Error::other("desktop bridge state is unavailable"))? = Some(bridge);
     Ok(())
 }
 

@@ -71,6 +71,14 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+:root[data-native-sidebar-material="available"],
+:root[data-native-sidebar-material="available"] body,
+:root[data-native-sidebar-material="available"] #root,
+:root[data-native-sidebar-material="available"] .app-shell,
+:root[data-native-sidebar-material="available"] .sidebar {
+  background: transparent;
+}
+
 button,
 input {
   font: inherit;
@@ -387,6 +395,16 @@ h2 {
   border-radius: var(--radius-lg);
   background: var(--color-canvas);
   box-shadow: var(--shadow-panel);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-native-sidebar-material="available"],
+  :root[data-native-sidebar-material="available"] body,
+  :root[data-native-sidebar-material="available"] #root,
+  :root[data-native-sidebar-material="available"] .app-shell,
+  :root[data-native-sidebar-material="available"] .sidebar {
+    background: var(--color-surface-soft);
+  }
 }
 
 .toolbar {

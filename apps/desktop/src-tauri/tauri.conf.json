@@ -10,6 +10,7 @@
     "frontendDist": "../../web/dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "center": true,
@@ -22,8 +23,13 @@
         "resizable": true,
         "title": "Mish",
         "titleBarStyle": "Overlay",
+        "transparent": true,
         "useHttpsScheme": true,
-        "width": 1160
+        "width": 1160,
+        "windowEffects": {
+          "effects": ["sidebar"],
+          "state": "followsWindowActiveState"
+        }
       }
     ],
     "security": {

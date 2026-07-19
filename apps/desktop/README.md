@@ -32,6 +32,19 @@ The complete top sidebar header, including its outer padding around the native
 controls and brand, is a native deep drag region. The workspace toolbar uses
 event delegation because it also contains interactive controls.
 
+The macOS window also installs Tauri's Sidebar effect, which maps to an AppKit
+`NSVisualEffectView` using the semantic Sidebar material and follows the active
+window state. The bootstrap exposes only a boolean capability to the WebView.
+When available, the window base and sidebar pixels are transparent so the native
+compositor material can show through; the inset workspace remains an opaque
+design-token surface. Browser and unsupported desktop builds retain the
+deterministic `surface-soft` background. Reduce Transparency replaces the
+transparent WebView regions with the same solid fallback. Native appearance is
+synchronized with the light, dark, or system application preference.
+
+Reproducible visual checks are documented in
+[`../../docs/quality/native-sidebar-validation.md`](../../docs/quality/native-sidebar-validation.md).
+
 Tauri's bundled-asset resolver returns `index.html` for an unknown asset path,
 so direct loads of `/status`, `/routes`, and the other React Router paths work in
 the packaged WebView. Vite provides the equivalent fallback during development.
@@ -52,5 +65,5 @@ core is confirmed healthy. Mish journals the minimum prior network-service
 state privately, applies only HTTP, HTTPS, and SOCKS settings, confirms the OS
 result, and restores exact Mish-owned state on shutdown or restart audit. PAC,
 automatic discovery, and authenticated settings are never overwritten. TUN,
-status-bar behavior, native material, packaging icons, signing, and notarization
-remain separate platform slices.
+status-bar behavior, packaging icons, signing, and notarization remain separate
+platform slices.

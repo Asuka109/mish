@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { syncDesktopWindowAppearance } from "./platform/desktop-window";
 
 export type AppearancePreference = "light" | "dark" | "system";
 export type ResolvedAppearance = Exclude<AppearancePreference, "system">;
@@ -63,6 +64,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     };
 
     updateAppearance();
+    syncDesktopWindowAppearance(preference);
     if (preference !== "system" || !mediaQuery) return;
 
     mediaQuery.addEventListener("change", updateAppearance);
