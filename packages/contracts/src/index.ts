@@ -584,6 +584,79 @@ export const DiagnosticHistorySchema = z
   });
 export interface DiagnosticHistoryDto extends z.infer<typeof DiagnosticHistorySchema> {}
 
+export const SupportBundleAvailabilitySchema = z.enum(["supported", "unavailable"]);
+export type SupportBundleAvailability = z.infer<typeof SupportBundleAvailabilitySchema>;
+
+export const SupportBundleCategorySchema = z.enum([
+  "application",
+  "platform",
+  "capabilities",
+  "active-profile",
+  "capture",
+  "events-summary",
+  "diagnostic-runs",
+  "redaction-report",
+]);
+export type SupportBundleCategory = z.infer<typeof SupportBundleCategorySchema>;
+
+export const SupportBundleRedactionCategorySchema = z.enum([
+  "raw-profile-configuration",
+  "subscription-urls",
+  "credentials-and-secrets",
+  "full-paths",
+  "node-labels",
+  "connection-destinations",
+  "process-paths",
+  "network-addresses-and-hostnames",
+  "private-endpoints",
+  "controller-payloads",
+  "status-bar-labels",
+  "event-text",
+  "diagnostic-prose",
+]);
+export type SupportBundleRedactionCategory = z.infer<typeof SupportBundleRedactionCategorySchema>;
+
+export const SupportBundleTimeRangeSchema = z
+  .object({ endedAt: NonNegativeIntegerSchema, startedAt: NonNegativeIntegerSchema })
+  .strict()
+  .refine(({ endedAt, startedAt }) => endedAt >= startedAt, {
+    message: "Support bundle time range must be monotonic",
+  });
+
+export const SupportBundleCategoryPreviewSchema = z
+  .object({ category: SupportBundleCategorySchema, itemCount: NonNegativeIntegerSchema })
+  .strict();
+
+export const SupportBundlePreviewSchema = z
+  .object({
+    categories: z.array(SupportBundleCategoryPreviewSchema).length(8),
+    contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
+    excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(13),
+    fileType: z.literal("application/json"),
+    formatVersion: z.literal(1),
+    maxBytes: z.literal(256 * 1_024),
+    previewId: IdentifierSchema,
+    timeRange: SupportBundleTimeRangeSchema.nullable(),
+  })
+  .strict()
+  .superRefine((preview, context) => {
+    if (new Set(preview.categories.map(({ category }) => category)).size !== 8) {
+      context.addIssue({ code: "custom", message: "Support bundle categories must be unique" });
+    }
+    if (new Set(preview.excludedOrRedacted).size !== 13) {
+      context.addIssue({ code: "custom", message: "Redaction categories must be unique" });
+    }
+    if (preview.contentBytes > preview.maxBytes) {
+      context.addIssue({ code: "custom", message: "Support bundle exceeds its size limit" });
+    }
+  });
+export interface SupportBundlePreviewDto extends z.infer<typeof SupportBundlePreviewSchema> {}
+
+export const SupportBundleSaveResultSchema = z
+  .object({ status: z.enum(["cancelled", "written"]) })
+  .strict();
+export interface SupportBundleSaveResultDto extends z.infer<typeof SupportBundleSaveResultSchema> {}
+
 export const RuntimeMetricsSchema = z
   .object({
     activeConnections: NonNegativeIntegerSchema,
@@ -1906,4 +1979,10 @@ export interface DiagnosticsClient {
   dispose(): void;
   getHistory(options?: { signal?: AbortSignal }): Promise<DiagnosticHistoryDto>;
   startRun(options?: { signal?: AbortSignal }): Promise<DiagnosticHistoryDto>;
+}
+
+export interface SupportBundleClient {
+  readonly availability: SupportBundleAvailability;
+  preview(options?: { signal?: AbortSignal }): Promise<SupportBundlePreviewDto>;
+  save(previewId: string, options?: { signal?: AbortSignal }): Promise<SupportBundleSaveResultDto>;
 }

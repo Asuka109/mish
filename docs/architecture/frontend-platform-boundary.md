@@ -206,6 +206,13 @@ runtime host so runtime replacement invalidates in-flight work. It defines no
 mutation, export, upload, arbitrary endpoint, or persistent history method; see
 [`diagnostics-data-contracts.md`](diagnostics-data-contracts.md).
 
+Diagnostics support bundle export is intentionally outside loopback protocol
+versioning. The shared UI consumes a typed `SupportBundleClient`: ordinary
+browsers receive an explicit unavailable adapter, while the Tauri bootstrap
+enables a private preview/save adapter. Preview exposes only metadata for the
+exact in-memory JSON; save sends only its opaque preview ID and the native shell
+owns destination selection, private atomic writing, cancellation, and cleanup.
+
 Protocol version 8 adds the independent close-window preference and status-bar
 and window-lifecycle capability fields. Native menu commands do not create a
 second RPC protocol: the Tauri shell calls the same runtime, capture, routing,

@@ -1,12 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main",
-  "description": "Allows Mish bootstrap, user-selected profile import, and native title-bar gestures in the main local WebView.",
+  "description": "Allows Mish bootstrap, user-selected profile import, local support bundle export, and native title-bar gestures in the main local WebView.",
   "local": true,
   "windows": ["main"],
   "permissions": [
     "allow-runtime-bootstrap",
     "allow-profile-preflight-local",
+    "allow-diagnostics-support-bundle-preview",
+    "allow-diagnostics-support-bundle-save",
     "core:event:allow-listen",
     "core:window:allow-start-dragging",
     "core:window:allow-set-theme",

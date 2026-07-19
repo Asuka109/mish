@@ -647,6 +647,10 @@ impl MishRuntime {
             .expect("Events state must serialize")
     }
 
+    pub fn events_snapshot_typed(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot {
+        self.events_source.events_snapshot(adapter_kind)
+    }
+
     pub fn subscribe_events(&self) -> broadcast::Receiver<()> {
         self.events_source.subscribe_events()
     }

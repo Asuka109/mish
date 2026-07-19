@@ -298,6 +298,8 @@ impl ActivationAttempt {
 pub struct ManagedActivationState {
     active_fingerprint: Option<String>,
     active_profile_id: Option<String>,
+    #[serde(default)]
+    active_revision: Option<String>,
     active_runtime_id: Option<String>,
     last_attempt: Option<ActivationAttempt>,
     schema_version: u32,
@@ -308,9 +310,10 @@ impl Default for ManagedActivationState {
         Self {
             active_fingerprint: None,
             active_profile_id: None,
+            active_revision: None,
             active_runtime_id: None,
             last_attempt: None,
-            schema_version: 1,
+            schema_version: 2,
         }
     }
 }
@@ -322,6 +325,10 @@ impl ManagedActivationState {
 
     pub fn active_profile_id(&self) -> Option<&str> {
         self.active_profile_id.as_deref()
+    }
+
+    pub fn active_revision(&self) -> Option<&str> {
+        self.active_revision.as_deref()
     }
 
     pub fn is_safe_stopped(&self) -> bool {
@@ -336,6 +343,7 @@ impl ManagedActivationState {
 pub struct ActivationCommit {
     fingerprint: String,
     profile_id: String,
+    revision: String,
 }
 
 impl ActivationCommit {
@@ -346,6 +354,10 @@ impl ActivationCommit {
     pub fn profile_id(&self) -> &str {
         &self.profile_id
     }
+
+    pub fn revision(&self) -> &str {
+        &self.revision
+    }
 }
 
 impl fmt::Debug for ActivationCommit {
@@ -354,6 +366,7 @@ impl fmt::Debug for ActivationCommit {
             .debug_struct("ActivationCommit")
             .field("fingerprint", &self.fingerprint)
             .field("profile_id", &self.profile_id)
+            .field("revision", &self.revision)
             .finish()
     }
 }
@@ -361,6 +374,7 @@ impl fmt::Debug for ActivationCommit {
 struct ActiveMihomo {
     fingerprint: String,
     profile_id: String,
+    revision: String,
     runtime: MishRuntime,
     runtime_id: String,
     source: Arc<ControllerStatusSource>,
@@ -495,6 +509,7 @@ impl MihomoActivationManager {
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
+                state.managed.active_revision = None;
                 state.managed.active_runtime_id = None;
                 persist_managed_state(resolved.runtime_root(), &state.managed)?;
                 return Err(MihomoActivationError::RollbackFailedSafeStopped);
@@ -519,6 +534,7 @@ impl MihomoActivationManager {
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
+                state.managed.active_revision = None;
                 state.managed.active_runtime_id = None;
                 persist_managed_state(resolved.runtime_root(), &state.managed)?;
                 return Err(MihomoActivationError::RollbackFailedSafeStopped);
@@ -549,6 +565,7 @@ impl MihomoActivationManager {
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
+                state.managed.active_revision = None;
                 state.managed.active_runtime_id = None;
                 persist_managed_state(resolved.runtime_root(), &state.managed)?;
                 return Err(MihomoActivationError::RollbackFailedSafeStopped);
@@ -560,6 +577,7 @@ impl MihomoActivationManager {
         let committed_state = ManagedActivationState {
             active_fingerprint: Some(candidate.fingerprint.clone()),
             active_profile_id: Some(candidate.profile_id.clone()),
+            active_revision: Some(candidate.revision.clone()),
             active_runtime_id: Some(candidate.runtime_id.clone()),
             last_attempt: Some(ActivationAttempt {
                 attempted_at_unix_milliseconds: now_unix_milliseconds(),
@@ -568,7 +586,7 @@ impl MihomoActivationManager {
                 outcome: ActivationOutcome::Succeeded,
                 profile_id: candidate.profile_id.clone(),
             }),
-            schema_version: 1,
+            schema_version: 2,
         };
         if persist_managed_state(resolved.runtime_root(), &committed_state).is_err() {
             if suspended_capture.is_some() {
@@ -593,6 +611,7 @@ impl MihomoActivationManager {
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
+                state.managed.active_revision = None;
                 state.managed.active_runtime_id = None;
                 return Err(MihomoActivationError::RollbackFailedSafeStopped);
             }
@@ -607,6 +626,7 @@ impl MihomoActivationManager {
         Ok(ActivationCommit {
             fingerprint: record.metadata.artifact.fingerprint.as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
+            revision: record.metadata.revision.id.as_str().to_owned(),
         })
     }
 
@@ -640,6 +660,7 @@ impl MihomoActivationManager {
         state.active = None;
         state.managed.active_fingerprint = None;
         state.managed.active_profile_id = None;
+        state.managed.active_revision = None;
         state.managed.active_runtime_id = None;
         persist_managed_state(&self.resolver.runtime_root, &state.managed)
     }
@@ -723,6 +744,7 @@ impl MihomoActivationManager {
         Ok(ActiveMihomo {
             fingerprint: record.metadata.artifact.fingerprint.as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
+            revision: record.metadata.revision.id.as_str().to_owned(),
             runtime,
             runtime_id: candidate_id,
             source,

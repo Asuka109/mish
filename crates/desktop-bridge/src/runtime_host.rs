@@ -1,10 +1,10 @@
 use mish_runtime::{
     CaptureAuditReason, CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError,
-    CoreStatus, DiagnosticHistory, MishRuntime, ProviderAuthority, ProviderCommandExecution,
-    ProviderCommandResult, ProviderKind, ProviderSnapshot, ProviderUpdateFailure, RoutingMode,
-    StatusAdapterKind, StatusCommand, StatusCommandError, TrafficCommandAuthority,
-    TrafficCommandExecution, TrafficCommandFailureKind, TrafficCommandOperation,
-    TrafficCommandResult,
+    CoreStatus, DiagnosticHistory, EventsSnapshot, MishRuntime, ProviderAuthority,
+    ProviderCommandExecution, ProviderCommandResult, ProviderKind, ProviderSnapshot,
+    ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficCommandResult,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -236,6 +236,22 @@ impl DesktopRuntimeHost {
 
     pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         self.current().events_snapshot(adapter_kind)
+    }
+
+    pub async fn support_bundle_runtime_snapshot(
+        &self,
+        adapter_kind: StatusAdapterKind,
+    ) -> (CoreStatus, StatusSnapshot, EventsSnapshot) {
+        loop {
+            let mut changes = self.subscribe_changes();
+            let runtime = changes.borrow_and_update().clone();
+            let core = runtime.core_status().await;
+            let status = runtime.snapshot_typed_from_status(&core, adapter_kind);
+            let events = runtime.events_snapshot_typed(adapter_kind);
+            if !changes.has_changed().unwrap_or(false) {
+                return (core, status, events);
+            }
+        }
     }
 
     fn finish_traffic_command(

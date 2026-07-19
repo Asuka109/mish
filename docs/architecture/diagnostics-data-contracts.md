@@ -4,9 +4,9 @@
 
 Guided Diagnostics is an Events-owned, transport-neutral, read-only application
 contract. A run begins only after an authenticated user action. Mish does not
-schedule background runs, upload results, emit telemetry, export a bundle, read
-arbitrary files, or accept a caller-supplied URL, hostname, timeout, Controller
-path, credential, raw configuration, routing mode, or group selection.
+schedule background runs, upload results, emit telemetry, read arbitrary files,
+or accept a caller-supplied URL, hostname, timeout, Controller path, credential,
+raw configuration, routing mode, or group selection.
 
 The desktop bridge retains at most eight runs in process memory. A browser
 fixture retains the same bound but uses only explicit fictional results. Neither
@@ -95,8 +95,38 @@ The WebView polls history only while an already-started run is active. Polling
 does not start a check. Common failure rows and Status warnings link to the
 Diagnostics section; the link performs no recovery.
 
+## Local support bundle export
+
+The desktop application exposes support bundle export only through two private,
+permission-scoped Tauri commands. Preview builds the exact bounded JSON bytes in
+memory and returns only their typed category counts, byte count, maximum size,
+included time range, format version, and complete redaction-category list. Save
+accepts only that pending preview ID, opens the native save dialog inside the
+trusted shell, and writes the same bytes. Web content cannot supply a path or
+file contents. Cancellation writes nothing and is neither success nor failure.
+
+Format version 1 is limited to 256 KiB. It contains application and pinned-core
+version status, sanitized platform version fields, capability state, the active
+Profile's non-sensitive ID/revision/fingerprint, capture desired/observed/drift,
+aggregates for at most 256 recent events, and structured fields for at most eight
+diagnostic runs with 16 checks each. Event message/detail text and diagnostic
+scope/interpretation prose never enter the manifest. Raw Profile/YAML data,
+subscription URLs, credentials, complete paths, node labels, connection
+destinations, process paths, raw addresses/hostnames, private endpoints,
+Controller payloads, and status-bar labels are excluded at the source and named
+in the manifest's versioned redaction report.
+
+The native writer creates a same-directory mode-`0600` temporary file, syncs it,
+and atomically renames it. It rejects oversized bytes and symbolic-link targets,
+removes temporary files after write or rename failure, and returns path-free
+errors. Export does not mutate runtime, capture, Profiles, event retention, or
+diagnostic history and never becomes an application fact source. Browser and
+unsupported platforms advertise export as unavailable. No upload, telemetry,
+clipboard side effect, background generation, or loopback export RPC exists.
+
 ## Explicit exclusions
 
-This slice defines no export, upload, clipboard copy, arbitrary probe endpoint,
-service editor, persistent history, automatic schedule, telemetry, or recovery
-command. Those capabilities require separate privacy and product contracts.
+The diagnostic-run RPC slice defines no export, upload, clipboard copy,
+arbitrary probe endpoint, service editor, persistent history, automatic
+schedule, telemetry, or recovery command. Local support bundle export is the
+separate private Tauri boundary above; ordinary loopback RPC cannot invoke it.

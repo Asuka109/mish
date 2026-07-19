@@ -5,6 +5,12 @@ import { Play } from "@phosphor-icons/react/Play";
 import {
   Badge,
   Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -28,6 +34,8 @@ import type {
   EventRecordDto,
   EventSource,
   EventSourcePhase,
+  SupportBundleCategory,
+  SupportBundleRedactionCategory,
 } from "@mish/contracts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
@@ -52,6 +60,13 @@ export function EventsPage() {
     isLoading,
     snapshot,
     startDiagnosticRun,
+    clearSupportBundlePreview,
+    previewSupportBundle,
+    saveSupportBundle,
+    supportBundleAvailability,
+    supportBundlePending,
+    supportBundlePreview,
+    supportBundleResult,
   } = useEvents();
   const { LL, locale } = useI18nContext();
   const [query, setQuery] = useState("");
@@ -235,7 +250,113 @@ export function EventsPage() {
         ) : (
           <p className="diagnostics-empty">{LL.diagnostics.empty()}</p>
         )}
+        <div className="support-bundle-section">
+          <div>
+            <h3>{LL.diagnostics.export.title()}</h3>
+            <p>{LL.diagnostics.export.description()}</p>
+          </div>
+          <Button
+            disabled={supportBundleAvailability !== "supported" || supportBundlePending}
+            onClick={() => void previewSupportBundle()}
+            variant="outline"
+          >
+            {supportBundlePending
+              ? LL.diagnostics.export.preparing()
+              : LL.diagnostics.export.preview()}
+          </Button>
+        </div>
+        {supportBundleAvailability !== "supported" ? (
+          <p className="support-bundle-status" role="status">
+            {LL.diagnostics.export.unavailable()}
+          </p>
+        ) : null}
+        {supportBundleResult !== "idle" ? (
+          <p
+            className="support-bundle-status"
+            data-status={supportBundleResult}
+            role={supportBundleResult === "failed" ? "alert" : "status"}
+          >
+            {LL.diagnostics.export.result[supportBundleResult]()}
+          </p>
+        ) : null}
       </section>
+
+      <Dialog
+        onOpenChange={(open) => (open ? undefined : clearSupportBundlePreview())}
+        open={supportBundlePreview !== null}
+      >
+        <DialogContent className="support-bundle-dialog" closeLabel={LL.common.close()}>
+          {supportBundlePreview ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="dialog-title">
+                  {LL.diagnostics.export.previewTitle()}
+                </DialogTitle>
+                <DialogDescription className="dialog-description">
+                  {LL.diagnostics.export.previewDescription()}
+                </DialogDescription>
+              </DialogHeader>
+              <dl className="support-bundle-metadata">
+                <div>
+                  <dt>{LL.diagnostics.export.format()}</dt>
+                  <dd>JSON · v{supportBundlePreview.formatVersion}</dd>
+                </div>
+                <div>
+                  <dt>{LL.diagnostics.export.size()}</dt>
+                  <dd>
+                    {formatBytes(supportBundlePreview.contentBytes)} /{" "}
+                    {formatBytes(supportBundlePreview.maxBytes)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>{LL.diagnostics.export.timeRange()}</dt>
+                  <dd>
+                    {formatSupportBundleTimeRange(
+                      supportBundlePreview.timeRange,
+                      locale,
+                      LL.diagnostics.export.noHistory(),
+                    )}
+                  </dd>
+                </div>
+              </dl>
+              <div className="support-bundle-preview-body">
+                <section aria-labelledby="support-bundle-categories">
+                  <h4 id="support-bundle-categories">{LL.diagnostics.export.categories()}</h4>
+                  <SectionGrid className="support-bundle-category-grid">
+                    {supportBundlePreview.categories.map(({ category, itemCount }) => (
+                      <SectionGridItem className="support-bundle-category" key={category}>
+                        <span>{supportBundleCategoryLabel(LL, category)}</span>
+                        <strong className="tabular">{itemCount}</strong>
+                      </SectionGridItem>
+                    ))}
+                  </SectionGrid>
+                </section>
+                <section aria-labelledby="support-bundle-redactions">
+                  <h4 id="support-bundle-redactions">{LL.diagnostics.export.redactions()}</h4>
+                  <ul className="support-bundle-redactions">
+                    {supportBundlePreview.excludedOrRedacted.map((category) => (
+                      <li key={category}>{supportBundleRedactionLabel(LL, category)}</li>
+                    ))}
+                  </ul>
+                </section>
+              </div>
+              <DialogFooter>
+                <Button onClick={clearSupportBundlePreview} variant="outline">
+                  {LL.common.cancel()}
+                </Button>
+                <Button
+                  disabled={supportBundlePending}
+                  onClick={() => void saveSupportBundle(supportBundlePreview.previewId)}
+                >
+                  {supportBundlePending
+                    ? LL.diagnostics.export.saving()
+                    : LL.diagnostics.export.confirmSave()}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <div className="events-controls">
         <Input
@@ -553,4 +674,33 @@ function formatEventTime(value: number, locale: Locales) {
 export function formatEventForCopy(event: EventRecordDto) {
   const header = `${new Date(event.observedAt).toISOString()} [${event.level.toUpperCase()}] [${event.source}] ${event.message}`;
   return event.detail ? `${header}\n${event.detail}` : header;
+}
+
+function supportBundleCategoryLabel(LL: TranslationFunctions, category: SupportBundleCategory) {
+  return LL.diagnostics.export.category[category]();
+}
+
+function supportBundleRedactionLabel(
+  LL: TranslationFunctions,
+  category: SupportBundleRedactionCategory,
+) {
+  return LL.diagnostics.export.redaction[category]();
+}
+
+function formatBytes(value: number) {
+  if (value < 1_024) return `${value} B`;
+  return `${(value / 1_024).toFixed(1)} KiB`;
+}
+
+function formatSupportBundleTimeRange(
+  range: { endedAt: number; startedAt: number } | null,
+  locale: Locales,
+  empty: string,
+) {
+  if (!range) return empty;
+  const formatter = new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  });
+  return `${formatter.format(range.startedAt)} – ${formatter.format(range.endedAt)}`;
 }

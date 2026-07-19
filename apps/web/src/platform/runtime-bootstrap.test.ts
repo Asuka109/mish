@@ -31,6 +31,10 @@ const settingsSnapshot = {
   startupRegistration: { desired: false, observed: false, phase: "applied" as const },
   storageRecovered: false,
 };
+const supportBundleDependencies = {
+  invokeSupportBundlePreview: vi.fn(),
+  invokeSupportBundleSave: vi.fn(),
+};
 
 describe("desktop runtime bootstrap", () => {
   it("leaves ordinary browser startup fixture-backed and does not invoke IPC", async () => {
@@ -39,6 +43,7 @@ describe("desktop runtime bootstrap", () => {
     const startup = await resolveStartupStatusClient({
       invokeBootstrap,
       invokeLocalProfilePreflight,
+      ...supportBundleDependencies,
       isDesktop: () => false,
       openWebSocket: vi.fn(),
     });
@@ -49,6 +54,7 @@ describe("desktop runtime bootstrap", () => {
     expect(startup.runtime).toBe("browser");
     expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
     expect(startup.settingsSnapshot.capabilities.launchAtLogin).toBe("unavailable");
+    expect(startup.supportBundleClient.availability).toBe("unavailable");
     expect(invokeBootstrap).not.toHaveBeenCalled();
     expect(invokeLocalProfilePreflight).not.toHaveBeenCalled();
   });
@@ -61,14 +67,35 @@ describe("desktop runtime bootstrap", () => {
         nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
+        supportBundleExport: true,
       }),
       invokeLocalProfilePreflight,
+      ...supportBundleDependencies,
       isDesktop: () => true,
       openWebSocket: vi.fn(),
     });
 
     await expect(startup.profileClient?.preflightLocal("Local profile")).resolves.toBeNull();
     expect(invokeLocalProfilePreflight).toHaveBeenCalledWith("Local profile");
+    startup.dispose();
+  });
+
+  it("keeps support bundle commands unavailable when desktop bootstrap omits the capability", async () => {
+    const startup = await resolveStartupStatusClient({
+      invokeBootstrap: async () => ({
+        authToken: token,
+        nativeSidebarMaterial: true,
+        rpcUrl: "ws://127.0.0.1:43123/rpc",
+        settingsSnapshot,
+        supportBundleExport: false,
+      }),
+      invokeLocalProfilePreflight: vi.fn(),
+      ...supportBundleDependencies,
+      isDesktop: () => true,
+      openWebSocket: vi.fn(),
+    });
+
+    expect(startup.supportBundleClient.availability).toBe("unavailable");
     startup.dispose();
   });
 
@@ -79,12 +106,14 @@ describe("desktop runtime bootstrap", () => {
         nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
+        supportBundleExport: true,
       }),
     ).toEqual({
       authToken: token,
       nativeSidebarMaterial: true,
       rpcUrl: "ws://127.0.0.1:43123/rpc",
       settingsSnapshot,
+      supportBundleExport: true,
     });
 
     for (const rpcUrl of [
@@ -101,6 +130,7 @@ describe("desktop runtime bootstrap", () => {
           nativeSidebarMaterial: true,
           rpcUrl,
           settingsSnapshot,
+          supportBundleExport: true,
         }),
       ).toThrow();
     }
@@ -134,8 +164,10 @@ describe("desktop runtime bootstrap", () => {
         nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
         settingsSnapshot,
+        supportBundleExport: true,
       }),
       invokeLocalProfilePreflight: vi.fn(),
+      ...supportBundleDependencies,
       isDesktop: () => true,
       openWebSocket,
     });

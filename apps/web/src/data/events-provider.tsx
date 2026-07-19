@@ -4,6 +4,8 @@ import type {
   EventsClient,
   EventsConnectionState,
   EventsSnapshotDto,
+  SupportBundleClient,
+  SupportBundlePreviewDto,
 } from "@mish/contracts";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
@@ -13,6 +15,9 @@ import {
 } from "../pages/events-model";
 import { createFixtureEventsClient } from "./fixture-events-client";
 import { createFixtureDiagnosticsClient } from "./fixture-diagnostics-client";
+import { UnavailableSupportBundleClient } from "../platform/support-bundle";
+
+type SupportBundleResult = "idle" | "cancelled" | "written" | "failed";
 
 interface EventsContextValue {
   clearLocal(): void;
@@ -26,6 +31,13 @@ interface EventsContextValue {
   isLoading: boolean;
   snapshot: EventsSnapshotDto | null;
   startDiagnosticRun(): Promise<void>;
+  clearSupportBundlePreview(): void;
+  previewSupportBundle(): Promise<void>;
+  saveSupportBundle(previewId: string): Promise<void>;
+  supportBundleAvailability: SupportBundleClient["availability"];
+  supportBundlePending: boolean;
+  supportBundlePreview: SupportBundlePreviewDto | null;
+  supportBundleResult: SupportBundleResult;
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
@@ -34,13 +46,23 @@ interface EventsProviderProps {
   children: ReactNode;
   client?: EventsClient;
   diagnosticsClient?: DiagnosticsClient;
+  supportBundleClient?: SupportBundleClient;
 }
 
-export function EventsProvider({ children, client, diagnosticsClient }: EventsProviderProps) {
+export function EventsProvider({
+  children,
+  client,
+  diagnosticsClient,
+  supportBundleClient,
+}: EventsProviderProps) {
   const resolvedClient = useMemo(() => client ?? createFixtureEventsClient(), [client]);
   const resolvedDiagnosticsClient = useMemo(
     () => diagnosticsClient ?? createFixtureDiagnosticsClient(),
     [diagnosticsClient],
+  );
+  const resolvedSupportBundleClient = useMemo(
+    () => supportBundleClient ?? new UnavailableSupportBundleClient(),
+    [supportBundleClient],
   );
   const [snapshot, setSnapshot] = useState<EventsSnapshotDto | null>(null);
   const [connection, setConnection] = useState(() => resolvedClient.getConnectionState());
@@ -49,6 +71,11 @@ export function EventsProvider({ children, client, diagnosticsClient }: EventsPr
   const [diagnosticHistory, setDiagnosticHistory] = useState<DiagnosticHistoryDto | null>(null);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [diagnosticPending, setDiagnosticPending] = useState(false);
+  const [supportBundlePending, setSupportBundlePending] = useState(false);
+  const [supportBundlePreview, setSupportBundlePreview] = useState<SupportBundlePreviewDto | null>(
+    null,
+  );
+  const [supportBundleResult, setSupportBundleResult] = useState<SupportBundleResult>("idle");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -111,6 +138,10 @@ export function EventsProvider({ children, client, diagnosticsClient }: EventsPr
   const value = useMemo<EventsContextValue>(
     () => ({
       clearLocal: () => setBuffer((current) => clearLocalEvents(current)),
+      clearSupportBundlePreview: () => {
+        setSupportBundlePreview(null);
+        setSupportBundleResult("idle");
+      },
       cancelDiagnosticRun: async (runId) => {
         setDiagnosticPending(true);
         try {
@@ -130,6 +161,32 @@ export function EventsProvider({ children, client, diagnosticsClient }: EventsPr
       events: buffer.events,
       isLoading: snapshot === null && error === null,
       snapshot,
+      previewSupportBundle: async () => {
+        if (resolvedSupportBundleClient.availability !== "supported") return;
+        setSupportBundlePending(true);
+        setSupportBundleResult("idle");
+        try {
+          setSupportBundlePreview(await resolvedSupportBundleClient.preview());
+        } catch {
+          setSupportBundlePreview(null);
+          setSupportBundleResult("failed");
+        } finally {
+          setSupportBundlePending(false);
+        }
+      },
+      saveSupportBundle: async (previewId) => {
+        setSupportBundlePending(true);
+        try {
+          const result = await resolvedSupportBundleClient.save(previewId);
+          setSupportBundlePreview(null);
+          setSupportBundleResult(result.status);
+        } catch {
+          setSupportBundlePreview(null);
+          setSupportBundleResult("failed");
+        } finally {
+          setSupportBundlePending(false);
+        }
+      },
       startDiagnosticRun: async () => {
         setDiagnosticPending(true);
         try {
@@ -141,6 +198,10 @@ export function EventsProvider({ children, client, diagnosticsClient }: EventsPr
           setDiagnosticPending(false);
         }
       },
+      supportBundleAvailability: resolvedSupportBundleClient.availability,
+      supportBundlePending,
+      supportBundlePreview,
+      supportBundleResult,
     }),
     [
       buffer.events,
@@ -150,7 +211,11 @@ export function EventsProvider({ children, client, diagnosticsClient }: EventsPr
       diagnosticPending,
       error,
       resolvedDiagnosticsClient,
+      resolvedSupportBundleClient,
       snapshot,
+      supportBundlePending,
+      supportBundlePreview,
+      supportBundleResult,
     ],
   );
 
