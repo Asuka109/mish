@@ -24,8 +24,8 @@ use mish_bridge::{
 use mish_profile::{
     FileProfileRepository, Fingerprint, ImmutableRevision, NORMALIZED_ARTIFACT_SCHEMA_VERSION,
     NormalizedArtifact, PROFILE_SCHEMA_VERSION, ProfileAttempt, ProfileId, ProfileMetadata,
-    ProfileRecord, ProfileSource, ProfileStatus, Provenance, RevisionId, SourceSummary, Timestamp,
-    ValidationResult, ValidationStatus,
+    ProfileRecord, ProfileRefreshTrigger, ProfileSource, ProfileStatus, Provenance, RevisionId,
+    SourceSummary, Timestamp, ValidationResult, ValidationStatus,
 };
 use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -686,6 +686,12 @@ async fn duplicate_profile_activation_is_deduplicated_and_cancellable() {
         .activate(&first_command, record.metadata.id.as_str())
         .await
         .unwrap();
+    assert!(matches!(
+        coordinator
+            .refresh_profile(record.metadata.id.as_str(), ProfileRefreshTrigger::Manual)
+            .await,
+        Err(mish_bridge::ProfileActivationCoordinatorError::Conflict)
+    ));
     let duplicate = coordinator
         .activate(&duplicate_command, record.metadata.id.as_str())
         .await
@@ -1248,6 +1254,7 @@ fn profile_record(normalized_bytes: &[u8]) -> ProfileRecord {
             label: "Synthetic activation profile".into(),
             last_attempt: None::<ProfileAttempt>,
             last_success: None,
+            refresh: Default::default(),
             provenance: Provenance {
                 imported_at: timestamp,
                 source: SourceSummary {

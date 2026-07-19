@@ -83,6 +83,17 @@ Deleting the active profile requires either successful activation of a selected
 replacement or an explicit safe stop before deletion becomes available. The
 Status profile selector uses the same Profiles command seam.
 
+The P1 Profiles slice keeps automatic source refresh off by default and offers
+only fixed six-hour, twelve-hour, daily, and weekly schedules for HTTPS sources.
+The desktop application coordinator persists next run and last success/failure,
+applies bounded exponential backoff, and shares a per-profile gate with manual
+refresh and activation. Profiles also distinguishes that source lifecycle from
+current-runtime proxy/rule providers: safe provider health is read-only,
+update-one/update-all are explicitly scoped to current profile/runtime
+authority, partial failures remain per-provider, and a fresh inventory is
+required before success is reported. Browser fixtures perform neither
+background refresh nor provider updates.
+
 ## Requirements: Profiles
 
 | ID         | Priority | Requirement                                                                                                        | Acceptance criteria                                                                                                                                                                                                       |

@@ -227,6 +227,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             safe_runtime,
             ephemeral_runtime_policy,
         ));
+        activation.start_scheduler().await;
         let status_bar_state =
             status_bar::StatusBarState::new(runtime_host.clone(), activation.clone());
         start_loopback_server_with_runtime_host_and_lifecycle(
@@ -394,6 +395,11 @@ fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
             code: "activation-required",
             field_identity: None,
             message: "Active profiles cannot be deleted until transactional activation is available",
+        },
+        ProfileServiceError::SchedulingUnavailable => ProfileCommandError {
+            code: "capability-unavailable",
+            field_identity: None,
+            message: "Scheduled refresh is available only for HTTPS profile sources",
         },
     }
 }

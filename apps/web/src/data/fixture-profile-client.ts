@@ -3,7 +3,10 @@ import {
   type ProfileClient,
   type ProfileConnectionState,
   type ProfilePreviewDto,
+  type ProfileRefreshPolicy,
   type ProfileSnapshotDto,
+  type ProviderAuthorityDto,
+  type ProviderKind,
 } from "@mish/contracts";
 
 const fixtureSnapshot = {
@@ -27,6 +30,7 @@ const fixtureSnapshot = {
     httpsImport: "fixture-only",
     localFileImport: "fixture-only",
     refresh: "fixture-only",
+    scheduling: "fixture-only",
     save: "fixture-only",
   },
   profiles: [
@@ -36,6 +40,13 @@ const fixtureSnapshot = {
       lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
       lastKnownValid: true,
       lastSuccessAt: 1_721_296_000_000,
+      refresh: {
+        consecutiveFailures: 0,
+        lastFailureAt: null,
+        lastSuccessAt: null,
+        nextRunAt: null,
+        policy: "off",
+      },
       source: { display: "https://profiles.example/…", sourceType: "https" },
       status: {
         active: false,
@@ -81,6 +92,14 @@ const fixtureSnapshot = {
       warningCodes: ["source-formatting-not-round-tripped"],
     },
   ],
+  providers: {
+    authority: null,
+    capability: "fixture-only",
+    observationFailure: null,
+    observedAt: null,
+    providers: [],
+    remotelyCancellable: false,
+  },
 } satisfies ProfileSnapshotDto;
 
 export class FixtureProfileClient implements ProfileClient {
@@ -138,6 +157,15 @@ export class FixtureProfileClient implements ProfileClient {
     throw unsupported();
   }
 
+  async setRefreshPolicy(
+    _profileId: string,
+    _policy: ProfileRefreshPolicy,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto> {
+    if (options?.signal?.aborted) throw cancelled();
+    throw unsupported();
+  }
+
   async savePreview(
     _previewId: string,
     options?: { signal?: AbortSignal },
@@ -149,6 +177,24 @@ export class FixtureProfileClient implements ProfileClient {
   stopActiveProfile(_commandId: string, options?: { signal?: AbortSignal }): Promise<never> {
     if (options?.signal?.aborted) return Promise.reject(cancelled());
     return Promise.reject(unsupported());
+  }
+
+  async updateAllProviders(
+    _authority: ProviderAuthorityDto,
+    _kind: ProviderKind,
+    options?: { signal?: AbortSignal },
+  ): Promise<never> {
+    if (options?.signal?.aborted) throw cancelled();
+    throw unsupported();
+  }
+
+  async updateProvider(
+    _authority: ProviderAuthorityDto,
+    _providerId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<never> {
+    if (options?.signal?.aborted) throw cancelled();
+    throw unsupported();
   }
 
   subscribeConnection(listener: (state: ProfileConnectionState) => void) {

@@ -10,20 +10,26 @@ use std::{
 use futures_util::{StreamExt, future::BoxFuture};
 use mish_mihomo_controller::{
     ConnectionSnapshot, ControllerClient, ControllerError, ControllerLimits, ControllerStream,
-    Endpoint, HttpTransportConfig, LogMessage, MemorySnapshot, ProxyCatalog,
-    RoutingMode as ControllerRoutingMode, TrafficSnapshot, shared_http_transport,
+    Endpoint, HttpTransportConfig, LogMessage, MemorySnapshot,
+    ProviderKind as ControllerProviderKind, ProviderVehicleType, ProxyCatalog,
+    ProxyProviderCatalog, RoutingMode as ControllerRoutingMode, RuleProviderCatalog,
+    TrafficSnapshot, shared_http_transport,
 };
 use mish_runtime::{
     CaptureSelection, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, EVENTS_BUFFER_LIMIT,
     EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
     EventsDataSource, EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult,
     GroupDelayFailure, GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, ProfileSummary,
-    ProxyDiagnosticFailure, ProxyDiagnosticObservation, RoutingMode, RuntimeObservationPauseReason,
-    RuntimePhase, StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
+    ProviderAuthority, ProviderCapabilityAvailability, ProviderCommandExecution,
+    ProviderCommandOperation, ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType,
+    ProviderUpdateFailure, ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure,
+    ProxyDiagnosticObservation, RoutingMode, RuntimeObservationPauseReason, RuntimePhase,
+    RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
     StatusDataSource, StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution,
     TrafficCommandFailureKind, TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot,
     TrafficDataSource,
 };
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::{
     sync::{Mutex as AsyncMutex, broadcast},
@@ -105,6 +111,7 @@ struct SourceState {
     initial_observation: ControllerInitialObservation,
     event_phase: EventsDataPhase,
     mapper: Option<ControllerStatusMapper>,
+    providers: ProviderSnapshot,
     event_reconnect_count: u64,
     event_sequence: u64,
     event_session_id: Option<String>,
@@ -125,6 +132,7 @@ impl SourceState {
             initial_observation: ControllerInitialObservation::Pending,
             event_phase: EventsDataPhase::Connecting,
             mapper: None,
+            providers: ProviderSnapshot::unavailable(),
             event_reconnect_count: 0,
             event_sequence: 0,
             event_session_id: None,
@@ -498,9 +506,230 @@ impl StatusDataSource for ControllerStatusSource {
     ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
         Box::pin(async move { self.cancel_group_delay(&test_id).await })
     }
+
+    fn provider_snapshot(&self) -> ProviderSnapshot {
+        self.inner
+            .state
+            .lock()
+            .expect("controller source state poisoned")
+            .providers
+            .clone()
+    }
+
+    fn update_provider(
+        &self,
+        authority: ProviderAuthority,
+        provider_id: String,
+    ) -> BoxFuture<'_, ProviderCommandExecution> {
+        Box::pin(async move { self.run_provider_update(authority, provider_id).await })
+    }
+
+    fn update_all_providers(
+        &self,
+        authority: ProviderAuthority,
+        kind: ProviderKind,
+    ) -> BoxFuture<'_, ProviderCommandExecution> {
+        Box::pin(async move { self.run_all_provider_updates(authority, kind).await })
+    }
 }
 
 impl ControllerStatusSource {
+    async fn run_provider_update(
+        &self,
+        authority: ProviderAuthority,
+        provider_id: String,
+    ) -> ProviderCommandExecution {
+        let operation = ProviderCommandOperation::UpdateOne;
+        let Ok(_command) = self.inner.command.try_lock() else {
+            return ProviderCommandExecution::failure(
+                operation,
+                Some(provider_id),
+                ProviderUpdateFailure::Conflict,
+            );
+        };
+        let _authority = self.inner.authority.lock().await;
+        if !provider_authority_matches(&self.inner.profile, &authority) {
+            return ProviderCommandExecution::failure(
+                operation,
+                Some(provider_id),
+                ProviderUpdateFailure::StaleAuthority,
+            );
+        }
+        if let Err(failure) = refresh_provider_inventory_kind(&self.inner, None).await {
+            return ProviderCommandExecution::failure(operation, Some(provider_id), failure);
+        }
+        let target = {
+            let state = self
+                .inner
+                .state
+                .lock()
+                .expect("controller source state poisoned");
+            state
+                .providers
+                .providers
+                .iter()
+                .find(|provider| provider.id == provider_id)
+                .map(|provider| (provider.kind, provider.label.clone()))
+        };
+        let Some((kind, label)) = target else {
+            return ProviderCommandExecution::failure(
+                operation,
+                Some(provider_id),
+                ProviderUpdateFailure::NotFound,
+            );
+        };
+        mark_provider_pending(&self.inner, std::slice::from_ref(&provider_id));
+        publish_change(&self.inner).await;
+
+        if let Err(error) = self.inner.client.verify_version().await {
+            let failure = map_provider_error(&error);
+            finish_provider_update(&self.inner, &provider_id, Some(failure));
+            publish_change(&self.inner).await;
+            return ProviderCommandExecution::failure(operation, Some(provider_id), failure);
+        }
+        if let Err(error) = self
+            .inner
+            .client
+            .update_provider(controller_provider_kind(kind), &label)
+            .await
+        {
+            let failure = map_provider_error(&error);
+            finish_provider_update(&self.inner, &provider_id, Some(failure));
+            publish_change(&self.inner).await;
+            return ProviderCommandExecution::failure(operation, Some(provider_id), failure);
+        }
+        if let Err(failure) = refresh_provider_inventory_kind(&self.inner, Some(kind)).await {
+            finish_provider_update(&self.inner, &provider_id, Some(failure));
+            publish_change(&self.inner).await;
+            return ProviderCommandExecution::failure(operation, Some(provider_id), failure);
+        }
+        let confirmed = self
+            .provider_snapshot()
+            .providers
+            .iter()
+            .any(|provider| provider.id == provider_id);
+        let failure = (!confirmed).then_some(ProviderUpdateFailure::InconsistentObservation);
+        finish_provider_update(&self.inner, &provider_id, failure);
+        publish_change(&self.inner).await;
+        match failure {
+            Some(failure) => {
+                ProviderCommandExecution::failure(operation, Some(provider_id), failure)
+            }
+            None => ProviderCommandExecution {
+                failed: Vec::new(),
+                failure: None,
+                operation,
+                succeeded_provider_ids: vec![provider_id],
+            },
+        }
+    }
+
+    async fn run_all_provider_updates(
+        &self,
+        authority: ProviderAuthority,
+        kind: ProviderKind,
+    ) -> ProviderCommandExecution {
+        let operation = ProviderCommandOperation::UpdateAll;
+        let Ok(_command) = self.inner.command.try_lock() else {
+            return ProviderCommandExecution::failure(
+                operation,
+                None,
+                ProviderUpdateFailure::Conflict,
+            );
+        };
+        let _authority = self.inner.authority.lock().await;
+        if !provider_authority_matches(&self.inner.profile, &authority) {
+            return ProviderCommandExecution::failure(
+                operation,
+                None,
+                ProviderUpdateFailure::StaleAuthority,
+            );
+        }
+        if let Err(failure) = refresh_provider_inventory_kind(&self.inner, Some(kind)).await {
+            return ProviderCommandExecution::failure(operation, None, failure);
+        }
+        let targets: Vec<(String, String)> = self
+            .provider_snapshot()
+            .providers
+            .into_iter()
+            .filter(|provider| provider.kind == kind)
+            .map(|provider| (provider.id, provider.label))
+            .collect();
+        if targets.is_empty() {
+            return ProviderCommandExecution::failure(
+                operation,
+                None,
+                ProviderUpdateFailure::NotFound,
+            );
+        }
+        mark_provider_pending(
+            &self.inner,
+            &targets.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
+        );
+        publish_change(&self.inner).await;
+
+        let mut failed = Vec::new();
+        let mut accepted = Vec::new();
+        if let Err(error) = self.inner.client.verify_version().await {
+            let failure = map_provider_error(&error);
+            for (provider_id, _) in &targets {
+                finish_provider_update(&self.inner, provider_id, Some(failure));
+                failed.push((provider_id.clone(), failure));
+            }
+            publish_change(&self.inner).await;
+            return ProviderCommandExecution {
+                failed,
+                failure: Some(failure),
+                operation,
+                succeeded_provider_ids: Vec::new(),
+            };
+        }
+        for (provider_id, label) in &targets {
+            match self
+                .inner
+                .client
+                .update_provider(controller_provider_kind(kind), label)
+                .await
+            {
+                Ok(()) => accepted.push(provider_id.clone()),
+                Err(error) => {
+                    let failure = map_provider_error(&error);
+                    finish_provider_update(&self.inner, provider_id, Some(failure));
+                    failed.push((provider_id.clone(), failure));
+                }
+            }
+        }
+        let observation_failure = refresh_provider_inventory_kind(&self.inner, Some(kind))
+            .await
+            .err();
+        let observed_ids: BTreeSet<String> = self
+            .provider_snapshot()
+            .providers
+            .iter()
+            .map(|provider| provider.id.clone())
+            .collect();
+        let mut succeeded_provider_ids = Vec::new();
+        for provider_id in accepted {
+            let failure = observation_failure.or_else(|| {
+                (!observed_ids.contains(&provider_id))
+                    .then_some(ProviderUpdateFailure::InconsistentObservation)
+            });
+            finish_provider_update(&self.inner, &provider_id, failure);
+            if let Some(failure) = failure {
+                failed.push((provider_id, failure));
+            } else {
+                succeeded_provider_ids.push(provider_id);
+            }
+        }
+        publish_change(&self.inner).await;
+        ProviderCommandExecution {
+            failed,
+            failure: None,
+            operation,
+            succeeded_provider_ids,
+        }
+    }
+
     async fn run_scoped_proxy_diagnostic(
         &self,
     ) -> Result<ProxyDiagnosticObservation, ProxyDiagnosticFailure> {
@@ -1835,6 +2064,7 @@ async fn observe_active_session(
         next_traffic(&inner.client, &mut traffic),
         next_memory(&inner.client, &mut memory),
     )?;
+    let _ = refresh_provider_inventory_kind(inner, None).await;
     apply_session_observations(
         inner,
         ControllerObservationBatch {
@@ -1897,6 +2127,262 @@ async fn observe_active_session(
                 ).await;
             }
         }
+    }
+}
+
+async fn refresh_provider_inventory_kind(
+    inner: &Arc<SourceInner>,
+    kind: Option<ProviderKind>,
+) -> Result<(), ProviderUpdateFailure> {
+    if let Err(error) = inner.client.verify_version().await {
+        let failure = map_provider_error(&error);
+        record_provider_observation_failure(inner, failure);
+        return Err(failure);
+    }
+    let result = match kind {
+        None => {
+            match tokio::try_join!(
+                inner.client.proxy_providers(),
+                inner.client.rule_providers(),
+            ) {
+                Ok((proxy, rule)) => {
+                    replace_provider_inventory(inner, Some(proxy), Some(rule));
+                    Ok(())
+                }
+                Err(error) => Err(map_provider_error(&error)),
+            }
+        }
+        Some(ProviderKind::Proxy) => match inner.client.proxy_providers().await {
+            Ok(proxy) => {
+                replace_provider_inventory(inner, Some(proxy), None);
+                Ok(())
+            }
+            Err(error) => Err(map_provider_error(&error)),
+        },
+        Some(ProviderKind::Rule) => match inner.client.rule_providers().await {
+            Ok(rule) => {
+                replace_provider_inventory(inner, None, Some(rule));
+                Ok(())
+            }
+            Err(error) => Err(map_provider_error(&error)),
+        },
+    };
+    if let Err(failure) = result {
+        record_provider_observation_failure(inner, failure);
+    }
+    result
+}
+
+fn replace_provider_inventory(
+    inner: &SourceInner,
+    proxy: Option<ProxyProviderCatalog>,
+    rule: Option<RuleProviderCatalog>,
+) {
+    let observed_at = now_unix_milliseconds();
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    let updates: BTreeMap<String, ProviderUpdateState> = state
+        .providers
+        .providers
+        .iter()
+        .map(|provider| (provider.id.clone(), provider.update.clone()))
+        .collect();
+    let mut providers: Vec<RuntimeProvider> = state.providers.providers.clone();
+    if let Some(catalog) = proxy {
+        providers.retain(|provider| provider.kind != ProviderKind::Proxy);
+        providers.extend(catalog.providers.into_values().map(|provider| {
+            let record_count = provider.proxies.len();
+            let healthy_record_count = provider.proxies.iter().filter(|proxy| proxy.alive).count();
+            let health = if record_count == 0 {
+                ProviderHealth::Unknown
+            } else if healthy_record_count == record_count {
+                ProviderHealth::Available
+            } else if healthy_record_count == 0 {
+                ProviderHealth::Unavailable
+            } else {
+                ProviderHealth::Degraded
+            };
+            let id = provider_id(&inner.profile, ProviderKind::Proxy, &provider.name);
+            RuntimeProvider {
+                behavior: None,
+                healthy_record_count: Some(healthy_record_count),
+                health,
+                id: id.clone(),
+                kind: ProviderKind::Proxy,
+                label: provider.name,
+                record_count,
+                source_type: provider_source_type(provider.vehicle_type),
+                updated_at: provider.updated_at,
+                update: updates
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(ProviderUpdateState::idle),
+            }
+        }));
+    }
+    if let Some(catalog) = rule {
+        providers.retain(|provider| provider.kind != ProviderKind::Rule);
+        providers.extend(catalog.providers.into_values().map(|provider| {
+            let id = provider_id(&inner.profile, ProviderKind::Rule, &provider.name);
+            RuntimeProvider {
+                behavior: Some(
+                    match provider.behavior {
+                        mish_mihomo_controller::RuleProviderBehavior::Domain => "Domain",
+                        mish_mihomo_controller::RuleProviderBehavior::IPCIDR => "IP-CIDR",
+                        mish_mihomo_controller::RuleProviderBehavior::Classical => "Classical",
+                    }
+                    .to_owned(),
+                ),
+                healthy_record_count: None,
+                health: ProviderHealth::Available,
+                id: id.clone(),
+                kind: ProviderKind::Rule,
+                label: provider.name,
+                record_count: provider.rule_count,
+                source_type: provider_source_type(provider.vehicle_type),
+                updated_at: Some(provider.updated_at),
+                update: updates
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(ProviderUpdateState::idle),
+            }
+        }));
+    }
+    providers.sort_by(|left, right| {
+        left.kind
+            .cmp(&right.kind)
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    state.providers = ProviderSnapshot {
+        authority: Some(ProviderAuthority {
+            profile_id: inner.profile.profile_id().to_owned(),
+            runtime_fingerprint: inner.profile.profile_fingerprint().to_owned(),
+        }),
+        capability: ProviderCapabilityAvailability::Supported,
+        observation_failure: None,
+        observed_at: Some(observed_at),
+        providers,
+        remotely_cancellable: false,
+    };
+}
+
+fn record_provider_observation_failure(inner: &SourceInner, failure: ProviderUpdateFailure) {
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    state.providers.authority = Some(ProviderAuthority {
+        profile_id: inner.profile.profile_id().to_owned(),
+        runtime_fingerprint: inner.profile.profile_fingerprint().to_owned(),
+    });
+    state.providers.capability = ProviderCapabilityAvailability::Supported;
+    state.providers.observation_failure = Some(failure);
+    state.providers.remotely_cancellable = false;
+}
+
+fn mark_provider_pending(inner: &SourceInner, provider_ids: &[String]) {
+    let attempted_at = now_unix_milliseconds();
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    for provider in &mut state.providers.providers {
+        if !provider_ids.contains(&provider.id) {
+            continue;
+        }
+        provider.update = ProviderUpdateState {
+            attempted_at: Some(attempted_at),
+            failure: None,
+            finished_at: None,
+            phase: ProviderUpdatePhase::Pending,
+        };
+    }
+}
+
+fn finish_provider_update(
+    inner: &SourceInner,
+    provider_id: &str,
+    failure: Option<ProviderUpdateFailure>,
+) {
+    let finished_at = now_unix_milliseconds();
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    let Some(provider) = state
+        .providers
+        .providers
+        .iter_mut()
+        .find(|provider| provider.id == provider_id)
+    else {
+        return;
+    };
+    provider.update.failure = failure;
+    provider.update.finished_at = Some(finished_at);
+    provider.update.phase = if failure.is_some() {
+        ProviderUpdatePhase::Failure
+    } else {
+        ProviderUpdatePhase::Success
+    };
+}
+
+fn provider_authority_matches(
+    profile: &ProfileMappingContext,
+    authority: &ProviderAuthority,
+) -> bool {
+    authority.profile_id == profile.profile_id()
+        && authority.runtime_fingerprint == profile.profile_fingerprint()
+}
+
+fn provider_id(profile: &ProfileMappingContext, kind: ProviderKind, label: &str) -> String {
+    let mut hash = Sha256::new();
+    hash.update(b"provider\0");
+    hash.update(profile.profile_fingerprint().as_bytes());
+    hash.update(b"\0");
+    hash.update(match kind {
+        ProviderKind::Proxy => b"proxy".as_slice(),
+        ProviderKind::Rule => b"rule".as_slice(),
+    });
+    hash.update(b"\0");
+    hash.update(label.as_bytes());
+    format!("provider:{:x}", hash.finalize())
+}
+
+fn provider_source_type(source: ProviderVehicleType) -> ProviderSourceType {
+    match source {
+        ProviderVehicleType::File => ProviderSourceType::File,
+        ProviderVehicleType::HTTP => ProviderSourceType::Http,
+        ProviderVehicleType::Compatible => ProviderSourceType::Compatible,
+        ProviderVehicleType::Inline => ProviderSourceType::Inline,
+    }
+}
+
+fn controller_provider_kind(kind: ProviderKind) -> ControllerProviderKind {
+    match kind {
+        ProviderKind::Proxy => ControllerProviderKind::Proxy,
+        ProviderKind::Rule => ControllerProviderKind::Rule,
+    }
+}
+
+fn map_provider_error(error: &ControllerError) -> ProviderUpdateFailure {
+    match error {
+        ControllerError::UnsupportedVersion { .. } => ProviderUpdateFailure::VersionDrift,
+        ControllerError::Timeout { .. } | ControllerError::HttpStatus { status: 504, .. } => {
+            ProviderUpdateFailure::Timeout
+        }
+        ControllerError::HttpStatus { status: 404, .. } => ProviderUpdateFailure::NotFound,
+        ControllerError::HttpStatus { status: 503, .. } => ProviderUpdateFailure::UpdateRejected,
+        ControllerError::Transport { .. }
+        | ControllerError::Shutdown { .. }
+        | ControllerError::StreamEnded { .. } => ProviderUpdateFailure::Disconnected,
+        ControllerError::HttpStatus { .. } => ProviderUpdateFailure::UpdateRejected,
+        ControllerError::InvalidConfiguration { .. }
+        | ControllerError::BodyTooLarge { .. }
+        | ControllerError::MessageTooLarge { .. }
+        | ControllerError::Decode { .. }
+        | ControllerError::Validation { .. } => ProviderUpdateFailure::InconsistentObservation,
     }
 }
 

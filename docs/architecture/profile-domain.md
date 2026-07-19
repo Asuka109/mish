@@ -19,16 +19,17 @@ source.
 
 ## Domain vocabulary
 
-| Term                 | Meaning                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| `ProfileSource`      | A validated absolute local-file path or HTTPS URL. URL user-info and fragments are rejected. |
-| `Provenance`         | Safe source summary, import timestamp, and immutable source revision ID.                     |
-| `ImmutableRevision`  | SHA-256-addressed received bytes plus size, media type, and creation time.                   |
-| `NormalizedArtifact` | Generated YAML, its schema version, source revision, size, and SHA-256 fingerprint.          |
-| `ValidationResult`   | Typed valid/invalid outcome with safe warnings and errors.                                   |
-| `ProfileAttempt`     | Timestamp and success/failure of the latest lifecycle attempt.                               |
-| `ProfileSuccess`     | Timestamp, revision, and fingerprint of the last known valid result.                         |
-| `ProfileStatus`      | Independent active, valid, stale, updating, warning, and error flags for later view mapping. |
+| Term                  | Meaning                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------- |
+| `ProfileSource`       | A validated absolute local-file path or HTTPS URL. URL user-info and fragments are rejected.       |
+| `Provenance`          | Safe source summary, import timestamp, and immutable source revision ID.                           |
+| `ImmutableRevision`   | SHA-256-addressed received bytes plus size, media type, and creation time.                         |
+| `NormalizedArtifact`  | Generated YAML, its schema version, source revision, size, and SHA-256 fingerprint.                |
+| `ValidationResult`    | Typed valid/invalid outcome with safe warnings and errors.                                         |
+| `ProfileAttempt`      | Timestamp and success/failure of the latest lifecycle attempt.                                     |
+| `ProfileSuccess`      | Timestamp, revision, and fingerprint of the last known valid result.                               |
+| `ProfileRefreshState` | Fixed automatic-refresh policy, next run, last refresh success/failure, and bounded failure count. |
+| `ProfileStatus`       | Independent active, valid, stale, updating, warning, and error flags for later view mapping.       |
 
 Profile IDs are canonical random UUIDs and remain stable across revisions.
 Revision IDs hash the exact received source bytes. Artifact fingerprints hash
@@ -151,6 +152,17 @@ the repository. It lists display-safe metadata, holds preflight previews only
 as short-lived opaque in-memory entries, persists a selected preview, refreshes
 an existing source, and deletes inactive profiles. Failed refresh stores the
 safe failed attempt while retaining the last known valid revision and artifact.
+
+Remote HTTPS profiles additionally persist an opt-in refresh policy. The
+default is Off; the only enabled choices are six hours, twelve hours, daily,
+and weekly. Local-file profiles reject enabled schedules. The application-level
+coordinator, not the WebView, scans due timestamps once per minute and runs due
+profiles serially. Manual refresh, scheduled refresh, and activation share one
+per-profile ownership gate, so the same profile cannot be fetched or activated
+concurrently. A scheduled failure retains the immutable last-known-valid
+revision, artifact, and runtime provenance, records a display-safe failure
+timestamp, and backs off by up to eight times the selected interval. A success
+resets backoff and schedules from its confirmed completion time.
 
 The desktop bridge exposes only HTTPS preflight and persisted-profile commands
 through authenticated RPC. Local-file preflight remains outside ordinary RPC

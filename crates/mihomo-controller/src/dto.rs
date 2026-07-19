@@ -279,6 +279,67 @@ pub struct RuleExtra {
     pub miss_at: String,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ProviderKind {
+    Proxy,
+    Rule,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum ProviderVehicleType {
+    File,
+    HTTP,
+    Compatible,
+    Inline,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ProxyProviderCatalog {
+    pub providers: BTreeMap<String, ProxyProviderMetadata>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyProviderMetadata {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: ProviderKind,
+    pub vehicle_type: ProviderVehicleType,
+    #[serde(default)]
+    pub proxies: Vec<ProviderProxyHealth>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ProviderProxyHealth {
+    pub alive: bool,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum RuleProviderBehavior {
+    Domain,
+    IPCIDR,
+    Classical,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RuleProviderCatalog {
+    pub providers: BTreeMap<String, RuleProviderMetadata>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleProviderMetadata {
+    pub behavior: RuleProviderBehavior,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: ProviderKind,
+    pub rule_count: usize,
+    pub updated_at: String,
+    pub vehicle_type: ProviderVehicleType,
+}
+
 pub(crate) trait Validate {
     fn validate(
         &self,
@@ -609,4 +670,97 @@ impl Validate for RuleList {
         }
         Ok(())
     }
+}
+
+impl Validate for ProxyProviderCatalog {
+    fn validate(
+        &self,
+        endpoint: Endpoint,
+        limits: &ControllerLimits,
+    ) -> Result<(), ControllerError> {
+        validate_provider_count(self.providers.len(), endpoint, limits)?;
+        let mut proxy_count = 0_usize;
+        for (key, provider) in &self.providers {
+            validate_provider_identity(key, &provider.name, endpoint, limits)?;
+            if provider.kind != ProviderKind::Proxy {
+                return Err(validation(endpoint, "providers.type", "must be Proxy"));
+            }
+            if let Some(updated_at) = &provider.updated_at {
+                check_string(updated_at, endpoint, "providers.updatedAt", limits, false)?;
+            }
+            proxy_count = proxy_count.saturating_add(provider.proxies.len());
+            if proxy_count > limits.max_proxies {
+                return Err(validation(
+                    endpoint,
+                    "providers.proxies",
+                    format!("exceeded {} total entries", limits.max_proxies),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Validate for RuleProviderCatalog {
+    fn validate(
+        &self,
+        endpoint: Endpoint,
+        limits: &ControllerLimits,
+    ) -> Result<(), ControllerError> {
+        validate_provider_count(self.providers.len(), endpoint, limits)?;
+        for (key, provider) in &self.providers {
+            validate_provider_identity(key, &provider.name, endpoint, limits)?;
+            if provider.kind != ProviderKind::Rule {
+                return Err(validation(endpoint, "providers.type", "must be Rule"));
+            }
+            check_string(
+                &provider.updated_at,
+                endpoint,
+                "providers.updatedAt",
+                limits,
+                false,
+            )?;
+            if provider.rule_count > limits.max_rules {
+                return Err(validation(
+                    endpoint,
+                    "providers.ruleCount",
+                    format!("exceeded {} entries", limits.max_rules),
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_provider_count(
+    count: usize,
+    endpoint: Endpoint,
+    limits: &ControllerLimits,
+) -> Result<(), ControllerError> {
+    if count > limits.max_providers {
+        return Err(validation(
+            endpoint,
+            "providers",
+            format!("exceeded {} entries", limits.max_providers),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_provider_identity(
+    key: &str,
+    name: &str,
+    endpoint: Endpoint,
+    limits: &ControllerLimits,
+) -> Result<(), ControllerError> {
+    check_string(key, endpoint, "providers key", limits, false)?;
+    check_string(name, endpoint, "providers.name", limits, false)?;
+    if key != name {
+        return Err(validation(
+            endpoint,
+            "providers.name",
+            "did not exactly match its controller map key",
+        ));
+    }
+    Ok(())
 }

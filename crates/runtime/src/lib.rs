@@ -12,6 +12,7 @@ mod capture;
 mod diagnostics;
 mod events;
 mod lifecycle;
+mod provider;
 mod status;
 mod traffic;
 
@@ -19,6 +20,7 @@ pub use capture::*;
 pub use diagnostics::*;
 pub use events::*;
 pub use lifecycle::*;
+pub use provider::*;
 pub use status::*;
 pub use traffic::*;
 
@@ -156,6 +158,32 @@ pub trait StatusDataSource: Send + Sync {
         _test_id: String,
     ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
         Box::pin(std::future::ready(Err(StatusCommandError::unsupported())))
+    }
+    fn provider_snapshot(&self) -> ProviderSnapshot {
+        ProviderSnapshot::unavailable()
+    }
+    fn update_provider(
+        &self,
+        _authority: ProviderAuthority,
+        provider_id: String,
+    ) -> BoxFuture<'_, ProviderCommandExecution> {
+        Box::pin(std::future::ready(ProviderCommandExecution::failure(
+            ProviderCommandOperation::UpdateOne,
+            Some(provider_id),
+            ProviderUpdateFailure::Disconnected,
+        )))
+    }
+    fn update_all_providers(
+        &self,
+        _authority: ProviderAuthority,
+        kind: ProviderKind,
+    ) -> BoxFuture<'_, ProviderCommandExecution> {
+        let _ = kind;
+        Box::pin(std::future::ready(ProviderCommandExecution::failure(
+            ProviderCommandOperation::UpdateAll,
+            None,
+            ProviderUpdateFailure::Disconnected,
+        )))
     }
 }
 
@@ -559,6 +587,30 @@ impl MishRuntime {
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         serde_json::to_value(self.traffic_snapshot_typed(adapter_kind))
             .expect("Traffic state must serialize")
+    }
+
+    pub fn provider_snapshot(&self) -> ProviderSnapshot {
+        self.status_source.provider_snapshot()
+    }
+
+    pub async fn update_provider(
+        &self,
+        authority: ProviderAuthority,
+        provider_id: String,
+    ) -> ProviderCommandExecution {
+        self.status_source
+            .update_provider(authority, provider_id)
+            .await
+    }
+
+    pub async fn update_all_providers(
+        &self,
+        authority: ProviderAuthority,
+        kind: ProviderKind,
+    ) -> ProviderCommandExecution {
+        self.status_source
+            .update_all_providers(authority, kind)
+            .await
     }
 
     pub fn traffic_snapshot_typed(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {

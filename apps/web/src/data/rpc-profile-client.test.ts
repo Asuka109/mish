@@ -72,6 +72,7 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
       httpsImport: "supported",
       localFileImport: "permission-required",
       refresh: "supported",
+      scheduling: "supported",
       save: "supported",
     },
     profiles: [
@@ -81,6 +82,13 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
         lastAttempt: null,
         lastKnownValid: true,
         lastSuccessAt: 1,
+        refresh: {
+          consecutiveFailures: 0,
+          lastFailureAt: null,
+          lastSuccessAt: null,
+          nextRunAt: null,
+          policy: "off",
+        },
         source: { display: "synthetic.yaml", sourceType: "local-file" },
         status: {
           active: activeProfileId === profileId,
@@ -101,6 +109,14 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
         warningCodes: [],
       },
     ],
+    providers: {
+      authority: null,
+      capability: "unavailable",
+      observationFailure: null,
+      observedAt: null,
+      providers: [],
+      remotelyCancellable: false,
+    },
   };
 }
 
@@ -129,6 +145,51 @@ async function flushMicrotasks() {
 afterEach(() => vi.useRealTimers());
 
 describe("RpcProfileClient", () => {
+  it("sends only fixed refresh policy and provider authority fields", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcProfileClient(rpc, async () => null);
+    const schedulePromise = client.setRefreshPolicy("profile-a", "six-hours");
+    await authenticate(transport);
+    const schedule = await waitForRequest(transport, 1);
+    expect(schedule).toMatchObject({
+      method: "profiles.setRefreshPolicy",
+      params: { policy: "six-hours", profileId: "profile-a" },
+    });
+    transport.respond({ id: schedule.id, jsonrpc: "2.0", result: profileSnapshot(null) });
+    await schedulePromise;
+
+    const authority = {
+      profileId: "profile-a",
+      runtimeFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    };
+    const updatePromise = client.updateProvider(authority, "provider:a");
+    const update = await waitForRequest(transport, 2);
+    expect(update).toMatchObject({
+      method: "profiles.updateProvider",
+      params: { authority, providerId: "provider:a" },
+    });
+    transport.respond({
+      id: update.id,
+      jsonrpc: "2.0",
+      result: {
+        failed: [],
+        failure: "disconnected",
+        operation: "update-one",
+        phase: "failure",
+        snapshot: profileSnapshot(null).providers,
+        succeededProviderIds: [],
+      },
+    });
+    expect((await updatePromise).phase).toBe("failure");
+    client.dispose();
+    rpc.dispose();
+  });
+
   it("resubscribes with the authoritative activation snapshot after reconnect", async () => {
     vi.useFakeTimers();
     const transports = [new FakeTransport(), new FakeTransport()];

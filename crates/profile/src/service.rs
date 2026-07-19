@@ -11,8 +11,9 @@ use uuid::Uuid;
 use crate::{
     AtomicWriter, AttemptOutcome, FileProfileRepository, HttpsSourceReader, ImportError,
     ImportPreflight, ImportRequest, LocalSourceReader, PolicyDisposition, PreflightReport,
-    ProfileAttempt, ProfileId, ProfileMetadata, ProfileSource, ProfileSourceType, RepositoryError,
-    SourceReadPolicy, StdAtomicWriter, Timestamp, ValidationIssueCode,
+    ProfileAttempt, ProfileId, ProfileMetadata, ProfileRefreshPolicy, ProfileRefreshState,
+    ProfileSource, ProfileSourceType, RepositoryError, SourceReadPolicy, StdAtomicWriter,
+    Timestamp, ValidationIssueCode,
 };
 
 const MAX_PENDING_PREFLIGHTS: usize = 4;
@@ -40,7 +41,18 @@ pub struct ProfileCapabilities {
     pub https_import: ProfileCapabilityAvailability,
     pub local_file_import: ProfileCapabilityAvailability,
     pub refresh: ProfileCapabilityAvailability,
+    pub scheduling: ProfileCapabilityAvailability,
     pub save: ProfileCapabilityAvailability,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileRefreshStateView {
+    pub consecutive_failures: u8,
+    pub last_failure_at: Option<u64>,
+    pub last_success_at: Option<u64>,
+    pub next_run_at: Option<u64>,
+    pub policy: ProfileRefreshPolicy,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -58,6 +70,7 @@ pub struct ProfileListItem {
     pub last_attempt: Option<ProfileAttemptView>,
     pub last_known_valid: bool,
     pub last_success_at: Option<u64>,
+    pub refresh: ProfileRefreshStateView,
     pub source: crate::SourceSummary,
     pub status: crate::ProfileStatus,
     pub runtime_provenance: crate::RuntimeProvenanceReview,
@@ -116,6 +129,14 @@ pub enum ProfileServiceError {
     PreviewNotFound,
     #[error("active profiles cannot be deleted until transactional activation is available")]
     ActiveProfileDeletionDisabled,
+    #[error("scheduled refresh is available only for HTTPS profile sources")]
+    SchedulingUnavailable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProfileRefreshTrigger {
+    Manual,
+    Scheduled,
 }
 
 impl From<ImportError> for ProfileServiceError {
@@ -202,6 +223,7 @@ where
                 https_import: ProfileCapabilityAvailability::Supported,
                 local_file_import: ProfileCapabilityAvailability::PermissionRequired,
                 refresh: ProfileCapabilityAvailability::Supported,
+                scheduling: ProfileCapabilityAvailability::Supported,
                 save: ProfileCapabilityAvailability::Supported,
             },
             profiles,
@@ -239,8 +261,74 @@ where
     }
 
     pub async fn refresh(&self, profile_id: &str) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.refresh_with_trigger(profile_id, ProfileRefreshTrigger::Manual)
+            .await
+    }
+
+    pub async fn refresh_scheduled(
+        &self,
+        profile_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.refresh_with_trigger(profile_id, ProfileRefreshTrigger::Scheduled)
+            .await
+    }
+
+    pub fn mark_refresh_pending(
+        &self,
+        profile_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
-        let current = self.repository.load(&id)?;
+        let mut current = self.repository.load(&id)?;
+        current.metadata.status.updating = true;
+        self.repository.update(&current)?;
+        self.snapshot()
+    }
+
+    pub fn set_refresh_policy(
+        &self,
+        profile_id: &str,
+        policy: ProfileRefreshPolicy,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
+        let mut current = self.repository.load(&id)?;
+        if current.source.source_type() != ProfileSourceType::Https
+            && policy != ProfileRefreshPolicy::Off
+        {
+            return Err(ProfileServiceError::SchedulingUnavailable);
+        }
+        current.metadata.refresh.policy = policy;
+        current.metadata.refresh.consecutive_failures = 0;
+        current.metadata.refresh.next_run_at = next_regular_run(policy, Timestamp::now());
+        self.repository.update(&current)?;
+        self.snapshot()
+    }
+
+    pub fn due_scheduled_profile_ids(
+        &self,
+        now: Timestamp,
+    ) -> Result<Vec<String>, ProfileServiceError> {
+        Ok(self
+            .repository
+            .list_metadata()?
+            .into_iter()
+            .filter(|metadata| {
+                metadata.provenance.source.source_type == ProfileSourceType::Https
+                    && metadata.refresh.policy != ProfileRefreshPolicy::Off
+                    && metadata.refresh.next_run_at.is_some_and(|next| next <= now)
+            })
+            .map(|metadata| metadata.id.as_str().to_owned())
+            .collect())
+    }
+
+    async fn refresh_with_trigger(
+        &self,
+        profile_id: &str,
+        trigger: ProfileRefreshTrigger,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
+        let mut current = self.repository.load(&id)?;
+        current.metadata.status.updating = true;
+        self.repository.update(&current)?;
         let source = current.source.clone();
         let label = current.metadata.label.clone();
         let preflight =
@@ -253,17 +341,37 @@ where
             .await
         {
             Ok(report) => {
-                let mut refreshed = report.into_record(id, Timestamp::now());
+                let completed_at = Timestamp::now();
+                let mut refreshed = report.into_record(id, completed_at);
                 refreshed.metadata.provenance.imported_at = current.metadata.provenance.imported_at;
+                refreshed.metadata.refresh = current.metadata.refresh;
+                refreshed.metadata.refresh.consecutive_failures = 0;
+                refreshed.metadata.refresh.last_success_at = Some(completed_at);
+                refreshed.metadata.refresh.next_run_at =
+                    next_regular_run(refreshed.metadata.refresh.policy, completed_at);
                 self.repository.update(&refreshed)?;
                 self.snapshot()
             }
             Err(error) => {
                 let mut failed = current;
+                let completed_at = Timestamp::now();
                 failed.metadata.last_attempt = Some(ProfileAttempt {
-                    attempted_at: Timestamp::now(),
+                    attempted_at: completed_at,
                     outcome: AttemptOutcome::Failed,
                 });
+                failed.metadata.refresh.last_failure_at = Some(completed_at);
+                if trigger == ProfileRefreshTrigger::Scheduled {
+                    failed.metadata.refresh.consecutive_failures = failed
+                        .metadata
+                        .refresh
+                        .consecutive_failures
+                        .saturating_add(1);
+                    failed.metadata.refresh.next_run_at =
+                        next_backed_off_run(&failed.metadata.refresh, completed_at);
+                } else if failed.metadata.refresh.policy != ProfileRefreshPolicy::Off {
+                    failed.metadata.refresh.next_run_at =
+                        next_regular_run(failed.metadata.refresh.policy, completed_at);
+                }
                 failed.metadata.status.error = true;
                 failed.metadata.status.stale = true;
                 failed.metadata.status.updating = false;
@@ -386,11 +494,48 @@ fn profile_list_item(metadata: ProfileMetadata) -> ProfileListItem {
         last_success_at: metadata
             .last_success
             .map(|success| success.succeeded_at.as_unix_milliseconds()),
+        refresh: ProfileRefreshStateView {
+            consecutive_failures: metadata.refresh.consecutive_failures,
+            last_failure_at: metadata
+                .refresh
+                .last_failure_at
+                .map(Timestamp::as_unix_milliseconds),
+            last_success_at: metadata
+                .refresh
+                .last_success_at
+                .map(Timestamp::as_unix_milliseconds),
+            next_run_at: metadata
+                .refresh
+                .next_run_at
+                .map(Timestamp::as_unix_milliseconds),
+            policy: metadata.refresh.policy,
+        },
         source: metadata.provenance.source,
         status: metadata.status,
         runtime_provenance: metadata.runtime_provenance,
         warning_codes,
     }
+}
+
+fn next_regular_run(policy: ProfileRefreshPolicy, completed_at: Timestamp) -> Option<Timestamp> {
+    policy.interval_milliseconds().map(|interval| {
+        Timestamp::from_unix_milliseconds(
+            completed_at.as_unix_milliseconds().saturating_add(interval),
+        )
+    })
+}
+
+fn next_backed_off_run(
+    refresh: &ProfileRefreshState,
+    completed_at: Timestamp,
+) -> Option<Timestamp> {
+    let interval = refresh.policy.interval_milliseconds()?;
+    let multiplier = 1_u64 << refresh.consecutive_failures.min(3);
+    Some(Timestamp::from_unix_milliseconds(
+        completed_at
+            .as_unix_milliseconds()
+            .saturating_add(interval.saturating_mul(multiplier)),
+    ))
 }
 
 fn profile_preview(preview_id: &str, report: &PreflightReport) -> ProfilePreview {

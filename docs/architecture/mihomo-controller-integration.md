@@ -109,19 +109,23 @@ traffic capture.
 
 `crates/mihomo-controller` implements the following v1.19.29 surface:
 
-| Endpoint                | Transport      | Adapter result                                                                  |
-| ----------------------- | -------------- | ------------------------------------------------------------------------------- |
-| `/version`              | HTTP GET       | Version metadata and explicit pinned-version verification                       |
-| `/configs`              | HTTP GET       | Routing mode and the bounded runtime-configuration subset needed by the product |
-| `/proxies`              | HTTP GET       | Proxy metadata, histories, group children, current selection, and fixed choice  |
-| `/proxies/{name}/delay` | HTTP GET       | One bounded delay result for a catalog-confirmed direct group child             |
-| `/traffic`              | WebSocket      | Traffic samples and a first-sample snapshot helper                              |
-| `/memory`               | WebSocket      | Mihomo memory samples and a first-sample snapshot helper                        |
-| `/logs`                 | WebSocket      | Structured core events, bounded validation, and source redaction                |
-| `/connections`          | HTTP/WebSocket | Active connection snapshot or stream                                            |
-| `/connections`          | HTTP DELETE    | Close all connections active at Controller command time                         |
-| `/connections/{id}`     | HTTP DELETE    | Close one stable active connection ID                                           |
-| `/rules`                | HTTP GET       | Ordered rules, optional wrapper statistics, disabled state, and effective count |
+| Endpoint                    | Transport      | Adapter result                                                                  |
+| --------------------------- | -------------- | ------------------------------------------------------------------------------- |
+| `/version`                  | HTTP GET       | Version metadata and explicit pinned-version verification                       |
+| `/configs`                  | HTTP GET       | Routing mode and the bounded runtime-configuration subset needed by the product |
+| `/proxies`                  | HTTP GET       | Proxy metadata, histories, group children, current selection, and fixed choice  |
+| `/proxies/{name}/delay`     | HTTP GET       | One bounded delay result for a catalog-confirmed direct group child             |
+| `/traffic`                  | WebSocket      | Traffic samples and a first-sample snapshot helper                              |
+| `/memory`                   | WebSocket      | Mihomo memory samples and a first-sample snapshot helper                        |
+| `/logs`                     | WebSocket      | Structured core events, bounded validation, and source redaction                |
+| `/connections`              | HTTP/WebSocket | Active connection snapshot or stream                                            |
+| `/connections`              | HTTP DELETE    | Close all connections active at Controller command time                         |
+| `/connections/{id}`         | HTTP DELETE    | Close one stable active connection ID                                           |
+| `/rules`                    | HTTP GET       | Ordered rules, optional wrapper statistics, disabled state, and effective count |
+| `/providers/proxies`        | HTTP GET       | Safe proxy-provider identity, source type, update time, count, and health       |
+| `/providers/rules`          | HTTP GET       | Safe rule-provider identity, source type, behavior, update time, and count      |
+| `/providers/proxies/{name}` | HTTP PUT       | Explicit update of one proxy provider                                           |
+| `/providers/rules/{name}`   | HTTP PUT       | Explicit update of one rule provider                                            |
 
 The generic `ControllerTransport` boundary permits another host implementation
 without changing DTO validation. The included transport accepts only HTTP or
@@ -144,6 +148,25 @@ current direct member. A successful HTTP response is not product success. The
 source polls a fresh bounded Controller observation until it confirms the mode
 or group selection, then maps and publishes that observation before returning
 the RPC result.
+
+Provider inventory is a separate Profiles-owned runtime surface. The adapter
+intentionally deserializes only provider name, kind, vehicle type, update time,
+rule behavior/count, and proxy `alive` flags. Controller URL, path, payload,
+proxy endpoint, and credential fields never enter the runtime DTO. The desktop
+source verifies the pinned version and current profile/fingerprint authority,
+resolves a stable provider ID to one current exact Controller label, serializes
+provider commands with other Controller mutations, and accepts success only
+after a fresh bounded inventory contains that same provider ID. Update All
+runs providers serially, retains provider-specific failures, and can return a
+typed partial result.
+
+Pinned v1.19.29 executes provider `Update()` synchronously in the HTTP handler
+and does not pass request context into that operation. Mish can cancel its local
+wait, but cannot claim that an already-started core update was remotely undone.
+Runtime replacement therefore invalidates the old command result and publishes
+only the replacement runtime's provider authority and inventory. Browser
+fixtures advertise this surface as fixture-only and execute no inventory read
+or update.
 
 Routes delay testing is a separate, user-initiated diagnostic surface. The
 ordinary RPC accepts only a stable group ID to start and a server-issued test ID
@@ -194,9 +217,11 @@ Status and Traffic observation session proceeds in this order:
 2. Open the `/traffic` and `/memory` WebSocket streams.
 3. Read an initial coalesced batch from `/configs`, `/proxies`, `/rules`,
    `/connections`, and the first traffic and memory stream messages.
-4. Apply the complete initial batch transactionally and publish the first valid
+4. Read proxy- and rule-provider inventories as an independently bounded
+   runtime observation; failure remains visible without invalidating Status or Traffic.
+5. Apply the complete initial batch transactionally and publish the first valid
    Status and Traffic session.
-5. Continue long-lived traffic and memory reads while a bounded interval
+6. Continue long-lived traffic and memory reads while a bounded interval
    refreshes configs, proxies, rules, and connections as one batch.
 
 An independent Events collector verifies the same pinned Controller and opens
@@ -424,7 +449,6 @@ The composed managed slice does not:
   background schedules;
 - persist closed connections or historical traffic; the Web client derives only
   a bounded in-memory recently Closed view;
-- read proxy-provider or rule-provider inventories; or
 - implement Unix-socket or named-pipe Controller transports.
 
 The synthetic loopback and fake-process integration tests are test
@@ -463,4 +487,8 @@ traffic.
 - [v1.19.29 proxy endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/proxies.go)
 - [v1.19.29 group endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/groups.go)
 - [v1.19.29 rule endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/rules.go)
+- [v1.19.29 provider routes and update handlers](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/provider.go)
+- [v1.19.29 provider interface](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/constant/provider/interface.go)
+- [v1.19.29 proxy-provider update implementation](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/adapter/provider/provider.go)
+- [v1.19.29 rule-provider update implementation](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/rules/provider/provider.go)
 - [Tauri external binary naming](https://v2.tauri.app/develop/sidecar/)

@@ -37,6 +37,7 @@ pub struct ControllerLimits {
     pub max_connections: usize,
     pub max_chain_entries: usize,
     pub max_rules: usize,
+    pub max_providers: usize,
     pub max_log_fields: usize,
 }
 
@@ -52,6 +53,7 @@ impl Default for ControllerLimits {
             max_connections: 20_000,
             max_chain_entries: 128,
             max_rules: 100_000,
+            max_providers: 1_024,
             max_log_fields: 64,
         }
     }
@@ -69,6 +71,7 @@ impl ControllerLimits {
             self.max_connections,
             self.max_chain_entries,
             self.max_rules,
+            self.max_providers,
             self.max_log_fields,
         ]
         .contains(&0)
@@ -138,6 +141,28 @@ impl ControllerClient {
 
     pub async fn rules(&self) -> Result<RuleList, ControllerError> {
         self.read(Endpoint::Rules).await
+    }
+
+    pub async fn proxy_providers(&self) -> Result<ProxyProviderCatalog, ControllerError> {
+        self.read(Endpoint::ProxyProviders).await
+    }
+
+    pub async fn rule_providers(&self) -> Result<RuleProviderCatalog, ControllerError> {
+        self.read(Endpoint::RuleProviders).await
+    }
+
+    pub async fn update_provider(
+        &self,
+        kind: ProviderKind,
+        provider: &str,
+    ) -> Result<(), ControllerError> {
+        let endpoint = match kind {
+            ProviderKind::Proxy => Endpoint::ProxyProviders,
+            ProviderKind::Rule => Endpoint::RuleProviders,
+        };
+        self.validate_provider_id(endpoint, provider)?;
+        self.mutate(endpoint, Some(provider.to_owned()), Vec::new())
+            .await
     }
 
     pub async fn traffic_stream(
@@ -210,6 +235,21 @@ impl ControllerClient {
                 endpoint: Endpoint::Connections,
                 field: "connectionId",
                 detail: "connection ID must be non-empty and within the configured bound".into(),
+            });
+        }
+        Ok(())
+    }
+
+    fn validate_provider_id(
+        &self,
+        endpoint: Endpoint,
+        provider: &str,
+    ) -> Result<(), ControllerError> {
+        if provider.is_empty() || provider.len() > self.limits.max_string_bytes {
+            return Err(ControllerError::Validation {
+                endpoint,
+                field: "providerId",
+                detail: "provider ID must be non-empty and within the configured bound".into(),
             });
         }
         Ok(())

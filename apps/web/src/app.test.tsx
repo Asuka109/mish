@@ -256,8 +256,11 @@ function createActivationProfileClient() {
     preflightHttps: fixture.preflightHttps.bind(fixture),
     preflightLocal: fixture.preflightLocal.bind(fixture),
     refreshProfile: fixture.refreshProfile.bind(fixture),
+    setRefreshPolicy: fixture.setRefreshPolicy.bind(fixture),
     savePreview: fixture.savePreview.bind(fixture),
     stopActiveProfile: fixture.stopActiveProfile.bind(fixture),
+    updateAllProviders: fixture.updateAllProviders.bind(fixture),
+    updateProvider: fixture.updateProvider.bind(fixture),
     subscribeConnection: (listener) => {
       listener({ attempt: 0, phase: "connected", stale: false });
       return () => undefined;

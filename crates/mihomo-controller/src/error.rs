@@ -12,6 +12,8 @@ pub enum Endpoint {
     Memory,
     Connections,
     Rules,
+    ProxyProviders,
+    RuleProviders,
 }
 
 impl Endpoint {
@@ -25,6 +27,8 @@ impl Endpoint {
             Self::Memory => "/memory",
             Self::Connections => "/connections",
             Self::Rules => "/rules",
+            Self::ProxyProviders => "/providers/proxies",
+            Self::RuleProviders => "/providers/rules",
         }
     }
 }
