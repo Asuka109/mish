@@ -157,6 +157,11 @@ async fn remove_disables_tun_before_confirming_absence() {
 
 #[test]
 fn closed_wire_protocol_rejects_identity_size_version_and_unknown_fields() {
+    assert_eq!(TUN_APP_SIGNING_IDENTIFIER, "com.asuka109.mish");
+    assert_eq!(
+        TUN_HELPER_SIGNING_IDENTIFIER,
+        "com.asuka109.mish.tun-helper"
+    );
     let identity = TunHelperPeerIdentity {
         signed: true,
         signing_identifier: TUN_APP_SIGNING_IDENTIFIER.to_owned(),

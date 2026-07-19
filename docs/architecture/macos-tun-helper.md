@@ -27,11 +27,12 @@ signing. See Tauri's [capability model](https://v2.tauri.app/security/capabiliti
 
 ## Truthful development boundary
 
-The current Tauri configuration does not produce a signed app bundle containing
-the LaunchDaemon. Desktop development therefore reports either `unsigned-app`
-or `unpackaged`, with `invalid-signature` or `not-installed` health. Install,
-repair, remove, and TUN enable commands fail with a typed result. This is a
-testable integration preview, not a production-capable privileged helper.
+The Tauri configuration can produce an app bundle, but it does not contain a
+LaunchDaemon or helper executable. Development and ad-hoc test packages
+therefore report either `unsigned-app` or `unpackaged`, with
+`invalid-signature` or `not-installed` health. Install, repair, remove, and TUN
+enable commands fail with a typed result. This is a testable integration
+preview, not a production-capable privileged helper.
 
 Production availability requires all of the following to exist in a later
 signed packaging slice:
@@ -41,6 +42,13 @@ signed packaging slice:
 - an embedded LaunchDaemon property list and executable using `SMAppService`;
 - mutual XPC code-signing requirements for the app and helper;
 - confirmation of registered version, helper health, and disabled TUN state.
+
+The reserved signing identifiers are `com.asuka109.mish` for the application
+and `com.asuka109.mish.tun-helper` for the helper. Adding credentials to CI does
+not change helper availability: the platform adapter must independently verify
+the embedded LaunchDaemon, exact helper version, mutual code-signing identity,
+team identity, registration status, XPC health, and disabled TUN observation
+before production availability may be reported.
 
 ## Closed helper protocol
 

@@ -10,6 +10,7 @@ Run from the repository root:
 ```sh
 pnpm desktop:dev
 pnpm desktop:build
+pnpm desktop:bundle:macos
 ```
 
 The shell starts the existing Rust desktop bridge in-process on an ephemeral IPv4
@@ -72,7 +73,10 @@ core is confirmed healthy. Mish journals the minimum prior network-service
 state privately, applies only HTTP, HTTPS, and SOCKS settings, confirms the OS
 result, and restores exact Mish-owned state on shutdown or restart audit. PAC,
 automatic discovery, and authenticated settings are never overwritten. TUN,
-packaging icons, signing, and notarization remain separate platform slices.
+production helper integration, and release distribution remain separate
+platform slices. Apple Silicon test bundles, signing modes, notarization
+secrets, and the exact production helper gates are documented in
+[`../../docs/operations/macos-packaging.md`](../../docs/operations/macos-packaging.md).
 
 Launch at login uses Tauri's macOS LaunchAgent integration with a fixed login
 startup argument. The preference is persisted only after registration is

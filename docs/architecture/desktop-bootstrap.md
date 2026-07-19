@@ -10,7 +10,7 @@ WebView. It does
 not own product state, controller reconciliation, Mihomo lifecycle rules,
 System Proxy reconciliation rules, privileged TUN operations, or mobile
 execution. It composes narrow macOS adapters into the shared runtime. The TUN
-adapter currently exposes only the truthful unsigned/unpackaged development
+adapter currently exposes only the truthful unsigned/unpackaged non-production
 boundary defined by [`macos-tun-helper.md`](macos-tun-helper.md).
 
 An ordinary browser has no Tauri IPC surface. It continues to construct
@@ -159,7 +159,11 @@ claim that process memory is a secure enclave.
   It deliberately links to Routes instead of duplicating the complete policy-group
   child tree, and the ordinary browser client remains unavailable because the
   bridge does not host the product bundle.
-- Installer packaging, final icon production, entitlements, code signing,
-  notarization, update metadata, and release distribution are not configured.
-- The current bundle identifier is a development identifier and must be reviewed
-  before signing or shipping.
+- The macOS application bundle uses the stable identifier
+  `com.asuka109.mish`, embeds the pinned Apple Silicon Mihomo resource, and can
+  be ad-hoc signed for main-branch testing. Developer ID signing and
+  notarization remain credential-gated production operations documented in
+  [`../operations/macos-packaging.md`](../operations/macos-packaging.md).
+- A production TUN helper is not yet embedded. The reserved signing identifier
+  is `com.asuka109.mish.tun-helper`; ad-hoc test packages continue to report the
+  helper as unpackaged and cannot enable TUN.

@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CI: true
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Resolve pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-pnpm-
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run complete validation
+        run: pnpm validate
+
+  package-macos:
+    name: Package macOS ARM64
+    # To exercise packaging on PRs later, widen this condition but keep upload main-only.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MISH_APPLE_CERTIFICATE_BASE64: ${{ secrets.MISH_APPLE_CERTIFICATE_BASE64 }}
+      MISH_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MISH_APPLE_CERTIFICATE_PASSWORD }}
+      MISH_APPLE_SIGNING_IDENTITY: ${{ secrets.MISH_APPLE_SIGNING_IDENTITY }}
+      MISH_APPLE_NOTARY_API_ISSUER_ID: ${{ secrets.MISH_APPLE_NOTARY_API_ISSUER_ID }}
+      MISH_APPLE_NOTARY_API_KEY_ID: ${{ secrets.MISH_APPLE_NOTARY_API_KEY_ID }}
+      MISH_APPLE_NOTARY_API_PRIVATE_KEY: ${{ secrets.MISH_APPLE_NOTARY_API_PRIVATE_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Resolve pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-pnpm-
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Configure Apple signing
+        id: apple-signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          values=(
+            MISH_APPLE_CERTIFICATE_BASE64
+            MISH_APPLE_CERTIFICATE_PASSWORD
+            MISH_APPLE_SIGNING_IDENTITY
+            MISH_APPLE_NOTARY_API_ISSUER_ID
+            MISH_APPLE_NOTARY_API_KEY_ID
+            MISH_APPLE_NOTARY_API_PRIVATE_KEY
+          )
+          present=0
+          for name in "${values[@]}"; do
+            if [[ -n "${!name}" ]]; then
+              present=$((present + 1))
+            fi
+          done
+          if [[ "$present" -ne 0 && "$present" -ne "${#values[@]}" ]]; then
+            echo "Apple signing secrets must be configured as one complete set" >&2
+            exit 1
+          fi
+          if [[ "$present" -eq 0 ]]; then
+            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "mode=ad-hoc" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          command -v trash > /dev/null || brew install trash
+          keychain="$RUNNER_TEMP/mish-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          certificate="$RUNNER_TEMP/mish-developer-id.p12"
+          notary_key="$RUNNER_TEMP/AuthKey_${MISH_APPLE_NOTARY_API_KEY_ID}.p8"
+          echo "::add-mask::$keychain_password"
+          printf '%s' "$MISH_APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          printf '%s' "$MISH_APPLE_NOTARY_API_PRIVATE_KEY" > "$notary_key"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
+          security import "$certificate" -k "$keychain" -P "$MISH_APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security find-identity -v -p codesigning "$keychain" | grep -F -- "\"$MISH_APPLE_SIGNING_IDENTITY\"" > /dev/null
+          {
+            echo "APPLE_SIGNING_IDENTITY=$MISH_APPLE_SIGNING_IDENTITY"
+            echo "APPLE_API_ISSUER=$MISH_APPLE_NOTARY_API_ISSUER_ID"
+            echo "APPLE_API_KEY=$MISH_APPLE_NOTARY_API_KEY_ID"
+            echo "APPLE_API_KEY_PATH=$notary_key"
+            echo "MISH_SIGNING_KEYCHAIN=$keychain"
+          } >> "$GITHUB_ENV"
+          echo "mode=developer-id" >> "$GITHUB_OUTPUT"
+      - name: Build and verify application bundle
+        run: pnpm desktop:bundle:macos
+      - name: Create app archive
+        id: revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:7}"
+          mkdir -p .scratch/artifacts
+          ditto -c -k --sequesterRsrc --keepParent \
+            target/release/bundle/macos/Mish.app \
+            ".scratch/artifacts/Mish-${short_sha}.app.zip"
+          unzip -t ".scratch/artifacts/Mish-${short_sha}.app.zip"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "archive=.scratch/artifacts/Mish-${short_sha}.app.zip" >> "$GITHUB_OUTPUT"
+      - name: Upload Apple Silicon test package
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mish-macos-arm64-${{ steps.revision.outputs.short_sha }}
+          path: ${{ steps.revision.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          if [[ -n "${MISH_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$MISH_SIGNING_KEYCHAIN" || true
+          fi
+          find "$RUNNER_TEMP" -maxdepth 1 \
+            \( -name 'mish-developer-id.p12' -o -name 'AuthKey_*.p8' \) \
+            -exec trash {} + 2>/dev/null || true

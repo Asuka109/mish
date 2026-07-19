@@ -7,8 +7,8 @@ use tokio::sync::Mutex as AsyncMutex;
 pub const TUN_HELPER_EXPECTED_VERSION: &str = "1";
 pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 1;
 pub const TUN_HELPER_MAX_MESSAGE_BYTES: usize = 16 * 1024;
-pub const TUN_APP_SIGNING_IDENTIFIER: &str = "dev.mish.desktop";
-pub const TUN_HELPER_SIGNING_IDENTIFIER: &str = "dev.mish.desktop.tun-helper";
+pub const TUN_APP_SIGNING_IDENTIFIER: &str = "com.asuka109.mish";
+pub const TUN_HELPER_SIGNING_IDENTIFIER: &str = "com.asuka109.mish.tun-helper";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
