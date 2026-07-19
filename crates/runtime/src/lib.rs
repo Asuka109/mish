@@ -112,7 +112,71 @@ pub trait StatusDataSource: Send + Sync {
     fn shutdown(&self) -> BoxFuture<'_, ()> {
         Box::pin(std::future::ready(()))
     }
+    fn supports_command(&self, _command: StatusCommand) -> bool {
+        false
+    }
+    fn set_routing_mode(
+        &self,
+        _mode: RoutingMode,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(std::future::ready(Err(StatusCommandError::unsupported())))
+    }
+    fn select_group_child(
+        &self,
+        _group_id: String,
+        _child_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(std::future::ready(Err(StatusCommandError::unsupported())))
+    }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StatusCommand {
+    Routing,
+    Group,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StatusCommandErrorKind {
+    Unsupported,
+    InvalidRequest,
+    NotFound,
+    Conflict,
+    Timeout,
+    Disconnected,
+    VersionDrift,
+    InconsistentObservation,
+    UnsupportedGroup,
+    StaleMembership,
+}
+
+#[derive(Clone, Debug)]
+pub struct StatusCommandError {
+    pub kind: StatusCommandErrorKind,
+    message: &'static str,
+}
+
+impl StatusCommandError {
+    pub const fn new(kind: StatusCommandErrorKind, message: &'static str) -> Self {
+        Self { kind, message }
+    }
+
+    pub const fn unsupported() -> Self {
+        Self::new(
+            StatusCommandErrorKind::Unsupported,
+            "This Status command is not available in the current runtime",
+        )
+    }
+}
+
+impl fmt::Display for StatusCommandError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.message)
+    }
+}
+
+impl std::error::Error for StatusCommandError {}
 
 pub trait TrafficDataSource: Send + Sync {
     fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot;
@@ -277,6 +341,31 @@ impl MishRuntime {
         self.publish_status(&core);
         result?;
         Ok(true)
+    }
+
+    pub fn supports_status_command(&self, command: StatusCommand) -> bool {
+        self.status_source.supports_command(command)
+    }
+
+    pub async fn set_routing_mode(
+        &self,
+        mode: RoutingMode,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.status_source.set_routing_mode(mode).await?;
+        Ok(self.status_snapshot(adapter_kind).await)
+    }
+
+    pub async fn select_group_child(
+        &self,
+        group_id: String,
+        child_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, StatusCommandError> {
+        self.status_source
+            .select_group_child(group_id, child_id)
+            .await?;
+        Ok(self.status_snapshot(adapter_kind).await)
     }
 
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {

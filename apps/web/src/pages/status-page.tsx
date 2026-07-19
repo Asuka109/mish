@@ -54,6 +54,7 @@ export function StatusPage() {
     error,
     isCommandPending,
     isCommandSupported,
+    isGroupCommandPending,
     isLoading,
     recoverSystemProxy,
     selectGroupChild,
@@ -69,7 +70,6 @@ export function StatusPage() {
     rule: LL.status.modeRule(),
   };
   const capturePending = isCommandPending("capture");
-  const groupPending = isCommandPending("group");
   const routingPending = isCommandPending("routing");
 
   const frequentGroups = useMemo(() => {
@@ -352,7 +352,7 @@ export function StatusPage() {
                     <Button
                       aria-describedby={groupDescriptionId}
                       className="section-grid-item policy-group-row"
-                      disabled={groupPending || !groupSupported}
+                      disabled={isGroupCommandPending(group.id) || !groupSupported}
                       key={group.id}
                       onClick={() => openPicker(group)}
                       type="button"

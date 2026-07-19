@@ -19,8 +19,8 @@ pub use controller_source::{
     ControllerStatusSourceError,
 };
 pub use controller_status::{
-    ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext, StatusMappingError,
-    StatusRetentionPolicy,
+    ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext,
+    SelectionTargetError, StatusMappingError, StatusRetentionPolicy,
 };
 pub use managed_process::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,

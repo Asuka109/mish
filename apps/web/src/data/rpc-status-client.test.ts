@@ -1,8 +1,13 @@
 import { StatusClientError, mishRpcMethods, type StatusSnapshotDto } from "@mish/contracts";
-import { RpcClient, type WebSocketLike, type WebSocketLikeEventMap } from "@mish/rpc-client";
+import {
+  RpcClient,
+  RpcRemoteError,
+  type WebSocketLike,
+  type WebSocketLikeEventMap,
+} from "@mish/rpc-client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FixtureStatusClient } from "./fixture-status-client";
-import { RpcStatusClient } from "./rpc-status-client";
+import { mapRpcError, RpcStatusClient } from "./rpc-status-client";
 
 class FakeTransport implements WebSocketLike {
   readonly sent: string[] = [];
@@ -83,6 +88,105 @@ afterEach(() => {
 });
 
 describe("RpcStatusClient", () => {
+  it("discovers only Controller-backed routing and group capabilities", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc, true);
+    const snapshotRequestPromise = client.getSnapshot();
+    await authenticate(transport);
+    const snapshotRequest = await waitForRequest(transport, 1);
+    const snapshot = await createRpcSnapshot();
+    transport.respond({ id: snapshotRequest.id, jsonrpc: "2.0", result: snapshot });
+    await snapshotRequestPromise;
+    const infoRequest = await waitForRequest(transport, 2);
+    expect(infoRequest.method).toBe("bridge.getInfo");
+    transport.respond({
+      id: infoRequest.id,
+      jsonrpc: "2.0",
+      result: {
+        bridgeVersion: "test",
+        coreConfigured: true,
+        protocolVersion: 3,
+        statusCommands: { group: true, routing: true },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(client.supportsCommand("group")).toBe(true);
+    expect(client.supportsCommand("routing")).toBe(true);
+    expect(client.supportsCommand("capture")).toBe(true);
+    client.dispose();
+  });
+
+  it("refreshes Controller command capabilities when the authoritative profile changes", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc, true);
+    const firstSnapshot = await createRpcSnapshot();
+    const firstRequestPromise = client.getSnapshot();
+    await authenticate(transport);
+    const firstRequest = await waitForRequest(transport, 1);
+    transport.respond({ id: firstRequest.id, jsonrpc: "2.0", result: firstSnapshot });
+    await firstRequestPromise;
+    const firstInfoRequest = await waitForRequest(transport, 2);
+    transport.respond({
+      id: firstInfoRequest.id,
+      jsonrpc: "2.0",
+      result: {
+        bridgeVersion: "test",
+        coreConfigured: true,
+        protocolVersion: 3,
+        statusCommands: { group: true, routing: true },
+      },
+    });
+    await flushMicrotasks();
+    expect(client.supportsCommand("group")).toBe(true);
+
+    const nextSnapshot = structuredClone(firstSnapshot);
+    nextSnapshot.activeProfileId = "profile-replacement";
+    nextSnapshot.profiles = [{ id: "profile-replacement", label: "Replacement" }];
+    const nextRequestPromise = client.getSnapshot();
+    const nextRequest = await waitForRequest(transport, 3);
+    transport.respond({ id: nextRequest.id, jsonrpc: "2.0", result: nextSnapshot });
+    await nextRequestPromise;
+    expect(client.supportsCommand("group")).toBe(false);
+    const nextInfoRequest = await waitForRequest(transport, 4);
+    transport.respond({
+      id: nextInfoRequest.id,
+      jsonrpc: "2.0",
+      result: {
+        bridgeVersion: "test",
+        coreConfigured: false,
+        protocolVersion: 3,
+        statusCommands: { group: false, routing: false },
+      },
+    });
+    await flushMicrotasks();
+
+    expect(client.supportsCommand("group")).toBe(false);
+    expect(client.supportsCommand("routing")).toBe(false);
+    client.dispose();
+  });
+
+  it("preserves typed Controller disconnect failures", () => {
+    expect(
+      mapRpcError(new RpcRemoteError(-32_051, "Controller disconnected", { kind: "disconnected" })),
+    ).toEqual(
+      expect.objectContaining<Partial<StatusClientError>>({
+        code: "disconnected",
+        retryable: true,
+      }),
+    );
+  });
+
   it("sends remembered capture selection separately from aggregate active state", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({

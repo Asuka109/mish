@@ -72,6 +72,26 @@ class DeferredRoutingClient extends FixtureStatusClient {
   }
 }
 
+class CancellableRoutingClient extends FixtureStatusClient {
+  aborted = false;
+
+  override setRoutingMode(
+    _mode: RoutingMode,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto> {
+    return new Promise((_, reject) => {
+      options?.signal?.addEventListener(
+        "abort",
+        () => {
+          this.aborted = true;
+          reject(new StatusClientError("cancelled", "Routing command cancelled"));
+        },
+        { once: true },
+      );
+    });
+  }
+}
+
 class FailingServicesClient extends FixtureStatusClient {
   override restoreDefaultServices(): Promise<StatusSnapshotDto> {
     return Promise.reject(new StatusClientError("remote", "Restore failed"));
@@ -436,6 +456,20 @@ describe("Status fixture experience", () => {
     });
   });
 
+  it("keeps Status shortcut selection synchronized with the Routes page", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+    await user.click(await screen.findByRole("button", { name: /🌐 Proxy/ }));
+    await user.click(await screen.findByText("🇯🇵 NRT-03"));
+    await user.click(screen.getByRole("link", { name: "Routes" }));
+    await user.click(await screen.findByRole("button", { name: "Expand 🌐 Proxy" }));
+
+    expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("keeps capture actions explicitly described as fixture-only", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
@@ -589,7 +623,12 @@ describe("Status fixture experience", () => {
     expect(screen.getByRole("button", { name: "Repair System Proxy" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Leave OS settings as is" }));
 
-    await waitFor(() => expect(client.recoverSystemProxy).toHaveBeenCalledWith("leave-as-is"));
+    await waitFor(() =>
+      expect(client.recoverSystemProxy).toHaveBeenCalledWith(
+        "leave-as-is",
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
   });
 
   it("describes System Proxy confirmation while a desktop command is pending", async () => {
@@ -640,6 +679,17 @@ describe("Status fixture experience", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
     await waitFor(() => expect(globalMode).not.toBeDisabled());
     expect(globalMode).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("cancels pending command ownership when the shared product provider is disposed", async () => {
+    const user = userEvent.setup();
+    const client = new CancellableRoutingClient();
+    const view = renderRoute("/status", "en", client);
+    await user.click(await screen.findByRole("button", { name: "Global" }));
+
+    view.unmount();
+
+    expect(client.aborted).toBe(true);
   });
 
   it("does not show a success toast after a failed service command", async () => {

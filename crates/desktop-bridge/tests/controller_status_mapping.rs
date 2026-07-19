@@ -1,6 +1,6 @@
 use mish_bridge::{
-    ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext, StatusMappingError,
-    StatusRetentionPolicy,
+    ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext,
+    SelectionTargetError, StatusMappingError, StatusRetentionPolicy,
 };
 use mish_mihomo_controller::{
     ConnectionSnapshot, MemorySnapshot, ProxyCatalog, RuleList, RuntimeConfig, TrafficSnapshot,
@@ -178,6 +178,40 @@ fn initialized_mapper() -> ControllerStatusMapper {
 }
 
 #[test]
+fn revalidates_selector_type_and_direct_membership_against_the_current_catalog() {
+    let mapper = initialized_mapper();
+    let snapshot = mapper.snapshot(&core(), StatusAdapterKind::Rpc, 0).unwrap();
+    let inner = snapshot
+        .groups
+        .iter()
+        .find(|group| group.label == INNER_GROUP)
+        .unwrap();
+    let outer = snapshot
+        .groups
+        .iter()
+        .find(|group| group.label == OUTER_GROUP)
+        .unwrap();
+    let node = snapshot
+        .nodes
+        .iter()
+        .find(|node| node.label == long_node_label())
+        .unwrap();
+
+    assert_eq!(
+        mapper.selection_target(&proxy_catalog(), &inner.id, &node.id),
+        Ok((INNER_GROUP.into(), long_node_label()))
+    );
+    assert_eq!(
+        mapper.selection_target(&proxy_catalog(), &outer.id, &inner.id),
+        Err(SelectionTargetError::UnsupportedGroup)
+    );
+    assert_eq!(
+        mapper.selection_target(&proxy_catalog(), &inner.id, &outer.id),
+        Err(SelectionTargetError::ChildOutsideGroup)
+    );
+}
+
+#[test]
 fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
     let mut mapper = ControllerStatusMapper::new(context("sha256:profile-a"));
     mapper
@@ -243,8 +277,8 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
         .iter()
         .find(|group| group.label == OUTER_GROUP)
         .unwrap();
-    assert_eq!(inner.selected_child_id, node.id);
-    assert_eq!(outer.selected_child_id, inner.id);
+    assert_eq!(inner.selected_child_id, Some(node.id.clone()));
+    assert_eq!(outer.selected_child_id, Some(inner.id.clone()));
     assert!(outer.child_ids.contains(&inner.id));
     assert_ne!(outer.id, inner.id);
 
@@ -289,7 +323,20 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
 
     let value = serde_json::to_value(snapshot).unwrap();
     assert_eq!(value["adapterKind"], "rpc");
-    assert_eq!(value["groups"][0]["type"], "selector");
+    assert!(
+        value["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|group| group["type"] == "selector")
+    );
+    assert!(
+        value["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|group| group["type"] == "fallback")
+    );
     assert_eq!(value["services"], json!([]));
     assert_eq!(value["probeResults"], json!([]));
 }

@@ -20,6 +20,7 @@ import {
   type ReactNode,
 } from "react";
 import { useI18nContext } from "../i18n/i18n-react";
+import type { TranslationFunctions } from "../i18n/i18n-types";
 import { createFixtureStatusClient } from "./fixture-status-client";
 
 export type ProductCommand = StatusCommand;
@@ -37,6 +38,7 @@ interface ProductContextValue {
   connection: StatusConnectionState;
   error: string | null;
   isCommandPending(command: ProductCommand): boolean;
+  isGroupCommandPending(groupId: string): boolean;
   isCommandSupported(command: ProductCommand): boolean;
   isLoading: boolean;
   removeServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
@@ -73,6 +75,33 @@ function toStatusClientError(error: unknown) {
   return new StatusClientError("unknown", "Unknown Status client failure");
 }
 
+function commandErrorMessage(
+  LL: TranslationFunctions,
+  commandStates: Record<ProductCommand, ProductCommandState>,
+) {
+  const failure = Object.values(commandStates).find((state) => state.phase === "failure");
+  if (!failure || failure.phase !== "failure") return LL.errors.command();
+  switch (failure.error.code) {
+    case "disconnected":
+      return LL.errors.commandDisconnected();
+    case "inconsistent-observation":
+    case "validation":
+      return LL.errors.commandInconsistent();
+    case "stale-membership":
+    case "not-found":
+      return LL.errors.commandStaleMembership();
+    case "timeout":
+      return LL.errors.commandTimeout();
+    case "unsupported":
+    case "invalid-request":
+      return LL.errors.commandUnsupported();
+    case "version-drift":
+      return LL.errors.commandVersionDrift();
+    default:
+      return LL.errors.command();
+  }
+}
+
 export function ProductProvider({ children, client }: ProductProviderProps) {
   const { LL } = useI18nContext();
   const resolvedClient = useMemo(() => client ?? createFixtureStatusClient(), [client]);
@@ -84,6 +113,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   const [commandFailed, setCommandFailed] = useState(false);
   const [commandStates, setCommandStates] = useState(createInitialCommandStates);
   const pendingCommands = useRef(new Set<ProductCommand>());
+  const commandControllers = useRef(new Map<string, AbortController>());
 
   useEffect(() => {
     const controller = new AbortController();
@@ -107,13 +137,21 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
 
     return () => {
       controller.abort();
+      for (const commandController of commandControllers.current.values()) {
+        commandController.abort();
+      }
+      commandControllers.current.clear();
       unsubscribeConnection();
       unsubscribeSnapshots();
     };
   }, [resolvedClient]);
 
   const runCommand = useCallback(
-    async (command: ProductCommand, operation: () => Promise<StatusSnapshotDto>) => {
+    async (
+      command: ProductCommand,
+      operation: (signal: AbortSignal) => Promise<StatusSnapshotDto>,
+      deduplicationKey: string = command,
+    ) => {
       if (!resolvedClient.supportsCommand(command)) {
         return {
           error: new StatusClientError(
@@ -124,7 +162,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         } satisfies ProductCommandResult;
       }
 
-      if (pendingCommands.current.has(command)) {
+      if (commandControllers.current.has(deduplicationKey)) {
         return {
           error: new StatusClientError("conflict", "This command is already pending", true),
           ok: false,
@@ -132,10 +170,12 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       }
 
       pendingCommands.current.add(command);
+      const controller = new AbortController();
+      commandControllers.current.set(deduplicationKey, controller);
       setCommandFailed(false);
       setCommandStates((states) => ({ ...states, [command]: { phase: "pending" } }));
       try {
-        setSnapshot(await operation());
+        setSnapshot(await operation(controller.signal));
         setCommandStates((states) => ({ ...states, [command]: { phase: "success" } }));
         return { ok: true } satisfies ProductCommandResult;
       } catch (error) {
@@ -145,9 +185,17 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           ...states,
           [command]: { error: typedError, phase: "failure" },
         }));
+        try {
+          setSnapshot(await resolvedClient.getSnapshot());
+        } catch {
+          // Keep the last confirmed snapshot stale when refresh also fails.
+        }
         return { error: typedError, ok: false } satisfies ProductCommandResult;
       } finally {
-        pendingCommands.current.delete(command);
+        commandControllers.current.delete(deduplicationKey);
+        if (![...commandControllers.current.keys()].some((key) => key.startsWith(command))) {
+          pendingCommands.current.delete(command);
+        }
       }
     },
     [resolvedClient],
@@ -157,26 +205,40 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     () => ({
       commandStates,
       connection,
-      error: loadFailed ? LL.errors.loadStatus() : commandFailed ? LL.errors.command() : null,
+      error: loadFailed
+        ? LL.errors.loadStatus()
+        : commandFailed
+          ? commandErrorMessage(LL, commandStates)
+          : null,
       isCommandPending: (command) => commandStates[command].phase === "pending",
-      isCommandSupported: (command) => resolvedClient.supportsCommand(command),
+      isCommandSupported: (command) =>
+        resolvedClient.supportsCommand(command) &&
+        (connection.phase === "fixture" || !connection.stale),
+      isGroupCommandPending: (groupId) => commandControllers.current.has(`group:${groupId}`),
       isLoading: snapshot === null && !loadFailed,
       removeServiceMonitor: (monitorId) =>
-        runCommand("services", () => resolvedClient.removeServiceMonitor(monitorId)),
+        runCommand("services", (signal) =>
+          resolvedClient.removeServiceMonitor(monitorId, { signal }),
+        ),
       recoverSystemProxy: (action) =>
-        runCommand("capture", () => resolvedClient.recoverSystemProxy(action)),
+        runCommand("capture", (signal) => resolvedClient.recoverSystemProxy(action, { signal })),
       restoreDefaultServices: () =>
-        runCommand("services", () => resolvedClient.restoreDefaultServices()),
+        runCommand("services", (signal) => resolvedClient.restoreDefaultServices({ signal })),
       selectGroupChild: (groupId, childId) =>
-        runCommand("group", () => resolvedClient.selectGroupChild(groupId, childId)),
+        runCommand(
+          "group",
+          (signal) => resolvedClient.selectGroupChild(groupId, childId, { signal }),
+          `group:${groupId}`,
+        ),
       setActiveProfile: (profileId) =>
-        runCommand("profile", () => resolvedClient.setActiveProfile(profileId)),
+        runCommand("profile", (signal) => resolvedClient.setActiveProfile(profileId, { signal })),
       setCapture: (selection, active) =>
-        runCommand("capture", () => resolvedClient.setCapture(selection, active)),
-      setRoutingMode: (mode) => runCommand("routing", () => resolvedClient.setRoutingMode(mode)),
+        runCommand("capture", (signal) => resolvedClient.setCapture(selection, active, { signal })),
+      setRoutingMode: (mode) =>
+        runCommand("routing", (signal) => resolvedClient.setRoutingMode(mode, { signal })),
       snapshot,
       upsertServiceMonitor: (draft) =>
-        runCommand("services", () => resolvedClient.upsertServiceMonitor(draft)),
+        runCommand("services", (signal) => resolvedClient.upsertServiceMonitor(draft, { signal })),
     }),
     [
       LL,

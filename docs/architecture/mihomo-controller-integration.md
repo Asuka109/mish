@@ -4,12 +4,13 @@
 
 Mish integrates the desktop Mihomo core as a managed operating-system process.
 The desktop local bridge service starts and stops that process, while the
-read-only Controller adapter observes it over Mihomo's HTTP and WebSocket API.
+Controller adapter observes it and exposes two bounded mutations over Mihomo's
+HTTP and WebSocket API.
 Mihomo is not linked into the Rust process through a C ABI.
 
 The Controller adapter is a Rust library, not a service and not a proxy engine.
 It does not receive or forward device traffic. Its output is a set of validated
-Rust DTOs. A read-only application mapper in `crates/desktop-bridge` reconciles
+Rust DTOs. An application mapper in `crates/desktop-bridge` reconciles
 those DTOs into the transport-neutral typed Status state owned by
 `crates/runtime`.
 
@@ -21,7 +22,7 @@ Use these terms in product and architecture prose:
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Desktop local bridge service | The loopback Rust process that owns desktop process lifecycle, local RPC, authentication, and composition. |
 | Managed Mihomo process       | The independent Mihomo core child process started and stopped by the desktop bridge.                       |
-| Controller adapter           | The in-process Rust library that reads and validates Mihomo Controller responses.                          |
+| Controller adapter           | The in-process Rust library that validates bounded Mihomo Controller observations and commands.            |
 | Controller transport         | An injected mechanism for bounded unary and streaming Controller reads.                                    |
 
 Avoid using “agent” as an architecture role because it is easily confused with
@@ -103,7 +104,7 @@ The third path describes Mihomo's role after a platform capture path is
 configured. This slice does not enable System Proxy, TUN, or any other device
 traffic capture.
 
-## Implemented read-only surface
+## Implemented observation and command surface
 
 `crates/mihomo-controller` implements the following v1.19.29 surface:
 
@@ -128,6 +129,16 @@ reads without publishing a synthetic success.
 The adapter validates the pinned version explicitly through
 `verify_version()`. Callers may still read `/version` without claiming that an
 unknown version is supported.
+
+The command surface is deliberately limited to `PUT /configs` for the closed
+Rule, Global, and Direct mode enum and `PUT /proxies/{group}` for one named
+child. The desktop source serializes commands with observation refreshes,
+rechecks the pinned version and current proxy catalog before every write, and
+accepts group selection only when the target is a Selector and the child is a
+current direct member. A successful HTTP response is not product success. The
+source polls a fresh bounded Controller observation until it confirms the mode
+or group selection, then maps and publishes that observation before returning
+the RPC result.
 
 ## Desktop observation ownership
 
@@ -162,7 +173,7 @@ complete batch. Unsupported versions and invalid first snapshots are typed
 terminal candidate failures; ordinary connection failures may retry only until
 the activation readiness deadline.
 
-`compose_desktop_runtime` remains the lifecycle/read-only composition seam.
+`compose_desktop_runtime` remains the lifecycle/Controller composition seam.
 Passing an explicit Controller configuration installs and starts the source.
 Passing `None` constructs the existing lifecycle-only runtime and performs no
 Controller access. Tauri begins with that safe stopped runtime and replaces it
@@ -332,7 +343,7 @@ The composed managed slice does not:
 - silently select, import, or restore a profile during Tauri startup;
 - download or install Mihomo at runtime; production packaging must still supply
   the pinned resource;
-- mutate profiles, routing mode, group selection, rules, or connections;
+- mutate profiles, rules, or connections;
 - enable System Proxy, TUN, DNS changes, or privileged operations;
 - call delay-test endpoints, which initiate real network requests and update
   Mihomo histories;

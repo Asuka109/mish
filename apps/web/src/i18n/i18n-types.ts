@@ -1605,6 +1605,30 @@ type RootTranslation = {
 		 */
 		command: string
 		/**
+		 * T​h​e​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​d​i​s​c​o​n​n​e​c​t​e​d​ ​b​e​f​o​r​e​ ​t​h​e​ ​c​o​m​m​a​n​d​ ​c​o​u​l​d​ ​b​e​ ​c​o​n​f​i​r​m​e​d​.
+		 */
+		commandDisconnected: string
+		/**
+		 * T​h​e​ ​C​o​n​t​r​o​l​l​e​r​ ​r​e​t​u​r​n​e​d​ ​a​n​ ​i​n​c​o​n​s​i​s​t​e​n​t​ ​o​b​s​e​r​v​a​t​i​o​n​.​ ​S​t​a​t​u​s​ ​w​a​s​ ​r​e​f​r​e​s​h​e​d​.
+		 */
+		commandInconsistent: string
+		/**
+		 * T​h​a​t​ ​c​h​i​l​d​ ​i​s​ ​n​o​ ​l​o​n​g​e​r​ ​a​ ​d​i​r​e​c​t​ ​m​e​m​b​e​r​ ​o​f​ ​t​h​i​s​ ​s​e​l​e​c​t​o​r​.​ ​R​o​u​t​e​s​ ​w​e​r​e​ ​r​e​f​r​e​s​h​e​d​.
+		 */
+		commandStaleMembership: string
+		/**
+		 * T​h​e​ ​C​o​n​t​r​o​l​l​e​r​ ​d​i​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​c​h​a​n​g​e​ ​b​e​f​o​r​e​ ​t​h​e​ ​d​e​a​d​l​i​n​e​.​ ​S​t​a​t​u​s​ ​w​a​s​ ​r​e​f​r​e​s​h​e​d​.
+		 */
+		commandTimeout: string
+		/**
+		 * T​h​i​s​ ​c​o​m​m​a​n​d​ ​i​s​ ​n​o​t​ ​s​u​p​p​o​r​t​e​d​ ​b​y​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 */
+		commandUnsupported: string
+		/**
+		 * T​h​e​ ​M​i​h​o​m​o​ ​C​o​n​t​r​o​l​l​e​r​ ​v​e​r​s​i​o​n​ ​c​h​a​n​g​e​d​ ​a​n​d​ ​i​s​ ​n​o​ ​l​o​n​g​e​r​ ​s​u​p​p​o​r​t​e​d​.
+		 */
+		commandVersionDrift: string
+		/**
 		 * U​n​a​b​l​e​ ​t​o​ ​l​o​a​d​ ​S​t​a​t​u​s​ ​d​a​t​a​.
 		 */
 		loadStatus: string
@@ -3163,6 +3187,30 @@ export type TranslationFunctions = {
 		 * The command failed.
 		 */
 		command: () => LocalizedString
+		/**
+		 * The local service disconnected before the command could be confirmed.
+		 */
+		commandDisconnected: () => LocalizedString
+		/**
+		 * The Controller returned an inconsistent observation. Status was refreshed.
+		 */
+		commandInconsistent: () => LocalizedString
+		/**
+		 * That child is no longer a direct member of this selector. Routes were refreshed.
+		 */
+		commandStaleMembership: () => LocalizedString
+		/**
+		 * The Controller did not confirm the change before the deadline. Status was refreshed.
+		 */
+		commandTimeout: () => LocalizedString
+		/**
+		 * This command is not supported by the current local service.
+		 */
+		commandUnsupported: () => LocalizedString
+		/**
+		 * The Mihomo Controller version changed and is no longer supported.
+		 */
+		commandVersionDrift: () => LocalizedString
 		/**
 		 * Unable to load Status data.
 		 */

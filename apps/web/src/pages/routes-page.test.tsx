@@ -47,6 +47,31 @@ class SnapshotClient extends FixtureStatusClient {
 }
 
 describe("Routes workspace", () => {
+  it("reconciles a Status shortcut selection into Routes through the shared client seam", async () => {
+    const user = userEvent.setup();
+    render(
+      <AppearanceProvider>
+        <TypesafeI18n locale="en">
+          <MemoryRouter initialEntries={["/status"]}>
+            <ProductProvider client={new FixtureStatusClient()}>
+              <TooltipProvider>
+                <AppRoutes />
+              </TooltipProvider>
+            </ProductProvider>
+          </MemoryRouter>
+        </TypesafeI18n>
+      </AppearanceProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Streaming/ }));
+    await user.click(screen.getByText("🇯🇵 NRT-03"));
+    await user.click(screen.getByRole("link", { name: /View all/ }));
+    await user.click(await screen.findByRole("button", { name: "Expand 🎬 Streaming" }));
+    expect(
+      screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🎬 Streaming" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("renders all group types as a nested graph without mounting a collapsed large fixture", async () => {
     const user = userEvent.setup();
     renderRoutes();

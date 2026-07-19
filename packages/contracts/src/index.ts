@@ -459,6 +459,7 @@ export const BridgeInfoSchema = z
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
     protocolVersion: z.literal(3),
+    statusCommands: z.object({ group: z.boolean(), routing: z.boolean() }).strict(),
   })
   .strict();
 export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
@@ -791,6 +792,11 @@ export type StatusClientErrorCode =
   | "not-found"
   | "protocol"
   | "remote"
+  | "stale-membership"
+  | "timeout"
+  | "unsupported"
+  | "version-drift"
+  | "inconsistent-observation"
   | "unknown"
   | "validation";
 

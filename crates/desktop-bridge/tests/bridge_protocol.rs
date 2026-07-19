@@ -229,6 +229,10 @@ async fn authenticates_and_serves_contract_compatible_status() {
     )
     .await;
     assert_eq!(info["result"]["protocolVersion"], 3);
+    assert_eq!(
+        info["result"]["statusCommands"],
+        json!({"group": false, "routing": false})
+    );
     assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
 

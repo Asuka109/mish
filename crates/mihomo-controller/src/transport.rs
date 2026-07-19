@@ -28,6 +28,14 @@ pub trait ControllerTransport: Send + Sync {
         endpoint: Endpoint,
         max_message_bytes: usize,
     ) -> BoxFuture<'_, Result<RawMessageStream, ControllerError>>;
+
+    fn put(
+        &self,
+        endpoint: Endpoint,
+        path_segment: Option<String>,
+        body: Bytes,
+        max_body_bytes: usize,
+    ) -> BoxFuture<'_, Result<(), ControllerError>>;
 }
 
 pub struct HttpTransportConfig {
@@ -140,6 +148,27 @@ impl HttpTransport {
         Ok(request)
     }
 
+    fn mutation_request(
+        &self,
+        endpoint: Endpoint,
+        path_segment: Option<&str>,
+        body: Bytes,
+    ) -> Result<reqwest::RequestBuilder, ControllerError> {
+        let mut url = self.endpoint_url(endpoint)?;
+        if let Some(segment) = path_segment {
+            url.path_segments_mut()
+                .map_err(|_| ControllerError::InvalidConfiguration {
+                    detail: "controller mutation URL could not be constructed".into(),
+                })?
+                .push(segment);
+        }
+        let mut request = self.client.put(url).body(body);
+        if let Some(authorization) = &self.authorization {
+            request = request.header(reqwest::header::AUTHORIZATION, authorization);
+        }
+        Ok(request.header(reqwest::header::CONTENT_TYPE, "application/json"))
+    }
+
     fn websocket_request(
         &self,
         endpoint: Endpoint,
@@ -245,6 +274,36 @@ impl ControllerTransport for HttpTransport {
                 }
             });
             Ok(Box::pin(messages) as RawMessageStream)
+        })
+    }
+
+    fn put(
+        &self,
+        endpoint: Endpoint,
+        path_segment: Option<String>,
+        body: Bytes,
+        max_body_bytes: usize,
+    ) -> BoxFuture<'_, Result<(), ControllerError>> {
+        Box::pin(async move {
+            let operation = async {
+                if body.len() > max_body_bytes {
+                    return Err(ControllerError::BodyTooLarge {
+                        endpoint,
+                        limit: max_body_bytes,
+                    });
+                }
+                let response = self
+                    .mutation_request(endpoint, path_segment.as_deref(), body)?
+                    .send()
+                    .await
+                    .map_err(|error| {
+                        ControllerError::transport(endpoint, error.without_url().to_string())
+                    })?;
+                ensure_success(endpoint, response.status())
+            };
+            timeout(self.request_timeout, operation)
+                .await
+                .map_err(|_| ControllerError::Timeout { endpoint })?
         })
     }
 }

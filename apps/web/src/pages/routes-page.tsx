@@ -145,12 +145,12 @@ function RouteNodeRow({
 
 interface RouteGroupProps {
   commandDescriptionId: string | undefined;
-  commandPending: boolean;
   commandSupported: boolean;
   depth: number;
   expandedGroupIds: Set<string>;
   graph: RouteGraph;
   group: PolicyGroupDto;
+  isGroupCommandPending(groupId: string): boolean;
   locale: Locales;
   onSelect(groupId: string, childId: string): void;
   onSort(groupId: string, sort: RouteSort): void;
@@ -162,12 +162,12 @@ interface RouteGroupProps {
 
 function RouteGroup({
   commandDescriptionId,
-  commandPending,
   commandSupported,
   depth,
   expandedGroupIds,
   graph,
   group,
+  isGroupCommandPending,
   locale,
   onSelect,
   onSort,
@@ -244,7 +244,7 @@ function RouteGroup({
               aria-label={LL.routes.selectChild({ child: group.label, group: parentGroup.label })}
               aria-pressed={selectedInParent}
               className="route-group-select"
-              disabled={commandPending || !commandSupported}
+              disabled={isGroupCommandPending(parentGroup.id) || !commandSupported}
               onClick={() => onSelect(parentGroup.id, group.id)}
               size="sm"
               variant={selectedInParent ? "outline" : "ghost"}
@@ -286,12 +286,12 @@ function RouteGroup({
                     return (
                       <RouteGroup
                         commandDescriptionId={commandDescriptionId}
-                        commandPending={commandPending}
                         commandSupported={commandSupported}
                         depth={depth + 1}
                         expandedGroupIds={expandedGroupIds}
                         graph={graph}
                         group={childGroup}
+                        isGroupCommandPending={isGroupCommandPending}
                         key={childId}
                         locale={locale}
                         onSelect={onSelect}
@@ -309,7 +309,7 @@ function RouteGroup({
                     <li key={childId}>
                       <RouteNodeRow
                         commandDescriptionId={commandDescriptionId}
-                        commandPending={commandPending}
+                        commandPending={isGroupCommandPending(group.id)}
                         commandSupported={commandSupported}
                         group={group}
                         node={node}
@@ -333,8 +333,8 @@ export function RoutesPage() {
   const {
     connection,
     error,
-    isCommandPending,
     isCommandSupported,
+    isGroupCommandPending,
     isLoading,
     selectGroupChild,
     snapshot,
@@ -370,7 +370,6 @@ export function RoutesPage() {
   }
 
   const commandSupported = isCommandSupported("group");
-  const commandPending = isCommandPending("group");
   const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
   const activeProfile =
     snapshot.profiles.find((profile) => profile.id === snapshot.activeProfileId)?.label ??
@@ -481,12 +480,12 @@ export function RoutesPage() {
                 return (
                   <RouteGroup
                     commandDescriptionId={commandDescriptionId}
-                    commandPending={commandPending}
                     commandSupported={commandSupported}
                     depth={0}
                     expandedGroupIds={expandedGroupIds}
                     graph={graph}
                     group={group}
+                    isGroupCommandPending={isGroupCommandPending}
                     key={groupId}
                     locale={locale}
                     onSelect={(groupId, childId) => void selectGroupChild(groupId, childId)}

@@ -37,8 +37,16 @@ export class RpcStatusClient implements StatusClient {
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
   private readonly unsubscribeRpcConnection: () => void;
+  private capabilityPendingProfileId: string | null = null;
+  private capabilityPromise: Promise<void> | null = null;
+  private capabilityProfileId: string | null = null;
+  private capabilitiesLoaded = false;
+  private readonly supportedCommands = new Set<StatusCommand>();
 
-  constructor(private readonly rpc: StatusRpcClient) {
+  constructor(
+    private readonly rpc: StatusRpcClient,
+    private readonly discoverCommandCapabilities = false,
+  ) {
     this.connectionState = mapConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
       "status.snapshot",
@@ -115,7 +123,7 @@ export class RpcStatusClient implements StatusClient {
   }
 
   supportsCommand(command: StatusCommand) {
-    return command === "capture";
+    return command === "capture" || this.supportedCommands.has(command);
   }
 
   upsertServiceMonitor(draft: ServiceMonitorDraft, options?: RpcRequestOptions) {
@@ -164,6 +172,10 @@ export class RpcStatusClient implements StatusClient {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
       this.remoteSubscriptionId = null;
+      this.capabilitiesLoaded = false;
+      this.capabilityPendingProfileId = null;
+      this.capabilityProfileId = null;
+      this.supportedCommands.clear();
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
       return;
@@ -175,6 +187,51 @@ export class RpcStatusClient implements StatusClient {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
     for (const listener of this.snapshotListeners) listener(notification.snapshot);
+    void this.ensureCommandCapabilities(notification.snapshot.activeProfileId);
+  }
+
+  private async ensureCommandCapabilities(profileId: string) {
+    if (
+      !this.discoverCommandCapabilities ||
+      this.disposed ||
+      (this.capabilitiesLoaded && this.capabilityProfileId === profileId)
+    ) {
+      return;
+    }
+
+    if (this.capabilityPendingProfileId !== profileId) {
+      this.capabilityPendingProfileId = profileId;
+      this.capabilitiesLoaded = false;
+      this.capabilityProfileId = null;
+      this.supportedCommands.clear();
+      this.emitConnectionState(this.getConnectionState());
+    }
+    if (this.capabilityPromise) return;
+
+    const requestedProfileId = this.capabilityPendingProfileId;
+    this.capabilityPromise = this.rpc
+      .request("bridge.getInfo", {})
+      .then((info) => {
+        if (this.disposed || this.capabilityPendingProfileId !== requestedProfileId) return;
+        this.supportedCommands.clear();
+        this.capabilitiesLoaded = true;
+        this.capabilityProfileId = requestedProfileId;
+        if (info.statusCommands.group) this.supportedCommands.add("group");
+        if (info.statusCommands.routing) this.supportedCommands.add("routing");
+        this.emitConnectionState(this.getConnectionState());
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.capabilityPromise = null;
+        if (
+          !this.disposed &&
+          this.capabilityPendingProfileId !== requestedProfileId &&
+          this.capabilityPendingProfileId !== null
+        ) {
+          void this.ensureCommandCapabilities(this.capabilityPendingProfileId);
+        }
+      });
+    await this.capabilityPromise;
   }
 
   private async requestSnapshot<
@@ -196,6 +253,7 @@ export class RpcStatusClient implements StatusClient {
     try {
       const snapshot = await this.rpc.request(method, params as never, options);
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
     } catch (error) {
       throw mapRpcError(error);
@@ -228,6 +286,32 @@ export function mapRpcError(error: unknown) {
     return new StatusClientError("protocol", error.message);
   }
   if (error instanceof RpcRemoteError) {
+    const kind =
+      error.data && typeof error.data === "object" && "kind" in error.data
+        ? (error.data as { kind?: unknown }).kind
+        : undefined;
+    if (kind === "unsupported") return new StatusClientError("unsupported", error.message);
+    if (kind === "unsupported-group") {
+      return new StatusClientError("unsupported", error.message);
+    }
+    if (kind === "invalid-request") {
+      return new StatusClientError("invalid-request", error.message);
+    }
+    if (kind === "not-found") return new StatusClientError("not-found", error.message);
+    if (kind === "conflict") return new StatusClientError("conflict", error.message, true);
+    if (kind === "disconnected") {
+      return new StatusClientError("disconnected", error.message, true);
+    }
+    if (kind === "stale-membership") {
+      return new StatusClientError("stale-membership", error.message, true);
+    }
+    if (kind === "timeout") return new StatusClientError("timeout", error.message, true);
+    if (kind === "version-drift") {
+      return new StatusClientError("version-drift", error.message);
+    }
+    if (kind === "inconsistent-observation") {
+      return new StatusClientError("inconsistent-observation", error.message, true);
+    }
     if (error.code === -32_602) {
       return new StatusClientError("invalid-request", error.message);
     }

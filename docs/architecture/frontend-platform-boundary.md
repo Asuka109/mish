@@ -138,7 +138,7 @@ healthy core active or restore an explicit safe stopped state. Managed binary
 resolution is offline: development requires an explicit prepared path and
 production looks only in the supplied sidecar resource directory.
 
-`crates/mihomo-controller` implements a transport-neutral, read-only client for
+`crates/mihomo-controller` implements a transport-neutral client for
 the pinned Mihomo Controller surface. The desktop bridge composes its validated,
 bounded observations into the Status source, the independent Traffic source,
 and the transactional activation manager. The Tauri shell starts safely stopped
@@ -171,10 +171,13 @@ but never overwritten.
 
 Commands not backed by real controller or platform reconciliation return a
 typed capability error instead of fake success. TUN remains unavailable.
+When the Controller source is present, the RPC Status client also discovers
+only the reconciled routing-mode and group-selection commands. Missing-core and
+lifecycle-only compositions advertise neither Controller command.
 Profile import, persistence, refresh, and inactive deletion use the separate
 Profile application service. Activation uses its own typed, cancellable command
-seam from Profiles and the Status selector. Routing, group, service, and TUN
-controls remain unavailable rather than runnable. Active deletion requires
+seam from Profiles and the Status selector. Service and TUN controls remain
+unavailable rather than runnable. Active deletion requires
 successful replacement activation or an explicit safe stop. Profile activation
 never implicitly enables System Proxy.
 

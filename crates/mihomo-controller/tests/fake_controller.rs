@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use axum::{
     Router,
@@ -8,7 +11,7 @@ use axum::{
     },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, put},
 };
 use futures_util::StreamExt;
 use mish_mihomo_controller::{
@@ -22,6 +25,95 @@ const AUTHORIZATION: &str = "Bearer synthetic-controller-token";
 
 #[derive(Clone)]
 struct FakeState;
+
+#[derive(Default)]
+struct MutationState {
+    requests: Mutex<Vec<(String, String, String)>>,
+}
+
+#[tokio::test]
+async fn sends_authenticated_strict_unicode_mutations() {
+    async fn record_config(
+        headers: HeaderMap,
+        State(state): State<Arc<MutationState>>,
+        body: String,
+    ) -> Response {
+        record_mutation(headers, state, "/configs".into(), body)
+    }
+
+    async fn record_group(
+        axum::extract::Path(group): axum::extract::Path<String>,
+        headers: HeaderMap,
+        State(state): State<Arc<MutationState>>,
+        body: String,
+    ) -> Response {
+        record_mutation(headers, state, format!("/proxies/{group}"), body)
+    }
+
+    fn record_mutation(
+        headers: HeaderMap,
+        state: Arc<MutationState>,
+        path: String,
+        body: String,
+    ) -> Response {
+        let authorization = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        state
+            .requests
+            .lock()
+            .unwrap()
+            .push((path, authorization, body));
+        StatusCode::NO_CONTENT.into_response()
+    }
+
+    let state = Arc::new(MutationState::default());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/configs", put(record_config))
+        .route("/proxies/{group}", put(record_group))
+        .with_state(state.clone());
+    let server = tokio::spawn(axum::serve(listener, app).into_future());
+
+    let mut config = HttpTransportConfig::new(Url::parse(&format!("http://{address}/")).unwrap());
+    config.secret = Some("synthetic-controller-token".into());
+    let client = ControllerClient::new(
+        Arc::new(HttpTransport::new(config).unwrap()),
+        ControllerLimits::default(),
+    )
+    .unwrap();
+
+    client
+        .set_routing_mode(mish_mihomo_controller::RoutingMode::Global)
+        .await
+        .unwrap();
+    client
+        .select_group_child("策略组 / 東京", "节点 🚄")
+        .await
+        .unwrap();
+
+    let requests = state.requests.lock().unwrap();
+    assert_eq!(
+        requests.as_slice(),
+        [
+            (
+                "/configs".into(),
+                AUTHORIZATION.into(),
+                r#"{"mode":"global"}"#.into(),
+            ),
+            (
+                "/proxies/策略组 / 東京".into(),
+                AUTHORIZATION.into(),
+                r#"{"name":"节点 🚄"}"#.into(),
+            ),
+        ]
+    );
+    drop(requests);
+    server.abort();
+}
 
 #[tokio::test]
 async fn reads_pinned_controller_dtos_and_cancels_websocket_streams() {

@@ -235,7 +235,12 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         const values = params as Record<string, unknown>;
         switch (method) {
           case "bridge.getInfo":
-            return { bridgeVersion: "mock", coreConfigured: true, protocolVersion: 3 };
+            return {
+              bridgeVersion: "mock",
+              coreConfigured: true,
+              protocolVersion: 3,
+              statusCommands: { group: true, routing: true },
+            };
           case "core.getStatus":
             return core;
           case "core.start":
