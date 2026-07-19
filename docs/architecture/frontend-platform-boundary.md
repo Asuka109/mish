@@ -192,7 +192,7 @@ applies the returned authoritative snapshot on success and failure, and derives
 Closed history through the existing same-session snapshot diff. Browser
 fixtures advertise these commands as unsupported.
 
-Protocol version 6 adds authenticated, fixed-parameter Guided Diagnostics
+Protocol version 7 adds authenticated, fixed-parameter Guided Diagnostics
 history, start, and cancellation methods. The run is owned by the desktop
 runtime host so runtime replacement invalidates in-flight work. It defines no
 mutation, export, upload, arbitrary endpoint, or persistent history method; see

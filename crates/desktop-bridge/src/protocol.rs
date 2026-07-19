@@ -15,6 +15,10 @@ use mish_runtime::{
     CoreErrorKind, CoreStatus, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
     StatusCommandErrorKind, TrafficCommandAuthority, TrafficCommandOperation,
 };
+use mish_settings::{
+    AppearancePreference, LanguagePreference, SettingsAdapterKind, SettingsService,
+    SettingsServiceError, StartupPreferences,
+};
 use tokio::sync::broadcast;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
@@ -45,6 +49,7 @@ pub(crate) struct ProtocolState {
     pub profile_activation: Option<std::sync::Arc<crate::ProfileActivationCoordinator>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
     pub runtime: crate::DesktopRuntimeHost,
+    pub settings_service: Option<std::sync::Arc<SettingsService>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +102,24 @@ struct ProfileCommandParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RecoverSystemProxyParams {
     action: CaptureRecoveryAction,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetAppearanceParams {
+    appearance: AppearancePreference,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetLanguageParams {
+    language: LanguagePreference,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetStartupParams {
+    startup: StartupPreferences,
 }
 
 struct SocketSubscriptions {
@@ -347,6 +370,7 @@ async fn handle_message(
             | "events.subscribe"
             | "diagnostics.getHistory"
             | "diagnostics.startRun"
+            | "settings.getSnapshot"
     ) && !request
         .params
         .as_object()
@@ -384,7 +408,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 6,
+            "protocolVersion": 7,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -810,6 +834,52 @@ async fn handle_message(
                 Err(error) => return Some(capture_error_response(id, error)),
             }
         }
+        "settings.getSnapshot" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            serde_json::to_value(service.snapshot(SettingsAdapterKind::Rpc))
+                .expect("serializable settings snapshot")
+        }
+        "settings.setAppearance" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetAppearanceParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.set_appearance(params.appearance) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.setLanguage" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetLanguageParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.set_language(params.language) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.setStartup" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetStartupParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.set_startup(params.startup) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
         "rpc.cancel" => json!(false),
         method if method.starts_with("status.") => {
             return Some(error_response(
@@ -884,6 +954,28 @@ fn profile_capability_error(id: Value) -> Value {
         "Profile storage is not available in this bridge composition",
         None,
     )
+}
+
+fn settings_capability_error(id: Value) -> Value {
+    error_response(id, -32020, "Application settings are unavailable", None)
+}
+
+fn settings_error_response(id: Value, error: SettingsServiceError) -> Value {
+    match error {
+        SettingsServiceError::CapabilityUnavailable => settings_capability_error(id),
+        SettingsServiceError::Persistence => error_response(
+            id,
+            -32041,
+            "Application settings could not be persisted",
+            None,
+        ),
+        SettingsServiceError::Startup => error_response(
+            id,
+            -32054,
+            "Startup registration could not be confirmed",
+            None,
+        ),
+    }
 }
 
 fn profile_activation_capability_error(id: Value) -> Value {

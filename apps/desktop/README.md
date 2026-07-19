@@ -20,6 +20,13 @@ message, never in a URL, and neither the shell nor the Web client logs or
 persists it. The browser build does not call this command and remains visibly
 fixture-backed.
 
+The same bootstrap includes a validated settings snapshot loaded from private
+application data before the Web UI renders. Settings updates travel through the
+authenticated loopback RPC as bounded appearance, language, or startup DTOs.
+No ordinary settings method accepts a path, command, endpoint, credential, or
+raw configuration object. The durable contract is documented in
+[`../../docs/architecture/settings-contracts.md`](../../docs/architecture/settings-contracts.md).
+
 On macOS, the native title bar uses the overlay style with its title hidden.
 The WebView therefore reaches the top of the window while the operating system
 continues to own the traffic-light controls, window shadow, resizing, and
@@ -67,3 +74,9 @@ result, and restores exact Mish-owned state on shutdown or restart audit. PAC,
 automatic discovery, and authenticated settings are never overwritten. TUN,
 status-bar behavior, packaging icons, signing, and notarization remain separate
 platform slices.
+
+Launch at login uses Tauri's macOS LaunchAgent integration with a fixed login
+startup argument. The preference is persisted only after registration is
+re-observed. Login launches can either show the main window or remain in the
+background; manual launches always show the window. The default remains launch
+at login off.

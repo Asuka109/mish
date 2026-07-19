@@ -24,6 +24,7 @@
         "title": "Mish",
         "titleBarStyle": "Overlay",
         "transparent": true,
+        "visible": false,
         "useHttpsScheme": true,
         "width": 1160,
         "windowEffects": {

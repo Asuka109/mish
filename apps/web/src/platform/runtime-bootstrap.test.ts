@@ -2,6 +2,32 @@ import { describe, expect, it, vi } from "vitest";
 import { parseRuntimeBootstrap, resolveStartupStatusClient } from "./runtime-bootstrap";
 
 const token = "0123456789abcdef".repeat(4);
+const settingsSnapshot = {
+  adapterKind: "rpc" as const,
+  capabilities: {
+    backgroundLaunch: "supported" as const,
+    backupRestore: "coming-later" as const,
+    expertConfiguration: "coming-later" as const,
+    launchAtLogin: "supported" as const,
+    nativeSidebarMaterial: "supported" as const,
+    networkDns: "coming-later" as const,
+    tun: "unavailable" as const,
+    updates: "coming-later" as const,
+  },
+  preferences: {
+    appearance: "system" as const,
+    language: "en" as const,
+    startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" as const },
+  },
+  privacy: {
+    authenticated: "confirmed" as const,
+    lanControl: "unavailable" as const,
+    loopbackOnly: "confirmed" as const,
+    originValidated: "confirmed" as const,
+  },
+  startupRegistration: { desired: false, observed: false, phase: "applied" as const },
+  storageRecovered: false,
+};
 
 describe("desktop runtime bootstrap", () => {
   it("leaves ordinary browser startup fixture-backed and does not invoke IPC", async () => {
@@ -18,6 +44,8 @@ describe("desktop runtime bootstrap", () => {
     expect(startup.profileClient).toBeUndefined();
     expect(startup.nativeSidebarMaterial).toBe(false);
     expect(startup.runtime).toBe("browser");
+    expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
+    expect(startup.settingsSnapshot.capabilities.launchAtLogin).toBe("unavailable");
     expect(invokeBootstrap).not.toHaveBeenCalled();
     expect(invokeLocalProfilePreflight).not.toHaveBeenCalled();
   });
@@ -29,6 +57,7 @@ describe("desktop runtime bootstrap", () => {
         authToken: token,
         nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
+        settingsSnapshot,
       }),
       invokeLocalProfilePreflight,
       isDesktop: () => true,
@@ -46,11 +75,13 @@ describe("desktop runtime bootstrap", () => {
         authToken: token,
         nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
+        settingsSnapshot,
       }),
     ).toEqual({
       authToken: token,
       nativeSidebarMaterial: true,
       rpcUrl: "ws://127.0.0.1:43123/rpc",
+      settingsSnapshot,
     });
 
     for (const rpcUrl of [
@@ -62,7 +93,12 @@ describe("desktop runtime bootstrap", () => {
       "ws://127.0.0.1:43123/other",
     ]) {
       expect(() =>
-        parseRuntimeBootstrap({ authToken: token, nativeSidebarMaterial: true, rpcUrl }),
+        parseRuntimeBootstrap({
+          authToken: token,
+          nativeSidebarMaterial: true,
+          rpcUrl,
+          settingsSnapshot,
+        }),
       ).toThrow();
     }
   });
@@ -94,6 +130,7 @@ describe("desktop runtime bootstrap", () => {
         authToken: token,
         nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
+        settingsSnapshot,
       }),
       invokeLocalProfilePreflight: vi.fn(),
       isDesktop: () => true,

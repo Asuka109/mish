@@ -20,6 +20,10 @@ use mish_runtime::{
     CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
     MishRuntime, NetworkServiceProxyState,
 };
+use mish_settings::{
+    LoadedSettings, SettingsCapabilities, SettingsPreferences, SettingsRepository,
+    SettingsRepositoryError, SettingsService, StartupPlatform, StartupPlatformError,
+};
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
@@ -101,6 +105,48 @@ impl CaptureJournalStore for MemoryCaptureJournal {
     }
 }
 
+#[derive(Default)]
+struct MemorySettingsRepository(std::sync::Mutex<SettingsPreferences>);
+
+impl SettingsRepository for MemorySettingsRepository {
+    fn load(&self) -> Result<LoadedSettings, SettingsRepositoryError> {
+        Ok(LoadedSettings {
+            migrated: false,
+            preferences: *self.0.lock().unwrap(),
+        })
+    }
+
+    fn save(&self, preferences: &SettingsPreferences) -> Result<(), SettingsRepositoryError> {
+        *self.0.lock().unwrap() = *preferences;
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct MemoryStartupPlatform(std::sync::atomic::AtomicBool);
+
+impl StartupPlatform for MemoryStartupPlatform {
+    fn is_enabled(&self) -> Result<bool, StartupPlatformError> {
+        Ok(self.0.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    fn set_enabled(&self, enabled: bool) -> Result<(), StartupPlatformError> {
+        self.0.store(enabled, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+fn settings_service() -> Arc<SettingsService> {
+    Arc::new(
+        SettingsService::load(
+            Arc::new(MemorySettingsRepository::default()),
+            Some(Arc::new(MemoryStartupPlatform::default())),
+            SettingsCapabilities::macos(true),
+        )
+        .unwrap(),
+    )
+}
+
 fn capture_runtime() -> MishRuntime {
     capture_runtime_parts().0
 }
@@ -135,6 +181,7 @@ fn config() -> LoopbackServerConfig {
         max_message_bytes: 1_048_576,
         profile_activation: None,
         profile_service: None,
+        settings_service: None,
     }
 }
 
@@ -245,6 +292,84 @@ async fn rejects_unauthenticated_and_malformed_requests() {
 }
 
 #[tokio::test]
+async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
+    let mut bridge_config = config();
+    bridge_config.settings_service = Some(settings_service());
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+
+    let unauthenticated = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":1, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(unauthenticated["error"]["code"], -32001);
+    authenticate(&mut ws).await;
+
+    let initial = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"settings.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(initial["result"]["adapterKind"], "rpc");
+    assert_eq!(initial["result"]["privacy"]["loopbackOnly"], "confirmed");
+    assert_eq!(initial["result"]["privacy"]["authenticated"], "confirmed");
+    assert_eq!(initial["result"]["privacy"]["originValidated"], "confirmed");
+    assert_eq!(initial["result"]["privacy"]["lanControl"], "unavailable");
+    assert!(initial["result"].get("authToken").is_none());
+
+    let appearance = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"settings.setAppearance",
+            "params":{"appearance":"dark"}
+        }),
+    )
+    .await;
+    assert_eq!(appearance["result"]["preferences"]["appearance"], "dark");
+
+    let startup = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"settings.setStartup",
+            "params":{"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background"}}
+        }),
+    )
+    .await;
+    assert_eq!(startup["result"]["startupRegistration"]["phase"], "applied");
+    assert_eq!(startup["result"]["startupRegistration"]["observed"], true);
+
+    for (id, method, params) in [
+        (
+            5,
+            "settings.setAppearance",
+            json!({"appearance":"dark", "path":"/tmp/secret"}),
+        ),
+        (
+            6,
+            "settings.setLanguage",
+            json!({"language":"zh", "command":"open"}),
+        ),
+        (
+            7,
+            "settings.setStartup",
+            json!({"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background","configuration":{}}}),
+        ),
+    ] {
+        let rejected = request(
+            &mut ws,
+            json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
+        )
+        .await;
+        assert_eq!(rejected["error"]["code"], -32602);
+    }
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn authenticates_and_serves_contract_compatible_status() {
     let bridge = start_loopback_server(config(), runtime(no_core()))
         .await
@@ -257,7 +382,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 6);
+    assert_eq!(info["result"]["protocolVersion"], 7);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})

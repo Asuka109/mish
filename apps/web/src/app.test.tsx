@@ -6,10 +6,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
 import {
   StatusClientError,
+  type AppearancePreference,
   type CaptureSelectionDto,
   type ProfileClient,
   type ProfileSnapshotDto,
+  type LanguagePreference,
   type RoutingMode,
+  type SettingsClient,
+  type SettingsSnapshotDto,
+  type StartupPreferencesDto,
   type StatusClient,
   type StatusCommand,
   type StatusConnectionState,
@@ -21,6 +26,11 @@ import { FixtureStatusClient } from "./data/fixture-status-client";
 import { FixtureProfileClient } from "./data/fixture-profile-client";
 import { ProductProvider } from "./data/product-provider";
 import { EventsProvider } from "./data/events-provider";
+import {
+  FixtureSettingsClient,
+  createFixtureSettingsSnapshot,
+} from "./data/fixture-settings-client";
+import { SettingsProvider } from "./data/settings-provider";
 import { ProfileProvider } from "./data/profile-provider";
 import { TrafficProvider } from "./data/traffic-provider";
 import { StartupFailure } from "./components/startup-failure";
@@ -35,25 +45,29 @@ function renderRoute(
   locale: Locales = "en",
   client?: StatusClient,
   profileClient?: ProfileClient,
+  settingsClient: SettingsClient = new FixtureSettingsClient(),
+  settingsSnapshot: SettingsSnapshotDto = createFixtureSettingsSnapshot(),
 ) {
   return render(
-    <AppearanceProvider>
-      <TypesafeI18n locale={locale}>
-        <MemoryRouter initialEntries={[path]}>
-          <ProductProvider client={client}>
-            <ProfileProvider client={profileClient}>
-              <TrafficProvider>
-                <EventsProvider>
-                  <TooltipProvider>
-                    <AppRoutes />
-                  </TooltipProvider>
-                </EventsProvider>
-              </TrafficProvider>
-            </ProfileProvider>
-          </ProductProvider>
-        </MemoryRouter>
-      </TypesafeI18n>
-    </AppearanceProvider>,
+    <SettingsProvider client={settingsClient} initialSnapshot={settingsSnapshot}>
+      <AppearanceProvider>
+        <TypesafeI18n locale={locale}>
+          <MemoryRouter initialEntries={[path]}>
+            <ProductProvider client={client}>
+              <ProfileProvider client={profileClient}>
+                <TrafficProvider>
+                  <EventsProvider>
+                    <TooltipProvider>
+                      <AppRoutes />
+                    </TooltipProvider>
+                  </EventsProvider>
+                </TrafficProvider>
+              </ProfileProvider>
+            </ProductProvider>
+          </MemoryRouter>
+        </TypesafeI18n>
+      </AppearanceProvider>
+    </SettingsProvider>,
   );
 }
 
@@ -99,6 +113,49 @@ class FailingServicesClient extends FixtureStatusClient {
   override restoreDefaultServices(): Promise<StatusSnapshotDto> {
     return Promise.reject(new StatusClientError("remote", "Restore failed"));
   }
+}
+
+class DesktopSettingsClient implements SettingsClient {
+  snapshot: SettingsSnapshotDto = {
+    ...createFixtureSettingsSnapshot(),
+    adapterKind: "rpc",
+    capabilities: {
+      backgroundLaunch: "supported",
+      backupRestore: "coming-later",
+      expertConfiguration: "coming-later",
+      launchAtLogin: "supported",
+      nativeSidebarMaterial: "supported",
+      networkDns: "coming-later",
+      tun: "unavailable",
+      updates: "coming-later",
+    },
+    privacy: {
+      authenticated: "confirmed",
+      lanControl: "unavailable",
+      loopbackOnly: "confirmed",
+      originValidated: "confirmed",
+    },
+    startupRegistration: { desired: false, observed: false, phase: "applied" },
+  };
+
+  getSnapshot = vi.fn(async () => structuredClone(this.snapshot));
+  setAppearance = vi.fn(async (appearance: AppearancePreference) => {
+    this.snapshot.preferences.appearance = appearance;
+    return this.getSnapshot();
+  });
+  setLanguage = vi.fn(async (language: LanguagePreference) => {
+    this.snapshot.preferences.language = language;
+    return this.getSnapshot();
+  });
+  setStartup = vi.fn(async (startup: StartupPreferencesDto) => {
+    this.snapshot.preferences.startup = startup;
+    this.snapshot.startupRegistration = {
+      desired: startup.launchAtLogin,
+      observed: startup.launchAtLogin,
+      phase: "applied",
+    };
+    return this.getSnapshot();
+  });
 }
 
 class FailingCaptureClient extends FixtureStatusClient {
@@ -296,6 +353,44 @@ describe("production routes", () => {
     expect(await screen.findByRole("heading", { name: title })).toBeInTheDocument();
   });
 
+  it("organizes Settings by outcomes and keeps native-only controls truthfully unavailable", async () => {
+    renderRoute("/settings");
+
+    for (const heading of [
+      "Capture and startup",
+      "Network and DNS",
+      "Appearance and interaction",
+      "Updates and data",
+      "Privacy and access",
+      "Advanced and support",
+    ]) {
+      expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    }
+    expect(
+      screen.getByText(/cannot perform or confirm native macOS operations/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch at login" })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Virtual Interface, not selected, not running" }),
+    ).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /enable lan/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps Settings operable by keyboard at the narrow-window breakpoint", async () => {
+    const user = userEvent.setup();
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 760 });
+    window.dispatchEvent(new Event("resize"));
+    renderRoute("/settings");
+
+    const dark = await screen.findByRole("button", { name: "Dark" });
+    dark.focus();
+    await user.keyboard(" ");
+
+    expect(dark).toHaveFocus();
+    await waitFor(() => expect(document.documentElement).toHaveAttribute("data-theme", "dark"));
+    expect(screen.getByRole("heading", { name: "Advanced and support" })).toBeVisible();
+  });
+
   it("uses semantic links and preserves an accessible active destination", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
@@ -327,6 +422,65 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
+  it("separates login registration from the exclusive login-window behavior", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    const background = await screen.findByRole("button", { name: "Background" });
+    expect(background).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Launch at login" }));
+    await waitFor(() =>
+      expect(settingsClient.setStartup).toHaveBeenCalledWith({
+        launchAtLogin: true,
+        loginLaunchBehavior: "show-window",
+      }),
+    );
+    await waitFor(() => expect(background).not.toBeDisabled());
+    await user.click(background);
+    await waitFor(() =>
+      expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
+        launchAtLogin: true,
+        loginLaunchBehavior: "background",
+      }),
+    );
+  });
+
+  it("reuses the System Proxy drift and recovery model inside Settings", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection.systemProxy = true;
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "other",
+      phase: "drift",
+      recoveryActions: ["repair", "leave-as-is"],
+    };
+    const statusClient = new DriftRecoveryClient(snapshot);
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "System Proxy differs from Mish's requested state.",
+    );
+    expect(screen.getByRole("button", { name: "Repair System Proxy" })).toBeInTheDocument();
+  });
+
   it("uses the Profile activation command seam from the Status selector", async () => {
     const user = userEvent.setup();
     const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
@@ -710,8 +864,11 @@ describe("Status fixture experience", () => {
 
   it("switches to Simplified Chinese and persists the locale", async () => {
     const user = userEvent.setup();
-    renderRoute("/status");
+    const view = renderRoute("/status");
     await screen.findByText("Fixture activity at a glance.");
+    const authoredLabels = [...view.container.querySelectorAll(".user-authored-label")].map(
+      (element) => element.textContent,
+    );
 
     await user.click(
       screen.getByRole("button", { name: "Change language. Current language: English" }),
@@ -723,6 +880,11 @@ describe("Status fixture experience", () => {
     expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
     expect(localStorage.getItem("mish.locale")).toBe("zh");
+    expect(
+      [...view.container.querySelectorAll(".user-authored-label")].map(
+        (element) => element.textContent,
+      ),
+    ).toEqual(authoredLabels);
   });
 
   it("switches appearance manually and persists the preference", async () => {

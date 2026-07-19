@@ -27,6 +27,7 @@ import { NavLink, Outlet, useLocation } from "react-router";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useProduct } from "../data/product-provider";
 import { useOptionalProfiles } from "../data/profile-provider";
+import { useOptionalSettings } from "../data/settings-provider";
 import {
   getAggregateCaptureDescriptionId,
   getCommandDescriptionId,
@@ -301,10 +302,12 @@ function ProfileMenu() {
 
 function LanguageMenu() {
   const { LL, locale, setLocale } = useI18nContext();
+  const settings = useOptionalSettings();
   const currentLanguage = locale === "zh" ? LL.language.simplifiedChinese() : LL.language.english();
 
-  function changeLocale(value: string) {
+  async function changeLocale(value: string) {
     if (!isLocale(value)) return;
+    if (settings && !(await settings.setLanguage(value))) return;
     persistLocale(value);
     setLocale(value);
   }
@@ -320,7 +323,7 @@ function LanguageMenu() {
         <CaretDown aria-hidden="true" weight="bold" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="language-menu" sideOffset={8}>
-        <DropdownMenuRadioGroup onValueChange={changeLocale} value={locale}>
+        <DropdownMenuRadioGroup onValueChange={(value) => void changeLocale(value)} value={locale}>
           <DropdownMenuLabel className="profile-menu-label">
             {LL.language.label()}
           </DropdownMenuLabel>

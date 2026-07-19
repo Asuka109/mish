@@ -16,11 +16,18 @@ use mish_bridge::{
 use mish_platform_macos::{FileCaptureJournalStore, MacOsSystemProxyPlatform};
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{CaptureReconciler, LoopbackProxyEndpoint};
+use mish_settings::{
+    FileSettingsRepository, LoginLaunchBehavior, SettingsAdapterKind, SettingsAvailability,
+    SettingsCapabilities, SettingsService, SettingsServiceError, SettingsSnapshot, StartupPlatform,
+    StartupPlatformError,
+};
 use serde::Serialize;
 use tauri::Manager;
+use tauri_plugin_autostart::ManagerExt;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
+const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +35,7 @@ struct RuntimeBootstrap {
     auth_token: String,
     native_sidebar_material: bool,
     rpc_url: String,
+    settings_snapshot: SettingsSnapshot,
 }
 
 #[derive(Clone)]
@@ -35,6 +43,27 @@ struct BridgeState(Arc<Mutex<Option<LoopbackServerHandle>>>);
 
 #[derive(Clone)]
 struct ProfileState(Arc<DesktopProfileService>);
+
+struct TauriStartupPlatform(tauri::AppHandle);
+
+impl StartupPlatform for TauriStartupPlatform {
+    fn is_enabled(&self) -> Result<bool, StartupPlatformError> {
+        self.0
+            .autolaunch()
+            .is_enabled()
+            .map_err(|_| StartupPlatformError)
+    }
+
+    fn set_enabled(&self, enabled: bool) -> Result<(), StartupPlatformError> {
+        let manager = self.0.autolaunch();
+        if enabled {
+            manager.enable()
+        } else {
+            manager.disable()
+        }
+        .map_err(|_| StartupPlatformError)
+    }
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +110,10 @@ async fn profile_preflight_local(
 pub fn run() -> Result<i32, String> {
     let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![LOGIN_STARTUP_ARGUMENT]),
+        ))
         .manage(bridge_state.clone())
         .setup(initialize)
         .invoke_handler(tauri::generate_handler![
@@ -104,6 +137,16 @@ pub fn run() -> Result<i32, String> {
 fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
+    let settings_service = Arc::new(
+        SettingsService::load(
+            Arc::new(FileSettingsRepository::new(
+                profile_root.join("settings.json"),
+            )),
+            startup_platform(app),
+            desktop_settings_capabilities(),
+        )
+        .map_err(settings_initialization_error)?,
+    );
     let profile_service = Arc::new(
         ReqwestHttpsSourceReader::profile_service(profile_root.clone())
             .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
@@ -158,6 +201,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 max_message_bytes: 1_048_576,
                 profile_activation: Some(activation),
                 profile_service: Some(profile_service.clone()),
+                settings_service: Some(settings_service.clone()),
             },
             runtime_host,
         )
@@ -168,13 +212,64 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         auth_token,
         native_sidebar_material: cfg!(target_os = "macos"),
         rpc_url: format!("ws://{}/rpc", bridge.address),
+        settings_snapshot: settings_service.snapshot(SettingsAdapterKind::Rpc),
     });
     app.manage(ProfileState(profile_service));
     *app.state::<BridgeState>()
         .0
         .lock()
         .map_err(|_| io::Error::other("desktop bridge state is unavailable"))? = Some(bridge);
+    if should_show_main_window(
+        std::env::args().any(|argument| argument == LOGIN_STARTUP_ARGUMENT),
+        settings_service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .startup
+            .login_launch_behavior,
+    ) && let Some(window) = app.get_webview_window("main")
+    {
+        window.show()?;
+        window.set_focus()?;
+    }
     Ok(())
+}
+
+fn startup_platform(app: &tauri::App) -> Option<Arc<dyn StartupPlatform>> {
+    if cfg!(target_os = "macos") {
+        Some(Arc::new(TauriStartupPlatform(app.handle().clone())))
+    } else {
+        None
+    }
+}
+
+fn desktop_settings_capabilities() -> SettingsCapabilities {
+    if cfg!(target_os = "macos") {
+        SettingsCapabilities::macos(true)
+    } else {
+        SettingsCapabilities {
+            background_launch: SettingsAvailability::Unavailable,
+            backup_restore: SettingsAvailability::ComingLater,
+            expert_configuration: SettingsAvailability::ComingLater,
+            launch_at_login: SettingsAvailability::Unavailable,
+            native_sidebar_material: SettingsAvailability::Unavailable,
+            network_dns: SettingsAvailability::ComingLater,
+            tun: SettingsAvailability::Unavailable,
+            updates: SettingsAvailability::ComingLater,
+        }
+    }
+}
+
+fn settings_initialization_error(error: SettingsServiceError) -> io::Error {
+    io::Error::other(match error {
+        SettingsServiceError::Persistence => "application settings storage is unavailable",
+        SettingsServiceError::CapabilityUnavailable | SettingsServiceError::Startup => {
+            "application settings platform integration is unavailable"
+        }
+    })
+}
+
+fn should_show_main_window(login_startup: bool, behavior: LoginLaunchBehavior) -> bool {
+    !login_startup || behavior == LoginLaunchBehavior::ShowWindow
 }
 
 fn managed_mihomo_resolver(
@@ -261,9 +356,10 @@ fn generate_auth_token() -> Result<String, String> {
 mod tests {
     use super::{
         DEV_ORIGIN, PRODUCTION_ORIGINS, allowed_origins, generate_auth_token,
-        managed_mihomo_resolver,
+        managed_mihomo_resolver, should_show_main_window,
     };
     use mish_bridge::MihomoResolveError;
+    use mish_settings::LoginLaunchBehavior;
 
     #[test]
     fn authentication_tokens_are_fresh_256_bit_hex_values() {
@@ -304,6 +400,22 @@ mod tests {
         assert!(matches!(
             resolver.resolve(),
             Err(MihomoResolveError::BinaryMissing)
+        ));
+    }
+
+    #[test]
+    fn only_login_background_launch_keeps_the_window_hidden() {
+        assert!(should_show_main_window(
+            false,
+            LoginLaunchBehavior::Background
+        ));
+        assert!(should_show_main_window(
+            true,
+            LoginLaunchBehavior::ShowWindow
+        ));
+        assert!(!should_show_main_window(
+            true,
+            LoginLaunchBehavior::Background
         ));
     }
 }

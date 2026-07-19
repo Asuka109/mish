@@ -82,6 +82,254 @@ type RootTranslation = {
 		 */
 		system: string
 	}
+	settingsPage: {
+		/**
+		 * R​a​r​e​ ​o​p​e​r​a​t​i​o​n​s​ ​s​t​a​y​ ​s​u​m​m​a​r​i​z​e​d​ ​u​n​t​i​l​ ​a​ ​s​a​f​e​,​ ​v​a​l​i​d​a​t​e​d​ ​w​o​r​k​f​l​o​w​ ​e​x​i​s​t​s​.
+		 */
+		advancedDescription: string
+		/**
+		 * A​d​v​a​n​c​e​d​ ​a​n​d​ ​s​u​p​p​o​r​t
+		 */
+		advancedSupport: string
+		/**
+		 * A​p​p​e​a​r​a​n​c​e​ ​a​n​d​ ​i​n​t​e​r​a​c​t​i​o​n
+		 */
+		appearance: string
+		/**
+		 * P​r​e​f​e​r​e​n​c​e​s​ ​t​h​a​t​ ​c​h​a​n​g​e​ ​M​i​s​h​ ​w​i​t​h​o​u​t​ ​c​h​a​n​g​i​n​g​ ​n​e​t​w​o​r​k​ ​s​t​a​t​e​.
+		 */
+		appearanceDescription: string
+		/**
+		 * A​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​R​P​C
+		 */
+		authentication: string
+		/**
+		 * T​h​e​ ​d​e​s​k​t​o​p​ ​W​e​b​V​i​e​w​ ​a​u​t​h​e​n​t​i​c​a​t​e​s​ ​b​e​f​o​r​e​ ​o​r​d​i​n​a​r​y​ ​R​P​C​ ​m​e​t​h​o​d​s​ ​a​r​e​ ​a​c​c​e​p​t​e​d​.​ ​T​o​k​e​n​s​ ​a​r​e​ ​n​e​v​e​r​ ​d​i​s​p​l​a​y​e​d​ ​h​e​r​e​.
+		 */
+		authenticationDescription: string
+		/**
+		 * A​v​a​i​l​a​b​l​e
+		 */
+		available: string
+		/**
+		 * B​a​c​k​g​r​o​u​n​d
+		 */
+		background: string
+		/**
+		 * B​a​c​k​u​p​ ​a​n​d​ ​r​e​s​t​o​r​e
+		 */
+		backup: string
+		/**
+		 * B​a​c​k​u​p​ ​s​c​o​p​e​,​ ​s​e​c​r​e​t​ ​h​a​n​d​l​i​n​g​,​ ​v​a​l​i​d​a​t​i​o​n​,​ ​a​n​d​ ​r​o​l​l​b​a​c​k​ ​a​r​e​ ​n​o​t​ ​i​m​p​l​e​m​e​n​t​e​d​ ​y​e​t​.
+		 */
+		backupDescription: string
+		/**
+		 * C​a​p​t​u​r​e​ ​a​n​d​ ​s​t​a​r​t​u​p
+		 */
+		captureStartup: string
+		/**
+		 * O​w​n​s​ ​d​u​r​a​b​l​e​ ​O​S​ ​c​a​p​t​u​r​e​ ​i​n​t​e​n​t​ ​a​n​d​ ​h​o​w​ ​M​i​s​h​ ​s​t​a​r​t​s​ ​a​t​ ​l​o​g​i​n​.
+		 */
+		captureStartupDescription: string
+		/**
+		 * C​o​m​i​n​g​ ​l​a​t​e​r
+		 */
+		comingLater: string
+		/**
+		 * C​o​n​f​i​r​m​e​d
+		 */
+		confirmed: string
+		/**
+		 * S​e​t​t​i​n​g​s​ ​a​r​e​ ​s​o​u​r​c​e​d​ ​f​r​o​m​ ​M​i​s​h​'​s​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​d​e​s​k​t​o​p​ ​b​r​i​d​g​e​ ​a​n​d​ ​p​r​i​v​a​t​e​ ​a​p​p​ ​d​a​t​a​.
+		 */
+		description: string
+		/**
+		 * D​N​S​ ​p​o​l​i​c​y
+		 */
+		dns: string
+		/**
+		 * M​i​s​h​ ​d​o​e​s​ ​n​o​t​ ​e​x​p​o​s​e​ ​D​N​S​ ​f​i​e​l​d​s​ ​u​n​t​i​l​ ​e​f​f​e​c​t​i​v​e​-​s​t​a​t​e​ ​v​a​l​i​d​a​t​i​o​n​ ​a​n​d​ ​s​a​f​e​ ​r​o​l​l​b​a​c​k​ ​e​x​i​s​t​.
+		 */
+		dnsDescription: string
+		/**
+		 * E​x​p​e​r​t​ ​c​o​n​f​i​g​u​r​a​t​i​o​n
+		 */
+		expert: string
+		/**
+		 * R​a​w​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​,​ ​d​i​r​e​c​t​o​r​i​e​s​,​ ​d​e​v​e​l​o​p​e​r​ ​t​o​o​l​s​,​ ​a​n​d​ ​r​e​s​e​t​ ​a​c​t​i​o​n​s​ ​r​e​q​u​i​r​e​ ​d​e​d​i​c​a​t​e​d​ ​v​a​l​i​d​a​t​i​o​n​ ​a​n​d​ ​s​c​o​p​e​.
+		 */
+		expertDescription: string
+		/**
+		 * T​h​i​s​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​c​a​n​ ​p​r​e​v​i​e​w​ ​a​p​p​e​a​r​a​n​c​e​ ​a​n​d​ ​l​a​n​g​u​a​g​e​ ​o​n​l​y​.​ ​I​t​ ​c​a​n​n​o​t​ ​p​e​r​f​o​r​m​ ​o​r​ ​c​o​n​f​i​r​m​ ​n​a​t​i​v​e​ ​m​a​c​O​S​ ​o​p​e​r​a​t​i​o​n​s​.
+		 */
+		fixtureDescription: string
+		/**
+		 * F​o​l​l​o​w​s​ ​s​y​s​t​e​m
+		 */
+		followsSystem: string
+		/**
+		 * L​A​N​ ​c​o​n​t​r​o​l
+		 */
+		lan: string
+		/**
+		 * N​o​ ​L​A​N​ ​l​i​s​t​e​n​e​r​ ​o​r​ ​e​n​a​b​l​e​ ​s​w​i​t​c​h​ ​i​s​ ​p​r​o​v​i​d​e​d​.​ ​E​x​t​e​r​n​a​l​ ​c​o​n​t​r​o​l​ ​r​e​q​u​i​r​e​s​ ​a​ ​s​e​p​a​r​a​t​e​ ​s​e​c​u​r​i​t​y​ ​d​e​s​i​g​n​.
+		 */
+		lanDescription: string
+		/**
+		 * C​h​a​n​g​e​s​ ​M​i​s​h​ ​i​n​t​e​r​f​a​c​e​ ​c​o​p​y​ ​o​n​l​y​.​ ​P​r​o​f​i​l​e​,​ ​g​r​o​u​p​,​ ​n​o​d​e​,​ ​a​n​d​ ​s​e​r​v​i​c​e​ ​l​a​b​e​l​s​ ​r​e​m​a​i​n​ ​u​n​c​h​a​n​g​e​d​.
+		 */
+		languageDescription: string
+		/**
+		 * L​a​u​n​c​h​ ​a​t​ ​l​o​g​i​n
+		 */
+		launchAtLogin: string
+		/**
+		 * R​e​g​i​s​t​e​r​s​ ​M​i​s​h​ ​w​i​t​h​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​m​a​c​O​S​ ​a​c​c​o​u​n​t​ ​a​n​d​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​o​b​s​e​r​v​e​d​ ​r​e​g​i​s​t​r​a​t​i​o​n​ ​s​t​a​t​e​.
+		 */
+		launchAtLoginDescription: string
+		/**
+		 * L​o​g​i​n​ ​l​a​u​n​c​h​ ​w​i​n​d​o​w
+		 */
+		loginWindow: string
+		/**
+		 * C​h​o​o​s​e​ ​o​n​e​ ​b​e​h​a​v​i​o​r​ ​f​o​r​ ​l​o​g​i​n​ ​l​a​u​n​c​h​e​s​.​ ​M​a​n​u​a​l​ ​l​a​u​n​c​h​e​s​ ​a​l​w​a​y​s​ ​s​h​o​w​ ​t​h​e​ ​w​i​n​d​o​w​.
+		 */
+		loginWindowDescription: string
+		/**
+		 * L​o​o​p​b​a​c​k​-​o​n​l​y​ ​s​e​r​v​i​c​e
+		 */
+		loopback: string
+		/**
+		 * T​h​e​ ​l​o​c​a​l​ ​b​r​i​d​g​e​ ​b​i​n​d​s​ ​o​n​l​y​ ​t​o​ ​I​P​v​4​ ​l​o​o​p​b​a​c​k​ ​a​n​d​ ​e​x​p​o​s​e​s​ ​n​o​ ​L​A​N​ ​l​i​s​t​e​n​e​r​.
+		 */
+		loopbackDescription: string
+		/**
+		 * R​e​d​u​c​e​d​ ​m​o​t​i​o​n
+		 */
+		motion: string
+		/**
+		 * N​o​n​-​e​s​s​e​n​t​i​a​l​ ​m​o​t​i​o​n​ ​f​o​l​l​o​w​s​ ​t​h​e​ ​o​p​e​r​a​t​i​n​g​-​s​y​s​t​e​m​ ​r​e​d​u​c​e​d​-​m​o​t​i​o​n​ ​p​r​e​f​e​r​e​n​c​e​.
+		 */
+		motionDescription: string
+		/**
+		 * N​e​t​w​o​r​k​ ​a​n​d​ ​D​N​S
+		 */
+		network: string
+		/**
+		 * R​i​s​k​-​s​e​n​s​i​t​i​v​e​ ​c​o​r​e​ ​n​e​t​w​o​r​k​i​n​g​ ​r​e​m​a​i​n​s​ ​s​u​m​m​a​r​y​-​o​n​l​y​ ​u​n​t​i​l​ ​i​t​ ​c​a​n​ ​b​e​ ​o​b​s​e​r​v​e​d​ ​a​n​d​ ​r​e​v​e​r​s​e​d​ ​s​a​f​e​l​y​.
+		 */
+		networkDescription: string
+		/**
+		 * P​o​r​t​s​,​ ​I​P​v​6​,​ ​a​n​d​ ​i​n​t​e​r​f​a​c​e​s
+		 */
+		networkPolicy: string
+		/**
+		 * N​o​ ​l​o​n​g​-​f​o​r​m​ ​n​e​t​w​o​r​k​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​s​l​i​c​e​.
+		 */
+		networkPolicyDescription: string
+		/**
+		 * O​f​f
+		 */
+		off: string
+		/**
+		 * O​n
+		 */
+		on: string
+		/**
+		 * O​r​i​g​i​n​ ​v​a​l​i​d​a​t​i​o​n
+		 */
+		origin: string
+		/**
+		 * O​n​l​y​ ​t​h​e​ ​e​x​a​c​t​ ​d​e​v​e​l​o​p​m​e​n​t​ ​o​r​ ​p​a​c​k​a​g​e​d​ ​W​e​b​V​i​e​w​ ​o​r​i​g​i​n​ ​i​s​ ​a​c​c​e​p​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​b​r​i​d​g​e​.
+		 */
+		originDescription: string
+		/**
+		 * P​r​i​v​a​c​y​ ​a​n​d​ ​a​c​c​e​s​s
+		 */
+		privacyAccess: string
+		/**
+		 * C​o​n​f​i​r​m​e​d​ ​t​r​u​s​t​ ​b​o​u​n​d​a​r​i​e​s​ ​a​r​e​ ​s​h​o​w​n​ ​w​i​t​h​o​u​t​ ​r​e​v​e​a​l​i​n​g​ ​c​r​e​d​e​n​t​i​a​l​s​ ​o​r​ ​o​f​f​e​r​i​n​g​ ​L​A​N​ ​a​c​c​e​s​s​.
+		 */
+		privacyDescription: string
+		/**
+		 * O​b​s​e​r​v​e​d​ ​l​o​g​i​n​ ​r​e​g​i​s​t​r​a​t​i​o​n
+		 */
+		registration: string
+		/**
+		 * D​e​s​i​r​e​d​ ​a​n​d​ ​o​b​s​e​r​v​e​d​ ​p​l​a​t​f​o​r​m​ ​s​t​a​t​e​ ​a​r​e​ ​c​o​m​p​a​r​e​d​;​ ​a​ ​m​i​s​m​a​t​c​h​ ​i​s​ ​n​e​v​e​r​ ​r​e​p​o​r​t​e​d​ ​a​s​ ​a​p​p​l​i​e​d​.
+		 */
+		registrationDescription: string
+		registrationPhase: {
+			/**
+			 * A​p​p​l​i​e​d
+			 */
+			applied: string
+			/**
+			 * N​e​e​d​s​ ​r​e​c​o​n​c​i​l​i​a​t​i​o​n
+			 */
+			drift: string
+			/**
+			 * O​b​s​e​r​v​a​t​i​o​n​ ​f​a​i​l​e​d
+			 */
+			failed: string
+			/**
+			 * U​n​a​v​a​i​l​a​b​l​e
+			 */
+			unavailable: string
+		}
+		/**
+		 * S​h​o​w​ ​w​i​n​d​o​w
+		 */
+		showWindow: string
+		/**
+		 * A​p​p​,​ ​c​o​r​e​,​ ​a​n​d​ ​G​e​o​D​a​t​a​ ​u​p​d​a​t​e​s
+		 */
+		softwareUpdates: string
+		/**
+		 * S​i​g​n​e​d​ ​s​o​u​r​c​e​s​,​ ​a​t​t​r​i​b​u​t​i​o​n​,​ ​a​n​d​ ​r​o​l​l​b​a​c​k​ ​a​r​e​ ​r​e​q​u​i​r​e​d​ ​b​e​f​o​r​e​ ​u​p​d​a​t​e​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​e​n​a​b​l​e​d​.
+		 */
+		softwareUpdatesDescription: string
+		/**
+		 * S​t​o​r​e​d​ ​s​e​t​t​i​n​g​s​ ​w​e​r​e​ ​i​n​v​a​l​i​d​.​ ​M​i​s​h​ ​r​e​s​t​o​r​e​d​ ​s​a​f​e​ ​d​e​f​a​u​l​t​s​ ​i​n​ ​p​r​i​v​a​t​e​ ​a​p​p​ ​d​a​t​a​.
+		 */
+		storageRecovered: string
+		/**
+		 * U​s​e​ ​t​h​e​ ​s​y​s​t​e​m​ ​a​p​p​e​a​r​a​n​c​e​ ​o​r​ ​c​h​o​o​s​e​ ​a​ ​f​i​x​e​d​ ​l​i​g​h​t​ ​o​r​ ​d​a​r​k​ ​t​h​e​m​e​.
+		 */
+		themeDescription: string
+		/**
+		 * S​e​t​t​i​n​g​s
+		 */
+		title: string
+		/**
+		 * T​r​a​f​f​i​c​ ​c​a​p​t​u​r​e
+		 */
+		trafficCapture: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​u​s​e​s​ ​t​h​e​ ​s​a​m​e​ ​d​e​s​i​r​e​d​,​ ​o​b​s​e​r​v​e​d​,​ ​d​r​i​f​t​,​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​m​o​d​e​l​ ​a​s​ ​S​t​a​t​u​s​.​ ​T​U​N​ ​r​e​m​a​i​n​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		trafficCaptureDescription: string
+		/**
+		 * T​h​e​ ​s​e​t​t​i​n​g​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​n​f​i​r​m​e​d​.​ ​T​h​e​ ​l​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​s​t​a​t​e​ ​i​s​ ​s​t​i​l​l​ ​s​h​o​w​n​.
+		 */
+		updateFailed: string
+		/**
+		 * U​p​d​a​t​e​s​ ​a​n​d​ ​d​a​t​a
+		 */
+		updatesData: string
+		/**
+		 * V​e​r​s​i​o​n​i​n​g​ ​a​n​d​ ​l​o​c​a​l​-​d​a​t​a​ ​w​o​r​k​f​l​o​w​s​ ​r​e​m​a​i​n​ ​e​x​p​l​i​c​i​t​ ​a​b​o​u​t​ ​w​h​a​t​ ​i​s​ ​n​o​t​ ​i​m​p​l​e​m​e​n​t​e​d​.
+		 */
+		updatesDescription: string
+		/**
+		 * V​e​r​s​i​o​n​ ​i​n​f​o​r​m​a​t​i​o​n
+		 */
+		version: string
+		/**
+		 * T​h​i​s​ ​b​u​i​l​d​ ​d​o​e​s​ ​n​o​t​ ​e​x​p​o​s​e​ ​p​a​t​h​s​,​ ​c​r​e​d​e​n​t​i​a​l​s​,​ ​o​r​ ​s​e​n​s​i​t​i​v​e​ ​r​u​n​t​i​m​e​ ​d​a​t​a​.
+		 */
+		versionDescription: string
+	}
 	navigation: {
 		/**
 		 * E​v​e​n​t​s
@@ -2365,6 +2613,254 @@ export type TranslationFunctions = {
 		 * Follow system
 		 */
 		system: () => LocalizedString
+	}
+	settingsPage: {
+		/**
+		 * Rare operations stay summarized until a safe, validated workflow exists.
+		 */
+		advancedDescription: () => LocalizedString
+		/**
+		 * Advanced and support
+		 */
+		advancedSupport: () => LocalizedString
+		/**
+		 * Appearance and interaction
+		 */
+		appearance: () => LocalizedString
+		/**
+		 * Preferences that change Mish without changing network state.
+		 */
+		appearanceDescription: () => LocalizedString
+		/**
+		 * Authenticated local RPC
+		 */
+		authentication: () => LocalizedString
+		/**
+		 * The desktop WebView authenticates before ordinary RPC methods are accepted. Tokens are never displayed here.
+		 */
+		authenticationDescription: () => LocalizedString
+		/**
+		 * Available
+		 */
+		available: () => LocalizedString
+		/**
+		 * Background
+		 */
+		background: () => LocalizedString
+		/**
+		 * Backup and restore
+		 */
+		backup: () => LocalizedString
+		/**
+		 * Backup scope, secret handling, validation, and rollback are not implemented yet.
+		 */
+		backupDescription: () => LocalizedString
+		/**
+		 * Capture and startup
+		 */
+		captureStartup: () => LocalizedString
+		/**
+		 * Owns durable OS capture intent and how Mish starts at login.
+		 */
+		captureStartupDescription: () => LocalizedString
+		/**
+		 * Coming later
+		 */
+		comingLater: () => LocalizedString
+		/**
+		 * Confirmed
+		 */
+		confirmed: () => LocalizedString
+		/**
+		 * Settings are sourced from Mish's authenticated desktop bridge and private app data.
+		 */
+		description: () => LocalizedString
+		/**
+		 * DNS policy
+		 */
+		dns: () => LocalizedString
+		/**
+		 * Mish does not expose DNS fields until effective-state validation and safe rollback exist.
+		 */
+		dnsDescription: () => LocalizedString
+		/**
+		 * Expert configuration
+		 */
+		expert: () => LocalizedString
+		/**
+		 * Raw configuration, directories, developer tools, and reset actions require dedicated validation and scope.
+		 */
+		expertDescription: () => LocalizedString
+		/**
+		 * This browser fixture can preview appearance and language only. It cannot perform or confirm native macOS operations.
+		 */
+		fixtureDescription: () => LocalizedString
+		/**
+		 * Follows system
+		 */
+		followsSystem: () => LocalizedString
+		/**
+		 * LAN control
+		 */
+		lan: () => LocalizedString
+		/**
+		 * No LAN listener or enable switch is provided. External control requires a separate security design.
+		 */
+		lanDescription: () => LocalizedString
+		/**
+		 * Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.
+		 */
+		languageDescription: () => LocalizedString
+		/**
+		 * Launch at login
+		 */
+		launchAtLogin: () => LocalizedString
+		/**
+		 * Registers Mish with the current macOS account and confirms the observed registration state.
+		 */
+		launchAtLoginDescription: () => LocalizedString
+		/**
+		 * Login launch window
+		 */
+		loginWindow: () => LocalizedString
+		/**
+		 * Choose one behavior for login launches. Manual launches always show the window.
+		 */
+		loginWindowDescription: () => LocalizedString
+		/**
+		 * Loopback-only service
+		 */
+		loopback: () => LocalizedString
+		/**
+		 * The local bridge binds only to IPv4 loopback and exposes no LAN listener.
+		 */
+		loopbackDescription: () => LocalizedString
+		/**
+		 * Reduced motion
+		 */
+		motion: () => LocalizedString
+		/**
+		 * Non-essential motion follows the operating-system reduced-motion preference.
+		 */
+		motionDescription: () => LocalizedString
+		/**
+		 * Network and DNS
+		 */
+		network: () => LocalizedString
+		/**
+		 * Risk-sensitive core networking remains summary-only until it can be observed and reversed safely.
+		 */
+		networkDescription: () => LocalizedString
+		/**
+		 * Ports, IPv6, and interfaces
+		 */
+		networkPolicy: () => LocalizedString
+		/**
+		 * No long-form network controls are available in this slice.
+		 */
+		networkPolicyDescription: () => LocalizedString
+		/**
+		 * Off
+		 */
+		off: () => LocalizedString
+		/**
+		 * On
+		 */
+		on: () => LocalizedString
+		/**
+		 * Origin validation
+		 */
+		origin: () => LocalizedString
+		/**
+		 * Only the exact development or packaged WebView origin is accepted by the local bridge.
+		 */
+		originDescription: () => LocalizedString
+		/**
+		 * Privacy and access
+		 */
+		privacyAccess: () => LocalizedString
+		/**
+		 * Confirmed trust boundaries are shown without revealing credentials or offering LAN access.
+		 */
+		privacyDescription: () => LocalizedString
+		/**
+		 * Observed login registration
+		 */
+		registration: () => LocalizedString
+		/**
+		 * Desired and observed platform state are compared; a mismatch is never reported as applied.
+		 */
+		registrationDescription: () => LocalizedString
+		registrationPhase: {
+			/**
+			 * Applied
+			 */
+			applied: () => LocalizedString
+			/**
+			 * Needs reconciliation
+			 */
+			drift: () => LocalizedString
+			/**
+			 * Observation failed
+			 */
+			failed: () => LocalizedString
+			/**
+			 * Unavailable
+			 */
+			unavailable: () => LocalizedString
+		}
+		/**
+		 * Show window
+		 */
+		showWindow: () => LocalizedString
+		/**
+		 * App, core, and GeoData updates
+		 */
+		softwareUpdates: () => LocalizedString
+		/**
+		 * Signed sources, attribution, and rollback are required before update controls are enabled.
+		 */
+		softwareUpdatesDescription: () => LocalizedString
+		/**
+		 * Stored settings were invalid. Mish restored safe defaults in private app data.
+		 */
+		storageRecovered: () => LocalizedString
+		/**
+		 * Use the system appearance or choose a fixed light or dark theme.
+		 */
+		themeDescription: () => LocalizedString
+		/**
+		 * Settings
+		 */
+		title: () => LocalizedString
+		/**
+		 * Traffic capture
+		 */
+		trafficCapture: () => LocalizedString
+		/**
+		 * System Proxy uses the same desired, observed, drift, and recovery model as Status. TUN remains unavailable.
+		 */
+		trafficCaptureDescription: () => LocalizedString
+		/**
+		 * The setting could not be confirmed. The last confirmed state is still shown.
+		 */
+		updateFailed: () => LocalizedString
+		/**
+		 * Updates and data
+		 */
+		updatesData: () => LocalizedString
+		/**
+		 * Versioning and local-data workflows remain explicit about what is not implemented.
+		 */
+		updatesDescription: () => LocalizedString
+		/**
+		 * Version information
+		 */
+		version: () => LocalizedString
+		/**
+		 * This build does not expose paths, credentials, or sensitive runtime data.
+		 */
+		versionDescription: () => LocalizedString
 	}
 	navigation: {
 		/**
