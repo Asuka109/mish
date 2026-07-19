@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Mish",
+  "version": "0.1.0",
+  "identifier": "com.asuka109.mish",
+  "build": {
+    "beforeBuildCommand": "pnpm --dir ../.. --filter @mish/web build --mode mobile",
+    "beforeDevCommand": "pnpm --dir ../.. --filter @mish/web dev --mode mobile",
+    "devUrl": "http://127.0.0.1:4173",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "height": 844,
+        "label": "main",
+        "resizable": true,
+        "title": "Mish",
+        "width": 390
+      }
+    ],
+    "security": {
+      "capabilities": ["mobile"],
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; font-src 'self'; frame-src 'none'; img-src 'self' data:; object-src 'none'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+      "headers": {
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "Utility",
+    "icon": ["../../desktop/src-tauri/icons/icon.png"]
+  }
+}

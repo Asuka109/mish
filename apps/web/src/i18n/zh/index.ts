@@ -217,6 +217,22 @@ const zh = {
     status: "状态",
     traffic: "流量",
   },
+  mobileNavigation: {
+    activity: "活动",
+    connections: "连接",
+    diagnostics: "诊断",
+    events: "事件",
+    home: "首页",
+    primary: "移动端导航",
+    profiles: "配置",
+    routes: "路由",
+    rules: "规则",
+    settings: "设置",
+  },
+  mobileFixture: {
+    label: "原生测试夹具",
+    unavailable: "此测试版本尚未实现 VPN 与嵌入式 Core。",
+  },
   toolbar: {
     deviceDescription: "状态数据来自当前设备。",
     deviceMode: "设备状态",

@@ -1,0 +1,15 @@
+{
+  "name": "@mish/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "android:build": "pnpm android:configure && tauri android build --debug --target aarch64 x86_64 --split-per-abi",
+    "android:configure": "node ../../scripts/configure-android-project.ts",
+    "android:init": "tauri android init --ci --skip-targets-install && pnpm android:configure",
+    "test:run": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "typecheck": "cargo check --manifest-path src-tauri/Cargo.toml"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

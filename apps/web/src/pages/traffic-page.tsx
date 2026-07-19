@@ -45,6 +45,7 @@ import {
   TabsTrigger,
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 import { useTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -89,7 +90,8 @@ export function TrafficPage() {
     isLoading,
     snapshot,
   } = useTraffic();
-  const [tab, setTab] = useState<TrafficTab>("active");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<TrafficTab>(() => trafficTab(searchParams.get("tab")));
   const [query, setQuery] = useState("");
   const [network, setNetwork] = useState("all");
   const [connectionSort, setConnectionSort] = useState<ConnectionSort>("started-desc");
@@ -129,6 +131,8 @@ export function TrafficPage() {
     () => setVisibleLimit(TRAFFIC_RENDER_BATCH_SIZE),
     [tab, deferredQuery, network, connectionSort, ruleSort],
   );
+
+  useEffect(() => setTab(trafficTab(searchParams.get("tab"))), [searchParams]);
 
   async function confirmCloseConnection() {
     if (!closeTarget) return;
@@ -200,7 +204,9 @@ export function TrafficPage() {
       <Tabs
         className="traffic-tabs"
         onValueChange={(value) => {
-          if (value === "active" || value === "closed" || value === "rules") setTab(value);
+          if (value !== "active" && value !== "closed" && value !== "rules") return;
+          setTab(value);
+          setSearchParams(value === "active" ? {} : { tab: value }, { replace: true });
         }}
         value={tab}
       >
@@ -405,6 +411,10 @@ export function TrafficPage() {
       </AlertDialog>
     </div>
   );
+}
+
+function trafficTab(value: string | null): TrafficTab {
+  return value === "closed" || value === "rules" ? value : "active";
 }
 
 interface TrafficSourceStatusProps {

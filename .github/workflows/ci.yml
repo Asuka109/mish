@@ -231,3 +231,115 @@ jobs:
           find "$RUNNER_TEMP" -maxdepth 1 \
             \( -name 'mish-developer-id.p12' -o -name 'AuthKey_*.p8' \) \
             -exec trash {} + 2>/dev/null || true
+
+  package-android:
+    name: Package Android test APKs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Enable pnpm
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install pinned Android components
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +o pipefail
+          yes | sdkmanager --licenses > /dev/null
+          set -o pipefail
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.1.0" \
+            "platform-tools" \
+            "ndk;29.0.14206865"
+          rustup target add aarch64-linux-android x86_64-linux-android
+          echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+      - name: Build Android debug APKs
+        run: pnpm mobile:android:build
+      - name: Verify Android debug APKs
+        id: revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA:0:7}"
+          output_root="apps/mobile/src-tauri/gen/android/app/build/outputs/apk"
+          artifact_root=".scratch/artifacts/android"
+          mkdir -p "$artifact_root"
+          arm64_count=0
+          x86_64_count=0
+          while IFS= read -r apk; do
+            "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose "$apk"
+            entries="$(unzip -Z1 "$apk")"
+            if grep -q '^lib/arm64-v8a/' <<< "$entries"; then
+              cp "$apk" "$artifact_root/Mish-${short_sha}-arm64-v8a-debug.apk"
+              arm64_count=$((arm64_count + 1))
+            fi
+            if grep -q '^lib/x86_64/' <<< "$entries"; then
+              cp "$apk" "$artifact_root/Mish-${short_sha}-x86_64-debug.apk"
+              x86_64_count=$((x86_64_count + 1))
+            fi
+            if grep -Eqi 'mihomo|subscription|token' <<< "$entries"; then
+              echo "APK contains a forbidden runtime or sensitive entry" >&2
+              exit 1
+            fi
+          done < <(find "$output_root" -type f -name '*-debug.apk' -print | sort)
+          test "$arm64_count" -eq 1
+          test "$x86_64_count" -eq 1
+          arm64_sha256="$(sha256sum "$artifact_root/Mish-${short_sha}-arm64-v8a-debug.apk" | awk '{print $1}')"
+          x86_64_sha256="$(sha256sum "$artifact_root/Mish-${short_sha}-x86_64-debug.apk" | awk '{print $1}')"
+          {
+            echo "short_sha=$short_sha"
+            echo "artifact_name=mish-android-test-${short_sha}"
+            echo "arm64_sha256=$arm64_sha256"
+            echo "x86_64_sha256=$x86_64_sha256"
+          } >> "$GITHUB_OUTPUT"
+      - name: Upload Android non-production test APKs
+        id: android-package-upload
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.revision.outputs.artifact_name }}
+          path: .scratch/artifacts/android/*.apk
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Write Android package summary
+        shell: bash
+        env:
+          ARM64_SHA256: ${{ steps.revision.outputs.arm64_sha256 }}
+          ARTIFACT_ID: ${{ steps.android-package-upload.outputs.artifact-id }}
+          ARTIFACT_NAME: ${{ steps.revision.outputs.artifact_name }}
+          SHORT_SHA: ${{ steps.revision.outputs.short_sha }}
+          X86_64_SHA256: ${{ steps.revision.outputs.x86_64_sha256 }}
+        run: |
+          {
+            echo "## Android non-production test APKs"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Source revision | \`$GITHUB_SHA\` |"
+            echo "| Short SHA | \`$SHORT_SHA\` |"
+            echo "| Artifact name | \`$ARTIFACT_NAME\` |"
+            echo "| Artifact ID | \`$ARTIFACT_ID\` |"
+            echo "| App ID | \`com.asuka109.mish\` |"
+            echo "| Supported ABIs | \`arm64-v8a\`, \`x86_64\` |"
+            echo "| Signing mode | Android debug |"
+            echo "| Core | Not included; typed native fixture only |"
+            echo "| ARM64 SHA-256 | \`$ARM64_SHA256\` |"
+            echo "| x86_64 SHA-256 | \`$X86_64_SHA256\` |"
+            echo "| Production use | No |"
+            echo "| Retention | 14 days |"
+          } >> "$GITHUB_STEP_SUMMARY"

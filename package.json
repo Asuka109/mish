@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "android:check": "node scripts/check-android-project.ts",
     "bridge": "cargo run -p mish-bridge --",
     "build": "pnpm --filter @mish/web build",
     "ci:check": "node scripts/check-ci-workflow.ts",
@@ -21,6 +22,8 @@
     "mock-bridge": "pnpm --filter @mish/mock-bridge dev",
     "macos:bundle:verify": "node scripts/verify-macos-bundle.ts",
     "mihomo:prepare": "node scripts/prepare-mihomo.ts",
+    "mobile:android:build": "pnpm --filter @mish/mobile android:build",
+    "mobile:android:init": "pnpm --filter @mish/mobile android:init",
     "preview": "pnpm --filter @mish/web preview",
     "test": "pnpm --filter @mish/web test",
     "test:browser": "pnpm --filter @mish/web test:browser",
@@ -33,7 +36,7 @@
     "rust:test": "cargo test --workspace -- --test-threads=1",
     "tokens:check": "node scripts/check-design-tokens.ts",
     "typecheck": "pnpm --recursive --if-present typecheck",
-    "validate": "pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
+    "validate": "pnpm android:check && pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test:run && pnpm rust:format:check && pnpm rust:check && pnpm rust:clippy && pnpm rust:test && pnpm build && pnpm design:lint && pnpm tokens:check && pnpm docs:links"
   },
   "devDependencies": {
     "oxfmt": "0.59.0",
