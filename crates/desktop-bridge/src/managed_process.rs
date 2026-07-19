@@ -112,7 +112,8 @@ impl DesktopMihomoProcess {
             .arg("-t")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
         match timeout(deadline, command.status()).await {
             Err(_) => Err(ManagedProcessValidationError::Timeout),
             Ok(Err(_)) => Err(ManagedProcessValidationError::ExecutionFailed),
@@ -233,7 +234,9 @@ impl DesktopMihomoProcess {
             .binary
             .as_ref()
             .ok_or(ManagedProcessValidationError::NotConfigured)?;
-        let output = match timeout(deadline, Command::new(binary).arg("-v").output()).await {
+        let mut command = Command::new(binary);
+        command.arg("-v").kill_on_drop(true);
+        let output = match timeout(deadline, command.output()).await {
             Err(_) => return Err(ManagedProcessValidationError::Timeout),
             Ok(Err(_)) => return Err(ManagedProcessValidationError::VersionCheckFailed),
             Ok(Ok(output)) => output,

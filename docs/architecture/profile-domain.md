@@ -138,10 +138,13 @@ local paths.
 
 ## Activation transaction seam
 
-Activation remains outside the profile crate and the current Profiles command
-surface. `MihomoActivationManager` in `crates/desktop-bridge` accepts a
-`ProfileRecord` loaded from the repository and rechecks its valid state and
-artifact fingerprint before generation. It then:
+Activation remains outside the profile crate. The authenticated Profiles
+command surface accepts only a command ID and persisted profile ID;
+`ProfileActivationCoordinator` reloads that record through `ProfileService`,
+which rechecks its valid state and artifact fingerprint before
+`MihomoActivationManager` generates a runtime configuration. Ordinary RPC never
+accepts configuration bytes, filesystem paths, Controller endpoints, or
+Controller secrets. The manager then:
 
 1. injects the application-owned loopback Controller, secret, zero ingress
    ports, Rule mode, warning logging, and managed resource policy;
@@ -150,14 +153,29 @@ artifact fingerprint before generation. It then:
    directory and validates it with pinned Mihomo v1.19.29;
 4. starts the candidate from its own managed home without replacing the
    last-known-good runtime;
-5. requires the pinned Controller version and first complete valid Status batch;
+5. requires the pinned Controller version plus the first complete valid Status
+   and Traffic observations;
 6. atomically commits a redacted managed active-state record, or stops the
    candidate and restores the prior healthy core or an explicit safe stopped
    state; and
 7. records only profile ID, fingerprint, outcome, and a closed failure category.
 
+The coordinator publishes a typed idle, pending, success, or failure snapshot.
+Command IDs are idempotent, concurrent requests for the same target are
+deduplicated, and pending activation supports explicit cancellation plus the
+manager readiness deadline. `DesktopRuntimeHost` replaces the active
+`MishRuntime` only after the managed activation transaction commits, so Status,
+Traffic, and the active-profile projection cross the same boundary. Status,
+Traffic, and Profiles subscriptions all resample authoritative state after a
+runtime change or reconnect.
+
+The desktop starts with the recorded `safe-stopped` policy. It does not infer,
+import, or automatically restore a private profile, and activation never enables
+System Proxy or TUN. Deleting the active profile first requires a successful
+replacement activation or an explicit transition to the safe stopped state.
+
 The managed activation record is separate from profile repository metadata.
-Projecting activation attempts into the future Profiles RPC/view model must use
-that record; repository persistence alone never implies activation. This seam
+Profiles RPC and view state project activation attempts from that record;
+repository persistence alone never implies activation. This seam
 also prevents an imported router or server configuration from silently enabling
 System Proxy, TUN, listeners, or a Controller endpoint.

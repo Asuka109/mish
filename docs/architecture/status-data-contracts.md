@@ -70,9 +70,10 @@ The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
 current mutation surface. The browser fixture supports isolated demo mutations.
 The desktop RPC adapter supports only System Proxy capture and recovery; it
-disables routing, profile activation, group, service, and TUN actions. Capture
-controls also respect the snapshot's `supported`, `unavailable`, and
-`permission-required` platform capabilities.
+disables routing, group, service, and TUN actions. Persisted profile activation
+uses the separate authenticated Profiles command seam from both Profiles and the
+Status profile selector. Capture controls also respect the snapshot's
+`supported`, `unavailable`, and `permission-required` platform capabilities.
 
 `status.subscribe` returns both the subscription ID and a current validated
 snapshot. The server resets that socket's lifecycle-event cursor before reading
@@ -85,6 +86,12 @@ after contract validation succeeds. A reconnect therefore becomes authoritative
 without depending on a later lifecycle change. Protocol version 3 adds the
 typed System Proxy runtime state and recovery command while preserving this
 ordering barrier.
+
+Profile activation has an independent typed snapshot with idle, pending,
+success, and failure phases. The profile subscription uses the same snapshot
+ordering barrier and authoritative resubscription rule as Status. A committed
+activation replaces the runtime host before the profile success snapshot is
+published, so subsequent Status and Traffic reads use the same active profile.
 
 Capture selection is device-level intent and is distinct from confirmed runtime
 state. The capture command carries the complete selection plus an aggregate

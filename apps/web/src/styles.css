@@ -2557,6 +2557,21 @@ h2 {
   line-height: 17px;
 }
 
+.profile-delete-active-options {
+  display: grid;
+  gap: 12px;
+  padding: 12px 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-metadata);
+  line-height: 19px;
+}
+
+.profile-delete-replacement {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
 .profile-boundary-explanation {
   margin-top: 10px;
   color: var(--color-warning);

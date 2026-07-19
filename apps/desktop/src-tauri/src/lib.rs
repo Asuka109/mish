@@ -1,14 +1,17 @@
 use std::{
     fmt::Write as _,
     io,
-    net::{Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, SocketAddr, TcpListener},
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService, LoopbackServerConfig,
-    LoopbackServerHandle, ReqwestHttpsSourceReader, compose_desktop_runtime_with_capture,
-    start_loopback_server,
+    ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
+    DesktopRuntimeHost, LoopbackServerConfig, LoopbackServerHandle, ManagedMihomoResolver,
+    ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
+    ReqwestHttpsSourceReader, compose_desktop_runtime_with_capture,
+    start_loopback_server_with_runtime_host,
 };
 use mish_platform_macos::{FileCaptureJournalStore, MacOsSystemProxyPlatform};
 use mish_profile::{ProfilePreview, ProfileServiceError};
@@ -101,6 +104,12 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ReqwestHttpsSourceReader::profile_service(profile_root.clone())
             .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
     );
+    let resolver = managed_mihomo_resolver(
+        tauri::is_dev(),
+        std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from),
+        &profile_root,
+        &app.path().resource_dir()?,
+    );
     let bridge = tauri::async_runtime::block_on(async {
         let capture = Arc::new(CaptureReconciler::new(
             Arc::new(MacOsSystemProxyPlatform::new()),
@@ -110,7 +119,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             LoopbackProxyEndpoint::new("127.0.0.1", 7890)
                 .map_err(|error| io::Error::other(error.to_string()))?,
         ));
-        let runtime = compose_desktop_runtime_with_capture(
+        let safe_runtime = compose_desktop_runtime_with_capture(
             Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
                 binary: None,
                 config_directory: None,
@@ -121,15 +130,32 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;
-        start_loopback_server(
+        let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
+        let activation_manager = Arc::new(MihomoActivationManager::new(
+            resolver,
+            ActivationTiming::default(),
+        ));
+        activation_manager
+            .shutdown()
+            .await
+            .map_err(|_| io::Error::other("safe startup state could not be recorded"))?;
+        let activation = Arc::new(ProfileActivationCoordinator::new(
+            profile_service.clone(),
+            activation_manager,
+            runtime_host.clone(),
+            safe_runtime,
+            ephemeral_runtime_policy,
+        ));
+        start_loopback_server_with_runtime_host(
             LoopbackServerConfig {
                 allowed_origins: allowed_origins(tauri::is_dev()),
                 auth_token: auth_token.clone(),
                 bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
                 max_message_bytes: 1_048_576,
+                profile_activation: Some(activation),
                 profile_service: Some(profile_service.clone()),
             },
-            runtime,
+            runtime_host,
         )
         .await
         .map_err(io::Error::other)
@@ -141,6 +167,34 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(ProfileState(profile_service));
     app.manage(BridgeState(Arc::new(Mutex::new(Some(bridge)))));
     Ok(())
+}
+
+fn managed_mihomo_resolver(
+    is_dev: bool,
+    explicit_development_binary: Option<PathBuf>,
+    app_data_root: &Path,
+    resource_directory: &Path,
+) -> ManagedMihomoResolver {
+    let runtime_root = app_data_root.join("runtime");
+    if is_dev {
+        let prepared = explicit_development_binary
+            .unwrap_or_else(|| runtime_root.join("missing-explicit-development-binary"));
+        return ManagedMihomoResolver::development(prepared, runtime_root);
+    }
+    ManagedMihomoResolver::production(resource_directory.to_path_buf(), runtime_root)
+}
+
+fn ephemeral_runtime_policy()
+-> Result<ManagedRuntimePolicy, mish_bridge::RuntimeConfigGenerationError> {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .map_err(|_| mish_bridge::RuntimeConfigGenerationError::UnsafeController)?;
+    let address = listener
+        .local_addr()
+        .map_err(|_| mish_bridge::RuntimeConfigGenerationError::UnsafeController)?;
+    drop(listener);
+    let secret = generate_auth_token()
+        .map_err(|_| mish_bridge::RuntimeConfigGenerationError::InvalidControllerSecret)?;
+    ManagedRuntimePolicy::new(address, secret)
 }
 
 fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
@@ -183,7 +237,11 @@ fn generate_auth_token() -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DEV_ORIGIN, PRODUCTION_ORIGINS, allowed_origins, generate_auth_token};
+    use super::{
+        DEV_ORIGIN, PRODUCTION_ORIGINS, allowed_origins, generate_auth_token,
+        managed_mihomo_resolver,
+    };
+    use mish_bridge::MihomoResolveError;
 
     #[test]
     fn authentication_tokens_are_fresh_256_bit_hex_values() {
@@ -203,5 +261,27 @@ mod tests {
     #[test]
     fn production_accepts_only_bundled_tauri_origins() {
         assert_eq!(allowed_origins(false), PRODUCTION_ORIGINS);
+    }
+
+    #[test]
+    fn development_requires_an_explicit_prepared_mihomo_binary() {
+        let root = std::env::temp_dir().join("mish-tauri-dev-missing-binary-test");
+        let resolver = managed_mihomo_resolver(true, None, &root, &root.join("resources"));
+
+        assert!(matches!(
+            resolver.resolve(),
+            Err(MihomoResolveError::BinaryMissing)
+        ));
+    }
+
+    #[test]
+    fn production_reports_a_missing_packaged_mihomo_resource() {
+        let root = std::env::temp_dir().join("mish-tauri-prod-missing-binary-test");
+        let resolver = managed_mihomo_resolver(false, None, &root, &root.join("resources"));
+
+        assert!(matches!(
+            resolver.resolve(),
+            Err(MihomoResolveError::BinaryMissing)
+        ));
     }
 }

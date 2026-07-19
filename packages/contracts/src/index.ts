@@ -535,8 +535,57 @@ export const ProfileCapabilitiesSchema = z
   .strict();
 export interface ProfileCapabilitiesDto extends z.infer<typeof ProfileCapabilitiesSchema> {}
 
+export const ProfileActivationAvailabilitySchema = z.enum([
+  "available",
+  "missing-binary",
+  "unavailable",
+]);
+export type ProfileActivationAvailability = z.infer<typeof ProfileActivationAvailabilitySchema>;
+
+export const ProfileActivationPhaseSchema = z.enum(["idle", "pending", "success", "failure"]);
+export type ProfileActivationPhase = z.infer<typeof ProfileActivationPhaseSchema>;
+
+export const ProfileActivationOperationSchema = z.enum(["activate", "stop"]);
+export type ProfileActivationOperation = z.infer<typeof ProfileActivationOperationSchema>;
+
+export const ProfileActivationFailureSchema = z.enum([
+  "invalid-profile",
+  "missing-binary",
+  "unsafe-runtime",
+  "staging",
+  "validation",
+  "start",
+  "early-exit",
+  "version-mismatch",
+  "controller",
+  "timeout",
+  "cancelled",
+  "prior-stop",
+  "state-commit",
+]);
+export type ProfileActivationFailure = z.infer<typeof ProfileActivationFailureSchema>;
+
+export const ProfileActivationSnapshotSchema = z
+  .object({
+    activeProfileId: IdentifierSchema.nullable(),
+    attemptedAt: NonNegativeIntegerSchema.nullable(),
+    availability: ProfileActivationAvailabilitySchema,
+    commandId: IdentifierSchema.nullable(),
+    failure: ProfileActivationFailureSchema.nullable(),
+    operation: ProfileActivationOperationSchema.nullable(),
+    phase: ProfileActivationPhaseSchema,
+    safeStopped: z.boolean(),
+    startupPolicy: z.literal("safe-stopped"),
+    targetProfileId: IdentifierSchema.nullable(),
+  })
+  .strict();
+export interface ProfileActivationSnapshotDto extends z.infer<
+  typeof ProfileActivationSnapshotSchema
+> {}
+
 export const ProfileSnapshotSchema = z
   .object({
+    activation: ProfileActivationSnapshotSchema,
     adapterKind: z.enum(["fixture", "rpc", "native"]),
     capabilities: ProfileCapabilitiesSchema,
     profiles: z.array(ProfileListItemSchema),
@@ -583,6 +632,12 @@ export const ProfilePreflightHttpsCommandSchema = z
   .strict();
 export const ProfileSaveCommandSchema = z.object({ previewId: IdentifierSchema }).strict();
 export const ProfileIdCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
+export const ProfileActivationCommandSchema = z
+  .object({ commandId: IdentifierSchema, profileId: IdentifierSchema })
+  .strict();
+export const ProfileActivationControlCommandSchema = z
+  .object({ commandId: IdentifierSchema })
+  .strict();
 
 export const bridgeRpcMethods = {
   "bridge.getInfo": { params: EmptyCommandSchema, result: BridgeInfoSchema },
@@ -636,7 +691,28 @@ export const statusRpcMethods = {
   },
 } as const;
 
+export const ProfileSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const ProfileSubscriptionSchema = ProfileSubscriptionIdSchema.extend({
+  snapshot: RpcProfileSnapshotSchema,
+}).strict();
+export interface ProfileSubscriptionDto extends z.infer<typeof ProfileSubscriptionSchema> {}
+
+export const ProfileSnapshotNotificationSchema = z
+  .object({ snapshot: RpcProfileSnapshotSchema, subscriptionId: IdentifierSchema })
+  .strict();
+export interface ProfileSnapshotNotificationDto extends z.infer<
+  typeof ProfileSnapshotNotificationSchema
+> {}
+
 export const profileRpcMethods = {
+  "profiles.activate": {
+    params: ProfileActivationCommandSchema,
+    result: ProfileActivationSnapshotSchema,
+  },
+  "profiles.cancelActivation": {
+    params: ProfileActivationControlCommandSchema,
+    result: ProfileActivationSnapshotSchema,
+  },
   "profiles.delete": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.getSnapshot": { params: EmptyCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.preflightHttps": {
@@ -645,6 +721,12 @@ export const profileRpcMethods = {
   },
   "profiles.refresh": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.save": { params: ProfileSaveCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.stop": {
+    params: ProfileActivationControlCommandSchema,
+    result: ProfileActivationSnapshotSchema,
+  },
+  "profiles.subscribe": { params: EmptyCommandSchema, result: ProfileSubscriptionSchema },
+  "profiles.unsubscribe": { params: ProfileSubscriptionIdSchema, result: z.boolean() },
 } as const;
 
 export const TrafficSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
@@ -675,6 +757,10 @@ export const mishRpcMethods = {
 
 export const statusRpcNotifications = {
   "status.snapshot": StatusSnapshotNotificationSchema,
+} as const;
+
+export const profileRpcNotifications = {
+  "profiles.snapshot": ProfileSnapshotNotificationSchema,
 } as const;
 
 export const trafficRpcNotifications = {
@@ -781,6 +867,9 @@ export class ProfileClientError extends Error {
   }
 }
 
+export type ProfileConnectionPhase = StatusConnectionPhase;
+export interface ProfileConnectionState extends StatusConnectionState {}
+
 export type TrafficConnectionPhase =
   | "fixture"
   | "connecting"
@@ -808,7 +897,18 @@ export class TrafficClientError extends Error {
 }
 
 export interface ProfileClient {
+  activateProfile(
+    commandId: string,
+    profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileActivationSnapshotDto>;
+  cancelActivation(
+    commandId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileActivationSnapshotDto>;
   deleteProfile(profileId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  dispose(): void;
+  getConnectionState(): ProfileConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
   preflightHttps(
     url: string,
@@ -821,6 +921,12 @@ export interface ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto>;
   savePreview(previewId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  stopActiveProfile(
+    commandId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileActivationSnapshotDto>;
+  subscribeConnection(listener: (state: ProfileConnectionState) => void): () => void;
+  subscribeSnapshots(listener: (snapshot: ProfileSnapshotDto) => void): () => void;
 }
 
 export interface TrafficClient {

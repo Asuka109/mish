@@ -60,6 +60,7 @@ export async function resolveStartupStatusClient(
     profileClient,
     trafficClient,
     dispose: () => {
+      profileClient.dispose();
       trafficClient.dispose();
       client.dispose();
     },

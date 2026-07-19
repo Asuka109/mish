@@ -703,9 +703,33 @@ type RootTranslation = {
 		 */
 		activation: string
 		/**
-		 * A​c​t​i​v​a​t​i​o​n​ ​r​e​m​a​i​n​s​ ​d​i​s​a​b​l​e​d​ ​u​n​t​i​l​ ​M​i​s​h​ ​c​a​n​ ​v​a​l​i​d​a​t​e​,​ ​s​w​i​t​c​h​,​ ​a​n​d​ ​r​o​l​l​ ​b​a​c​k​ ​t​h​e​ ​c​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​t​r​a​n​s​a​c​t​i​o​n​a​l​l​y​.
+		 * A​c​t​i​v​a​t​i​o​n​ ​c​a​n​c​e​l​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​a​l​t​h​y​ ​p​r​o​f​i​l​e​ ​w​a​s​ ​p​r​e​s​e​r​v​e​d​.
+		 */
+		activationCancelled: string
+		/**
+		 * A​c​t​i​v​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​a​l​t​h​y​ ​p​r​o​f​i​l​e​ ​o​r​ ​s​a​f​e​ ​s​t​o​p​p​e​d​ ​s​t​a​t​e​ ​r​e​m​a​i​n​s​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​.
+		 */
+		activationFailed: string
+		/**
+		 * A​c​t​i​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​r​u​n​t​i​m​e​.
 		 */
 		activationUnavailable: string
+		/**
+		 * A​c​t​i​v​a​t​i​n​g​…
+		 */
+		activating: string
+		/**
+		 * T​h​e​ ​p​i​n​n​e​d​ ​M​i​h​o​m​o​ ​b​i​n​a​r​y​ ​i​s​ ​m​i​s​s​i​n​g​.​ ​P​r​e​p​a​r​e​ ​i​t​ ​e​x​p​l​i​c​i​t​l​y​ ​f​o​r​ ​d​e​v​e​l​o​p​m​e​n​t​ ​o​r​ ​i​n​c​l​u​d​e​ ​t​h​e​ ​p​a​c​k​a​g​e​d​ ​p​r​o​d​u​c​t​i​o​n​ ​r​e​s​o​u​r​c​e​;​ ​M​i​s​h​ ​w​i​l​l​ ​n​o​t​ ​d​o​w​n​l​o​a​d​ ​i​t​ ​a​t​ ​r​u​n​t​i​m​e​.
+		 */
+		binaryMissing: string
+		/**
+		 * C​a​n​c​e​l​ ​a​c​t​i​v​a​t​i​o​n
+		 */
+		cancelActivation: string
+		/**
+		 * C​h​o​o​s​e​ ​a​ ​v​a​l​i​d​a​t​e​d​ ​r​e​p​l​a​c​e​m​e​n​t​ ​b​e​f​o​r​e​ ​d​e​l​e​t​i​n​g​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​.
+		 */
+		chooseReplacement: string
 		/**
 		 * A​c​t​i​v​e
 		 */
@@ -907,6 +931,18 @@ type RootTranslation = {
 		 * S​a​v​i​n​g​…
 		 */
 		saving: string
+		/**
+		 * S​t​o​p​ ​s​a​f​e​l​y
+		 */
+		stopForDeletion: string
+		/**
+		 * S​a​f​e​l​y​ ​s​t​o​p​p​e​d
+		 */
+		safeStopped: string
+		/**
+		 * S​t​o​p​p​i​n​g​…
+		 */
+		stopping: string
 		/**
 		 * S​e​n​s​i​t​i​v​e​ ​s​o​u​r​c​e​ ​o​r​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​d​a​t​a​ ​w​i​l​l​ ​s​t​a​y​ ​i​n​ ​M​i​s​h​'​s​ ​p​r​i​v​a​t​e​ ​a​p​p​-​d​a​t​a​ ​s​t​o​r​a​g​e​.
 		 */
@@ -2238,9 +2274,33 @@ export type TranslationFunctions = {
 		 */
 		activation: () => LocalizedString
 		/**
-		 * Activation remains disabled until Mish can validate, switch, and roll back the core configuration transactionally.
+		 * Activation cancelled. The previous healthy profile was preserved.
+		 */
+		activationCancelled: () => LocalizedString
+		/**
+		 * Activation failed. The previous healthy profile or safe stopped state remains authoritative.
+		 */
+		activationFailed: () => LocalizedString
+		/**
+		 * Activation is unavailable in this runtime.
 		 */
 		activationUnavailable: () => LocalizedString
+		/**
+		 * Activating…
+		 */
+		activating: () => LocalizedString
+		/**
+		 * The pinned Mihomo binary is missing. Prepare it explicitly for development or include the packaged production resource; Mish will not download it at runtime.
+		 */
+		binaryMissing: () => LocalizedString
+		/**
+		 * Cancel activation
+		 */
+		cancelActivation: () => LocalizedString
+		/**
+		 * Choose a validated replacement before deleting the active profile.
+		 */
+		chooseReplacement: () => LocalizedString
 		/**
 		 * Active
 		 */
@@ -2437,6 +2497,18 @@ export type TranslationFunctions = {
 		 * Saving…
 		 */
 		saving: () => LocalizedString
+		/**
+		 * Stop safely
+		 */
+		stopForDeletion: () => LocalizedString
+		/**
+		 * Safely stopped
+		 */
+		safeStopped: () => LocalizedString
+		/**
+		 * Stopping…
+		 */
+		stopping: () => LocalizedString
 		/**
 		 * Sensitive source or configuration data will stay in Mish's private app-data storage.
 		 */

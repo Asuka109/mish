@@ -12,7 +12,7 @@ use subtle::ConstantTimeEq;
 use mish_profile::{ProfileServiceError, RepositoryError};
 use mish_runtime::{
     CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
-    CoreErrorKind, CoreStatus, MishRuntime, StatusAdapterKind,
+    CoreErrorKind, CoreStatus, StatusAdapterKind,
 };
 use tokio::sync::broadcast;
 
@@ -41,8 +41,9 @@ struct Authentication {
 #[derive(Clone)]
 pub(crate) struct ProtocolState {
     pub auth_token: String,
+    pub profile_activation: Option<std::sync::Arc<crate::ProfileActivationCoordinator>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
-    pub runtime: MishRuntime,
+    pub runtime: crate::DesktopRuntimeHost,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,9 +68,22 @@ struct ProfileSaveParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileActivationParams {
+    command_id: String,
+    profile_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetCaptureParams {
     active: bool,
     selection: CaptureSelection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileCommandParams {
+    command_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,16 +92,73 @@ struct RecoverSystemProxyParams {
     action: CaptureRecoveryAction,
 }
 
+struct SocketSubscriptions {
+    profile_ids: HashSet<String>,
+    profile_updates: broadcast::Receiver<crate::ProfileActivationSnapshot>,
+    status_ids: HashSet<String>,
+    status_updates: broadcast::Receiver<CoreStatus>,
+    traffic_ids: HashSet<String>,
+    traffic_updates: broadcast::Receiver<CoreStatus>,
+}
+
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let (mut sender, mut receiver) = socket.split();
-    let mut status_updates = state.runtime.subscribe_status();
-    let mut traffic_updates = state.runtime.subscribe_status();
+    let mut runtime_changes = state.runtime.subscribe_changes();
+    let initial_runtime = runtime_changes.borrow_and_update().clone();
+    let status_updates = initial_runtime.subscribe_status();
+    let traffic_updates = initial_runtime.subscribe_status();
+    let (inactive_profile_updates, inactive_profile_receiver) = broadcast::channel(1);
+    let _inactive_profile_updates = inactive_profile_updates;
+    let profile_updates = state
+        .profile_activation
+        .as_ref()
+        .map(|activation| activation.subscribe())
+        .unwrap_or(inactive_profile_receiver);
     let mut authenticated = false;
-    let mut status_subscriptions = HashSet::new();
-    let mut traffic_subscriptions = HashSet::new();
+    let mut subscriptions = SocketSubscriptions {
+        profile_ids: HashSet::new(),
+        profile_updates,
+        status_ids: HashSet::new(),
+        status_updates,
+        traffic_ids: HashSet::new(),
+        traffic_updates,
+    };
 
     loop {
         tokio::select! {
+            biased;
+            changed = runtime_changes.changed() => {
+                if changed.is_err() { break; }
+                let runtime = runtime_changes.borrow_and_update().clone();
+                subscriptions.status_updates = runtime.subscribe_status();
+                subscriptions.traffic_updates = runtime.subscribe_status();
+                if authenticated && !subscriptions.status_ids.is_empty() {
+                    let snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+                    for subscription_id in &subscriptions.status_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "status.snapshot",
+                            "params": { "snapshot": snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+                if authenticated && !subscriptions.traffic_ids.is_empty() {
+                    let snapshot = state.runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+                    for subscription_id in &subscriptions.traffic_ids {
+                        let notification = json!({
+                            "jsonrpc": "2.0",
+                            "method": "traffic.snapshot",
+                            "params": { "snapshot": snapshot, "subscriptionId": subscription_id },
+                        });
+                        if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
             incoming = receiver.next() => {
                 let Some(Ok(message)) = incoming else { break };
                 let Message::Text(text) = message else {
@@ -98,10 +169,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     &text,
                     &state,
                     &mut authenticated,
-                    &mut status_subscriptions,
-                    &mut traffic_subscriptions,
-                    &mut status_updates,
-                    &mut traffic_updates,
+                    &mut subscriptions,
                 ).await;
                 if let Some(response) = response
                     && sender.send(Message::Text(response.to_string().into())).await.is_err()
@@ -109,10 +177,10 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     break;
                 }
             }
-            update = status_updates.recv(), if authenticated && !status_subscriptions.is_empty() => {
-                let Ok(status) = update else { continue };
-                let status_snapshot = state.runtime.snapshot_from_status(&status, StatusAdapterKind::Rpc);
-                for subscription_id in &status_subscriptions {
+            update = subscriptions.status_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
+                let Ok(_) = update else { continue };
+                let status_snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+                for subscription_id in &subscriptions.status_ids {
                     let notification = json!({
                         "jsonrpc": "2.0",
                         "method": "status.snapshot",
@@ -123,14 +191,28 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
-            update = traffic_updates.recv(), if authenticated && !traffic_subscriptions.is_empty() => {
+            update = subscriptions.traffic_updates.recv(), if authenticated && !subscriptions.traffic_ids.is_empty() => {
                 let Ok(_) = update else { continue };
                 let traffic_snapshot = state.runtime.traffic_snapshot(StatusAdapterKind::Rpc);
-                for subscription_id in &traffic_subscriptions {
+                for subscription_id in &subscriptions.traffic_ids {
                     let notification = json!({
                         "jsonrpc": "2.0",
                         "method": "traffic.snapshot",
                         "params": { "snapshot": traffic_snapshot, "subscriptionId": subscription_id },
+                    });
+                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            update = subscriptions.profile_updates.recv(), if authenticated && !subscriptions.profile_ids.is_empty() => {
+                let Ok(_) = update else { continue };
+                let Ok(profile_snapshot) = profile_rpc_snapshot(&state).await else { continue };
+                for subscription_id in &subscriptions.profile_ids {
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "profiles.snapshot",
+                        "params": { "snapshot": profile_snapshot, "subscriptionId": subscription_id },
                     });
                     if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
                         return;
@@ -145,10 +227,7 @@ async fn handle_message(
     text: &str,
     state: &ProtocolState,
     authenticated: &mut bool,
-    status_subscriptions: &mut HashSet<String>,
-    traffic_subscriptions: &mut HashSet<String>,
-    status_updates: &mut broadcast::Receiver<CoreStatus>,
-    traffic_updates: &mut broadcast::Receiver<CoreStatus>,
+    subscriptions: &mut SocketSubscriptions,
 ) -> Option<Value> {
     let request: Request = match serde_json::from_str(text) {
         Ok(request) => request,
@@ -180,6 +259,7 @@ async fn handle_message(
             | "status.getSnapshot"
             | "status.subscribe"
             | "profiles.getSnapshot"
+            | "profiles.subscribe"
             | "traffic.getSnapshot"
             | "traffic.subscribe"
     ) && !request
@@ -234,7 +314,12 @@ async fn handle_message(
         },
         "status.getSnapshot" => state.runtime.status_snapshot(StatusAdapterKind::Rpc).await,
         "status.subscribe" => {
-            if status_subscriptions.len() + traffic_subscriptions.len() >= 16 {
+            if subscription_count(
+                &subscriptions.profile_ids,
+                &subscriptions.status_ids,
+                &subscriptions.traffic_ids,
+            ) >= 16
+            {
                 return Some(error_response(
                     id,
                     -32030,
@@ -242,12 +327,12 @@ async fn handle_message(
                     None,
                 ));
             }
-            *status_updates = state.runtime.subscribe_status();
+            subscriptions.status_updates = state.runtime.current().subscribe_status();
             let subscription_id = format!(
                 "status-{}",
                 NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
             );
-            status_subscriptions.insert(subscription_id.clone());
+            subscriptions.status_ids.insert(subscription_id.clone());
             let snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
             json!({"snapshot": snapshot, "subscriptionId": subscription_id})
         }
@@ -257,11 +342,16 @@ async fn handle_message(
             else {
                 return Some(error_response(id, -32602, "Invalid params", None));
             };
-            json!(status_subscriptions.remove(subscription_id))
+            json!(subscriptions.status_ids.remove(subscription_id))
         }
         "traffic.getSnapshot" => state.runtime.traffic_snapshot(StatusAdapterKind::Rpc),
         "traffic.subscribe" => {
-            if status_subscriptions.len() + traffic_subscriptions.len() >= 16 {
+            if subscription_count(
+                &subscriptions.profile_ids,
+                &subscriptions.status_ids,
+                &subscriptions.traffic_ids,
+            ) >= 16
+            {
                 return Some(error_response(
                     id,
                     -32030,
@@ -269,12 +359,12 @@ async fn handle_message(
                     None,
                 ));
             }
-            *traffic_updates = state.runtime.subscribe_status();
+            subscriptions.traffic_updates = state.runtime.current().subscribe_status();
             let subscription_id = format!(
                 "traffic-{}",
                 NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
             );
-            traffic_subscriptions.insert(subscription_id.clone());
+            subscriptions.traffic_ids.insert(subscription_id.clone());
             let snapshot = state.runtime.traffic_snapshot(StatusAdapterKind::Rpc);
             json!({"snapshot": snapshot, "subscriptionId": subscription_id})
         }
@@ -284,15 +374,88 @@ async fn handle_message(
             else {
                 return Some(error_response(id, -32602, "Invalid params", None));
             };
-            json!(traffic_subscriptions.remove(subscription_id))
+            json!(subscriptions.traffic_ids.remove(subscription_id))
         }
-        "profiles.getSnapshot" => {
-            let Some(service) = &state.profile_service else {
-                return Some(profile_capability_error(id));
-            };
-            match service.snapshot() {
-                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+        "profiles.getSnapshot" => match profile_rpc_snapshot(state).await {
+            Ok(snapshot) => snapshot,
+            Err(error) => return Some(profile_error_response(id, error)),
+        },
+        "profiles.subscribe" => {
+            if subscription_count(
+                &subscriptions.profile_ids,
+                &subscriptions.status_ids,
+                &subscriptions.traffic_ids,
+            ) >= 16
+            {
+                return Some(error_response(
+                    id,
+                    -32030,
+                    "Subscription limit reached",
+                    None,
+                ));
+            }
+            if let Some(activation) = &state.profile_activation {
+                subscriptions.profile_updates = activation.subscribe();
+            }
+            let subscription_id = format!(
+                "profiles-{}",
+                NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
+            );
+            subscriptions.profile_ids.insert(subscription_id.clone());
+            let snapshot = match profile_rpc_snapshot(state).await {
+                Ok(snapshot) => snapshot,
                 Err(error) => return Some(profile_error_response(id, error)),
+            };
+            json!({"snapshot": snapshot, "subscriptionId": subscription_id})
+        }
+        "profiles.unsubscribe" => {
+            let Some(subscription_id) =
+                request.params.get("subscriptionId").and_then(Value::as_str)
+            else {
+                return Some(error_response(id, -32602, "Invalid params", None));
+            };
+            json!(subscriptions.profile_ids.remove(subscription_id))
+        }
+        "profiles.activate" => {
+            let Some(activation) = &state.profile_activation else {
+                return Some(profile_activation_capability_error(id));
+            };
+            let params: ProfileActivationParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match activation
+                .activate(&params.command_id, &params.profile_id)
+                .await
+            {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable activation"),
+                Err(error) => return Some(profile_activation_error_response(id, error)),
+            }
+        }
+        "profiles.cancelActivation" => {
+            let Some(activation) = &state.profile_activation else {
+                return Some(profile_activation_capability_error(id));
+            };
+            let params: ProfileCommandParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match activation.cancel(&params.command_id).await {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable activation"),
+                Err(error) => return Some(profile_activation_error_response(id, error)),
+            }
+        }
+        "profiles.stop" => {
+            let Some(activation) = &state.profile_activation else {
+                return Some(profile_activation_capability_error(id));
+            };
+            let params: ProfileCommandParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match activation.stop(&params.command_id).await {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable activation"),
+                Err(error) => return Some(profile_activation_error_response(id, error)),
             }
         }
         "profiles.preflightHttps" => {
@@ -317,7 +480,13 @@ async fn handle_message(
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
             match service.save_preview(&params.preview_id).await {
-                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+                Ok(_) => {
+                    publish_profile_update(state).await;
+                    match profile_rpc_snapshot(state).await {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => return Some(profile_error_response(id, error)),
+                    }
+                }
                 Err(error) => return Some(profile_error_response(id, error)),
             }
         }
@@ -330,7 +499,13 @@ async fn handle_message(
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
             match service.refresh(&params.profile_id).await {
-                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+                Ok(_) => {
+                    publish_profile_update(state).await;
+                    match profile_rpc_snapshot(state).await {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => return Some(profile_error_response(id, error)),
+                    }
+                }
                 Err(error) => return Some(profile_error_response(id, error)),
             }
         }
@@ -342,8 +517,16 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            match service.delete(&params.profile_id) {
-                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable snapshot"),
+            if let Some(activation) = &state.profile_activation {
+                if let Err(error) = activation.delete_profile(&params.profile_id).await {
+                    return Some(profile_activation_error_response(id, error));
+                }
+            } else if let Err(error) = service.delete(&params.profile_id) {
+                return Some(profile_error_response(id, error));
+            }
+            publish_profile_update(state).await;
+            match profile_rpc_snapshot(state).await {
+                Ok(snapshot) => snapshot,
                 Err(error) => return Some(profile_error_response(id, error)),
             }
         }
@@ -428,6 +611,62 @@ fn profile_capability_error(id: Value) -> Value {
         "Profile storage is not available in this bridge composition",
         None,
     )
+}
+
+fn profile_activation_capability_error(id: Value) -> Value {
+    error_response(id, -32020, "Profile activation is unavailable", None)
+}
+
+async fn profile_rpc_snapshot(state: &ProtocolState) -> Result<Value, ProfileServiceError> {
+    let Some(service) = &state.profile_service else {
+        return Err(ProfileServiceError::Repository(RepositoryError::NotFound));
+    };
+    let snapshot = if let Some(activation) = &state.profile_activation {
+        activation.managed_profile_snapshot().await?
+    } else {
+        crate::ManagedProfileSnapshot::unavailable(service.snapshot()?)
+    };
+    Ok(serde_json::to_value(snapshot).expect("serializable managed profile snapshot"))
+}
+
+async fn publish_profile_update(state: &ProtocolState) {
+    if let Some(activation) = &state.profile_activation {
+        activation.publish().await;
+    }
+}
+
+fn subscription_count(
+    profiles: &HashSet<String>,
+    status: &HashSet<String>,
+    traffic: &HashSet<String>,
+) -> usize {
+    profiles.len() + status.len() + traffic.len()
+}
+
+fn profile_activation_error_response(
+    id: Value,
+    error: crate::ProfileActivationCoordinatorError,
+) -> Value {
+    use crate::ProfileActivationCoordinatorError;
+    match error {
+        ProfileActivationCoordinatorError::InvalidCommand => {
+            error_response(id, -32602, "Invalid params", None)
+        }
+        ProfileActivationCoordinatorError::Conflict => {
+            error_response(id, -32009, "Profile activation state conflict", None)
+        }
+        ProfileActivationCoordinatorError::Unavailable
+        | ProfileActivationCoordinatorError::PolicyUnavailable => {
+            profile_activation_capability_error(id)
+        }
+        ProfileActivationCoordinatorError::Profile(error) => profile_error_response(id, error),
+        ProfileActivationCoordinatorError::ShutdownFailed => error_response(
+            id,
+            -32042,
+            "Managed profile could not reach a safe stopped state",
+            None,
+        ),
+    }
 }
 
 fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {

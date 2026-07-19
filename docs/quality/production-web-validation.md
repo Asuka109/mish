@@ -35,7 +35,7 @@ The six stable destinations are:
 | ----------- | ----------------------------------------------------------------------- |
 | `/status`   | Complete fixture-backed reference surface                               |
 | `/routes`   | Nested fixture policy graph; RPC selection remains read-only            |
-| `/profiles` | Desktop profile list/import/refresh/inactive-delete operations          |
+| `/profiles` | Desktop profile lifecycle and transactional managed activation          |
 | `/traffic`  | Read-only Active, bounded local Closed, and ordered Rules investigation |
 | `/events`   | Structured event/diagnostic ownership and missing-buffer state          |
 | `/settings` | Structured capability/settings ownership and fixture-only state         |
@@ -105,8 +105,11 @@ Automated tests cover:
 - authenticated Profile RPC coverage, including rejection of arbitrary local
   paths and credential-bearing input without reflecting sensitive values;
 - Profiles UI coverage for fixture isolation, HTTPS and native local preflight,
-  preview/save, manual refresh, inactive deletion, and disabled activation and
-  active deletion;
+  preview/save, manual refresh, activation/cancellation, inactive deletion, and
+  guarded active deletion through replacement or explicit safe stop;
+- Profile RPC activation coverage for repository artifact revalidation,
+  deduplication, cancellation, rollback, redaction, missing managed binaries,
+  atomic Status/Traffic profile replacement, and authoritative reconnect;
 - independent Traffic snapshot validation, cancellation, subscription
   reconciliation, stale transport state, and Controller-session reconnects;
 - bounded active-to-Closed derivation without reconnect-gap false closure,
@@ -173,10 +176,11 @@ validated Status snapshot, and explicit process lifecycle. Tauri embeds and
 serves the offline bundle from its own application protocol; a future same-origin
 HTTP host remains a desktop-bridge interface change.
 
-The browser replacement gate remains closed for Controller-backed Status data.
-The desktop bridge has a tested read-only Controller-to-Status mapper, and the
-shared bootstrap can compose an explicit Controller source, but the Tauri shell
-does not configure one until core and profile activation exist. The Profile
-slice is separately composed through authenticated RPC and a capability-gated
-native file picker. A fixture or mock interaction must never be relabeled as a
-successful system, filesystem, or network action.
+The desktop gate is open for Controller-backed Status and Traffic only after a
+repository-owned profile completes managed activation. Tauri starts safely
+stopped, uses an app-data-private runtime root and the managed pinned binary
+resolver, and replaces the runtime only after version, readiness, first valid
+Status/Traffic observations, and active-state commit. The Profile slice is
+composed through authenticated RPC and a capability-gated native file picker.
+A missing binary remains unavailable, and a fixture or mock interaction must
+never be relabeled as a successful system, filesystem, or network action.

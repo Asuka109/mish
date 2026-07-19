@@ -27,8 +27,9 @@ and `RpcProfileClient` after validating its private bootstrap payload.
    Vite supplies the equivalent SPA fallback.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
    token, resolves Tauri's application-data directory, constructs the private
-   profile repository and mode-`0600` System Proxy recovery journal there, and
-   starts `mish-bridge` on `127.0.0.1:0`.
+   profile repository, runtime root, and mode-`0600` System Proxy recovery
+   journal there, and starts `mish-bridge` on `127.0.0.1:0` in the explicit safe
+   stopped state.
 7. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body.
@@ -38,10 +39,15 @@ and `RpcProfileClient` after validating its private bootstrap payload.
 9. The token remains in process memory for reconnect authentication. Neither
    side writes it to a file, URL, log, query string, fragment, cookie,
    `localStorage`, or `sessionStorage`.
-10. When the Tauri event loop exits, the shell shuts down the in-process bridge.
+10. Profile activation reloads a repository-owned valid artifact, resolves only
+    the managed pinned binary, and commits the new runtime after Controller,
+    Status, and Traffic readiness. Development accepts only an explicit
+    `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
+    downloads a binary at runtime.
+11. When the Tauri event loop exits, the shell shuts down the in-process bridge.
     The runtime stops its capture audit loop, restores a still-confirmed
-    Mish-owned System Proxy state, closes and awaits any injected Status data
-    source, stops the core lifecycle, and finally closes the RPC server.
+    Mish-owned System Proxy state, then the coordinator closes the active Status
+    and Traffic sources, stops the core, and finally closes the RPC server.
 
 Local-file profile preflight uses a separate Tauri command granted only to the
 main window. The command accepts no path from Web content: it opens the native
@@ -87,18 +93,17 @@ claim that process memory is a secure enclave.
 
 ## Current limitations
 
-- The in-process bridge uses no Mihomo binary or configuration path, so it reports
-  real but sparse local state and does not start the core automatically.
+- The in-process bridge does not start Mihomo automatically. It reports the
+  explicit safe stopped state until a persisted valid profile is activated.
 - The shared desktop composition can inject an explicit loopback Controller and
   publish read-only Controller-derived Status values. The desktop bridge also
   provides transactional activation and managed binary/resource resolution.
-- The Tauri shell composes the Profile application service with private
-  application-data storage and the authenticated bridge, but deliberately
-  supplies no selected persisted artifact, Controller policy, activation
-  manager, or packaged sidecar. It does not start Mihomo automatically.
-- Profile activation and active-profile deletion remain unavailable until the
-  product command surface composes the existing activation transaction with a
-  safe replacement or stopped-state flow.
+- The Tauri shell composes the Profile service, activation coordinator, private
+  application-data runtime root, and managed binary resolver. A missing explicit
+  development binary or production resource remains visibly unavailable.
+- The shell deliberately does not guess or restore a last profile at startup.
+  A future restore policy requires an explicit recorded policy and the same
+  transactional failure recovery; it may not enable System Proxy or TUN.
 - System Proxy is the only network-changing Status command. It defaults off,
   requires a healthy configured core, confirms every applied change, and
   restores only state recorded in its private journal. TUN and all other

@@ -165,9 +165,10 @@ the activation readiness deadline.
 `compose_desktop_runtime` remains the lifecycle/read-only composition seam.
 Passing an explicit Controller configuration installs and starts the source.
 Passing `None` constructs the existing lifecycle-only runtime and performs no
-Controller access. The current Tauri shell and standalone bridge binary still
-pass `None`; profile activation has no RPC or shell startup command in this
-slice.
+Controller access. Tauri begins with that safe stopped runtime and replaces it
+through `DesktopRuntimeHost` only after authenticated profile activation commits.
+The standalone bridge binary remains lifecycle-only unless its host explicitly
+composes an activation coordinator.
 
 ## Transactional core activation
 
@@ -190,10 +191,12 @@ prior core. Commit requires all of the following:
 1. the child remains alive;
 2. the Controller reports v1.19.29;
 3. Controller HTTP and stream readiness succeeds; and
-4. the first complete observation batch maps to a valid Status snapshot.
+4. the first complete observation batch maps to valid Status and Traffic
+   snapshots.
 
 Only then may the manager stop the prior core and atomically replace
-`activation-state.json`. A validation error, early exit, readiness timeout,
+`activation-state.json`. The coordinator then atomically replaces the runtime
+host and publishes the active-profile projection. A validation error, early exit, readiness timeout,
 version mismatch, Controller failure, prior-stop failure, or active-state write
 failure stops the candidate and preserves or restarts the prior core. If the
 prior core cannot be restored, the in-memory state is cleared and the result is
@@ -321,13 +324,14 @@ cancellation, but production ownership uses the awaited shutdown path.
 
 ## Explicit exclusions and remaining gaps
 
-The composed read-only slice does not:
+The composed managed slice does not:
 
 - discover a Controller configuration or read one from system state;
-- expose profile activation through RPC or wire a selected persisted artifact
-  into Tauri startup;
-- package the production Mihomo sidecar or choose the application-data runtime
-  root;
+- accept arbitrary configuration bytes, paths, Controller endpoints, or secrets
+  through RPC;
+- silently select, import, or restore a profile during Tauri startup;
+- download or install Mihomo at runtime; production packaging must still supply
+  the pinned resource;
 - mutate profiles, routing mode, group selection, rules, or connections;
 - enable System Proxy, TUN, DNS changes, or privileged operations;
 - call delay-test endpoints, which initiate real network requests and update

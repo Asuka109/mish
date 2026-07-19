@@ -15,8 +15,8 @@ use mish_runtime::{CaptureAuditReason, CorePhase, MishRuntime};
 use serde_json::json;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
-use crate::DesktopProfileService;
 use crate::protocol::{ProtocolState, serve_socket};
+use crate::{DesktopProfileService, DesktopRuntimeHost, ProfileActivationCoordinator};
 
 #[derive(Clone)]
 pub struct LoopbackServerConfig {
@@ -24,6 +24,7 @@ pub struct LoopbackServerConfig {
     pub auth_token: String,
     pub bind: SocketAddr,
     pub max_message_bytes: usize,
+    pub profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     pub profile_service: Option<Arc<DesktopProfileService>>,
 }
 
@@ -39,8 +40,9 @@ pub struct LoopbackServerHandle {
     audit_join: JoinHandle<()>,
     audit_shutdown: Option<oneshot::Sender<()>>,
     join: JoinHandle<()>,
+    profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     shutdown: Option<oneshot::Sender<()>>,
-    runtime: MishRuntime,
+    runtime: DesktopRuntimeHost,
 }
 
 impl LoopbackServerHandle {
@@ -49,7 +51,10 @@ impl LoopbackServerHandle {
             let _ = shutdown.send(());
         }
         let _ = self.audit_join.await;
-        let _ = self.runtime.shutdown().await;
+        if let Some(profile_activation) = &self.profile_activation {
+            let _ = profile_activation.shutdown().await;
+        }
+        let _ = self.runtime.current().shutdown().await;
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -60,6 +65,13 @@ impl LoopbackServerHandle {
 pub async fn start_loopback_server(
     config: LoopbackServerConfig,
     runtime: MishRuntime,
+) -> Result<LoopbackServerHandle, String> {
+    start_loopback_server_with_runtime_host(config, DesktopRuntimeHost::new(runtime)).await
+}
+
+pub async fn start_loopback_server_with_runtime_host(
+    config: LoopbackServerConfig,
+    runtime: DesktopRuntimeHost,
 ) -> Result<LoopbackServerHandle, String> {
     if !config.bind.ip().is_loopback() {
         return Err("The Mish desktop bridge may only bind to a loopback address".into());
@@ -86,11 +98,13 @@ pub async fn start_loopback_server(
     } else {
         config.allowed_origins.into_iter().collect()
     };
+    let profile_activation = config.profile_activation.clone();
     let state = Arc::new(HttpState {
         allowed_hosts,
         allowed_origins,
         protocol: ProtocolState {
             auth_token: config.auth_token,
+            profile_activation: config.profile_activation,
             profile_service: config.profile_service,
             runtime: runtime.clone(),
         },
@@ -103,14 +117,23 @@ pub async fn start_loopback_server(
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (audit_shutdown_tx, mut audit_shutdown_rx) = oneshot::channel();
     let audit_runtime = runtime.clone();
-    let mut audit_updates = audit_runtime.subscribe_status();
+    let mut audit_runtime_changes = audit_runtime.subscribe_changes();
+    let initial_audit_runtime = audit_runtime_changes.borrow_and_update().clone();
+    let mut audit_updates = initial_audit_runtime.subscribe_status();
     let audit_join = tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         interval.tick().await;
         loop {
             tokio::select! {
+                biased;
                 _ = &mut audit_shutdown_rx => break,
+                changed = audit_runtime_changes.changed() => {
+                    if changed.is_err() { break; }
+                    let runtime = audit_runtime_changes.borrow_and_update().clone();
+                    audit_updates = runtime.subscribe_status();
+                    let _ = runtime.audit_capture(CaptureAuditReason::Restart).await;
+                }
                 update = audit_updates.recv() => {
                     let Ok(status) = update else { continue };
                     if !matches!(status.phase, CorePhase::Running) {
@@ -140,6 +163,7 @@ pub async fn start_loopback_server(
         audit_join,
         audit_shutdown: Some(audit_shutdown_tx),
         join,
+        profile_activation,
         shutdown: Some(shutdown_tx),
         runtime,
     })

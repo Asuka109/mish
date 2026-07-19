@@ -61,6 +61,12 @@ notifications, matching the Status subscription ordering barrier. The RPC
 adapter also marks Traffic stale as soon as its transport disconnects. It does
 not continue presenting the last active rows as current while reconnecting.
 
+Desktop profile activation replaces the shared runtime host only after the
+candidate's first valid Traffic and Status observations and active-state commit.
+Traffic subscriptions reset and resample that authoritative runtime on profile
+change, so rows from a prior profile cannot be presented under the new active
+profile context.
+
 ## Recently Closed derivation
 
 Recently Closed is local, in-memory diagnostic context derived by diffing

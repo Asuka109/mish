@@ -1,11 +1,24 @@
 import {
   ProfileClientError,
   type ProfileClient,
+  type ProfileConnectionState,
   type ProfilePreviewDto,
   type ProfileSnapshotDto,
 } from "@mish/contracts";
 
 const fixtureSnapshot = {
+  activation: {
+    activeProfileId: null,
+    attemptedAt: null,
+    availability: "unavailable",
+    commandId: null,
+    failure: null,
+    operation: null,
+    phase: "idle",
+    safeStopped: true,
+    startupPolicy: "safe-stopped",
+    targetProfileId: null,
+  },
   adapterKind: "fixture",
   capabilities: {
     activation: "unavailable",
@@ -37,6 +50,26 @@ const fixtureSnapshot = {
 } satisfies ProfileSnapshotDto;
 
 export class FixtureProfileClient implements ProfileClient {
+  activateProfile(
+    _commandId: string,
+    _profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<never> {
+    if (options?.signal?.aborted) return Promise.reject(cancelled());
+    return Promise.reject(unsupported());
+  }
+
+  cancelActivation(_commandId: string, options?: { signal?: AbortSignal }): Promise<never> {
+    if (options?.signal?.aborted) return Promise.reject(cancelled());
+    return Promise.reject(unsupported());
+  }
+
+  dispose() {}
+
+  getConnectionState() {
+    return { attempt: 0, phase: "fixture", stale: false } as const;
+  }
+
   async getSnapshot(options?: { signal?: AbortSignal }) {
     if (options?.signal?.aborted) throw cancelled();
     return structuredClone(fixtureSnapshot);
@@ -77,6 +110,20 @@ export class FixtureProfileClient implements ProfileClient {
   ): Promise<ProfileSnapshotDto> {
     if (options?.signal?.aborted) throw cancelled();
     throw unsupported();
+  }
+
+  stopActiveProfile(_commandId: string, options?: { signal?: AbortSignal }): Promise<never> {
+    if (options?.signal?.aborted) return Promise.reject(cancelled());
+    return Promise.reject(unsupported());
+  }
+
+  subscribeConnection(listener: (state: ProfileConnectionState) => void) {
+    listener(this.getConnectionState());
+    return () => undefined;
+  }
+
+  subscribeSnapshots(_listener: (snapshot: ProfileSnapshotDto) => void) {
+    return () => undefined;
   }
 }
 
