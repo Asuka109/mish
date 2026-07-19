@@ -21,6 +21,7 @@ decisions from chat history.
 | How should recurring UI structures be composed?                             | [`design/component-patterns.md`](design/component-patterns.md)                                   |
 | What is real, mocked, verified, or still pending?                           | [`quality/prototype-validation.md`](quality/prototype-validation.md)                             |
 | How is the production Web foundation run and validated?                     | [`quality/production-web-validation.md`](quality/production-web-validation.md)                   |
+| How is the native macOS sidebar material validated?                         | [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md)                   |
 
 ## Supporting material
 

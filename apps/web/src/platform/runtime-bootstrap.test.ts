@@ -16,6 +16,7 @@ describe("desktop runtime bootstrap", () => {
 
     expect(startup.client).toBeUndefined();
     expect(startup.profileClient).toBeUndefined();
+    expect(startup.nativeSidebarMaterial).toBe(false);
     expect(startup.runtime).toBe("browser");
     expect(invokeBootstrap).not.toHaveBeenCalled();
     expect(invokeLocalProfilePreflight).not.toHaveBeenCalled();
@@ -24,7 +25,11 @@ describe("desktop runtime bootstrap", () => {
   it("routes local profile preflight only through the injected native boundary", async () => {
     const invokeLocalProfilePreflight = vi.fn(async () => null);
     const startup = await resolveStartupStatusClient({
-      invokeBootstrap: async () => ({ authToken: token, rpcUrl: "ws://127.0.0.1:43123/rpc" }),
+      invokeBootstrap: async () => ({
+        authToken: token,
+        nativeSidebarMaterial: true,
+        rpcUrl: "ws://127.0.0.1:43123/rpc",
+      }),
       invokeLocalProfilePreflight,
       isDesktop: () => true,
       openWebSocket: vi.fn(),
@@ -36,12 +41,17 @@ describe("desktop runtime bootstrap", () => {
   });
 
   it("accepts only an uncredentialed loopback WebSocket endpoint", () => {
-    expect(parseRuntimeBootstrap({ authToken: token, rpcUrl: "ws://127.0.0.1:43123/rpc" })).toEqual(
-      {
+    expect(
+      parseRuntimeBootstrap({
         authToken: token,
+        nativeSidebarMaterial: true,
         rpcUrl: "ws://127.0.0.1:43123/rpc",
-      },
-    );
+      }),
+    ).toEqual({
+      authToken: token,
+      nativeSidebarMaterial: true,
+      rpcUrl: "ws://127.0.0.1:43123/rpc",
+    });
 
     for (const rpcUrl of [
       "wss://127.0.0.1:43123/rpc",
@@ -51,8 +61,23 @@ describe("desktop runtime bootstrap", () => {
       "ws://127.0.0.1:43123/rpc?token=secret",
       "ws://127.0.0.1:43123/other",
     ]) {
-      expect(() => parseRuntimeBootstrap({ authToken: token, rpcUrl })).toThrow();
+      expect(() =>
+        parseRuntimeBootstrap({ authToken: token, nativeSidebarMaterial: true, rpcUrl }),
+      ).toThrow();
     }
+  });
+
+  it("requires an explicit native material capability instead of inferring one from Tauri", () => {
+    expect(() =>
+      parseRuntimeBootstrap({ authToken: token, rpcUrl: "ws://127.0.0.1:43123/rpc" }),
+    ).toThrow("Invalid native sidebar material capability");
+    expect(() =>
+      parseRuntimeBootstrap({
+        authToken: token,
+        nativeSidebarMaterial: "macos",
+        rpcUrl: "ws://127.0.0.1:43123/rpc",
+      }),
+    ).toThrow("Invalid native sidebar material capability");
   });
 
   it("keeps the token in the RPC authentication message instead of the endpoint", async () => {
@@ -65,7 +90,11 @@ describe("desktop runtime bootstrap", () => {
     };
     const openWebSocket = vi.fn((_url: string) => transport as unknown as WebSocket);
     const startup = await resolveStartupStatusClient({
-      invokeBootstrap: async () => ({ authToken: token, rpcUrl: "ws://127.0.0.1:43123/rpc" }),
+      invokeBootstrap: async () => ({
+        authToken: token,
+        nativeSidebarMaterial: true,
+        rpcUrl: "ws://127.0.0.1:43123/rpc",
+      }),
       invokeLocalProfilePreflight: vi.fn(),
       isDesktop: () => true,
       openWebSocket,
@@ -73,6 +102,7 @@ describe("desktop runtime bootstrap", () => {
 
     const request = startup.client?.getSnapshot();
     expect(startup.runtime).toBe("desktop");
+    expect(startup.nativeSidebarMaterial).toBe(true);
     expect(openWebSocket).toHaveBeenCalledWith("ws://127.0.0.1:43123/rpc");
     expect(openWebSocket.mock.calls[0][0]).not.toContain(token);
     startup.dispose();

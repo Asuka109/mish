@@ -32,6 +32,9 @@ async function startApplication() {
   try {
     const startup = await resolveStartupStatusClient();
     document.documentElement.dataset.runtime = startup.runtime;
+    document.documentElement.dataset.nativeSidebarMaterial = startup.nativeSidebarMaterial
+      ? "available"
+      : "fallback";
     window.addEventListener("pagehide", startup.dispose, { once: true });
     createRoot(applicationRoot).render(
       <StrictMode>

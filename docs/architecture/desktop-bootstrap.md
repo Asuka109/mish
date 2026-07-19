@@ -36,15 +36,19 @@ and `RpcProfileClient` after validating its private bootstrap payload.
 8. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
    non-WebSocket, or non-`/rpc` endpoints. It sends the token only in the first
    JSON-RPC authentication message.
-9. The token remains in process memory for reconnect authentication. Neither
-   side writes it to a file, URL, log, query string, fragment, cookie,
-   `localStorage`, or `sessionStorage`.
-10. Profile activation reloads a repository-owned valid artifact, resolves only
+9. The bootstrap also declares whether the shell compiled with native macOS
+   Sidebar material. The WebView uses this capability only to expose the matching
+   sidebar/window-base pixels; product components do not branch on Tauri or the
+   operating system.
+10. The token remains in process memory for reconnect authentication. Neither
+    side writes it to a file, URL, log, query string, fragment, cookie,
+    `localStorage`, or `sessionStorage`.
+11. Profile activation reloads a repository-owned valid artifact, resolves only
     the managed pinned binary, and commits the new runtime after Controller,
     Status, and Traffic readiness. Development accepts only an explicit
     `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
     downloads a binary at runtime.
-11. When the Tauri event loop exits, the shell shuts down the in-process bridge.
+12. When the Tauri event loop exits, the shell shuts down the in-process bridge.
     The runtime stops its capture audit loop, restores a still-confirmed
     Mish-owned System Proxy state, then the coordinator closes the active Status
     and Traffic sources, stops the core, and finally closes the RPC server.
@@ -110,7 +114,7 @@ claim that process memory is a secure enclave.
   recorded in its private journal. The generated Mihomo configuration and the
   macOS adapter share that same managed loopback endpoint. TUN and all other
   network-changing Status commands remain unsupported.
-- The Tauri shell has no status-bar menu or native sidebar material yet.
+- The Tauri shell has no status-bar menu yet.
 - Installer packaging, final icon production, entitlements, code signing,
   notarization, update metadata, and release distribution are not configured.
 - The current bundle identifier is a development identifier and must be reviewed

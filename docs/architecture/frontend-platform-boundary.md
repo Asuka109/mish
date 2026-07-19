@@ -218,15 +218,19 @@ desktop-bridge application API as the React UI.
 ## Native sidebar material
 
 Behind-window sidebar translucency is a native-shell capability, not a CSS
-effect. The future Tauri window may apply the macOS Sidebar material backed by
-`NSVisualEffectView` while leaving the corresponding WebView region transparent.
-The foreground workspace remains opaque.
+effect. The macOS Tauri window applies the semantic Sidebar material backed by
+`NSVisualEffectView`, uses a behind-window blending mode, and follows the native
+active-window state. The matching WebView sidebar and exposed window-base pixels
+are transparent; the foreground workspace remains opaque.
 
-The browser and unsupported platforms use the deterministic `surface-soft`
-fallback. Do not imitate native vibrancy with a captured wallpaper, decorative
-gradient, or generic glassmorphism. Validate the native implementation against
-active and inactive windows, Reduce Transparency, light and dark appearance,
-resizing, and energy behavior.
+The bootstrap exposes one boolean capability rather than leaking Tauri or
+AppKit branches into product components. The browser and unsupported platforms
+use the deterministic `surface-soft` fallback. Reduce Transparency paints that
+same fallback over the native window. Do not imitate native vibrancy with a
+captured wallpaper, decorative gradient, generic glassmorphism, or CSS blur.
+Validation covers active and inactive windows, Reduce Transparency, light and
+dark appearance, resizing, and energy behavior; see
+[`../quality/native-sidebar-validation.md`](../quality/native-sidebar-validation.md).
 
 ## Target monorepo shape
 

@@ -12,6 +12,7 @@ import { RpcTrafficClient } from "../data/rpc-traffic-client";
 
 interface RuntimeBootstrapPayload {
   authToken: string;
+  nativeSidebarMaterial: boolean;
   rpcUrl: string;
 }
 
@@ -28,6 +29,7 @@ export interface StartupStatusClient {
   dispose(): void;
   profileClient?: ProfileClient;
   runtime: "browser" | "desktop";
+  nativeSidebarMaterial: boolean;
 }
 
 const defaultDependencies: BootstrapDependencies = {
@@ -40,7 +42,13 @@ const defaultDependencies: BootstrapDependencies = {
 export async function resolveStartupStatusClient(
   dependencies: BootstrapDependencies = defaultDependencies,
 ): Promise<StartupStatusClient> {
-  if (!dependencies.isDesktop()) return { dispose: () => undefined, runtime: "browser" };
+  if (!dependencies.isDesktop()) {
+    return {
+      dispose: () => undefined,
+      nativeSidebarMaterial: false,
+      runtime: "browser",
+    };
+  }
 
   const bootstrap = parseRuntimeBootstrap(await dependencies.invokeBootstrap());
   const rpc = new RpcClient({
@@ -64,15 +72,19 @@ export async function resolveStartupStatusClient(
       trafficClient.dispose();
       client.dispose();
     },
+    nativeSidebarMaterial: bootstrap.nativeSidebarMaterial,
     runtime: "desktop",
   };
 }
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   if (!value || typeof value !== "object") throw new Error("Invalid desktop bootstrap");
-  const { authToken, rpcUrl } = value as Record<string, unknown>;
+  const { authToken, nativeSidebarMaterial, rpcUrl } = value as Record<string, unknown>;
   if (typeof authToken !== "string" || authToken.length < 32) {
     throw new Error("Invalid desktop authentication token");
+  }
+  if (typeof nativeSidebarMaterial !== "boolean") {
+    throw new Error("Invalid native sidebar material capability");
   }
   if (typeof rpcUrl !== "string") throw new Error("Invalid desktop RPC endpoint");
 
@@ -89,5 +101,5 @@ export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {
   ) {
     throw new Error("Desktop RPC must use an uncredentialed IPv4 loopback WebSocket URL");
   }
-  return { authToken, rpcUrl: endpoint.href };
+  return { authToken, nativeSidebarMaterial, rpcUrl: endpoint.href };
 }
