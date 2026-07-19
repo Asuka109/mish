@@ -1,4 +1,7 @@
-use mish_runtime::{CoreError, CoreStatus, MishRuntime, StatusAdapterKind};
+use mish_runtime::{
+    CaptureAuditReason, CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError,
+    CoreStatus, MishRuntime, StatusAdapterKind,
+};
 use serde_json::Value;
 use tokio::sync::watch;
 
@@ -39,6 +42,31 @@ impl DesktopRuntimeHost {
 
     pub async fn stop_core(&self) -> Result<CoreStatus, CoreError> {
         self.current().stop_core().await
+    }
+
+    pub async fn set_capture(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.current().set_capture(request, adapter_kind).await
+    }
+
+    pub async fn recover_system_proxy(
+        &self,
+        action: CaptureRecoveryAction,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.current()
+            .recover_system_proxy(action, adapter_kind)
+            .await
+    }
+
+    pub async fn audit_capture(
+        &self,
+        reason: CaptureAuditReason,
+    ) -> Result<bool, CaptureTransitionError> {
+        self.current().audit_capture(reason).await
     }
 
     pub async fn status_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {

@@ -91,7 +91,7 @@ describe("RpcStatusClient", () => {
       transportFactory: () => transport,
     });
     const client = new RpcStatusClient(rpc);
-    expect(client.supportsCommand("capture")).toBe(false);
+    expect(client.supportsCommand("capture")).toBe(true);
 
     const selection = { systemProxy: false, tun: true };
     const command = client.setCapture(selection, false);
@@ -111,6 +111,39 @@ describe("RpcStatusClient", () => {
 
     await expect(command).resolves.toMatchObject({
       runtime: { captureSelection: selection, phase: "inactive" },
+    });
+    client.dispose();
+  });
+
+  it("sends a bounded typed System Proxy recovery action", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+
+    const recovery = client.recoverSystemProxy("repair");
+    await authenticate(transport);
+    const request = await waitForRequest(transport, 1);
+    expect(request).toMatchObject({
+      method: "status.recoverSystemProxy",
+      params: { action: "repair" },
+    });
+    const snapshot = await createRpcSnapshot();
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "mish",
+      phase: "applied",
+      recoveryActions: [],
+    };
+    snapshot.runtime.systemProxyEnabled = true;
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: snapshot });
+
+    await expect(recovery).resolves.toMatchObject({
+      runtime: { systemProxy: { phase: "applied" } },
     });
     client.dispose();
   });

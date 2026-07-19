@@ -44,6 +44,13 @@ automatically select or restore a private profile. Authenticated activation
 reloads a repository-validated artifact and uses the transactional pinned-core
 manager. Development requires an explicit `MISH_MIHOMO_BIN`; production resolves
 only a packaged pinned resource. Missing binaries remain visibly unavailable,
-and neither mode downloads at runtime. System Proxy, TUN, status-bar behavior,
-native material, packaging icons, signing, and notarization remain separate
-platform slices.
+and neither mode downloads at runtime.
+
+On macOS, the shell composes a real System Proxy adapter through the shared
+runtime. System Proxy defaults off and can be enabled only when a configured
+core is confirmed healthy. Mish journals the minimum prior network-service
+state privately, applies only HTTP, HTTPS, and SOCKS settings, confirms the OS
+result, and restores exact Mish-owned state on shutdown or restart audit. PAC,
+automatic discovery, and authenticated settings are never overwritten. TUN,
+status-bar behavior, native material, packaging icons, signing, and notarization
+remain separate platform slices.

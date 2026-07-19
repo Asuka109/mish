@@ -14,8 +14,10 @@ import {
 import { useI18nContext } from "../i18n/i18n-react";
 import type {
   CapabilityAvailability,
+  CaptureRecoveryAction,
   PlatformCapabilitiesDto,
   StatusAdapterKind,
+  SystemProxyRuntimeStatusDto,
 } from "@mish/contracts";
 import {
   getCaptureModeDescriptionId,
@@ -27,10 +29,13 @@ interface TrafficCaptureControlProps {
   capabilities: PlatformCapabilitiesDto;
   commandSupported: boolean;
   disabled?: boolean;
+  onSystemProxyRecovery(action: CaptureRecoveryAction): void;
   onSystemProxyChange(value: boolean): void;
   onTunChange(value: boolean): void;
+  pending?: boolean;
   systemProxyEnabled: boolean;
   systemProxySelected: boolean;
+  systemProxyStatus: SystemProxyRuntimeStatusDto;
   tunEnabled: boolean;
   tunSelected: boolean;
 }
@@ -47,9 +52,12 @@ export function TrafficCaptureControl({
   commandSupported,
   disabled = false,
   onSystemProxyChange,
+  onSystemProxyRecovery,
   onTunChange,
+  pending = false,
   systemProxyEnabled,
   systemProxySelected,
+  systemProxyStatus,
   tunEnabled,
   tunSelected,
 }: TrafficCaptureControlProps) {
@@ -57,6 +65,31 @@ export function TrafficCaptureControl({
   const { LL } = useI18nContext();
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
   const tunAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
+
+  function systemProxyStatusMessage() {
+    if (systemProxyStatus.phase === "drift") return LL.capture.systemProxyDrift();
+    if (systemProxyStatus.phase === "failed") {
+      if (systemProxyStatus.failure === "permission-denied") {
+        return LL.capture.systemProxyPermissionFailure();
+      }
+      if (systemProxyStatus.failure === "unsafe-existing-configuration") {
+        return LL.capture.systemProxyUnsafeFailure();
+      }
+      if (systemProxyStatus.failure === "core-unhealthy") {
+        return LL.capture.systemProxyCoreFailure();
+      }
+      return LL.capture.systemProxyFailure();
+    }
+    if (pending || systemProxyStatus.phase === "pending") {
+      return LL.capture.systemProxyPending();
+    }
+    if (systemProxyStatus.phase === "applied") return LL.capture.systemProxyApplied();
+    if (systemProxyStatus.observed === "other" || systemProxyStatus.observed === "mish") {
+      return LL.capture.systemProxyLeftAsIs();
+    }
+    if (systemProxyStatus.observed === "unknown") return LL.capture.systemProxyUnknown();
+    return LL.capture.systemProxyOff();
+  }
 
   function getHelpDescription(mode: "systemProxy" | "tun", availability: CapabilityAvailability) {
     if (adapterKind === "fixture") {
@@ -82,61 +115,110 @@ export function TrafficCaptureControl({
 
   return (
     <>
-      <div className="capture-control">
-        <Toggle
-          aria-describedby={getCaptureModeDescriptionId(
-            adapterKind,
-            capabilities.systemProxy,
-            commandSupported,
-            "systemProxy",
-          )}
-          aria-label={LL.capture.modeAria({
-            mode: LL.capture.systemProxy(),
-            runtime: systemProxyEnabled ? LL.capture.running() : LL.capture.notRunning(),
-            selection: systemProxySelected ? LL.capture.selected() : LL.capture.notSelected(),
-          })}
-          className="capture-mode-button"
-          data-capture-state={getCaptureState(systemProxySelected, systemProxyEnabled)}
-          disabled={disabled || !commandSupported || !systemProxyAvailable}
-          onPressedChange={onSystemProxyChange}
-          pressed={systemProxySelected}
-          variant="outline"
-        >
-          <Desktop aria-hidden="true" data-icon="inline-start" weight="fill" />
-          <span>{LL.capture.systemProxy()}</span>
-        </Toggle>
-        <Toggle
-          aria-describedby={getCaptureModeDescriptionId(
-            adapterKind,
-            capabilities.tun,
-            commandSupported,
-            "tun",
-          )}
-          aria-label={LL.capture.modeAria({
-            mode: LL.capture.tun(),
-            runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
-            selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
-          })}
-          className="capture-mode-button"
-          data-capture-state={getCaptureState(tunSelected, tunEnabled)}
-          disabled={disabled || !commandSupported || !tunAvailable}
-          onPressedChange={onTunChange}
-          pressed={tunSelected}
-          variant="outline"
-        >
-          <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
-          <span>{LL.capture.tun()}</span>
-        </Toggle>
-        <Button
-          aria-label={LL.capture.helpAria()}
-          className="capture-help-button"
-          onClick={() => setHelpOpen(true)}
-          size="icon-sm"
-          type="button"
-          variant="outline"
-        >
-          <Question aria-hidden="true" />
-        </Button>
+      <div className="traffic-capture-stack">
+        <div className="capture-control">
+          <Toggle
+            aria-describedby={getCaptureModeDescriptionId(
+              adapterKind,
+              capabilities.systemProxy,
+              commandSupported,
+              "systemProxy",
+            )}
+            aria-label={LL.capture.modeAria({
+              mode: LL.capture.systemProxy(),
+              runtime: systemProxyEnabled ? LL.capture.running() : LL.capture.notRunning(),
+              selection: systemProxySelected ? LL.capture.selected() : LL.capture.notSelected(),
+            })}
+            className="capture-mode-button"
+            data-capture-state={getCaptureState(systemProxySelected, systemProxyEnabled)}
+            disabled={disabled || !commandSupported || !systemProxyAvailable}
+            onPressedChange={onSystemProxyChange}
+            pressed={systemProxySelected}
+            variant="outline"
+          >
+            <Desktop aria-hidden="true" data-icon="inline-start" weight="fill" />
+            <span>{LL.capture.systemProxy()}</span>
+          </Toggle>
+          <Toggle
+            aria-describedby={getCaptureModeDescriptionId(
+              adapterKind,
+              capabilities.tun,
+              commandSupported,
+              "tun",
+            )}
+            aria-label={LL.capture.modeAria({
+              mode: LL.capture.tun(),
+              runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
+              selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
+            })}
+            className="capture-mode-button"
+            data-capture-state={getCaptureState(tunSelected, tunEnabled)}
+            disabled={disabled || !commandSupported || !tunAvailable}
+            onPressedChange={onTunChange}
+            pressed={tunSelected}
+            variant="outline"
+          >
+            <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
+            <span>{LL.capture.tun()}</span>
+          </Toggle>
+          <Button
+            aria-label={LL.capture.helpAria()}
+            className="capture-help-button"
+            onClick={() => setHelpOpen(true)}
+            size="icon-sm"
+            type="button"
+            variant="outline"
+          >
+            <Question aria-hidden="true" />
+          </Button>
+        </div>
+        {adapterKind === "fixture" ? null : (
+          <div
+            className="system-proxy-reconciliation"
+            data-phase={
+              systemProxyStatus.phase === "drift" || systemProxyStatus.phase === "failed"
+                ? systemProxyStatus.phase
+                : pending
+                  ? "pending"
+                  : systemProxyStatus.phase
+            }
+            role={
+              systemProxyStatus.phase === "drift" || systemProxyStatus.phase === "failed"
+                ? "alert"
+                : pending || systemProxyStatus.phase === "pending"
+                  ? "status"
+                  : undefined
+            }
+          >
+            <p>{systemProxyStatusMessage()}</p>
+            {systemProxyStatus.recoveryActions.length > 0 ? (
+              <div className="system-proxy-recovery-actions">
+                {systemProxyStatus.recoveryActions.includes("repair") ? (
+                  <Button
+                    disabled={pending}
+                    onClick={() => onSystemProxyRecovery("repair")}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {LL.capture.repairSystemProxy()}
+                  </Button>
+                ) : null}
+                {systemProxyStatus.recoveryActions.includes("leave-as-is") ? (
+                  <Button
+                    disabled={pending}
+                    onClick={() => onSystemProxyRecovery("leave-as-is")}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    {LL.capture.leaveAsIs()}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )}
       </div>
 
       <Dialog onOpenChange={setHelpOpen} open={helpOpen}>

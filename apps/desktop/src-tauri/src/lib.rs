@@ -10,9 +10,12 @@ use mish_bridge::{
     ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
     DesktopRuntimeHost, LoopbackServerConfig, LoopbackServerHandle, ManagedMihomoResolver,
     ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
-    ReqwestHttpsSourceReader, compose_desktop_runtime, start_loopback_server_with_runtime_host,
+    ReqwestHttpsSourceReader, compose_desktop_runtime_with_capture,
+    start_loopback_server_with_runtime_host,
 };
+use mish_platform_macos::{FileCaptureJournalStore, MacOsSystemProxyPlatform};
 use mish_profile::{ProfilePreview, ProfileServiceError};
+use mish_runtime::{CaptureReconciler, LoopbackProxyEndpoint};
 use serde::Serialize;
 use tauri::Manager;
 
@@ -108,13 +111,22 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         &app.path().resource_dir()?,
     );
     let bridge = tauri::async_runtime::block_on(async {
-        let safe_runtime = compose_desktop_runtime(
+        let capture = Arc::new(CaptureReconciler::new(
+            Arc::new(MacOsSystemProxyPlatform::new()),
+            Arc::new(FileCaptureJournalStore::new(
+                profile_root.join("system-proxy-journal.json"),
+            )),
+            LoopbackProxyEndpoint::new("127.0.0.1", 7890)
+                .map_err(|error| io::Error::other(error.to_string()))?,
+        ));
+        let safe_runtime = compose_desktop_runtime_with_capture(
             Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
                 binary: None,
                 config_directory: None,
                 config_file: None,
             })),
             None,
+            Some(capture),
         )
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;

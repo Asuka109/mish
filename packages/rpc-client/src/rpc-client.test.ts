@@ -80,6 +80,13 @@ function createSnapshot() {
       captureSelection: { systemProxy: false, tun: false },
       message: "Ready",
       phase: "healthy",
+      systemProxy: {
+        desired: false,
+        failure: null,
+        observed: "disabled",
+        phase: "off",
+        recoveryActions: [],
+      },
       systemProxyEnabled: false,
       tunEnabled: false,
     },
@@ -171,6 +178,21 @@ describe("RpcClient", () => {
 
     await expect(resultPromise).rejects.toBeInstanceOf(RpcValidationError);
     expect(protocolErrors.at(-1)?.message).toContain("Invalid result for status.getSnapshot");
+    client.dispose();
+  });
+
+  it("rejects inconsistent System Proxy confirmation state", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(() => transport);
+    const resultPromise = client.request("status.getSnapshot", {});
+    await authenticate(transport);
+    const request = await waitForSentMessage(transport, 1);
+    const snapshot = createSnapshot();
+    snapshot.runtime.systemProxyEnabled = true;
+
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: snapshot });
+
+    await expect(resultPromise).rejects.toBeInstanceOf(RpcValidationError);
     client.dispose();
   });
 

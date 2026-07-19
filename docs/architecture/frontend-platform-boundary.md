@@ -16,6 +16,8 @@ flowchart LR
   DesktopRpc -->|"same-origin JSON-RPC over WebSocket"| DesktopBridge["Desktop local bridge service"]
   DesktopBridge --> Runtime["Shared Mish runtime"]
   Runtime --> ManagedProcess["Managed Mihomo process adapter"]
+  Runtime --> Capture["Transport-neutral capture reconciler"]
+  Capture --> MacProxy["Narrow macOS System Proxy adapter"]
   Mobile --> Android["Android VpnService adapter"]
   Mobile --> IOS["iOS Packet Tunnel adapter"]
   Android --> AndroidCore["Embedded Mihomo library"]
@@ -32,6 +34,7 @@ flowchart LR
 | Typed RPC client                   | Request correlation, subscriptions, reconnect policy, DTO validation                                   | Product-specific rendering                                                               |
 | Desktop local bridge service       | Local HTTP/WebSocket origin, authentication and desktop adapter composition                            | Android `VpnService` or iOS Packet Tunnel lifecycle                                      |
 | Desktop managed-process adapter    | Mihomo executable paths, child process, PID, signal and cleanup                                        | Cross-platform application semantics                                                     |
+| macOS System Proxy adapter         | Structured observation and application of HTTP, HTTPS, and SOCKS settings for one network service      | Capture intent, recovery policy, shell strings, PAC, automatic discovery, or UI state    |
 | Android/iOS adapters               | Native VPN permission, TUN/Packet Tunnel lifecycle, native Mihomo integration                          | A spawned desktop executable or persistent WebView lifetime                              |
 | Tauri shell                        | Window creation, status-bar menu, native material, deep links, platform permission bridge              | Core business rules or an alternative application state store                            |
 | Privileged helper                  | Narrow desktop TUN, DNS, and system-proxy operations requiring elevation                               | General application logic or remote access                                               |
@@ -146,15 +149,34 @@ discovering private configuration. See
 [`mihomo-controller-integration.md`](mihomo-controller-integration.md) for the
 process boundaries, data flow, terminology, and remaining mapping gaps.
 
-The Tauri-started Status snapshot remains deliberately sparse and reports
-System Proxy and TUN as unavailable. Commands not backed by real controller or
-platform reconciliation return a typed capability error instead of fake
-success. The RPC Status client therefore advertises no supported mutations.
+The Tauri-started Status snapshot remains deliberately sparse, but its macOS
+composition now includes a real System Proxy platform adapter. The shared
+runtime owns capture intent, serialization, confirmation, rollback, drift, and
+recovery semantics; the adapter only observes and applies typed network-service
+state. It invokes fixed absolute macOS tools with structured argument vectors,
+bounded output and duration, and no shell, `sudo`, or AppleScript. This is a
+narrow seam that can be replaced by a privileged helper without changing the
+UI or RPC contract.
+
+System Proxy is the only implemented RPC Status mutation. It defaults off and
+requires a configured, healthy core before Mish writes the loopback HTTP,
+HTTPS, and SOCKS endpoint. A private, size-bounded journal stores only the
+minimum prior service state needed for restoration. Every write is observed
+again before success is published. Partial application triggers rollback;
+unconfirmed rollback, observation loss, or external changes become explicit
+drift. Startup, periodic network-service checks, core health changes, and
+shutdown audit ownership so a confirmed orphan is restored conservatively.
+PAC, automatic discovery, and enabled authenticated proxy settings are observed
+but never overwritten.
+
+Commands not backed by real controller or platform reconciliation return a
+typed capability error instead of fake success. TUN remains unavailable.
 Profile import, persistence, refresh, and inactive deletion use the separate
 Profile application service. Activation uses its own typed, cancellable command
-seam from Profiles and the Status selector. Routing, group, service, System
-Proxy, and TUN controls remain unavailable rather than runnable. Active deletion
-requires successful replacement activation or an explicit safe stop.
+seam from Profiles and the Status selector. Routing, group, service, and TUN
+controls remain unavailable rather than runnable. Active deletion requires
+successful replacement activation or an explicit safe stop. Profile activation
+never implicitly enables System Proxy.
 
 The future Android adapter will pair Kotlin `VpnService` with an embedded Go
 core library. The future iOS adapter will pair Swift

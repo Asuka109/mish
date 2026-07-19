@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use mish_runtime::MishRuntime;
+use mish_runtime::{CaptureAuditReason, CorePhase, MishRuntime};
 use serde_json::json;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
@@ -37,6 +37,8 @@ struct HttpState {
 
 pub struct LoopbackServerHandle {
     pub address: SocketAddr,
+    audit_join: JoinHandle<()>,
+    audit_shutdown: Option<oneshot::Sender<()>>,
     join: JoinHandle<()>,
     profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     shutdown: Option<oneshot::Sender<()>>,
@@ -45,11 +47,14 @@ pub struct LoopbackServerHandle {
 
 impl LoopbackServerHandle {
     pub async fn shutdown(mut self) {
+        if let Some(shutdown) = self.audit_shutdown.take() {
+            let _ = shutdown.send(());
+        }
+        let _ = self.audit_join.await;
         if let Some(profile_activation) = &self.profile_activation {
             let _ = profile_activation.shutdown().await;
-        } else {
-            let _ = self.runtime.current().shutdown().await;
         }
+        let _ = self.runtime.current().shutdown().await;
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -74,6 +79,7 @@ pub async fn start_loopback_server_with_runtime_host(
     if config.auth_token.len() < 16 {
         return Err("MISH_BRIDGE_TOKEN must contain at least 16 characters".into());
     }
+    let _ = runtime.audit_capture(CaptureAuditReason::Restart).await;
     let listener = TcpListener::bind(config.bind)
         .await
         .map_err(|error| error.to_string())?;
@@ -109,6 +115,39 @@ pub async fn start_loopback_server_with_runtime_host(
         .route("/rpc", get(rpc))
         .with_state(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let (audit_shutdown_tx, mut audit_shutdown_rx) = oneshot::channel();
+    let audit_runtime = runtime.clone();
+    let mut audit_runtime_changes = audit_runtime.subscribe_changes();
+    let initial_audit_runtime = audit_runtime_changes.borrow_and_update().clone();
+    let mut audit_updates = initial_audit_runtime.subscribe_status();
+    let audit_join = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        interval.tick().await;
+        loop {
+            tokio::select! {
+                biased;
+                _ = &mut audit_shutdown_rx => break,
+                changed = audit_runtime_changes.changed() => {
+                    if changed.is_err() { break; }
+                    let runtime = audit_runtime_changes.borrow_and_update().clone();
+                    audit_updates = runtime.subscribe_status();
+                    let _ = runtime.audit_capture(CaptureAuditReason::Restart).await;
+                }
+                update = audit_updates.recv() => {
+                    let Ok(status) = update else { continue };
+                    if !matches!(status.phase, CorePhase::Running) {
+                        let _ = audit_runtime
+                            .audit_capture(CaptureAuditReason::CoreHealthChanged)
+                            .await;
+                    }
+                }
+                _ = interval.tick() => {
+                    let _ = audit_runtime.audit_capture(CaptureAuditReason::Periodic).await;
+                }
+            }
+        }
+    });
     let join = tokio::spawn(async move {
         let _ = axum::serve(
             listener,
@@ -121,6 +160,8 @@ pub async fn start_loopback_server_with_runtime_host(
     });
     Ok(LoopbackServerHandle {
         address,
+        audit_join,
+        audit_shutdown: Some(audit_shutdown_tx),
         join,
         profile_activation,
         shutdown: Some(shutdown_tx),

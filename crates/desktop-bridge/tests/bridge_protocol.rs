@@ -5,20 +5,127 @@ use std::{
     sync::Arc,
 };
 
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{
+    SinkExt, StreamExt,
+    future::{BoxFuture, ready},
+};
 use mish_bridge::{
     ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost,
     LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationManager,
     ProfileActivationCoordinator, ReqwestHttpsSourceReader, start_loopback_server,
     start_loopback_server_with_runtime_host,
 };
-use mish_runtime::MishRuntime;
+use mish_runtime::{
+    CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
+    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
+    MishRuntime, NetworkServiceProxyState,
+};
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const TOKEN: &str = "test-token-123456789";
 const ORIGIN: &str = "http://mish.test";
+
+struct RunningCore;
+
+impl CoreRuntime for RunningCore {
+    fn configured(&self) -> bool {
+        true
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(ready(CoreStatus {
+            error: None,
+            phase: CorePhase::Running,
+            pid: None,
+            version: Some("rpc-fixture".into()),
+        }))
+    }
+
+    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move { Ok(self.status().await) })
+    }
+
+    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(ready(Ok(CoreStatus {
+            error: None,
+            phase: CorePhase::Stopped,
+            pid: None,
+            version: Some("rpc-fixture".into()),
+        })))
+    }
+}
+
+struct MemoryCapturePlatform(std::sync::Mutex<NetworkServiceProxyState>);
+
+impl CapturePlatform for MemoryCapturePlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.0.lock().unwrap().clone())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.0.lock().unwrap().clone())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        *self.0.lock().unwrap() = target;
+        Box::pin(ready(Ok(())))
+    }
+}
+
+#[derive(Default)]
+struct MemoryCaptureJournal(std::sync::Mutex<Option<CaptureJournal>>);
+
+impl CaptureJournalStore for MemoryCaptureJournal {
+    fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn save(&self, journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
+        *self.0.lock().unwrap() = Some(journal.clone());
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), CaptureTransitionError> {
+        *self.0.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+fn capture_runtime() -> MishRuntime {
+    capture_runtime_parts().0
+}
+
+fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
+    let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            service_id: "rpc-fixture-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap(),
+    ));
+    (
+        MishRuntime::with_capture(Arc::new(RunningCore), capture),
+        platform,
+    )
+}
 
 fn config() -> LoopbackServerConfig {
     LoopbackServerConfig {
@@ -121,7 +228,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 2);
+    assert_eq!(info["result"]["protocolVersion"], 3);
     assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
 
@@ -134,7 +241,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
     assert_eq!(snapshot["result"]["runtime"]["phase"], "inactive");
     assert_eq!(
         snapshot["result"]["runtime"]["captureSelection"],
-        json!({"systemProxy": true, "tun": false})
+        json!({"systemProxy": false, "tun": false})
     );
 
     let traffic = request(
@@ -329,7 +436,14 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
             json!({"jsonrpc":"2.0", "id":id, "method":method, "params":params}),
         )
         .await;
-        assert_eq!(response["error"]["code"], -32020);
+        assert_eq!(
+            response["error"]["code"],
+            if method == "status.setCapture" {
+                json!(-32050)
+            } else {
+                json!(-32020)
+            }
+        );
         assert!(response.get("result").is_none());
     }
 
@@ -356,6 +470,171 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
     )
     .await;
     assert_eq!(after["result"], before["result"]);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
+    let bridge = start_loopback_server(config(), capture_runtime())
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let before = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(before["result"]["capabilities"]["systemProxy"], "supported");
+    assert_eq!(before["result"]["capabilities"]["tun"], "unavailable");
+    assert_eq!(before["result"]["runtime"]["systemProxy"]["phase"], "off");
+
+    let enabled = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
+        }),
+    )
+    .await;
+    assert!(enabled.get("error").is_none());
+    assert_eq!(enabled["result"]["runtime"]["systemProxyEnabled"], true);
+    assert_eq!(
+        enabled["result"]["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+    assert_eq!(
+        enabled["result"]["runtime"]["systemProxy"]["observed"],
+        "mish"
+    );
+
+    let tun = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":true}}
+        }),
+    )
+    .await;
+    assert_eq!(tun["error"]["code"], -32050);
+    assert_eq!(tun["error"]["data"]["kind"], "unsupported-selection");
+    assert!(tun.get("result").is_none());
+    let after_rejected_tun = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":5, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        after_rejected_tun["result"]["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+    assert_eq!(
+        after_rejected_tun["result"]["runtime"]["captureSelection"]["tun"],
+        false
+    );
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
+    let (runtime, platform) = capture_runtime_parts();
+    let bridge = start_loopback_server(config(), runtime.clone())
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+    let subscription = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
+    )
+    .await;
+    let subscription_id = subscription["result"]["subscriptionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let enabled = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
+        }),
+    )
+    .await;
+    assert_eq!(
+        enabled["result"]["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+    let Message::Text(applied_notification) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected applied status notification")
+    };
+    let applied_notification: Value = serde_json::from_str(&applied_notification).unwrap();
+    assert_eq!(
+        applied_notification["params"]["subscriptionId"],
+        subscription_id
+    );
+    assert_eq!(
+        applied_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "applied"
+    );
+    let external = NetworkServiceProxyState {
+        http: mish_runtime::ManualProxyState {
+            authenticated: false,
+            enabled: true,
+            host: Some("external.rpc-fixture.invalid".into()),
+            port: Some(3128),
+        },
+        ..platform.0.lock().unwrap().clone()
+    };
+    *platform.0.lock().unwrap() = external.clone();
+    runtime
+        .audit_capture(mish_runtime::CaptureAuditReason::NetworkChanged)
+        .await
+        .unwrap();
+
+    let Message::Text(drift_notification) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected drift status notification")
+    };
+    let drift_notification: Value = serde_json::from_str(&drift_notification).unwrap();
+    assert_eq!(
+        drift_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "drift"
+    );
+    assert!(
+        !drift_notification
+            .to_string()
+            .contains("external.rpc-fixture.invalid")
+    );
+
+    let drift = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(drift["result"]["runtime"]["systemProxy"]["phase"], "drift");
+    assert_eq!(
+        drift["result"]["runtime"]["systemProxy"]["recoveryActions"],
+        json!(["repair", "leave-as-is"])
+    );
+
+    let recovered = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"status.recoverSystemProxy",
+            "params":{"action":"leave-as-is"}
+        }),
+    )
+    .await;
+    assert_eq!(
+        recovered["result"]["runtime"]["systemProxy"]["phase"],
+        "off"
+    );
+    assert_eq!(*platform.0.lock().unwrap(), external);
+    assert!(
+        !recovered
+            .to_string()
+            .contains("external.rpc-fixture.invalid")
+    );
     bridge.shutdown().await;
 }
 

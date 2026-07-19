@@ -80,7 +80,15 @@ function ProxyControlButton() {
     ? isCaptureCapabilityAvailable(snapshot.adapterKind, snapshot.capabilities.tun)
     : false;
   const captureAvailable = systemProxyAvailable || tunAvailable;
-  const phase = pending ? (active ? "stopping" : "connecting") : (runtime?.phase ?? "inactive");
+  const needsAttention =
+    runtime?.systemProxy.phase === "drift" || runtime?.systemProxy.phase === "failed";
+  const phase = pending
+    ? active
+      ? "stopping"
+      : "connecting"
+    : needsAttention
+      ? "error"
+      : (runtime?.phase ?? "inactive");
   const selectedCapture = {
     systemProxy: Boolean(runtime?.captureSelection.systemProxy && systemProxyAvailable),
     tun: Boolean(runtime?.captureSelection.tun && tunAvailable),
@@ -113,19 +121,27 @@ function ProxyControlButton() {
     <button
       aria-describedby={actionDescriptionId}
       aria-label={
-        active
-          ? fixture
-            ? LL.proxyControl.disableFixtureAria()
-            : LL.proxyControl.disableAria()
-          : fixture
-            ? LL.proxyControl.enableFixtureAria()
-            : LL.proxyControl.enableAria()
+        needsAttention
+          ? LL.proxyControl.needsAttention()
+          : active
+            ? fixture
+              ? LL.proxyControl.disableFixtureAria()
+              : LL.proxyControl.disableAria()
+            : fixture
+              ? LL.proxyControl.enableFixtureAria()
+              : LL.proxyControl.enableAria()
       }
       className="proxy-control-button"
       data-status={phase}
-      disabled={!snapshot || pending || !commandSupported || !captureAvailable}
+      disabled={!snapshot || pending || needsAttention || !commandSupported || !captureAvailable}
       onClick={handleToggle}
-      title={active ? LL.proxyControl.disable() : resumeDescription}
+      title={
+        needsAttention
+          ? LL.proxyControl.needsAttention()
+          : active
+            ? LL.proxyControl.disable()
+            : resumeDescription
+      }
       type="button"
     >
       {phase === "healthy" ? <StatusShimmer active /> : null}
@@ -133,6 +149,11 @@ function ProxyControlButton() {
         <span className="proxy-control-state proxy-control-default">
           <Power aria-hidden="true" />
           <span className="proxy-control-label">{LL.common.pending()}</span>
+        </span>
+      ) : needsAttention ? (
+        <span className="proxy-control-state proxy-control-default">
+          <XCircle aria-hidden="true" />
+          <span className="proxy-control-label">{LL.proxyControl.needsAttention()}</span>
         </span>
       ) : active ? (
         <>

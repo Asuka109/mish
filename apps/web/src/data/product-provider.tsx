@@ -1,5 +1,6 @@
 import {
   StatusClientError,
+  type CaptureRecoveryAction,
   type CaptureSelectionDto,
   type RoutingMode,
   type ServiceMonitorDraft,
@@ -39,6 +40,7 @@ interface ProductContextValue {
   isCommandSupported(command: ProductCommand): boolean;
   isLoading: boolean;
   removeServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
+  recoverSystemProxy(action: CaptureRecoveryAction): Promise<ProductCommandResult>;
   restoreDefaultServices(): Promise<ProductCommandResult>;
   selectGroupChild(groupId: string, childId: string): Promise<ProductCommandResult>;
   setActiveProfile(profileId: string): Promise<ProductCommandResult>;
@@ -161,6 +163,8 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       isLoading: snapshot === null && !loadFailed,
       removeServiceMonitor: (monitorId) =>
         runCommand("services", () => resolvedClient.removeServiceMonitor(monitorId)),
+      recoverSystemProxy: (action) =>
+        runCommand("capture", () => resolvedClient.recoverSystemProxy(action)),
       restoreDefaultServices: () =>
         runCommand("services", () => resolvedClient.restoreDefaultServices()),
       selectGroupChild: (groupId, childId) =>

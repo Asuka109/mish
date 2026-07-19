@@ -180,6 +180,34 @@ function createActivationProfileClient() {
   } satisfies ProfileClient;
 }
 
+class DriftRecoveryClient extends SnapshotStatusClient {
+  readonly recoverSystemProxy = vi.fn(async () => {
+    const snapshot = await this.getSnapshot();
+    snapshot.runtime.systemProxy = {
+      desired: false,
+      failure: null,
+      observed: "other",
+      phase: "off",
+      recoveryActions: [],
+    };
+    return snapshot;
+  });
+
+  override supportsCommand(command: StatusCommand) {
+    return command === "capture";
+  }
+}
+
+class DeferredCaptureClient extends SnapshotStatusClient {
+  override setCapture(): Promise<StatusSnapshotDto> {
+    return new Promise(() => undefined);
+  }
+
+  override supportsCommand(command: StatusCommand) {
+    return command === "capture";
+  }
+}
+
 async function createRpcSnapshot(sparse = false) {
   const snapshot = await new FixtureStatusClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -188,6 +216,13 @@ async function createRpcSnapshot(sparse = false) {
     captureSelection: { systemProxy: true, tun: false },
     message: "Mihomo is stopped",
     phase: "inactive",
+    systemProxy: {
+      desired: false,
+      failure: null,
+      observed: "disabled",
+      phase: "off",
+      recoveryActions: [],
+    },
     systemProxyEnabled: false,
     tunEnabled: false,
   };
@@ -404,6 +439,9 @@ describe("Status fixture experience", () => {
   it("keeps capture actions explicitly described as fixture-only", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
+    const startButton = await screen.findByRole("button", { name: "Enable the proxy demo state" });
+    expect(startButton).toHaveAccessibleDescription(/local fixture data only/);
+    await user.click(startButton);
     const stopButton = await screen.findByRole("button", { name: "Disable the proxy demo state" });
     expect(stopButton).toHaveAccessibleDescription(/local fixture data only/);
     await user.click(stopButton);
@@ -415,6 +453,8 @@ describe("Status fixture experience", () => {
   it("remembers selected capture modes when the master control stops and resumes capture", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
+
+    await user.click(await screen.findByRole("button", { name: "Enable the proxy demo state" }));
 
     const systemProxy = await screen.findByRole("button", { name: /^System Proxy/ });
     expect(systemProxy).toHaveAttribute("aria-pressed", "true");
@@ -438,7 +478,10 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    await user.click(await screen.findByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(
+      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
     const systemProxy = screen.getByRole("button", {
       name: "System Proxy, selected, not running",
     });
@@ -458,7 +501,10 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    await user.click(await screen.findByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(
+      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
     await user.click(
       screen.getByRole("button", {
         name: "Virtual Interface, not selected, not running",
@@ -483,9 +529,6 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    await user.click(
-      await screen.findByRole("button", { name: "System Proxy, selected, running" }),
-    );
     expect(
       await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
     ).toHaveAttribute("aria-pressed", "false");
@@ -512,15 +555,73 @@ describe("Status fixture experience", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
-    expect(screen.getByRole("button", { name: "System Proxy, selected, running" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(
+      screen.getByRole("button", { name: "System Proxy, not selected, not running" }),
+    ).toHaveAttribute("aria-pressed", "false");
     expect(
       screen.getByRole("button", {
         name: "Virtual Interface, not selected, not running",
       }),
     ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("shows observed System Proxy drift and offers typed recovery choices", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
+    snapshot.runtime.phase = "error";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "other",
+      phase: "drift",
+      recoveryActions: ["repair", "leave-as-is"],
+    };
+    const client = new DriftRecoveryClient(snapshot);
+
+    renderRoute("/status", "en", client);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "System Proxy differs from Mish's requested state.",
+    );
+    expect(screen.getByRole("button", { name: "Proxy needs attention" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Repair System Proxy" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Leave OS settings as is" }));
+
+    await waitFor(() => expect(client.recoverSystemProxy).toHaveBeenCalledWith("leave-as-is"));
+  });
+
+  it("describes System Proxy confirmation while a desktop command is pending", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    const client = new DeferredCaptureClient(snapshot);
+    renderRoute("/status", "en", client);
+
+    await user.click(await screen.findByRole("button", { name: "Enable proxy" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "System Proxy is pending macOS confirmation.",
+    );
+  });
+
+  it("describes a typed permission failure without claiming success", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: "permission-denied",
+      observed: "disabled",
+      phase: "failed",
+      recoveryActions: [],
+    };
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "macOS did not allow the System Proxy change. No success was recorded.",
+    );
+    expect(screen.getByRole("button", { name: "Proxy needs attention" })).toBeDisabled();
   });
 
   it("prevents duplicate commands while pending and preserves confirmed state on failure", async () => {

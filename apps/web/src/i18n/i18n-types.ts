@@ -194,6 +194,10 @@ type RootTranslation = {
 		 */
 		enable: string
 		/**
+		 * P​r​o​x​y​ ​n​e​e​d​s​ ​a​t​t​e​n​t​i​o​n
+		 */
+		needsAttention: string
+		/**
 		 * P​r​o​x​y​ ​r​u​n​n​i​n​g
 		 */
 		running: string
@@ -370,17 +374,65 @@ type RootTranslation = {
 		 */
 		selected: string
 		/**
+		 * L​e​a​v​e​ ​O​S​ ​s​e​t​t​i​n​g​s​ ​a​s​ ​i​s
+		 */
+		leaveAsIs: string
+		/**
+		 * R​e​p​a​i​r​ ​S​y​s​t​e​m​ ​P​r​o​x​y
+		 */
+		repairSystemProxy: string
+		/**
 		 * S​y​s​t​e​m​ ​P​r​o​x​y
 		 */
 		systemProxy: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​i​s​ ​a​p​p​l​i​e​d​ ​a​n​d​ ​c​o​n​f​i​r​m​e​d​ ​b​y​ ​m​a​c​O​S​.
+		 */
+		systemProxyApplied: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​w​a​s​ ​n​o​t​ ​e​n​a​b​l​e​d​ ​b​e​c​a​u​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​M​i​h​o​m​o​ ​c​o​r​e​ ​a​r​e​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 */
+		systemProxyCoreFailure: string
 		/**
 		 * R​o​u​t​e​s​ ​a​p​p​l​i​c​a​t​i​o​n​s​ ​t​h​a​t​ ​f​o​l​l​o​w​ ​t​h​e​ ​s​y​s​t​e​m​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​.
 		 */
 		systemProxyDescription: string
 		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​d​i​f​f​e​r​s​ ​f​r​o​m​ ​M​i​s​h​'​s​ ​r​e​q​u​e​s​t​e​d​ ​s​t​a​t​e​.​ ​R​e​p​a​i​r​ ​i​t​ ​o​r​ ​l​e​a​v​e​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​O​S​ ​s​e​t​t​i​n​g​s​ ​a​s​ ​i​s​.
+		 */
+		systemProxyDrift: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​w​a​s​ ​n​o​t​ ​c​o​n​f​i​r​m​e​d​.​ ​T​h​e​ ​p​r​i​o​r​ ​s​t​a​t​e​ ​w​a​s​ ​r​e​t​a​i​n​e​d​ ​o​r​ ​r​e​s​t​o​r​e​d​.
+		 */
+		systemProxyFailure: string
+		/**
 		 * S​i​m​u​l​a​t​e​s​ ​r​o​u​t​i​n​g​ ​a​p​p​l​i​c​a​t​i​o​n​s​ ​t​h​a​t​ ​f​o​l​l​o​w​ ​t​h​e​ ​s​y​s​t​e​m​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​.
 		 */
 		systemProxyFixtureDescription: string
+		/**
+		 * C​u​r​r​e​n​t​ ​O​S​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​l​e​f​t​ ​u​n​c​h​a​n​g​e​d​ ​a​n​d​ ​a​r​e​ ​n​o​ ​l​o​n​g​e​r​ ​m​a​n​a​g​e​d​ ​b​y​ ​M​i​s​h​.
+		 */
+		systemProxyLeftAsIs: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​i​s​ ​o​f​f​ ​a​n​d​ ​c​o​n​f​i​r​m​e​d​ ​b​y​ ​m​a​c​O​S​.
+		 */
+		systemProxyOff: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​i​s​ ​p​e​n​d​i​n​g​ ​m​a​c​O​S​ ​c​o​n​f​i​r​m​a​t​i​o​n​.
+		 */
+		systemProxyPending: string
+		/**
+		 * m​a​c​O​S​ ​d​i​d​ ​n​o​t​ ​a​l​l​o​w​ ​t​h​e​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​c​h​a​n​g​e​.​ ​N​o​ ​s​u​c​c​e​s​s​ ​w​a​s​ ​r​e​c​o​r​d​e​d​.
+		 */
+		systemProxyPermissionFailure: string
+		/**
+		 * A​u​t​o​m​a​t​i​c​ ​o​r​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​a​c​t​i​v​e​.​ ​M​i​s​h​ ​l​e​f​t​ ​t​h​e​m​ ​u​n​c​h​a​n​g​e​d​.
+		 */
+		systemProxyUnsafeFailure: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​i​s​ ​s​e​l​e​c​t​e​d​ ​o​f​f​,​ ​b​u​t​ ​t​h​e​ ​m​a​c​O​S​ ​s​t​a​t​e​ ​i​s​ ​n​o​t​ ​a​v​a​i​l​a​b​l​e​.
+		 */
+		systemProxyUnknown: string
 		/**
 		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​n​d​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e
 		 */
@@ -1736,6 +1788,10 @@ export type TranslationFunctions = {
 		 */
 		enable: () => LocalizedString
 		/**
+		 * Proxy needs attention
+		 */
+		needsAttention: () => LocalizedString
+		/**
 		 * Proxy running
 		 */
 		running: () => LocalizedString
@@ -1908,17 +1964,65 @@ export type TranslationFunctions = {
 		 */
 		selected: () => LocalizedString
 		/**
+		 * Leave OS settings as is
+		 */
+		leaveAsIs: () => LocalizedString
+		/**
+		 * Repair System Proxy
+		 */
+		repairSystemProxy: () => LocalizedString
+		/**
 		 * System Proxy
 		 */
 		systemProxy: () => LocalizedString
+		/**
+		 * System Proxy is applied and confirmed by macOS.
+		 */
+		systemProxyApplied: () => LocalizedString
+		/**
+		 * System Proxy was not enabled because the active profile and Mihomo core are unavailable.
+		 */
+		systemProxyCoreFailure: () => LocalizedString
 		/**
 		 * Routes applications that follow the system proxy settings.
 		 */
 		systemProxyDescription: () => LocalizedString
 		/**
+		 * System Proxy differs from Mish's requested state. Repair it or leave the current OS settings as is.
+		 */
+		systemProxyDrift: () => LocalizedString
+		/**
+		 * System Proxy was not confirmed. The prior state was retained or restored.
+		 */
+		systemProxyFailure: () => LocalizedString
+		/**
 		 * Simulates routing applications that follow the system proxy settings.
 		 */
 		systemProxyFixtureDescription: () => LocalizedString
+		/**
+		 * Current OS proxy settings are left unchanged and are no longer managed by Mish.
+		 */
+		systemProxyLeftAsIs: () => LocalizedString
+		/**
+		 * System Proxy is off and confirmed by macOS.
+		 */
+		systemProxyOff: () => LocalizedString
+		/**
+		 * System Proxy is pending macOS confirmation.
+		 */
+		systemProxyPending: () => LocalizedString
+		/**
+		 * macOS did not allow the System Proxy change. No success was recorded.
+		 */
+		systemProxyPermissionFailure: () => LocalizedString
+		/**
+		 * Automatic or authenticated proxy settings are active. Mish left them unchanged.
+		 */
+		systemProxyUnsafeFailure: () => LocalizedString
+		/**
+		 * System Proxy is selected off, but the macOS state is not available.
+		 */
+		systemProxyUnknown: () => LocalizedString
 		/**
 		 * System Proxy and Virtual Interface
 		 */

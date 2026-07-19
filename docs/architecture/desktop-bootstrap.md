@@ -7,7 +7,8 @@ entry. It embeds the Vite production output in the application binary, starts
 the existing Rust loopback desktop bridge in-process, and exposes narrowly
 scoped bootstrap and local-profile-picker commands to the main WebView. It does
 not own product state, controller reconciliation, Mihomo lifecycle rules,
-System Proxy, TUN, or mobile execution.
+System Proxy reconciliation rules, TUN, or mobile execution. It composes the
+narrow macOS System Proxy adapter into the shared runtime.
 
 An ordinary browser has no Tauri IPC surface. It continues to construct
 `FixtureStatusClient`, performs no startup request, and labels all fixture values
@@ -26,8 +27,9 @@ and `RpcProfileClient` after validating its private bootstrap payload.
    Vite supplies the equivalent SPA fallback.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
    token, resolves Tauri's application-data directory, constructs the private
-   profile repository and runtime root there, and starts `mish-bridge` on
-   `127.0.0.1:0` in the explicit safe stopped state.
+   profile repository, runtime root, and mode-`0600` System Proxy recovery
+   journal there, and starts `mish-bridge` on `127.0.0.1:0` in the explicit safe
+   stopped state.
 7. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body.
@@ -43,8 +45,9 @@ and `RpcProfileClient` after validating its private bootstrap payload.
     `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
     downloads a binary at runtime.
 11. When the Tauri event loop exits, the shell shuts down the in-process bridge.
-    The coordinator closes the active Status and Traffic source, stops the core,
-    and finally closes the RPC server.
+    The runtime stops its capture audit loop, restores a still-confirmed
+    Mish-owned System Proxy state, then the coordinator closes the active Status
+    and Traffic sources, stops the core, and finally closes the RPC server.
 
 Local-file profile preflight uses a separate Tauri command granted only to the
 main window. The command accepts no path from Web content: it opens the native
@@ -74,6 +77,12 @@ profile-picker command described above. The production CSP permits only local
 bundled resources, Tauri IPC, and an IPv4-loopback WebSocket. It blocks frames,
 objects, forms, remote fonts, and remote frontend connections.
 
+The WebView cannot execute operating-system commands. Authenticated RPC accepts
+only bounded capture DTOs and recovery actions. The macOS adapter maps those
+DTOs to a closed command enum with fixed absolute executables and separate
+arguments; it does not accept an executable path or arbitrary shell text from
+RPC, profiles, or the UI.
+
 This boundary does not protect against compromise of the Mish process, a
 compromised system WebView, injected code already executing in the trusted main
 document, a debugger with process-memory access, or a malicious dependency in
@@ -95,7 +104,10 @@ claim that process memory is a secure enclave.
 - The shell deliberately does not guess or restore a last profile at startup.
   A future restore policy requires an explicit recorded policy and the same
   transactional failure recovery; it may not enable System Proxy or TUN.
-- Network-changing Status commands remain unsupported.
+- System Proxy is the only network-changing Status command. It defaults off,
+  requires a healthy configured core, confirms every applied change, and
+  restores only state recorded in its private journal. TUN and all other
+  network-changing Status commands remain unsupported.
 - The Tauri shell has no status-bar menu or native sidebar material yet.
 - Installer packaging, final icon production, entitlements, code signing,
   notarization, update metadata, and release distribution are not configured.

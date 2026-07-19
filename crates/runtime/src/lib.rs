@@ -8,9 +8,11 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
+mod capture;
 mod status;
 mod traffic;
 
+pub use capture::*;
 pub use status::*;
 pub use traffic::*;
 
@@ -133,6 +135,7 @@ impl TrafficDataSource for LifecycleStatusDataSource {
 
 #[derive(Clone)]
 pub struct MishRuntime {
+    capture: Option<Arc<CaptureReconciler>>,
     core: Arc<dyn CoreRuntime>,
     events: Arc<RuntimeStatusEvents>,
     status_source: Arc<dyn StatusDataSource>,
@@ -142,20 +145,39 @@ pub struct MishRuntime {
 impl MishRuntime {
     pub fn new(core: Arc<dyn CoreRuntime>) -> Self {
         let source = Arc::new(LifecycleStatusDataSource);
-        Self::with_data_sources(core, source.clone(), source)
+        Self::with_data_sources_and_capture(core, source.clone(), source, None)
     }
 
     pub fn with_status_source(
         core: Arc<dyn CoreRuntime>,
         status_source: Arc<dyn StatusDataSource>,
     ) -> Self {
-        Self::with_data_sources(core, status_source, Arc::new(LifecycleStatusDataSource))
+        Self::with_data_sources_and_capture(
+            core,
+            status_source,
+            Arc::new(LifecycleStatusDataSource),
+            None,
+        )
     }
 
     pub fn with_data_sources(
         core: Arc<dyn CoreRuntime>,
         status_source: Arc<dyn StatusDataSource>,
         traffic_source: Arc<dyn TrafficDataSource>,
+    ) -> Self {
+        Self::with_data_sources_and_capture(core, status_source, traffic_source, None)
+    }
+
+    pub fn with_capture(core: Arc<dyn CoreRuntime>, capture: Arc<CaptureReconciler>) -> Self {
+        let source = Arc::new(LifecycleStatusDataSource);
+        Self::with_data_sources_and_capture(core, source.clone(), source, Some(capture))
+    }
+
+    pub fn with_data_sources_and_capture(
+        core: Arc<dyn CoreRuntime>,
+        status_source: Arc<dyn StatusDataSource>,
+        traffic_source: Arc<dyn TrafficDataSource>,
+        capture: Option<Arc<CaptureReconciler>>,
     ) -> Self {
         let (updates, _) = broadcast::channel(32);
         let events = Arc::new(RuntimeStatusEvents { updates });
@@ -166,6 +188,7 @@ impl MishRuntime {
             events: Arc::downgrade(&events),
         });
         Self {
+            capture,
             core,
             events,
             status_source,
@@ -197,6 +220,65 @@ impl MishRuntime {
         self.snapshot_from_status(&self.core.status().await, adapter_kind)
     }
 
+    pub async fn set_capture(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable in this runtime",
+            ));
+        };
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let result = capture.reconcile(request, healthy).await;
+        self.publish_status(&core);
+        result?;
+        Ok(self.snapshot_from_status(&core, adapter_kind))
+    }
+
+    pub async fn recover_system_proxy(
+        &self,
+        action: CaptureRecoveryAction,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable in this runtime",
+            ));
+        };
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let result = capture.recover(action, healthy).await;
+        self.publish_status(&core);
+        result?;
+        Ok(self.snapshot_from_status(&core, adapter_kind))
+    }
+
+    pub async fn audit_capture(
+        &self,
+        reason: CaptureAuditReason,
+    ) -> Result<bool, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Ok(false);
+        };
+        let before = capture.status();
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let result = capture.audit(reason, healthy).await;
+        let after = capture.status();
+        if before == after {
+            result?;
+            return Ok(false);
+        }
+        self.publish_status(&core);
+        result?;
+        Ok(true)
+    }
+
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         serde_json::to_value(self.traffic_source.traffic_snapshot(adapter_kind))
             .expect("Traffic state must serialize")
@@ -207,8 +289,17 @@ impl MishRuntime {
         status: &CoreStatus,
         adapter_kind: StatusAdapterKind,
     ) -> Value {
-        serde_json::to_value(self.status_source.snapshot(status, adapter_kind))
-            .expect("Status state must serialize")
+        let mut snapshot = self.status_source.snapshot(status, adapter_kind);
+        if let Some(capture) = &self.capture {
+            let capture_status = capture.status();
+            snapshot.capabilities.system_proxy = capture.availability();
+            snapshot.capabilities.tun = CapabilityAvailability::Unavailable;
+            snapshot.runtime.capture_selection = capture_status.capture_selection;
+            snapshot.runtime.system_proxy = capture_status.system_proxy;
+            snapshot.runtime.system_proxy_enabled = capture_status.system_proxy_enabled;
+            snapshot.runtime.tun_enabled = false;
+        }
+        serde_json::to_value(snapshot).expect("Status state must serialize")
     }
 
     pub fn subscribe_status(&self) -> broadcast::Receiver<CoreStatus> {
@@ -216,6 +307,18 @@ impl MishRuntime {
     }
 
     pub async fn shutdown(&self) -> Result<CoreStatus, CoreError> {
+        if let Some(capture) = &self.capture {
+            let selection = capture.status().capture_selection;
+            let _ = capture
+                .reconcile(
+                    CaptureRequest {
+                        active: false,
+                        selection,
+                    },
+                    false,
+                )
+                .await;
+        }
         self.status_source.shutdown().await;
         self.stop_core().await
     }

@@ -55,6 +55,7 @@ export function StatusPage() {
     isCommandPending,
     isCommandSupported,
     isLoading,
+    recoverSystemProxy,
     selectGroupChild,
     setCapture,
     setRoutingMode,
@@ -184,11 +185,14 @@ export function StatusPage() {
                 adapterKind={snapshot.adapterKind}
                 capabilities={snapshot.capabilities}
                 commandSupported={captureSupported}
-                disabled={capturePending}
+                disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
+                onSystemProxyRecovery={(action) => void recoverSystemProxy(action)}
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
+                pending={capturePending}
                 systemProxyEnabled={captureRuntime.systemProxyEnabled}
                 systemProxySelected={captureRuntime.captureSelection.systemProxy}
+                systemProxyStatus={captureRuntime.systemProxy}
                 tunEnabled={captureRuntime.tunEnabled}
                 tunSelected={captureRuntime.captureSelection.tun}
               />

@@ -1,5 +1,6 @@
 import type {
   CaptureSelectionDto,
+  CaptureRecoveryAction,
   ServiceMonitorDto,
   ServiceMonitorDraft,
   StatusClient,
@@ -236,10 +237,17 @@ const initialSnapshot: StatusSnapshotDto = {
   ],
   routingMode: "rule",
   runtime: {
-    captureSelection: { systemProxy: true, tun: false },
-    message: "Fixture capture is active",
+    captureSelection: { systemProxy: false, tun: false },
+    message: "Fixture capture is inactive",
     phase: "healthy",
-    systemProxyEnabled: true,
+    systemProxy: {
+      desired: false,
+      failure: null,
+      observed: "disabled",
+      phase: "off",
+      recoveryActions: [],
+    },
+    systemProxyEnabled: false,
     tunEnabled: false,
   },
   services: defaultServices,
@@ -326,10 +334,27 @@ export class FixtureStatusClient implements StatusClient {
       captureSelection: { ...selection },
       message: captureActive ? "Fixture capture is active" : "Fixture capture is inactive",
       phase: captureActive ? "healthy" : "inactive",
+      systemProxy: {
+        desired: systemProxyEnabled,
+        failure: null,
+        observed: systemProxyEnabled ? "mish" : "disabled",
+        phase: systemProxyEnabled ? "applied" : "off",
+        recoveryActions: [],
+      },
       systemProxyEnabled,
       tunEnabled,
     };
     return this.snapshotAfterCommand();
+  }
+
+  async recoverSystemProxy(
+    _action: CaptureRecoveryAction,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto> {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
+    throw new StatusClientError("invalid-request", "The fixture has no observed system drift");
   }
 
   async setActiveProfile(profileId: string, options?: { signal?: AbortSignal }) {

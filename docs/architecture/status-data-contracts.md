@@ -68,13 +68,12 @@ adapter kind as `rpc`, while fixture snapshots remain explicitly `fixture`.
 
 The presence of a command schema does not claim that every Status backend
 implements that mutation. `StatusClient.supportsCommand` reports the backend's
-current mutation surface. The browser fixture supports local demo mutations;
-the current desktop Status RPC adapter is read-only, so the shared UI disables
-its capture, routing, group, and service actions. Persisted profile activation
+current mutation surface. The browser fixture supports isolated demo mutations.
+The desktop RPC adapter supports only System Proxy capture and recovery; it
+disables routing, group, service, and TUN actions. Persisted profile activation
 uses the separate authenticated Profiles command seam from both Profiles and the
-Status profile selector. Capture controls also
-respect the snapshot's `supported`, `unavailable`, and `permission-required`
-platform capabilities.
+Status profile selector. Capture controls also respect the snapshot's
+`supported`, `unavailable`, and `permission-required` platform capabilities.
 
 `status.subscribe` returns both the subscription ID and a current validated
 snapshot. The server resets that socket's lifecycle-event cursor before reading
@@ -84,8 +83,9 @@ older than the snapshot are discarded, while an event racing after the snapshot
 is delivered after the response. The Status adapter applies the response snapshot
 on every initial subscription and resubscription, and clears stale state only
 after contract validation succeeds. A reconnect therefore becomes authoritative
-without depending on a later lifecycle change. This response-shape change is
-bridge protocol version 2.
+without depending on a later lifecycle change. Protocol version 3 adds the
+typed System Proxy runtime state and recovery command while preserving this
+ordering barrier.
 
 Profile activation has an independent typed snapshot with idle, pending,
 success, and failure phases. The profile subscription uses the same snapshot
@@ -97,6 +97,35 @@ Capture selection is device-level intent and is distinct from confirmed runtime
 state. The capture command carries the complete selection plus an aggregate
 active flag. Stopping may therefore disable both runtime paths without erasing
 the selection, while starting can restore the complete remembered combination.
+The default selection is off, and profile activation does not mutate it.
+
+`SystemProxyRuntimeStatusDto` reports `desired`, the observed classification,
+the reconciliation phase, an optional typed failure, and bounded recovery
+actions. `pending` means a transaction has not yet been confirmed; `applied`
+means a fresh operating-system observation exactly matched Mish's managed
+loopback endpoint; `failed` means no success was published; and `drift` means
+the observed or safely knowable state differs from Mish ownership. The legacy
+`systemProxyEnabled` convenience flag is true only for confirmed `applied`
+state. Neither DTO exposes service names, prior proxy hosts, credentials, or the
+private journal.
+
+The transport-neutral Rust capture reconciler serializes mutations and records
+only the prior HTTP, HTTPS, SOCKS, PAC, automatic-discovery, authentication, and
+service identity fields required to decide whether a write is safe and
+reversible. It will not overwrite enabled PAC, automatic discovery, or
+authenticated proxy configuration. Applying, restoring, and moving between
+active network services are transactions: persist prior state, apply, observe,
+and only then publish success. Partial failure rolls back and confirms the
+rollback. An unconfirmed outcome remains explicit drift with `repair` and
+`leave-as-is`; repair adopts the currently observed safe state as the new prior,
+while leave-as-is clears Mish ownership without changing the OS.
+
+The desktop bridge audits capture ownership at restart, on core health changes,
+and periodically to cover network changes and sleep/wake transitions. A core
+exit or app shutdown conservatively restores only an exact Mish-owned endpoint.
+If an external actor changed the settings, Mish leaves them untouched and
+reports drift. TUN remains unavailable and is rejected as a closed typed
+selection rather than simulated.
 
 The shared desktop-bridge contract also defines `BridgeInfoDto` and
 `CoreStatusDto`.

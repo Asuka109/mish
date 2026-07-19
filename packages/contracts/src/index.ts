@@ -30,15 +30,109 @@ export const CaptureSelectionSchema = z
   .strict();
 export interface CaptureSelectionDto extends z.infer<typeof CaptureSelectionSchema> {}
 
+export const CaptureFailureKindSchema = z.enum([
+  "apply-failed",
+  "capability-unavailable",
+  "confirmation-failed",
+  "core-unhealthy",
+  "external-drift",
+  "invalid-recovery",
+  "observation-failed",
+  "permission-denied",
+  "persistence-failed",
+  "rollback-failed",
+  "unsafe-existing-configuration",
+  "unsupported-selection",
+]);
+export type CaptureFailureKind = z.infer<typeof CaptureFailureKindSchema>;
+
+export const SystemProxyPhaseSchema = z.enum(["off", "pending", "applied", "failed", "drift"]);
+export type SystemProxyPhase = z.infer<typeof SystemProxyPhaseSchema>;
+
+export const SystemProxyObservedStateSchema = z.enum(["disabled", "mish", "other", "unknown"]);
+export type SystemProxyObservedState = z.infer<typeof SystemProxyObservedStateSchema>;
+
+export const CaptureRecoveryActionSchema = z.enum(["repair", "leave-as-is"]);
+export type CaptureRecoveryAction = z.infer<typeof CaptureRecoveryActionSchema>;
+
+export const SystemProxyRuntimeStatusSchema = z
+  .object({
+    desired: z.boolean(),
+    failure: CaptureFailureKindSchema.nullable(),
+    observed: SystemProxyObservedStateSchema,
+    phase: SystemProxyPhaseSchema,
+    recoveryActions: z.array(CaptureRecoveryActionSchema).max(2),
+  })
+  .strict()
+  .superRefine((status, context) => {
+    if (new Set(status.recoveryActions).size !== status.recoveryActions.length) {
+      context.addIssue({
+        code: "custom",
+        message: "System Proxy recovery actions must be unique",
+        path: ["recoveryActions"],
+      });
+    }
+    if (status.phase === "applied") {
+      if (!status.desired || status.observed !== "mish" || status.failure !== null) {
+        context.addIssue({
+          code: "custom",
+          message: "Applied System Proxy state must be desired, observed, and failure-free",
+        });
+      }
+    } else if (status.phase === "off") {
+      if (status.desired || status.failure !== null) {
+        context.addIssue({
+          code: "custom",
+          message: "Off System Proxy state cannot remain desired or failed",
+        });
+      }
+    } else if (status.phase === "failed" && status.failure === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Failed System Proxy state requires a typed failure",
+        path: ["failure"],
+      });
+    }
+    if (status.phase === "drift" && status.recoveryActions.length === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "Drifted System Proxy state requires a recovery action",
+        path: ["recoveryActions"],
+      });
+    }
+    if (status.phase !== "drift" && status.recoveryActions.length > 0) {
+      context.addIssue({
+        code: "custom",
+        message: "System Proxy recovery actions are valid only during drift",
+        path: ["recoveryActions"],
+      });
+    }
+  });
+export interface SystemProxyRuntimeStatusDto extends z.infer<
+  typeof SystemProxyRuntimeStatusSchema
+> {}
+
 export const RuntimeStatusSchema = z
   .object({
     captureSelection: CaptureSelectionSchema,
     message: z.string(),
     phase: RuntimePhaseSchema,
+    systemProxy: SystemProxyRuntimeStatusSchema,
     systemProxyEnabled: z.boolean(),
     tunEnabled: z.boolean(),
   })
-  .strict();
+  .strict()
+  .superRefine((runtime, context) => {
+    const confirmed =
+      runtime.systemProxy.phase === "applied" && runtime.systemProxy.observed === "mish";
+    if (runtime.systemProxyEnabled !== confirmed) {
+      context.addIssue({
+        code: "custom",
+        message: "System Proxy enabled state must match confirmed reconciliation state",
+        path: ["systemProxyEnabled"],
+      });
+    }
+  });
 export interface RuntimeStatusDto extends z.infer<typeof RuntimeStatusSchema> {}
 
 export const TrafficSnapshotSchema = z
@@ -310,6 +404,13 @@ export const SetCaptureCommandSchema = z
   .strict();
 export interface SetCaptureCommand extends z.infer<typeof SetCaptureCommandSchema> {}
 
+export const RecoverSystemProxyCommandSchema = z
+  .object({ action: CaptureRecoveryActionSchema })
+  .strict();
+export interface RecoverSystemProxyCommand extends z.infer<
+  typeof RecoverSystemProxyCommandSchema
+> {}
+
 export const SetActiveProfileCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
 export interface SetActiveProfileCommand extends z.infer<typeof SetActiveProfileCommandSchema> {}
 
@@ -357,7 +458,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(2),
+    protocolVersion: z.literal(3),
   })
   .strict();
 export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
@@ -568,6 +669,10 @@ export const statusRpcMethods = {
     params: EmptyCommandSchema,
     result: RpcStatusSnapshotSchema,
   },
+  "status.recoverSystemProxy": {
+    params: RecoverSystemProxyCommandSchema,
+    result: RpcStatusSnapshotSchema,
+  },
   "status.selectGroupChild": {
     params: SelectGroupChildCommandSchema,
     result: RpcStatusSnapshotSchema,
@@ -708,6 +813,10 @@ export interface StatusClient {
   supportsCommand(command: StatusCommand): boolean;
   removeServiceMonitor(
     monitorId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto>;
+  recoverSystemProxy(
+    action: CaptureRecoveryAction,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   restoreDefaultServices(options?: { signal?: AbortSignal }): Promise<StatusSnapshotDto>;
