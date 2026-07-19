@@ -98,6 +98,7 @@ function createSnapshot() {
         recoveryActions: [],
       },
       systemProxyEnabled: false,
+      tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
       tunEnabled: false,
     },
     services: [],

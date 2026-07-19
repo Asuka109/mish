@@ -112,6 +112,46 @@ export interface SystemProxyRuntimeStatusDto extends z.infer<
   typeof SystemProxyRuntimeStatusSchema
 > {}
 
+export const TunPhaseSchema = z.enum(["off", "pending", "applied", "failed", "drift"]);
+export type TunPhase = z.infer<typeof TunPhaseSchema>;
+
+export const TunObservedStateSchema = z.enum(["disabled", "enabled", "unknown"]);
+export type TunObservedState = z.infer<typeof TunObservedStateSchema>;
+
+export const TunFailureKindSchema = z.enum([
+  "capability-unavailable",
+  "confirmation-failed",
+  "core-unhealthy",
+  "helper-connection-failed",
+  "helper-identity-rejected",
+  "helper-invalid-signature",
+  "helper-operation-failed",
+  "helper-permission-denied",
+  "helper-protocol-mismatch",
+  "helper-version-mismatch",
+  "rollback-failed",
+  "runtime-transition",
+]);
+export type TunFailureKind = z.infer<typeof TunFailureKindSchema>;
+
+export const TunRuntimeStatusSchema = z
+  .object({
+    desired: z.boolean(),
+    failure: TunFailureKindSchema.nullable(),
+    observed: TunObservedStateSchema,
+    phase: TunPhaseSchema,
+  })
+  .strict()
+  .superRefine((status, context) => {
+    if (status.phase === "applied" && (!status.desired || status.observed !== "enabled")) {
+      context.addIssue({ code: "custom", message: "Applied TUN state must be confirmed enabled" });
+    }
+    if (status.phase === "failed" && status.failure === null) {
+      context.addIssue({ code: "custom", message: "Failed TUN state requires a typed failure" });
+    }
+  });
+export interface TunRuntimeStatusDto extends z.infer<typeof TunRuntimeStatusSchema> {}
+
 export const RuntimeStatusSchema = z
   .object({
     captureSelection: CaptureSelectionSchema,
@@ -119,6 +159,7 @@ export const RuntimeStatusSchema = z
     phase: RuntimePhaseSchema,
     systemProxy: SystemProxyRuntimeStatusSchema,
     systemProxyEnabled: z.boolean(),
+    tun: TunRuntimeStatusSchema,
     tunEnabled: z.boolean(),
   })
   .strict()
@@ -130,6 +171,14 @@ export const RuntimeStatusSchema = z
         code: "custom",
         message: "System Proxy enabled state must match confirmed reconciliation state",
         path: ["systemProxyEnabled"],
+      });
+    }
+    const tunConfirmed = runtime.tun.phase === "applied" && runtime.tun.observed === "enabled";
+    if (runtime.tunEnabled !== tunConfirmed) {
+      context.addIssue({
+        code: "custom",
+        message: "TUN enabled state must match confirmed reconciliation state",
+        path: ["tunEnabled"],
       });
     }
   });
@@ -881,6 +930,7 @@ export const CapabilityAvailabilitySchema = z.enum([
   "supported",
   "unavailable",
   "permission-required",
+  "repair-required",
 ]);
 export type CapabilityAvailability = z.infer<typeof CapabilityAvailabilitySchema>;
 
@@ -982,6 +1032,66 @@ export interface StartupRegistrationSnapshotDto extends z.infer<
   typeof StartupRegistrationSnapshotSchema
 > {}
 
+export const TunHelperAvailabilitySchema = z.enum([
+  "available",
+  "permission-required",
+  "repair-required",
+  "unpackaged",
+  "unsigned-app",
+  "unsupported-system",
+  "unavailable",
+]);
+export type TunHelperAvailability = z.infer<typeof TunHelperAvailabilitySchema>;
+
+export const TunHelperHealthSchema = z.enum([
+  "healthy",
+  "invalid-signature",
+  "not-installed",
+  "unknown",
+  "unreachable",
+  "version-mismatch",
+]);
+export type TunHelperHealth = z.infer<typeof TunHelperHealthSchema>;
+
+export const TunHelperLifecyclePhaseSchema = z.enum([
+  "failed",
+  "idle",
+  "installing",
+  "removing",
+  "repairing",
+]);
+export type TunHelperLifecyclePhase = z.infer<typeof TunHelperLifecyclePhaseSchema>;
+
+export const TunHelperFailureKindSchema = z.enum([
+  "confirmation-failed",
+  "connection-failed",
+  "identity-rejected",
+  "invalid-signature",
+  "message-too-large",
+  "operation-failed",
+  "permission-denied",
+  "protocol-mismatch",
+  "registration-failed",
+  "registration-requires-approval",
+  "unpackaged",
+  "unsigned-app",
+  "unsupported-system",
+  "version-mismatch",
+]);
+export type TunHelperFailureKind = z.infer<typeof TunHelperFailureKindSchema>;
+
+export const TunHelperSnapshotSchema = z
+  .object({
+    availability: TunHelperAvailabilitySchema,
+    expectedVersion: z.string().min(1).max(64),
+    health: TunHelperHealthSchema,
+    installedVersion: z.string().min(1).max(64).nullable(),
+    lastFailure: TunHelperFailureKindSchema.nullable(),
+    phase: TunHelperLifecyclePhaseSchema,
+  })
+  .strict();
+export interface TunHelperSnapshotDto extends z.infer<typeof TunHelperSnapshotSchema> {}
+
 export const SettingsSnapshotSchema = z
   .object({
     adapterKind: SettingsAdapterKindSchema,
@@ -990,6 +1100,7 @@ export const SettingsSnapshotSchema = z
     privacy: PrivacyAccessSnapshotSchema,
     startupRegistration: StartupRegistrationSnapshotSchema,
     storageRecovered: z.boolean(),
+    tunHelper: TunHelperSnapshotSchema,
   })
   .strict();
 export interface SettingsSnapshotDto extends z.infer<typeof SettingsSnapshotSchema> {}
@@ -1107,7 +1218,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(10),
+    protocolVersion: z.literal(11),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -1873,6 +1984,18 @@ export const SetWindowCloseBehaviorCommandSchema = z
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
+  "settings.installTunHelper": {
+    params: EmptyCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.repairTunHelper": {
+    params: EmptyCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.removeTunHelper": {
+    params: EmptyCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
   "settings.setAppearance": {
     params: SetAppearancePreferenceCommandSchema,
     result: RpcSettingsSnapshotSchema,
@@ -2014,6 +2137,9 @@ export interface StatusClient {
 
 export interface SettingsClient {
   getSnapshot(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  installTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  repairTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  removeTunHelper(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   setAppearance(
     appearance: AppearancePreference,
     options?: { signal?: AbortSignal },

@@ -32,6 +32,7 @@ use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     CaptureRequest, CaptureSelection, CaptureTransitionError, LoopbackProxyEndpoint,
     ManualProxyState, MishRuntime, NetworkServiceProxyState, StatusAdapterKind,
+    TunHelperAvailability, TunHelperHealth, TunHelperLifecyclePhase, TunHelperSnapshot,
 };
 use serde_json::json;
 use serde_norway::Value;
@@ -175,7 +176,7 @@ rules:
         "listeners",
         "interface-name",
         "routing-mark",
-        "tun.enable",
+        "tun",
         "sniffer.enable",
         "dns.listen",
     ] {
@@ -228,6 +229,7 @@ rules:
     )
     .unwrap();
     record.patches = patches;
+
     let policy = ManagedRuntimePolicy::new(
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123),
         "application-controller-secret",
@@ -244,6 +246,59 @@ rules:
     assert_eq!(
         document["external-controller"].as_str(),
         Some("127.0.0.1:43123")
+    );
+}
+
+#[test]
+fn tun_policy_requires_explicit_selection_and_a_healthy_exact_version() {
+    let helper = TunHelperSnapshot {
+        availability: TunHelperAvailability::Available,
+        expected_version: "1".to_owned(),
+        health: TunHelperHealth::Healthy,
+        installed_version: Some("1".to_owned()),
+        last_failure: None,
+        phase: TunHelperLifecyclePhase::Idle,
+    };
+    let policy = ManagedRuntimePolicy::new(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123),
+        "application-controller-secret",
+    )
+    .unwrap()
+    .with_tun_enabled(&helper, true)
+    .unwrap();
+    let generated = RuntimeConfigGenerator::generate(
+        br#"
+tun:
+  enable: false
+  device: source-controlled
+  route-address: [0.0.0.0/0]
+rules: [MATCH,DIRECT]
+"#,
+        &policy,
+    )
+    .unwrap();
+    let document: Value = serde_norway::from_slice(&generated).unwrap();
+    let tun = document["tun"].as_mapping().unwrap();
+
+    assert_eq!(tun["enable"].as_bool(), Some(true));
+    assert_eq!(tun["stack"].as_str(), Some("gvisor"));
+    assert_eq!(tun["auto-route"].as_bool(), Some(true));
+    assert_eq!(tun["auto-detect-interface"].as_bool(), Some(true));
+    assert_eq!(tun["strict-route"].as_bool(), Some(true));
+    assert_eq!(tun["dns-hijack"][0].as_str(), Some("any:53"));
+    assert!(tun.get("device").is_none());
+    assert!(tun.get("route-address").is_none());
+
+    let unhealthy = TunHelperSnapshot::browser_unavailable();
+    assert_eq!(
+        ManagedRuntimePolicy::new(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43124),
+            "application-controller-secret",
+        )
+        .unwrap()
+        .with_tun_enabled(&unhealthy, true)
+        .unwrap_err(),
+        mish_bridge::RuntimeConfigGenerationError::TunHelperUnavailable
     );
 }
 

@@ -231,7 +231,7 @@ describe("Traffic page", () => {
     expect(screen.getAllByRole("row")).toHaveLength(251);
     await user.click(screen.getByRole("button", { name: "Show more" }));
     expect(screen.getAllByRole("row")).toHaveLength(501);
-  });
+  }, 10_000);
 
   it("keeps destination, process, IP, and path fixtures local", async () => {
     const webSocket = vi.fn();

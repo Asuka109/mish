@@ -8,8 +8,10 @@ the existing Rust loopback desktop bridge in-process, and exposes narrowly
 scoped bootstrap, local-profile-picker, and support-bundle commands to the main
 WebView. It does
 not own product state, controller reconciliation, Mihomo lifecycle rules,
-System Proxy reconciliation rules, TUN, or mobile execution. It composes the
-narrow macOS System Proxy adapter into the shared runtime.
+System Proxy reconciliation rules, privileged TUN operations, or mobile
+execution. It composes narrow macOS adapters into the shared runtime. The TUN
+adapter currently exposes only the truthful unsigned/unpackaged development
+boundary defined by [`macos-tun-helper.md`](macos-tun-helper.md).
 
 An ordinary browser has no Tauri IPC surface. It continues to construct
 fixture clients, performs no startup request, and labels all fixture values and
@@ -137,11 +139,13 @@ claim that process memory is a secure enclave.
 - The shell deliberately does not guess or restore a last profile at startup.
   A future restore policy requires an explicit recorded policy and the same
   transactional failure recovery; it may not enable System Proxy or TUN.
-- System Proxy is the only network-changing Status command. It defaults off,
+- System Proxy and TUN are the bounded network-changing Status commands. Both
+  default off; TUN additionally requires a healthy signed helper and explicit
+  user selection,
   requires a healthy configured core and reachable application-owned mixed
   proxy listener, confirms every applied change, and restores only state
   recorded in its private journal. The generated Mihomo configuration and the
-  macOS adapter share that same managed loopback endpoint. TUN and all other
+  macOS adapter share that same managed loopback endpoint. All other
   network-changing Status commands remain unsupported.
 - The macOS shell has a native status-bar menu backed by the same runtime host,
   capture reconciler, and profile activation coordinator as authenticated RPC.

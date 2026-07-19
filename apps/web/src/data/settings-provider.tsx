@@ -19,6 +19,9 @@ import {
 interface SettingsContextValue {
   error: string | null;
   pending: boolean;
+  installTunHelper(): Promise<boolean>;
+  removeTunHelper(): Promise<boolean>;
+  repairTunHelper(): Promise<boolean>;
   setAppearance(appearance: AppearancePreference): Promise<boolean>;
   setLanguage(language: LanguagePreference): Promise<boolean>;
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
@@ -70,7 +73,10 @@ export function SettingsProvider({
   const value = useMemo<SettingsContextValue>(
     () => ({
       error,
+      installTunHelper: () => run(() => client.installTunHelper()),
       pending,
+      removeTunHelper: () => run(() => client.removeTunHelper()),
+      repairTunHelper: () => run(() => client.repairTunHelper()),
       setAppearance: (appearance) => run(() => client.setAppearance(appearance)),
       setLanguage: (language) => run(() => client.setLanguage(language)),
       setStartup: (startup) => run(() => client.setStartup(startup)),

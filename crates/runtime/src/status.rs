@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{CaptureRuntimeStatus, CorePhase, CoreStatus, SystemProxyRuntimeStatus};
+use crate::{
+    CaptureRuntimeStatus, CorePhase, CoreStatus, SystemProxyRuntimeStatus, TunRuntimeStatus,
+};
 
 pub const STATUS_TRAFFIC_SERIES_LIMIT: usize = 512;
 
@@ -33,6 +35,7 @@ pub enum RuntimePhase {
 #[serde(rename_all = "kebab-case")]
 pub enum CapabilityAvailability {
     FixtureOnly,
+    RepairRequired,
     Supported,
     Unavailable,
     PermissionRequired,
@@ -149,6 +152,7 @@ pub struct RuntimeStatus {
     pub phase: RuntimePhase,
     pub system_proxy_enabled: bool,
     pub system_proxy: SystemProxyRuntimeStatus,
+    pub tun: TunRuntimeStatus,
     pub tun_enabled: bool,
 }
 
@@ -171,6 +175,7 @@ impl RuntimeStatus {
             phase,
             system_proxy_enabled: false,
             system_proxy: capture.system_proxy,
+            tun: capture.tun,
             tun_enabled: false,
         }
     }

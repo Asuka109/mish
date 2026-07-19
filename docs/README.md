@@ -14,6 +14,7 @@ decisions from chat history.
 | What are the implementation-ready product requirements and release slices?      | [`product/prds/README.md`](product/prds/README.md)                                               |
 | What belongs in the web app, desktop bridge, Tauri shell, or native layer?      | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       |
 | How does the desktop bundle and authenticated local startup work?               | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                         |
+| How is the signed macOS TUN helper bounded and observed?                        | [`architecture/macos-tun-helper.md`](architecture/macos-tun-helper.md)                           |
 | How do the desktop bridge, Controller adapter, and Mihomo process interact?     | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) |
 | How are profile sources and structured patches validated, redacted, and stored? | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               |
 | Where do Status values come from and how are they derived?                      | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)                 |

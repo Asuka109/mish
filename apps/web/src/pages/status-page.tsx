@@ -205,6 +205,7 @@ export function StatusPage() {
                 systemProxyStatus={captureRuntime.systemProxy}
                 tunEnabled={captureRuntime.tunEnabled}
                 tunSelected={captureRuntime.captureSelection.tun}
+                tunStatus={captureRuntime.tun}
               />
             </SectionGridItem>
           </SectionGrid>

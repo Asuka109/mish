@@ -18,9 +18,12 @@ use mish_bridge::{
 };
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsSystemProxyPlatform,
+    MacOsTunHelperBoundary, MacOsTunHelperPlatform,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
-use mish_runtime::{CaptureReconciler, LoopbackProxyEndpoint, PlatformLifecycleEventSource};
+use mish_runtime::{
+    CaptureReconciler, LoopbackProxyEndpoint, PlatformLifecycleEventSource, TunHelperController,
+};
 use mish_settings::{
     FileSettingsRepository, LoginLaunchBehavior, SettingsAdapterKind, SettingsAvailability,
     SettingsCapabilities, SettingsService, SettingsServiceError, SettingsSnapshot, StartupPlatform,
@@ -280,13 +283,23 @@ pub fn run() -> Result<i32, String> {
 fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
+    let tun_helper = Arc::new(TunHelperController::new(Arc::new(
+        MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
+            MacOsTunHelperBoundary::UnsupportedSystem
+        } else if tauri::is_dev() {
+            MacOsTunHelperBoundary::UnsignedApp
+        } else {
+            MacOsTunHelperBoundary::Unpackaged
+        }),
+    )));
     let settings_service = Arc::new(
-        SettingsService::load(
+        SettingsService::load_with_tun_helper(
             Arc::new(FileSettingsRepository::new(
                 profile_root.join("settings.json"),
             )),
             startup_platform(app),
             desktop_settings_capabilities(),
+            Some(tun_helper.clone()),
         )
         .map_err(settings_initialization_error)?,
     );
@@ -302,12 +315,14 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     );
     let lifecycle_source = platform_lifecycle_event_source()?;
     let bridge = tauri::async_runtime::block_on(async {
-        let capture = Arc::new(CaptureReconciler::new(
+        tun_helper.refresh().await;
+        let capture = Arc::new(CaptureReconciler::new_with_tun(
             Arc::new(MacOsSystemProxyPlatform::new()),
             Arc::new(FileCaptureJournalStore::new(
                 profile_root.join("system-proxy-journal.json"),
             )),
             LoopbackProxyEndpoint::managed(),
+            Some(tun_helper.clone()),
         ));
         let safe_runtime = compose_desktop_runtime_with_capture(
             Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
@@ -324,7 +339,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         let activation_manager = Arc::new(MihomoActivationManager::new_with_capture(
             resolver,
             ActivationTiming::default(),
-            Some(capture),
+            Some(capture.clone()),
         ));
         activation_manager
             .shutdown()
@@ -340,12 +355,19 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 operating_system_version: tauri_plugin_os::version().to_string(),
             },
         );
+        let policy_capture = capture.clone();
+        let policy_helper = tun_helper.clone();
         let activation = Arc::new(ProfileActivationCoordinator::new(
             profile_service.clone(),
             activation_manager,
             runtime_host.clone(),
             safe_runtime,
-            ephemeral_runtime_policy,
+            move || {
+                ephemeral_runtime_policy()?.with_tun_enabled(
+                    &policy_helper.snapshot(),
+                    policy_capture.status().capture_selection.tun,
+                )
+            },
         ));
         activation.start_scheduler().await;
         let status_bar_state =
@@ -450,6 +472,7 @@ fn settings_initialization_error(error: SettingsServiceError) -> io::Error {
         SettingsServiceError::CapabilityUnavailable | SettingsServiceError::Startup => {
             "application settings platform integration is unavailable"
         }
+        SettingsServiceError::TunHelper(_) => "TUN helper integration is unavailable",
     })
 }
 

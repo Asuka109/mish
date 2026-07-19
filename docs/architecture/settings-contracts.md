@@ -10,7 +10,7 @@ Status dashboard or create a second live network-state model.
 boundary, platform-startup reconciliation, and settings snapshot. The desktop
 bridge maps a closed set of authenticated RPC methods to that service. The Web
 client renders the snapshot and continues to use the existing Status client for
-System Proxy desired, observed, drift, failure, and recovery state.
+System Proxy and TUN desired, observed, drift, failure, and recovery state.
 
 Ordinary settings RPC accepts only these bounded commands:
 
@@ -19,6 +19,13 @@ Ordinary settings RPC accepts only these bounded commands:
 - set a startup DTO containing `launchAtLogin` and exactly one
   `show-window` or `background` login-launch behavior; or
 - set one of `hide-to-status-bar` or `quit` as the main-window close behavior.
+
+It also exposes empty-parameter, user-triggered `installTunHelper`,
+`repairTunHelper`, and `removeTunHelper` operations. Their snapshot reports
+availability, installed and expected versions, health, lifecycle phase, and the
+last typed failure. Each operation reobserves the helper before returning. The
+closed privileged contract is defined in
+[`macos-tun-helper.md`](macos-tun-helper.md).
 
 It accepts no file path, executable, shell command, endpoint, credential, raw
 configuration object, or arbitrary preference JSON.
@@ -98,7 +105,8 @@ control is unavailable and has no switch.
 Capability values come from the desktop composition, not the user agent or Web
 feature detection. The macOS composition advertises status-bar and window
 lifecycle support; browser and unsupported desktop compositions do not. TUN is
-unavailable. Network and DNS configuration, signed
-updates, backup and restore, and expert configuration are marked `coming-later`
-and remain non-interactive summaries until their platform and recovery contracts
-exist.
+supported only when the signed helper is observed healthy; the current
+development build reports its unsigned or unpackaged boundary. Network and DNS
+configuration, signed updates, backup and restore, and expert configuration are
+marked `coming-later` and remain non-interactive summaries until their platform
+and recovery contracts exist.

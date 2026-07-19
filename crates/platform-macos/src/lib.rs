@@ -19,7 +19,9 @@ use mish_runtime::{
     CapabilityAvailability, CaptureFailureKind, CaptureJournal, CaptureJournalStore,
     CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState,
     NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
-    PlatformLifecycleEventSource,
+    PlatformLifecycleEventSource, TunHelperAvailability, TunHelperError, TunHelperFailureKind,
+    TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
+    TunHelperSnapshot,
 };
 use tokio::sync::broadcast;
 use tokio::{
@@ -33,6 +35,104 @@ const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MacOsTunHelperBoundary {
+    Unpackaged,
+    UnsignedApp,
+    UnsupportedSystem,
+}
+
+pub struct MacOsTunHelperPlatform {
+    boundary: MacOsTunHelperBoundary,
+}
+
+impl MacOsTunHelperPlatform {
+    pub const fn new(boundary: MacOsTunHelperBoundary) -> Self {
+        Self { boundary }
+    }
+
+    fn error(&self) -> TunHelperError {
+        match self.boundary {
+            MacOsTunHelperBoundary::Unpackaged => TunHelperError::new(
+                TunHelperFailureKind::Unpackaged,
+                "The signed TUN helper is not packaged with this application",
+            ),
+            MacOsTunHelperBoundary::UnsignedApp => TunHelperError::new(
+                TunHelperFailureKind::UnsignedApp,
+                "The application does not satisfy the TUN helper signing requirement",
+            ),
+            MacOsTunHelperBoundary::UnsupportedSystem => TunHelperError::new(
+                TunHelperFailureKind::UnsupportedSystem,
+                "The operating system does not support the signed TUN helper",
+            ),
+        }
+    }
+
+    fn availability(&self) -> TunHelperAvailability {
+        match self.boundary {
+            MacOsTunHelperBoundary::Unpackaged => TunHelperAvailability::Unpackaged,
+            MacOsTunHelperBoundary::UnsignedApp => TunHelperAvailability::UnsignedApp,
+            MacOsTunHelperBoundary::UnsupportedSystem => TunHelperAvailability::UnsupportedSystem,
+        }
+    }
+
+    fn failure(&self) -> TunHelperFailureKind {
+        match self.boundary {
+            MacOsTunHelperBoundary::Unpackaged => TunHelperFailureKind::Unpackaged,
+            MacOsTunHelperBoundary::UnsignedApp => TunHelperFailureKind::UnsignedApp,
+            MacOsTunHelperBoundary::UnsupportedSystem => TunHelperFailureKind::UnsupportedSystem,
+        }
+    }
+}
+
+impl TunHelperPlatform for MacOsTunHelperPlatform {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot::unavailable(
+            self.availability(),
+            match self.boundary {
+                MacOsTunHelperBoundary::Unpackaged => TunHelperHealth::NotInstalled,
+                MacOsTunHelperBoundary::UnsignedApp => TunHelperHealth::InvalidSignature,
+                MacOsTunHelperBoundary::UnsupportedSystem => TunHelperHealth::NotInstalled,
+            },
+            self.failure(),
+        )
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        let availability = self.availability();
+        let health = match self.boundary {
+            MacOsTunHelperBoundary::Unpackaged => TunHelperHealth::NotInstalled,
+            MacOsTunHelperBoundary::UnsignedApp => TunHelperHealth::InvalidSignature,
+            MacOsTunHelperBoundary::UnsupportedSystem => TunHelperHealth::NotInstalled,
+        };
+        Box::pin(async move {
+            Ok(TunHelperObservation {
+                availability,
+                health,
+                installed_version: None,
+            })
+        })
+    }
+
+    fn run_lifecycle(
+        &self,
+        _operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        let error = self.error();
+        Box::pin(async move { Err(error) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<bool, TunHelperError>> {
+        let error = self.error();
+        Box::pin(async move { Err(error) })
+    }
+
+    fn set_tun_enabled(&self, _enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        let error = self.error();
+        Box::pin(async move { Err(error) })
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MacOsLifecycleSourceError {

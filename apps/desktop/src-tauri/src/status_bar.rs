@@ -6,7 +6,7 @@ use mish_bridge::{
 };
 use mish_runtime::{
     CapabilityAvailability, CaptureRecoveryAction, CaptureRequest, CaptureSelection, RoutingMode,
-    RuntimePhase, StatusAdapterKind, StatusCommand, StatusSnapshot, SystemProxyPhase,
+    RuntimePhase, StatusAdapterKind, StatusCommand, StatusSnapshot, SystemProxyPhase, TunPhase,
 };
 use tauri::{
     Emitter, Manager,
@@ -19,6 +19,7 @@ const TRAY_ID: &str = "mish-status-bar";
 const OPEN_MISH_ID: &str = "status-bar.open-mish";
 const OPEN_ROUTES_ID: &str = "status-bar.open-routes";
 const TOGGLE_SYSTEM_PROXY_ID: &str = "status-bar.toggle-system-proxy";
+const TOGGLE_TUN_ID: &str = "status-bar.toggle-tun";
 const REPAIR_SYSTEM_PROXY_ID: &str = "status-bar.repair-system-proxy";
 const LEAVE_SYSTEM_PROXY_ID: &str = "status-bar.leave-system-proxy";
 const ROUTING_RULE_ID: &str = "status-bar.routing-rule";
@@ -70,6 +71,9 @@ struct StatusMenuModel {
     system_proxy_checked: bool,
     system_proxy_enabled: bool,
     system_proxy_title: &'static str,
+    tun_checked: bool,
+    tun_enabled: bool,
+    tun_title: &'static str,
     repair_system_proxy_enabled: bool,
 }
 
@@ -97,6 +101,7 @@ impl StatusMenuModel {
         let pending = status.runtime.system_proxy.phase == SystemProxyPhase::Pending;
         let drift = status.runtime.system_proxy.phase == SystemProxyPhase::Drift;
         let supported = status.capabilities.system_proxy == CapabilityAvailability::Supported;
+        let tun_supported = status.capabilities.tun == CapabilityAvailability::Supported;
         let recovery_actions = &status.runtime.system_proxy.recovery_actions;
         let restart_target = activation
             .active_profile_id
@@ -121,6 +126,9 @@ impl StatusMenuModel {
             system_proxy_checked: status.runtime.system_proxy_enabled,
             system_proxy_enabled: supported && !pending && !drift,
             system_proxy_title: system_proxy_title(status.runtime.system_proxy.phase),
+            tun_checked: status.runtime.tun_enabled,
+            tun_enabled: tun_supported && status.runtime.tun.phase != TunPhase::Pending,
+            tun_title: tun_title(status.runtime.tun.phase),
             repair_system_proxy_enabled: drift
                 && recovery_actions.contains(&CaptureRecoveryAction::Repair),
         }
@@ -158,6 +166,7 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
         OPEN_ROUTES_ID => show_main_window(app, Some("/routes")),
         QUIT_ID => app.exit(0),
         TOGGLE_SYSTEM_PROXY_ID
+        | TOGGLE_TUN_ID
         | REPAIR_SYSTEM_PROXY_ID
         | LEAVE_SYSTEM_PROXY_ID
         | ROUTING_RULE_ID
@@ -193,6 +202,23 @@ async fn run_native_command(state: &StatusBarState, id: &str) {
                             tun: false,
                         },
                     },
+                    StatusAdapterKind::Native,
+                )
+                .await;
+        }
+        TOGGLE_TUN_ID => {
+            let snapshot = state
+                .runtime
+                .status_snapshot_typed(StatusAdapterKind::Native)
+                .await;
+            let enable = !snapshot.runtime.tun.desired;
+            let mut selection = snapshot.runtime.capture_selection;
+            selection.tun = enable;
+            let active = enable || snapshot.runtime.system_proxy_enabled;
+            let _ = state
+                .runtime
+                .set_capture(
+                    CaptureRequest { active, selection },
                     StatusAdapterKind::Native,
                 )
                 .await;
@@ -315,8 +341,9 @@ fn build_menu<M: Manager<tauri::Wry>>(
     )
     .enabled(model.leave_system_proxy_enabled)
     .build(manager)?;
-    let tun = MenuItemBuilder::new("TUN — Unavailable")
-        .enabled(false)
+    let tun = CheckMenuItemBuilder::with_id(TOGGLE_TUN_ID, model.tun_title)
+        .checked(model.tun_checked)
+        .enabled(model.tun_enabled)
         .build(manager)?;
     let rule = CheckMenuItemBuilder::with_id(ROUTING_RULE_ID, "Rule")
         .checked(model.routing_mode == RoutingMode::Rule)
@@ -360,6 +387,16 @@ fn system_proxy_title(phase: SystemProxyPhase) -> &'static str {
         SystemProxyPhase::Applied => "System Proxy — On",
         SystemProxyPhase::Failed => "System Proxy — Failed",
         SystemProxyPhase::Drift => "System Proxy — Needs Recovery",
+    }
+}
+
+fn tun_title(phase: TunPhase) -> &'static str {
+    match phase {
+        TunPhase::Off => "TUN — Off",
+        TunPhase::Pending => "TUN — Pending",
+        TunPhase::Applied => "TUN — On",
+        TunPhase::Failed => "TUN — Failed",
+        TunPhase::Drift => "TUN — Needs Recovery",
     }
 }
 
@@ -416,8 +453,8 @@ fn safe_profile_label(label: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{core_title, safe_profile_label, status_bar_icon, system_proxy_title};
-    use mish_runtime::{RuntimePhase, SystemProxyPhase};
+    use super::{core_title, safe_profile_label, status_bar_icon, system_proxy_title, tun_title};
+    use mish_runtime::{RuntimePhase, SystemProxyPhase, TunPhase};
 
     #[test]
     fn status_bar_redacts_sensitive_or_unbounded_profile_labels() {
@@ -460,6 +497,13 @@ mod tests {
         assert_eq!(core_title(RuntimePhase::Connecting), "Core — Starting");
         assert_eq!(core_title(RuntimePhase::Stopping), "Core — Stopping");
         assert_eq!(core_title(RuntimePhase::Error), "Core — Failed");
+    }
+
+    #[test]
+    fn tun_menu_never_collapses_pending_drift_or_failure_into_success() {
+        assert_eq!(tun_title(TunPhase::Pending), "TUN — Pending");
+        assert_eq!(tun_title(TunPhase::Drift), "TUN — Needs Recovery");
+        assert_eq!(tun_title(TunPhase::Failed), "TUN — Failed");
     }
 
     #[test]

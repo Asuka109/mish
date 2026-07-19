@@ -94,6 +94,7 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
         recoveryActions: [],
       },
       systemProxyEnabled: false,
+      tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
       tunEnabled: false,
     },
     services: [structuredClone(defaultService)],
@@ -248,7 +249,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 10,
+              protocolVersion: 11,
               statusCommands: { group: true, groupDelay: false, routing: true },
               trafficCommands: { closeAllActive: false, closeConnection: false },
             };
@@ -284,6 +285,12 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
                 recoveryActions: [],
               },
               systemProxyEnabled,
+              tun: {
+                desired: tunEnabled,
+                failure: null,
+                observed: tunEnabled ? "enabled" : "disabled",
+                phase: tunEnabled ? "applied" : "off",
+              },
               tunEnabled,
             };
             return structuredClone(snapshot);

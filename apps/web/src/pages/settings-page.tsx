@@ -3,6 +3,7 @@ import { Info } from "@phosphor-icons/react/Info";
 import { Warning } from "@phosphor-icons/react/Warning";
 import {
   Badge,
+  Button,
   SectionGrid,
   SectionGridItem,
   Toggle,
@@ -108,6 +109,13 @@ export function SettingsPage() {
   const captureActive = Boolean(captureRuntime?.systemProxyEnabled || captureRuntime?.tunEnabled);
   const startupSupported =
     snapshot.adapterKind === "rpc" && snapshot.capabilities.launchAtLogin === "supported";
+  const helper = snapshot.tunHelper;
+  const helperAvailable =
+    helper.availability === "available" &&
+    helper.health === "healthy" &&
+    helper.installedVersion === helper.expectedVersion &&
+    helper.phase === "idle" &&
+    helper.lastFailure === null;
 
   function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureRuntime || !captureSupported) return;
@@ -165,7 +173,13 @@ export function SettingsPage() {
           {product && captureRuntime ? (
             <TrafficCaptureControl
               adapterKind={product.adapterKind}
-              capabilities={{ ...product.capabilities, tun: "unavailable" }}
+              capabilities={{
+                ...product.capabilities,
+                tun:
+                  snapshot.capabilities.tun === "supported"
+                    ? product.capabilities.tun
+                    : "unavailable",
+              }}
               commandSupported={captureSupported}
               disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
@@ -177,10 +191,72 @@ export function SettingsPage() {
               systemProxyStatus={captureRuntime.systemProxy}
               tunEnabled={captureRuntime.tunEnabled}
               tunSelected={captureRuntime.captureSelection.tun}
+              tunStatus={captureRuntime.tun}
             />
           ) : (
             <AvailabilityBadge availability="unavailable" />
           )}
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.tunHelperDescription()}
+          title={LL.settingsPage.tunHelper()}
+        >
+          <div className="settings-inline-control">
+            <Badge
+              variant={
+                helperAvailable
+                  ? "success"
+                  : helper.availability === "permission-required" ||
+                      helper.availability === "repair-required"
+                    ? "warning"
+                    : "outline"
+              }
+            >
+              {helperAvailable
+                ? LL.settingsPage.tunHelperHealthy({ version: helper.installedVersion ?? "-" })
+                : helper.availability === "repair-required"
+                  ? LL.settingsPage.tunHelperRepairRequired()
+                  : helper.availability === "permission-required"
+                    ? LL.settingsPage.tunHelperNotInstalled()
+                    : helper.availability === "unsigned-app"
+                      ? LL.settingsPage.tunHelperUnsigned()
+                      : helper.availability === "unpackaged"
+                        ? LL.settingsPage.tunHelperUnpackaged()
+                        : LL.common.unavailable()}
+            </Badge>
+            {helper.availability === "permission-required" ? (
+              <Button
+                disabled={settings.pending}
+                onClick={() => void settings.installTunHelper()}
+                size="sm"
+                type="button"
+              >
+                {LL.settingsPage.installTunHelper()}
+              </Button>
+            ) : null}
+            {helper.availability === "repair-required" ? (
+              <Button
+                disabled={settings.pending}
+                onClick={() => void settings.repairTunHelper()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {LL.settingsPage.repairTunHelper()}
+              </Button>
+            ) : null}
+            {helperAvailable ? (
+              <Button
+                disabled={settings.pending || captureRuntime?.tunEnabled}
+                onClick={() => void settings.removeTunHelper()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {LL.settingsPage.removeTunHelper()}
+              </Button>
+            ) : null}
+          </div>
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.launchAtLoginDescription()}

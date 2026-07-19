@@ -141,6 +141,9 @@ class DesktopSettingsClient implements SettingsClient {
   };
 
   getSnapshot = vi.fn(async () => structuredClone(this.snapshot));
+  installTunHelper = vi.fn(async () => this.getSnapshot());
+  repairTunHelper = vi.fn(async () => this.getSnapshot());
+  removeTunHelper = vi.fn(async () => this.getSnapshot());
   setAppearance = vi.fn(async (appearance: AppearancePreference) => {
     this.snapshot.preferences.appearance = appearance;
     return this.getSnapshot();
@@ -315,6 +318,7 @@ async function createRpcSnapshot(sparse = false) {
       recoveryActions: [],
     },
     systemProxyEnabled: false,
+    tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
     tunEnabled: false,
   };
   if (!sparse) return snapshot;

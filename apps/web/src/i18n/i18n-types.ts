@@ -180,6 +180,10 @@ type RootTranslation = {
 		 */
 		hideToStatusBar: string
 		/**
+		 * I​n​s​t​a​l​l​ ​h​e​l​p​e​r
+		 */
+		installTunHelper: string
+		/**
 		 * L​A​N​ ​c​o​n​t​r​o​l
 		 */
 		lan: string
@@ -290,6 +294,14 @@ type RootTranslation = {
 			unavailable: string
 		}
 		/**
+		 * R​e​m​o​v​e​ ​h​e​l​p​e​r
+		 */
+		removeTunHelper: string
+		/**
+		 * R​e​p​a​i​r​ ​h​e​l​p​e​r
+		 */
+		repairTunHelper: string
+		/**
 		 * Q​u​i​t​ ​M​i​s​h
 		 */
 		quitOnClose: string
@@ -322,9 +334,38 @@ type RootTranslation = {
 		 */
 		trafficCapture: string
 		/**
-		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​u​s​e​s​ ​t​h​e​ ​s​a​m​e​ ​d​e​s​i​r​e​d​,​ ​o​b​s​e​r​v​e​d​,​ ​d​r​i​f​t​,​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​m​o​d​e​l​ ​a​s​ ​S​t​a​t​u​s​.​ ​T​U​N​ ​r​e​m​a​i​n​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​n​d​ ​T​U​N​ ​u​s​e​ ​t​h​e​ ​s​a​m​e​ ​d​e​s​i​r​e​d​,​ ​o​b​s​e​r​v​e​d​,​ ​d​r​i​f​t​,​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​m​o​d​e​l​ ​a​s​ ​S​t​a​t​u​s​.
 		 */
 		trafficCaptureDescription: string
+		/**
+		 * T​U​N​ ​s​y​s​t​e​m​ ​h​e​l​p​e​r
+		 */
+		tunHelper: string
+		/**
+		 * I​n​s​t​a​l​l​i​n​g​,​ ​r​e​p​a​i​r​i​n​g​,​ ​o​r​ ​r​e​m​o​v​i​n​g​ ​t​h​e​ ​s​i​g​n​e​d​ ​h​e​l​p​e​r​ ​i​s​ ​a​l​w​a​y​s​ ​e​x​p​l​i​c​i​t​ ​a​n​d​ ​m​a​y​ ​r​e​q​u​i​r​e​ ​a​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​p​p​r​o​v​a​l​.​ ​M​i​s​h​ ​r​e​c​h​e​c​k​s​ ​t​h​e​ ​o​b​s​e​r​v​e​d​ ​s​t​a​t​e​ ​a​f​t​e​r​ ​e​v​e​r​y​ ​s​t​e​p​.
+		 */
+		tunHelperDescription: string
+		/**
+		 * H​e​a​l​t​h​y​ ​·​ ​v​e​r​s​i​o​n​ ​{​v​e​r​s​i​o​n​}
+		 * @param {string} version
+		 */
+		tunHelperHealthy: RequiredParams<'version'>
+		/**
+		 * N​o​t​ ​i​n​s​t​a​l​l​e​d
+		 */
+		tunHelperNotInstalled: string
+		/**
+		 * R​e​p​a​i​r​ ​r​e​q​u​i​r​e​d
+		 */
+		tunHelperRepairRequired: string
+		/**
+		 * N​o​t​ ​p​a​c​k​a​g​e​d​ ​i​n​ ​t​h​i​s​ ​b​u​i​l​d
+		 */
+		tunHelperUnpackaged: string
+		/**
+		 * U​n​s​i​g​n​e​d​ ​d​e​v​e​l​o​p​m​e​n​t​ ​b​u​i​l​d
+		 */
+		tunHelperUnsigned: string
 		/**
 		 * T​h​e​ ​s​e​t​t​i​n​g​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​o​n​f​i​r​m​e​d​.​ ​T​h​e​ ​l​a​s​t​ ​c​o​n​f​i​r​m​e​d​ ​s​t​a​t​e​ ​i​s​ ​s​t​i​l​l​ ​s​h​o​w​n​.
 		 */
@@ -710,9 +751,29 @@ type RootTranslation = {
 		 */
 		tunDescription: string
 		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​e​n​a​b​l​e​d​ ​a​n​d​ ​c​o​n​f​i​r​m​e​d​ ​b​y​ ​t​h​e​ ​s​i​g​n​e​d​ ​h​e​l​p​e​r​.
+		 */
+		tunApplied: string
+		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​d​i​f​f​e​r​s​ ​f​r​o​m​ ​t​h​e​ ​r​e​q​u​e​s​t​e​d​ ​s​t​a​t​e​ ​a​n​d​ ​w​a​s​ ​n​o​t​ ​r​e​p​o​r​t​e​d​ ​a​s​ ​a​c​t​i​v​e​.
+		 */
+		tunDrift: string
+		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​w​a​s​ ​n​o​t​ ​c​o​n​f​i​r​m​e​d​.​ ​T​h​e​ ​p​r​i​o​r​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​ ​w​a​s​ ​r​e​s​t​o​r​e​d​.
+		 */
+		tunFailure: string
+		/**
 		 * S​i​m​u​l​a​t​e​s​ ​a​ ​T​U​N​ ​v​i​r​t​u​a​l​ ​n​e​t​w​o​r​k​ ​i​n​t​e​r​f​a​c​e​ ​f​o​r​ ​b​r​o​a​d​e​r​ ​t​r​a​f​f​i​c​.
 		 */
 		tunFixtureDescription: string
+		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​o​f​f​.
+		 */
+		tunOff: string
+		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​w​a​i​t​i​n​g​ ​f​o​r​ ​h​e​l​p​e​r​ ​c​o​n​f​i​r​m​a​t​i​o​n​.
+		 */
+		tunPending: string
 	}
 	capabilities: {
 		/**
@@ -3320,6 +3381,10 @@ export type TranslationFunctions = {
 		 */
 		hideToStatusBar: () => LocalizedString
 		/**
+		 * Install helper
+		 */
+		installTunHelper: () => LocalizedString
+		/**
 		 * LAN control
 		 */
 		lan: () => LocalizedString
@@ -3430,6 +3495,14 @@ export type TranslationFunctions = {
 			unavailable: () => LocalizedString
 		}
 		/**
+		 * Remove helper
+		 */
+		removeTunHelper: () => LocalizedString
+		/**
+		 * Repair helper
+		 */
+		repairTunHelper: () => LocalizedString
+		/**
 		 * Quit Mish
 		 */
 		quitOnClose: () => LocalizedString
@@ -3462,9 +3535,37 @@ export type TranslationFunctions = {
 		 */
 		trafficCapture: () => LocalizedString
 		/**
-		 * System Proxy uses the same desired, observed, drift, and recovery model as Status. TUN remains unavailable.
+		 * System Proxy and TUN use the same desired, observed, drift, and recovery model as Status.
 		 */
 		trafficCaptureDescription: () => LocalizedString
+		/**
+		 * TUN system helper
+		 */
+		tunHelper: () => LocalizedString
+		/**
+		 * Installing, repairing, or removing the signed helper is always explicit and may require administrator approval. Mish rechecks the observed state after every step.
+		 */
+		tunHelperDescription: () => LocalizedString
+		/**
+		 * Healthy · version {version}
+		 */
+		tunHelperHealthy: (arg: { version: string }) => LocalizedString
+		/**
+		 * Not installed
+		 */
+		tunHelperNotInstalled: () => LocalizedString
+		/**
+		 * Repair required
+		 */
+		tunHelperRepairRequired: () => LocalizedString
+		/**
+		 * Not packaged in this build
+		 */
+		tunHelperUnpackaged: () => LocalizedString
+		/**
+		 * Unsigned development build
+		 */
+		tunHelperUnsigned: () => LocalizedString
 		/**
 		 * The setting could not be confirmed. The last confirmed state is still shown.
 		 */
@@ -3844,9 +3945,29 @@ export type TranslationFunctions = {
 		 */
 		tunDescription: () => LocalizedString
 		/**
+		 * Virtual Interface is enabled and confirmed by the signed helper.
+		 */
+		tunApplied: () => LocalizedString
+		/**
+		 * Virtual Interface differs from the requested state and was not reported as active.
+		 */
+		tunDrift: () => LocalizedString
+		/**
+		 * Virtual Interface was not confirmed. The prior capture state was restored.
+		 */
+		tunFailure: () => LocalizedString
+		/**
 		 * Simulates a TUN virtual network interface for broader traffic.
 		 */
 		tunFixtureDescription: () => LocalizedString
+		/**
+		 * Virtual Interface is off.
+		 */
+		tunOff: () => LocalizedString
+		/**
+		 * Virtual Interface is waiting for helper confirmation.
+		 */
+		tunPending: () => LocalizedString
 	}
 	capabilities: {
 		/**

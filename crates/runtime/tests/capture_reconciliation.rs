@@ -8,8 +8,70 @@ use mish_runtime::{
     CapabilityAvailability, CaptureAuditReason, CaptureJournal, CaptureJournalStore,
     CapturePlatform, CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
     CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState,
-    SystemProxyObservedState, SystemProxyPhase,
+    SystemProxyObservedState, SystemProxyPhase, TunHelperAvailability, TunHelperController,
+    TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
+    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot, TunPhase,
 };
+
+struct FakeTunHelper {
+    fail_enable: Mutex<bool>,
+    enabled: Mutex<bool>,
+}
+
+impl FakeTunHelper {
+    fn new() -> Self {
+        Self {
+            fail_enable: Mutex::new(false),
+            enabled: Mutex::new(false),
+        }
+    }
+
+    fn fail_next_enable(&self) {
+        *self.fail_enable.lock().unwrap() = true;
+    }
+}
+
+impl TunHelperPlatform for FakeTunHelper {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot {
+            availability: TunHelperAvailability::Available,
+            expected_version: "1".to_owned(),
+            health: TunHelperHealth::Healthy,
+            installed_version: Some("1".to_owned()),
+            last_failure: None,
+            phase: TunHelperLifecyclePhase::Idle,
+        }
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunHelperObservation::healthy("1")) })
+    }
+
+    fn run_lifecycle(
+        &self,
+        _operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<bool, TunHelperError>> {
+        let enabled = *self.enabled.lock().unwrap();
+        Box::pin(async move { Ok(enabled) })
+    }
+
+    fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        if enabled && std::mem::take(&mut *self.fail_enable.lock().unwrap()) {
+            return Box::pin(async {
+                Err(TunHelperError::new(
+                    TunHelperFailureKind::OperationFailed,
+                    "Synthetic TUN enable failure",
+                ))
+            });
+        }
+        *self.enabled.lock().unwrap() = enabled;
+        Box::pin(async { Ok(()) })
+    }
+}
 
 #[derive(Default)]
 struct MemoryJournalStore {
@@ -289,7 +351,7 @@ async fn rejected_tun_request_preserves_confirmed_system_proxy_ownership() {
 
     assert_eq!(
         error.kind,
-        mish_runtime::CaptureFailureKind::UnsupportedSelection
+        mish_runtime::CaptureFailureKind::CapabilityUnavailable
     );
     assert_eq!(
         reconciler.status().system_proxy.phase,
@@ -1123,4 +1185,69 @@ async fn explicit_enable_does_not_claim_a_matching_endpoint_without_a_prior_jour
         SystemProxyPhase::Drift
     );
     assert!(journal.load().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn system_proxy_and_tun_conversion_rolls_back_then_confirms_each_observed_state() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let helper_platform = Arc::new(FakeTunHelper::new());
+    let helper = Arc::new(TunHelperController::new(helper_platform.clone()));
+    let reconciler = CaptureReconciler::new_with_tun(
+        platform,
+        journal,
+        LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap(),
+        Some(helper),
+    );
+    let system_proxy = CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    };
+    reconciler
+        .reconcile(system_proxy.clone(), true)
+        .await
+        .unwrap();
+
+    helper_platform.fail_next_enable();
+    let failed = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(failed.kind, mish_runtime::CaptureFailureKind::ApplyFailed);
+    assert!(reconciler.status().system_proxy_enabled);
+    assert!(!reconciler.status().tun_enabled);
+
+    let tun = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: false,
+                    tun: true,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert!(!tun.system_proxy_enabled);
+    assert!(tun.tun_enabled);
+    assert_eq!(tun.tun.phase, TunPhase::Applied);
+
+    let restored = reconciler.reconcile(system_proxy, true).await.unwrap();
+    assert!(restored.system_proxy_enabled);
+    assert!(!restored.tun_enabled);
+    assert_eq!(restored.tun.phase, TunPhase::Off);
 }

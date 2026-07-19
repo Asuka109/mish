@@ -18,6 +18,7 @@ import type {
   PlatformCapabilitiesDto,
   StatusAdapterKind,
   SystemProxyRuntimeStatusDto,
+  TunRuntimeStatusDto,
 } from "@mish/contracts";
 import {
   getCaptureModeDescriptionId,
@@ -38,6 +39,7 @@ interface TrafficCaptureControlProps {
   systemProxyStatus: SystemProxyRuntimeStatusDto;
   tunEnabled: boolean;
   tunSelected: boolean;
+  tunStatus: TunRuntimeStatusDto;
 }
 
 function getCaptureState(selected: boolean, enabled: boolean) {
@@ -60,6 +62,7 @@ export function TrafficCaptureControl({
   systemProxyStatus,
   tunEnabled,
   tunSelected,
+  tunStatus,
 }: TrafficCaptureControlProps) {
   const [helpOpen, setHelpOpen] = useState(false);
   const { LL } = useI18nContext();
@@ -111,6 +114,14 @@ export function TrafficCaptureControl({
     return mode === "systemProxy"
       ? LL.capture.systemProxyDescription()
       : LL.capture.tunDescription();
+  }
+
+  function tunStatusMessage() {
+    if (tunStatus.phase === "drift") return LL.capture.tunDrift();
+    if (tunStatus.phase === "failed") return LL.capture.tunFailure();
+    if (pending || tunStatus.phase === "pending") return LL.capture.tunPending();
+    if (tunStatus.phase === "applied") return LL.capture.tunApplied();
+    return LL.capture.tunOff();
   }
 
   return (
@@ -191,6 +202,7 @@ export function TrafficCaptureControl({
             }
           >
             <p>{systemProxyStatusMessage()}</p>
+            <p>{tunStatusMessage()}</p>
             {systemProxyStatus.recoveryActions.length > 0 ? (
               <div className="system-proxy-recovery-actions">
                 {systemProxyStatus.recoveryActions.includes("repair") ? (

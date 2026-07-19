@@ -361,7 +361,35 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     assert_eq!(initial["result"]["privacy"]["authenticated"], "confirmed");
     assert_eq!(initial["result"]["privacy"]["originValidated"], "confirmed");
     assert_eq!(initial["result"]["privacy"]["lanControl"], "unavailable");
+    assert_eq!(
+        initial["result"]["tunHelper"]["availability"],
+        "unavailable"
+    );
     assert!(initial["result"].get("authToken").is_none());
+
+    let arbitrary_helper_argument = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":21, "method":"settings.installTunHelper",
+            "params":{"path":"/private/helper"}
+        }),
+    )
+    .await;
+    assert_eq!(arbitrary_helper_argument["error"]["code"], -32602);
+    assert!(
+        !arbitrary_helper_argument
+            .to_string()
+            .contains("/private/helper")
+    );
+
+    let unavailable_helper = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":22, "method":"settings.installTunHelper", "params":{}
+        }),
+    )
+    .await;
+    assert_eq!(unavailable_helper["error"]["code"], -32020);
 
     let appearance = request(
         &mut ws,
@@ -447,7 +475,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 10);
+    assert_eq!(info["result"]["protocolVersion"], 11);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})
@@ -942,7 +970,7 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
     )
     .await;
     assert_eq!(tun["error"]["code"], -32050);
-    assert_eq!(tun["error"]["data"]["kind"], "unsupported-selection");
+    assert_eq!(tun["error"]["data"]["kind"], "capability-unavailable");
     assert!(tun.get("result").is_none());
     let after_rejected_tun = request(
         &mut ws,

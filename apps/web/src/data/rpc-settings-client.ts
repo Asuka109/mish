@@ -15,6 +15,18 @@ export class RpcSettingsClient implements SettingsClient {
     return this.rpc.request("settings.getSnapshot", {}, options);
   }
 
+  installTunHelper(options?: RpcRequestOptions) {
+    return this.rpc.request("settings.installTunHelper", {}, options);
+  }
+
+  repairTunHelper(options?: RpcRequestOptions) {
+    return this.rpc.request("settings.repairTunHelper", {}, options);
+  }
+
+  removeTunHelper(options?: RpcRequestOptions) {
+    return this.rpc.request("settings.removeTunHelper", {}, options);
+  }
+
   setAppearance(appearance: AppearancePreference, options?: RpcRequestOptions) {
     return this.rpc.request("settings.setAppearance", { appearance }, options);
   }
