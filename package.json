@@ -20,6 +20,8 @@
     "mihomo:prepare": "node scripts/prepare-mihomo.ts",
     "preview": "pnpm --filter @mish/web preview",
     "test": "pnpm --filter @mish/web test",
+    "test:browser": "pnpm --filter @mish/web test:browser",
+    "test:browser:install": "pnpm --filter @mish/web test:browser:install",
     "test:run": "pnpm --recursive --if-present test:run",
     "rust:check": "cargo check --workspace",
     "rust:clippy": "cargo clippy --workspace --all-targets -- -D warnings",

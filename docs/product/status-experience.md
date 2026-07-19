@@ -114,8 +114,12 @@ security are specified in
 - Sparklines disappear before their labels or values become crowded.
 - Services uses three columns at comfortable widths and one column when
   constrained.
-- The sidebar may collapse in a future mobile layout, but destinations must not
-  become ambiguous icon-only controls without another visible navigation model.
+- At the minimum desktop window width, the complete sidebar remains visible and
+  cannot collapse based on viewport width. A future collapsed state must require
+  an explicit user control. At mobile browser widths, destinations move to a
+  bottom navigation bar and keep short visible labels.
+- Dense tables may scroll horizontally inside their own boundary; the app shell
+  and page scroller must not overflow the viewport.
 
 ## Non-goals
 

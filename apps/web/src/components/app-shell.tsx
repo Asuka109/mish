@@ -210,9 +210,11 @@ function Sidebar() {
       <nav aria-label={LL.navigation.sections()} className="nav-list">
         {destinations.map(({ icon: Icon, key, path }) => (
           <NavLink
+            aria-label={getNavigationLabel(LL, key)}
             className={({ isActive }) => `nav-item${isActive ? " is-active" : ""}`}
             end
             key={path}
+            title={getNavigationLabel(LL, key)}
             to={path}
           >
             <Icon aria-hidden="true" />
@@ -220,7 +222,9 @@ function Sidebar() {
           </NavLink>
         ))}
         <NavLink
+          aria-label={LL.navigation.settings()}
           className={({ isActive }) => `nav-item settings-link${isActive ? " is-active" : ""}`}
+          title={LL.navigation.settings()}
           to="/settings"
         >
           <GearSix aria-hidden="true" />

@@ -237,6 +237,15 @@ are 36px high. Inset the foreground workspace 10px from the top, right, and
 bottom. Content gutters are 24–32px. Keep the Status page below 1080px wide so
 related values remain visually connected on large windows.
 
+Responsive breakpoints follow available viewport width rather than platform
+names. At 900px, content columns and gutters compact. The 800px minimum Tauri
+window retains the full 164px sidebar; viewport width must never collapse it.
+Any future collapsed state requires an explicit user control. At 600px, the
+browser layout moves navigation below the workspace and retains short visible
+destination labels. The shell itself must not impose a hard minimum width or
+height: page scrollers own vertical overflow, and dense data tables own their
+local horizontal overflow.
+
 ## Elevation & Depth
 
 The workspace uses a hairline and a faint panel shadow. Ordinary sections stay

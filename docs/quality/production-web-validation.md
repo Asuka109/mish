@@ -57,6 +57,8 @@ pnpm lint
 pnpm format:check
 pnpm typecheck
 pnpm test:run
+pnpm test:browser:install
+pnpm test:browser
 pnpm rust:format:check
 pnpm rust:check
 pnpm rust:clippy
@@ -67,14 +69,23 @@ pnpm docs:links
 git diff --check
 ```
 
-`pnpm validate` runs the repository checks except `git diff --check`, which
-remains an explicit Git working-tree check.
+`pnpm validate` runs the non-browser repository checks. Browser installation,
+the browser suite, and `git diff --check` remain explicit checks.
+
+`pnpm test:browser:install` installs the Chromium version pinned by Playwright
+and is required once per developer machine or CI image. `pnpm test:browser`
+runs the responsive shell suite in Vitest Browser Mode against the real browser
+layout engine.
 
 ## Automated coverage
 
 Automated tests cover:
 
 - direct rendering of all six deep-link routes;
+- real-browser responsive layout at 320 x 568, 390 x 844, and the Tauri minimum
+  of 800 x 600, in English and Simplified Chinese, including document/page
+  overflow, navigation labels, viewport-clipped controls, and table-local
+  horizontal scrolling;
 - semantic sidebar links and accessible active destination state;
 - typed fixture snapshot isolation and fixture-only capability declarations;
 - legacy selector-contract compatibility plus all extended policy-group types;
