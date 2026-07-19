@@ -42,12 +42,19 @@ Events observation has four phases:
 | `ready`       | The current session is live and new events may arrive.                 |
 | `stale`       | The retained current-session rows precede an observation gap.          |
 
-The Controller source opens the pinned core's structured `/logs` stream before
-publishing a ready session. A stream failure marks the session stale
-immediately. Reconnect revalidates the pinned Controller, creates a new globally
-distinct source/session ID, resets sequence and the source buffer, and adds one
-application boundary event. It never appends a new session to retained rows
-from the old session.
+The Controller source owns `/logs` in a collector that is independent from the
+Status and Traffic observation session. It opens the pinned core's structured
+log stream before publishing a ready Events session. An initial handshake or
+schema failure marks Events unavailable and records one bounded local
+application boundary event. A failure after a ready Events session marks that
+session stale immediately. Neither failure changes Controller Status, Traffic,
+activation readiness, or command availability.
+
+Reconnect revalidates the pinned Controller, creates a new globally distinct
+source/session ID, resets sequence and the source buffer, and adds one
+application boundary event. Repeated failures in the same unavailable or stale
+phase do not append duplicate boundary rows. A recovered session never appends
+to retained rows from the unavailable or stale session.
 
 `events.subscribe` returns `{ subscriptionId, snapshot }`. The bridge installs
 the current runtime's event receiver before sampling and sends the response

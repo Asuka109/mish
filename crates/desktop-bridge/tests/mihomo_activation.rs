@@ -247,6 +247,21 @@ rules:
     let traffic = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
     assert_eq!(traffic["phase"], "ready");
     assert_eq!(traffic["profileId"], record.metadata.id.as_str());
+    let events = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let events = runtime.events_snapshot(StatusAdapterKind::Rpc);
+            if events["phase"] == "unavailable" {
+                break events;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("missing /logs did not become unavailable");
+    assert_eq!(events["sourceStatuses"][0]["phase"], "unavailable");
+    assert_eq!(events["sourceStatuses"][1]["phase"], "ready");
+    assert_eq!(events["events"].as_array().unwrap().len(), 1);
+    assert_eq!(events["events"][0]["source"], "application");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

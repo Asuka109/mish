@@ -151,18 +151,24 @@ timeouts, refresh interval, and reconnect delay. The configuration is held in
 process memory. It is not discovered from environment variables, system proxy
 settings, profiles, subscriptions, or user directories.
 
-The source starts only after `MishRuntime` attaches its status-event sink. One
-observation session proceeds in this order:
+The source starts only after `MishRuntime` attaches its status-event sink. The
+Status and Traffic observation session proceeds in this order:
 
 1. Read `/version` and require exactly `v1.19.29`.
-2. Open the `/traffic`, `/memory`, and structured `/logs` WebSocket streams.
+2. Open the `/traffic` and `/memory` WebSocket streams.
 3. Read an initial coalesced batch from `/configs`, `/proxies`, `/rules`,
    `/connections`, and the first traffic and memory stream messages.
 4. Apply the complete initial batch transactionally and publish the first valid
-   Status, Traffic, and Events session. Readiness does not wait for a log message
-   because an idle healthy core may emit none.
-5. Continue long-lived traffic, memory, and redacted log reads while a bounded interval
+   Status and Traffic session.
+5. Continue long-lived traffic and memory reads while a bounded interval
    refreshes configs, proxies, rules, and connections as one batch.
+
+An independent Events collector verifies the same pinned Controller and opens
+the structured `/logs` stream. A successful handshake publishes a ready Events
+session without waiting for a log message because an idle healthy core may emit
+none. Handshake, transport, stream, decode, and validation failures change only
+the Events phase and bounded local boundary events. Its reconnect loop creates
+a new Events session without restarting a healthy Status and Traffic session.
 
 The source uses the existing `ControllerClient` and therefore inherits its
 HTTP request timeout, stream connection timeout, response and message bounds,
@@ -206,9 +212,14 @@ Commit requires all of the following:
 
 1. the child remains alive;
 2. the Controller reports v1.19.29;
-3. Controller HTTP and stream readiness succeeds; and
+3. Controller HTTP plus Status and Traffic stream readiness succeeds; and
 4. the first complete observation batch maps to valid Status and Traffic
    snapshots.
+
+Events `/logs` readiness is deliberately excluded from activation commit. An
+unavailable or malformed log stream remains visible through the independent
+Events contract and cannot delay profile activation or invalidate the committed
+Controller command surface.
 
 If System Proxy was already explicitly active, the same shared capture
 reconciler confirms the candidate listener and reapplies that prior intent before
@@ -264,7 +275,7 @@ the whole catalog update and preserves the last valid state. This is necessary
 because the Status contract requires a selected child and cannot honestly
 represent an incomplete group.
 
-The observation source preserves the mapper's transaction boundary. A rejected
+The Status and Traffic observation collector preserves the mapper's transaction boundary. A rejected
 traffic, memory, or refresh batch leaves the last valid mapper state intact and
 sets a diagnostic runtime error. The failed channel clears that diagnostic only
 after it supplies another valid observation. A transport failure, stream end,
@@ -342,7 +353,7 @@ Desktop shutdown is ordered and awaitable:
 1. `MishRuntime` asks the Status source to close.
 2. The source cancels its collector token and the `ControllerClient`, which
    releases outstanding unary reads and WebSocket streams, then awaits the
-   collector task.
+   Status/Traffic and Events collectors.
 3. The runtime stops the managed Mihomo lifecycle.
 4. The loopback bridge requests graceful RPC server shutdown and awaits the
    server task.

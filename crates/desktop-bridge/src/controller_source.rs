@@ -98,6 +98,7 @@ enum ObservationChannel {
 struct SourceState {
     diagnostics: BTreeMap<ObservationChannel, String>,
     initial_observation: ControllerInitialObservation,
+    event_phase: EventsDataPhase,
     mapper: Option<ControllerStatusMapper>,
     event_reconnect_count: u64,
     event_sequence: u64,
@@ -116,6 +117,7 @@ impl SourceState {
         Self {
             diagnostics: BTreeMap::new(),
             initial_observation: ControllerInitialObservation::Pending,
+            event_phase: EventsDataPhase::Connecting,
             mapper: None,
             event_reconnect_count: 0,
             event_sequence: 0,
@@ -218,7 +220,7 @@ impl ControllerStatusSource {
             return;
         }
         let inner = self.inner.clone();
-        *task = Some(tokio::spawn(run_collector(inner)));
+        *task = Some(tokio::spawn(run_collectors(inner)));
     }
 
     pub async fn close(&self) {
@@ -658,14 +660,7 @@ impl EventsDataSource for ControllerStatusSource {
             .lock()
             .expect("controller source state poisoned");
         let has_session = state.event_session_id.is_some();
-        let stale = has_session && state.diagnostics.contains_key(&ObservationChannel::Session);
-        let phase = if stale {
-            EventsDataPhase::Stale
-        } else if has_session {
-            EventsDataPhase::Ready
-        } else {
-            EventsDataPhase::Connecting
-        };
+        let phase = state.event_phase;
         let core_phase = match phase {
             EventsDataPhase::Ready => EventSourcePhase::Ready,
             EventsDataPhase::Stale => EventSourcePhase::Stale,
@@ -683,12 +678,17 @@ impl EventsDataSource for ControllerStatusSource {
             session_id: state.event_session_id.clone(),
             source_statuses: vec![
                 EventSourceStatus {
-                    detail: Some(match core_phase {
-                        EventSourcePhase::Ready => "Live redacted Mihomo Controller events".into(),
-                        EventSourcePhase::Stale => {
+                    detail: Some(match phase {
+                        EventsDataPhase::Ready => "Live redacted Mihomo Controller events".into(),
+                        EventsDataPhase::Stale => {
                             "The Controller event stream has an observation gap".into()
                         }
-                        _ => "Waiting for the Mihomo Controller event stream".into(),
+                        EventsDataPhase::Connecting => {
+                            "Connecting to the Mihomo Controller event stream".into()
+                        }
+                        EventsDataPhase::Unavailable => {
+                            "The Mihomo Controller event stream is unavailable".into()
+                        }
                     }),
                     phase: core_phase,
                     source: EventSource::Core,
@@ -721,7 +721,14 @@ impl EventsDataSource for ControllerStatusSource {
     }
 }
 
-async fn run_collector(inner: Arc<SourceInner>) {
+async fn run_collectors(inner: Arc<SourceInner>) {
+    tokio::join!(
+        run_status_collector(inner.clone()),
+        run_event_collector(inner),
+    );
+}
+
+async fn run_status_collector(inner: Arc<SourceInner>) {
     loop {
         if inner.cancellation.is_cancelled() {
             return;
@@ -749,11 +756,8 @@ async fn run_collector(inner: Arc<SourceInner>) {
 async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatusSourceError> {
     let _authority = inner.authority.lock().await;
     inner.client.verify_version().await?;
-    let (mut traffic, mut memory, mut logs) = tokio::try_join!(
-        inner.client.traffic_stream(),
-        inner.client.memory_stream(),
-        inner.client.logs_stream(),
-    )?;
+    let (mut traffic, mut memory) =
+        tokio::try_join!(inner.client.traffic_stream(), inner.client.memory_stream(),)?;
     let (runtime_config, proxies, rules, connections, traffic_sample, memory_sample) = tokio::try_join!(
         inner.client.runtime_config(),
         inner.client.proxies(),
@@ -799,10 +803,6 @@ async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatu
                     ControllerObservationBatch { memory: Some(sample), ..Default::default() },
                 ).await;
             }
-            message = logs.next() => {
-                let message = stream_item(message, &inner.client, Endpoint::Logs)?;
-                apply_log_message(inner, message);
-            }
             _ = refresh.tick() => {
                 let _authority = inner.authority.lock().await;
                 let (runtime_config, proxies, rules, connections) = tokio::try_join!(
@@ -822,6 +822,40 @@ async fn observe_session(inner: &Arc<SourceInner>) -> Result<(), ControllerStatu
                         ..Default::default()
                     },
                 ).await;
+            }
+        }
+    }
+}
+
+async fn run_event_collector(inner: Arc<SourceInner>) {
+    loop {
+        if inner.cancellation.is_cancelled() {
+            return;
+        }
+        match observe_event_session(&inner).await {
+            Ok(()) => return,
+            Err(_) if inner.cancellation.is_cancelled() => return,
+            Err(error) => record_event_failure(&inner, &error),
+        }
+        tokio::select! {
+            _ = inner.cancellation.cancelled() => return,
+            _ = tokio::time::sleep(inner.reconnect_delay) => {}
+        }
+    }
+}
+
+async fn observe_event_session(
+    inner: &Arc<SourceInner>,
+) -> Result<(), ControllerStatusSourceError> {
+    inner.client.verify_version().await?;
+    let mut logs = inner.client.logs_stream().await?;
+    start_event_session(inner);
+    loop {
+        tokio::select! {
+            _ = inner.cancellation.cancelled() => return Ok(()),
+            message = logs.next() => {
+                let message = stream_item(message, &inner.client, Endpoint::Logs)?;
+                apply_log_message(inner, message);
             }
         }
     }
@@ -929,23 +963,6 @@ async fn apply_observations(
             state.traffic_session_number = state.traffic_session_number.saturating_add(1);
             state.traffic_reconnect_count = state.traffic_session_number.saturating_sub(1);
             state.traffic_session_id = Some(format!("controller-{}", state.traffic_session_number));
-            state.event_session_number = state.event_session_number.saturating_add(1);
-            state.event_reconnect_count = state.event_session_number.saturating_sub(1);
-            state.event_session_id = Some(format!(
-                "controller-events-{}-{}",
-                inner.event_source_id, state.event_session_number
-            ));
-            state.event_sequence = 0;
-            state.events.clear();
-            push_event(
-                &mut state,
-                EventLevel::Info,
-                EventSource::Application,
-                "Controller event session started".into(),
-                Some(
-                    "A new session boundary was created; earlier events are not continuous".into(),
-                ),
-            );
             state.diagnostics.clear();
             state.initial_observation = ControllerInitialObservation::Ready;
         }
@@ -955,9 +972,6 @@ async fn apply_observations(
         state.mapper = Some(mapper);
     }
     publish_change(inner).await;
-    if new_session {
-        publish_event_change(inner);
-    }
     Ok(())
 }
 
@@ -971,18 +985,8 @@ async fn record_error(inner: &Arc<SourceInner>, channel: ObservationChannel, det
             channel,
             format!("Mihomo Controller observation failed: {detail}"),
         );
-        if channel == ObservationChannel::Session && state.event_session_id.is_some() {
-            push_event(
-                &mut state,
-                EventLevel::Warning,
-                EventSource::Application,
-                "Controller event session became stale".into(),
-                Some("Collection will resume in a new session after reconnect".into()),
-            );
-        }
     }
     publish_change(inner).await;
-    publish_event_change(inner);
 }
 
 fn safe_source_error(error: &ControllerStatusSourceError) -> &'static str {
@@ -1035,6 +1039,100 @@ async fn publish_change(inner: &Arc<SourceInner>) {
         status = inner.lifecycle.status() => status,
     };
     events.publish(status);
+}
+
+fn start_event_session(inner: &SourceInner) {
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    reset_event_session(&mut state, inner);
+    state.event_phase = EventsDataPhase::Ready;
+    push_event(
+        &mut state,
+        EventLevel::Info,
+        EventSource::Application,
+        "Controller event session started".into(),
+        Some("A new session boundary was created; earlier events are not continuous".into()),
+    );
+    drop(state);
+    publish_event_change(inner);
+}
+
+fn record_event_failure(inner: &SourceInner, error: &ControllerStatusSourceError) {
+    let mut state = inner
+        .state
+        .lock()
+        .expect("controller source state poisoned");
+    let failure_phase = if matches!(
+        state.event_phase,
+        EventsDataPhase::Ready | EventsDataPhase::Stale
+    ) {
+        EventsDataPhase::Stale
+    } else {
+        EventsDataPhase::Unavailable
+    };
+    if state.event_phase == failure_phase {
+        return;
+    }
+    if state.event_session_id.is_none() {
+        reset_event_session(&mut state, inner);
+    }
+    state.event_phase = failure_phase;
+    let (message, detail) = match failure_phase {
+        EventsDataPhase::Stale => (
+            "Controller event session became stale",
+            "Collection will resume in a new session after reconnect",
+        ),
+        EventsDataPhase::Unavailable => (
+            "Controller event stream is unavailable",
+            safe_event_source_error(error),
+        ),
+        EventsDataPhase::Connecting | EventsDataPhase::Ready => unreachable!(),
+    };
+    push_event(
+        &mut state,
+        EventLevel::Warning,
+        EventSource::Application,
+        message.into(),
+        Some(detail.into()),
+    );
+    drop(state);
+    publish_event_change(inner);
+}
+
+fn reset_event_session(state: &mut SourceState, inner: &SourceInner) {
+    state.event_session_number = state.event_session_number.saturating_add(1);
+    state.event_reconnect_count = state.event_session_number.saturating_sub(1);
+    state.event_session_id = Some(format!(
+        "controller-events-{}-{}",
+        inner.event_source_id, state.event_session_number
+    ));
+    state.event_sequence = 0;
+    state.events.clear();
+}
+
+fn safe_event_source_error(error: &ControllerStatusSourceError) -> &'static str {
+    match error {
+        ControllerStatusSourceError::Controller(error) => match error.kind() {
+            mish_mihomo_controller::ControllerErrorKind::Decode
+            | mish_mihomo_controller::ControllerErrorKind::Validation => {
+                "The Controller event stream returned an invalid message"
+            }
+            mish_mihomo_controller::ControllerErrorKind::UnsupportedVersion => {
+                "The Controller version is unsupported"
+            }
+            mish_mihomo_controller::ControllerErrorKind::Timeout => {
+                "The Controller event stream timed out"
+            }
+            _ => "The Controller event stream could not be opened",
+        },
+        ControllerStatusSourceError::InvalidTiming
+        | ControllerStatusSourceError::NonLoopbackController
+        | ControllerStatusSourceError::Mapping(_) => {
+            "The Controller event source could not be started safely"
+        }
+    }
 }
 
 fn apply_log_message(inner: &Arc<SourceInner>, message: LogMessage) {

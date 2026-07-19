@@ -19,7 +19,10 @@ use mish_bridge::{
     ControllerObservationConfig, ControllerStatusSource, ControllerStatusSourceError,
     LoopbackServerConfig, ProfileMappingContext, compose_desktop_runtime, start_loopback_server,
 };
-use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, StatusAdapterKind};
+use mish_runtime::{
+    CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, RoutingMode, StatusAdapterKind,
+    StatusDataSource,
+};
 use serde_json::{Value, json};
 use tokio::{
     net::TcpListener,
@@ -80,6 +83,7 @@ struct FakeControllerState {
     configs: RwLock<Value>,
     connections: RwLock<Value>,
     logs: broadcast::Sender<Value>,
+    logs_available: watch::Sender<bool>,
     memory: watch::Sender<Value>,
     mutation_count: AtomicUsize,
     mutation_status: AtomicUsize,
@@ -102,6 +106,7 @@ impl FakeController {
         let (traffic, _) = watch::channel(traffic(3, 4, 30, 40));
         let (memory, _) = watch::channel(json!({"inuse": 4096, "oslimit": 8192}));
         let (logs, _) = broadcast::channel(2_048);
+        let (logs_available, _) = watch::channel(true);
         let state = Arc::new(FakeControllerState {
             active_streams: AtomicUsize::new(0),
             apply_mutations: AtomicBool::new(true),
@@ -109,6 +114,7 @@ impl FakeController {
             configs: RwLock::new(configs("rule")),
             connections: RwLock::new(connections("connection-a")),
             logs,
+            logs_available,
             memory,
             mutation_count: AtomicUsize::new(0),
             mutation_status: AtomicUsize::new(StatusCode::NO_CONTENT.as_u16().into()),
@@ -157,6 +163,10 @@ impl FakeController {
 
     fn set_available(&self, available: bool) {
         self.state.available.send_replace(available);
+    }
+
+    fn set_logs_available(&self, available: bool) {
+        self.state.logs_available.send_replace(available);
     }
 
     async fn shutdown(mut self) {
@@ -265,6 +275,9 @@ async fn logs_endpoint(
     if !available(&state) {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
+    if !*state.logs_available.borrow() {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     websocket
         .on_upgrade(move |socket| stream_logs(socket, state))
         .into_response()
@@ -275,6 +288,7 @@ async fn stream_logs(mut socket: axum::extract::ws::WebSocket, state: Arc<FakeCo
     let _guard = StreamGuard(&state.active_streams);
     let mut values = state.logs.subscribe();
     let mut availability = state.available.subscribe();
+    let mut logs_available = state.logs_available.subscribe();
     loop {
         tokio::select! {
             value = values.recv() => {
@@ -285,6 +299,11 @@ async fn stream_logs(mut socket: axum::extract::ws::WebSocket, state: Arc<FakeCo
             }
             changed = availability.changed() => {
                 if changed.is_err() || !*availability.borrow_and_update() {
+                    return;
+                }
+            }
+            changed = logs_available.changed() => {
+                if changed.is_err() || !*logs_available.borrow_and_update() {
                     return;
                 }
             }
@@ -927,6 +946,75 @@ async fn unsupported_controller_version_is_diagnostic_and_blocks_observation() {
 
     runtime.shutdown().await.unwrap();
     assert!(source.is_closed());
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn event_stream_failures_do_not_block_status_traffic_or_commands() {
+    let fake = FakeController::start().await;
+    fake.set_logs_available(false);
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources_and_events(
+        lifecycle,
+        source.clone(),
+        source.clone(),
+        source.clone(),
+    );
+    source.start().await;
+
+    wait_for(Duration::from_secs(1), || {
+        runtime.traffic_snapshot(StatusAdapterKind::Rpc)["phase"] == "ready"
+            && runtime.events_snapshot(StatusAdapterKind::Rpc)["phase"] == "unavailable"
+    })
+    .await;
+    let status = runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+    let traffic = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+    let unavailable = runtime.events_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(status["runtime"]["phase"], "healthy");
+    assert_eq!(traffic["phase"], "ready");
+    assert_eq!(unavailable["events"].as_array().unwrap().len(), 1);
+    assert_eq!(unavailable["events"][0]["source"], "application");
+    assert_eq!(unavailable["sourceStatuses"][0]["phase"], "unavailable");
+
+    source.set_routing_mode(RoutingMode::Global).await.unwrap();
+    assert_eq!(
+        runtime.status_snapshot(StatusAdapterKind::Rpc).await["routingMode"],
+        "global"
+    );
+
+    let unavailable_session = unavailable["sessionId"].as_str().unwrap().to_owned();
+    fake.set_logs_available(true);
+    wait_for(Duration::from_secs(1), || {
+        let events = runtime.events_snapshot(StatusAdapterKind::Rpc);
+        events["phase"] == "ready" && events["sessionId"] != unavailable_session
+    })
+    .await;
+    let recovered = runtime.events_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(recovered["reconnectCount"], 1);
+    assert_eq!(recovered["events"].as_array().unwrap().len(), 1);
+
+    fake.state
+        .logs
+        .send(json!({"level": "warning", "message": 42, "fields": []}))
+        .unwrap();
+    wait_for(Duration::from_secs(1), || {
+        runtime.events_snapshot(StatusAdapterKind::Rpc)["phase"] == "stale"
+    })
+    .await;
+    source.set_routing_mode(RoutingMode::Rule).await.unwrap();
+    assert_eq!(
+        runtime.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["phase"],
+        "healthy"
+    );
+    assert_eq!(
+        runtime.traffic_snapshot(StatusAdapterKind::Rpc)["phase"],
+        "ready"
+    );
+
+    runtime.shutdown().await.unwrap();
     fake.shutdown().await;
 }
 
