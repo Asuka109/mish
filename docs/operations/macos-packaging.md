@@ -30,6 +30,33 @@ uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a
 test package: an ad-hoc signature is not an Apple identity, is not notarized,
 and does not make the TUN helper available.
 
+## Download and launch a test package
+
+Open the repository's **Actions** tab, select a successful **CI** run for a push
+to `main`, and confirm that the **Package macOS ARM64** job succeeded. Its job
+summary records the short commit SHA, artifact name and ID, signing state, and
+the SHA-256 of the inner app archive. Download the matching artifact from the
+run's **Artifacts** section. GitHub expands the outer artifact archive during a
+CLI download; a browser download may require opening that outer ZIP first.
+
+Verify and expand the resulting app archive before launch:
+
+```sh
+cd /path/to/download
+shasum -a 256 Mish-<short-sha>.app.zip
+ditto -x -k Mish-<short-sha>.app.zip .
+open Mish.app
+```
+
+The digest must exactly match **Archive SHA-256** in the package job summary.
+The current credential-free package is deliberately ad-hoc signed and not
+notarized, so Gatekeeper may require one app-scoped confirmation. In Finder,
+Control-click `Mish.app`, choose **Open**, then confirm **Open**. If macOS instead
+shows the block in **System Settings > Privacy & Security**, use **Open Anyway**
+for Mish only after checking the digest and run identity. Do not disable
+Gatekeeper globally. This exception is appropriate only for this verified Mish
+test app; remove the extracted app when testing is complete.
+
 ## Developer ID and notarization secrets
 
 The production path is enabled only when all of these GitHub Actions secrets
