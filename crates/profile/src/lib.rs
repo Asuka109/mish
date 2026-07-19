@@ -1,4 +1,5 @@
 mod model;
+mod patch;
 mod preflight;
 mod repository;
 mod runtime_policy;
@@ -6,6 +7,7 @@ mod service;
 mod source;
 
 pub use model::*;
+pub use patch::*;
 pub use preflight::*;
 pub use repository::*;
 pub use runtime_policy::*;

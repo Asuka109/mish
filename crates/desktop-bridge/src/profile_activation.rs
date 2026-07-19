@@ -5,8 +5,8 @@ use std::{
 };
 
 use mish_profile::{
-    ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfileRefreshPolicy,
-    ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
+    ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfilePatch, ProfilePatchEditor,
+    ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{MishRuntime, ProviderSnapshot};
 use serde::Serialize;
@@ -372,8 +372,8 @@ impl ProfileActivationCoordinator {
         for profile in &mut snapshot.profiles {
             profile.status.active = activation.active_profile_id.as_deref() == Some(&profile.id);
             if profile.status.active {
-                profile.status.stale = activation.active_fingerprint.as_deref()
-                    != Some(profile.runtime_provenance.artifact_fingerprint.as_str());
+                profile.status.stale |= activation.active_fingerprint.as_deref()
+                    != Some(profile.effective_fingerprint.as_str());
             }
         }
         Ok(snapshot)
@@ -430,6 +430,30 @@ impl ProfileActivationCoordinator {
             }
         }
         let result = self.profiles.set_refresh_policy(profile_id, policy);
+        self.release_profile(profile_id).await;
+        self.publish().await;
+        result.map_err(Into::into)
+    }
+
+    pub async fn replace_patches(
+        &self,
+        profile_id: &str,
+        source_revision: &str,
+        artifact_fingerprint: &str,
+        patches: Vec<ProfilePatch>,
+    ) -> Result<ProfilePatchEditor, ProfileActivationCoordinatorError> {
+        {
+            let mut state = self.state.lock().await;
+            if !state.busy_profiles.insert(profile_id.to_owned()) {
+                return Err(ProfileActivationCoordinatorError::Conflict);
+            }
+        }
+        let result = self.profiles.replace_patches(
+            profile_id,
+            source_revision,
+            artifact_fingerprint,
+            patches,
+        );
         self.release_profile(profile_id).await;
         self.publish().await;
         result.map_err(Into::into)

@@ -5,7 +5,8 @@
 `crates/profile` owns the transport- and UI-independent Profile domain. It
 defines source identity, provenance, immutable revisions, normalized artifacts,
 stable fingerprints, validation results, lifecycle attempts, last success, and
-the active/valid/stale/updating/warning/error status vocabulary. It does not
+versioned structured patches, plus the active/valid/stale/updating/warning/error
+status vocabulary. It does not
 render Profiles UI, call Tauri, start Mihomo, activate capture, or depend on the
 Controller client.
 
@@ -74,8 +75,8 @@ contains a configuration value, provider name, endpoint, URL token, node
 content, or complete filesystem path. The report records its immutable source
 revision and normalized-artifact fingerprint; repository validation rejects a
 report attached to any other revision or artifact. Saved Profile details and
-import preview render this report as the read-only sequence Source → Application
-policy → Platform integration → Effective runtime.
+import preview render this report as the read-only sequence Source → User
+patches → Application policy → Platform integration → Effective runtime.
 
 Metadata schema 2 stores the complete report. Schema-1 records are loaded as a
 revision-bound migrated policy baseline so existing last-known-valid Profiles
@@ -119,6 +120,10 @@ within the managed layout.
           <source-sha256>.yaml
       artifacts/
         <artifact-sha256>.yaml
+      patches/
+        index.json
+        sets/
+          <patch-set-sha256>.json
 ```
 
 `metadata.json` is the ordinary display-safe document. It contains the redacted
@@ -126,9 +131,10 @@ source summary, provenance hashes, validation state, attempts, success, and
 status flags. `source/source.json` contains the sensitive source descriptor,
 including a complete tokenized URL when one is required for manual refresh.
 Revision YAML and artifact YAML may also contain credentials and private names.
-The three categories are deliberately separate so ordinary profile listing and
-diagnostics need read only metadata. The repository's listing API returns only
-validated metadata and never opens source descriptors or YAML artifacts.
+Patch state is private because typed rule values and user labels can still be
+sensitive. These categories are deliberately separate: ordinary Profile listing
+reads validated metadata plus the effective patch fingerprint, but never opens
+source descriptors or YAML artifacts.
 
 On Unix, managed directories are mode `0700` and atomically written files are
 created as mode `0600`. These permissions are defense in depth, not encryption;
@@ -144,6 +150,41 @@ metadata, so a failed metadata write leaves the prior revision authoritative.
 Corrupt JSON, missing files, fingerprint mismatches, schema mismatches, unsafe
 paths, and atomic write failures return typed errors without echoing stored
 contents.
+
+Patch sets are content-addressed. Updates write the candidate set and metadata
+before atomically replacing `patches/index.json`; that pointer is the patch
+commit authority. A failed write therefore cannot make an unconfirmed patch set
+available to activation, even when its candidate file was already staged.
+
+## Structured patch layer
+
+Patch schema 1 is a profile-scoped, revision- and artifact-fingerprint-bound
+document stored independently from the immutable source. It accepts at most 128
+ordered operations: typed common-rule prefix/suffix insertion, source-rule
+disable/delete, selector-group creation, group-member replacement, and explicit
+source-group ordering. References are opaque SHA-256 identities derived only
+from safe entities in the current normalized revision. No ordinary command
+accepts YAML, arbitrary configuration paths, scripts, templates, proxy protocol
+definitions, source URLs, filesystem paths, Controller endpoints, or secrets.
+
+Every operation has an opaque patch UUID, enabled state, explicit list order,
+safe target summary, validation result/code, status, and activation impact.
+User-authored Unicode labels are retained exactly. The editor replaces the
+complete bounded draft only after validation; closing or cancelling never
+persists draft state or changes the active runtime. Reset is represented by an
+empty validated patch list and reconstructs the source-derived runtime.
+
+Refresh never rewrites or silently drops a patch. The patch list is revalidated
+against the new revision. A missing target or semantic conflict, including a
+policy-group cycle, leaves the patch bound to the prior revision, marks the new
+revision stale/invalid, and blocks its activation while the already active
+last-known-valid runtime continues. A valid refresh rebinds the unchanged typed
+operations and stores their newly generated effective fingerprint.
+
+`RuntimeConfigGenerator` applies this shared patch engine before the existing
+application managed-field policy and platform integration. Preview generation
+and activation call the same record-based generator, so patch order and the
+managed-field provenance contract cannot diverge.
 
 ## Application service
 

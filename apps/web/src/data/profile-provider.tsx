@@ -3,6 +3,9 @@ import {
   type ProfileActivationSnapshotDto,
   type ProfileClient,
   type ProfileConnectionState,
+  type ProfilePatchAuthorityDto,
+  type ProfilePatchDto,
+  type ProfilePatchEditorDto,
   type ProfileRefreshPolicy,
   type ProviderAuthorityDto,
   type ProviderKind,
@@ -25,6 +28,7 @@ export type ProfileOperation =
   | "activate"
   | "delete"
   | "preflight"
+  | "patch-save"
   | "provider-update"
   | "refresh"
   | "schedule"
@@ -33,6 +37,9 @@ export type ProfileOperation =
 export type ProfileOperationResult = { ok: true } | { error: ProfileClientError; ok: false };
 export type ProfilePreviewResult =
   | { ok: true; preview: ProfilePreviewDto | null }
+  | { error: ProfileClientError; ok: false };
+export type ProfilePatchEditorResult =
+  | { editor: ProfilePatchEditorDto; ok: true }
   | { error: ProfileClientError; ok: false };
 
 interface ProfileContextValue {
@@ -43,9 +50,14 @@ interface ProfileContextValue {
   error: ProfileClientError | null;
   isLoading: boolean;
   isPending(operation: ProfileOperation, profileId?: string): boolean;
+  loadPatches(authority: ProfilePatchAuthorityDto): Promise<ProfilePatchEditorResult>;
   preflightHttps(url: string, label?: string): Promise<ProfilePreviewResult>;
   preflightLocal(label?: string): Promise<ProfilePreviewResult>;
   refreshProfile(profileId: string): Promise<ProfileOperationResult>;
+  replacePatches(
+    authority: ProfilePatchAuthorityDto,
+    patches: ProfilePatchDto[],
+  ): Promise<ProfilePatchEditorResult>;
   setRefreshPolicy(
     profileId: string,
     policy: ProfileRefreshPolicy,
@@ -187,6 +199,44 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     [],
   );
 
+  const loadPatches = useCallback(
+    async (authority: ProfilePatchAuthorityDto): Promise<ProfilePatchEditorResult> => {
+      try {
+        return { editor: await resolvedClient.getPatches(authority), ok: true };
+      } catch (failure) {
+        const typedError = toProfileClientError(failure);
+        setError(typedError);
+        return { error: typedError, ok: false };
+      }
+    },
+    [resolvedClient],
+  );
+
+  const replacePatches = useCallback(
+    async (
+      authority: ProfilePatchAuthorityDto,
+      patches: ProfilePatchDto[],
+    ): Promise<ProfilePatchEditorResult> => {
+      if (pending.current) return conflict();
+      pending.current = true;
+      setPendingKey(operationKey("patch-save", authority.profileId));
+      setError(null);
+      try {
+        const editor = await resolvedClient.replacePatches(authority, patches);
+        setSnapshot(await resolvedClient.getSnapshot());
+        return { editor, ok: true };
+      } catch (failure) {
+        const typedError = toProfileClientError(failure);
+        setError(typedError);
+        return { error: typedError, ok: false };
+      } finally {
+        pending.current = false;
+        setPendingKey(null);
+      }
+    },
+    [resolvedClient],
+  );
+
   const runActivation = useCallback(
     async (
       operation: "activate" | "stop",
@@ -240,10 +290,12 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         }
         return pendingKey === operationKey(operation, profileId);
       },
+      loadPatches,
       preflightHttps: (url, label) => runPreflight(() => resolvedClient.preflightHttps(url, label)),
       preflightLocal: (label) => runPreflight(() => resolvedClient.preflightLocal(label)),
       refreshProfile: (profileId) =>
         runMutation("refresh", profileId, () => resolvedClient.refreshProfile(profileId)),
+      replacePatches,
       setRefreshPolicy: (profileId, policy) =>
         runMutation("schedule", profileId, () =>
           resolvedClient.setRefreshPolicy(profileId, policy),
@@ -265,6 +317,8 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       resolvedClient,
       runActivation,
       runMutation,
+      loadPatches,
+      replacePatches,
       runPreflight,
       runProviderMutation,
       snapshot,

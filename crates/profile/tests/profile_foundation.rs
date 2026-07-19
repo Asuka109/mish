@@ -12,9 +12,9 @@ use mish_profile::{
     AtomicWriter, FileProfileRepository, HttpsSourceReader, ImportError, ImportPreflight,
     ImportRequest, LocalSourceReader, PROFILE_SCHEMA_VERSION, PolicyDisposition, PolicyOwner,
     ProfileId, ProfileSource, RedirectTarget, RejectingHttpsSourceReader, RepositoryComponent,
-    RepositoryError, SensitiveDataNotice, SensitivePath, SensitiveUrl, SourceContent,
-    SourceReadError, SourceReadPolicy, StdAtomicWriter, StdLocalSourceReader, Timestamp,
-    ValidationIssueCode,
+    RepositoryError, RuleInsertPosition, SensitiveDataNotice, SensitivePath, SensitiveUrl,
+    SourceContent, SourceReadError, SourceReadPolicy, StdAtomicWriter, StdLocalSourceReader,
+    StructuredRule, Timestamp, ValidationIssueCode,
 };
 
 struct TestDir(PathBuf);
@@ -573,6 +573,72 @@ impl AtomicWriter for MetadataFailingWriter {
         }
         StdAtomicWriter.write(destination, contents)
     }
+}
+
+#[derive(Clone, Copy)]
+struct PatchPointerFailingWriter;
+
+impl AtomicWriter for PatchPointerFailingWriter {
+    fn write(&self, destination: &Path, contents: &[u8]) -> io::Result<()> {
+        if destination
+            .file_name()
+            .is_some_and(|name| name == "index.json")
+        {
+            return Err(io::Error::other("injected patch pointer failure"));
+        }
+        StdAtomicWriter.write(destination, contents)
+    }
+}
+
+#[tokio::test]
+async fn failed_patch_pointer_commit_keeps_the_prior_patch_set_authoritative() {
+    let temp = TestDir::new();
+    let root = temp.path().join("profile-store");
+    let id = ProfileId::new();
+    let initial = record_for_repository(id.clone()).await;
+    FileProfileRepository::new(root.clone())
+        .save(&initial)
+        .unwrap();
+    let editor = mish_profile::profile_patch_editor(
+        &initial.metadata.id,
+        &initial.metadata.revision.id,
+        &initial.metadata.artifact.fingerprint,
+        &initial.normalized_bytes,
+        &initial.patches,
+    )
+    .unwrap();
+    let direct = editor
+        .catalog
+        .outbounds
+        .iter()
+        .find(|entity| entity.label == "DIRECT")
+        .unwrap()
+        .id
+        .clone();
+    let mut updated = FileProfileRepository::new(root.clone()).load(&id).unwrap();
+    updated.patches = mish_profile::bind_and_apply_profile_patches(
+        &updated.normalized_bytes,
+        &updated.metadata.revision.id,
+        &updated.metadata.artifact.fingerprint,
+        vec![mish_profile::ProfilePatch {
+            enabled: true,
+            id: uuid::Uuid::new_v4().to_string(),
+            operation: mish_profile::ProfilePatchOperation::RuleInsert {
+                position: RuleInsertPosition::Prefix,
+                rule: StructuredRule::Match { target_id: direct },
+            },
+        }],
+    )
+    .unwrap()
+    .0;
+
+    let repository = FileProfileRepository::with_writer(root.clone(), PatchPointerFailingWriter);
+    assert!(matches!(
+        repository.update(&updated),
+        Err(RepositoryError::AtomicWriteFailed)
+    ));
+    let loaded = FileProfileRepository::new(root).load(&id).unwrap();
+    assert!(loaded.patches.patches.is_empty());
 }
 
 #[tokio::test]

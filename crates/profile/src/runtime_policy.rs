@@ -57,6 +57,7 @@ pub enum ActivationImpact {
 #[serde(rename_all = "kebab-case")]
 pub enum RuntimeLayer {
     Source,
+    UserPatches,
     ApplicationPolicy,
     PlatformIntegration,
     EffectiveRuntime,
@@ -467,6 +468,7 @@ pub fn apply_runtime_policy(
 pub fn runtime_layers() -> Vec<RuntimeLayer> {
     vec![
         RuntimeLayer::Source,
+        RuntimeLayer::UserPatches,
         RuntimeLayer::ApplicationPolicy,
         RuntimeLayer::PlatformIntegration,
         RuntimeLayer::EffectiveRuntime,

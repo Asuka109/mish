@@ -4,12 +4,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
 use crate::{
-    NORMALIZED_ARTIFACT_SCHEMA_VERSION, PROFILE_SCHEMA_VERSION, ProfileId, ProfileMetadata,
-    ProfileRecord, ProfileSource,
+    Fingerprint, NORMALIZED_ARTIFACT_SCHEMA_VERSION, PROFILE_PATCH_SCHEMA_VERSION,
+    PROFILE_SCHEMA_VERSION, ProfileId, ProfileMetadata, ProfilePatchSet, ProfileRecord,
+    ProfileSource,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -18,6 +19,7 @@ pub enum RepositoryComponent {
     SourceDescriptor,
     ImmutableRevision,
     NormalizedArtifact,
+    Patches,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -81,6 +83,12 @@ impl AtomicWriter for StdAtomicWriter {
 pub struct FileProfileRepository<W = StdAtomicWriter> {
     root: PathBuf,
     writer: W,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PatchSetPointer {
+    fingerprint: Fingerprint,
 }
 
 impl FileProfileRepository<StdAtomicWriter> {
@@ -181,6 +189,29 @@ where
         Ok(profiles)
     }
 
+    pub fn list_metadata_with_effective_fingerprints(
+        &self,
+    ) -> Result<Vec<(ProfileMetadata, Fingerprint)>, RepositoryError> {
+        self.list_metadata()?
+            .into_iter()
+            .map(|metadata| {
+                let patches = load_patch_set(&self.profile_path(&metadata.id), &metadata)?;
+                if patches.schema_version != PROFILE_PATCH_SCHEMA_VERSION
+                    || crate::validate_patch_set_shape(&patches).is_err()
+                    || (metadata.status.valid
+                        && !patches
+                            .is_bound_to(&metadata.revision.id, &metadata.artifact.fingerprint))
+                {
+                    return Err(RepositoryError::CorruptData {
+                        component: RepositoryComponent::Patches,
+                    });
+                }
+                let effective_fingerprint = patches.effective_fingerprint;
+                Ok((metadata, effective_fingerprint))
+            })
+            .collect()
+    }
+
     pub fn load(&self, id: &ProfileId) -> Result<ProfileRecord, RepositoryError> {
         if !self.root.is_absolute() {
             return Err(RepositoryError::UnsafeStoragePath);
@@ -221,10 +252,12 @@ where
             )),
             RepositoryComponent::NormalizedArtifact,
         )?;
+        let patches = load_patch_set(&profile_path, &metadata)?;
 
         let record = ProfileRecord {
             metadata,
             normalized_bytes,
+            patches,
             source,
             source_bytes,
         };
@@ -276,6 +309,18 @@ where
                 component: RepositoryComponent::Metadata,
             }
         })?;
+        let patches = serde_json::to_vec_pretty(&record.patches).map_err(|_| {
+            RepositoryError::CorruptData {
+                component: RepositoryComponent::Patches,
+            }
+        })?;
+        let patch_fingerprint = Fingerprint::from_normalized_artifact(&patches);
+        let patch_pointer = serde_json::to_vec_pretty(&PatchSetPointer {
+            fingerprint: patch_fingerprint.clone(),
+        })
+        .map_err(|_| RepositoryError::CorruptData {
+            component: RepositoryComponent::Patches,
+        })?;
         self.write(
             &profile_path.join(format!(
                 "source/revisions/{}.yaml",
@@ -290,7 +335,12 @@ where
             )),
             &record.normalized_bytes,
         )?;
+        self.write(
+            &profile_path.join(format!("patches/sets/{}.json", patch_fingerprint.as_str())),
+            &patches,
+        )?;
         self.write(&profile_path.join("metadata.json"), &metadata)?;
+        self.write(&profile_path.join("patches/index.json"), &patch_pointer)?;
         Ok(())
     }
 
@@ -319,6 +369,38 @@ where
     fn profile_path(&self, id: &ProfileId) -> PathBuf {
         self.profiles_root().join(id.as_str())
     }
+}
+
+fn load_patch_set(
+    profile_path: &Path,
+    metadata: &ProfileMetadata,
+) -> Result<ProfilePatchSet, RepositoryError> {
+    let pointer_path = profile_path.join("patches/index.json");
+    if pointer_path.exists() {
+        let pointer: PatchSetPointer = read_json(&pointer_path, RepositoryComponent::Patches)?;
+        let bytes = read_bytes(
+            &profile_path.join(format!(
+                "patches/sets/{}.json",
+                pointer.fingerprint.as_str()
+            )),
+            RepositoryComponent::Patches,
+        )?;
+        if Fingerprint::from_normalized_artifact(&bytes) != pointer.fingerprint {
+            return Err(RepositoryError::IntegrityMismatch);
+        }
+        return serde_json::from_slice(&bytes).map_err(|_| RepositoryError::CorruptData {
+            component: RepositoryComponent::Patches,
+        });
+    }
+
+    let legacy_path = profile_path.join("patches/patches.json");
+    if legacy_path.exists() {
+        return read_json(&legacy_path, RepositoryComponent::Patches);
+    }
+    Ok(ProfilePatchSet::empty(
+        &metadata.revision.id,
+        &metadata.artifact.fingerprint,
+    ))
 }
 
 fn validate_persisted_metadata(
@@ -396,6 +478,37 @@ fn validate_record(record: &ProfileRecord) -> Result<(), RepositoryError> {
             &record.metadata.revision.id,
             &record.metadata.artifact.fingerprint,
         )
+    {
+        return Err(RepositoryError::IntegrityMismatch);
+    }
+    if record.patches.schema_version != crate::PROFILE_PATCH_SCHEMA_VERSION {
+        return Err(RepositoryError::UnsupportedSchema {
+            expected: crate::PROFILE_PATCH_SCHEMA_VERSION,
+            found: record.patches.schema_version,
+        });
+    }
+    if !record.patches.source_revision.is_canonical()
+        || !record.patches.source_fingerprint.is_canonical()
+        || !record.patches.effective_fingerprint.is_canonical()
+    {
+        return Err(RepositoryError::IntegrityMismatch);
+    }
+    if crate::validate_patch_set_shape(&record.patches).is_err() {
+        return Err(RepositoryError::CorruptData {
+            component: RepositoryComponent::Patches,
+        });
+    }
+    if record.metadata.status.valid
+        && (!record.patches.is_bound_to(
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+        ) || crate::apply_profile_patches(
+            &record.normalized_bytes,
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+            &record.patches,
+        )
+        .is_err())
     {
         return Err(RepositoryError::IntegrityMismatch);
     }

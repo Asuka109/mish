@@ -55,6 +55,7 @@ import type {
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
+import { ProfilePatchEditor } from "../components/profile-patch-editor";
 
 export function ProfilesPage() {
   const { LL, locale } = useI18nContext();
@@ -65,6 +66,7 @@ export function ProfilesPage() {
   const [label, setLabel] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ProfileListItemDto | null>(null);
   const [replacementProfileId, setReplacementProfileId] = useState<string | null>(null);
+  const [patchTarget, setPatchTarget] = useState<ProfileListItemDto | null>(null);
   const dateFormatter = useMemo(
     () => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
     [locale],
@@ -244,6 +246,7 @@ export function ProfilesPage() {
               onActivate={() => activateProfile(profile.id)}
               onCancelActivation={cancelActivation}
               onDelete={() => setDeleteTarget(profile)}
+              onEditPatches={() => setPatchTarget(profile)}
               onRefresh={() => refreshProfile(profile.id)}
               onSchedule={(policy) => setRefreshPolicy(profile.id, policy)}
               profile={profile}
@@ -266,6 +269,16 @@ export function ProfilesPage() {
           snapshot={snapshot.providers}
         />
       ) : null}
+
+      <ProfilePatchEditor
+        canSave={snapshot?.capabilities.patches === "supported"}
+        fixture={snapshot?.adapterKind === "fixture"}
+        onOpenChange={(open) => {
+          if (!open) setPatchTarget(null);
+        }}
+        open={patchTarget !== null}
+        profile={patchTarget}
+      />
 
       <Dialog
         onOpenChange={(open) => (open ? setImportOpen(true) : closeImport())}
@@ -439,6 +452,7 @@ interface ProfileRowProps {
   onActivate(): void;
   onCancelActivation(): void;
   onDelete(): void;
+  onEditPatches(): void;
   onRefresh(): void;
   onSchedule(policy: ProfileRefreshPolicy): void;
   profile: ProfileListItemDto;
@@ -457,6 +471,7 @@ function ProfileRow({
   onActivate,
   onCancelActivation,
   onDelete,
+  onEditPatches,
   onRefresh,
   onSchedule,
   profile,
@@ -583,10 +598,14 @@ function ProfileRow({
         ) : null}
       </div>
       <div className="profile-row-actions">
+        <Button onClick={onEditPatches} variant="outline">
+          {LL.profiles.patches()}
+        </Button>
         <Button
           disabled={
             !activationSupported ||
             profile.status.active ||
+            !profile.status.valid ||
             (activation.phase === "pending" && !activationPending)
           }
           onClick={activationPending ? onCancelActivation : onActivate}
@@ -624,6 +643,7 @@ function ProfileRow({
       <ProfileProvenance
         LL={LL}
         activeFingerprint={activation.activeFingerprint}
+        effectiveFingerprint={profile.effectiveFingerprint}
         isActive={profile.status.active}
         review={profile.runtimeProvenance}
       />
@@ -873,6 +893,7 @@ function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: Pr
 interface ProfileProvenanceProps {
   LL: TranslationFunctions;
   activeFingerprint?: string | null;
+  effectiveFingerprint?: string;
   isActive?: boolean;
   preview?: boolean;
   review: ProfileRuntimeProvenanceDto;
@@ -881,11 +902,13 @@ interface ProfileProvenanceProps {
 function ProfileProvenance({
   LL,
   activeFingerprint,
+  effectiveFingerprint,
   isActive = false,
   preview = false,
   review,
 }: ProfileProvenanceProps) {
-  const revisionMatchesRuntime = !isActive || activeFingerprint === review.artifactFingerprint;
+  const revisionMatchesRuntime =
+    !isActive || activeFingerprint === (effectiveFingerprint ?? review.artifactFingerprint);
   return (
     <details className="profile-provenance" open={preview || undefined}>
       <summary>

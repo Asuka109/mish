@@ -624,7 +624,7 @@ impl MihomoActivationManager {
             previous.source.close().await;
         }
         Ok(ActivationCommit {
-            fingerprint: record.metadata.artifact.fingerprint.as_str().to_owned(),
+            fingerprint: record.effective_fingerprint().as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
             revision: record.metadata.revision.id.as_str().to_owned(),
         })
@@ -681,7 +681,7 @@ impl MihomoActivationManager {
         let home = staging_root.join("home");
         create_private_runtime_directory(&home)?;
         let config_file = staging_root.join("config.yaml");
-        let generated = RuntimeConfigGenerator::generate(&record.normalized_bytes, policy)
+        let generated = RuntimeConfigGenerator::generate_record(record, policy)
             .map_err(|_| MihomoActivationError::InvalidArtifact)?;
         write_private_file(&config_file, &generated)?;
 
@@ -720,7 +720,7 @@ impl MihomoActivationManager {
         ));
         let profile = ProfileMappingContext::new(
             record.metadata.id.as_str(),
-            record.metadata.artifact.fingerprint.as_str(),
+            record.effective_fingerprint().as_str(),
             &record.metadata.label,
         )
         .map_err(|_| MihomoActivationError::InvalidArtifact)?;
@@ -742,7 +742,7 @@ impl MihomoActivationManager {
             self.capture.clone(),
         );
         Ok(ActiveMihomo {
-            fingerprint: record.metadata.artifact.fingerprint.as_str().to_owned(),
+            fingerprint: record.effective_fingerprint().as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
             revision: record.metadata.revision.id.as_str().to_owned(),
             runtime,
@@ -855,6 +855,16 @@ fn validate_activation_record(record: &ProfileRecord) -> Result<(), MihomoActiva
     {
         return Err(MihomoActivationError::InvalidArtifact);
     }
+    let applied = mish_profile::apply_profile_patches(
+        &record.normalized_bytes,
+        &metadata.revision.id,
+        &metadata.artifact.fingerprint,
+        &record.patches,
+    )
+    .map_err(|_| MihomoActivationError::InvalidArtifact)?;
+    if applied.effective_fingerprint != *record.effective_fingerprint() {
+        return Err(MihomoActivationError::InvalidArtifact);
+    }
     Ok(())
 }
 
@@ -902,7 +912,7 @@ fn record_failed_attempt(
     state.last_attempt = Some(ActivationAttempt {
         attempted_at_unix_milliseconds: now_unix_milliseconds(),
         failure: Some(error.failure_kind()),
-        fingerprint: record.metadata.artifact.fingerprint.as_str().to_owned(),
+        fingerprint: record.effective_fingerprint().as_str().to_owned(),
         outcome: ActivationOutcome::Failed,
         profile_id: record.metadata.id.as_str().to_owned(),
     });
@@ -1054,6 +1064,8 @@ pub enum RuntimeConfigGenerationError {
     SerializationFailed,
     #[error("normalized artifact contains an unsafe managed resource path")]
     UnsafeManagedPath,
+    #[error("profile patches could not be applied safely")]
+    InvalidPatches,
 }
 
 pub struct RuntimeConfigGenerator;
@@ -1064,6 +1076,27 @@ pub struct GeneratedRuntimeConfig {
 }
 
 impl RuntimeConfigGenerator {
+    pub fn generate_record(
+        record: &ProfileRecord,
+        policy: &ManagedRuntimePolicy,
+    ) -> Result<Vec<u8>, RuntimeConfigGenerationError> {
+        Ok(Self::generate_record_with_review(record, policy)?.bytes)
+    }
+
+    pub fn generate_record_with_review(
+        record: &ProfileRecord,
+        policy: &ManagedRuntimePolicy,
+    ) -> Result<GeneratedRuntimeConfig, RuntimeConfigGenerationError> {
+        let patched = mish_profile::apply_profile_patches(
+            &record.normalized_bytes,
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+            &record.patches,
+        )
+        .map_err(|_| RuntimeConfigGenerationError::InvalidPatches)?;
+        Self::generate_with_review(&patched.bytes, policy)
+    }
+
     pub fn generate(
         normalized_artifact: &[u8],
         policy: &ManagedRuntimePolicy,

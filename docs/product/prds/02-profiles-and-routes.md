@@ -94,6 +94,14 @@ authority, partial failures remain per-provider, and a fresh inventory is
 required before success is reported. Browser fixtures perform neither
 background refresh nor provider updates.
 
+The P1 structured-patch slice adds a summary-first editor for common rules and
+selector groups. Patches are independently persisted, enabled/disabled,
+reordered, edited, deleted, or reset as one revision-bound validated draft.
+Refresh revalidates without rewriting patch intent; stale or conflicting
+patches block the new revision while the active last-known-valid runtime keeps
+running. Protocol-specific proxy authoring, arbitrary paths, scripts, templates,
+and raw YAML fallback remain outside this slice.
+
 ## Requirements: Profiles
 
 | ID         | Priority | Requirement                                                                                                        | Acceptance criteria                                                                                                                                                                                                       |

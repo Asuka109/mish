@@ -1107,7 +1107,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(9),
+    protocolVersion: z.literal(10),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -1162,6 +1162,7 @@ export const ProfileActivationImpactSchema = z.enum([
 ]);
 export const ProfileRuntimeLayerSchema = z.enum([
   "source",
+  "user-patches",
   "application-policy",
   "platform-integration",
   "effective-runtime",
@@ -1191,6 +1192,7 @@ export const ProfileRuntimeProvenanceSchema = z
     items: z.array(ProfilePolicyClassificationSchema).max(128),
     layers: z.tuple([
       z.literal("source"),
+      z.literal("user-patches"),
       z.literal("application-policy"),
       z.literal("platform-integration"),
       z.literal("effective-runtime"),
@@ -1259,6 +1261,7 @@ export const ProfileRefreshStateSchema = z
 
 export const ProfileListItemSchema = z
   .object({
+    effectiveFingerprint: ProfileFingerprintSchema,
     id: IdentifierSchema,
     label: z.string(),
     lastAttempt: ProfileAttemptSchema.nullable(),
@@ -1287,6 +1290,7 @@ export const ProfileCapabilitiesSchema = z
     deletion: ProfileCapabilityAvailabilitySchema,
     httpsImport: ProfileCapabilityAvailabilitySchema,
     localFileImport: ProfileCapabilityAvailabilitySchema,
+    patches: ProfileCapabilityAvailabilitySchema,
     refresh: ProfileCapabilityAvailabilitySchema,
     scheduling: ProfileCapabilityAvailabilitySchema,
     save: ProfileCapabilityAvailabilitySchema,
@@ -1462,6 +1466,186 @@ export const ProfilePreviewSchema = z
   .strict();
 export interface ProfilePreviewDto extends z.infer<typeof ProfilePreviewSchema> {}
 
+const ProfilePatchEntityIdSchema = ProfileFingerprintSchema;
+export const ProfilePatchAuthoritySchema = z
+  .object({
+    artifactFingerprint: ProfileFingerprintSchema,
+    profileId: IdentifierSchema,
+    sourceRevision: ProfileFingerprintSchema,
+  })
+  .strict();
+export interface ProfilePatchAuthorityDto extends z.infer<typeof ProfilePatchAuthoritySchema> {}
+
+export const ProfilePatchEntityKindSchema = z.enum([
+  "built-in",
+  "policy-group",
+  "proxy",
+  "rule-provider",
+]);
+export const ProfilePatchEntitySchema = z
+  .object({
+    id: ProfilePatchEntityIdSchema,
+    kind: ProfilePatchEntityKindSchema,
+    label: z.string().max(256),
+  })
+  .strict();
+export interface ProfilePatchEntityDto extends z.infer<typeof ProfilePatchEntitySchema> {}
+
+export const ProfilePatchGroupSchema = z
+  .object({
+    id: ProfilePatchEntityIdSchema,
+    label: z.string().max(256),
+    memberIds: z.array(ProfilePatchEntityIdSchema).max(1024),
+    position: NonNegativeIntegerSchema,
+    supported: z.boolean(),
+  })
+  .strict();
+export interface ProfilePatchGroupDto extends z.infer<typeof ProfilePatchGroupSchema> {}
+
+export const ProfilePatchRuleSchema = z
+  .object({
+    id: ProfilePatchEntityIdSchema,
+    position: NonNegativeIntegerSchema,
+    ruleType: z.string().min(1).max(64),
+    target: z.string().min(1).max(256),
+  })
+  .strict();
+export interface ProfilePatchRuleDto extends z.infer<typeof ProfilePatchRuleSchema> {}
+
+export const ProfilePatchCatalogSchema = z
+  .object({
+    groups: z.array(ProfilePatchGroupSchema).max(1024),
+    outbounds: z.array(ProfilePatchEntitySchema).max(2048),
+    ruleProviders: z.array(ProfilePatchEntitySchema).max(1024),
+    rules: z.array(ProfilePatchRuleSchema).max(8192),
+  })
+  .strict();
+export interface ProfilePatchCatalogDto extends z.infer<typeof ProfilePatchCatalogSchema> {}
+
+export const CommonRuleTypeSchema = z.enum([
+  "domain",
+  "domain-suffix",
+  "domain-keyword",
+  "ip-cidr",
+  "ip-cidr6",
+  "geo-ip",
+  "geo-site",
+  "process-name",
+]);
+export type CommonRuleType = z.infer<typeof CommonRuleTypeSchema>;
+
+export const StructuredRuleSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("match"), targetId: ProfilePatchEntityIdSchema }).strict(),
+  z
+    .object({
+      kind: z.literal("rule-set"),
+      noResolve: z.boolean(),
+      providerId: ProfilePatchEntityIdSchema,
+      targetId: ProfilePatchEntityIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("standard"),
+      noResolve: z.boolean(),
+      ruleType: CommonRuleTypeSchema,
+      targetId: ProfilePatchEntityIdSchema,
+      value: z.string().min(1).max(1024),
+    })
+    .strict(),
+]);
+export type StructuredRuleDto = z.infer<typeof StructuredRuleSchema>;
+
+export const ProfilePatchOperationSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("rule-insert"),
+      position: z.enum(["prefix", "suffix"]),
+      rule: StructuredRuleSchema,
+    })
+    .strict(),
+  z.object({ kind: z.literal("rule-disable"), ruleId: ProfilePatchEntityIdSchema }).strict(),
+  z.object({ kind: z.literal("rule-delete"), ruleId: ProfilePatchEntityIdSchema }).strict(),
+  z
+    .object({
+      kind: z.literal("group-add"),
+      label: z.string().min(1).max(256),
+      memberIds: z.array(ProfilePatchEntityIdSchema).min(1).max(1024),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("group-members"),
+      groupId: ProfilePatchEntityIdSchema,
+      memberIds: z.array(ProfilePatchEntityIdSchema).min(1).max(1024),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("group-reorder"),
+      groupIds: z.array(ProfilePatchEntityIdSchema).max(1024),
+    })
+    .strict(),
+]);
+export type ProfilePatchOperationDto = z.infer<typeof ProfilePatchOperationSchema>;
+
+export const ProfilePatchSchema = z
+  .object({
+    enabled: z.boolean(),
+    id: z.uuid(),
+    operation: ProfilePatchOperationSchema,
+  })
+  .strict();
+export interface ProfilePatchDto extends z.infer<typeof ProfilePatchSchema> {}
+
+export const ProfilePatchValidationResultSchema = z.enum(["valid", "stale", "invalid"]);
+export type ProfilePatchValidationResult = z.infer<typeof ProfilePatchValidationResultSchema>;
+export const ProfilePatchValidationCodeSchema = z.enum([
+  "valid",
+  "disabled",
+  "revision-mismatch",
+  "target-missing",
+  "duplicate-target",
+  "duplicate-label",
+  "unsafe-reference",
+  "invalid-value",
+  "invalid-order",
+  "semantic-conflict",
+]);
+export type ProfilePatchValidationCode = z.infer<typeof ProfilePatchValidationCodeSchema>;
+export const ProfilePatchActivationImpactSchema = z.enum([
+  "insert-rule",
+  "exclude-rule",
+  "add-group",
+  "replace-group-members",
+  "reorder-groups",
+  "no-change",
+  "blocks-activation",
+]);
+export const ProfilePatchStatusSchema = z.enum(["enabled", "disabled", "stale", "invalid"]);
+export type ProfilePatchStatus = z.infer<typeof ProfilePatchStatusSchema>;
+export const ProfilePatchViewSchema = ProfilePatchSchema.extend({
+  activationImpact: ProfilePatchActivationImpactSchema,
+  order: NonNegativeIntegerSchema,
+  status: ProfilePatchStatusSchema,
+  target: z.string().min(1).max(512),
+  validationCode: ProfilePatchValidationCodeSchema,
+  validationResult: ProfilePatchValidationResultSchema,
+}).strict();
+export interface ProfilePatchViewDto extends z.infer<typeof ProfilePatchViewSchema> {}
+
+export const ProfilePatchEditorSchema = z
+  .object({
+    activationBlocked: z.boolean(),
+    authority: ProfilePatchAuthoritySchema,
+    catalog: ProfilePatchCatalogSchema,
+    effectiveFingerprint: ProfileFingerprintSchema,
+    patches: z.array(ProfilePatchViewSchema).max(128),
+    schemaVersion: z.literal(1),
+  })
+  .strict();
+export interface ProfilePatchEditorDto extends z.infer<typeof ProfilePatchEditorSchema> {}
+
 export const ProfilePreflightHttpsCommandSchema = z
   .object({ label: z.string().optional(), url: z.string().min(1).max(8192) })
   .strict();
@@ -1469,6 +1653,13 @@ export const ProfileSaveCommandSchema = z.object({ previewId: IdentifierSchema }
 export const ProfileIdCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
 export const ProfileRefreshPolicyCommandSchema = z
   .object({ profileId: IdentifierSchema, policy: ProfileRefreshPolicySchema })
+  .strict();
+export const ProfileReplacePatchesCommandSchema = z
+  .object({
+    authority: ProfilePatchAuthoritySchema,
+    patches: z.array(ProfilePatchSchema).max(128),
+    schemaVersion: z.literal(1),
+  })
   .strict();
 export const UpdateProviderCommandSchema = z
   .object({ authority: ProviderAuthoritySchema, providerId: IdentifierSchema })
@@ -1567,11 +1758,19 @@ export const profileRpcMethods = {
   },
   "profiles.delete": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.getSnapshot": { params: EmptyCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.getPatches": {
+    params: ProfilePatchAuthoritySchema,
+    result: ProfilePatchEditorSchema,
+  },
   "profiles.preflightHttps": {
     params: ProfilePreflightHttpsCommandSchema,
     result: ProfilePreviewSchema,
   },
   "profiles.refresh": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.replacePatches": {
+    params: ProfileReplacePatchesCommandSchema,
+    result: ProfilePatchEditorSchema,
+  },
   "profiles.setRefreshPolicy": {
     params: ProfileRefreshPolicyCommandSchema,
     result: RpcProfileSnapshotSchema,
@@ -1900,6 +2099,10 @@ export interface ProfileClient {
   dispose(): void;
   getConnectionState(): ProfileConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  getPatches(
+    authority: ProfilePatchAuthorityDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfilePatchEditorDto>;
   preflightHttps(
     url: string,
     label?: string,
@@ -1910,6 +2113,11 @@ export interface ProfileClient {
     profileId: string,
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto>;
+  replacePatches(
+    authority: ProfilePatchAuthorityDto,
+    patches: ProfilePatchDto[],
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfilePatchEditorDto>;
   setRefreshPolicy(
     profileId: string,
     policy: ProfileRefreshPolicy,

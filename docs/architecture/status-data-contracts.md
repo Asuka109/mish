@@ -120,6 +120,8 @@ while preserving the Status and Traffic ordering barriers. Protocol version 7
 adds the independent Guided Diagnostics command and history contract without
 changing Status subscriptions. Protocol version 9 adds the independent Profile
 refresh-policy and runtime-provider contracts without changing Status
+subscriptions. Protocol version 10 adds revision-bound structured Profile patch
+commands and the User patches provenance layer without changing Status
 subscriptions.
 
 Profile activation has an independent typed snapshot with idle, pending,

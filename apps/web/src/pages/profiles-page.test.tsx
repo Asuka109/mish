@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
 import type {
   ProfileClient,
+  ProfilePatchEditorDto,
   ProfilePreviewDto,
   ProfileRuntimeProvenanceDto,
   ProfileSnapshotDto,
@@ -39,7 +40,13 @@ const runtimeProvenance = {
       sourcePresent: true,
     },
   ],
-  layers: ["source", "application-policy", "platform-integration", "effective-runtime"],
+  layers: [
+    "source",
+    "user-patches",
+    "application-policy",
+    "platform-integration",
+    "effective-runtime",
+  ],
   sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   unknownKeyCount: 0,
 } satisfies ProfileRuntimeProvenanceDto;
@@ -84,12 +91,14 @@ function desktopSnapshot(): ProfileSnapshotDto {
       deletion: "supported",
       httpsImport: "supported",
       localFileImport: "permission-required",
+      patches: "supported",
       refresh: "supported",
       scheduling: "supported",
       save: "supported",
     },
     profiles: [
       {
+        effectiveFingerprint: runtimeProvenance.artifactFingerprint,
         id: "profile-inactive",
         label: "Fictional profile",
         lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
@@ -115,6 +124,7 @@ function desktopSnapshot(): ProfileSnapshotDto {
         warningCodes: ["source-formatting-not-round-tripped"],
       },
       {
+        effectiveFingerprint: runtimeProvenance.artifactFingerprint,
         id: "profile-active",
         label: "Active fictional profile",
         lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
@@ -203,10 +213,12 @@ function createDesktopClient() {
     deleteProfile: vi.fn(async () => snapshot),
     dispose: vi.fn(),
     getConnectionState: vi.fn(() => ({ attempt: 0, phase: "connected" as const, stale: false })),
+    getPatches: vi.fn(async (authority) => emptyPatchEditor(authority)),
     getSnapshot: vi.fn(async () => snapshot),
     preflightHttps: vi.fn(async () => preview),
     preflightLocal: vi.fn(async () => ({ ...preview, sourceType: "local-file" as const })),
     refreshProfile: vi.fn(async () => snapshot),
+    replacePatches: vi.fn(async (authority) => emptyPatchEditor(authority)),
     setRefreshPolicy: vi.fn(async () => snapshot),
     savePreview: vi.fn(async () => snapshot),
     stopActiveProfile: vi.fn(async () => snapshot.activation),
@@ -229,6 +241,57 @@ function createDesktopClient() {
     subscribeConnection: vi.fn(() => () => undefined),
     subscribeSnapshots: vi.fn(() => () => undefined),
   } satisfies ProfileClient;
+}
+
+function emptyPatchEditor(
+  authority: Parameters<ProfileClient["getPatches"]>[0],
+): ProfilePatchEditorDto {
+  return {
+    activationBlocked: false,
+    authority,
+    catalog: { groups: [], outbounds: [], ruleProviders: [], rules: [] },
+    effectiveFingerprint: authority.artifactFingerprint,
+    patches: [],
+    schemaVersion: 1 as const,
+  };
+}
+
+function populatedPatchEditor(
+  authority: Parameters<ProfileClient["getPatches"]>[0],
+): ProfilePatchEditorDto {
+  const outboundId = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  return {
+    ...emptyPatchEditor(authority),
+    catalog: {
+      groups: [],
+      outbounds: [{ id: outboundId, kind: "built-in", label: "DIRECT" }],
+      ruleProviders: [],
+      rules: [],
+    },
+    patches: [
+      {
+        activationImpact: "insert-rule",
+        enabled: true,
+        id: "11111111-1111-4111-8111-111111111111",
+        operation: {
+          kind: "rule-insert",
+          position: "prefix",
+          rule: {
+            kind: "standard",
+            noResolve: false,
+            ruleType: "domain-suffix",
+            targetId: outboundId,
+            value: "fictional.example",
+          },
+        },
+        order: 0,
+        status: "enabled",
+        target: "Rules · prefix",
+        validationCode: "valid",
+        validationResult: "valid",
+      },
+    ],
+  };
 }
 
 function renderProfiles(client?: ProfileClient) {
@@ -316,7 +379,7 @@ describe("profiles page", () => {
     const dialog = screen.getByRole("dialog");
     expect(
       within(dialog).getByText(
-        "Source → Application policy → Platform integration → Effective runtime",
+        "Source → User patches → Application policy → Platform integration → Effective runtime",
       ),
     ).toBeVisible();
     expect(client.preflightHttps).toHaveBeenCalledWith(rawUrl, undefined);
@@ -327,6 +390,32 @@ describe("profiles page", () => {
     await user.click(screen.getByRole("button", { name: "Save profile" }));
     await waitFor(() => expect(client.savePreview).toHaveBeenCalledWith("preview-fictitious"));
     expect(screen.queryByText("Ready to save")).not.toBeInTheDocument();
+  });
+
+  it("keeps fictional patch edits local and protects unsaved changes", async () => {
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 560 });
+    renderProfiles();
+    await screen.findByText("Studio route set");
+
+    await user.click(screen.getByRole("button", { name: "Structured patches" }));
+    const dialog = await screen.findByRole("dialog", { name: "Patches for Studio route set" });
+    expect(within(dialog).getByText(/Illustrative browser fixture only/)).toBeVisible();
+    expect(within(dialog).getByText("Insert rule")).toBeVisible();
+    expect(within(dialog).getByRole("button", { name: "Save patches" })).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Disable" }));
+    expect(within(dialog).getByText("Unsaved changes")).toBeVisible();
+    await user.click(within(dialog).getAllByRole("button", { name: "Close" })[0]);
+    const confirmation = await screen.findByRole("alertdialog");
+    expect(within(confirmation).getByText("Discard unsaved patch changes?")).toBeVisible();
+    await user.click(within(confirmation).getByRole("button", { name: "Discard changes" }));
+    expect(
+      screen.queryByRole("dialog", { name: "Patches for Studio route set" }),
+    ).not.toBeInTheDocument();
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
   });
 
   it("uses the native local preflight boundary and protects active deletion", async () => {
@@ -356,6 +445,35 @@ describe("profiles page", () => {
     expect(within(dialog).getByText("Delete Fictional profile?")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
     expect(client.deleteProfile).toHaveBeenCalledWith("profile-inactive");
+  });
+
+  it("validates and saves the complete patch draft through revision authority", async () => {
+    const user = userEvent.setup();
+    const client = createDesktopClient();
+    client.getPatches.mockImplementation(async (authority) => populatedPatchEditor(authority));
+    client.replacePatches.mockImplementation(async (authority) => emptyPatchEditor(authority));
+    renderProfiles(client);
+    await screen.findByText("Fictional profile");
+
+    await user.click(screen.getAllByRole("button", { name: "Structured patches" })[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Patches for Fictional profile" });
+    await user.click(within(dialog).getByRole("button", { name: "Disable" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save patches" }));
+
+    await waitFor(() => expect(client.replacePatches).toHaveBeenCalledOnce());
+    expect(client.replacePatches).toHaveBeenCalledWith(
+      {
+        artifactFingerprint: runtimeProvenance.artifactFingerprint,
+        profileId: "profile-inactive",
+        sourceRevision: runtimeProvenance.sourceRevision,
+      },
+      [
+        expect.objectContaining({
+          enabled: false,
+          id: "11111111-1111-4111-8111-111111111111",
+        }),
+      ],
+    );
   });
 
   it("shows the fixed automatic refresh boundary only for HTTPS sources", async () => {

@@ -51,7 +51,7 @@ traffic capture.
 | Profile lifecycle | Validate, activate, reactivate, update, last-known-good rollback, delete, reorder, bounded batch actions | Profiles: explicit commands with pending/result state | P0 lifecycle; P1 scheduling and batch |
 | Portable configuration preflight | Counts, unsupported keys, absolute paths, listener conflicts, capture settings, secrets | Profiles: review step before first activation | P0 |
 | Effective runtime inspector | Final YAML plus source, patch, app, and platform provenance | Profiles summary and Events diagnostics: read-only, redacted inspector | P1 |
-| Structured source patches | Common proxies, groups, and rules; ordered prefix/suffix insertion; raw fallback | Profiles: object-specific patch editors, never silent source rewriting | P1 common rules/groups; later protocol authoring |
+| Structured source patches | Common groups and rules; ordered prefix/suffix insertion; no P1 raw fallback | Profiles: object-specific patch editors, never silent source rewriting | P1 common rules/groups; later proxy protocol authoring |
 | Merge and script transforms | Global or profile-scoped YAML merge and JavaScript transform | Profiles: expert transformation pipeline with preview and rollback | Later |
 | Policy-group tree | Selector and core-supported strategy groups, nested children, current selection, hidden groups | Routes: expandable group-owned tree | P0 |
 | Group tools | Current child, configuration/latency/name sorting, text filter, node detail toggle, group-scoped fixed delay policy | Routes: group-local toolbar, not a page-global toolbar | P0 filter/sort/test; P1 custom probe policy |
@@ -108,8 +108,8 @@ Profiles lifecycle with fixed opt-in intervals and persisted backoff.
   activation expose scope, progress, timestamp, and typed failure.
 - Source editing, patches, app policy, platform integration, and final runtime
   are visually distinct even when all are represented as YAML internally.
-- Dense expert forms use summaries, sections, validation, and raw fallback;
-  they are not reproduced as one long modal.
+- Dense expert forms use summaries, sections, and validation. Raw fallback is
+  not part of the P1 structured-patch surface.
 - Private competitor references and live configuration files remain outside
   version control. Product documents record only generalized observations.
 
