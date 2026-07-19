@@ -8,6 +8,7 @@ import {
 
 const fixtureSnapshot = {
   activation: {
+    activeFingerprint: null,
     activeProfileId: null,
     attemptedAt: null,
     availability: "unavailable",
@@ -43,6 +44,39 @@ const fixtureSnapshot = {
         updating: false,
         valid: true,
         warning: true,
+      },
+      runtimeProvenance: {
+        artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        authority: "illustrative-browser-fixture",
+        items: [
+          {
+            activationImpact: "preserved-in-effective-runtime",
+            disposition: "preserved",
+            fieldIdentity: "rules",
+            owner: "source",
+            reason: "portable-source-policy",
+            sourcePresent: true,
+          },
+          {
+            activationImpact: "replaced-by-application-value",
+            disposition: "application-overridden",
+            fieldIdentity: "mixed-port",
+            owner: "application-policy",
+            reason: "managed-proxy-ingress",
+            sourcePresent: true,
+          },
+          {
+            activationImpact: "forced-off",
+            disposition: "disabled",
+            fieldIdentity: "tun.enable",
+            owner: "platform-integration",
+            reason: "capture-requires-explicit-permission",
+            sourcePresent: true,
+          },
+        ],
+        layers: ["source", "application-policy", "platform-integration", "effective-runtime"],
+        sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        unknownKeyCount: 0,
       },
       warningCodes: ["source-formatting-not-round-tripped"],
     },

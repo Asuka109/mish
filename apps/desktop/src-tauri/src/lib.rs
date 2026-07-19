@@ -40,6 +40,7 @@ struct ProfileState(Arc<DesktopProfileService>);
 #[serde(rename_all = "camelCase")]
 struct ProfileCommandError {
     code: &'static str,
+    field_identity: Option<&'static str>,
     message: &'static str,
 }
 
@@ -62,6 +63,7 @@ async fn profile_preflight_local(
     .await
     .map_err(|_| ProfileCommandError {
         code: "dialog-unavailable",
+        field_identity: None,
         message: "The native file picker is unavailable",
     })?;
     let Some(path) = selected else {
@@ -205,20 +207,34 @@ fn ephemeral_runtime_policy()
 
 fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
     match error {
+        ProfileServiceError::Import(mish_profile::ImportError::UnsafeDeviceIntegration {
+            field_identity,
+        })
+        | ProfileServiceError::Import(mish_profile::ImportError::UnsafeProviderPath {
+            field_identity,
+        }) => ProfileCommandError {
+            code: "validation-failed",
+            field_identity: Some(field_identity),
+            message: "Profile validation failed",
+        },
         ProfileServiceError::Import(_) => ProfileCommandError {
             code: "validation-failed",
+            field_identity: None,
             message: "Profile validation failed",
         },
         ProfileServiceError::Repository(_) => ProfileCommandError {
             code: "storage-failed",
+            field_identity: None,
             message: "Profile storage operation failed",
         },
         ProfileServiceError::PreviewNotFound => ProfileCommandError {
             code: "preview-not-found",
+            field_identity: None,
             message: "Profile preflight was not found",
         },
         ProfileServiceError::ActiveProfileDeletionDisabled => ProfileCommandError {
             code: "activation-required",
+            field_identity: None,
             message: "Active profiles cannot be deleted until transactional activation is available",
         },
     }

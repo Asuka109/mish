@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use url::Url;
 use uuid::Uuid;
 
-pub const PROFILE_SCHEMA_VERSION: u32 = 1;
+pub const PROFILE_SCHEMA_VERSION: u32 = 2;
 pub const NORMALIZED_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
@@ -46,7 +46,7 @@ impl Default for ProfileId {
 #[error("profile ID is not a canonical UUID")]
 pub struct ProfileIdError;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct RevisionId(String);
 
@@ -64,7 +64,7 @@ impl RevisionId {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Fingerprint(String);
 
@@ -397,6 +397,8 @@ pub struct ProfileMetadata {
     pub last_success: Option<ProfileSuccess>,
     pub provenance: Provenance,
     pub revision: ImmutableRevision,
+    #[serde(default)]
+    pub runtime_provenance: crate::RuntimeProvenanceReview,
     pub schema_version: u32,
     pub status: ProfileStatus,
     pub validation: ValidationResult,

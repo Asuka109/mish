@@ -69,6 +69,7 @@ pub enum ProfileStartupPolicy {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileActivationSnapshot {
+    pub active_fingerprint: Option<String>,
     pub active_profile_id: Option<String>,
     pub attempted_at: Option<u64>,
     pub availability: ProfileActivationAvailability,
@@ -104,6 +105,7 @@ impl ManagedProfileSnapshot {
 impl ProfileActivationSnapshot {
     pub fn unavailable() -> Self {
         Self {
+            active_fingerprint: None,
             active_profile_id: None,
             attempted_at: None,
             availability: ProfileActivationAvailability::Unavailable,
@@ -177,6 +179,7 @@ impl ProfileActivationCoordinator {
             state: Mutex::new(CoordinatorState {
                 cancellation: None,
                 snapshot: ProfileActivationSnapshot {
+                    active_fingerprint: None,
                     active_profile_id: None,
                     attempted_at: None,
                     availability,
@@ -360,6 +363,7 @@ impl ProfileActivationCoordinator {
         let mut state = self.state.lock().await;
         state.cancellation = None;
         state.snapshot.active_profile_id = None;
+        state.snapshot.active_fingerprint = None;
         state.snapshot.safe_stopped = true;
         Ok(())
     }
@@ -386,6 +390,7 @@ impl ProfileActivationCoordinator {
                 };
                 self.host.replace(runtime);
                 self.manager.complete_runtime_handoff().await;
+                state.snapshot.active_fingerprint = Some(commit.fingerprint().to_owned());
                 state.snapshot.active_profile_id = Some(commit.profile_id().to_owned());
                 state.snapshot.failure = None;
                 state.snapshot.phase = ProfileActivationPhase::Success;
@@ -398,6 +403,7 @@ impl ProfileActivationCoordinator {
                     self.host.replace(runtime);
                 }
                 self.manager.complete_runtime_handoff().await;
+                state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
                 state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
                 state.snapshot.failure = Some(map_failure(error));
                 state.snapshot.phase = ProfileActivationPhase::Failure;
@@ -417,6 +423,7 @@ impl ProfileActivationCoordinator {
         match result {
             Ok(()) => {
                 self.host.replace(self.safe_runtime.clone());
+                state.snapshot.active_fingerprint = None;
                 state.snapshot.active_profile_id = None;
                 state.snapshot.failure = None;
                 state.snapshot.phase = ProfileActivationPhase::Success;
@@ -428,6 +435,7 @@ impl ProfileActivationCoordinator {
                 } else if let Some(runtime) = active_runtime {
                     self.host.replace(runtime);
                 }
+                state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
                 state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
                 state.snapshot.failure = Some(map_failure(error));
                 state.snapshot.phase = ProfileActivationPhase::Failure;

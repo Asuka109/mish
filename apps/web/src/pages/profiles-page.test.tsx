@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
-import type { ProfileClient, ProfilePreviewDto, ProfileSnapshotDto } from "@mish/contracts";
+import type {
+  ProfileClient,
+  ProfilePreviewDto,
+  ProfileRuntimeProvenanceDto,
+  ProfileSnapshotDto,
+} from "@mish/contracts";
 import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
 import { ProfileProvider } from "../data/profile-provider";
@@ -13,13 +18,46 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
+const runtimeProvenance = {
+  artifactFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  authority: "desktop-policy",
+  items: [
+    {
+      activationImpact: "preserved-in-effective-runtime",
+      disposition: "preserved",
+      fieldIdentity: "rules",
+      owner: "source",
+      reason: "portable-source-policy",
+      sourcePresent: true,
+    },
+    {
+      activationImpact: "replaced-by-application-value",
+      disposition: "application-overridden",
+      fieldIdentity: "mixed-port",
+      owner: "application-policy",
+      reason: "managed-proxy-ingress",
+      sourcePresent: true,
+    },
+  ],
+  layers: ["source", "application-policy", "platform-integration", "effective-runtime"],
+  sourceRevision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  unknownKeyCount: 0,
+} satisfies ProfileRuntimeProvenanceDto;
+
 const preview = {
-  classificationCounts: { disabled: 1, overridden: 2, preserved: 3, rejected: 0 },
+  classificationCounts: {
+    applicationOverridden: 1,
+    disabled: 1,
+    platformOverridden: 1,
+    preserved: 3,
+    rejected: 0,
+  },
   groupCount: 4,
-  label: "Fictional profile",
+  label: "虚构配置 🛰️",
   previewId: "preview-fictitious",
   proxyCount: 12,
   ruleCount: 24,
+  runtimeProvenance,
   sensitiveDataNotice: "source-and-configuration-contain-sensitive-data",
   sourceType: "https",
   warningCodes: ["sensitive-data-present"],
@@ -28,6 +66,7 @@ const preview = {
 function desktopSnapshot(): ProfileSnapshotDto {
   return {
     activation: {
+      activeFingerprint: runtimeProvenance.artifactFingerprint,
       activeProfileId: "profile-active",
       attemptedAt: 1,
       availability: "available",
@@ -64,6 +103,7 @@ function desktopSnapshot(): ProfileSnapshotDto {
           valid: true,
           warning: true,
         },
+        runtimeProvenance,
         warningCodes: ["source-formatting-not-round-tripped"],
       },
       {
@@ -81,6 +121,7 @@ function desktopSnapshot(): ProfileSnapshotDto {
           valid: true,
           warning: false,
         },
+        runtimeProvenance,
         warningCodes: [],
       },
     ],
@@ -142,6 +183,39 @@ describe("profiles page", () => {
     expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
   });
 
+  it("opens the fictional provenance detail from the keyboard without claiming desktop validation", async () => {
+    const user = userEvent.setup();
+    renderProfiles();
+    await screen.findByText("Studio route set");
+
+    const summary = screen.getByText("Runtime-layer provenance").closest("summary");
+    expect(summary).not.toBeNull();
+    summary?.focus();
+    expect(summary).toHaveFocus();
+    await user.click(summary!);
+
+    expect(screen.getByText("Illustrative browser fixture — not desktop validation")).toBeVisible();
+    expect(screen.getByText("mixed-port")).toBeVisible();
+    expect(document.body.textContent).not.toContain("source-secret");
+  });
+
+  it("keeps provenance review operable in a narrow window", async () => {
+    const user = userEvent.setup();
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 560 });
+    window.dispatchEvent(new Event("resize"));
+    renderProfiles();
+    await screen.findByText("Studio route set");
+
+    const summary = screen.getByText("Runtime-layer provenance").closest("summary");
+    await user.click(summary!);
+    expect(screen.getByText("tun.enable")).toBeVisible();
+    expect(screen.getByText(/Forced off before activation/)).toBeVisible();
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+    window.dispatchEvent(new Event("resize"));
+  });
+
   it("preflights and saves HTTPS input without rendering the raw tokenized URL", async () => {
     const user = userEvent.setup();
     const client = createDesktopClient();
@@ -156,6 +230,13 @@ describe("profiles page", () => {
     await user.click(screen.getByRole("button", { name: "Preview" }));
 
     expect(await screen.findByText("Ready to save")).toBeInTheDocument();
+    expect(screen.getByText("虚构配置 🛰️")).toBeVisible();
+    const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getByText(
+        "Source → Application policy → Platform integration → Effective runtime",
+      ),
+    ).toBeVisible();
     expect(client.preflightHttps).toHaveBeenCalledWith(rawUrl, undefined);
     expect(screen.queryByDisplayValue(rawUrl)).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("private-token");

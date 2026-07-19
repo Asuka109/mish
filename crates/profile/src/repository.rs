@@ -169,10 +169,11 @@ where
                 component: RepositoryComponent::Metadata,
             })?;
             reject_symlinks_between(&self.root, &entry.path())?;
-            let metadata: ProfileMetadata = read_json(
+            let mut metadata: ProfileMetadata = read_json(
                 &entry.path().join("metadata.json"),
                 RepositoryComponent::Metadata,
             )?;
+            migrate_legacy_metadata(&mut metadata);
             validate_persisted_metadata(&metadata, &id)?;
             profiles.push(metadata);
         }
@@ -190,10 +191,11 @@ where
         }
         reject_symlinks_between(&self.root, &profile_path)?;
 
-        let metadata: ProfileMetadata = read_json(
+        let mut metadata: ProfileMetadata = read_json(
             &profile_path.join("metadata.json"),
             RepositoryComponent::Metadata,
         )?;
+        migrate_legacy_metadata(&mut metadata);
         validate_persisted_metadata(&metadata, id)?;
 
         let source: ProfileSource = read_json(
@@ -348,7 +350,22 @@ fn validate_persisted_metadata(
             component: RepositoryComponent::Metadata,
         });
     }
+    if !metadata
+        .runtime_provenance
+        .is_bound_to(&metadata.revision.id, &metadata.artifact.fingerprint)
+    {
+        return Err(RepositoryError::IntegrityMismatch);
+    }
     Ok(())
+}
+
+fn migrate_legacy_metadata(metadata: &mut ProfileMetadata) {
+    if metadata.schema_version != 1 {
+        return;
+    }
+    metadata.runtime_provenance =
+        crate::migrated_runtime_provenance(&metadata.revision.id, &metadata.artifact.fingerprint);
+    metadata.schema_version = PROFILE_SCHEMA_VERSION;
 }
 
 fn validate_record(record: &ProfileRecord) -> Result<(), RepositoryError> {
@@ -375,6 +392,10 @@ fn validate_record(record: &ProfileRecord) -> Result<(), RepositoryError> {
         || crate::Fingerprint::from_normalized_artifact(&record.normalized_bytes)
             != record.metadata.artifact.fingerprint
         || record.metadata.artifact.revision_id != record.metadata.revision.id
+        || !record.metadata.runtime_provenance.is_bound_to(
+            &record.metadata.revision.id,
+            &record.metadata.artifact.fingerprint,
+        )
     {
         return Err(RepositoryError::IntegrityMismatch);
     }

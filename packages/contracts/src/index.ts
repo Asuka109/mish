@@ -765,6 +765,88 @@ export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
 export const ProfileSourceTypeSchema = z.enum(["local-file", "https"]);
 export type ProfileSourceType = z.infer<typeof ProfileSourceTypeSchema>;
 
+const ProfileFingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+const ProfileFieldIdentitySchema = z.string().regex(/^[a-z0-9.*-]{1,120}$/u);
+
+export const ProfilePolicyOwnerSchema = z.enum([
+  "source",
+  "application-policy",
+  "platform-integration",
+]);
+export const ProfilePolicyDispositionSchema = z.enum([
+  "preserved",
+  "application-overridden",
+  "platform-overridden",
+  "disabled",
+  "rejected",
+]);
+export const ProfilePolicyReasonSchema = z.enum([
+  "portable-source-policy",
+  "unknown-key-preserved",
+  "managed-proxy-ingress",
+  "loopback-only-binding",
+  "private-controller",
+  "managed-runtime-behavior",
+  "capture-requires-explicit-permission",
+  "passive-inspection-only",
+  "runtime-persistence-disabled",
+  "dns-integration-managed",
+  "external-surface-disabled",
+  "device-integration-unsafe",
+  "provider-path-unsafe",
+  "relative-provider-path",
+]);
+export const ProfileActivationImpactSchema = z.enum([
+  "preserved-in-effective-runtime",
+  "replaced-by-application-value",
+  "replaced-by-platform-value",
+  "forced-off",
+  "blocks-import",
+  "excluded-from-effective-runtime",
+]);
+export const ProfileRuntimeLayerSchema = z.enum([
+  "source",
+  "application-policy",
+  "platform-integration",
+  "effective-runtime",
+]);
+export const ProfilePolicyClassificationSchema = z
+  .object({
+    activationImpact: ProfileActivationImpactSchema,
+    disposition: ProfilePolicyDispositionSchema,
+    fieldIdentity: ProfileFieldIdentitySchema,
+    owner: ProfilePolicyOwnerSchema,
+    reason: ProfilePolicyReasonSchema,
+    sourcePresent: z.boolean(),
+  })
+  .strict();
+export interface ProfilePolicyClassificationDto extends z.infer<
+  typeof ProfilePolicyClassificationSchema
+> {}
+
+export const ProfileRuntimeProvenanceSchema = z
+  .object({
+    artifactFingerprint: ProfileFingerprintSchema,
+    authority: z.enum([
+      "desktop-policy",
+      "illustrative-browser-fixture",
+      "migrated-legacy-baseline",
+    ]),
+    items: z.array(ProfilePolicyClassificationSchema).max(128),
+    layers: z.tuple([
+      z.literal("source"),
+      z.literal("application-policy"),
+      z.literal("platform-integration"),
+      z.literal("effective-runtime"),
+    ]),
+    sourceRevision: ProfileFingerprintSchema,
+    unknownKeyCount: NonNegativeIntegerSchema,
+  })
+  .strict();
+export interface ProfileRuntimeProvenanceDto extends z.infer<
+  typeof ProfileRuntimeProvenanceSchema
+> {}
+
 export const ProfileValidationIssueCodeSchema = z.enum([
   "source-formatting-not-round-tripped",
   "unknown-keys-preserved",
@@ -809,6 +891,7 @@ export const ProfileListItemSchema = z
     lastSuccessAt: NonNegativeIntegerSchema.nullable(),
     source: ProfileSourceSummarySchema,
     status: ProfileStatusFlagsSchema,
+    runtimeProvenance: ProfileRuntimeProvenanceSchema,
     warningCodes: z.array(ProfileValidationIssueCodeSchema),
   })
   .strict();
@@ -866,6 +949,7 @@ export type ProfileActivationFailure = z.infer<typeof ProfileActivationFailureSc
 
 export const ProfileActivationSnapshotSchema = z
   .object({
+    activeFingerprint: ProfileFingerprintSchema.nullable(),
     activeProfileId: IdentifierSchema.nullable(),
     attemptedAt: NonNegativeIntegerSchema.nullable(),
     availability: ProfileActivationAvailabilitySchema,
@@ -908,8 +992,9 @@ export const ProfilePreviewSchema = z
   .object({
     classificationCounts: z
       .object({
+        applicationOverridden: NonNegativeIntegerSchema,
         disabled: NonNegativeIntegerSchema,
-        overridden: NonNegativeIntegerSchema,
+        platformOverridden: NonNegativeIntegerSchema,
         preserved: NonNegativeIntegerSchema,
         rejected: NonNegativeIntegerSchema,
       })
@@ -919,6 +1004,7 @@ export const ProfilePreviewSchema = z
     previewId: IdentifierSchema,
     proxyCount: NonNegativeIntegerSchema,
     ruleCount: NonNegativeIntegerSchema,
+    runtimeProvenance: ProfileRuntimeProvenanceSchema,
     sensitiveDataNotice: ProfileSensitiveDataNoticeSchema,
     sourceType: ProfileSourceTypeSchema,
     warningCodes: z.array(ProfileValidationIssueCodeSchema),

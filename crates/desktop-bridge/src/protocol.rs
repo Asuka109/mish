@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
-use mish_profile::{ProfileServiceError, RepositoryError};
+use mish_profile::{ImportError, ProfileServiceError, RepositoryError};
 use mish_runtime::{
     CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
     CoreErrorKind, CoreStatus, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
@@ -928,6 +928,28 @@ fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {
             "Active profiles cannot be deleted until transactional activation is available",
             None,
         ),
+        ProfileServiceError::Import(ImportError::UnsafeDeviceIntegration { field_identity }) => {
+            error_response(
+                id,
+                -32040,
+                "Profile validation failed",
+                Some(json!({
+                    "fieldIdentity": field_identity,
+                    "kind": "unsafe-device-integration"
+                })),
+            )
+        }
+        ProfileServiceError::Import(ImportError::UnsafeProviderPath { field_identity }) => {
+            error_response(
+                id,
+                -32040,
+                "Profile validation failed",
+                Some(json!({
+                    "fieldIdentity": field_identity,
+                    "kind": "unsafe-provider-path"
+                })),
+            )
+        }
         ProfileServiceError::Import(_) => {
             error_response(id, -32040, "Profile validation failed", None)
         }

@@ -11,9 +11,9 @@ mod server;
 
 pub use activation::{
     ActivationAttempt, ActivationCommit, ActivationFailureKind, ActivationOutcome,
-    ActivationTiming, ManagedActivationState, ManagedMihomoResolver, ManagedRuntimePolicy,
-    MihomoActivationError, MihomoActivationManager, MihomoResolveError, ResolvedManagedMihomo,
-    RuntimeConfigGenerationError, RuntimeConfigGenerator,
+    ActivationTiming, GeneratedRuntimeConfig, ManagedActivationState, ManagedMihomoResolver,
+    ManagedRuntimePolicy, MihomoActivationError, MihomoActivationManager, MihomoResolveError,
+    ResolvedManagedMihomo, RuntimeConfigGenerationError, RuntimeConfigGenerator,
 };
 pub use controller_source::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,

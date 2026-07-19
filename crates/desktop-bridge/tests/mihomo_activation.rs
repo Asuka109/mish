@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::PathBuf,
     sync::Arc,
@@ -45,6 +46,19 @@ mixed-port: 7890
 allow-lan: true
 bind-address: 0.0.0.0
 external-controller: 0.0.0.0:9999
+external-controller-tls: 0.0.0.0:9443
+external-controller-unix: /private/controller.sock
+external-controller-pipe: private-pipe
+external-controller-cors:
+  allow-origins: ['*']
+external-ui: /private/ui
+external-ui-name: private-ui
+external-ui-url: https://private.invalid/ui.zip
+external-doh-server: https://private.invalid/dns-query
+authentication: [private:credential]
+skip-auth-prefixes: [192.0.2.0/24]
+lan-allowed-ips: [192.0.2.1]
+lan-disallowed-ips: [192.0.2.2]
 secret: source-secret
 log-level: debug
 mode: global
@@ -57,6 +71,11 @@ sniffer:
 profile:
   store-selected: true
   store-fake-ip: true
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+interface-name: private-interface
+routing-mark: 1234
 proxies:
   - name: synthetic-node
     type: direct
@@ -69,8 +88,8 @@ rules:
     )
     .unwrap();
 
-    let generated = RuntimeConfigGenerator::generate(normalized, &policy).unwrap();
-    let document: Value = serde_norway::from_slice(&generated).unwrap();
+    let generated = RuntimeConfigGenerator::generate_with_review(normalized, &policy).unwrap();
+    let document: Value = serde_norway::from_slice(&generated.bytes).unwrap();
     let root = document.as_mapping().unwrap();
 
     assert_eq!(root["port"].as_i64(), Some(0));
@@ -99,8 +118,71 @@ rules:
     assert_eq!(root["sniffer"]["enable"].as_bool(), Some(false));
     assert_eq!(root["profile"]["store-selected"].as_bool(), Some(false));
     assert_eq!(root["profile"]["store-fake-ip"].as_bool(), Some(false));
+    assert!(root["dns"].as_mapping().unwrap().get("listen").is_none());
+    for removed in [
+        "authentication",
+        "skip-auth-prefixes",
+        "lan-allowed-ips",
+        "lan-disallowed-ips",
+        "external-controller-tls",
+        "external-controller-unix",
+        "external-controller-pipe",
+        "external-controller-cors",
+        "external-ui",
+        "external-ui-name",
+        "external-ui-url",
+        "external-doh-server",
+        "interface-name",
+        "routing-mark",
+    ] {
+        assert!(root.get(removed).is_none(), "{removed} remained in runtime");
+    }
     assert!(root["proxies"].as_sequence().is_some());
     assert!(root["rules"].as_sequence().is_some());
+
+    let identities: HashSet<_> = generated
+        .classifications
+        .iter()
+        .map(|item| item.field_identity.as_str())
+        .collect();
+    for managed in [
+        "port",
+        "socks-port",
+        "redir-port",
+        "tproxy-port",
+        "mixed-port",
+        "allow-lan",
+        "bind-address",
+        "authentication",
+        "skip-auth-prefixes",
+        "lan-allowed-ips",
+        "lan-disallowed-ips",
+        "external-controller",
+        "secret",
+        "external-controller-tls",
+        "external-controller-unix",
+        "external-controller-pipe",
+        "external-controller-cors",
+        "external-ui",
+        "external-ui-name",
+        "external-ui-url",
+        "external-doh-server",
+        "mode",
+        "log-level",
+        "profile.store-selected",
+        "profile.store-fake-ip",
+        "listeners",
+        "interface-name",
+        "routing-mark",
+        "tun.enable",
+        "sniffer.enable",
+        "dns.listen",
+    ] {
+        assert!(
+            identities.contains(managed),
+            "missing policy report for {managed}"
+        );
+    }
 }
 
 #[test]
@@ -1177,8 +1259,16 @@ fn profile_record(normalized_bytes: &[u8]) -> ProfileRecord {
             revision: ImmutableRevision {
                 byte_length: source_bytes.len() as u64,
                 created_at: timestamp,
-                id: revision_id,
+                id: revision_id.clone(),
                 media_type: Some("application/yaml".into()),
+            },
+            runtime_provenance: mish_profile::RuntimeProvenanceReview {
+                artifact_fingerprint: fingerprint,
+                authority: mish_profile::ProvenanceReviewAuthority::DesktopPolicy,
+                items: Vec::new(),
+                layers: mish_profile::runtime_layers(),
+                source_revision: revision_id,
+                unknown_key_count: 0,
             },
             schema_version: PROFILE_SCHEMA_VERSION,
             status: ProfileStatus {

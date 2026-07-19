@@ -401,6 +401,31 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
     assert!(!error_json.contains("private-password"));
     assert!(!error_json.contains("private-token"));
 
+    const RAW_CONFIG: &str = "secret: private-runtime-secret";
+    let arbitrary_config = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"profiles.save",
+            "params":{
+                "previewId":"preview-only",
+                "configBytes":RAW_CONFIG,
+                "path":"/private/runtime.yaml"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(arbitrary_config["error"]["code"], -32602);
+    assert!(
+        !arbitrary_config
+            .to_string()
+            .contains("private-runtime-secret")
+    );
+    assert!(
+        !arbitrary_config
+            .to_string()
+            .contains("/private/runtime.yaml")
+    );
+
     bridge.shutdown().await;
     let _ = fs::remove_dir_all(root);
 }
