@@ -33,30 +33,42 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
    The bridge-handle slot is created before `run_return`; Tauri's `Ready` setup
    hook fills it before the WebView can invoke bootstrap, and the exit path later
    takes the same handle for ordered shutdown.
-7. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
+7. On macOS, the shell registers the documented `NSWorkspace` will-sleep and
+   did-wake notifications and an `SCDynamicStore` callback for global IPv4/IPv6
+   primary-service changes. These callbacks emit only a closed lifecycle event
+   plus a process-local sequence number. Registration failure aborts desktop
+   startup instead of silently claiming lifecycle recovery.
+8. The main WebView invokes `runtime_bootstrap`. Tauri's generated permission is
    granted only to that local window and returns `ws://127.0.0.1:<port>/rpc`
    plus the token in the IPC response body.
-8. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
+9. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
    non-WebSocket, or non-`/rpc` endpoints. It sends the token only in the first
    JSON-RPC authentication message.
-9. The bootstrap also declares whether the shell compiled with native macOS
-   Sidebar material. The WebView uses this capability only to expose the matching
-   sidebar/window-base pixels; product components do not branch on Tauri or the
-   operating system.
-10. The token remains in process memory for reconnect authentication. Neither
+10. The bootstrap also declares whether the shell compiled with native macOS
+    Sidebar material. The WebView uses this capability only to expose the matching
+    sidebar/window-base pixels; product components do not branch on Tauri or the
+    operating system.
+11. The token remains in process memory for reconnect authentication. Neither
     side writes it to a file, URL, log, query string, fragment, cookie,
     `localStorage`, or `sessionStorage`.
-11. Profile activation reloads a repository-owned valid artifact, resolves only
+12. Profile activation reloads a repository-owned valid artifact, resolves only
     the managed pinned binary, and commits the new runtime after Controller,
     Status and Traffic readiness plus an open redacted Events stream.
     Development accepts only an explicit
     `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
     downloads a binary at runtime.
-12. When the Tauri event loop exits, the shell shuts down the in-process bridge.
+13. When the Tauri event loop exits, the shell shuts down the in-process bridge.
     The runtime invalidates any active diagnostic run, stops its capture audit
     loop, restores a still-confirmed
     Mish-owned System Proxy state, then the coordinator closes the active Status,
     Traffic, and Events sources, stops the core, and finally closes the RPC server.
+
+Apple requires sleep and wake observers to use the `NSWorkspace` notification
+center. Primary-service changes use notification keys in the SystemConfiguration
+dynamic store rather than reachability polling or an application-owned network
+probe. The event source watches only global IPv4/IPv6 configuration keys; it does
+not expose changed keys, service names, routes, or arbitrary network parameters
+to RPC.
 
 Local-file profile preflight uses a separate Tauri command granted only to the
 main window. The command accepts no path from Web content: it opens the native

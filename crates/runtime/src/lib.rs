@@ -11,12 +11,14 @@ use tokio::sync::broadcast;
 mod capture;
 mod diagnostics;
 mod events;
+mod lifecycle;
 mod status;
 mod traffic;
 
 pub use capture::*;
 pub use diagnostics::*;
 pub use events::*;
+pub use lifecycle::*;
 pub use status::*;
 pub use traffic::*;
 
@@ -114,6 +116,12 @@ pub trait StatusDataSource: Send + Sync {
     fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot;
     fn shutdown(&self) -> BoxFuture<'_, ()> {
+        Box::pin(std::future::ready(()))
+    }
+    fn pause_observations(&self, _reason: RuntimeObservationPauseReason) -> BoxFuture<'_, ()> {
+        Box::pin(std::future::ready(()))
+    }
+    fn resume_observations(&self) -> BoxFuture<'_, ()> {
         Box::pin(std::future::ready(()))
     }
     fn supports_command(&self, _command: StatusCommand) -> bool {
@@ -465,6 +473,44 @@ impl MishRuntime {
         self.publish_status(&core);
         result?;
         Ok(true)
+    }
+
+    pub async fn restore_capture_intent(&self) -> Result<bool, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Ok(false);
+        };
+        let before = capture.status();
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let selection = before.capture_selection.clone();
+        let result = if selection.system_proxy {
+            capture
+                .reconcile(
+                    CaptureRequest {
+                        active: true,
+                        selection,
+                    },
+                    healthy,
+                )
+                .await
+        } else {
+            capture
+                .audit(CaptureAuditReason::CoreHealthChanged, healthy)
+                .await
+        };
+        let after = capture.status();
+        if before != after {
+            self.publish_status(&core);
+        }
+        result.map(|_| before != after)
+    }
+
+    pub async fn pause_observations(&self, reason: RuntimeObservationPauseReason) {
+        self.status_source.pause_observations(reason).await;
+    }
+
+    pub async fn resume_observations(&self) {
+        self.status_source.resume_observations().await;
     }
 
     pub fn supports_status_command(&self, command: StatusCommand) -> bool {

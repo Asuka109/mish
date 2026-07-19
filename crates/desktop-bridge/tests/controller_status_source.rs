@@ -21,8 +21,8 @@ use mish_bridge::{
     LoopbackServerConfig, ProfileMappingContext, compose_desktop_runtime, start_loopback_server,
 };
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, RoutingMode, StatusAdapterKind,
-    StatusCommand, StatusDataSource,
+    CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, RoutingMode,
+    RuntimeObservationPauseReason, StatusAdapterKind, StatusCommand, StatusDataSource,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -851,6 +851,63 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
         fake.state.active_streams.load(Ordering::Acquire) == 0
     })
     .await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn lifecycle_pause_invalidates_old_controller_authority_before_a_new_session_is_ready() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let source = ControllerStatusSource::new(source_config(&fake), lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources_and_events(
+        lifecycle,
+        source.clone(),
+        source.clone(),
+        source.clone(),
+    );
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        runtime.traffic_snapshot(StatusAdapterKind::Rpc)["phase"] == "ready"
+    })
+    .await;
+    let initial = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+    let initial_session = initial["sessionId"].as_str().unwrap().to_owned();
+    assert_eq!(initial["activeConnections"][0]["id"], "connection-a");
+
+    source
+        .pause_observations(RuntimeObservationPauseReason::Sleep)
+        .await;
+    let sleeping = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(sleeping["phase"], "stale");
+    assert_eq!(sleeping["sessionId"], initial_session);
+    assert_eq!(sleeping["activeConnections"][0]["id"], "connection-a");
+
+    source
+        .pause_observations(RuntimeObservationPauseReason::NetworkChanged)
+        .await;
+    let invalidated = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_eq!(invalidated["phase"], "unavailable");
+    assert_eq!(invalidated["sessionId"], Value::Null);
+    assert_eq!(invalidated["activeConnections"], json!([]));
+    assert_eq!(
+        runtime.events_snapshot(StatusAdapterKind::Rpc)["sessionId"],
+        Value::Null
+    );
+    *fake.state.connections.write().await = connections("connection-b");
+
+    source.resume_observations().await;
+    wait_for(Duration::from_secs(1), || {
+        let traffic = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+        traffic["phase"] == "ready" && traffic["activeConnections"][0]["id"] == "connection-b"
+    })
+    .await;
+    let recovered = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+    assert_ne!(recovered["sessionId"], initial_session);
+    assert_eq!(recovered["activeConnections"][0]["id"], "connection-b");
+
+    source.close().await;
     fake.shutdown().await;
 }
 

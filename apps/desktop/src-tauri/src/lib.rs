@@ -11,11 +11,13 @@ use mish_bridge::{
     DesktopRuntimeHost, LoopbackServerConfig, LoopbackServerHandle, ManagedMihomoResolver,
     ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
     ReqwestHttpsSourceReader, compose_desktop_runtime_with_capture,
-    start_loopback_server_with_runtime_host,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
-use mish_platform_macos::{FileCaptureJournalStore, MacOsSystemProxyPlatform};
+use mish_platform_macos::{
+    FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsSystemProxyPlatform,
+};
 use mish_profile::{ProfilePreview, ProfileServiceError};
-use mish_runtime::{CaptureReconciler, LoopbackProxyEndpoint};
+use mish_runtime::{CaptureReconciler, LoopbackProxyEndpoint, PlatformLifecycleEventSource};
 use mish_settings::{
     FileSettingsRepository, LoginLaunchBehavior, SettingsAdapterKind, SettingsAvailability,
     SettingsCapabilities, SettingsService, SettingsServiceError, SettingsSnapshot, StartupPlatform,
@@ -188,6 +190,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         &profile_root,
         &app.path().resource_dir()?,
     );
+    let lifecycle_source = platform_lifecycle_event_source()?;
     let bridge = tauri::async_runtime::block_on(async {
         let capture = Arc::new(CaptureReconciler::new(
             Arc::new(MacOsSystemProxyPlatform::new()),
@@ -226,7 +229,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         ));
         let status_bar_state =
             status_bar::StatusBarState::new(runtime_host.clone(), activation.clone());
-        start_loopback_server_with_runtime_host(
+        start_loopback_server_with_runtime_host_and_lifecycle(
             LoopbackServerConfig {
                 allowed_origins: allowed_origins(tauri::is_dev()),
                 auth_token: auth_token.clone(),
@@ -237,6 +240,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 settings_service: Some(settings_service.clone()),
             },
             runtime_host,
+            lifecycle_source,
         )
         .await
         .map_err(io::Error::other)
@@ -271,6 +275,20 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         window.set_focus()?;
     }
     Ok(())
+}
+
+fn platform_lifecycle_event_source()
+-> Result<Option<Arc<dyn PlatformLifecycleEventSource>>, io::Error> {
+    #[cfg(target_os = "macos")]
+    {
+        MacOsLifecycleEventSource::new()
+            .map(|source| Some(Arc::new(source) as Arc<dyn PlatformLifecycleEventSource>))
+            .map_err(|_| io::Error::other("macOS lifecycle notifications are unavailable"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(None)
+    }
 }
 
 fn startup_platform(app: &tauri::App) -> Option<Arc<dyn StartupPlatform>> {

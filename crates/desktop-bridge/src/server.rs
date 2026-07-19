@@ -11,11 +11,12 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use mish_runtime::{CaptureAuditReason, CorePhase, MishRuntime};
+use mish_runtime::{MishRuntime, PlatformLifecycleEventSource};
 use mish_settings::SettingsService;
 use serde_json::json;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
+use crate::lifecycle::spawn_lifecycle_coordination;
 use crate::protocol::{ProtocolState, serve_socket};
 use crate::{DesktopProfileService, DesktopRuntimeHost, ProfileActivationCoordinator};
 
@@ -75,13 +76,20 @@ pub async fn start_loopback_server_with_runtime_host(
     config: LoopbackServerConfig,
     runtime: DesktopRuntimeHost,
 ) -> Result<LoopbackServerHandle, String> {
+    start_loopback_server_with_runtime_host_and_lifecycle(config, runtime, None).await
+}
+
+pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
+    config: LoopbackServerConfig,
+    runtime: DesktopRuntimeHost,
+    lifecycle_source: Option<Arc<dyn PlatformLifecycleEventSource>>,
+) -> Result<LoopbackServerHandle, String> {
     if !config.bind.ip().is_loopback() {
         return Err("The Mish desktop bridge may only bind to a loopback address".into());
     }
     if config.auth_token.len() < 16 {
         return Err("MISH_BRIDGE_TOKEN must contain at least 16 characters".into());
     }
-    let _ = runtime.audit_capture(CaptureAuditReason::Restart).await;
     let listener = TcpListener::bind(config.bind)
         .await
         .map_err(|error| error.to_string())?;
@@ -118,39 +126,9 @@ pub async fn start_loopback_server_with_runtime_host(
         .route("/rpc", get(rpc))
         .with_state(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let (audit_shutdown_tx, mut audit_shutdown_rx) = oneshot::channel();
-    let audit_runtime = runtime.clone();
-    let mut audit_runtime_changes = audit_runtime.subscribe_changes();
-    let initial_audit_runtime = audit_runtime_changes.borrow_and_update().clone();
-    let mut audit_updates = initial_audit_runtime.subscribe_status();
-    let audit_join = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        interval.tick().await;
-        loop {
-            tokio::select! {
-                biased;
-                _ = &mut audit_shutdown_rx => break,
-                changed = audit_runtime_changes.changed() => {
-                    if changed.is_err() { break; }
-                    let runtime = audit_runtime_changes.borrow_and_update().clone();
-                    audit_updates = runtime.subscribe_status();
-                    let _ = runtime.audit_capture(CaptureAuditReason::Restart).await;
-                }
-                update = audit_updates.recv() => {
-                    let Ok(status) = update else { continue };
-                    if !matches!(status.phase, CorePhase::Running) {
-                        let _ = audit_runtime
-                            .audit_capture(CaptureAuditReason::CoreHealthChanged)
-                            .await;
-                    }
-                }
-                _ = interval.tick() => {
-                    let _ = audit_runtime.audit_capture(CaptureAuditReason::Periodic).await;
-                }
-            }
-        }
-    });
+    let (audit_shutdown_tx, audit_shutdown_rx) = oneshot::channel();
+    let audit_join =
+        spawn_lifecycle_coordination(runtime.clone(), lifecycle_source, audit_shutdown_rx);
     let join = tokio::spawn(async move {
         let _ = axum::serve(
             listener,

@@ -154,10 +154,25 @@ rollback. An unconfirmed outcome remains explicit drift with `repair` and
 while leave-as-is clears Mish ownership without changing the OS.
 
 The desktop bridge audits capture ownership at restart, on core health changes,
-and periodically to cover network changes and sleep/wake transitions. A core
-exit or app shutdown conservatively restores only an exact Mish-owned endpoint.
-If an external actor changed the settings, Mish leaves them untouched and
-reports drift. TUN remains unavailable and is rejected as a closed typed
+and periodically as a bounded fallback. The macOS shell also publishes typed,
+monotonically sequenced sleep, wake, and primary-network-service events through
+a narrow platform source. The application coordinator serializes these events
+and rejects stale sequence numbers. Native callbacks contain no capture,
+Controller, or UI policy.
+
+Sleep pauses the active Controller collectors and marks their Status, Traffic,
+and Events observations non-authoritative. Wake invalidates the old mapper,
+connection, event-session, group-delay, and guided-diagnostic authority before
+starting a fresh pinned-version and complete-initial-batch confirmation. A core
+exit performs the same hard invalidation and conservatively restores only an
+exact Mish-owned System Proxy endpoint. A later confirmed core restart creates
+new Traffic and Events sessions and reapplies System Proxy only when the stored
+user capture selection is still explicit and the managed listener is ready.
+Network-service changes reuse the capture transaction: restore the prior service
+first, then apply the new active service only under that same explicit intent.
+Observation, listener, apply, rollback, and confirmation failures remain typed
+failed or drift state. If an external actor changed the settings, Mish leaves
+them untouched. TUN remains unavailable and is rejected as a closed typed
 selection rather than simulated.
 
 The shared desktop-bridge contract also defines `BridgeInfoDto` and

@@ -31,6 +31,10 @@ impl DesktopRuntimeHost {
         self.runtime.send_replace(runtime);
     }
 
+    pub fn invalidate_diagnostics(&self) {
+        self.diagnostics.invalidate_active();
+    }
+
     pub fn diagnostic_history(&self, adapter_kind: StatusAdapterKind) -> DiagnosticHistory {
         self.diagnostics.history(adapter_kind)
     }

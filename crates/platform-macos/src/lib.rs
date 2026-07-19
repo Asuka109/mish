@@ -6,7 +6,11 @@ use std::{
     io::Write,
     os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::PathBuf,
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    thread::JoinHandle,
     time::{Duration, Instant},
 };
 
@@ -14,8 +18,10 @@ use futures_util::future::BoxFuture;
 use mish_runtime::{
     CapabilityAvailability, CaptureFailureKind, CaptureJournal, CaptureJournalStore,
     CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState,
-    NetworkServiceProxyState,
+    NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
+    PlatformLifecycleEventSource,
 };
+use tokio::sync::broadcast;
 use tokio::{
     net::TcpStream,
     process::Command,
@@ -27,6 +33,210 @@ const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MacOsLifecycleSourceError {
+    DynamicStoreUnavailable,
+    NotificationRegistrationFailed,
+    UnsupportedPlatform,
+}
+
+impl fmt::Display for MacOsLifecycleSourceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("The macOS lifecycle event source could not be started")
+    }
+}
+
+impl std::error::Error for MacOsLifecycleSourceError {}
+
+pub struct MacOsLifecycleEventSource {
+    events: broadcast::Sender<PlatformLifecycleEvent>,
+    network_shutdown: Arc<AtomicBool>,
+    network_thread: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl MacOsLifecycleEventSource {
+    pub fn new() -> Result<Self, MacOsLifecycleSourceError> {
+        #[cfg(not(target_os = "macos"))]
+        {
+            return Err(MacOsLifecycleSourceError::UnsupportedPlatform);
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let (events, _) = broadcast::channel(32);
+            let sequence = Arc::new(AtomicU64::new(0));
+            install_workspace_notifications(events.clone(), sequence.clone())?;
+            let network_shutdown = Arc::new(AtomicBool::new(false));
+            let network_thread = start_network_change_monitor(
+                events.clone(),
+                sequence.clone(),
+                network_shutdown.clone(),
+            )?;
+            Ok(Self {
+                events,
+                network_shutdown,
+                network_thread: Mutex::new(Some(network_thread)),
+            })
+        }
+    }
+}
+
+impl PlatformLifecycleEventSource for MacOsLifecycleEventSource {
+    fn subscribe(&self) -> broadcast::Receiver<PlatformLifecycleEvent> {
+        self.events.subscribe()
+    }
+}
+
+impl Drop for MacOsLifecycleEventSource {
+    fn drop(&mut self) {
+        self.network_shutdown.store(true, Ordering::Release);
+        if let Some(thread) = self
+            .network_thread
+            .lock()
+            .expect("network lifecycle thread lock poisoned")
+            .take()
+        {
+            let _ = thread.join();
+        }
+    }
+}
+
+fn publish_lifecycle_event(
+    events: &broadcast::Sender<PlatformLifecycleEvent>,
+    sequence: &AtomicU64,
+    kind: PlatformLifecycleEventKind,
+) {
+    let sequence = sequence.fetch_add(1, Ordering::AcqRel).saturating_add(1);
+    let _ = events.send(PlatformLifecycleEvent { kind, sequence });
+}
+
+#[cfg(target_os = "macos")]
+fn install_workspace_notifications(
+    events: broadcast::Sender<PlatformLifecycleEvent>,
+    sequence: Arc<AtomicU64>,
+) -> Result<(), MacOsLifecycleSourceError> {
+    use std::ptr::NonNull;
+
+    use block2::RcBlock;
+    use objc2_app_kit::{
+        NSWorkspace, NSWorkspaceDidWakeNotification, NSWorkspaceWillSleepNotification,
+    };
+    use objc2_foundation::NSNotification;
+
+    let workspace = NSWorkspace::sharedWorkspace();
+    let center = workspace.notificationCenter();
+    // SAFETY: AppKit exports these process-lifetime notification name constants.
+    let notifications = unsafe {
+        [
+            (
+                NSWorkspaceWillSleepNotification,
+                PlatformLifecycleEventKind::Sleep,
+            ),
+            (
+                NSWorkspaceDidWakeNotification,
+                PlatformLifecycleEventKind::Wake,
+            ),
+        ]
+    };
+    for (name, kind) in notifications {
+        let events = events.clone();
+        let sequence = sequence.clone();
+        let block = RcBlock::new(move |_notification: NonNull<NSNotification>| {
+            publish_lifecycle_event(&events, &sequence, kind);
+        });
+        unsafe {
+            center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn start_network_change_monitor(
+    events: broadcast::Sender<PlatformLifecycleEvent>,
+    sequence: Arc<AtomicU64>,
+    shutdown: Arc<AtomicBool>,
+) -> Result<JoinHandle<()>, MacOsLifecycleSourceError> {
+    use std::sync::mpsc;
+
+    use system_configuration::core_foundation::{
+        array::CFArray,
+        runloop::{CFRunLoop, kCFRunLoopDefaultMode},
+        string::CFString,
+    };
+    use system_configuration::dynamic_store::{
+        SCDynamicStore, SCDynamicStoreBuilder, SCDynamicStoreCallBackContext,
+    };
+
+    struct NetworkChangeContext {
+        events: broadcast::Sender<PlatformLifecycleEvent>,
+        sequence: Arc<AtomicU64>,
+    }
+
+    fn network_changed(
+        _store: SCDynamicStore,
+        _changed_keys: CFArray<CFString>,
+        context: &mut NetworkChangeContext,
+    ) {
+        publish_lifecycle_event(
+            &context.events,
+            &context.sequence,
+            PlatformLifecycleEventKind::NetworkChanged,
+        );
+    }
+
+    let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let thread = std::thread::Builder::new()
+        .name("mish-network-lifecycle".into())
+        .spawn(move || {
+            let context = SCDynamicStoreCallBackContext {
+                callout: network_changed,
+                info: NetworkChangeContext { events, sequence },
+            };
+            let Some(store) = SCDynamicStoreBuilder::new("io.mish.lifecycle")
+                .callback_context(context)
+                .build()
+            else {
+                let _ = ready_tx.send(false);
+                return;
+            };
+            let keys = CFArray::from_CFTypes(&[
+                CFString::from("State:/Network/Global/IPv4"),
+                CFString::from("State:/Network/Global/IPv6"),
+                CFString::from("Setup:/Network/Global/IPv4"),
+                CFString::from("Setup:/Network/Global/IPv6"),
+            ]);
+            let patterns: CFArray<CFString> = CFArray::from_CFTypes(&[]);
+            let Some(source) = store.create_run_loop_source() else {
+                let _ = ready_tx.send(false);
+                return;
+            };
+            if !store.set_notification_keys(&keys, &patterns) {
+                let _ = ready_tx.send(false);
+                return;
+            }
+            let run_loop = CFRunLoop::get_current();
+            run_loop.add_source(&source, unsafe { kCFRunLoopDefaultMode });
+            let _ = ready_tx.send(true);
+            while !shutdown.load(Ordering::Acquire) {
+                CFRunLoop::run_in_mode(
+                    unsafe { kCFRunLoopDefaultMode },
+                    Duration::from_millis(250),
+                    false,
+                );
+            }
+            run_loop.remove_source(&source, unsafe { kCFRunLoopDefaultMode });
+        })
+        .map_err(|_| MacOsLifecycleSourceError::DynamicStoreUnavailable)?;
+    match ready_rx.recv() {
+        Ok(true) => Ok(thread),
+        Ok(false) | Err(_) => {
+            let _ = thread.join();
+            Err(MacOsLifecycleSourceError::NotificationRegistrationFailed)
+        }
+    }
+}
 
 pub struct FileCaptureJournalStore {
     path: PathBuf,
