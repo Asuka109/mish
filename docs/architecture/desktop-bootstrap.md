@@ -51,6 +51,8 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
    show the window are revealed and focused; background login launches remain
    hidden. This public IPC handshake prevents the shell from exposing an empty
    WebView frame without relying on private WebKit presentation APIs.
+   Before that reveal, the shell restores only a valid on-screen size, position,
+   and maximized state. A previous hidden state is never restored.
 10. The Web client rejects non-IPv4-loopback, credentialed, queried, fragmented,
     non-WebSocket, or non-`/rpc` endpoints. It sends the token only in the first
     JSON-RPC authentication message.
@@ -175,6 +177,9 @@ claim that process memory is a secure enclave.
   be ad-hoc signed for main-branch testing. Developer ID signing and
   notarization remain credential-gated production operations documented in
   [`../operations/macos-packaging.md`](../operations/macos-packaging.md).
+- The Apple Silicon bundle includes exact copies of the repository GPL-3.0-only
+  license and Mihomo attribution/source notice. Packaging verification fails if
+  either resource is absent or altered.
 - A production TUN helper is not yet embedded. The reserved signing identifier
   is `com.asuka109.mish.tun-helper`; ad-hoc test packages continue to report the
   helper as unpackaged and cannot enable TUN.

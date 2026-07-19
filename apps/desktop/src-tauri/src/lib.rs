@@ -44,6 +44,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+mod native_menu;
 mod status_bar;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
@@ -176,6 +177,7 @@ fn reveal_main_window(
         return Ok(());
     }
     window.show().map_err(|error| error.to_string())?;
+    window.unminimize().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())
 }
 
@@ -476,8 +478,18 @@ pub fn run() -> Result<i32, String> {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_os::init())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .manage(bridge_state.clone())
         .setup(initialize)
+        .on_menu_event(native_menu::handle_menu_event)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
             reveal_main_window,
@@ -495,27 +507,32 @@ pub fn run() -> Result<i32, String> {
         if !cfg!(target_os = "macos") {
             return;
         }
-        if let tauri::RunEvent::WindowEvent {
-            label,
-            event: tauri::WindowEvent::CloseRequested { api, .. },
-            ..
-        } = event
-            && label == "main"
-        {
-            let behavior = app
-                .state::<SettingsState>()
-                .0
-                .snapshot(SettingsAdapterKind::Rpc)
-                .preferences
-                .window_close_behavior;
-            if should_hide_main_window_on_close(behavior) {
-                api.prevent_close();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.hide();
+        match event {
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                let behavior = app
+                    .state::<SettingsState>()
+                    .0
+                    .snapshot(SettingsAdapterKind::Rpc)
+                    .preferences
+                    .window_close_behavior;
+                if should_hide_main_window_on_close(behavior) {
+                    api.prevent_close();
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                } else {
+                    app.exit(0);
                 }
-            } else {
-                app.exit(0);
             }
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => status_bar::show_main_window(app, None),
+            _ => {}
         }
     });
     let bridge = bridge_state
@@ -685,6 +702,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .lock()
         .map_err(|_| io::Error::other("desktop bridge state is unavailable"))? = Some(bridge);
     if cfg!(target_os = "macos") {
+        native_menu::install(app)?;
         status_bar::initialize(app, status_bar_state)?;
     }
     Ok(())

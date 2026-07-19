@@ -39,6 +39,7 @@ import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { handleDesktopWindowDrag } from "../platform/desktop-window";
+import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
 import { SurfaceScope } from "./surface-scope";
@@ -468,6 +469,7 @@ export function AppShell() {
       />
       <Sidebar />
       <SurfaceScope as="main" className="workspace" surfaceRole="content">
+        <RouteFocusManager />
         <Toolbar />
         <Outlet />
       </SurfaceScope>
