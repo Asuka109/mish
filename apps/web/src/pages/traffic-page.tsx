@@ -1,6 +1,18 @@
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
-import type { EffectiveRuleDto, TrafficConnectionDto } from "@mish/contracts";
+import type {
+  EffectiveRuleDto,
+  TrafficCommandFailure,
+  TrafficConnectionDto,
+} from "@mish/contracts";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Badge,
   Button,
   Dialog,
@@ -20,6 +32,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Spinner,
   Table,
   TableBody,
   TableCell,
@@ -32,6 +45,7 @@ import {
   TabsTrigger,
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { useTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -60,7 +74,21 @@ const ruleSortValues: RuleSort[] = ["priority-asc", "type-asc", "target-asc", "h
 
 export function TrafficPage() {
   const { LL, locale } = useI18nContext();
-  const { clearClosed, closed, connection, error, isCurrent, isLoading, snapshot } = useTraffic();
+  const {
+    clearClosed,
+    closeAllActive,
+    closeConnection,
+    closed,
+    commandFailure,
+    connection,
+    error,
+    isCloseAllPending,
+    isCloseConnectionPending,
+    isCommandSupported,
+    isCurrent,
+    isLoading,
+    snapshot,
+  } = useTraffic();
   const [tab, setTab] = useState<TrafficTab>("active");
   const [query, setQuery] = useState("");
   const [network, setNetwork] = useState("all");
@@ -68,6 +96,8 @@ export function TrafficPage() {
   const [ruleSort, setRuleSort] = useState<RuleSort>("priority-asc");
   const [visibleLimit, setVisibleLimit] = useState(TRAFFIC_RENDER_BATCH_SIZE);
   const [selectedConnection, setSelectedConnection] = useState<SelectedConnection | null>(null);
+  const [closeTarget, setCloseTarget] = useState<TrafficConnectionDto | null>(null);
+  const [closeAllConfirmationOpen, setCloseAllConfirmationOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const activeConnections = isCurrent ? (snapshot?.activeConnections ?? []) : [];
   const networks = useMemo(
@@ -100,6 +130,28 @@ export function TrafficPage() {
     [tab, deferredQuery, network, connectionSort, ruleSort],
   );
 
+  async function confirmCloseConnection() {
+    if (!closeTarget) return;
+    const result = await closeConnection(closeTarget.id);
+    if (result?.status === "success") {
+      toast.success(LL.traffic.closeConnectionSucceeded());
+      setSelectedConnection(null);
+    } else {
+      toast.error(trafficFailureMessage(LL, result?.failure ?? commandFailure));
+    }
+    setCloseTarget(null);
+  }
+
+  async function confirmCloseAllActive() {
+    const result = await closeAllActive();
+    if (result?.status === "success") {
+      toast.success(LL.traffic.closeAllActiveSucceeded({ count: result.targetCount }));
+    } else {
+      toast.error(trafficFailureMessage(LL, result?.failure ?? commandFailure));
+    }
+    setCloseAllConfirmationOpen(false);
+  }
+
   return (
     <div className="traffic-page page-scroll">
       <header className="traffic-header">
@@ -107,9 +159,21 @@ export function TrafficPage() {
           <h1>{LL.traffic.title()}</h1>
           <p>{LL.traffic.retention()}</p>
         </div>
-        <div className="traffic-read-only-actions">
-          <Button aria-describedby="traffic-close-disabled" disabled variant="outline">
-            {LL.traffic.closeAll()}
+        <div className="traffic-actions">
+          <Button
+            aria-describedby="traffic-close-scope"
+            disabled={
+              activeConnections.length === 0 ||
+              isCloseAllPending ||
+              !isCommandSupported("close-all-active")
+            }
+            onClick={() => setCloseAllConfirmationOpen(true)}
+            variant="outline"
+          >
+            {isCloseAllPending ? <Spinner data-icon="inline-start" /> : null}
+            {isCloseAllPending
+              ? LL.traffic.closingAllActive()
+              : LL.traffic.closeAllActiveConnections()}
           </Button>
         </div>
       </header>
@@ -121,9 +185,17 @@ export function TrafficPage() {
         isLoading={isLoading}
         snapshot={snapshot}
       />
-      <p className="sr-only" id="traffic-close-disabled">
-        {LL.traffic.closeDisabled()}
+      <p className="sr-only" id="traffic-close-scope">
+        {isCommandSupported("close-all-active")
+          ? LL.traffic.closeAllScope()
+          : LL.traffic.closeUnsupported()}
       </p>
+
+      {commandFailure ? (
+        <div className="traffic-command-error" role="alert">
+          {trafficFailureMessage(LL, commandFailure)}
+        </div>
+      ) : null}
 
       <Tabs
         className="traffic-tabs"
@@ -212,6 +284,9 @@ export function TrafficPage() {
               query || network !== "all" ? LL.traffic.noMatches() : LL.traffic.activeEmpty()
             }
             locale={locale}
+            canClose={isCommandSupported("close-connection")}
+            isClosePending={isCloseConnectionPending}
+            onRequestClose={setCloseTarget}
             onSelect={setSelectedConnection}
           />
         </TabsContent>
@@ -228,6 +303,9 @@ export function TrafficPage() {
               query || network !== "all" ? LL.traffic.noMatches() : LL.traffic.closedEmpty()
             }
             locale={locale}
+            canClose={false}
+            isClosePending={() => false}
+            onRequestClose={() => undefined}
             onSelect={setSelectedConnection}
           />
         </TabsContent>
@@ -252,10 +330,76 @@ export function TrafficPage() {
         connection={selectedConnection}
         LL={LL}
         locale={locale}
+        canClose={isCommandSupported("close-connection")}
+        isClosePending={isCloseConnectionPending}
+        onRequestClose={setCloseTarget}
         onOpenChange={(open) => {
           if (!open) setSelectedConnection(null);
         }}
       />
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!isCloseConnectionPending(closeTarget?.id ?? ""))
+            setCloseTarget(open ? closeTarget : null);
+        }}
+        open={closeTarget !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{LL.traffic.closeConnectionTitle()}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {LL.traffic.closeConnectionDescription({
+                destination: closeTarget ? destinationLabel(closeTarget) : "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!closeTarget || isCloseConnectionPending(closeTarget.id)}
+              onClick={confirmCloseConnection}
+              variant="destructive"
+            >
+              {closeTarget && isCloseConnectionPending(closeTarget.id) ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              {closeTarget && isCloseConnectionPending(closeTarget.id)
+                ? LL.traffic.closingConnection()
+                : LL.traffic.closeConnectionConfirm()}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!isCloseAllPending) setCloseAllConfirmationOpen(open);
+        }}
+        open={closeAllConfirmationOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{LL.traffic.closeAllActiveTitle()}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {LL.traffic.closeAllActiveDescription({ count: activeConnections.length })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={activeConnections.length === 0 || isCloseAllPending}
+              onClick={confirmCloseAllActive}
+              variant="destructive"
+            >
+              {isCloseAllPending ? <Spinner data-icon="inline-start" /> : null}
+              {isCloseAllPending
+                ? LL.traffic.closingAllActive()
+                : LL.traffic.closeAllActiveConfirm()}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -306,20 +450,26 @@ function TrafficSourceStatus({
 }
 
 interface ConnectionPanelProps<T extends TrafficConnectionDto> {
+  canClose: boolean;
   LL: TranslationFunctions;
   connections: T[];
   emptyDescription: string;
   emptyTitle: string;
   locale: Locales;
+  isClosePending(connectionId: string): boolean;
+  onRequestClose(connection: T): void;
   onSelect(connection: T): void;
 }
 
 function ConnectionPanel<T extends TrafficConnectionDto>({
   LL,
+  canClose,
   connections,
   emptyDescription,
   emptyTitle,
   locale,
+  isClosePending,
+  onRequestClose,
   onSelect,
 }: ConnectionPanelProps<T>) {
   if (connections.length === 0) {
@@ -391,8 +541,17 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 : LL.traffic.unavailable()}
             </TableCell>
             <TableCell>
-              <Button aria-describedby="traffic-close-disabled" disabled size="sm" variant="ghost">
-                {LL.traffic.close()}
+              <Button
+                aria-describedby={canClose ? undefined : "traffic-close-scope"}
+                disabled={!canClose || isClosePending(connection.id)}
+                onClick={() => onRequestClose(connection)}
+                size="sm"
+                variant="ghost"
+              >
+                {isClosePending(connection.id) ? <Spinner data-icon="inline-start" /> : null}
+                {isClosePending(connection.id)
+                  ? LL.traffic.closingConnection()
+                  : LL.traffic.close()}
               </Button>
             </TableCell>
           </TableRow>
@@ -521,15 +680,21 @@ function RuleSortSelect({
 }
 
 function ConnectionDetailDialog({
+  canClose,
   connection,
+  isClosePending,
   LL,
   locale,
   onOpenChange,
+  onRequestClose,
 }: {
+  canClose: boolean;
   connection: SelectedConnection | null;
+  isClosePending(connectionId: string): boolean;
   LL: TranslationFunctions;
   locale: Locales;
   onOpenChange(open: boolean): void;
+  onRequestClose(connection: TrafficConnectionDto): void;
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={connection !== null}>
@@ -627,15 +792,39 @@ function ConnectionDetailDialog({
               )}
             </section>
             <div className="dialog-footer">
-              <Button aria-describedby="traffic-close-disabled" disabled variant="destructive">
-                {LL.traffic.close()}
-              </Button>
+              {!("closedAt" in connection) ? (
+                <Button
+                  aria-describedby={canClose ? undefined : "traffic-close-scope"}
+                  disabled={!canClose || isClosePending(connection.id)}
+                  onClick={() => onRequestClose(connection)}
+                  variant="destructive"
+                >
+                  {isClosePending(connection.id) ? <Spinner data-icon="inline-start" /> : null}
+                  {isClosePending(connection.id)
+                    ? LL.traffic.closingConnection()
+                    : LL.traffic.close()}
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : null}
       </DialogContent>
     </Dialog>
   );
+}
+
+function trafficFailureMessage(LL: TranslationFunctions, failure: TrafficCommandFailure | null) {
+  if (failure === "stale-connection") return LL.traffic.closeStaleConnection();
+  if (failure === "stale-snapshot") return LL.traffic.closeStaleSnapshot();
+  if (failure === "runtime-replaced") return LL.traffic.closeRuntimeReplaced();
+  if (failure === "controller-rejected") return LL.traffic.closeControllerRejected();
+  if (failure === "partial-remaining") return LL.traffic.closePartialRemaining();
+  if (failure === "timeout") return LL.traffic.closeTimeout();
+  if (failure === "unsupported" || failure === "invalid-request") {
+    return LL.traffic.closeUnsupported();
+  }
+  if (failure === "conflict") return LL.traffic.closeConflict();
+  return LL.traffic.closeFailed();
 }
 
 function Detail({

@@ -2,6 +2,9 @@ import {
   TrafficClientError,
   type EffectiveRuleDto,
   type TrafficClient,
+  type TrafficCommandAuthorityDto,
+  type TrafficCommandOperation,
+  type TrafficCommandResultDto,
   type TrafficConnectionDto,
   type TrafficConnectionState,
   type TrafficDataSnapshotDto,
@@ -187,6 +190,21 @@ export class FixtureTrafficClient implements TrafficClient {
   private snapshot = structuredClone(initialSnapshot);
   private disposed = false;
 
+  async closeAllActive(
+    _authority: TrafficCommandAuthorityDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto> {
+    return this.unsupportedCommand("close-all-active", options);
+  }
+
+  async closeConnection(
+    _authority: TrafficCommandAuthorityDto,
+    _connectionId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto> {
+    return this.unsupportedCommand("close-connection", options);
+  }
+
   dispose() {
     this.disposed = true;
     this.connectionListeners.clear();
@@ -217,6 +235,25 @@ export class FixtureTrafficClient implements TrafficClient {
   subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void) {
     this.snapshotListeners.add(listener);
     return () => this.snapshotListeners.delete(listener);
+  }
+
+  supportsCommand(_command: TrafficCommandOperation) {
+    return false;
+  }
+
+  private async unsupportedCommand(
+    operation: TrafficCommandOperation,
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto> {
+    const snapshot = await this.getSnapshot(options);
+    return {
+      failure: "unsupported",
+      operation,
+      remainingConnectionIds: [],
+      snapshot,
+      status: "failure",
+      targetCount: 0,
+    };
   }
 }
 

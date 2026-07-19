@@ -11,7 +11,7 @@ use axum::{
     },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, put},
+    routing::{delete, get, put},
 };
 use futures_util::StreamExt;
 use mish_mihomo_controller::{
@@ -112,6 +112,69 @@ async fn sends_authenticated_strict_unicode_mutations() {
         ]
     );
     drop(requests);
+    server.abort();
+}
+
+#[tokio::test]
+async fn sends_authenticated_connection_delete_commands_and_preserves_rejection() {
+    async fn record_delete(
+        path: axum::extract::OriginalUri,
+        headers: HeaderMap,
+        State(state): State<Arc<MutationState>>,
+    ) -> Response {
+        let authorization = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        state
+            .requests
+            .lock()
+            .unwrap()
+            .push((path.0.path().into(), authorization, String::new()));
+        if path.0.path().ends_with("rejected") {
+            return StatusCode::FORBIDDEN.into_response();
+        }
+        StatusCode::NO_CONTENT.into_response()
+    }
+
+    let state = Arc::new(MutationState::default());
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/connections", delete(record_delete))
+        .route("/connections/{id}", delete(record_delete))
+        .with_state(state.clone());
+    let server = tokio::spawn(axum::serve(listener, app).into_future());
+
+    let mut config = HttpTransportConfig::new(Url::parse(&format!("http://{address}/")).unwrap());
+    config.secret = Some("synthetic-controller-token".into());
+    let client = ControllerClient::new(
+        Arc::new(HttpTransport::new(config).unwrap()),
+        ControllerLimits::default(),
+    )
+    .unwrap();
+
+    client.close_connection("stable-id").await.unwrap();
+    client.close_all_connections().await.unwrap();
+    let error = client.close_connection("rejected").await.unwrap_err();
+    assert_eq!(error.kind(), ControllerErrorKind::HttpStatus);
+    assert_eq!(
+        state.requests.lock().unwrap().as_slice(),
+        [
+            (
+                "/connections/stable-id".into(),
+                AUTHORIZATION.into(),
+                String::new(),
+            ),
+            ("/connections".into(), AUTHORIZATION.into(), String::new(),),
+            (
+                "/connections/rejected".into(),
+                AUTHORIZATION.into(),
+                String::new(),
+            ),
+        ]
+    );
     server.abort();
 }
 

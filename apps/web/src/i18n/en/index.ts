@@ -316,9 +316,38 @@ const en = {
     clearClosedDescription:
       "Clears only this app's bounded local history. Active connections and Mihomo state are unchanged.",
     close: "Close",
-    closeAll: "Close all",
-    closeDisabled:
-      "Real connection-close commands are not included in this read-only slice. No command will be sent.",
+    closeAllActiveConfirm: "Close all active connections",
+    closeAllActiveConnections: "Close all active connections",
+    closeAllActiveDescription:
+      "Close all {count:number} connections active in the current profile and observation session. This includes connections hidden by the current search, network filter, or render limit. New connections opened after confirmation may remain active.",
+    closeAllActiveSucceeded: "Closed {count:number} active connections",
+    closeAllActiveTitle: "Close all currently active connections?",
+    closeAllScope:
+      "Affects all connections active in the current profile and observation session, not only filtered or visible rows.",
+    closeConflict: "Another Traffic command is already pending. The active snapshot was refreshed.",
+    closeConnectionConfirm: "Close connection",
+    closeConnectionDescription:
+      "Close the active connection to {destination:string}. Mish will report success only after a current Mihomo snapshot confirms that its stable connection ID disappeared.",
+    closeConnectionSucceeded: "Connection closed",
+    closeConnectionTitle: "Close this active connection?",
+    closeControllerRejected:
+      "Mihomo rejected the close command. The active snapshot was refreshed without claiming success.",
+    closeFailed:
+      "The connection close could not be confirmed safely. The latest authoritative snapshot is shown.",
+    closePartialRemaining:
+      "Some targeted connections remain active. The latest authoritative snapshot shows the partial result.",
+    closeRuntimeReplaced:
+      "The active runtime changed during the command. No success was published for the replaced runtime.",
+    closeStaleConnection:
+      "That connection was already closed or its stable ID is no longer active. The snapshot was refreshed.",
+    closeStaleSnapshot:
+      "The active profile, observation session, or connection set changed before the command. Review the refreshed snapshot and confirm again.",
+    closeTimeout:
+      "Mihomo did not confirm the close before the deadline. The latest authoritative snapshot is shown.",
+    closeUnsupported:
+      "Connection closing is unavailable in this runtime. Browser fixture data never reports desktop mutation success.",
+    closingAllActive: "Closing active connections…",
+    closingConnection: "Closing…",
     closed: "Closed",
     closedAt: "Closed",
     closedEmpty: "No recently closed connections",
@@ -334,7 +363,7 @@ const en = {
     enabled: "Enabled",
     fixtureNotice: "Fictional local fixture data. No network or system action is performed.",
     hits: "Hits",
-    liveNotice: "Read-only observations from the desktop local service.",
+    liveNotice: "Authoritative observations from the desktop local service.",
     loadError: "Traffic data could not be loaded.",
     loadMore: "Show more",
     network: "Network",

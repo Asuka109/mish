@@ -1,6 +1,8 @@
 use mish_runtime::{
     CaptureAuditReason, CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError,
     CoreStatus, MishRuntime, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficCommandResult,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -66,6 +68,33 @@ impl DesktopRuntimeHost {
         self.current().supports_status_command(command)
     }
 
+    pub fn supports_traffic_command(&self, operation: TrafficCommandOperation) -> bool {
+        self.current().supports_traffic_command(operation)
+    }
+
+    pub async fn close_connection(
+        &self,
+        authority: TrafficCommandAuthority,
+        connection_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Value {
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let execution = runtime.close_connection(authority, connection_id).await;
+        self.finish_traffic_command(runtime, execution, adapter_kind, changes)
+    }
+
+    pub async fn close_all_active(
+        &self,
+        authority: TrafficCommandAuthority,
+        adapter_kind: StatusAdapterKind,
+    ) -> Value {
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let execution = runtime.close_all_active(authority).await;
+        self.finish_traffic_command(runtime, execution, adapter_kind, changes)
+    }
+
     pub async fn set_routing_mode(
         &self,
         mode: RoutingMode,
@@ -104,10 +133,52 @@ impl DesktopRuntimeHost {
     }
 
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
-        self.current().traffic_snapshot(adapter_kind)
+        loop {
+            let mut changes = self.subscribe_changes();
+            let runtime = changes.borrow_and_update().clone();
+            let snapshot = serde_json::to_value(runtime.traffic_snapshot_typed(adapter_kind))
+                .expect("Traffic state must serialize");
+            if !changes.has_changed().unwrap_or(false) {
+                return snapshot;
+            }
+        }
     }
 
     pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         self.current().events_snapshot(adapter_kind)
+    }
+
+    fn finish_traffic_command(
+        &self,
+        runtime: MishRuntime,
+        execution: TrafficCommandExecution,
+        adapter_kind: StatusAdapterKind,
+        mut changes: watch::Receiver<MishRuntime>,
+    ) -> Value {
+        let mut runtime_replaced = changes.has_changed().unwrap_or(true);
+
+        loop {
+            let current = changes.borrow_and_update().clone();
+            runtime_replaced |= !runtime.is_same_instance(&current);
+            let execution = if runtime_replaced {
+                TrafficCommandExecution::failure(
+                    execution.operation,
+                    TrafficCommandFailureKind::RuntimeReplaced,
+                    execution.target_count,
+                    execution.remaining_connection_ids.clone(),
+                )
+            } else {
+                execution.clone()
+            };
+            let result = serde_json::to_value(TrafficCommandResult::new(
+                execution,
+                current.traffic_snapshot_typed(adapter_kind),
+            ))
+            .expect("Traffic command result must serialize");
+            if !changes.has_changed().unwrap_or(true) {
+                return result;
+            }
+            runtime_replaced = true;
+        }
     }
 }

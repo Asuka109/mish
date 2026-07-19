@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::StatusAdapterKind;
 
@@ -79,6 +79,107 @@ impl TrafficDataSnapshot {
             rules: Vec::new(),
             sequence: 0,
             session_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrafficCommandAuthority {
+    pub profile_id: String,
+    pub sequence: u64,
+    pub session_id: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrafficCommandOperation {
+    CloseConnection,
+    CloseAllActive,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TrafficCommandFailureKind {
+    Unsupported,
+    InvalidRequest,
+    Conflict,
+    StaleSnapshot,
+    StaleConnection,
+    Timeout,
+    Disconnected,
+    VersionDrift,
+    ControllerRejected,
+    RuntimeReplaced,
+    PartialRemaining,
+    InconsistentObservation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrafficCommandStatus {
+    Success,
+    Failure,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrafficCommandExecution {
+    pub failure: Option<TrafficCommandFailureKind>,
+    pub operation: TrafficCommandOperation,
+    pub remaining_connection_ids: Vec<String>,
+    pub target_count: usize,
+}
+
+impl TrafficCommandExecution {
+    pub fn success(operation: TrafficCommandOperation, target_count: usize) -> Self {
+        Self {
+            failure: None,
+            operation,
+            remaining_connection_ids: Vec::new(),
+            target_count,
+        }
+    }
+
+    pub fn failure(
+        operation: TrafficCommandOperation,
+        failure: TrafficCommandFailureKind,
+        target_count: usize,
+        remaining_connection_ids: Vec<String>,
+    ) -> Self {
+        Self {
+            failure: Some(failure),
+            operation,
+            remaining_connection_ids,
+            target_count,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrafficCommandResult {
+    pub failure: Option<TrafficCommandFailureKind>,
+    pub operation: TrafficCommandOperation,
+    pub remaining_connection_ids: Vec<String>,
+    pub snapshot: TrafficDataSnapshot,
+    pub status: TrafficCommandStatus,
+    pub target_count: usize,
+}
+
+impl TrafficCommandResult {
+    pub fn new(execution: TrafficCommandExecution, snapshot: TrafficDataSnapshot) -> Self {
+        let status = if execution.failure.is_some() {
+            TrafficCommandStatus::Failure
+        } else {
+            TrafficCommandStatus::Success
+        };
+        Self {
+            failure: execution.failure,
+            operation: execution.operation,
+            remaining_connection_ids: execution.remaining_connection_ids,
+            snapshot,
+            status,
+            target_count: execution.target_count,
         }
     }
 }

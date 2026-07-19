@@ -4,7 +4,7 @@
 
 Mish integrates the desktop Mihomo core as a managed operating-system process.
 The desktop local bridge service starts and stops that process, while the
-Controller adapter observes it and exposes two bounded mutations over Mihomo's
+Controller adapter observes it and exposes four bounded mutation families over Mihomo's
 HTTP and WebSocket API.
 Mihomo is not linked into the Rust process through a C ABI.
 
@@ -49,9 +49,9 @@ flowchart TB
     Runtime["Transport-neutral Mish runtime"]
     ProcessManager["Desktop process manager"]
     ObservationSource["Controller observation source"]
-    ProductMapper["Read-only Status and Traffic mapper"]
+    ProductMapper["Status and Traffic mapper"]
 
-    subgraph AdapterLibrary["Read-only Controller adapter library"]
+    subgraph AdapterLibrary["Controller adapter library"]
       ControllerClient["Typed Controller client"]
       Validation["Deserialization, validation, typed errors, bounds"]
       Transport["Injected transport"]
@@ -79,6 +79,7 @@ flowchart TB
   Profile -->|"loaded by Mihomo at startup"| ProxyEngine
 
   HttpTransport -->|"GET and WebSocket reads"| ControllerApi
+  HttpTransport -->|"Bounded PUT and DELETE commands"| ControllerApi
   ControllerApi -->|"bounded JSON responses and samples"| HttpTransport
 
   DeviceTraffic -->|"local proxy, System Proxy, or TUN ingress"| ProxyEngine
@@ -108,16 +109,18 @@ traffic capture.
 
 `crates/mihomo-controller` implements the following v1.19.29 surface:
 
-| Endpoint       | Transport      | Adapter result                                                                  |
-| -------------- | -------------- | ------------------------------------------------------------------------------- |
-| `/version`     | HTTP GET       | Version metadata and explicit pinned-version verification                       |
-| `/configs`     | HTTP GET       | Routing mode and the bounded runtime-configuration subset needed by the product |
-| `/proxies`     | HTTP GET       | Proxy metadata, histories, group children, current selection, and fixed choice  |
-| `/traffic`     | WebSocket      | Traffic samples and a first-sample snapshot helper                              |
-| `/memory`      | WebSocket      | Mihomo memory samples and a first-sample snapshot helper                        |
-| `/logs`        | WebSocket      | Structured core events, bounded validation, and source redaction                |
-| `/connections` | HTTP/WebSocket | Active connection snapshot or stream                                            |
-| `/rules`       | HTTP GET       | Ordered rules, optional wrapper statistics, disabled state, and effective count |
+| Endpoint            | Transport      | Adapter result                                                                  |
+| ------------------- | -------------- | ------------------------------------------------------------------------------- |
+| `/version`          | HTTP GET       | Version metadata and explicit pinned-version verification                       |
+| `/configs`          | HTTP GET       | Routing mode and the bounded runtime-configuration subset needed by the product |
+| `/proxies`          | HTTP GET       | Proxy metadata, histories, group children, current selection, and fixed choice  |
+| `/traffic`          | WebSocket      | Traffic samples and a first-sample snapshot helper                              |
+| `/memory`           | WebSocket      | Mihomo memory samples and a first-sample snapshot helper                        |
+| `/logs`             | WebSocket      | Structured core events, bounded validation, and source redaction                |
+| `/connections`      | HTTP/WebSocket | Active connection snapshot or stream                                            |
+| `/connections`      | HTTP DELETE    | Close all connections active at Controller command time                         |
+| `/connections/{id}` | HTTP DELETE    | Close one stable active connection ID                                           |
+| `/rules`            | HTTP GET       | Ordered rules, optional wrapper statistics, disabled state, and effective count |
 
 The generic `ControllerTransport` boundary permits another host implementation
 without changing DTO validation. The included transport accepts only HTTP or
@@ -337,7 +340,7 @@ caller-supplied lifecycle, uptime, active-profile identity, honest platform
 capabilities, bounded traffic-series retention, and profile-scoped group usage.
 See [`status-data-contracts.md`](status-data-contracts.md) for those semantics.
 The same validated observation batch also maps detailed connections and ordered
-rules into the independent read-only Traffic snapshot documented in
+rules into the independent Traffic snapshot and confirmed command surface documented in
 [`traffic-data-contracts.md`](traffic-data-contracts.md). Exact connection byte
 counters cross that boundary as decimal strings.
 
@@ -371,7 +374,7 @@ The composed managed slice does not:
 - silently select, import, or restore a profile during Tauri startup;
 - download or install Mihomo at runtime; production packaging must still supply
   the pinned resource;
-- mutate profiles, rules, or connections;
+- mutate profiles or rules;
 - enable System Proxy, TUN, DNS changes, or privileged operations;
 - call delay-test endpoints, which initiate real network requests and update
   Mihomo histories;

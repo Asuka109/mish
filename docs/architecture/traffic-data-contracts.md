@@ -8,10 +8,11 @@ The same contract is consumed by the browser fixture, desktop RPC adapter, and
 future native adapters without exposing Mihomo Controller JSON directly to
 React.
 
-The first production slice is read-only. It supports Active, recently Closed,
-and Rules investigation, but it deliberately defines no close-one or close-all
-RPC method. Disabled UI controls explain this boundary and never send a
-substitute command.
+Traffic supports Active, recently Closed, and Rules investigation plus two
+confirmed desktop commands: close one current active connection and close all
+connections active in the current authoritative snapshot. Both commands are
+unavailable in the browser fixture, which never reports desktop mutation
+success.
 
 ## Snapshot shape
 
@@ -67,6 +68,52 @@ Traffic subscriptions reset and resample that authoritative runtime on profile
 change, so rows from a prior profile cannot be presented under the new active
 profile context.
 
+## Confirmed connection commands
+
+The command authority is limited to `profileId`, `sessionId`, `sequence`, and,
+for one-connection close, the stable Controller connection ID already present
+in that snapshot. Destination addresses, process names, process paths, URLs,
+and rendered row positions are never command authority. RPC parameter schemas
+reject unknown fields.
+
+Before mutation, the Controller source serializes commands with observation
+refreshes, verifies the pinned core version, validates the authority against
+the current ready snapshot, and performs a fresh `/connections` read. A
+one-connection command fails as `stale-connection` when its ID has disappeared.
+A close-all command compares the complete fresh active-ID set with the
+authoritative snapshot and fails as `stale-snapshot` if it changed before
+mutation. This prevents a delayed confirmation from silently changing scope.
+
+Mihomo v1.19.29 implements `DELETE /connections/{id}` and
+`DELETE /connections`. Both handlers return `204 No Content`; the single-ID
+handler also returns 204 when no tracker exists, and both handlers ignore
+tracker `Close` errors. Mish therefore treats the HTTP response only as command
+acceptance. It polls fresh, validated `/connections` snapshots and publishes
+success only after every targeted ID disappears. These semantics are fixed by
+the pinned [connection routes](https://github.com/MetaCubeX/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/hub/route/connections.go)
+and [tracker manager](https://github.com/MetaCubeX/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/tunnel/statistic/manager.go)
+source.
+
+Every command returns a typed result containing its operation, success or
+failure status, target count, any remaining target IDs, and the latest
+authoritative Traffic snapshot. Typed failures distinguish unsupported,
+invalid request, conflict, stale snapshot, stale connection, timeout,
+disconnect, version drift, Controller rejection, runtime replacement, partial
+remaining targets, and inconsistent observation. Failures refresh authority
+when possible and never synthesize success from a 2xx response. The desktop
+runtime host checks identity again after command reconciliation; replacement
+returns `runtime-replaced` with the replacement runtime's snapshot.
+
+“Close all active connections” always means the complete active collection in
+the current profile and observation session. It is not limited by text search,
+network filters, tabs, or incremental rendering. The confirmation dialog states
+that scope and shows the current total. New connections created after
+confirmation are not part of the confirmed target set and may remain active.
+Because Mihomo's all-active endpoint operates at Controller handling time, it
+may also close a connection created in the narrow interval between Mish's fresh
+preflight and the DELETE request; Mish never claims that such a later ID was a
+confirmed target.
+
 ## Recently Closed derivation
 
 Recently Closed is local, in-memory diagnostic context derived by diffing
@@ -108,4 +155,5 @@ explicit scope and structured redaction design.
 
 Browser fixtures use only reserved `.invalid` names, documentation address
 ranges, synthetic process names, and `/synthetic/` paths. Fixtures perform no
-network or system operation and must never be described as Controller success.
+network or system operation, advertise both close commands as unsupported, and
+must never be described as Controller success.

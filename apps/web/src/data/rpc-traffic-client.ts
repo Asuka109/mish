@@ -3,6 +3,9 @@ import {
   mishRpcMethods,
   trafficRpcNotifications,
   type TrafficClient,
+  type TrafficCommandAuthorityDto,
+  type TrafficCommandOperation,
+  type TrafficCommandResultDto,
   type TrafficConnectionState,
   type TrafficDataSnapshotDto,
   type TrafficSnapshotNotificationDto,
@@ -17,6 +20,9 @@ export class RpcTrafficClient implements TrafficClient {
   private readonly snapshotListeners = new Set<(snapshot: TrafficDataSnapshotDto) => void>();
   private connectionState: TrafficConnectionState;
   private disposed = false;
+  private readonly supportedCommands = new Set<TrafficCommandOperation>();
+  private capabilitiesLoaded = false;
+  private capabilitiesPromise: Promise<void> | null = null;
   private remoteSubscriptionId: string | null = null;
   private subscriptionPromise: Promise<void> | null = null;
   private subscriptionRetryPending = false;
@@ -35,6 +41,35 @@ export class RpcTrafficClient implements TrafficClient {
     );
   }
 
+  async closeAllActive(
+    authority: TrafficCommandAuthorityDto,
+    options?: RpcRequestOptions,
+  ): Promise<TrafficCommandResultDto> {
+    await this.ensureCapabilities();
+    try {
+      return await this.rpc.request("traffic.closeAllActive", { authority }, options);
+    } catch (error) {
+      throw toTrafficClientError(error);
+    }
+  }
+
+  async closeConnection(
+    authority: TrafficCommandAuthorityDto,
+    connectionId: string,
+    options?: RpcRequestOptions,
+  ): Promise<TrafficCommandResultDto> {
+    await this.ensureCapabilities();
+    try {
+      return await this.rpc.request(
+        "traffic.closeConnection",
+        { authority, connectionId },
+        options,
+      );
+    } catch (error) {
+      throw toTrafficClientError(error);
+    }
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -50,6 +85,7 @@ export class RpcTrafficClient implements TrafficClient {
 
   async getSnapshot(options?: RpcRequestOptions): Promise<TrafficDataSnapshotDto> {
     try {
+      await this.ensureCapabilities();
       const snapshot = await this.rpc.request("traffic.getSnapshot", {}, options);
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
       return snapshot;
@@ -62,6 +98,10 @@ export class RpcTrafficClient implements TrafficClient {
     this.connectionListeners.add(listener);
     listener(this.getConnectionState());
     return () => this.connectionListeners.delete(listener);
+  }
+
+  supportsCommand(command: TrafficCommandOperation) {
+    return this.supportedCommands.has(command);
   }
 
   subscribeSnapshots(listener: (snapshot: TrafficDataSnapshotDto) => void) {
@@ -88,8 +128,8 @@ export class RpcTrafficClient implements TrafficClient {
       return;
     }
 
-    this.subscriptionPromise = this.rpc
-      .request("traffic.subscribe", {})
+    this.subscriptionPromise = this.ensureCapabilities()
+      .then(() => this.rpc.request("traffic.subscribe", {}))
       .then(({ snapshot, subscriptionId }) => {
         if (this.snapshotListeners.size === 0) {
           void this.rpc.request("traffic.unsubscribe", { subscriptionId }).catch(() => undefined);
@@ -114,12 +154,34 @@ export class RpcTrafficClient implements TrafficClient {
   private receiveConnectionState(state: RpcConnectionState) {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
+      this.capabilitiesLoaded = false;
       this.remoteSubscriptionId = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
       return;
     }
     this.emitConnectionState(mapped);
+  }
+
+  private ensureCapabilities() {
+    if (this.capabilitiesLoaded) return Promise.resolve();
+    if (this.capabilitiesPromise) return this.capabilitiesPromise;
+    this.capabilitiesPromise = this.rpc
+      .request("bridge.getInfo", {})
+      .then((info) => {
+        this.supportedCommands.clear();
+        if (info.trafficCommands.closeAllActive) this.supportedCommands.add("close-all-active");
+        if (info.trafficCommands.closeConnection) this.supportedCommands.add("close-connection");
+        this.capabilitiesLoaded = true;
+      })
+      .catch((error) => {
+        if (this.disposed) return;
+        throw toTrafficClientError(error);
+      })
+      .finally(() => {
+        this.capabilitiesPromise = null;
+      });
+    return this.capabilitiesPromise;
   }
 
   private receiveSnapshot(notification: TrafficSnapshotNotificationDto) {
@@ -137,6 +199,7 @@ function mapConnectionState(state: RpcConnectionState): TrafficConnectionState {
 }
 
 function toTrafficClientError(error: unknown) {
+  if (error instanceof TrafficClientError) return error;
   const mapped = mapRpcError(error);
   return new TrafficClientError(mapped.code, mapped.message, mapped.retryable);
 }

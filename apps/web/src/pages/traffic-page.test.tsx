@@ -7,6 +7,11 @@ import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
 import { ProductProvider } from "../data/product-provider";
 import { FixtureTrafficClient } from "../data/fixture-traffic-client";
+import type {
+  TrafficCommandAuthorityDto,
+  TrafficCommandOperation,
+  TrafficCommandResultDto,
+} from "@mish/contracts";
 import { TrafficProvider } from "../data/traffic-provider";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -31,18 +36,68 @@ function renderTraffic(client: FixtureTrafficClient) {
   );
 }
 
+class CommandTrafficClient extends FixtureTrafficClient {
+  supportsCommand(_command: TrafficCommandOperation) {
+    return true;
+  }
+
+  async closeConnection(
+    _authority: TrafficCommandAuthorityDto,
+    connectionId: string,
+  ): Promise<TrafficCommandResultDto> {
+    const before = await this.getSnapshot();
+    const snapshot = {
+      ...before,
+      activeConnections: before.activeConnections.filter(
+        (connection) => connection.id !== connectionId,
+      ),
+      sequence: before.sequence + 1,
+    };
+    this.publishSnapshot(snapshot);
+    return {
+      failure: null,
+      operation: "close-connection",
+      remainingConnectionIds: [],
+      snapshot,
+      status: "success",
+      targetCount: 1,
+    };
+  }
+
+  async closeAllActive(_authority: TrafficCommandAuthorityDto): Promise<TrafficCommandResultDto> {
+    const before = await this.getSnapshot();
+    const snapshot = { ...before, activeConnections: [], sequence: before.sequence + 1 };
+    this.publishSnapshot(snapshot);
+    return {
+      failure: null,
+      operation: "close-all-active",
+      remainingConnectionIds: [],
+      snapshot,
+      status: "success",
+      targetCount: before.activeConnections.length,
+    };
+  }
+}
+
+async function commandClient() {
+  const client = new CommandTrafficClient();
+  const snapshot = await client.getSnapshot();
+  client.publishSnapshot({ ...snapshot, adapterKind: "rpc" });
+  return client;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("Traffic page", () => {
-  it("renders fictional active observations, disabled close controls, and complete row detail", async () => {
+  it("renders fictional active observations, explicitly unsupported close controls, and complete row detail", async () => {
     const user = userEvent.setup();
     renderTraffic(new FixtureTrafficClient());
 
     expect(await screen.findByText(/Fictional local fixture data/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Close all" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close all active connections" })).toBeDisabled();
     const row = screen.getByRole("row", { name: /docs\.fixture\.invalid/ });
     expect(within(row).getByText("Fixture Browser")).toBeVisible();
     expect(within(row).getByText(/Fixture Policy → Fixture Relay → Fixture Exit/)).toBeVisible();
@@ -56,6 +111,52 @@ describe("Traffic page", () => {
     expect(chain).toHaveTextContent("Fixture Relay");
     expect(chain).toHaveTextContent("Fixture Exit");
     expect(dialog).toHaveTextContent("/synthetic/apps/fixture-browser");
+  });
+
+  it("closes one only after confirmation and preserves it in local Closed history", async () => {
+    const user = userEvent.setup();
+    renderTraffic(await commandClient());
+    const row = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
+
+    await user.click(within(row).getByRole("button", { name: "Close" }));
+    const confirmation = screen.getByRole("alertdialog", { name: "Close this active connection?" });
+    expect(confirmation).toHaveTextContent("stable connection ID");
+    await user.click(within(confirmation).getByRole("button", { name: "Close connection" }));
+
+    expect(screen.queryByText("docs.fixture.invalid")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /Closed/ }));
+    expect(await screen.findByText("docs.fixture.invalid")).toBeVisible();
+  });
+
+  it("closes all current active connections regardless of filters and supports keyboard cancel", async () => {
+    const user = userEvent.setup();
+    renderTraffic(await commandClient());
+    await screen.findByText("Fixture Browser");
+    const search = screen.getByRole("textbox", { name: "Search Traffic" });
+    await user.type(search, "process:browser");
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Close all active connections" }));
+    let confirmation = screen.getByRole("alertdialog", {
+      name: "Close all currently active connections?",
+    });
+    expect(confirmation).toHaveTextContent("all 6 connections");
+    expect(confirmation).toHaveTextContent("hidden by the current search");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close all active connections" }));
+    confirmation = screen.getByRole("alertdialog", {
+      name: "Close all currently active connections?",
+    });
+    await user.click(
+      within(confirmation).getByRole("button", { name: "Close all active connections" }),
+    );
+    expect(await screen.findByText("No matches")).toBeVisible();
+    await user.clear(search);
+    expect(await screen.findByText("No active connections")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: /Closed/ }));
+    expect(screen.getByRole("tab", { name: /Closed 6/ })).toBeVisible();
   });
 
   it("derives Closed locally, filters structured fields, and clears only local history", async () => {
