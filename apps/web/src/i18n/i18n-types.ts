@@ -1688,7 +1688,7 @@ type RootTranslation = {
 		 */
 		patchEditorDescription: string
 		/**
-		 * P​a​t​c​h​e​s​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
+		 * R​u​l​e​s​ ​a​n​d​ ​g​r​o​u​p​s​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
 		 * @param {string} profile
 		 */
 		patchEditorTitle: RequiredParams<'profile'>
@@ -1905,7 +1905,7 @@ type RootTranslation = {
 		 */
 		patchValidationValue: string
 		/**
-		 * S​t​r​u​c​t​u​r​e​d​ ​p​a​t​c​h​e​s
+		 * R​u​l​e​s​ ​a​n​d​ ​g​r​o​u​p​s
 		 */
 		patches: string
 		/**
@@ -2031,11 +2031,15 @@ type RootTranslation = {
 		 */
 		description: string
 		/**
-		 * P​r​o​f​i​l​e​s​ ​a​r​e​ ​s​t​o​r​e​d​ ​p​r​i​v​a​t​e​l​y​ ​i​n​ ​M​i​s​h​ ​a​p​p​ ​d​a​t​a​.​ ​H​T​T​P​S​ ​i​m​p​o​r​t​ ​a​n​d​ ​m​a​n​u​a​l​ ​r​e​f​r​e​s​h​ ​u​s​e​ ​t​h​e​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 * P​r​o​f​i​l​e​ ​f​i​l​e​s​ ​s​t​a​y​ ​o​n​ ​t​h​i​s​ ​d​e​v​i​c​e​.​ ​S​u​b​s​c​r​i​p​t​i​o​n​ ​i​m​p​o​r​t​s​ ​a​n​d​ ​m​a​n​u​a​l​ ​r​e​f​r​e​s​h​e​s​ ​a​r​e​ ​h​a​n​d​l​e​d​ ​b​y​ ​M​i​s​h​'​s​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
 		 */
 		desktopDescription: string
 		/**
-		 * I​m​p​o​r​t​ ​a​n​ ​H​T​T​P​S​ ​s​o​u​r​c​e​ ​o​r​ ​c​h​o​o​s​e​ ​a​ ​l​o​c​a​l​ ​Y​A​M​L​ ​f​i​l​e​ ​t​o​ ​b​e​g​i​n​.
+		 * E​d​i​t​ ​r​u​l​e​s​ ​a​n​d​ ​g​r​o​u​p​s
+		 */
+		editRulesAndGroups: string
+		/**
+		 * I​m​p​o​r​t​ ​a​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​l​i​n​k​ ​o​r​ ​c​h​o​o​s​e​ ​a​ ​l​o​c​a​l​ ​Y​A​M​L​ ​f​i​l​e​ ​t​o​ ​b​e​g​i​n​.
 		 */
 		emptyDescription: string
 		/**
@@ -2055,11 +2059,11 @@ type RootTranslation = {
 		 */
 		groups: string
 		/**
-		 * T​h​e​ ​c​o​m​p​l​e​t​e​ ​U​R​L​ ​i​s​ ​s​e​n​t​ ​o​n​l​y​ ​t​o​ ​t​h​e​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​a​n​d​ ​i​s​ ​n​e​v​e​r​ ​s​h​o​w​n​ ​a​g​a​i​n​ ​a​f​t​e​r​ ​p​r​e​f​l​i​g​h​t​.
+		 * T​h​e​ ​c​o​m​p​l​e​t​e​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​ ​i​s​ ​s​e​n​t​ ​o​n​l​y​ ​t​o​ ​t​h​e​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​a​n​d​ ​i​s​ ​n​e​v​e​r​ ​s​h​o​w​n​ ​a​g​a​i​n​ ​a​f​t​e​r​ ​p​r​e​v​i​e​w​.
 		 */
 		httpsDescription: string
 		/**
-		 * H​T​T​P​S​ ​p​r​o​f​i​l​e​ ​U​R​L
+		 * S​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L
 		 */
 		httpsLabel: string
 		/**
@@ -2071,7 +2075,7 @@ type RootTranslation = {
 		 */
 		importFailed: string
 		/**
-		 * I​m​p​o​r​t​ ​H​T​T​P​S
+		 * I​m​p​o​r​t​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​l​i​n​k
 		 */
 		importHttps: string
 		/**
@@ -2215,7 +2219,7 @@ type RootTranslation = {
 		 */
 		provenanceImpactReplacedPlatform: string
 		/**
-		 * S​o​u​r​c​e​ ​→​ ​U​s​e​r​ ​p​a​t​c​h​e​s​ ​→​ ​A​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y​ ​→​ ​P​l​a​t​f​o​r​m​ ​i​n​t​e​g​r​a​t​i​o​n​ ​→​ ​E​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
+		 * S​o​u​r​c​e​ ​→​ ​U​s​e​r​ ​c​h​a​n​g​e​s​ ​→​ ​A​p​p​l​i​c​a​t​i​o​n​ ​p​o​l​i​c​y​ ​→​ ​P​l​a​t​f​o​r​m​ ​i​n​t​e​g​r​a​t​i​o​n​ ​→​ ​E​f​f​e​c​t​i​v​e​ ​r​u​n​t​i​m​e
 		 */
 		provenanceLayerFlow: string
 		/**
@@ -2491,7 +2495,7 @@ type RootTranslation = {
 		 */
 		stopping: string
 		/**
-		 * S​e​n​s​i​t​i​v​e​ ​s​o​u​r​c​e​ ​o​r​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​d​a​t​a​ ​w​i​l​l​ ​s​t​a​y​ ​i​n​ ​M​i​s​h​'​s​ ​p​r​i​v​a​t​e​ ​a​p​p​-​d​a​t​a​ ​s​t​o​r​a​g​e​.
+		 * S​e​n​s​i​t​i​v​e​ ​p​r​o​f​i​l​e​ ​s​o​u​r​c​e​s​ ​a​n​d​ ​c​o​n​t​e​n​t​s​ ​s​t​a​y​ ​i​n​ ​M​i​s​h​'​s​ ​p​r​i​v​a​t​e​ ​s​t​o​r​a​g​e​ ​o​n​ ​t​h​i​s​ ​d​e​v​i​c​e​.
 		 */
 		sensitiveNotice: string
 		/**
@@ -2499,7 +2503,7 @@ type RootTranslation = {
 		 */
 		source: string
 		/**
-		 * H​T​T​P​S
+		 * S​u​b​s​c​r​i​p​t​i​o​n​ ​l​i​n​k
 		 */
 		sourceHttps: string
 		/**
@@ -2530,6 +2534,50 @@ type RootTranslation = {
 		 * R​e​v​i​e​w​ ​w​a​r​n​i​n​g​s
 		 */
 		warning: string
+		/**
+		 * R​e​v​i​e​w​ ​w​a​r​n​i​n​g​s​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
+		 * @param {string} profile
+		 */
+		reviewWarnings: RequiredParams<'profile'>
+		/**
+		 * M​i​s​h​ ​f​o​u​n​d​ ​d​e​t​a​i​l​s​ ​t​h​a​t​ ​m​a​y​ ​a​f​f​e​c​t​ ​h​o​w​ ​t​h​i​s​ ​p​r​o​f​i​l​e​ ​i​s​ ​s​t​o​r​e​d​ ​o​r​ ​a​c​t​i​v​a​t​e​d​.
+		 */
+		warningDialogDescription: string
+		/**
+		 * W​a​r​n​i​n​g​s​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
+		 * @param {string} profile
+		 */
+		warningDialogTitle: RequiredParams<'profile'>
+		/**
+		 * T​h​e​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​d​i​d​ ​n​o​t​ ​p​r​o​v​i​d​e​ ​m​o​r​e​ ​d​e​t​a​i​l​ ​f​o​r​ ​t​h​i​s​ ​w​a​r​n​i​n​g​.
+		 */
+		warningDetailsUnavailable: string
+		warningReason: {
+			/**
+			 * S​o​m​e​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​m​a​n​a​g​e​d​ ​b​y​ ​M​i​s​h​ ​a​n​d​ ​u​s​e​ ​t​h​e​ ​a​p​p​l​i​c​a​t​i​o​n​'​s​ ​v​a​l​u​e​s​.
+			 */
+			'application-settings-overridden': string
+			/**
+			 * S​o​m​e​ ​s​e​t​t​i​n​g​s​ ​t​h​a​t​ ​d​o​ ​n​o​t​ ​a​p​p​l​y​ ​t​o​ ​t​h​i​s​ ​p​l​a​t​f​o​r​m​ ​w​e​r​e​ ​d​i​s​a​b​l​e​d​.
+			 */
+			'platform-settings-disabled': string
+			/**
+			 * T​h​i​s​ ​p​r​o​f​i​l​e​ ​m​a​y​ ​c​o​n​t​a​i​n​ ​c​r​e​d​e​n​t​i​a​l​s​ ​o​r​ ​o​t​h​e​r​ ​s​e​n​s​i​t​i​v​e​ ​d​a​t​a​ ​a​n​d​ ​s​t​a​y​s​ ​o​n​ ​t​h​i​s​ ​d​e​v​i​c​e​.
+			 */
+			'sensitive-data-present': string
+			/**
+			 * C​o​m​m​e​n​t​s​ ​a​n​d​ ​s​o​u​r​c​e​ ​f​o​r​m​a​t​t​i​n​g​ ​w​i​l​l​ ​n​o​t​ ​b​e​ ​p​r​e​s​e​r​v​e​d​ ​w​h​e​n​ ​M​i​s​h​ ​s​t​o​r​e​s​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
+			 */
+			'source-formatting-not-round-tripped': string
+			/**
+			 * M​i​s​h​ ​f​o​u​n​d​ ​s​e​t​t​i​n​g​s​ ​i​t​ ​d​o​e​s​ ​n​o​t​ ​r​e​c​o​g​n​i​z​e​ ​a​n​d​ ​p​r​e​s​e​r​v​e​d​ ​t​h​e​m​ ​u​n​c​h​a​n​g​e​d​.
+			 */
+			'unknown-keys-preserved': string
+			/**
+			 * U​n​s​a​f​e​ ​f​i​l​e​ ​p​a​t​h​s​ ​w​e​r​e​ ​f​o​u​n​d​ ​a​n​d​ ​w​e​r​e​ ​n​o​t​ ​i​m​p​o​r​t​e​d​.
+			 */
+			'unsafe-paths-rejected': string
+		}
 		/**
 		 * W​a​r​n​i​n​g​s​:​ ​{​c​o​u​n​t​}
 		 * @param {number} count
@@ -2989,7 +3037,7 @@ type RootTranslation = {
 		 */
 		unavailable: string
 		/**
-		 * T​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​h​a​s​ ​n​o​ ​c​o​n​f​i​g​u​r​e​d​ ​T​r​a​f​f​i​c​ ​o​b​s​e​r​v​a​t​i​o​n​ ​s​o​u​r​c​e​.​ ​N​o​ ​a​c​t​i​v​e​ ​s​t​a​t​e​ ​i​s​ ​c​l​a​i​m​e​d​.
+		 * N​o​ ​t​r​a​f​f​i​c​ ​d​a​t​a​ ​i​s​ ​a​v​a​i​l​a​b​l​e​ ​r​i​g​h​t​ ​n​o​w​.
 		 */
 		unavailableNotice: string
 		/**
@@ -5378,7 +5426,7 @@ export type TranslationFunctions = {
 		 */
 		patchEditorDescription: () => LocalizedString
 		/**
-		 * Patches for {profile}
+		 * Rules and groups for {profile}
 		 */
 		patchEditorTitle: (arg: { profile: string }) => LocalizedString
 		/**
@@ -5590,7 +5638,7 @@ export type TranslationFunctions = {
 		 */
 		patchValidationValue: () => LocalizedString
 		/**
-		 * Structured patches
+		 * Rules and groups
 		 */
 		patches: () => LocalizedString
 		/**
@@ -5710,11 +5758,15 @@ export type TranslationFunctions = {
 		 */
 		description: () => LocalizedString
 		/**
-		 * Profiles are stored privately in Mish app data. HTTPS import and manual refresh use the authenticated local service.
+		 * Profile files stay on this device. Subscription imports and manual refreshes are handled by Mish's authenticated local service.
 		 */
 		desktopDescription: () => LocalizedString
 		/**
-		 * Import an HTTPS source or choose a local YAML file to begin.
+		 * Edit rules and groups
+		 */
+		editRulesAndGroups: () => LocalizedString
+		/**
+		 * Import a subscription link or choose a local YAML file to begin.
 		 */
 		emptyDescription: () => LocalizedString
 		/**
@@ -5734,11 +5786,11 @@ export type TranslationFunctions = {
 		 */
 		groups: () => LocalizedString
 		/**
-		 * The complete URL is sent only to the authenticated local service and is never shown again after preflight.
+		 * The complete subscription URL is sent only to the authenticated local service and is never shown again after preview.
 		 */
 		httpsDescription: () => LocalizedString
 		/**
-		 * HTTPS profile URL
+		 * Subscription URL
 		 */
 		httpsLabel: () => LocalizedString
 		/**
@@ -5750,7 +5802,7 @@ export type TranslationFunctions = {
 		 */
 		importFailed: () => LocalizedString
 		/**
-		 * Import HTTPS
+		 * Import subscription link
 		 */
 		importHttps: () => LocalizedString
 		/**
@@ -5894,7 +5946,7 @@ export type TranslationFunctions = {
 		 */
 		provenanceImpactReplacedPlatform: () => LocalizedString
 		/**
-		 * Source → User patches → Application policy → Platform integration → Effective runtime
+		 * Source → User changes → Application policy → Platform integration → Effective runtime
 		 */
 		provenanceLayerFlow: () => LocalizedString
 		/**
@@ -6166,7 +6218,7 @@ export type TranslationFunctions = {
 		 */
 		stopping: () => LocalizedString
 		/**
-		 * Sensitive source or configuration data will stay in Mish's private app-data storage.
+		 * Sensitive profile sources and contents stay in Mish's private storage on this device.
 		 */
 		sensitiveNotice: () => LocalizedString
 		/**
@@ -6174,7 +6226,7 @@ export type TranslationFunctions = {
 		 */
 		source: () => LocalizedString
 		/**
-		 * HTTPS
+		 * Subscription link
 		 */
 		sourceHttps: () => LocalizedString
 		/**
@@ -6205,6 +6257,48 @@ export type TranslationFunctions = {
 		 * Review warnings
 		 */
 		warning: () => LocalizedString
+		/**
+		 * Review warnings for {profile}
+		 */
+		reviewWarnings: (arg: { profile: string }) => LocalizedString
+		/**
+		 * Mish found details that may affect how this profile is stored or activated.
+		 */
+		warningDialogDescription: () => LocalizedString
+		/**
+		 * Warnings for {profile}
+		 */
+		warningDialogTitle: (arg: { profile: string }) => LocalizedString
+		/**
+		 * The local service did not provide more detail for this warning.
+		 */
+		warningDetailsUnavailable: () => LocalizedString
+		warningReason: {
+			/**
+			 * Some settings are managed by Mish and use the application's values.
+			 */
+			'application-settings-overridden': () => LocalizedString
+			/**
+			 * Some settings that do not apply to this platform were disabled.
+			 */
+			'platform-settings-disabled': () => LocalizedString
+			/**
+			 * This profile may contain credentials or other sensitive data and stays on this device.
+			 */
+			'sensitive-data-present': () => LocalizedString
+			/**
+			 * Comments and source formatting will not be preserved when Mish stores this profile.
+			 */
+			'source-formatting-not-round-tripped': () => LocalizedString
+			/**
+			 * Mish found settings it does not recognize and preserved them unchanged.
+			 */
+			'unknown-keys-preserved': () => LocalizedString
+			/**
+			 * Unsafe file paths were found and were not imported.
+			 */
+			'unsafe-paths-rejected': () => LocalizedString
+		}
 		/**
 		 * Warnings: {count}
 		 */
@@ -6654,7 +6748,7 @@ export type TranslationFunctions = {
 		 */
 		unavailable: () => LocalizedString
 		/**
-		 * The desktop local service has no configured Traffic observation source. No active state is claimed.
+		 * No traffic data is available right now.
 		 */
 		unavailableNotice: () => LocalizedString
 		/**

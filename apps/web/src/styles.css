@@ -3912,6 +3912,36 @@ h2 {
   flex-wrap: wrap;
 }
 
+.profile-warning-trigger {
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.profile-warning-trigger:hover .ui-badge,
+.profile-warning-trigger:focus-visible .ui-badge {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.profile-warning-trigger:focus-visible {
+  outline: none;
+}
+
+.profile-warnings-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.profile-warning-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 20px;
+  color: var(--color-body);
+  font-size: var(--text-metadata);
+  line-height: 20px;
+}
+
 .profile-source-summary {
   display: block;
   overflow: hidden;

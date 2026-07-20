@@ -319,13 +319,24 @@ describe("profiles page", () => {
     expect(await screen.findByText("Studio route set")).toBeInTheDocument();
     expect(screen.getByText(/fictional metadata/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Choose local file" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Import HTTPS" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Import subscription link" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
     expect(
       screen.getByText(/does not observe a real Mihomo runtime or execute provider updates/i),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Update all proxy providers" })).toBeDisabled();
+  });
+
+  it("opens profile warning details from the warning badge", async () => {
+    const user = userEvent.setup();
+    renderProfiles();
+    await screen.findByText("Studio route set");
+
+    await user.click(screen.getByRole("button", { name: "Review warnings for Studio route set" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Warnings for Studio route set" });
+    expect(dialog).toHaveTextContent("Comments and source formatting will not be preserved");
   });
 
   it("opens the fictional provenance detail from the keyboard without claiming desktop validation", async () => {
@@ -367,8 +378,8 @@ describe("profiles page", () => {
     renderProfiles(client);
     await screen.findByText("Fictional profile");
 
-    await user.click(screen.getByRole("button", { name: "Import HTTPS" }));
-    const urlInput = screen.getByLabelText("HTTPS profile URL");
+    await user.click(screen.getByRole("button", { name: "Import subscription link" }));
+    const urlInput = screen.getByLabelText("Subscription URL");
     expect(urlInput).toHaveAttribute("type", "password");
     const rawUrl = "https://profiles.example/config.yaml?token=private-token";
     await user.type(urlInput, rawUrl);
@@ -379,7 +390,7 @@ describe("profiles page", () => {
     const dialog = screen.getByRole("dialog");
     expect(
       within(dialog).getByText(
-        "Source → User patches → Application policy → Platform integration → Effective runtime",
+        "Source → User changes → Application policy → Platform integration → Effective runtime",
       ),
     ).toBeVisible();
     expect(client.preflightHttps).toHaveBeenCalledWith(rawUrl, undefined);
@@ -399,8 +410,10 @@ describe("profiles page", () => {
     renderProfiles();
     await screen.findByText("Studio route set");
 
-    await user.click(screen.getByRole("button", { name: "Structured patches" }));
-    const dialog = await screen.findByRole("dialog", { name: "Patches for Studio route set" });
+    await user.click(screen.getByRole("button", { name: "Edit rules and groups" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Rules and groups for Studio route set",
+    });
     expect(within(dialog).getByText(/Illustrative browser fixture only/)).toBeVisible();
     expect(within(dialog).getByText("Insert rule")).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Save patches" })).toBeDisabled();
@@ -412,7 +425,7 @@ describe("profiles page", () => {
     expect(within(confirmation).getByText("Discard unsaved patch changes?")).toBeVisible();
     await user.click(within(confirmation).getByRole("button", { name: "Discard changes" }));
     expect(
-      screen.queryByRole("dialog", { name: "Patches for Studio route set" }),
+      screen.queryByRole("dialog", { name: "Rules and groups for Studio route set" }),
     ).not.toBeInTheDocument();
 
     Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
@@ -455,8 +468,10 @@ describe("profiles page", () => {
     renderProfiles(client);
     await screen.findByText("Fictional profile");
 
-    await user.click(screen.getAllByRole("button", { name: "Structured patches" })[0]);
-    const dialog = await screen.findByRole("dialog", { name: "Patches for Fictional profile" });
+    await user.click(screen.getAllByRole("button", { name: "Edit rules and groups" })[0]);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Rules and groups for Fictional profile",
+    });
     await user.click(within(dialog).getByRole("button", { name: "Disable" }));
     await user.click(within(dialog).getByRole("button", { name: "Save patches" }));
 
