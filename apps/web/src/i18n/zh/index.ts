@@ -5,6 +5,7 @@ const zh = {
     cancel: "取消",
     close: "关闭",
     delete: "删除",
+    loading: "正在加载…",
     pending: "等待中",
     save: "保存",
     unavailable: "不可用",

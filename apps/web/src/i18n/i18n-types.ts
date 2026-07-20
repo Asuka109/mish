@@ -28,6 +28,10 @@ type RootTranslation = {
 		 */
 		'delete': string
 		/**
+		 * L​o​a​d​i​n​g​…
+		 */
+		loading: string
+		/**
 		 * P​e​n​d​i​n​g
 		 */
 		pending: string
@@ -3833,6 +3837,10 @@ export type TranslationFunctions = {
 		 * Delete
 		 */
 		'delete': () => LocalizedString
+		/**
+		 * Loading…
+		 */
+		loading: () => LocalizedString
 		/**
 		 * Pending
 		 */

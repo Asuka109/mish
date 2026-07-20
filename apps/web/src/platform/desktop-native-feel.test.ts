@@ -46,11 +46,15 @@ describe("desktop native-feel behavior", () => {
     draggableImage.remove();
   });
 
-  it("does not change browser behavior and removes desktop listeners on cleanup", () => {
+  it("suppresses browser content dragging without taking over browser context menus", () => {
     const image = document.createElement("img");
-    document.body.append(image);
+    const copy = document.createElement("span");
+    document.body.append(image, copy);
 
-    installDesktopNativeFeel("browser");
+    const disposeBrowser = installDesktopNativeFeel("browser");
+    expect(dispatchCancelable(image, "dragstart").defaultPrevented).toBe(true);
+    expect(dispatchCancelable(copy, "contextmenu").defaultPrevented).toBe(false);
+    disposeBrowser();
     expect(dispatchCancelable(image, "dragstart").defaultPrevented).toBe(false);
 
     const dispose = installDesktopNativeFeel("desktop");
@@ -58,6 +62,7 @@ describe("desktop native-feel behavior", () => {
     expect(dispatchCancelable(image, "dragstart").defaultPrevented).toBe(false);
 
     image.remove();
+    copy.remove();
   });
 
   it("routes the desktop find shortcut to the current page search field", () => {
@@ -99,6 +104,37 @@ describe("desktop native-feel behavior", () => {
     document.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).not.toBe(search);
+
+    dispose();
+    search.remove();
+  });
+
+  it("uses Escape to clear and then leave the active page search", () => {
+    const search = document.createElement("input");
+    search.dataset.nativeSearch = "true";
+    search.value = "example";
+    document.body.append(search);
+    search.focus();
+    const dispose = installDesktopNativeFeel("desktop");
+    const input = vi.fn();
+    search.addEventListener("input", input);
+
+    const clear = new KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "Escape",
+    });
+    document.dispatchEvent(clear);
+
+    expect(clear.defaultPrevented).toBe(true);
+    expect(search.value).toBe("");
+    expect(input).toHaveBeenCalledOnce();
+    expect(document.activeElement).toBe(search);
+
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Escape" }),
+    );
     expect(document.activeElement).not.toBe(search);
 
     dispose();

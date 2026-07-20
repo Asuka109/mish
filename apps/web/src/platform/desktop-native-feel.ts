@@ -15,12 +15,16 @@ function closestTarget(event: Event, selector: string) {
   return event.target.closest(selector);
 }
 
+function clearSearchInput(input: HTMLInputElement) {
+  const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  valueSetter?.call(input, "");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 export function installDesktopNativeFeel(
   runtime: "browser" | "desktop",
   targetDocument: Document = document,
 ) {
-  if (runtime !== "desktop") return () => undefined;
-
   const preventBrowserContextMenu = (event: Event) => {
     if (closestTarget(event, TEXT_INTERACTION_TARGETS)) return;
     event.preventDefault();
@@ -46,15 +50,43 @@ export function installDesktopNativeFeel(
     event.preventDefault();
     focusDesktopSearch(targetDocument);
   };
+  const handleSearchEscape = (event: KeyboardEvent) => {
+    if (
+      event.defaultPrevented ||
+      event.isComposing ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.key !== "Escape" ||
+      !(targetDocument.activeElement instanceof HTMLInputElement) ||
+      !targetDocument.activeElement.matches(NATIVE_SEARCH_TARGET)
+    ) {
+      return;
+    }
 
-  targetDocument.addEventListener("contextmenu", preventBrowserContextMenu);
+    event.preventDefault();
+    if (targetDocument.activeElement.value) {
+      clearSearchInput(targetDocument.activeElement);
+    } else {
+      targetDocument.activeElement.blur();
+    }
+  };
+
   targetDocument.addEventListener("dragstart", preventWebContentDrag);
-  targetDocument.addEventListener("keydown", routeFindShortcut);
+  if (runtime === "desktop") {
+    targetDocument.addEventListener("contextmenu", preventBrowserContextMenu);
+    targetDocument.addEventListener("keydown", routeFindShortcut);
+    targetDocument.addEventListener("keydown", handleSearchEscape);
+  }
 
   return () => {
-    targetDocument.removeEventListener("contextmenu", preventBrowserContextMenu);
     targetDocument.removeEventListener("dragstart", preventWebContentDrag);
-    targetDocument.removeEventListener("keydown", routeFindShortcut);
+    if (runtime === "desktop") {
+      targetDocument.removeEventListener("contextmenu", preventBrowserContextMenu);
+      targetDocument.removeEventListener("keydown", routeFindShortcut);
+      targetDocument.removeEventListener("keydown", handleSearchEscape);
+    }
   };
 }
 

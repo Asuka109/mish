@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { toast } from "sonner";
@@ -24,7 +24,7 @@ import {
   type StatusSnapshotDto,
   type WindowSurfacePreference,
 } from "@mish/contracts";
-import { AppRoutes } from "./app";
+import { AppRoutes, RoutePending } from "./app";
 import { AppearanceProvider } from "./appearance";
 import { FixtureStatusClient } from "./data/fixture-status-client";
 import { FixtureProfileClient } from "./data/fixture-profile-client";
@@ -95,6 +95,7 @@ function renderRoute(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -491,6 +492,23 @@ async function createRpcSnapshot(sparse = false) {
 }
 
 describe("production routes", () => {
+  it("keeps fast deferred routes visually quiet before showing progress", () => {
+    vi.useFakeTimers();
+    render(
+      <TypesafeI18n locale="en">
+        <RoutePending />
+      </TypesafeI18n>,
+    );
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(199));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.getByText("Loading…")).toHaveClass("sr-only");
+    vi.useRealTimers();
+  });
+
   it("keeps the shell and default Status route on the eager first-frame path", async () => {
     const { container } = renderRoute("/status");
 
@@ -591,11 +609,62 @@ describe("production routes", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
+    const initialHeading = await screen.findByRole("heading", { name: "Status" });
+    await waitFor(() => expect(document.title).toBe("Status — Mish"));
+    expect(initialHeading).not.toHaveFocus();
+
     const routesLink = screen.getByRole("link", { name: "Routes" });
     expect(routesLink).toHaveAttribute("href", "/routes");
     await user.click(routesLink);
-    expect(await screen.findByRole("heading", { name: "Routes" })).toBeInTheDocument();
+    const routesHeading = await screen.findByRole("heading", { name: "Routes" });
+    await waitFor(() => expect(routesHeading).toHaveFocus());
     expect(routesLink).toHaveAttribute("aria-current", "page");
+  });
+
+  it("supports native sidebar arrow, boundary, and type-ahead navigation", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    const status = screen.getByRole("link", { name: "Status" });
+    const routes = screen.getByRole("link", { name: "Routes" });
+    const profiles = screen.getByRole("link", { name: "Profiles" });
+    const settings = screen.getByRole("link", { name: "Settings" });
+
+    status.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(routes).toHaveFocus();
+
+    await user.keyboard("p");
+    expect(profiles).toHaveFocus();
+
+    await user.keyboard("{End}");
+    expect(settings).toHaveFocus();
+
+    await user.keyboard("{ArrowDown}");
+    expect(status).toHaveFocus();
+  });
+
+  it("restores each destination's scroll position when returning to it", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    const statusHeading = await screen.findByRole("heading", { name: "Status" });
+    await waitFor(() => expect(document.title).toBe("Status — Mish"));
+    expect(statusHeading).not.toHaveFocus();
+    const statusScroller = statusHeading.closest<HTMLElement>(".page-scroll");
+    expect(statusScroller).not.toBeNull();
+    statusScroller!.scrollTop = 180;
+    fireEvent.scroll(statusScroller!);
+
+    await user.click(screen.getByRole("link", { name: "Routes" }));
+    const routesHeading = await screen.findByRole("heading", { name: "Routes" });
+    await waitFor(() => expect(routesHeading).toHaveFocus());
+    await user.click(screen.getByRole("link", { name: "Status" }));
+
+    const restoredHeading = await screen.findByRole("heading", { name: "Status" });
+    await waitFor(() =>
+      expect(restoredHeading.closest<HTMLElement>(".page-scroll")?.scrollTop).toBe(180),
+    );
   });
 
   it("keeps compact toolbar menus and proxy control at their intended hierarchy", async () => {
@@ -620,6 +689,27 @@ describe("production routes", () => {
     });
     expect(settings.parentElement).toBe(proxy.parentElement);
     expect(settings.parentElement).toHaveClass("sidebar-bottom-items");
+  });
+
+  it("opens the fixture profile menu and keeps selection inside demo state", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+
+    const trigger = await screen.findByRole("button", {
+      name: "Switch profile. Current profile: Home",
+    });
+    expect(trigger).toBeEnabled();
+    expect(trigger).toHaveAccessibleDescription(/local fixture data only/);
+
+    await user.click(trigger);
+    await user.click(await screen.findByRole("menuitemradio", { name: "Work 工作" }));
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Switch profile. Current profile: Work 工作",
+      }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Launch the proxy demo state" })).toBeInTheDocument();
   });
 
   it("starts with fixture data without opening a socket or making a request", async () => {

@@ -46,4 +46,19 @@ describe("responsive shell CSS", () => {
     expect(notificationRule).toContain("color: var(--color-text-muted)");
     expect(notificationInteractiveRule).toContain("color: var(--color-body)");
   });
+
+  it("keeps browser and desktop chrome unselectable without blocking editable content", () => {
+    const chromeSelectionRule = styles.match(
+      /:root:is\(\[data-runtime="browser"\], \[data-runtime="desktop"\]\),[\s\S]*?-webkit-touch-callout: none;[\s\S]*?\n\}/,
+    )?.[0];
+    const contentSelectionRule = styles.match(
+      /:root:is\(\[data-runtime="browser"\], \[data-runtime="desktop"\]\)\n\s+:is\(input,[\s\S]*?-webkit-touch-callout: default;[\s\S]*?\n\}/,
+    )?.[0];
+
+    expect(chromeSelectionRule).toContain("user-select: none");
+    expect(chromeSelectionRule).not.toContain('data-runtime="mobile"');
+    expect(contentSelectionRule).toContain("[data-native-text-interaction]");
+    expect(contentSelectionRule).toContain("user-select: text");
+    expect(styles).toContain('.page-scroll h1[tabindex="-1"]:focus');
+  });
 });

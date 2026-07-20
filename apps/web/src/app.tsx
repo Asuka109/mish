@@ -1,8 +1,10 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { Spinner } from "@mish/ui";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AppShell } from "./components/app-shell";
 import { MobileShell } from "./components/mobile-shell";
 import type { MobileFixtureBootstrapDto, MobileVpnSnapshotDto } from "@mish/contracts";
+import { useI18nContext } from "./i18n/i18n-react";
 import type { MobileVpnClient } from "./platform/mobile-vpn-client";
 import type { RuntimeKind } from "./platform/runtime-kind";
 import { NotFoundPage } from "./pages/not-found-page";
@@ -24,18 +26,29 @@ const TrafficPage = lazy(() =>
   import("./pages/traffic-page").then(({ TrafficPage }) => ({ default: TrafficPage })),
 );
 
-function renderDeferredRoute(children: ReactNode) {
+export function RoutePending() {
+  const { LL } = useI18nContext();
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setVisible(true), 200);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
   return (
-    <Suspense
-      fallback={
-        <div aria-busy="true" className="page-scroll route-loading">
-          <div aria-hidden="true" className="route-loading-placeholder" />
+    <div aria-busy="true" className="page-scroll route-loading">
+      {visible ? (
+        <div className="route-loading-indicator" role="status">
+          <Spinner />
+          <span className="sr-only">{LL.common.loading()}</span>
         </div>
-      }
-    >
-      {children}
-    </Suspense>
+      ) : null}
+    </div>
   );
+}
+
+function renderDeferredRoute(children: ReactNode) {
+  return <Suspense fallback={<RoutePending />}>{children}</Suspense>;
 }
 
 interface AppRoutesProps {

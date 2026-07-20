@@ -5,6 +5,7 @@ const en = {
     cancel: "Cancel",
     close: "Close",
     delete: "Delete",
+    loading: "Loading…",
     pending: "Pending",
     save: "Save",
     unavailable: "Unavailable",

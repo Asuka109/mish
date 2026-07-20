@@ -38,8 +38,10 @@ async function findEnabledButton(name: string) {
   return button;
 }
 
-async function waitForInitialRouteFocus() {
-  await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveFocus());
+async function waitForInitialRouteReady() {
+  const heading = screen.getByRole("heading", { level: 1 });
+  await waitFor(() => expect(document.title).toBe("Events — Mish"));
+  expect(heading).not.toHaveFocus();
 }
 
 afterEach(() => {
@@ -143,7 +145,7 @@ describe("Events page", () => {
     expect(screen.getByText(/Fictional browser fixture results/)).toBeVisible();
     expect(screen.queryByText("Synthetic fixture DNS failure")).not.toBeInTheDocument();
 
-    await waitForInitialRouteFocus();
+    await waitForInitialRouteReady();
     run.focus();
     await user.keyboard("{Enter}");
 
@@ -187,7 +189,7 @@ describe("Events page", () => {
     renderEvents(new FixtureEventsClient(), support);
 
     const preview = await findEnabledButton("Preview support bundle");
-    await waitForInitialRouteFocus();
+    await waitForInitialRouteReady();
     preview.focus();
     await user.keyboard("{Enter}");
 

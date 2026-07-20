@@ -127,3 +127,28 @@ Prefer container queries for component-level crowding and page media queries
 for the main column change. Preserve reading order when Session and Groups
 stack. Do not shrink text below the design scale merely to keep a desktop row
 intact.
+
+## Desktop interaction
+
+- Sidebar destinations support Arrow Up, Arrow Down, Home, End, and
+  first-character focus movement. Enter remains the explicit activation step,
+  so focus exploration does not unexpectedly replace the active page.
+- Command-F focuses and selects the current page search field. Escape clears a
+  non-empty search first, then leaves the empty field when pressed again.
+- The toolbar profile menu uses transactional Profile activation in the desktop
+  runtime. The browser fixture uses only its isolated in-memory Status selection
+  seam so the dropdown can be demonstrated without implying Core activation.
+- Each destination remembers its page-scroller position while the application
+  shell remains mounted.
+- Initial load and browser refresh update the document title without moving
+  focus. In-app route changes move assistive-technology focus to the new heading,
+  but headings never draw an interactive-control focus ring.
+- Deferred local route chunks remain visually quiet for the first 200 ms. If a
+  transition exceeds that threshold, show the compact spinner rather than a
+  skeleton placeholder.
+- Desktop controls keep the default cursor and expose an immediate pressed state.
+  Browser clients retain ordinary link and button cursors, while both desktop
+  and browser chrome prevent accidental text selection. Editable controls, code,
+  and explicitly marked content remain selectable. Links and images do not
+  expose browser-style drag previews unless a real drag source opts in with
+  `data-native-draggable="true"`.

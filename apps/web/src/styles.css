@@ -120,6 +120,10 @@ h1 {
   line-height: var(--text-title--line-height);
 }
 
+.page-scroll h1[tabindex="-1"]:focus {
+  outline: none;
+}
+
 h2 {
   font-size: var(--text-body);
   font-weight: var(--font-weight-heading);
@@ -521,15 +525,16 @@ h2 {
 }
 
 .route-loading {
-  padding: 24px 32px 32px;
+  display: grid;
+  place-items: center;
 }
 
-.route-loading-placeholder {
-  width: min(100%, 1080px);
-  height: 144px;
-  margin: 0 auto;
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-soft);
+.route-loading-indicator {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--color-text-muted);
 }
 
 .status-page {
@@ -4889,6 +4894,16 @@ h2 {
     display: none;
   }
 
+  .profiles-import-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .profiles-import-actions > .ui-button {
+    min-width: 0;
+    flex: 1 1 180px;
+  }
+
   .status-page,
   .destination-page,
   .settings-page,
@@ -4983,23 +4998,23 @@ h2 {
   }
 }
 
-:root[data-runtime="desktop"],
-:root[data-runtime="desktop"] *,
-:root[data-runtime="desktop"] *::before,
-:root[data-runtime="desktop"] *::after {
+:root:is([data-runtime="browser"], [data-runtime="desktop"]),
+:root:is([data-runtime="browser"], [data-runtime="desktop"]) *,
+:root:is([data-runtime="browser"], [data-runtime="desktop"]) *::before,
+:root:is([data-runtime="browser"], [data-runtime="desktop"]) *::after {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
 
-:root[data-runtime="desktop"]
+:root:is([data-runtime="browser"], [data-runtime="desktop"])
   :is(input, textarea, code, pre, [contenteditable="true"], [data-native-text-interaction]) {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;
 }
 
-:root[data-runtime="desktop"] img {
+:root:is([data-runtime="browser"], [data-runtime="desktop"]) :is(a[href], img) {
   -webkit-user-drag: none;
 }
 
@@ -5008,4 +5023,9 @@ h2 {
 :root[data-runtime="desktop"] a,
 :root[data-runtime="desktop"] summary {
   cursor: default;
+}
+
+:root[data-runtime="desktop"]
+  :is(button:not(:disabled), [role="button"]:not([aria-disabled="true"]), a[href]):active {
+  filter: brightness(0.9);
 }

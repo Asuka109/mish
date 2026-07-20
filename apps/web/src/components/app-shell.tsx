@@ -22,6 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@mish/ui";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useProduct } from "../data/product-provider";
@@ -68,6 +69,50 @@ const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Lo
 ];
 
 const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
+
+function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+  if (
+    event.defaultPrevented ||
+    event.altKey ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    !(event.target instanceof Element)
+  ) {
+    return;
+  }
+
+  const current = event.target.closest<HTMLAnchorElement>(".nav-item[href]");
+  if (!current) return;
+  const destinations = Array.from(
+    event.currentTarget.querySelectorAll<HTMLAnchorElement>(".nav-item[href]"),
+  );
+  const currentIndex = destinations.indexOf(current);
+  if (currentIndex < 0) return;
+
+  let next: HTMLAnchorElement | undefined;
+  if (event.key === "ArrowDown") {
+    next = destinations[(currentIndex + 1) % destinations.length];
+  } else if (event.key === "ArrowUp") {
+    next = destinations[(currentIndex - 1 + destinations.length) % destinations.length];
+  } else if (event.key === "Home") {
+    next = destinations[0];
+  } else if (event.key === "End") {
+    next = destinations.at(-1);
+  } else if (event.key.length === 1 && event.key.trim()) {
+    const prefix = event.key.toLocaleLowerCase();
+    const ordered = destinations
+      .slice(currentIndex + 1)
+      .concat(destinations.slice(0, currentIndex + 1));
+    next = ordered.find((destination) =>
+      destination.textContent?.trim().toLocaleLowerCase().startsWith(prefix),
+    );
+  }
+
+  if (!next) return;
+  event.preventDefault();
+  next.focus({ preventScroll: true });
+}
 
 function ProxyControlButton() {
   const { isCommandPending, isCommandSupported, setCapture, snapshot } = useProduct();
@@ -218,7 +263,11 @@ function Sidebar() {
         </div>
       </div>
 
-      <nav aria-label={LL.navigation.sections()} className="nav-list">
+      <nav
+        aria-label={LL.navigation.sections()}
+        className="nav-list"
+        onKeyDown={handleSidebarKeyDown}
+      >
         {destinations.map(({ icon: Icon, key, path }) => (
           <NavLink
             aria-label={getNavigationLabel(LL, key)}
@@ -250,7 +299,8 @@ function Sidebar() {
 }
 
 function ProfileMenu() {
-  const { connection, snapshot } = useProduct();
+  const { connection, isCommandPending, isCommandSupported, setActiveProfile, snapshot } =
+    useProduct();
   const profiles = useOptionalProfiles();
   const { LL } = useI18nContext();
   if (!snapshot) {
@@ -261,10 +311,12 @@ function ProfileMenu() {
     );
   }
 
-  const managedProfiles =
-    profiles?.snapshot?.capabilities.activation === "supported"
-      ? profiles.snapshot.profiles
-      : snapshot.profiles;
+  const managedActivationSupported = profiles?.snapshot?.capabilities.activation === "supported";
+  const fixtureSelectionSupported =
+    snapshot.adapterKind === "fixture" && isCommandSupported("profile");
+  const managedProfiles = managedActivationSupported
+    ? profiles.snapshot!.profiles
+    : snapshot.profiles;
   const managedActiveProfileId =
     profiles?.snapshot?.activation.activeProfileId ?? snapshot.activeProfileId;
   const activeProfile = managedProfiles.find((profile) => profile.id === managedActiveProfileId);
@@ -273,9 +325,19 @@ function ProfileMenu() {
   );
   const activeLabel = activeProfile?.label ?? statusProfile?.label ?? LL.profiles.safeStopped();
 
-  const profilePending = profiles?.isPending("activate") ?? false;
-  const profileSupported = profiles?.snapshot?.capabilities.activation === "supported";
+  const profilePending = managedActivationSupported
+    ? (profiles?.isPending("activate") ?? false)
+    : isCommandPending("profile");
+  const profileSupported = managedActivationSupported || fixtureSelectionSupported;
   const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, profileSupported);
+
+  function selectProfile(profileId: string) {
+    if (managedActivationSupported) {
+      void profiles?.activateProfile(profileId);
+    } else if (fixtureSelectionSupported) {
+      void setActiveProfile(profileId);
+    }
+  }
 
   return (
     <DropdownMenu>
@@ -293,10 +355,7 @@ function ProfileMenu() {
         <span className="user-authored-label">{activeLabel}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="profile-menu" sideOffset={8}>
-        <DropdownMenuRadioGroup
-          onValueChange={(profileId) => void profiles?.activateProfile(profileId)}
-          value={activeProfile?.id ?? ""}
-        >
+        <DropdownMenuRadioGroup onValueChange={selectProfile} value={activeProfile?.id ?? ""}>
           <DropdownMenuLabel className="profile-menu-label">
             {LL.toolbar.profiles()}
           </DropdownMenuLabel>
