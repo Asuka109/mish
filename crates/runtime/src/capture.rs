@@ -844,9 +844,9 @@ impl SystemProxyReconciler {
                 "System Proxy recovery is available only while drift is observed",
             ));
         }
-        if action == CaptureRecoveryAction::Repair
-            && current.system_proxy.failure == Some(CaptureFailureKind::InvalidRecovery)
-        {
+        let invalid_recovery =
+            current.system_proxy.failure == Some(CaptureFailureKind::InvalidRecovery);
+        if action == CaptureRecoveryAction::Repair && invalid_recovery {
             return Err(CaptureTransitionError::new(
                 CaptureFailureKind::InvalidRecovery,
                 "An invalid System Proxy recovery record can only be relinquished",
@@ -873,7 +873,17 @@ impl SystemProxyReconciler {
         let observed = match self.platform.observe_active().await {
             Ok(observed) => observed,
             Err(error) => {
-                self.record_unknown_drift(current, error.kind);
+                self.record_unknown_drift(
+                    current,
+                    if invalid_recovery {
+                        CaptureFailureKind::InvalidRecovery
+                    } else {
+                        error.kind
+                    },
+                );
+                if invalid_recovery {
+                    self.restrict_recovery_to_relinquish();
+                }
                 return Err(error);
             }
         };
@@ -936,7 +946,18 @@ impl SystemProxyReconciler {
         }
 
         if let Err(error) = self.journal.clear() {
-            self.mark_drift(current, &observed, Some(error.kind))?;
+            self.mark_drift(
+                current,
+                &observed,
+                Some(if invalid_recovery {
+                    CaptureFailureKind::InvalidRecovery
+                } else {
+                    error.kind
+                }),
+            )?;
+            if invalid_recovery {
+                self.restrict_recovery_to_relinquish();
+            }
             return Err(error);
         }
         let status = CaptureRuntimeStatus {

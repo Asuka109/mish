@@ -28,6 +28,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Empty,
@@ -244,13 +245,17 @@ export function ServiceMonitorSection() {
           <DropdownMenuTrigger
             aria-describedby={actionDescriptionId}
             className="service-manage-trigger"
-            disabled={!commandSupported}
           >
             {LL.services.manage()}
             <CaretDown aria-hidden="true" weight="bold" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="service-manage-menu" sideOffset={7}>
             <DropdownMenuGroup>
+              {!commandSupported ? (
+                <DropdownMenuLabel className="service-manage-unavailable">
+                  {LL.capabilities.localActionUnavailable()}
+                </DropdownMenuLabel>
+              ) : null}
               <DropdownMenuItem
                 disabled={!commandSupported}
                 onClick={() => setDraft({ icon: "globe", label: "", url: "https://" })}

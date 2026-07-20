@@ -584,11 +584,6 @@ export function RoutesPage() {
           </div>
         </header>
 
-        {error ? (
-          <p className="fixture-error" role="alert">
-            {error}
-          </p>
-        ) : null}
         {snapshot.adapterKind !== "fixture" && connection.stale ? (
           <p className="fixture-error" role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}

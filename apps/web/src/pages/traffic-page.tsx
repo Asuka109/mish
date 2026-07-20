@@ -1,9 +1,5 @@
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
-import type {
-  EffectiveRuleDto,
-  TrafficCommandFailure,
-  TrafficConnectionDto,
-} from "@mish/contracts";
+import type { EffectiveRuleDto, TrafficConnectionDto } from "@mish/contracts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,7 +76,6 @@ export function TrafficPage() {
     closeAllActive,
     closeConnection,
     closed,
-    commandFailure,
     connection,
     error,
     isCloseAllPending,
@@ -140,8 +135,6 @@ export function TrafficPage() {
     if (result?.status === "success") {
       toast.success(LL.traffic.closeConnectionSucceeded());
       setSelectedConnection(null);
-    } else {
-      toast.error(trafficFailureMessage(LL, result?.failure ?? commandFailure));
     }
     setCloseTarget(null);
   }
@@ -150,8 +143,6 @@ export function TrafficPage() {
     const result = await closeAllActive();
     if (result?.status === "success") {
       toast.success(LL.traffic.closeAllActiveSucceeded({ count: result.targetCount }));
-    } else {
-      toast.error(trafficFailureMessage(LL, result?.failure ?? commandFailure));
     }
     setCloseAllConfirmationOpen(false);
   }
@@ -194,12 +185,6 @@ export function TrafficPage() {
           ? LL.traffic.closeAllScope()
           : LL.traffic.closeUnsupported()}
       </p>
-
-      {commandFailure ? (
-        <div className="traffic-command-error" role="alert">
-          {trafficFailureMessage(LL, commandFailure)}
-        </div>
-      ) : null}
 
       <Tabs
         className="traffic-tabs"
@@ -824,20 +809,6 @@ function ConnectionDetailDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function trafficFailureMessage(LL: TranslationFunctions, failure: TrafficCommandFailure | null) {
-  if (failure === "stale-connection") return LL.traffic.closeStaleConnection();
-  if (failure === "stale-snapshot") return LL.traffic.closeStaleSnapshot();
-  if (failure === "runtime-replaced") return LL.traffic.closeRuntimeReplaced();
-  if (failure === "controller-rejected") return LL.traffic.closeControllerRejected();
-  if (failure === "partial-remaining") return LL.traffic.closePartialRemaining();
-  if (failure === "timeout") return LL.traffic.closeTimeout();
-  if (failure === "unsupported" || failure === "invalid-request") {
-    return LL.traffic.closeUnsupported();
-  }
-  if (failure === "conflict") return LL.traffic.closeConflict();
-  return LL.traffic.closeFailed();
 }
 
 function Detail({

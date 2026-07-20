@@ -1,4 +1,4 @@
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 
 const routes = ["/status", "/routes", "/profiles", "/traffic", "/events", "/settings"];
@@ -148,6 +148,25 @@ beforeAll(async () => {
 });
 
 describe("responsive application shell", () => {
+  test("opens the service Manage menu with pointer and keyboard input", async () => {
+    await page.viewport(800, 600);
+    await selectLocale("English");
+    await navigate("/status");
+
+    const trigger = page.getByRole("button", { exact: true, name: "Manage" });
+    await trigger.click();
+    await expect.element(page.getByRole("menuitem", { name: "Add service" })).toBeVisible();
+    await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.keyboard("{Escape}");
+    await expect.element(trigger).not.toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("menuitem", { name: "Restore defaults" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(trigger).not.toHaveAttribute("aria-expanded", "true");
+  });
+
   test("keeps every primary route within mobile, web, and Tauri viewports", async () => {
     for (const viewport of viewports) {
       await page.viewport(viewport.width, viewport.height);

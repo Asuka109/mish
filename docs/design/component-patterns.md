@@ -66,6 +66,19 @@ change event.
 Pressed fills stay close to white. Selection should be clear through border,
 icon, and text changes without becoming a dark gray trough.
 
+## Notifications and recoverable failures
+
+Use the existing Sonner toast and notification center for recoverable command
+failures, failed confirmations, and capture-state warnings. Do not insert these
+messages into page flow, because a transient failure must not move the control
+the user just operated. Keep load failures that prevent a page from presenting
+authoritative content in the page itself.
+
+Recovery actions belong in both the toast and notification-center item when the
+runtime exposes them. System Proxy drift must preserve the typed `repair` and
+`leave-as-is` choices instead of reducing recovery to a generic retry. Pending
+state remains available to assistive technology through a polite live region.
+
 ## ProxyControlButton
 
 The sidebar aggregate action is documented behaviorally in
