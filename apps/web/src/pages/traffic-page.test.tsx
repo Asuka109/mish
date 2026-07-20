@@ -1,8 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@mish/ui";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
 import { ProductProvider } from "../data/product-provider";
@@ -75,6 +76,22 @@ class CommandTrafficClient extends FixtureTrafficClient {
       snapshot,
       status: "success",
       targetCount: before.activeConnections.length,
+    };
+  }
+}
+
+class FailingTrafficClient extends CommandTrafficClient {
+  override async closeAllActive(
+    _authority: TrafficCommandAuthorityDto,
+  ): Promise<TrafficCommandResultDto> {
+    const snapshot = await this.getSnapshot();
+    return {
+      failure: "controller-rejected",
+      operation: "close-all-active",
+      remainingConnectionIds: snapshot.activeConnections.map(({ id }) => id),
+      snapshot,
+      status: "failure",
+      targetCount: snapshot.activeConnections.length,
     };
   }
 }
@@ -157,6 +174,33 @@ describe("Traffic page", () => {
     expect(await screen.findByText("No active connections")).toBeVisible();
     await user.click(screen.getByRole("tab", { name: /Closed/ }));
     expect(screen.getByRole("tab", { name: /Closed 6/ })).toBeVisible();
+  });
+
+  it("moves a failed close confirmation into a toast and the notification center", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    const client = new FailingTrafficClient();
+    const snapshot = await client.getSnapshot();
+    client.publishSnapshot({ ...snapshot, adapterKind: "rpc" });
+    renderTraffic(client);
+
+    await user.click(await screen.findByRole("button", { name: "Close all active connections" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Close all active connections",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "Mihomo rejected the close command. The active snapshot was refreshed without claiming success.",
+      ),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Notifications, 1 unread" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Mihomo rejected the close command. The active snapshot was refreshed without claiming success.",
+    );
   });
 
   it("derives Closed locally, filters structured fields, and clears only local history", async () => {

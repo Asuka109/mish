@@ -286,7 +286,7 @@ const en = {
     switchProfile: "Switch profile. Current profile: {profile:string}",
   },
   notifications: {
-    description: "Recent warning and error events.",
+    description: "Recent warnings, errors, and recovery actions.",
     emptyDescription: "New warnings and errors will appear here.",
     emptyTitle: "No notifications",
     markAllRead: "Mark all read",
