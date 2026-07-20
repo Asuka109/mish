@@ -13,7 +13,7 @@ use mish_profile::{
 };
 use mish_runtime::{
     CaptureReconciler, CaptureRequest, CaptureRuntimeTransition, CaptureSelection, CorePhase,
-    LoopbackProxyEndpoint, MishRuntime,
+    CoreRuntime, LoopbackProxyEndpoint, MishRuntime,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,
-    ProfileMappingContext,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreOwnership,
+    ManagedCoreRecoveryOutcome, ManagedProcessValidationError, ProfileMappingContext,
 };
 
 enum ManagedBinaryLocation {
@@ -234,6 +234,8 @@ pub enum MihomoActivationError {
     RollbackFailedSafeStopped,
     #[error("the managed Mihomo core could not be stopped safely")]
     ShutdownFailed,
+    #[error("managed Mihomo ownership recovery could not be completed safely")]
+    OwnershipFailed,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -374,6 +376,8 @@ impl fmt::Debug for ActivationCommit {
 struct ActiveMihomo {
     fingerprint: String,
     profile_id: String,
+    process: Arc<DesktopMihomoProcess>,
+    proxy_endpoint: LoopbackProxyEndpoint,
     revision: String,
     runtime: MishRuntime,
     runtime_id: String,
@@ -389,6 +393,8 @@ struct ActivationState {
 
 pub struct MihomoActivationManager {
     capture: Option<Arc<CaptureReconciler>>,
+    ownership: Option<Arc<ManagedCoreOwnership>>,
+    recovery_outcome: Mutex<Option<ManagedCoreRecoveryOutcome>>,
     resolver: ManagedMihomoResolver,
     state: Mutex<ActivationState>,
     timing: ActivationTiming,
@@ -404,12 +410,50 @@ impl MihomoActivationManager {
         timing: ActivationTiming,
         capture: Option<Arc<CaptureReconciler>>,
     ) -> Self {
+        Self::new_with_capture_and_ownership(resolver, timing, capture, None)
+    }
+
+    pub fn new_managed(
+        resolver: ManagedMihomoResolver,
+        timing: ActivationTiming,
+        capture: Option<Arc<CaptureReconciler>>,
+        ownership: Arc<ManagedCoreOwnership>,
+    ) -> Self {
+        Self::new_with_capture_and_ownership(resolver, timing, capture, Some(ownership))
+    }
+
+    fn new_with_capture_and_ownership(
+        resolver: ManagedMihomoResolver,
+        timing: ActivationTiming,
+        capture: Option<Arc<CaptureReconciler>>,
+        ownership: Option<Arc<ManagedCoreOwnership>>,
+    ) -> Self {
         Self {
             capture,
+            ownership,
+            recovery_outcome: Mutex::new(None),
             resolver,
             state: Mutex::new(ActivationState::default()),
             timing,
         }
+    }
+
+    pub async fn recover_startup(
+        &self,
+    ) -> Result<ManagedCoreRecoveryOutcome, MihomoActivationError> {
+        let mut recovered = self.recovery_outcome.lock().await;
+        if let Some(outcome) = *recovered {
+            return Ok(outcome);
+        }
+        let outcome = match &self.ownership {
+            Some(ownership) => ownership
+                .recover_startup()
+                .await
+                .map_err(|_| MihomoActivationError::OwnershipFailed)?,
+            None => ManagedCoreRecoveryOutcome::NoRecord,
+        };
+        *recovered = Some(outcome);
+        Ok(outcome)
     }
 
     pub fn availability(&self) -> Result<(), MihomoResolveError> {
@@ -434,6 +478,7 @@ impl MihomoActivationManager {
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
+        self.recover_startup().await?;
         if !self.timing.valid() {
             return Err(MihomoActivationError::InvalidTiming);
         }
@@ -648,6 +693,7 @@ impl MihomoActivationManager {
     }
 
     pub async fn shutdown(&self) -> Result<(), MihomoActivationError> {
+        self.recover_startup().await?;
         let mut state = self.state.lock().await;
         state.capture_transition = None;
         if let Some(active) = state.active.as_ref() {
@@ -710,14 +756,19 @@ impl MihomoActivationManager {
         let candidate_root = candidates_root.join(&candidate_id);
         fs::rename(&staging_root, &candidate_root)
             .map_err(|_| MihomoActivationError::StagingFailed)?;
-        let process = Arc::new(DesktopMihomoProcess::new_pinned(
-            DesktopMihomoProcessConfig {
-                binary: Some(resolved.binary().to_path_buf()),
-                config_directory: Some(candidate_root.join("home")),
-                config_file: Some(candidate_root.join("config.yaml")),
-            },
-            PINNED_MIHOMO_VERSION,
-        ));
+        let process_config = DesktopMihomoProcessConfig {
+            binary: Some(resolved.binary().to_path_buf()),
+            config_directory: Some(candidate_root.join("home")),
+            config_file: Some(candidate_root.join("config.yaml")),
+        };
+        let process = Arc::new(match &self.ownership {
+            Some(ownership) => DesktopMihomoProcess::new_pinned_owned(
+                process_config,
+                PINNED_MIHOMO_VERSION,
+                ownership.clone(),
+            ),
+            None => DesktopMihomoProcess::new_pinned(process_config, PINNED_MIHOMO_VERSION),
+        });
         let profile = ProfileMappingContext::new(
             record.metadata.id.as_str(),
             record.effective_fingerprint().as_str(),
@@ -735,7 +786,7 @@ impl MihomoActivationManager {
         let source = ControllerStatusSource::new(observation, process.clone())
             .map_err(|_| MihomoActivationError::ControllerFailure)?;
         let runtime = MishRuntime::with_data_sources_events_and_capture(
-            process,
+            process.clone(),
             source.clone(),
             source.clone(),
             source.clone(),
@@ -744,6 +795,8 @@ impl MihomoActivationManager {
         Ok(ActiveMihomo {
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
+            process,
+            proxy_endpoint: policy.proxy_endpoint().clone(),
             revision: record.metadata.revision.id.as_str().to_owned(),
             runtime,
             runtime_id: candidate_id,
@@ -763,6 +816,8 @@ impl MihomoActivationManager {
         wait_for_candidate(
             &candidate.runtime,
             &candidate.source,
+            &candidate.process,
+            &candidate.proxy_endpoint,
             self.timing.readiness_timeout,
             cancellation,
         )
@@ -871,6 +926,8 @@ fn validate_activation_record(record: &ProfileRecord) -> Result<(), MihomoActiva
 async fn wait_for_candidate(
     runtime: &MishRuntime,
     source: &ControllerStatusSource,
+    process: &DesktopMihomoProcess,
+    proxy_endpoint: &LoopbackProxyEndpoint,
     timeout_after: Duration,
     cancellation: CancellationToken,
 ) -> Result<(), MihomoActivationError> {
@@ -878,7 +935,11 @@ async fn wait_for_candidate(
     let mut invalid_snapshot_observed = false;
     loop {
         match source.initial_observation() {
-            ControllerInitialObservation::Ready => return Ok(()),
+            ControllerInitialObservation::Ready => {
+                if process.owns_local_proxy(proxy_endpoint).await {
+                    return Ok(());
+                }
+            }
             ControllerInitialObservation::VersionMismatch => {
                 return Err(MihomoActivationError::VersionMismatch);
             }
@@ -938,9 +999,10 @@ impl MihomoActivationError {
             Self::Cancelled => ActivationFailureKind::Cancelled,
             Self::CaptureFailed => ActivationFailureKind::Capture,
             Self::PriorStopFailed => ActivationFailureKind::PriorStop,
-            Self::StateCommitFailed | Self::RollbackFailedSafeStopped | Self::ShutdownFailed => {
-                ActivationFailureKind::StateCommit
-            }
+            Self::StateCommitFailed
+            | Self::RollbackFailedSafeStopped
+            | Self::ShutdownFailed
+            | Self::OwnershipFailed => ActivationFailureKind::StateCommit,
         }
     }
 }

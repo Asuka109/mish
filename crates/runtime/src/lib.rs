@@ -111,6 +111,9 @@ impl std::error::Error for CoreError {}
 pub trait CoreRuntime: Send + Sync {
     fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
     fn configured(&self) -> bool;
+    fn owns_local_proxy(&self, _endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
+        Box::pin(std::future::ready(false))
+    }
     fn status(&self) -> BoxFuture<'_, CoreStatus>;
     fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
     fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>>;
@@ -496,7 +499,12 @@ impl MishRuntime {
         };
         let core = self.core.status().await;
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
-        Ok(capture.test_local_proxy(healthy).await)
+        let owns_listener = healthy
+            && self
+                .core
+                .owns_local_proxy(capture.local_proxy_endpoint())
+                .await;
+        Ok(capture.test_local_proxy(healthy, owns_listener).await)
     }
 
     pub async fn recover_system_proxy(

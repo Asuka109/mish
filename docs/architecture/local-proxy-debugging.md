@@ -15,6 +15,11 @@ are active. The test accepts no host, port, URL, protocol, timeout, path, or
 credential. It performs one bounded TCP readiness check through the existing
 capture platform seam and returns only the fixed endpoint plus a closed phase:
 `ready`, `core-unhealthy`, `listener-unavailable`, or `runtime-transition`.
+`ready` additionally requires native confirmation that the socket belongs to
+the PID and start identity in the current managed Core ownership generation.
+TCP connectivity by itself is insufficient: an old Mish orphan or a user-run
+Mihomo on `127.0.0.1:7890` is `listener-unavailable` for the current runtime.
+The test never uses the port result as permission to terminate a process.
 
 Automated tests use injected repository fixtures. They assert that the listener
 test does not call the System Proxy apply boundary, does not create a recovery

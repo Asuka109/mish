@@ -41,11 +41,45 @@ impl CoreRuntime for RunningCore {
         true
     }
 
+    fn owns_local_proxy(&self, _endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
+        Box::pin(ready(true))
+    }
+
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
         Box::pin(ready(CoreStatus {
             error: None,
             phase: CorePhase::Running,
             pid: None,
+            version: Some("rpc-fixture".into()),
+        }))
+    }
+
+    fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(async move { Ok(self.status().await) })
+    }
+
+    fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+        Box::pin(ready(Ok(CoreStatus {
+            error: None,
+            phase: CorePhase::Stopped,
+            pid: None,
+            version: Some("rpc-fixture".into()),
+        })))
+    }
+}
+
+struct RunningCoreWithoutManagedListener;
+
+impl CoreRuntime for RunningCoreWithoutManagedListener {
+    fn configured(&self) -> bool {
+        true
+    }
+
+    fn status(&self) -> BoxFuture<'_, CoreStatus> {
+        Box::pin(ready(CoreStatus {
+            error: None,
+            phase: CorePhase::Running,
+            pid: Some(4242),
             version: Some("rpc-fixture".into()),
         }))
     }
@@ -1123,6 +1157,45 @@ async fn local_proxy_rpc_tests_the_listener_without_changing_system_proxy_state(
     .await;
     assert_eq!(snapshot["result"]["runtime"]["systemProxy"]["phase"], "off");
     assert_eq!(snapshot["result"]["runtime"]["systemProxyEnabled"], false);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn local_proxy_rpc_rejects_an_external_listener_not_owned_by_the_current_runtime() {
+    let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            http: mish_runtime::ManualProxyState::disabled(),
+            https: mish_runtime::ManualProxyState::disabled(),
+            pac_enabled: false,
+            service_id: "external-listener-fixture-service".into(),
+            socks: mish_runtime::ManualProxyState::disabled(),
+        },
+    )));
+    let prior = platform.0.lock().unwrap().clone();
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let runtime = MishRuntime::with_capture(Arc::new(RunningCoreWithoutManagedListener), capture);
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let tested = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":2, "method":"status.testLocalProxy", "params":{}
+        }),
+    )
+    .await;
+
+    assert_eq!(
+        tested["result"],
+        json!({"host":"127.0.0.1", "phase":"listener-unavailable", "port":7890})
+    );
+    assert_eq!(*platform.0.lock().unwrap(), prior);
     bridge.shutdown().await;
 }
 

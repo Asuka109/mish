@@ -1,6 +1,7 @@
 mod activation;
 mod controller_source;
 mod controller_status;
+mod core_ownership;
 mod diagnostics;
 mod event_redaction;
 mod lifecycle;
@@ -26,6 +27,12 @@ pub use controller_source::{
 pub use controller_status::{
     ControllerObservationBatch, ControllerStatusMapper, ProfileMappingContext,
     SelectionTargetError, StatusMappingError, StatusRetentionPolicy,
+};
+pub use core_ownership::{
+    MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreLaunchSpec, ManagedCoreOwnership,
+    ManagedCoreOwnershipError, ManagedCoreProcess, ManagedCoreRecoveryOutcome,
+    ManagedProcessObservation, ManagedProcessPlatform, ManagedProcessPlatformError,
+    ManagedRuntimeLease, RealManagedProcessPlatform,
 };
 pub use diagnostics::{DiagnosticCoordinator, DiagnosticNetworkProbe};
 pub use lifecycle::{

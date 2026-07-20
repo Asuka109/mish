@@ -31,8 +31,14 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
    token, resolves Tauri's application-data directory, constructs the private
    profile repository, runtime root, and mode-`0600` System Proxy recovery
-   journal there. Before exposing `mish-bridge`, it synchronously audits that
-   journal with the safe-stopped runtime. A confirmed orphaned Mish proxy is
+   journal there. It first acquires the runtime root's process-held exclusive
+   lease. A second desktop instance sharing that app-data root fails startup
+   before Profile, Settings, backup, Core, or System Proxy recovery can mutate
+   state. A normal sequential application upgrade acquires the lease after the
+   prior desktop process exits; repository fixtures use separate temporary or
+   in-memory roots. Before exposing `mish-bridge`, startup recovers any strongly
+   confirmed orphaned managed Core and then synchronously audits the System
+   Proxy journal with the safe-stopped runtime. A confirmed orphaned Mish proxy is
    restored to its recorded prior state; an unreadable or unconfirmed record
    remains explicit recovery drift and cannot be published as off or applied.
    The bridge then starts on `127.0.0.1:0`.
@@ -77,6 +83,33 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
     loop, restores a still-confirmed
     Mish-owned System Proxy state, then the coordinator closes the active Status,
     Traffic, and Events sources, stops the core, and finally closes the RPC server.
+
+Managed Core recovery precedes every activation and fixed-listener readiness
+probe. Startup never restores the recorded profile automatically: it terminates
+and waits for a proven orphan, clears Core ownership, performs conservative
+System Proxy recovery, and publishes the existing safe-stopped policy.
+
+The private runtime root contains `core-ownership.json` and
+`desktop-instance.lock`. Core ownership is a bounded, versioned,
+deny-unknown-fields record replaced through a unique mode-`0600` file, atomic
+rename, file flush, and directory flush. A launch-intent record is durable
+before spawn, and the running record adds the PID and process start identity
+after spawn. Both phases bind a random per-launch token, the exact launched
+executable, and the exact candidate home and configuration paths. Invalid,
+oversized, non-private, symlinked, path-escaping, ambiguous, or
+identity-mismatched records fail closed with a static redacted startup error and
+remain available for investigation.
+
+On macOS, recovery confirms the recorded PID/start time, executable path,
+`-d`/`-f` arguments, and inherited launch token before signaling. A pre-PID
+launch record can discover only a process matching that same executable,
+arguments, and token. PID reuse, user-started Mihomo, process-name matches, and
+port ownership alone are never termination authority. Normal Stop/Quit sends
+TERM, awaits the child, escalates to KILL only after the bounded grace period,
+awaits reap, and clears only the matching ownership generation. After an
+abnormal desktop exit, the next lease owner applies the same identity checks,
+terminates and waits for the orphan, and clears ownership before any new Core
+can start.
 
 Apple requires sleep and wake observers to use the `NSWorkspace` notification
 center. Primary-service changes use notification keys in the SystemConfiguration
@@ -142,7 +175,10 @@ RPC, profiles, or the UI.
 
 The authenticated Status surface also exposes one fixed local proxy listener
 test. It accepts empty parameters and performs only bounded TCP readiness against
-the application-owned loopback endpoint. It does not call System Proxy
+the application-owned loopback endpoint after confirming that the current
+managed runtime identity owns that listening socket. A listener owned by an old
+Mish orphan or any external process is `listener-unavailable`, never `ready`.
+It does not call System Proxy
 observation or application. Arbitrary remote pages remain excluded from the
 trusted main WebView; the safe subset and isolated developer-mode follow-up are
 defined in [`local-proxy-debugging.md`](local-proxy-debugging.md).

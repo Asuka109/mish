@@ -15,6 +15,8 @@ use tokio::{
 use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink};
 use thiserror::Error;
 
+use crate::{MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreOwnership, ManagedCoreProcess};
+
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum ManagedProcessValidationError {
     #[error("Mihomo validation requires managed configuration")]
@@ -58,6 +60,7 @@ impl std::fmt::Debug for DesktopMihomoProcessConfig {
 struct Inner {
     child: Option<Child>,
     generation: u64,
+    owned_process: Option<ManagedCoreProcess>,
     status: CoreStatus,
 }
 
@@ -66,6 +69,7 @@ pub struct DesktopMihomoProcess {
     config: DesktopMihomoProcessConfig,
     expected_version: Option<&'static str>,
     inner: Arc<Mutex<Inner>>,
+    ownership: Option<Arc<ManagedCoreOwnership>>,
     status_events: Arc<OnceLock<CoreStatusEventSink>>,
 }
 
@@ -82,12 +86,29 @@ impl DesktopMihomoProcess {
         config: DesktopMihomoProcessConfig,
         expected_version: Option<&'static str>,
     ) -> Self {
+        Self::with_expected_version_and_ownership(config, expected_version, None)
+    }
+
+    pub fn new_pinned_owned(
+        config: DesktopMihomoProcessConfig,
+        expected_version: &'static str,
+        ownership: Arc<ManagedCoreOwnership>,
+    ) -> Self {
+        Self::with_expected_version_and_ownership(config, Some(expected_version), Some(ownership))
+    }
+
+    fn with_expected_version_and_ownership(
+        config: DesktopMihomoProcessConfig,
+        expected_version: Option<&'static str>,
+        ownership: Option<Arc<ManagedCoreOwnership>>,
+    ) -> Self {
         Self {
             config,
             expected_version,
             inner: Arc::new(Mutex::new(Inner {
                 child: None,
                 generation: 0,
+                owned_process: None,
                 status: CoreStatus {
                     error: None,
                     phase: CorePhase::Stopped,
@@ -95,6 +116,7 @@ impl DesktopMihomoProcess {
                     version: None,
                 },
             })),
+            ownership,
             status_events: Arc::new(OnceLock::new()),
         }
     }
@@ -132,8 +154,10 @@ impl DesktopMihomoProcess {
     pub async fn status(&self) -> CoreStatus {
         let mut inner = self.inner.lock().await;
         let update = inspect_child(&mut inner);
+        let owned_process = update.as_ref().and_then(|_| inner.owned_process.take());
         let status = inner.status.clone();
         drop(inner);
+        let _ = self.clear_owned_process(owned_process.as_ref());
         if let Some(update) = update {
             self.publish_status(update);
         }
@@ -161,7 +185,32 @@ impl DesktopMihomoProcess {
             }
         };
 
+        let launch = match &self.ownership {
+            Some(ownership) => match ownership.begin_launch(
+                self.config.binary.clone().expect("checked managed binary"),
+                self.config
+                    .config_directory
+                    .clone()
+                    .expect("owned process requires managed home"),
+                self.config
+                    .config_file
+                    .clone()
+                    .expect("owned process requires managed configuration"),
+            ) {
+                Ok(launch) => Some(launch),
+                Err(_) => {
+                    let message = "Unable to establish managed Mihomo ownership".to_owned();
+                    inner.status.phase = CorePhase::Failed;
+                    inner.status.error = Some(message.clone());
+                    return Err(message);
+                }
+            },
+            None => None,
+        };
         let mut command = self.command();
+        if let Some(launch) = &launch {
+            command.env(MANAGED_CORE_TOKEN_ENV, launch.launch_token());
+        }
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -170,6 +219,7 @@ impl DesktopMihomoProcess {
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(_) => {
+                self.abort_launch(launch.as_ref());
                 let message = "Unable to start managed Mihomo".to_owned();
                 inner.status.phase = CorePhase::Failed;
                 inner.status.error = Some(message.clone());
@@ -177,9 +227,38 @@ impl DesktopMihomoProcess {
             }
         };
         let pid = child.id();
+        let owned_process = match (&self.ownership, launch.as_ref(), pid) {
+            (Some(ownership), Some(launch), Some(pid)) => {
+                match ownership.commit_launch(launch, pid).await {
+                    Ok(process) => Some(process),
+                    Err(_) => {
+                        let _ = child.start_kill();
+                        if child.wait().await.is_ok() {
+                            self.abort_launch(Some(launch));
+                        }
+                        let message = "Unable to confirm managed Mihomo ownership".to_owned();
+                        inner.status.phase = CorePhase::Failed;
+                        inner.status.error = Some(message.clone());
+                        return Err(message);
+                    }
+                }
+            }
+            (Some(_), _, _) => {
+                let _ = child.start_kill();
+                if child.wait().await.is_ok() {
+                    self.abort_launch(launch.as_ref());
+                }
+                let message = "Unable to confirm managed Mihomo ownership".to_owned();
+                inner.status.phase = CorePhase::Failed;
+                inner.status.error = Some(message.clone());
+                return Err(message);
+            }
+            (None, _, _) => None,
+        };
         tokio::time::sleep(Duration::from_millis(150)).await;
         match child.try_wait() {
             Ok(Some(exit)) => {
+                let _ = self.clear_owned_process(owned_process.as_ref());
                 let message = format!("Mihomo exited during startup with {exit}");
                 inner.status.phase = CorePhase::Failed;
                 inner.status.error = Some(message.clone());
@@ -187,6 +266,10 @@ impl DesktopMihomoProcess {
                 return Err(message);
             }
             Err(_) => {
+                let _ = child.start_kill();
+                if child.wait().await.is_ok() {
+                    let _ = self.clear_owned_process(owned_process.as_ref());
+                }
                 let message = "Unable to inspect Mihomo during startup".to_owned();
                 inner.status.phase = CorePhase::Failed;
                 inner.status.error = Some(message.clone());
@@ -195,6 +278,7 @@ impl DesktopMihomoProcess {
             Ok(None) => {}
         }
         inner.child = Some(child);
+        inner.owned_process = owned_process;
         inner.generation = inner.generation.wrapping_add(1);
         let generation = inner.generation;
         inner.status = CoreStatus {
@@ -270,17 +354,21 @@ impl DesktopMihomoProcess {
             inner.status.pid = None;
             return Ok(inner.status.clone());
         };
+        let owned_process = inner.owned_process.take();
         inner.status.phase = CorePhase::Stopping;
 
         if let Some(pid) = child.id() {
             #[cfg(unix)]
-            nix::sys::signal::kill(
+            let _ = nix::sys::signal::kill(
                 nix::unistd::Pid::from_raw(pid as i32),
                 nix::sys::signal::Signal::SIGTERM,
-            )
-            .map_err(|_| "Unable to stop managed Mihomo".to_owned())?;
+            );
         }
-        if timeout(Duration::from_secs(5), child.wait()).await.is_err() {
+        let reaped = matches!(
+            timeout(Duration::from_secs(5), child.wait()).await,
+            Ok(Ok(_))
+        );
+        if !reaped {
             child
                 .start_kill()
                 .map_err(|_| "Unable to kill managed Mihomo".to_owned())?;
@@ -289,6 +377,7 @@ impl DesktopMihomoProcess {
                 .await
                 .map_err(|_| "Unable to reap managed Mihomo".to_owned())?;
         }
+        self.clear_owned_process(owned_process.as_ref())?;
         inner.status.phase = CorePhase::Stopped;
         inner.status.pid = None;
         inner.status.error = None;
@@ -298,6 +387,7 @@ impl DesktopMihomoProcess {
     fn monitor_child(&self, generation: u64) {
         let inner = Arc::downgrade(&self.inner);
         let status_events = self.status_events.clone();
+        let ownership = self.ownership.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(100));
             interval.tick().await;
@@ -306,16 +396,21 @@ impl DesktopMihomoProcess {
                 let Some(inner) = inner.upgrade() else {
                     return;
                 };
-                let update = {
+                let (update, owned_process) = {
                     let mut inner = inner.lock().await;
                     if inner.generation != generation || inner.child.is_none() {
                         return;
                     }
-                    inspect_child(&mut inner)
+                    let update = inspect_child(&mut inner);
+                    let owned_process = update.as_ref().and_then(|_| inner.owned_process.take());
+                    (update, owned_process)
                 };
                 let Some(update) = update else {
                     continue;
                 };
+                if let (Some(ownership), Some(process)) = (&ownership, owned_process.as_ref()) {
+                    let _ = ownership.clear_process(process);
+                }
                 if let Some(events) = status_events.get() {
                     events.publish(update);
                 }
@@ -328,6 +423,21 @@ impl DesktopMihomoProcess {
         if let Some(events) = self.status_events.get() {
             events.publish(status);
         }
+    }
+
+    fn abort_launch(&self, launch: Option<&ManagedCoreLaunch>) {
+        if let (Some(ownership), Some(launch)) = (&self.ownership, launch) {
+            let _ = ownership.abort_launch(launch);
+        }
+    }
+
+    fn clear_owned_process(&self, process: Option<&ManagedCoreProcess>) -> Result<(), String> {
+        if let (Some(ownership), Some(process)) = (&self.ownership, process) {
+            ownership
+                .clear_process(process)
+                .map_err(|_| "Unable to clear managed Mihomo ownership".to_owned())?;
+        }
+        Ok(())
     }
 }
 
@@ -368,6 +478,23 @@ impl CoreRuntime for DesktopMihomoProcess {
 
     fn configured(&self) -> bool {
         DesktopMihomoProcess::configured(self)
+    }
+
+    fn owns_local_proxy(
+        &self,
+        endpoint: &mish_runtime::LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, bool> {
+        let endpoint = endpoint.clone();
+        Box::pin(async move {
+            let inner = self.inner.lock().await;
+            match (&self.ownership, inner.owned_process.as_ref()) {
+                (Some(ownership), Some(process)) => {
+                    ownership.process_owns_listener(process, &endpoint)
+                }
+                (Some(_), None) => false,
+                (None, _) => true,
+            }
+        })
     }
 
     fn status(&self) -> BoxFuture<'_, CoreStatus> {
