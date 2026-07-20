@@ -34,7 +34,7 @@ jobs:
   pr-gate:
     name: Fast PR gate
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, macOS, ARM64, mish]
     timeout-minutes: 10
     steps:
       - name: Check out repository
