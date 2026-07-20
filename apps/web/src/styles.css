@@ -437,6 +437,13 @@ h2 {
   font-weight: var(--font-weight-control);
 }
 
+.toolbar-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
 .toolbar-actions {
   display: flex;
   min-width: 0;
@@ -3979,6 +3986,13 @@ h2 {
 .profile-patch-dialog {
   width: min(760px, calc(100vw - 32px));
   max-height: min(760px, calc(100vh - 32px));
+}
+
+.profile-patch-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
 }
 
 .profile-patch-fixture,

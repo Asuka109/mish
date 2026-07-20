@@ -57,6 +57,15 @@ describe("responsive shell CSS", () => {
     expect(notificationInteractiveRule).toContain("color: var(--color-body)");
   });
 
+  it("separates the profile patch editor sections inside a padded content region", () => {
+    const patchContentRule = styles.match(/\.profile-patch-content \{[\s\S]*?\n\}/)?.[0];
+
+    expect(patchContentRule).toContain("display: flex");
+    expect(patchContentRule).toContain("flex-direction: column");
+    expect(patchContentRule).toContain("gap: 12px");
+    expect(patchContentRule).toContain("padding: 16px");
+  });
+
   it("keeps browser and desktop chrome unselectable without blocking editable content", () => {
     const chromeSelectionRule = styles.match(
       /:root:is\(\[data-runtime="browser"\], \[data-runtime="desktop"\]\),[\s\S]*?-webkit-touch-callout: none;[\s\S]*?\n\}/,

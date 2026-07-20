@@ -212,146 +212,152 @@ export function ProfilePatchEditor({
       >
         <DialogContent className="profile-patch-dialog" closeLabel={LL.common.close()}>
           <DialogHeader>
-            <DialogTitle>
-              {LL.profiles.patchEditorTitle({ profile: profile?.label ?? "" })}
-            </DialogTitle>
-            <DialogDescription>{LL.profiles.patchEditorDescription()}</DialogDescription>
+            <div>
+              <DialogTitle className="dialog-title">
+                {LL.profiles.patchEditorTitle({ profile: profile?.label ?? "" })}
+              </DialogTitle>
+              <DialogDescription className="dialog-description">
+                {LL.profiles.patchEditorDescription()}
+              </DialogDescription>
+            </div>
           </DialogHeader>
 
-          {fixture ? <p className="profile-patch-fixture">{LL.profiles.patchFixture()}</p> : null}
-          {editor?.activationBlocked ? (
-            <p className="profile-patch-blocked" role="alert">
-              {LL.profiles.patchActivationBlocked()}
-            </p>
-          ) : null}
-
-          <div className="profile-patch-toolbar">
-            <div>
-              <strong>{LL.profiles.patches()}</strong>
-              <span>{LL.profiles.patchCount({ count: draft.length })}</span>
-            </div>
-            <div>
-              <Button
-                disabled={!editor || loading}
-                onClick={openNewPatch}
-                size="sm"
-                variant="outline"
-              >
-                <Plus data-icon="inline-start" />
-                {LL.profiles.patchAdd()}
-              </Button>
-              <Button
-                disabled={draft.length === 0}
-                onClick={() => setDraft([])}
-                size="sm"
-                variant="ghost"
-              >
-                {LL.profiles.patchReset()}
-              </Button>
-            </div>
-          </div>
-
-          <div className="profile-patch-scroll" aria-live="polite">
-            {loading ? (
-              <p className="profile-patch-loading">
-                <Spinner data-icon="inline-start" />
-                {LL.profiles.loading()}
+          <div className="profile-patch-content">
+            {fixture ? <p className="profile-patch-fixture">{LL.profiles.patchFixture()}</p> : null}
+            {editor?.activationBlocked ? (
+              <p className="profile-patch-blocked" role="alert">
+                {LL.profiles.patchActivationBlocked()}
               </p>
             ) : null}
-            {!loading && draft.length === 0 ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyTitle>{LL.profiles.patchEmptyTitle()}</EmptyTitle>
-                  <EmptyDescription>{LL.profiles.patchEmptyDescription()}</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : null}
-            {draft.map((patch, index) => {
-              const candidate = editor?.patches.find((item) => item.id === patch.id);
-              const saved =
-                candidate &&
-                JSON.stringify({
-                  enabled: candidate.enabled,
-                  id: candidate.id,
-                  operation: candidate.operation,
-                }) === JSON.stringify(patch)
-                  ? candidate
-                  : undefined;
-              const status = saved?.status ?? (patch.enabled ? "enabled" : "disabled");
-              return (
-                <article className="profile-patch-row" key={patch.id}>
-                  <div className="profile-patch-summary">
-                    <div>
-                      <strong>{patchKindLabel(LL, patch.operation.kind)}</strong>
-                      <Badge variant={patchBadge(status)}>{patchStatusLabel(LL, status)}</Badge>
+
+            <div className="profile-patch-toolbar">
+              <div>
+                <strong>{LL.profiles.patches()}</strong>
+                <span>{LL.profiles.patchCount({ count: draft.length })}</span>
+              </div>
+              <div>
+                <Button
+                  disabled={!editor || loading}
+                  onClick={openNewPatch}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Plus data-icon="inline-start" />
+                  {LL.profiles.patchAdd()}
+                </Button>
+                <Button
+                  disabled={draft.length === 0}
+                  onClick={() => setDraft([])}
+                  size="sm"
+                  variant="ghost"
+                >
+                  {LL.profiles.patchReset()}
+                </Button>
+              </div>
+            </div>
+
+            <div className="profile-patch-scroll" aria-live="polite">
+              {loading ? (
+                <p className="profile-patch-loading">
+                  <Spinner data-icon="inline-start" />
+                  {LL.profiles.loading()}
+                </p>
+              ) : null}
+              {!loading && draft.length === 0 ? (
+                <Empty>
+                  <EmptyHeader>
+                    <EmptyTitle>{LL.profiles.patchEmptyTitle()}</EmptyTitle>
+                    <EmptyDescription>{LL.profiles.patchEmptyDescription()}</EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              ) : null}
+              {draft.map((patch, index) => {
+                const candidate = editor?.patches.find((item) => item.id === patch.id);
+                const saved =
+                  candidate &&
+                  JSON.stringify({
+                    enabled: candidate.enabled,
+                    id: candidate.id,
+                    operation: candidate.operation,
+                  }) === JSON.stringify(patch)
+                    ? candidate
+                    : undefined;
+                const status = saved?.status ?? (patch.enabled ? "enabled" : "disabled");
+                return (
+                  <article className="profile-patch-row" key={patch.id}>
+                    <div className="profile-patch-summary">
+                      <div>
+                        <strong>{patchKindLabel(LL, patch.operation.kind)}</strong>
+                        <Badge variant={patchBadge(status)}>{patchStatusLabel(LL, status)}</Badge>
+                      </div>
+                      <p className="user-authored-label" title={saved?.target}>
+                        {saved?.target ?? operationTarget(LL, editor, patch.operation)}
+                      </p>
+                      <small>
+                        {saved
+                          ? validationLabel(LL, saved.validationCode)
+                          : LL.profiles.patchUnsavedValidation()}
+                      </small>
                     </div>
-                    <p className="user-authored-label" title={saved?.target}>
-                      {saved?.target ?? operationTarget(LL, editor, patch.operation)}
-                    </p>
-                    <small>
-                      {saved
-                        ? validationLabel(LL, saved.validationCode)
-                        : LL.profiles.patchUnsavedValidation()}
-                    </small>
-                  </div>
-                  <div className="profile-patch-row-actions">
-                    <Button
-                      aria-label={LL.profiles.patchMoveUp()}
-                      disabled={index === 0}
-                      onClick={() => setDraft((current) => move(current, index, index - 1))}
-                      size="icon-sm"
-                      variant="ghost"
-                    >
-                      <ArrowUp aria-hidden="true" />
-                    </Button>
-                    <Button
-                      aria-label={LL.profiles.patchMoveDown()}
-                      disabled={index === draft.length - 1}
-                      onClick={() => setDraft((current) => move(current, index, index + 1))}
-                      size="icon-sm"
-                      variant="ghost"
-                    >
-                      <ArrowDown aria-hidden="true" />
-                    </Button>
-                    <Button
-                      onClick={() =>
-                        setDraft((current) =>
-                          current.map((candidate, candidateIndex) =>
-                            candidateIndex === index
-                              ? { ...candidate, enabled: !candidate.enabled }
-                              : candidate,
-                          ),
-                        )
-                      }
-                      size="sm"
-                      variant="ghost"
-                    >
-                      {patch.enabled ? LL.profiles.patchDisable() : LL.profiles.patchEnable()}
-                    </Button>
-                    <Button
-                      aria-label={LL.profiles.patchEdit()}
-                      onClick={() => editPatch(index)}
-                      size="icon-sm"
-                      variant="ghost"
-                    >
-                      <PencilSimple aria-hidden="true" />
-                    </Button>
-                    <Button
-                      aria-label={LL.common.delete()}
-                      onClick={() =>
-                        setDraft((current) =>
-                          current.filter((_, candidateIndex) => candidateIndex !== index),
-                        )
-                      }
-                      size="icon-sm"
-                      variant="ghost"
-                    >
-                      <Trash aria-hidden="true" />
-                    </Button>
-                  </div>
-                </article>
-              );
-            })}
+                    <div className="profile-patch-row-actions">
+                      <Button
+                        aria-label={LL.profiles.patchMoveUp()}
+                        disabled={index === 0}
+                        onClick={() => setDraft((current) => move(current, index, index - 1))}
+                        size="icon-sm"
+                        variant="ghost"
+                      >
+                        <ArrowUp aria-hidden="true" />
+                      </Button>
+                      <Button
+                        aria-label={LL.profiles.patchMoveDown()}
+                        disabled={index === draft.length - 1}
+                        onClick={() => setDraft((current) => move(current, index, index + 1))}
+                        size="icon-sm"
+                        variant="ghost"
+                      >
+                        <ArrowDown aria-hidden="true" />
+                      </Button>
+                      <Button
+                        onClick={() =>
+                          setDraft((current) =>
+                            current.map((candidate, candidateIndex) =>
+                              candidateIndex === index
+                                ? { ...candidate, enabled: !candidate.enabled }
+                                : candidate,
+                            ),
+                          )
+                        }
+                        size="sm"
+                        variant="ghost"
+                      >
+                        {patch.enabled ? LL.profiles.patchDisable() : LL.profiles.patchEnable()}
+                      </Button>
+                      <Button
+                        aria-label={LL.profiles.patchEdit()}
+                        onClick={() => editPatch(index)}
+                        size="icon-sm"
+                        variant="ghost"
+                      >
+                        <PencilSimple aria-hidden="true" />
+                      </Button>
+                      <Button
+                        aria-label={LL.common.delete()}
+                        onClick={() =>
+                          setDraft((current) =>
+                            current.filter((_, candidateIndex) => candidateIndex !== index),
+                          )
+                        }
+                        size="icon-sm"
+                        variant="ghost"
+                      >
+                        <Trash aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           </div>
 
           <DialogFooter>
@@ -425,10 +431,14 @@ function PatchFormDialog({ editor, initial, onCommit, onOpenChange, open }: Patc
     <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="profile-patch-form-dialog" closeLabel={LL.common.close()}>
         <DialogHeader>
-          <DialogTitle>
-            {initial ? LL.profiles.patchEditTitle() : LL.profiles.patchAddTitle()}
-          </DialogTitle>
-          <DialogDescription>{LL.profiles.patchFormDescription()}</DialogDescription>
+          <div>
+            <DialogTitle className="dialog-title">
+              {initial ? LL.profiles.patchEditTitle() : LL.profiles.patchAddTitle()}
+            </DialogTitle>
+            <DialogDescription className="dialog-description">
+              {LL.profiles.patchFormDescription()}
+            </DialogDescription>
+          </div>
         </DialogHeader>
         <FieldGroup>
           <Field>

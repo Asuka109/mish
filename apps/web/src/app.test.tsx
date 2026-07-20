@@ -821,11 +821,15 @@ describe("production routes", () => {
       name: "Change language. Current language: English",
     });
     const profile = screen.getByRole("combobox", { name: /Switch profile/ });
+    const runtimeBadge = screen.getByRole("button", { name: "Demo mode" });
     for (const trigger of [theme, language]) {
       expect(trigger.querySelectorAll("svg")).toHaveLength(1);
     }
     expect(profile.querySelectorAll("svg")).toHaveLength(2);
     expect(profile.parentElement?.firstElementChild).toBe(profile);
+    expect(runtimeBadge.parentElement).toHaveClass("toolbar-heading");
+    expect(within(runtimeBadge.parentElement!).getByText("Status")).toHaveClass("toolbar-title");
+    expect(profile.closest(".toolbar-actions")).not.toContainElement(runtimeBadge);
 
     const navigation = screen.getByRole("navigation", { name: "Workspace sections" });
     const settings = within(navigation).getByRole("link", { name: "Settings" });

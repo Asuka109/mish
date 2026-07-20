@@ -481,15 +481,17 @@ function Toolbar() {
 
   return (
     <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
-      <span className="toolbar-title">{title}</span>
-      <div className="toolbar-actions">
-        <ProfileMenu />
+      <div className="toolbar-heading">
+        <span className="toolbar-title">{title}</span>
         {runtimeBadge ? (
           <Tooltip>
             <TooltipTrigger className="runtime-data-badge">{runtimeBadge.label}</TooltipTrigger>
             <TooltipContent>{runtimeBadge.description}</TooltipContent>
           </Tooltip>
         ) : null}
+      </div>
+      <div className="toolbar-actions">
+        <ProfileMenu />
         <AppearanceMenu />
         <LanguageMenu />
         <NotificationBubble />

@@ -415,7 +415,21 @@ describe("profiles page", () => {
     const dialog = await screen.findByRole("dialog", {
       name: "Rules and groups for Studio route set",
     });
-    expect(within(dialog).getByText(/Illustrative browser fixture only/)).toBeVisible();
+    const dialogHeader = dialog.querySelector(".dialog-header");
+    const dialogTitle = within(dialog).getByRole("heading", {
+      name: "Rules and groups for Studio route set",
+    });
+    const dialogDescription = within(dialog).getByText(
+      "Review bounded rule and selector-group changes without editing source YAML.",
+    );
+    expect(dialogHeader).not.toBeNull();
+    expect(dialogHeader?.children).toHaveLength(1);
+    expect(dialogTitle.parentElement).toBe(dialogDescription.parentElement);
+    expect(dialogTitle.parentElement?.parentElement).toBe(dialogHeader);
+    const dialogContent = dialog.querySelector<HTMLElement>(".profile-patch-content");
+    expect(dialogContent).not.toBeNull();
+    expect(within(dialogContent!).getByText(/Illustrative browser fixture only/)).toBeVisible();
+    expect(dialogContent?.children).toHaveLength(3);
     expect(within(dialog).getByText("Insert rule")).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Save patches" })).toBeDisabled();
 
