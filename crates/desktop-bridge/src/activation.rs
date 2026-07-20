@@ -875,6 +875,7 @@ async fn wait_for_candidate(
     cancellation: CancellationToken,
 ) -> Result<(), MihomoActivationError> {
     let deadline = Instant::now() + timeout_after;
+    let mut invalid_snapshot_observed = false;
     loop {
         match source.initial_observation() {
             ControllerInitialObservation::Ready => return Ok(()),
@@ -882,7 +883,7 @@ async fn wait_for_candidate(
                 return Err(MihomoActivationError::VersionMismatch);
             }
             ControllerInitialObservation::InvalidSnapshot => {
-                return Err(MihomoActivationError::ControllerFailure);
+                invalid_snapshot_observed = true;
             }
             ControllerInitialObservation::Pending => {}
         }
@@ -890,7 +891,11 @@ async fn wait_for_candidate(
             return Err(MihomoActivationError::EarlyExit);
         }
         if Instant::now() >= deadline {
-            return Err(MihomoActivationError::ReadinessTimeout);
+            return Err(if invalid_snapshot_observed {
+                MihomoActivationError::ControllerFailure
+            } else {
+                MihomoActivationError::ReadinessTimeout
+            });
         }
         tokio::select! {
             _ = cancellation.cancelled() => return Err(MihomoActivationError::Cancelled),

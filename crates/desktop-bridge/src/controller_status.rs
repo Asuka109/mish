@@ -299,11 +299,8 @@ impl ControllerStatusMapper {
             .iter()
             .find(|(label, proxy)| {
                 proxy.all.is_some()
-                    && scoped_identifier(
-                        "group",
-                        &self.context.profile_fingerprint,
-                        proxy.id.as_deref().unwrap_or(label),
-                    ) == group_id
+                    && scoped_identifier("group", &self.context.profile_fingerprint, label)
+                        == group_id
             })
             .ok_or(SelectionTargetError::GroupNotFound)?;
         if !group.1.kind.eq_ignore_ascii_case("selector") {
@@ -318,11 +315,7 @@ impl ControllerStatusMapper {
                 } else {
                     "proxy"
                 };
-                scoped_identifier(
-                    kind,
-                    &self.context.profile_fingerprint,
-                    proxy.id.as_deref().unwrap_or(label),
-                ) == child_id
+                scoped_identifier(kind, &self.context.profile_fingerprint, label) == child_id
             })
             .ok_or(SelectionTargetError::ChildNotFound)?;
         if !group
@@ -346,11 +339,8 @@ impl ControllerStatusMapper {
             .iter()
             .find(|(label, proxy)| {
                 proxy.all.is_some()
-                    && scoped_identifier(
-                        "group",
-                        &self.context.profile_fingerprint,
-                        proxy.id.as_deref().unwrap_or(label),
-                    ) == group_id
+                    && scoped_identifier("group", &self.context.profile_fingerprint, label)
+                        == group_id
             })
             .ok_or(SelectionTargetError::GroupNotFound)?;
         let children = group
@@ -368,11 +358,7 @@ impl ControllerStatusMapper {
             } else {
                 "proxy"
             };
-            let child_id = scoped_identifier(
-                kind,
-                &self.context.profile_fingerprint,
-                child.id.as_deref().unwrap_or(child_label),
-            );
+            let child_id = scoped_identifier(kind, &self.context.profile_fingerprint, child_label);
             targets.push((child_id, child_label.clone()));
         }
         Ok((group_label.clone(), targets))
@@ -482,8 +468,10 @@ fn map_catalog(
         } else {
             "proxy"
         };
-        let identity = proxy.id.as_deref().unwrap_or(label);
-        let id = scoped_identifier(kind, &context.profile_fingerprint, identity);
+        // Controller IDs are optional and are not guaranteed to be unique across
+        // synthetic policy entries. The map key is validated against the proxy
+        // name and is also the identity used by group membership and commands.
+        let id = scoped_identifier(kind, &context.profile_fingerprint, label);
         if let Some(first) = labels_by_id.insert(id.clone(), label.clone()) {
             return Err(StatusMappingError::IdentifierCollision {
                 first,
