@@ -1079,7 +1079,7 @@ describe("desktop RPC experience", () => {
     renderRoute("/status", "en", statusClient, profileClient);
 
     const trigger = await screen.findByRole("button", {
-      name: "Switch profile. Current profile: Studio route set",
+      name: "Switch profile. Current profile: Local Mihomo",
     });
     expect(trigger).toBeEnabled();
     await user.click(trigger);

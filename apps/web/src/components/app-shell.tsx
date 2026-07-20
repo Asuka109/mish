@@ -267,9 +267,11 @@ function ProfileMenu() {
       : snapshot.profiles;
   const managedActiveProfileId =
     profiles?.snapshot?.activation.activeProfileId ?? snapshot.activeProfileId;
-  const activeProfile =
-    managedProfiles.find((profile) => profile.id === managedActiveProfileId) ?? managedProfiles[0];
-  const activeLabel = activeProfile?.label ?? LL.profiles.safeStopped();
+  const activeProfile = managedProfiles.find((profile) => profile.id === managedActiveProfileId);
+  const statusProfile = snapshot.profiles.find(
+    (profile) => profile.id === snapshot.activeProfileId,
+  );
+  const activeLabel = activeProfile?.label ?? statusProfile?.label ?? LL.profiles.safeStopped();
 
   const profilePending = profiles?.isPending("activate") ?? false;
   const profileSupported = profiles?.snapshot?.capabilities.activation === "supported";
