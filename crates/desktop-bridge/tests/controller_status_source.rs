@@ -805,6 +805,17 @@ async fn controller_observations_flow_through_rpc_and_preserve_valid_state() {
         json!({"jsonrpc":"2.0", "id":2, "method":"status.subscribe", "params":{}}),
     )
     .await;
+    assert_eq!(
+        subscription["result"]["snapshot"]["services"]
+            .as_array()
+            .unwrap()
+            .len(),
+        6
+    );
+    assert_eq!(
+        subscription["result"]["snapshot"]["probeResults"],
+        json!([])
+    );
     let initial = if subscription["result"]["snapshot"]["groups"]
         .as_array()
         .is_some_and(|groups| !groups.is_empty())

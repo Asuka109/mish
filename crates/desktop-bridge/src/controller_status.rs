@@ -6,10 +6,10 @@ use mish_mihomo_controller::{
     TrafficSnapshot as ControllerTrafficSnapshot,
 };
 use mish_runtime::{
-    CaptureSelection, CoreStatus, EffectiveRule, GroupDelayPolicy, GroupDelayTest, GroupUsage,
-    PlatformCapabilities, PolicyGroup, PolicyGroupKind, ProfileSummary, ProxyNode, RoutingMode,
-    RuntimeMetrics, RuntimeStatus, STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot,
-    TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficMatchedRule, TrafficSnapshot,
+    CoreStatus, EffectiveRule, GroupDelayPolicy, GroupDelayTest, GroupUsage, PolicyGroup,
+    PolicyGroupKind, ProfileSummary, ProxyNode, RoutingMode, RuntimeMetrics,
+    STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot, TrafficConnection,
+    TrafficDataPhase, TrafficDataSnapshot, TrafficMatchedRule, TrafficSnapshot,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -228,44 +228,33 @@ impl ControllerStatusMapper {
             })
             .collect();
 
-        Ok(StatusSnapshot {
-            active_profile_id: self.context.profile_id.clone(),
-            adapter_kind,
-            capabilities: PlatformCapabilities::unavailable(),
-            groups: catalog.groups.clone(),
-            group_usage,
-            group_delay_policy: GroupDelayPolicy {
-                id: mish_mihomo_controller::ROUTE_DELAY_POLICY_ID.into(),
-                timeout_milliseconds: mish_mihomo_controller::ROUTE_DELAY_TIMEOUT_MILLISECONDS,
-            },
-            group_delay_test: GroupDelayTest::idle(),
-            metrics: RuntimeMetrics {
-                active_connections: self.active_connections.len(),
-                effective_rules: self
-                    .effective_rules
-                    .iter()
-                    .filter(|rule| rule.enabled)
-                    .count(),
-                memory_bytes: self.memory_bytes,
-                uptime_seconds,
-            },
-            nodes: catalog.nodes.clone(),
-            probe_results: Vec::new(),
-            profiles: vec![ProfileSummary {
-                id: self.context.profile_id.clone(),
-                label: self.context.profile_label.clone(),
-            }],
-            routing_mode,
-            runtime: RuntimeStatus::from_core(
-                core,
-                CaptureSelection {
-                    system_proxy: false,
-                    tun: false,
-                },
-            ),
-            services: Vec::new(),
-            traffic: self.traffic.clone(),
-        })
+        let mut snapshot = StatusSnapshot::lifecycle_only(core, adapter_kind);
+        snapshot.active_profile_id = self.context.profile_id.clone();
+        snapshot.groups = catalog.groups.clone();
+        snapshot.group_usage = group_usage;
+        snapshot.group_delay_policy = GroupDelayPolicy {
+            id: mish_mihomo_controller::ROUTE_DELAY_POLICY_ID.into(),
+            timeout_milliseconds: mish_mihomo_controller::ROUTE_DELAY_TIMEOUT_MILLISECONDS,
+        };
+        snapshot.group_delay_test = GroupDelayTest::idle();
+        snapshot.metrics = RuntimeMetrics {
+            active_connections: self.active_connections.len(),
+            effective_rules: self
+                .effective_rules
+                .iter()
+                .filter(|rule| rule.enabled)
+                .count(),
+            memory_bytes: self.memory_bytes,
+            uptime_seconds,
+        };
+        snapshot.nodes = catalog.nodes.clone();
+        snapshot.profiles = vec![ProfileSummary {
+            id: self.context.profile_id.clone(),
+            label: self.context.profile_label.clone(),
+        }];
+        snapshot.routing_mode = routing_mode;
+        snapshot.traffic = self.traffic.clone();
+        Ok(snapshot)
     }
 
     pub fn traffic_snapshot(

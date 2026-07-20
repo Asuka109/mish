@@ -2844,6 +2844,5 @@ fn pending_snapshot(
         system_proxy: false,
         tun: false,
     };
-    snapshot.services.clear();
     snapshot
 }

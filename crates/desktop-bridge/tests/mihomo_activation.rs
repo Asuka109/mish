@@ -50,6 +50,88 @@ use uuid::Uuid;
 const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
 
 #[tokio::test]
+async fn empty_app_data_startup_keeps_service_presets_across_runtime_hydration_and_relaunch() {
+    let root = tempfile::tempdir().unwrap();
+    let app_data_root = root.path().join("app-data");
+    assert!(!app_data_root.exists());
+
+    let profile_root = app_data_root.join("profiles");
+    let importing = ProfileService::new(
+        profile_root.clone(),
+        StdLocalSourceReader,
+        FixtureHttpsReader::new(P0_PROFILE),
+        SourceReadPolicy::default(),
+    );
+    let preview = importing
+        .preflight_local(
+            fixture("p0-profile.yaml"),
+            Some("Cold start fixture".to_owned()),
+        )
+        .await
+        .unwrap();
+    let profiles = importing.save_preview(&preview.preview_id).await.unwrap();
+    let profile_id = profiles.profiles[0].id.clone();
+    drop(importing);
+
+    let controller = P0Controller::start().await;
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let manager = Arc::new(MihomoActivationManager::new(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            app_data_root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+    ));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    assert_default_service_presets(&host.status_snapshot(StatusAdapterKind::Rpc).await);
+
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "cold-start-controller-authentication"),
+    ));
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &profile_id)
+        .await
+        .unwrap();
+    let activated = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(activated.phase, ProfileActivationPhase::Success);
+
+    let first_launch = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(first_launch["runtime"]["phase"], "healthy");
+    assert_default_service_presets(&first_launch);
+    assert_eq!(first_launch["probeResults"], json!([]));
+
+    coordinator.shutdown().await.unwrap();
+    let subsequent_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let subsequent_launch = DesktopRuntimeHost::new(subsequent_runtime)
+        .status_snapshot(StatusAdapterKind::Rpc)
+        .await;
+    assert_eq!(subsequent_launch["runtime"]["phase"], "inactive");
+    assert_default_service_presets(&subsequent_launch);
+    assert_eq!(subsequent_launch["probeResults"], json!([]));
+
+    controller.shutdown().await;
+}
+
+#[tokio::test]
 async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops() {
     let root = tempfile::tempdir().unwrap();
     let profile_root = root.path().join("profiles");
@@ -282,6 +364,26 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
 
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
+}
+
+fn assert_default_service_presets(snapshot: &serde_json::Value) {
+    let service_ids = snapshot["services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|service| service["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        service_ids,
+        [
+            "google",
+            "github",
+            "cloudflare",
+            "baidu",
+            "apple",
+            "microsoft",
+        ]
+    );
 }
 
 #[test]
