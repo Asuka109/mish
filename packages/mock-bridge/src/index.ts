@@ -233,6 +233,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
         if (
           request.method.startsWith("status.") &&
           !request.method.includes("Snapshot") &&
+          request.method !== "status.testLocalProxy" &&
           !request.method.includes("subscribe")
         )
           broadcastSnapshot();
@@ -249,7 +250,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 13,
+              protocolVersion: 14,
               statusCommands: { group: true, groupDelay: false, routing: true },
               trafficCommands: { closeAllActive: false, closeConnection: false },
             };
@@ -297,6 +298,8 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
           }
           case "status.recoverSystemProxy":
             throw new MockRpcError(-32050, "Mock System Proxy has no observed drift");
+          case "status.testLocalProxy":
+            return { host: "127.0.0.1", phase: "listener-unavailable", port: 7890 };
           case "status.setActiveProfile": {
             const profileId = String(values.profileId);
             if (!snapshot.profiles.some((profile) => profile.id === profileId))

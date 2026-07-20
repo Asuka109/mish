@@ -274,6 +274,12 @@ off, DNS has no listen socket, and selection/fake-IP persistence is disabled.
 Relative provider paths remain source-owned but paths that escape the managed
 home are rejected.
 
+The same fixed mixed endpoint can be used by one browser extension or
+application-specific manual proxy without enabling macOS System Proxy. Protocol
+version 14 exposes only a bounded readiness test for that listener; it accepts no
+target and does not observe or apply operating-system proxy state. See
+[`local-proxy-debugging.md`](local-proxy-debugging.md).
+
 Each candidate uses a private `0700` directory and `0600` configuration under
 the managed runtime root. Validation runs `mihomo -d <candidate-home> -f
 <candidate-config> -t` only after the executable reports the exact pinned

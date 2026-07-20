@@ -4,6 +4,7 @@ import {
   statusRpcNotifications,
   type CaptureSelectionDto,
   type CaptureRecoveryAction,
+  type LocalProxyTestResultDto,
   type RoutingMode,
   type ServiceMonitorDraft,
   type StatusClient,
@@ -110,6 +111,16 @@ export class RpcStatusClient implements StatusClient {
 
   setRoutingMode(mode: RoutingMode, options?: RpcRequestOptions) {
     return this.requestSnapshot("status.setRoutingMode", { mode }, options);
+  }
+
+  async testLocalProxy(options?: RpcRequestOptions): Promise<LocalProxyTestResultDto> {
+    try {
+      const result = await this.rpc.request("status.testLocalProxy", {}, options);
+      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      return result;
+    } catch (error) {
+      throw mapRpcError(error);
+    }
   }
 
   subscribeConnection(listener: (state: StatusConnectionState) => void) {

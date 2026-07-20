@@ -110,7 +110,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 13,
+        protocolVersion: 14,
         statusCommands: { group: true, groupDelay: true, routing: true },
         trafficCommands: { closeAllActive: true, closeConnection: true },
       },
@@ -144,7 +144,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 13,
+        protocolVersion: 14,
         statusCommands: { group: true, groupDelay: true, routing: true },
         trafficCommands: { closeAllActive: true, closeConnection: true },
       },
@@ -167,7 +167,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 13,
+        protocolVersion: 14,
         statusCommands: { group: false, groupDelay: false, routing: false },
         trafficCommands: { closeAllActive: false, closeConnection: false },
       },
@@ -251,6 +251,33 @@ describe("RpcStatusClient", () => {
 
     await expect(recovery).resolves.toMatchObject({
       runtime: { systemProxy: { phase: "applied" } },
+    });
+    client.dispose();
+  });
+
+  it("tests only the fixed local proxy listener through authenticated RPC", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+
+    const tested = client.testLocalProxy();
+    await authenticate(transport);
+    const request = await waitForRequest(transport, 1);
+    expect(request).toMatchObject({ method: "status.testLocalProxy", params: {} });
+    transport.respond({
+      id: request.id,
+      jsonrpc: "2.0",
+      result: { host: "127.0.0.1", phase: "ready", port: 7890 },
+    });
+
+    await expect(tested).resolves.toEqual({
+      host: "127.0.0.1",
+      phase: "ready",
+      port: 7890,
     });
     client.dispose();
   });

@@ -59,6 +59,32 @@ network-transition delay. It distinguishes Mish persistence and activation
 state from any installed-app Mihomo or macOS network transition; timing of real
 traffic interruption remains a manual observation.
 
+The focused local-proxy fixtures additionally prove that
+`status.testLocalProxy` checks only the fixed managed listener. They keep the
+injected platform state byte-for-byte unchanged, perform no System Proxy apply,
+and create no recovery journal. These tests do not inspect the host macOS System
+Proxy.
+
+## Manual local-only proxy acceptance
+
+Use this path when the Mac already relies on a home router, PAC, authenticated
+proxy, or other System Proxy configuration that Mish must not disturb.
+
+1. Record the current System Proxy state read-only in System Settings or with
+   `scutil --proxy`. Do not enable Mish System Proxy.
+2. Activate a known test Profile, open **Settings > Local-only manual proxy**,
+   and confirm the endpoint is `127.0.0.1:7890` with HTTP and SOCKS5 support.
+3. Choose **Test listener** and require **Listener ready**. A stopped or unhealthy
+   core must report that state without changing System Proxy.
+4. Configure only a disposable browser extension or one test application to use
+   the endpoint. Generate non-sensitive traffic and confirm it appears in Mish
+   Traffic. Do not add the endpoint to macOS network settings.
+5. Disable or remove the extension/application setting. Confirm another browser
+   that was not configured did not acquire Mish capture.
+6. Compare the final System Proxy observation with step 1 and require an exact
+   match. Any write, ownership claim, recovery journal, or drift caused by the
+   listener test fails acceptance.
+
 ## Manual installed-app acceptance
 
 Use a dedicated macOS test account or a test machine. Start with System Proxy

@@ -308,6 +308,26 @@ export const RuntimeStatusSchema = z
   });
 export interface RuntimeStatusDto extends z.infer<typeof RuntimeStatusSchema> {}
 
+export const LocalProxyTestPhaseSchema = z.enum([
+  "core-unhealthy",
+  "listener-unavailable",
+  "ready",
+  "runtime-transition",
+]);
+export type LocalProxyTestPhase = z.infer<typeof LocalProxyTestPhaseSchema>;
+
+export const LOCAL_PROXY_HOST = "127.0.0.1" as const;
+export const LOCAL_PROXY_PORT = 7890 as const;
+
+export const LocalProxyTestResultSchema = z
+  .object({
+    host: z.literal(LOCAL_PROXY_HOST),
+    phase: LocalProxyTestPhaseSchema,
+    port: z.literal(LOCAL_PROXY_PORT),
+  })
+  .strict();
+export interface LocalProxyTestResultDto extends z.infer<typeof LocalProxyTestResultSchema> {}
+
 export const TrafficSnapshotSchema = z
   .object({
     downloadBytesPerSecond: NonNegativeNumberSchema,
@@ -1522,7 +1542,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(13),
+    protocolVersion: z.literal(14),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -2136,6 +2156,10 @@ export const statusRpcMethods = {
     params: StartGroupDelayTestCommandSchema,
     result: RpcStatusSnapshotSchema,
   },
+  "status.testLocalProxy": {
+    params: EmptyCommandSchema,
+    result: LocalProxyTestResultSchema,
+  },
   "status.setActiveProfile": {
     params: SetActiveProfileCommandSchema,
     result: RpcStatusSnapshotSchema,
@@ -2429,6 +2453,7 @@ export interface StatusClient {
     groupId: string,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
+  testLocalProxy(options?: { signal?: AbortSignal }): Promise<LocalProxyTestResultDto>;
   cancelGroupDelayTest(
     testId: string,
     options?: { signal?: AbortSignal },

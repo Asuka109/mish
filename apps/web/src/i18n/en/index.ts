@@ -130,6 +130,21 @@ const en = {
     loopback: "Loopback-only service",
     loopbackDescription:
       "The local bridge binds only to IPv4 loopback and exposes no LAN listener.",
+    localProxy: {
+      description:
+        "Use this HTTP or SOCKS5 endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.",
+      notTested: "Not tested",
+      phase: {
+        "core-unhealthy": "Start an active Profile before testing",
+        "listener-unavailable": "Listener unavailable",
+        ready: "Listener ready",
+        "runtime-transition": "Core transition in progress",
+        unavailable: "Listener test unavailable",
+      },
+      test: "Test listener",
+      testing: "Testing…",
+      title: "Local-only manual proxy",
+    },
     motion: "Reduced motion",
     motionDescription:
       "Non-essential motion follows the operating-system reduced-motion preference.",

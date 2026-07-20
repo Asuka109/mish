@@ -17,6 +17,7 @@ import type {
   SettingsAvailability,
   WindowSurfacePreference,
 } from "@mish/contracts";
+import { LOCAL_PROXY_HOST, LOCAL_PROXY_PORT } from "@mish/contracts";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { LocalBackupControl } from "../components/local-backup-control";
 import { useAppearance } from "../appearance";
@@ -110,7 +111,15 @@ export function SettingsPage() {
     windowSurfaceFallbackReason,
     windowSurfacePreference,
   } = useAppearance();
-  const { isCommandPending, isCommandSupported, setCapture, snapshot: product } = useProduct();
+  const {
+    connection: productConnection,
+    isCommandPending,
+    isCommandSupported,
+    localProxyTest,
+    setCapture,
+    snapshot: product,
+    testLocalProxy,
+  } = useProduct();
   const settings = useSettings();
   const networkAutoRefreshStarted = useRef(false);
   const { LL, locale, setLocale } = useI18nContext();
@@ -302,6 +311,40 @@ export function SettingsPage() {
               </Button>
             ) : null}
           </div>
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.localProxy.description()}
+          title={LL.settingsPage.localProxy.title()}
+        >
+          {product?.adapterKind === "rpc" ? (
+            <div className="local-proxy-control">
+              <span className="local-proxy-endpoint">
+                <code>{`${LOCAL_PROXY_HOST}:${LOCAL_PROXY_PORT}`}</code>
+                <Badge variant="outline">HTTP</Badge>
+                <Badge variant="outline">SOCKS5</Badge>
+              </span>
+              <Button
+                disabled={localProxyTest.phase === "pending" || productConnection.stale}
+                onClick={() => void testLocalProxy()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                {localProxyTest.phase === "pending"
+                  ? LL.settingsPage.localProxy.testing()
+                  : LL.settingsPage.localProxy.test()}
+              </Button>
+              <span aria-live="polite" className="local-proxy-result">
+                {localProxyTest.phase === "success"
+                  ? LL.settingsPage.localProxy.phase[localProxyTest.result.phase]()
+                  : localProxyTest.phase === "failure"
+                    ? LL.settingsPage.localProxy.phase.unavailable()
+                    : LL.settingsPage.localProxy.notTested()}
+              </span>
+            </div>
+          ) : (
+            <AvailabilityBadge availability="unavailable" />
+          )}
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.launchAtLoginDescription()}
