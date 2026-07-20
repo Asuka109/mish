@@ -2065,7 +2065,7 @@ describe("desktop startup failure", () => {
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("本地服务不可用");
-    expect(alert).toHaveTextContent("无法建立私有本地连接");
+    expect(alert).toHaveTextContent("无法连接本机服务");
     expect(alert).not.toHaveTextContent(/ws:\/\//i);
     expect(alert).not.toHaveTextContent(/token/i);
   });
