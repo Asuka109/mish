@@ -547,6 +547,31 @@ fn derives_stable_profile_scoped_ids() {
 }
 
 #[test]
+fn tolerates_duplicate_controller_ids_by_scoping_catalog_labels() {
+    let mut catalog = proxy_catalog();
+    for label in [INNER_GROUP, OUTER_GROUP] {
+        catalog.proxies.get_mut(label).unwrap().id = Some("shared-controller-id".into());
+    }
+
+    let mut mapper = ControllerStatusMapper::new(context("sha256:profile-a"));
+    mapper
+        .apply(ControllerObservationBatch {
+            runtime_config: Some(runtime_config()),
+            proxies: Some(catalog),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+
+    let snapshot = mapper.snapshot(&core(), StatusAdapterKind::Rpc, 0).unwrap();
+    let group_ids = snapshot
+        .groups
+        .iter()
+        .map(|group| group.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(group_ids.len(), snapshot.groups.len());
+}
+
+#[test]
 fn rejects_missing_and_cross_group_selections_without_replacing_valid_state() {
     let mut mapper = ControllerStatusMapper::new(context("sha256:profile-a"));
     mapper
