@@ -16,18 +16,18 @@ use mish_mihomo_controller::{
     TrafficSnapshot, shared_http_transport,
 };
 use mish_runtime::{
-    CaptureSelection, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, EVENTS_BUFFER_LIMIT,
-    EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
-    EventsDataSource, EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult,
-    GroupDelayFailure, GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, ProfileSummary,
-    ProviderAuthority, ProviderCapabilityAvailability, ProviderCommandExecution,
-    ProviderCommandOperation, ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType,
-    ProviderUpdateFailure, ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure,
-    ProxyDiagnosticObservation, RoutingMode, RuntimeObservationPauseReason, RuntimePhase,
-    RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
-    StatusDataSource, StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution,
-    TrafficCommandFailureKind, TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot,
-    TrafficDataSource,
+    ApplicationDiagnosticEvent, CaptureSelection, CorePhase, CoreRuntime, CoreStatus,
+    CoreStatusEventSink, EVENTS_BUFFER_LIMIT, EventLevel, EventRecord, EventSource,
+    EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource, EventsSnapshot,
+    GroupDelayChildPhase, GroupDelayChildResult, GroupDelayFailure, GroupDelayPolicy,
+    GroupDelayTest, GroupDelayTestPhase, ProfileSummary, ProviderAuthority,
+    ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
+    ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateFailure,
+    ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure, ProxyDiagnosticObservation,
+    RoutingMode, RuntimeObservationPauseReason, RuntimePhase, RuntimeProvider, StatusAdapterKind,
+    StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
+    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -1989,6 +1989,34 @@ impl EventsDataSource for ControllerStatusSource {
 
     fn subscribe_events(&self) -> broadcast::Receiver<()> {
         self.inner.event_updates.subscribe()
+    }
+
+    fn record_application_event(&self, event: ApplicationDiagnosticEvent) {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("controller source state poisoned");
+        if state.event_session_id.is_none() {
+            reset_event_session(&mut state, &self.inner);
+        }
+        if state.events.back().is_some_and(|previous| {
+            previous.source == EventSource::Application
+                && previous.level == event.level()
+                && previous.message == event.message()
+                && previous.detail.as_deref() == event.detail()
+        }) {
+            return;
+        }
+        push_event(
+            &mut state,
+            event.level(),
+            EventSource::Application,
+            event.message().to_owned(),
+            event.detail().map(str::to_owned),
+        );
+        drop(state);
+        publish_event_change(&self.inner);
     }
 }
 

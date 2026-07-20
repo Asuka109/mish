@@ -30,9 +30,11 @@ severity, source, concise message, and optional detail. Severity is the closed
 set Debug, Info, Warning, and Error. Source is the closed set Application,
 Core, RPC, and Platform.
 
-The desktop Controller adapter currently supplies redacted Mihomo core logs and
-application-owned session-boundary observations. RPC request tracing and
-platform-adapter events are explicitly unavailable. Browser values are marked
+The desktop Controller adapter currently supplies redacted Mihomo core logs,
+application-owned session-boundary observations, and bounded lifecycle
+diagnostics for activation and capture failures. A safe-stopped runtime may
+therefore expose a ready application-only event session while core, RPC, and
+platform sources remain explicitly unavailable. Browser values are marked
 `fixture` and every source is marked `fixture-only`; they are never presented as
 desktop observations.
 
@@ -95,6 +97,12 @@ redactor removes complete URLs, URL user-info and query data, credential and
 token key/value forms, subscription identifiers, absolute paths, IP addresses,
 and long token-like values. Structured field values pass through the same
 redactor before they are joined into bounded detail text.
+
+Application lifecycle diagnostics use closed failure categories and static
+operator guidance. Their constructors accept no profile labels, source URLs,
+configuration text, Controller credentials, or arbitrary error strings. This
+keeps activation and capture recovery actionable without moving subscription
+secrets into Events.
 
 The RPC contract therefore transports only redacted event strings. The UI copy
 action formats exactly one selected DTO and never reads raw Controller data,

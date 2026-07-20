@@ -70,7 +70,15 @@ export function TrafficCaptureControl({
   const tunAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
 
   function systemProxyStatusMessage() {
-    if (systemProxyStatus.phase === "drift") return LL.capture.systemProxyDrift();
+    if (systemProxyStatus.phase === "drift") {
+      if (systemProxyStatus.failure === "invalid-recovery") {
+        return LL.capture.systemProxyInvalidRecovery();
+      }
+      if (systemProxyStatus.failure === "persistence-failed") {
+        return LL.capture.systemProxyPersistenceFailure();
+      }
+      return LL.capture.systemProxyDrift();
+    }
     if (systemProxyStatus.phase === "failed") {
       if (systemProxyStatus.failure === "permission-denied") {
         return LL.capture.systemProxyPermissionFailure();
@@ -80,6 +88,12 @@ export function TrafficCaptureControl({
       }
       if (systemProxyStatus.failure === "core-unhealthy") {
         return LL.capture.systemProxyCoreFailure();
+      }
+      if (systemProxyStatus.failure === "invalid-recovery") {
+        return LL.capture.systemProxyInvalidRecovery();
+      }
+      if (systemProxyStatus.failure === "persistence-failed") {
+        return LL.capture.systemProxyPersistenceFailure();
       }
       return LL.capture.systemProxyFailure();
     }

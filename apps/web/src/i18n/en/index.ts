@@ -358,6 +358,10 @@ const en = {
     systemProxyApplied: "System Proxy is applied and confirmed by macOS.",
     systemProxyCoreFailure:
       "System Proxy was not enabled because the active profile and Mihomo core are unavailable.",
+    systemProxyInvalidRecovery:
+      "Mish cannot validate its saved System Proxy recovery record. Leave the external proxy unchanged to clear Mish ownership, then retry.",
+    systemProxyPersistenceFailure:
+      "Mish cannot access System Proxy recovery storage. Check application-data permissions before retrying.",
     systemProxyDescription: "Routes applications that follow the system proxy settings.",
     systemProxyDrift:
       "System Proxy differs from Mish's requested state. Repair it or leave the current OS settings as is.",
@@ -547,8 +551,16 @@ const en = {
     patchValidationValue: "Value is outside the bounded structured model",
     patches: "Structured patches",
     activationCancelled: "Activation cancelled. The previous healthy profile was preserved.",
+    activationCaptureFailed:
+      "System Proxy recovery blocked activation. Resolve the recovery state on Status, then retry.",
+    activationControllerFailed:
+      "Mihomo did not provide a valid Controller readiness snapshot. Review Events, then restart this profile.",
     activationFailed:
       "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
+    activationLifecycleFailed:
+      "The managed Mihomo process could not transition safely. Check for another process using Mish's loopback ports, then retry.",
+    activationStateFailed:
+      "Mish could not commit a safe activation state. Keep the reported safe state and review Events before retrying.",
     activationUnavailable: "Activation is unavailable in this runtime.",
     activating: "Activating…",
     automaticRefresh: "Automatic source refresh",

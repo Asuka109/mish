@@ -236,12 +236,18 @@ Controller secrets. The manager then:
 6. atomically commits a redacted managed active-state record, or stops the
    candidate and restores the prior healthy core and capture intent or an
    explicit safe stopped state; and
-7. records only profile ID, fingerprint, outcome, and a closed failure category.
+7. records only profile ID, fingerprint, outcome, and a closed failure category,
+   and publishes a bounded application diagnostic built from that category.
 
 The coordinator publishes a typed idle, pending, success, or failure snapshot.
 Command IDs are idempotent, concurrent requests for the same target are
 deduplicated, and pending activation supports explicit cancellation plus the
-manager readiness deadline. `DesktopRuntimeHost` replaces the active
+manager readiness deadline. Capture restoration has its own `capture` failure
+category so the Web client does not discard that notification or replace it
+with a generic activation error. Diagnostic guidance is selected from closed
+failure categories and never includes a source URL, profile label, generated
+configuration, Controller credential, or arbitrary backend error text.
+`DesktopRuntimeHost` replaces the active
 `MishRuntime` only after the managed activation transaction commits, so Status,
 Traffic, and the active-profile projection cross the same boundary. Status,
 Traffic, and Profiles subscriptions all resample authoritative state after a
