@@ -176,8 +176,16 @@
 :root[data-runtime="mobile"] .service-monitor-list > * {
   border-right: 0;
   border-top: 1px solid var(--color-hairline-soft);
+  border-radius: 0 !important;
 }
 
 :root[data-runtime="mobile"] .service-monitor-list > :first-child {
   border-top: 0;
+  border-start-start-radius: 7px !important;
+  border-start-end-radius: 7px !important;
+}
+
+:root[data-runtime="mobile"] .service-monitor-list > :last-child {
+  border-end-start-radius: 7px !important;
+  border-end-end-radius: 7px !important;
 }
