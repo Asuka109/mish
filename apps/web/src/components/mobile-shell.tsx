@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import type { MobileVpnClient } from "../platform/mobile-vpn-client";
+import "../mobile-styles.css";
 
 const destinations = [
   { icon: House, key: "home", path: "/status" },

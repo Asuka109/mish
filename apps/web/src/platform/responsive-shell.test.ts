@@ -2,8 +2,15 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const styles = readFileSync("src/styles.css", "utf8");
+const desktopConfig = readFileSync("../desktop/src-tauri/tauri.conf.json", "utf8");
 
 describe("responsive shell CSS", () => {
+  it("keeps the native desktop window above the full-sidebar layout threshold", () => {
+    expect(desktopConfig).toContain('"minWidth": 800');
+    expect(desktopConfig).toContain('"minHeight": 600');
+    expect(desktopConfig).toContain("@mish/web build:desktop");
+  });
+
   it("lets the shell shrink to the host viewport in both axes", () => {
     const viewportRootRule = styles.match(/html,[\s\S]*?#root \{[\s\S]*?\n\}/)?.[0];
     const appShellRule = styles.match(/\.app-shell \{[\s\S]*?\n\}/)?.[0];
@@ -32,9 +39,12 @@ describe("responsive shell CSS", () => {
       /@media \(max-width: 600px\) \{[\s\S]*?(?=@media \(prefers-reduced-motion: reduce\))/,
     )?.[0];
 
+    expect(mobileRule).toContain(':root[data-runtime="browser"] .app-shell');
     expect(mobileRule).toContain("grid-template-rows: minmax(0, 1fr) auto");
     expect(mobileRule).toContain("grid-template-columns: repeat(7, minmax(0, 1fr))");
     expect(mobileRule).toContain("env(safe-area-inset-bottom)");
+    expect(mobileRule).not.toMatch(/\n\s{2}\.app-shell \{/);
+    expect(mobileRule).not.toMatch(/\n\s{2}\.sidebar \{/);
   });
 
   it("keeps the notification icon aligned with the toolbar color states", () => {

@@ -265,9 +265,17 @@ names. At 900px, content columns and gutters compact. The 800px minimum Tauri
 window retains the full 164px sidebar; viewport width must never collapse it.
 Any future collapsed state requires an explicit user control. At 600px, the
 browser layout moves navigation below the workspace and retains short visible
-destination labels. The shell itself must not impose a hard minimum width or
-height: page scrollers own vertical overflow, and dense data tables own their
-local horizontal overflow.
+destination labels. This rule is scoped to the browser runtime and must never
+apply inside the desktop client. The native desktop host owns the 800×600
+minimum; the Web shell itself does not impose a hard minimum width or height.
+Page scrollers own vertical overflow, and dense data tables own their local
+horizontal overflow.
+
+Desktop and mobile builds set `VITE_MISH_BUILD_TARGET` through checked-in Vite
+mode environment files. The application entry uses that compile-time value to
+select a platform Shell module. Desktop production bundles must tree-shake the
+mobile Shell and its bottom-navigation stylesheet; the desktop build fails when
+mobile navigation markers remain in generated JavaScript or CSS.
 
 Installed mobile applications do not reuse that responsive browser shell as
 their product navigation. They replace the desktop sidebar with a dedicated

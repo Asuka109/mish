@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.asuka109.mish",
   "build": {
-    "beforeBuildCommand": "pnpm --dir ../.. --filter @mish/web build",
-    "beforeDevCommand": "pnpm --dir ../.. --filter @mish/web build && pnpm --dir ../.. --filter @mish/web dev",
+    "beforeBuildCommand": "pnpm --dir ../.. --filter @mish/web build:desktop",
+    "beforeDevCommand": "pnpm --dir ../.. --filter @mish/web build:desktop && pnpm --dir ../.. --filter @mish/web dev:desktop",
     "devUrl": "http://127.0.0.1:4173",
     "frontendDist": "../../web/dist"
   },
@@ -18,6 +18,8 @@
         "height": 760,
         "hiddenTitle": true,
         "label": "main",
+        "minHeight": 600,
+        "minWidth": 800,
         "resizable": true,
         "title": "Mish",
         "titleBarStyle": "Overlay",
