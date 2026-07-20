@@ -98,6 +98,8 @@ internal package graph. The first contract covers:
 The ABI accepts no subscription URL, arbitrary filesystem path, shell command,
 Controller endpoint, or unbounded log payload. Platform code resolves all
 repository-owned paths and configuration bytes before crossing the boundary.
+The frozen v1 signatures, DTOs, limits, errors, event sequence, and buffer
+ownership rules are defined in [Mobile Core ABI v1](mobile-core-abi.md).
 
 ## Reproducible Core artifacts
 

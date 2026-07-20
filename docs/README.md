@@ -19,6 +19,7 @@ decisions from chat history.
 | How are macOS test and production bundles built and signed?                     | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                 |
 | How is the Android Phase 0 fixture shell built and verified?                    | [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md)               |
 | How do the desktop bridge, Controller adapter, and Mihomo process interact?     | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) |
+| What is the versioned native boundary for an embedded mobile Mihomo Core?       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md)                             |
 | How are profile sources and structured patches validated, redacted, and stored? | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               |
 | Where do Status values come from and how are they derived?                      | [`architecture/status-data-contracts.md`](architecture/status-data-contracts.md)                 |
 | How do detailed Traffic snapshots, reconnects, and local Closed work?           | [`architecture/traffic-data-contracts.md`](architecture/traffic-data-contracts.md)               |
