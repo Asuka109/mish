@@ -1525,194 +1525,6 @@ h2 {
   }
 }
 
-.mobile-shell {
-  display: grid;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
-  background: var(--color-canvas);
-}
-
-.mobile-chrome {
-  z-index: 10;
-  border-bottom: 1px solid var(--color-hairline);
-  background: var(--color-canvas);
-}
-
-.mobile-top-app-bar {
-  display: flex;
-  min-height: calc(56px + env(safe-area-inset-top));
-  align-items: center;
-  gap: 11px;
-  padding: env(safe-area-inset-top) 16px 0;
-}
-
-.mobile-top-app-bar img {
-  width: 28px;
-  height: 28px;
-}
-
-.mobile-top-app-bar h1 {
-  font-size: 20px;
-  font-weight: var(--font-weight-heading);
-  line-height: 28px;
-}
-
-.mobile-fixture-banner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2px;
-  margin: 0 16px 10px;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--color-warning) 28%, var(--color-hairline));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-warning) 7%, var(--color-canvas));
-  color: var(--color-body);
-  font-size: 12px;
-  line-height: 17px;
-}
-
-.mobile-fixture-banner > div {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.mobile-fixture-banner strong {
-  color: var(--color-warning);
-  font-weight: var(--font-weight-control);
-}
-
-.mobile-fixture-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin-left: auto;
-  min-width: max-content;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--color-warning) 45%, var(--color-hairline));
-  border-radius: var(--radius-md);
-  background: var(--color-canvas);
-  color: var(--color-ink);
-  font: inherit;
-  font-weight: var(--font-weight-control);
-}
-
-.mobile-fixture-action:disabled {
-  opacity: 0.55;
-}
-
-.mobile-activity-navigation {
-  display: flex;
-  min-width: 0;
-  gap: 4px;
-  overflow-x: auto;
-  padding: 0 12px 8px;
-  scrollbar-width: none;
-}
-
-.mobile-activity-navigation a {
-  display: inline-flex;
-  min-width: max-content;
-  min-height: 36px;
-  align-items: center;
-  padding: 0 12px;
-  border-radius: var(--radius-full);
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-  font-weight: var(--font-weight-control);
-  text-decoration: none;
-}
-
-.mobile-activity-navigation a.is-active {
-  background: var(--color-accent);
-  color: var(--color-ink);
-}
-
-.mobile-main {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--color-canvas);
-}
-
-.mobile-main > * {
-  height: 100%;
-}
-
-.mobile-bottom-navigation {
-  z-index: 10;
-  display: grid;
-  min-height: calc(64px + env(safe-area-inset-bottom));
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  padding: 4px 4px env(safe-area-inset-bottom);
-  border-top: 1px solid var(--color-hairline);
-  background: var(--color-surface-soft);
-}
-
-.mobile-destination {
-  display: flex;
-  min-width: 0;
-  min-height: 56px;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 2px;
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: 11px;
-  font-weight: var(--font-weight-control);
-  line-height: 14px;
-  text-decoration: none;
-}
-
-.mobile-destination-icon {
-  display: grid;
-  width: 54px;
-  height: 30px;
-  place-items: center;
-  border-radius: var(--radius-full);
-}
-
-.mobile-destination-icon svg {
-  width: 22px;
-  height: 22px;
-}
-
-.mobile-destination.is-active {
-  color: var(--color-ink);
-}
-
-.mobile-destination.is-active .mobile-destination-icon {
-  background: var(--color-accent);
-  color: var(--color-brand);
-}
-
-:root[data-runtime="mobile"] .content-grid {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 24px;
-}
-
-:root[data-runtime="mobile"] .service-monitor-list {
-  --section-grid-columns: 1;
-}
-
-:root[data-runtime="mobile"] .service-monitor-list > * {
-  border-right: 0;
-  border-top: 1px solid var(--color-hairline-soft);
-}
-
-:root[data-runtime="mobile"] .service-monitor-list > :first-child {
-  border-top: 0;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .ui-spinner {
     animation-duration: 1.5s;
@@ -4815,22 +4627,22 @@ h2 {
 }
 
 @media (max-width: 600px) {
-  .app-shell {
+  :root[data-runtime="browser"] .app-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
   }
 
-  .workspace-top-window-drag-region {
+  :root[data-runtime="browser"] .workspace-top-window-drag-region {
     display: none;
   }
 
-  .workspace {
+  :root[data-runtime="browser"] .workspace {
     grid-row: 1;
     margin: 6px 6px 0;
     border-radius: 10px;
   }
 
-  .sidebar {
+  :root[data-runtime="browser"] .sidebar {
     display: grid;
     min-height: 56px;
     grid-row: 2;
@@ -4839,22 +4651,22 @@ h2 {
     border-top: 1px solid var(--color-hairline);
   }
 
-  .sidebar-window-header {
+  :root[data-runtime="browser"] .sidebar-window-header {
     display: none;
   }
 
-  .nav-list {
+  :root[data-runtime="browser"] .nav-list {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 2px;
     padding: 0;
   }
 
-  .sidebar-bottom-items {
+  :root[data-runtime="browser"] .sidebar-bottom-items {
     display: contents;
   }
 
-  .nav-item {
+  :root[data-runtime="browser"] .nav-item {
     height: 44px;
     flex-direction: column;
     gap: 1px;
@@ -4862,7 +4674,7 @@ h2 {
     line-height: 12px;
   }
 
-  .nav-item > span {
+  :root[data-runtime="browser"] .nav-item > span {
     display: block;
     max-width: 100%;
     overflow: hidden;
@@ -4870,24 +4682,24 @@ h2 {
     white-space: nowrap;
   }
 
-  .settings-link {
+  :root[data-runtime="browser"] .settings-link {
     margin-top: 0;
   }
 
-  .proxy-control-button {
+  :root[data-runtime="browser"] .proxy-control-button {
     height: 44px;
     font-size: 10px;
     line-height: 12px;
   }
 
-  .proxy-control-state {
+  :root[data-runtime="browser"] .proxy-control-state {
     flex-direction: column;
     gap: 1px;
     justify-content: center;
     padding: 0;
   }
 
-  .proxy-control-state svg {
+  :root[data-runtime="browser"] .proxy-control-state svg {
     width: 18px;
     height: 18px;
   }

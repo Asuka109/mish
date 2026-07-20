@@ -5,7 +5,6 @@ import { BrowserRouter } from "react-router";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@mish/ui";
 import { isTauri } from "@tauri-apps/api/core";
-import { AppRoutes } from "./app";
 import {
   applyInitialAppearance,
   applyInitialWindowSurface,
@@ -33,6 +32,8 @@ const root = document.getElementById("root");
 if (!root) throw new Error("Missing application root");
 const applicationRoot = root;
 const reactRoot = createRoot(applicationRoot);
+const appRoutesModulePromise =
+  import.meta.env.VITE_MISH_BUILD_TARGET === "mobile" ? import("./mobile-app") : import("./app");
 
 function renderInitialApplication(application: ReactNode) {
   flushSync(() => reactRoot.render(application));
@@ -63,7 +64,10 @@ function ConfiguredAppearanceProvider({ children }: { children: ReactNode }) {
 
 async function startApplication() {
   loadAllLocales();
-  const runtime = resolveRuntimeKind({ buildMode: import.meta.env.MODE, tauri: isTauri() });
+  const runtime = resolveRuntimeKind({
+    buildTarget: import.meta.env.VITE_MISH_BUILD_TARGET,
+    tauri: isTauri(),
+  });
   document.documentElement.dataset.runtime = runtime;
   const releaseNativeFeel =
     runtime === "mobile" ? () => undefined : installDesktopNativeFeel(runtime);
@@ -78,6 +82,7 @@ async function startApplication() {
   );
 
   try {
+    const { AppRoutes } = await appRoutesModulePromise;
     const startup =
       runtime === "mobile" ? await resolveMobileStartup() : await resolveStartupStatusClient();
     disposeStartup = startup.dispose;
@@ -112,7 +117,6 @@ async function startApplication() {
                             mobileFixture={startup.mobileFixture}
                             mobileVpnClient={startup.mobileVpnClient}
                             mobileVpnSnapshot={startup.mobileVpnSnapshot}
-                            runtime={runtime}
                           />
                           <AppearanceToaster />
                         </TooltipProvider>

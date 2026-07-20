@@ -5,6 +5,13 @@ Development uses the explicit Vite origin at `http://127.0.0.1:4173`; production
 builds embed `apps/web/dist` in the desktop binary and do not request frontend
 assets, fonts, or code at runtime.
 
+The native window enforces an 800×600 minimum so its full-width sidebar remains
+available. Desktop Web builds load the checked-in `VITE_MISH_BUILD_TARGET=desktop`
+mode environment and select the desktop Shell at compile time. The mobile Shell
+and bottom-navigation stylesheet are therefore removed by Vite tree shaking;
+the desktop build also scans emitted JavaScript and CSS and fails if mobile
+navigation markers remain.
+
 Run from the repository root:
 
 ```sh

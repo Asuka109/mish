@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.asuka109.mish",
   "build": {
-    "beforeBuildCommand": "pnpm --dir ../.. --filter @mish/web build --mode mobile",
-    "beforeDevCommand": "pnpm --dir ../.. --filter @mish/web dev --mode mobile",
+    "beforeBuildCommand": "pnpm --dir ../.. --filter @mish/web build:mobile",
+    "beforeDevCommand": "pnpm --dir ../.. --filter @mish/web dev:mobile",
     "devUrl": "http://127.0.0.1:4173",
     "frontendDist": "../../web/dist"
   },
