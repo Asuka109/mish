@@ -224,6 +224,8 @@ Vite is configured to serve the preview on `http://127.0.0.1:4173`.
 
 Start with the [documentation index](docs/README.md). The primary contracts are:
 
+- [Workstation bootstrap](bootstrap.md)
+- [Development workflow](development.md)
 - [Product brief](PRODUCT.md)
 - [Design system](DESIGN.md)
 - [Status experience](docs/product/status-experience.md)
