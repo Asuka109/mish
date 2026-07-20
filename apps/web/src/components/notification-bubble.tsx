@@ -35,7 +35,7 @@ interface ReadNotificationState {
 
 interface NotificationAction {
   label: string;
-  onClick(): void;
+  onClick(): Promise<unknown> | void;
 }
 
 interface NotificationEntry {
@@ -152,13 +152,13 @@ export function NotificationBubble() {
   if (canRepairSystemProxy) {
     driftActions.push({
       label: LL.capture.repairSystemProxy(),
-      onClick: () => void recoverSystemProxy("repair"),
+      onClick: () => recoverSystemProxy("repair"),
     });
   }
   if (canLeaveSystemProxy) {
     driftActions.push({
       label: LL.capture.leaveAsIs(),
-      onClick: () => void recoverSystemProxy("leave-as-is"),
+      onClick: () => recoverSystemProxy("leave-as-is"),
     });
   }
   const notifications: NotificationEntry[] = [
@@ -355,14 +355,17 @@ export function NotificationBubble() {
 
   const readNotificationIds =
     readState.sessionId === sessionId ? readState.notificationIds : new Set<string>();
-  const unreadCount = notifications.filter(
+  const notificationsByTime = notifications.toSorted(
+    (left, right) => right.observedAt - left.observedAt,
+  );
+  const unreadCount = notificationsByTime.filter(
     (notification) => !readNotificationIds.has(notification.id),
   ).length;
-  const visibleNotifications = notifications.slice(0, visibleNotificationLimit);
+  const visibleNotifications = notificationsByTime.slice(0, visibleNotificationLimit);
 
   function markAllRead() {
     setReadState({
-      notificationIds: new Set(notifications.map(({ id }) => id)),
+      notificationIds: new Set(notificationsByTime.map(({ id }) => id)),
       sessionId,
     });
   }
@@ -444,6 +447,16 @@ interface NotificationItemProps {
 }
 
 function NotificationItem({ disabled, LL, locale, notification }: NotificationItemProps) {
+  const [pendingAction, setPendingAction] = useState<{
+    label: string;
+    promise: Promise<unknown>;
+  } | null>(null);
+
+  function runAction(action: NotificationAction) {
+    const promise = Promise.resolve().then(() => action.onClick());
+    setPendingAction({ label: action.label, promise });
+  }
+
   return (
     <li className="notification-item">
       <div className="notification-item-heading">
@@ -462,7 +475,9 @@ function NotificationItem({ disabled, LL, locale, notification }: NotificationIt
             <Button
               disabled={disabled}
               key={action.label}
-              onClick={action.onClick}
+              loading={pendingAction?.label === action.label ? pendingAction.promise : false}
+              loadingText={action.label}
+              onClick={() => runAction(action)}
               size="sm"
               variant="outline"
             >

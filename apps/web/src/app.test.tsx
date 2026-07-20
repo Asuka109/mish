@@ -629,6 +629,11 @@ describe("production routes", () => {
     expect(
       screen.getByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
     ).toBeInTheDocument();
+    const notificationItems = screen.getAllByRole("listitem");
+    expect(notificationItems[0]).toHaveTextContent("Synthetic route check failed");
+    expect(notificationItems[1]).toHaveTextContent(
+      "Synthetic DNS lookup timed out for api.fixture.invalid",
+    );
 
     await user.click(screen.getByRole("button", { name: "Mark all read" }));
 
