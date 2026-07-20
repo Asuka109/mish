@@ -568,7 +568,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 13);
+    assert_eq!(info["result"]["protocolVersion"], 14);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})
@@ -1078,6 +1078,51 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
         after_rejected_tun["result"]["runtime"]["captureSelection"]["tun"],
         false
     );
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn local_proxy_rpc_tests_the_listener_without_changing_system_proxy_state() {
+    let (runtime, platform) = capture_runtime_parts();
+    let prior = platform.0.lock().unwrap().clone();
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let tested = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":2, "method":"status.testLocalProxy", "params":{}
+        }),
+    )
+    .await;
+
+    assert_eq!(
+        tested["result"],
+        json!({"host":"127.0.0.1", "phase":"ready", "port":7890})
+    );
+    assert_eq!(*platform.0.lock().unwrap(), prior);
+
+    let arbitrary_target = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"status.testLocalProxy",
+            "params":{"host":"192.168.1.1", "port":8080}
+        }),
+    )
+    .await;
+    assert_eq!(arbitrary_target["error"]["code"], -32602);
+    assert_eq!(*platform.0.lock().unwrap(), prior);
+
+    let snapshot = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":4, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(snapshot["result"]["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(snapshot["result"]["runtime"]["systemProxyEnabled"], false);
     bridge.shutdown().await;
 }
 

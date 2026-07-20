@@ -123,7 +123,9 @@ changing Status subscriptions. Protocol version 9 adds the independent Profile
 refresh-policy and runtime-provider contracts without changing Status
 subscriptions. Protocol version 10 adds revision-bound structured Profile patch
 commands and the User patches provenance layer without changing Status
-subscriptions.
+subscriptions. Protocol version 14 adds the independent fixed-endpoint local
+proxy readiness test without changing Status subscriptions or capture selection.
+It accepts no caller-supplied target and does not observe or mutate System Proxy.
 
 Profile activation has an independent typed snapshot with idle, pending,
 success, and failure phases. The profile subscription uses the same snapshot

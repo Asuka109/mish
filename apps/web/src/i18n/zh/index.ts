@@ -114,6 +114,21 @@ const zh = {
     loginWindowDescription: "登录启动只能选择一种窗口行为；手动启动始终显示窗口。",
     loopback: "仅本机回环服务",
     loopbackDescription: "本地 bridge 只绑定 IPv4 回环地址，不开放局域网监听。",
+    localProxy: {
+      description:
+        "可在浏览器扩展或单个应用中使用此 HTTP / SOCKS5 端点。只有该应用的流量经过 Mish；此功能不会启用或更改 macOS 系统代理。",
+      notTested: "尚未测试",
+      phase: {
+        "core-unhealthy": "请先启动一个有效 Profile",
+        "listener-unavailable": "监听器不可用",
+        ready: "监听器就绪",
+        "runtime-transition": "Core 正在切换",
+        unavailable: "监听器测试不可用",
+      },
+      test: "测试监听器",
+      testing: "测试中…",
+      title: "仅本机手动代理",
+    },
     motion: "减少动态效果",
     motionDescription: "非必要动画跟随操作系统的减少动态效果偏好。",
     network: "网络与 DNS",

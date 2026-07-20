@@ -137,6 +137,13 @@ DTOs to a closed command enum with fixed absolute executables and separate
 arguments; it does not accept an executable path or arbitrary shell text from
 RPC, profiles, or the UI.
 
+The authenticated Status surface also exposes one fixed local proxy listener
+test. It accepts empty parameters and performs only bounded TCP readiness against
+the application-owned loopback endpoint. It does not call System Proxy
+observation or application. Arbitrary remote pages remain excluded from the
+trusted main WebView; the safe subset and isolated developer-mode follow-up are
+defined in [`local-proxy-debugging.md`](local-proxy-debugging.md).
+
 This boundary does not protect against compromise of the Mish process, a
 compromised system WebView, injected code already executing in the trusted main
 document, a debugger with process-memory access, or a malicious dependency in

@@ -2,6 +2,7 @@ import {
   StatusClientError,
   type CaptureRecoveryAction,
   type CaptureSelectionDto,
+  type LocalProxyTestResultDto,
   type RoutingMode,
   type ServiceMonitorDraft,
   type StatusClient,
@@ -33,6 +34,12 @@ export type ProductCommandState =
 
 export type ProductCommandResult = { ok: true } | { error: StatusClientError; ok: false };
 
+export type LocalProxyTestState =
+  | { phase: "idle" }
+  | { phase: "pending" }
+  | { phase: "success"; result: LocalProxyTestResultDto }
+  | { error: StatusClientError; phase: "failure" };
+
 interface ProductContextValue {
   commandStates: Record<ProductCommand, ProductCommandState>;
   connection: StatusConnectionState;
@@ -41,12 +48,14 @@ interface ProductContextValue {
   isGroupCommandPending(groupId: string): boolean;
   isCommandSupported(command: ProductCommand): boolean;
   isLoading: boolean;
+  localProxyTest: LocalProxyTestState;
   cancelGroupDelayTest(testId: string): Promise<ProductCommandResult>;
   removeServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
   recoverSystemProxy(action: CaptureRecoveryAction): Promise<ProductCommandResult>;
   restoreDefaultServices(): Promise<ProductCommandResult>;
   selectGroupChild(groupId: string, childId: string): Promise<ProductCommandResult>;
   startGroupDelayTest(groupId: string): Promise<ProductCommandResult>;
+  testLocalProxy(): Promise<LocalProxyTestResultDto | null>;
   setActiveProfile(profileId: string): Promise<ProductCommandResult>;
   setCapture(selection: CaptureSelectionDto, active: boolean): Promise<ProductCommandResult>;
   setRoutingMode(mode: RoutingMode): Promise<ProductCommandResult>;
@@ -115,6 +124,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [commandFailed, setCommandFailed] = useState(false);
   const [commandStates, setCommandStates] = useState(createInitialCommandStates);
+  const [localProxyTest, setLocalProxyTest] = useState<LocalProxyTestState>({ phase: "idle" });
   const pendingCommands = useRef(new Set<ProductCommand>());
   const commandControllers = useRef(new Map<string, AbortController>());
 
@@ -204,6 +214,24 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     [resolvedClient],
   );
 
+  const testLocalProxy = useCallback(async () => {
+    const key = "local-proxy";
+    if (commandControllers.current.has(key)) return null;
+    const controller = new AbortController();
+    commandControllers.current.set(key, controller);
+    setLocalProxyTest({ phase: "pending" });
+    try {
+      const result = await resolvedClient.testLocalProxy({ signal: controller.signal });
+      setLocalProxyTest({ phase: "success", result });
+      return result;
+    } catch (error) {
+      setLocalProxyTest({ error: toStatusClientError(error), phase: "failure" });
+      return null;
+    } finally {
+      commandControllers.current.delete(key);
+    }
+  }, [resolvedClient]);
+
   const value = useMemo<ProductContextValue>(
     () => ({
       commandStates,
@@ -219,6 +247,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         (connection.phase === "fixture" || !connection.stale),
       isGroupCommandPending: (groupId) => commandControllers.current.has(`group:${groupId}`),
       isLoading: snapshot === null && !loadFailed,
+      localProxyTest,
       cancelGroupDelayTest: (testId) =>
         runCommand(
           "group-delay",
@@ -245,6 +274,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           (signal) => resolvedClient.startGroupDelayTest(groupId, { signal }),
           "group-delay:start",
         ),
+      testLocalProxy,
       setActiveProfile: (profileId) =>
         runCommand("profile", (signal) => resolvedClient.setActiveProfile(profileId, { signal })),
       setCapture: (selection, active) =>
@@ -261,9 +291,11 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       commandStates,
       connection,
       loadFailed,
+      localProxyTest,
       resolvedClient,
       runCommand,
       snapshot,
+      testLocalProxy,
     ],
   );
 

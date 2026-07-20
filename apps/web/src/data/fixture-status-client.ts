@@ -1,6 +1,7 @@
 import type {
   CaptureSelectionDto,
   CaptureRecoveryAction,
+  LocalProxyTestResultDto,
   ServiceMonitorDto,
   ServiceMonitorDraft,
   StatusClient,
@@ -372,6 +373,16 @@ export class FixtureStatusClient implements StatusClient {
       throw new StatusClientError("cancelled", "The fixture command was cancelled");
     }
     throw new StatusClientError("invalid-request", "The fixture has no observed system drift");
+  }
+
+  async testLocalProxy(options?: { signal?: AbortSignal }): Promise<LocalProxyTestResultDto> {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture request was cancelled");
+    }
+    throw new StatusClientError(
+      "unsupported",
+      "The browser fixture has no local Mihomo proxy listener",
+    );
   }
 
   async setActiveProfile(profileId: string, options?: { signal?: AbortSignal }) {

@@ -406,6 +406,50 @@ type RootTranslation = {
 		 * T​h​e​ ​l​o​c​a​l​ ​b​r​i​d​g​e​ ​b​i​n​d​s​ ​o​n​l​y​ ​t​o​ ​I​P​v​4​ ​l​o​o​p​b​a​c​k​ ​a​n​d​ ​e​x​p​o​s​e​s​ ​n​o​ ​L​A​N​ ​l​i​s​t​e​n​e​r​.
 		 */
 		loopbackDescription: string
+		localProxy: {
+			/**
+			 * U​s​e​ ​t​h​i​s​ ​H​T​T​P​ ​o​r​ ​S​O​C​K​S​5​ ​e​n​d​p​o​i​n​t​ ​i​n​ ​a​ ​b​r​o​w​s​e​r​ ​e​x​t​e​n​s​i​o​n​ ​o​r​ ​a​n​ ​a​p​p​-​s​p​e​c​i​f​i​c​ ​p​r​o​x​y​.​ ​O​n​l​y​ ​t​h​a​t​ ​a​p​p​'​s​ ​t​r​a​f​f​i​c​ ​u​s​e​s​ ​M​i​s​h​;​ ​t​h​i​s​ ​d​o​e​s​ ​n​o​t​ ​e​n​a​b​l​e​ ​o​r​ ​c​h​a​n​g​e​ ​m​a​c​O​S​ ​S​y​s​t​e​m​ ​P​r​o​x​y​.
+			 */
+			description: string
+			/**
+			 * N​o​t​ ​t​e​s​t​e​d
+			 */
+			notTested: string
+			phase: {
+				/**
+				 * S​t​a​r​t​ ​a​n​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​b​e​f​o​r​e​ ​t​e​s​t​i​n​g
+				 */
+				'core-unhealthy': string
+				/**
+				 * L​i​s​t​e​n​e​r​ ​u​n​a​v​a​i​l​a​b​l​e
+				 */
+				'listener-unavailable': string
+				/**
+				 * L​i​s​t​e​n​e​r​ ​r​e​a​d​y
+				 */
+				ready: string
+				/**
+				 * C​o​r​e​ ​t​r​a​n​s​i​t​i​o​n​ ​i​n​ ​p​r​o​g​r​e​s​s
+				 */
+				'runtime-transition': string
+				/**
+				 * L​i​s​t​e​n​e​r​ ​t​e​s​t​ ​u​n​a​v​a​i​l​a​b​l​e
+				 */
+				unavailable: string
+			}
+			/**
+			 * T​e​s​t​ ​l​i​s​t​e​n​e​r
+			 */
+			test: string
+			/**
+			 * T​e​s​t​i​n​g​…
+			 */
+			testing: string
+			/**
+			 * L​o​c​a​l​-​o​n​l​y​ ​m​a​n​u​a​l​ ​p​r​o​x​y
+			 */
+			title: string
+		}
 		/**
 		 * R​e​d​u​c​e​d​ ​m​o​t​i​o​n
 		 */
@@ -4069,6 +4113,50 @@ export type TranslationFunctions = {
 		 * The local bridge binds only to IPv4 loopback and exposes no LAN listener.
 		 */
 		loopbackDescription: () => LocalizedString
+		localProxy: {
+			/**
+			 * Use this HTTP or SOCKS5 endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.
+			 */
+			description: () => LocalizedString
+			/**
+			 * Not tested
+			 */
+			notTested: () => LocalizedString
+			phase: {
+				/**
+				 * Start an active Profile before testing
+				 */
+				'core-unhealthy': () => LocalizedString
+				/**
+				 * Listener unavailable
+				 */
+				'listener-unavailable': () => LocalizedString
+				/**
+				 * Listener ready
+				 */
+				ready: () => LocalizedString
+				/**
+				 * Core transition in progress
+				 */
+				'runtime-transition': () => LocalizedString
+				/**
+				 * Listener test unavailable
+				 */
+				unavailable: () => LocalizedString
+			}
+			/**
+			 * Test listener
+			 */
+			test: () => LocalizedString
+			/**
+			 * Testing…
+			 */
+			testing: () => LocalizedString
+			/**
+			 * Local-only manual proxy
+			 */
+			title: () => LocalizedString
+		}
 		/**
 		 * Reduced motion
 		 */

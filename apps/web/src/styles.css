@@ -3420,6 +3420,28 @@ h2 {
   gap: 8px;
 }
 
+.local-proxy-control,
+.local-proxy-endpoint {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.local-proxy-control {
+  justify-content: flex-end;
+}
+
+.local-proxy-endpoint code {
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.local-proxy-result {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
 .network-interface-list,
 .network-interface-addresses,
 .network-dns-primary,

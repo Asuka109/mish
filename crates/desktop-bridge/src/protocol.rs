@@ -415,6 +415,7 @@ async fn handle_message(
             | "core.stop"
             | "status.getSnapshot"
             | "status.subscribe"
+            | "status.testLocalProxy"
             | "profiles.getSnapshot"
             | "profiles.subscribe"
             | "traffic.getSnapshot"
@@ -465,7 +466,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 13,
+            "protocolVersion": 14,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1029,6 +1030,10 @@ async fn handle_message(
                 Err(error) => return Some(capture_error_response(id, error)),
             }
         }
+        "status.testLocalProxy" => match state.runtime.test_local_proxy().await {
+            Ok(result) => serde_json::to_value(result).expect("serializable local proxy test"),
+            Err(error) => return Some(capture_error_response(id, error)),
+        },
         "settings.getSnapshot" => {
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));

@@ -465,6 +465,18 @@ impl MishRuntime {
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
+    pub async fn test_local_proxy(&self) -> Result<LocalProxyTestResult, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "The local proxy listener is unavailable in this runtime",
+            ));
+        };
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        Ok(capture.test_local_proxy(healthy).await)
+    }
+
     pub async fn recover_system_proxy(
         &self,
         action: CaptureRecoveryAction,

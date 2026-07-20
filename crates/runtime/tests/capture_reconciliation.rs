@@ -7,10 +7,11 @@ use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
     CapabilityAvailability, CaptureAuditReason, CaptureJournal, CaptureJournalStore,
     CapturePlatform, CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
-    CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState,
-    SystemProxyObservedState, SystemProxyPhase, TunHelperAvailability, TunHelperController,
-    TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
-    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot, TunPhase,
+    CaptureTransitionError, LocalProxyTestPhase, LoopbackProxyEndpoint, ManualProxyState,
+    NetworkServiceProxyState, SystemProxyObservedState, SystemProxyPhase, TunHelperAvailability,
+    TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
+    TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform,
+    TunHelperSnapshot, TunPhase,
 };
 
 struct FakeTunHelper {
@@ -99,7 +100,9 @@ struct FakePlatform {
     apply_count: Mutex<usize>,
     fail_applies_remaining: Mutex<usize>,
     listener_ready: Mutex<bool>,
+    listener_test_count: Mutex<usize>,
     fail_observations_remaining: Mutex<usize>,
+    observe_count: Mutex<usize>,
     services: Mutex<HashMap<String, NetworkServiceProxyState>>,
 }
 
@@ -110,7 +113,9 @@ impl FakePlatform {
             apply_count: Mutex::new(0),
             fail_applies_remaining: Mutex::new(0),
             listener_ready: Mutex::new(true),
+            listener_test_count: Mutex::new(0),
             fail_observations_remaining: Mutex::new(0),
+            observe_count: Mutex::new(0),
             services: Mutex::new(HashMap::from([(service.service_id.clone(), service)])),
         }
     }
@@ -135,6 +140,14 @@ impl FakePlatform {
         *self.apply_count.lock().unwrap()
     }
 
+    fn observe_count(&self) -> usize {
+        *self.observe_count.lock().unwrap()
+    }
+
+    fn listener_test_count(&self) -> usize {
+        *self.listener_test_count.lock().unwrap()
+    }
+
     fn service(&self, service_id: &str) -> NetworkServiceProxyState {
         self.services.lock().unwrap()[service_id].clone()
     }
@@ -157,6 +170,7 @@ impl CapturePlatform for FakePlatform {
     fn observe_active(
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        *self.observe_count.lock().unwrap() += 1;
         let mut failures = self.fail_observations_remaining.lock().unwrap();
         if *failures > 0 {
             *failures -= 1;
@@ -176,6 +190,7 @@ impl CapturePlatform for FakePlatform {
         &self,
         service_id: &str,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        *self.observe_count.lock().unwrap() += 1;
         Box::pin(ready(Ok(self.services.lock().unwrap()[service_id].clone())))
     }
 
@@ -210,6 +225,7 @@ impl CapturePlatform for FakePlatform {
         &self,
         _endpoint: &LoopbackProxyEndpoint,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        *self.listener_test_count.lock().unwrap() += 1;
         if *self.listener_ready.lock().unwrap() {
             return Box::pin(ready(Ok(())));
         }
@@ -1022,6 +1038,54 @@ async fn listener_readiness_failure_never_modifies_system_proxy_or_reports_succe
         SystemProxyPhase::Failed
     );
     assert!(!reconciler.status().system_proxy_enabled);
+}
+
+#[tokio::test]
+async fn local_proxy_test_confirms_only_the_listener_and_leaves_system_proxy_untouched() {
+    let prior = disabled_service();
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let result = reconciler.test_local_proxy(true).await;
+
+    assert_eq!(result.phase, LocalProxyTestPhase::Ready);
+    assert_eq!(result.host, "127.0.0.1");
+    assert_eq!(result.port, 7890);
+    assert_eq!(platform.listener_test_count(), 1);
+    assert_eq!(platform.observe_count(), 0);
+    assert_eq!(platform.apply_count(), 0);
+    assert_eq!(platform.service("service-a"), prior);
+    assert!(journal.load().unwrap().is_none());
+    assert_eq!(
+        reconciler.status().system_proxy.phase,
+        SystemProxyPhase::Off
+    );
+}
+
+#[tokio::test]
+async fn local_proxy_test_skips_all_platform_access_while_core_is_unhealthy() {
+    let prior = disabled_service();
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let result = reconciler.test_local_proxy(false).await;
+
+    assert_eq!(result.phase, LocalProxyTestPhase::CoreUnhealthy);
+    assert_eq!(platform.listener_test_count(), 0);
+    assert_eq!(platform.observe_count(), 0);
+    assert_eq!(platform.apply_count(), 0);
+    assert_eq!(platform.service("service-a"), prior);
+    assert!(journal.load().unwrap().is_none());
 }
 
 #[tokio::test]

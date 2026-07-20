@@ -243,6 +243,12 @@ capability unavailable and contains no synthetic device state. Sensitive
 network-service, interface, DNS-server, and search-domain values remain local to
 the Settings response and never enter Events, logs, errors, or support bundles.
 
+Protocol version 14 adds the empty-parameter `status.testLocalProxy` readiness
+check for the fixed application-owned loopback mixed proxy endpoint. The check
+does not observe or apply System Proxy and accepts no caller-selected network
+target. Its product and WebView security boundary is defined in
+[`local-proxy-debugging.md`](local-proxy-debugging.md).
+
 The approved Android direction pairs Kotlin `VpnService` with a reproducibly
 built embedded Go Core library. The approved iOS direction pairs Swift
 `NEPacketTunnelProvider` with the matching embedded Core framework. Both use a

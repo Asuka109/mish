@@ -183,6 +183,23 @@ impl LoopbackProxyEndpoint {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LocalProxyTestPhase {
+    CoreUnhealthy,
+    ListenerUnavailable,
+    Ready,
+    RuntimeTransition,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalProxyTestResult {
+    pub host: String,
+    pub phase: LocalProxyTestPhase,
+    pub port: u16,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureJournal {
@@ -1437,6 +1454,34 @@ impl CaptureReconciler {
             .map_or(CapabilityAvailability::Unavailable, |tun| {
                 tun.availability()
             })
+    }
+
+    pub async fn test_local_proxy(&self, core_healthy: bool) -> LocalProxyTestResult {
+        let endpoint = &self.system_proxy.endpoint;
+        let result = |phase| LocalProxyTestResult {
+            host: endpoint.host().to_string(),
+            phase,
+            port: endpoint.port(),
+        };
+        if !core_healthy {
+            return result(LocalProxyTestPhase::CoreUnhealthy);
+        }
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return result(LocalProxyTestPhase::RuntimeTransition);
+        }
+        let _operation = self.operation.lock().await;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return result(LocalProxyTestPhase::RuntimeTransition);
+        }
+        match self
+            .system_proxy
+            .platform
+            .confirm_proxy_listener(endpoint)
+            .await
+        {
+            Ok(()) => result(LocalProxyTestPhase::Ready),
+            Err(_) => result(LocalProxyTestPhase::ListenerUnavailable),
+        }
     }
 
     pub async fn reconcile(

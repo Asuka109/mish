@@ -92,6 +92,12 @@ impl DesktopRuntimeHost {
             .await
     }
 
+    pub async fn test_local_proxy(
+        &self,
+    ) -> Result<mish_runtime::LocalProxyTestResult, CaptureTransitionError> {
+        self.current().test_local_proxy().await
+    }
+
     pub fn supports_status_command(&self, command: StatusCommand) -> bool {
         self.current().supports_status_command(command)
     }

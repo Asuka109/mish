@@ -384,6 +384,14 @@ class DeferredCaptureClient extends SnapshotStatusClient {
   }
 }
 
+class LocalProxyClient extends SnapshotStatusClient {
+  readonly testLocalProxy = vi.fn(async () => ({
+    host: "127.0.0.1" as const,
+    phase: "ready" as const,
+    port: 7890 as const,
+  }));
+}
+
 async function createRpcSnapshot(sparse = false) {
   const snapshot = await new FixtureStatusClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -557,6 +565,34 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
+  it("makes the app-only manual proxy discoverable and testable without System Proxy", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    const snapshot = await createRpcSnapshot();
+    const statusClient = new LocalProxyClient(snapshot);
+    renderRoute(
+      "/settings",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByText("127.0.0.1:7890")).toBeVisible();
+    expect(screen.getByText(/browser extension or an app-specific proxy/i)).toBeVisible();
+    expect(screen.getByText(/does not enable or change macOS System Proxy/i)).toBeVisible();
+    expect(screen.getByText("HTTP")).toBeVisible();
+    expect(screen.getByText("SOCKS5")).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Test listener" }));
+
+    await waitFor(() => expect(statusClient.testLocalProxy).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Listener ready")).toBeVisible();
+    expect(snapshot.runtime.systemProxy.phase).toBe("off");
+    expect(snapshot.runtime.systemProxyEnabled).toBe(false);
+  });
+
   it("shows a source-labeled read-only macOS Network and DNS observation", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
