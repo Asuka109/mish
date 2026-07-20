@@ -542,18 +542,9 @@ export function RoutesPage() {
   const delayCommandSupported = isCommandSupported("group-delay");
   const delayCommandPending = isCommandPending("group-delay");
   const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
-  const activeProfile =
-    snapshot.profiles.find((profile) => profile.id === snapshot.activeProfileId)?.label ??
-    snapshot.activeProfileId;
   const visibleRootGroupIds = search.queryActive
     ? graph.rootGroupIds.filter((groupId) => search.visibleEntityIds.has(groupId))
     : graph.rootGroupIds;
-  const sourceDescription =
-    snapshot.adapterKind === "fixture"
-      ? LL.routes.fixtureDescription()
-      : snapshot.adapterKind === "rpc"
-        ? LL.routes.desktopDescription()
-        : LL.routes.deviceDescription();
 
   function toggleGroup(groupId: string) {
     setExpandedGroupIds((current) => {
@@ -572,16 +563,8 @@ export function RoutesPage() {
     <div className="routes-page page-scroll">
       <div className="routes-workspace">
         <header className="routes-header">
-          <div>
-            <h1>{LL.routes.title()}</h1>
-            <p>{LL.routes.description()}</p>
-          </div>
-          <div className="routes-context">
-            <strong className="user-authored-label" title={activeProfile}>
-              {LL.routes.activeProfile({ profile: activeProfile })}
-            </strong>
-            <span>{sourceDescription}</span>
-          </div>
+          <h1>{LL.routes.title()}</h1>
+          <p>{LL.routes.description()}</p>
         </header>
 
         {snapshot.adapterKind !== "fixture" && connection.stale ? (

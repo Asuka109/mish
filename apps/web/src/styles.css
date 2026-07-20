@@ -554,7 +554,6 @@ h2 {
 
 .status-controls {
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--color-hairline-soft);
 }
 
 .section-grid {
@@ -676,6 +675,10 @@ h2 {
 .capture-help-button svg {
   width: 15px;
   height: 15px;
+}
+
+.capture-help-button svg {
+  color: var(--color-muted-soft);
 }
 
 .capture-mode-button[data-capture-state="remembered"] {
@@ -2117,16 +2120,8 @@ h2 {
 }
 
 .routes-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
   padding-bottom: 20px;
   border-bottom: 1px solid var(--color-hairline-soft);
-}
-
-.routes-header > div:first-child {
-  min-width: 0;
 }
 
 .routes-header p {
@@ -2134,32 +2129,6 @@ h2 {
   margin-top: 6px;
   color: var(--color-text-muted);
   line-height: 21px;
-}
-
-.routes-context {
-  display: grid;
-  max-width: 280px;
-  flex: 0 0 auto;
-  gap: 3px;
-  padding-top: 3px;
-  text-align: right;
-}
-
-.routes-context strong,
-.routes-context span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.routes-context strong {
-  font-size: var(--text-metadata);
-  font-weight: var(--font-weight-control);
-}
-
-.routes-context span {
-  color: var(--color-text-muted);
-  font-size: 12px;
 }
 
 .routes-workspace > .fixture-error,
@@ -4674,15 +4643,6 @@ h2 {
 
   .status-control-cell {
     gap: 16px;
-  }
-
-  .routes-header {
-    display: grid;
-  }
-
-  .routes-context {
-    max-width: none;
-    text-align: left;
   }
 
   .route-group-tools {
