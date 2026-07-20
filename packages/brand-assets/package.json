@@ -1,0 +1,15 @@
+{
+  "name": "@mish/brand-assets",
+  "version": "0.1.0",
+  "private": true,
+  "files": [
+    "generated",
+    "public"
+  ],
+  "type": "module",
+  "exports": {
+    "./brand/*": "./public/brand/*",
+    "./tauri/*": "./generated/tauri/*",
+    "./manifest.webmanifest": "./public/manifest.webmanifest"
+  }
+}

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "android:check": "node scripts/check-android-project.ts",
+    "brand:generate": "node scripts/generate-brand-assets.ts",
     "bridge": "cargo run -p mish-bridge --",
     "build": "pnpm --filter @mish/web build",
     "ci:check": "node scripts/check-ci-workflow.ts",
