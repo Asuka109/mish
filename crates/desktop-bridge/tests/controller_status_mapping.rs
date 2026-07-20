@@ -337,7 +337,8 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
             .iter()
             .any(|group| group["type"] == "fallback")
     );
-    assert_eq!(value["services"], json!([]));
+    assert_eq!(value["services"].as_array().unwrap().len(), 6);
+    assert_eq!(value["services"][0]["id"], "google");
     assert_eq!(value["probeResults"], json!([]));
 }
 
