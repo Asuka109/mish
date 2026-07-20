@@ -79,8 +79,9 @@ emulator where practical.
 For the Phase 0 fixture, the same lifecycle checks apply with one stricter claim
 boundary: consent, foreground notification, serialization, reconstruction, and
 recovery may be exercised, but every start must finish `unavailable` with
-`vpnActive=false` and Core unavailable. No fixture result satisfies any item in
-the VPN behavior subsection below.
+`vpnActive=false`. A separately staged Core may report verified package identity
+as available, but the fixture does not initialize or start it. No fixture result
+satisfies any item in the VPN behavior subsection below.
 
 ### VPN behavior
 

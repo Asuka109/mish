@@ -25,6 +25,7 @@ it never downloads or links a third-party prebuilt AAR or native library.
 pnpm mobile-core:contract
 pnpm mobile-core:build
 pnpm mobile-core:verify
+pnpm mobile-core:stage:android
 ```
 
 `mobile-core:build` downloads the pinned official Go archive when necessary,
@@ -42,8 +43,9 @@ trash .scratch/mobile-core
 ```
 
 Never copy the resulting `.so` files into the repository. A later Android
-integration task may stage verified build outputs into generated packaging
-directories without making those binaries source-controlled.
+integration task stages only outputs whose ELF architecture and SHA-256 match
+the committed evidence. The generated Android `jniLibs` files remain ignored
+and are never source-controlled.
 
 The ABI contract is
 [`../docs/architecture/mobile-core-abi.md`](../docs/architecture/mobile-core-abi.md).

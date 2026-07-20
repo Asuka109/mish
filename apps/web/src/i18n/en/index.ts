@@ -260,6 +260,7 @@ const en = {
     settings: "Settings",
   },
   mobileFixture: {
+    coreReady: "Mihomo {version:string} is packaged; VPN traffic capture is not connected yet.",
     commandFailed: "The native lifecycle command failed. Retry after reopening the app.",
     label: "Native fixture",
     lifecycleAction: "Run lifecycle check",

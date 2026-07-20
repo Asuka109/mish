@@ -10,11 +10,13 @@ does not reuse the desktop loopback bridge or a desktop sidecar.
 The Android prototype requests VPN consent only after an explicit user action,
 uses a protected foreground service and honest notification, serializes
 lifecycle transitions, and publishes versioned snapshots and events across
-Activity or WebView recreation. Its replaceable fixture backend reports both
-the native Core and VPN capability as unavailable. It never calls
+Activity or WebView recreation. Its replaceable fixture backend reports VPN
+capability as unavailable. An explicitly staged, checksum-matched native Core
+may report its ABI and version identity through a bounded JNI probe, but the
+fixture never initializes or starts it. It never calls
 `VpnService.Builder.establish`, creates a TUN, captures traffic, or starts
-Mihomo. No Mihomo binary, ABI wrapper, subscription, token, node, or user
-configuration is included. This work proves the **compiled shell** evidence
+Mihomo. No subscription, token, node, or user configuration is included. This
+work proves the **compiled shell** evidence
 level and part of the **native fixture** level defined by
 [`../quality/mobile-validation.md`](../quality/mobile-validation.md). It does
 not prove an **installable app** because no Android device or emulator was
@@ -73,8 +75,9 @@ official sources:
   an unknown outcome.
 - The production Phase 0 wiring uses `FixtureVpnBackend`. Its start operation
   always returns `unavailable`; the honest fixture notification remains
-  foreground only until explicit stop, revoke, or destruction. `vpnActive` and
-  Core availability remain false/unavailable throughout.
+  foreground only until explicit stop, revoke, or destruction. `vpnActive`
+  remains false throughout. Core availability describes only verified package
+  identity and does not imply initialization, TUN ownership, or traffic capture.
 
 ## Retained local toolchain
 
@@ -128,11 +131,14 @@ pnpm android:check
 Build one debug APK per ABI:
 
 ```sh
+pnpm mobile-core:build
+pnpm mobile-core:stage:android
 pnpm mobile:android:build
 ```
 
-The build command always reapplies API 36, Build Tools 36.1.0, NDK 29, and the
-ARM64/x86_64 debug-symbol rules before invoking Tauri.
+The staging command rejects missing, wrong-architecture, or checksum-mismatched
+Core artifacts. The app build always reapplies API 36, Build Tools 36.1.0, NDK
+29, and the ARM64/x86_64 debug-symbol rules before invoking Tauri.
 
 ## 2026-07-20 artifact evidence
 
@@ -149,14 +155,31 @@ application source Manifest requests only Internet access. The local plugin
 Manifest owns the three bounded foreground/notification declarations and one
 `VpnService` protected by `BIND_VPN_SERVICE`. The generated Android TV launcher,
 FileProvider, and external-storage root path policy are absent. The project
-checker rejects their return and rejects TUN/Core implementation markers in the
-Phase 0 Kotlin source.
+checker rejects their return, permits only the bounded Core identity probe, and
+continues to reject TUN ownership in the Phase 0 Kotlin source.
 
 Archive entry and embedded-string checks found no desktop loopback bootstrap,
 desktop WebView identifier, subscription, token, node, or user configuration.
 `adb devices -l` returned no connected device, so installation, launch, offline
 asset loading, activity recreation, and Meizu 20 Pro behavior remain manual
 acceptance work.
+
+## 2026-07-20 Mobile Core probe artifact
+
+The first ARM64 package with the bounded JNI identity probe is available as
+`Mish-android-arm64-core-probe-debug.apk`. It is 184,521,709 bytes and has
+SHA-256
+`9d757b76ea61e03d0fc85e153cd797922be2ffc696f69c709e2c959ebc2fa81b`.
+Android debug signing verifies with APK Signature Scheme v2.
+
+The APK contains exactly the ARM64 Tauri library, JNI probe, and verified Mobile
+Core. The packaged Core SHA-256 is
+`ef5db794bf29970d5f813d3147e27ada01ecd32aaed62b76779f6d1388386034`,
+and its embedded bounded identity is Mihomo `v1.19.29`, commit
+`e26714a181ac0e2fa803453c0a8e9a9ce94e31cb`, wrapper
+`mish-mobile-core-v1`. The package still uses `FixtureVpnBackend`, never creates
+a TUN, and must not be reported as a device VPN. No Android device was connected
+during this build.
 
 ## Meizu 20 Pro Android 16 manual acceptance
 
@@ -169,7 +192,9 @@ routing or Core readiness.
    `adb install -r`, and launch `com.asuka109.mish/.MainActivity`. Confirm all Web
    assets load offline and the five labeled destinations remain above the
    gesture/navigation inset in portrait and landscape.
-2. On Home, confirm the fixture disclosure says VPN and Core are unavailable.
+2. On Home, confirm the fixture disclosure says VPN capture is unavailable. A
+   package built after verified staging must show the pinned Mihomo version;
+   an unstaged package must report Core unavailable.
    Tap **Review VPN permission**. Deny once and verify the state remains
    permission-required, no foreground notification appears, and no service
    remains in `adb shell dumpsys activity services com.asuka109.mish`.
@@ -201,21 +226,23 @@ routing or Core readiness.
 10. Inspect `adb shell dumpsys package com.asuka109.mish`, the merged Manifest,
     `adb shell dumpsys notification`, and network interfaces. Confirm there is
     one protected `systemExempted` VPN service, no Leanback launcher or
-    FileProvider, no TUN/interface owned by Mish, and no embedded Mihomo/Core
-    library or desktop executable.
+    FileProvider, no TUN/interface owned by Mish, no desktop executable, and at
+    most the expected ABI-specific `libmish_mobile_core.so` plus JNI probe.
 
 Record failures as Phase 0 lifecycle defects. TCP, UDP, DNS, routing, socket
 protection, network switching, 24-hour endurance, and VPN key persistence are
-explicitly deferred until the real pinned Core/ABI backend replaces the fixture.
+explicitly deferred until the verified Core/ABI backend replaces the fixture.
 
 ## CI policy
 
 Pull requests run the bounded fast gate and upload no Android package. Only a
 push to `main` runs the independent Android packaging job. That job installs the
 pinned JDK, Android command-line tools, SDK, NDK, and Rust targets; restores
-pnpm, Gradle, and Rust build caches; builds separate ARM64 and x86_64 debug APKs;
-verifies signatures and ABI entries; publishes hashes and provenance in the job
-summary; and uploads a 14-day, explicitly non-production test artifact.
+pnpm, Gradle, and Rust build caches; reproducibly builds and stages the pinned
+Mobile Core; builds separate ARM64 and x86_64 debug APKs; verifies signatures,
+ABI entries, JNI probes, and the exact Core hashes against committed evidence;
+publishes hashes and provenance in the job summary; and uploads a 14-day,
+explicitly non-production test artifact.
 Complete repository and real-browser validation run as a daily or manually
 dispatched inspection of the latest `main`.
 

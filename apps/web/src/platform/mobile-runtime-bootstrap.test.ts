@@ -15,7 +15,11 @@ const fixture = {
 const vpnSnapshot = {
   backendKind: "fixture" as const,
   contractVersion: 1 as const,
+  coreAbiVersion: null,
   coreAvailability: "unavailable" as const,
+  coreCommit: null,
+  coreVersion: null,
+  coreWrapperRevision: null,
   foreground: false,
   message: "Fixture only. No TUN or Core is available.",
   notificationPermission: "required" as const,

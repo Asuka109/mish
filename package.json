@@ -24,6 +24,7 @@
     "mihomo:prepare": "node scripts/prepare-mihomo.ts",
     "mobile-core:build": "node scripts/build-mobile-core.ts",
     "mobile-core:contract": "node scripts/test-mobile-core-contract.ts",
+    "mobile-core:stage:android": "node scripts/stage-mobile-core-android.ts",
     "mobile-core:verify": "node scripts/verify-mobile-core.ts",
     "mobile:android:build": "pnpm --filter @mish/mobile android:build",
     "mobile:android:init": "pnpm --filter @mish/mobile android:init",

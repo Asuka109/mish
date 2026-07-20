@@ -3,12 +3,17 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "mish-mobile-core-v1.19.29-android",
-  "documentNamespace": "https://github.com/Asuka109/mish/spdx/mobile-core/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/ccfac1c5c03f43a6381c940d4c1cce0cfa4ecd39d29ff7be8e254d11f7d1975d",
+  "documentNamespace": "https://github.com/Asuka109/mish/spdx/mobile-core/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/06819438b9d719dfef576503b10b76cb39ec98cafb0f9152cd6e00c3e4017a89",
   "creationInfo": {
     "created": "2026-07-18T11:18:54Z",
-    "creators": ["Tool: Mish mobile Core reproducible build"]
+    "creators": [
+      "Tool: Mish mobile Core reproducible build"
+    ]
   },
-  "documentDescribes": ["SPDXRef-File-arm64-v8a", "SPDXRef-File-x86-64"],
+  "documentDescribes": [
+    "SPDXRef-File-arm64-v8a",
+    "SPDXRef-File-x86-64"
+  ],
   "packages": [
     {
       "SPDXID": "SPDXRef-Package-cloud.google.com-go-compute-metadata",
@@ -198,6 +203,23 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-github.com-chzyer-readline",
+      "name": "github.com/chzyer/readline",
+      "versionInfo": "v1.5.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/chzyer/readline@v1.5.1"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-github.com-cilium-ebpf",
       "name": "github.com/cilium/ebpf",
       "versionInfo": "v0.12.3",
@@ -245,6 +267,23 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/github.com/coreos/go-iptables@v0.8.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-creack-pty",
+      "name": "github.com/creack/pty",
+      "versionInfo": "v1.1.9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/creack/pty@v1.1.9"
         }
       ]
     },
@@ -755,6 +794,23 @@
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
           "referenceLocator": "pkg:golang/github.com/huin/goupnp@v1.3.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-ianlancetaylor-demangle",
+      "name": "github.com/ianlancetaylor/demangle",
+      "versionInfo": "v0.0.0-20240312041847-bd984b5ce465",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/ianlancetaylor/demangle@v0.0.0-20240312041847-bd984b5ce465"
         }
       ]
     },
@@ -1983,6 +2039,23 @@
       ]
     },
     {
+      "SPDXID": "SPDXRef-Package-github.com-prashantv-gostub",
+      "name": "github.com/prashantv/gostub",
+      "versionInfo": "v1.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/prashantv/gostub@v1.1.0"
+        }
+      ]
+    },
+    {
       "SPDXID": "SPDXRef-Package-github.com-rasky-go-lzo",
       "name": "github.com/rasky/go-lzo",
       "versionInfo": "v0.0.0-20200203143853-96a758eda86e",
@@ -2835,7 +2908,7 @@
     {
       "SPDXID": "SPDXRef-Package-golang.org-x-xerrors",
       "name": "golang.org/x/xerrors",
-      "versionInfo": "v0.0.0-20191204190536-9bdfabe68543",
+      "versionInfo": "v0.0.0-20191011141410-1b5146add898",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
@@ -2845,7 +2918,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/golang.org/x/xerrors@v0.0.0-20191204190536-9bdfabe68543"
+          "referenceLocator": "pkg:golang/golang.org/x/xerrors@v0.0.0-20191011141410-1b5146add898"
         }
       ]
     },
@@ -2976,7 +3049,7 @@
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "b87b9348d8cdcca1264065bcd036b2f29fd9c755a9b3c831ec459b73d374aba6"
+          "checksumValue": "ef5db794bf29970d5f813d3147e27ada01ecd32aaed62b76779f6d1388386034"
         }
       ],
       "licenseConcluded": "GPL-3.0-only",
@@ -2988,7 +3061,7 @@
       "checksums": [
         {
           "algorithm": "SHA256",
-          "checksumValue": "d4987a4d16340e29929c7329f18606d6916b4aa94ffaa8280becf0abf28eaf25"
+          "checksumValue": "3c011331bbcc42ce421b160a3495227a3376836d16cbf2a009a2a4ca67cf4091"
         }
       ],
       "licenseConcluded": "GPL-3.0-only",
@@ -3049,6 +3122,11 @@
     {
       "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
       "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-chzyer-readline"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
+      "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-Package-github.com-cilium-ebpf"
     },
     {
@@ -3060,6 +3138,11 @@
       "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-Package-github.com-coreos-go-iptables"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-creack-pty"
     },
     {
       "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
@@ -3210,6 +3293,11 @@
       "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-Package-github.com-huin-goupnp"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-ianlancetaylor-demangle"
     },
     {
       "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
@@ -3570,6 +3658,11 @@
       "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-Package-github.com-pmezard-go-difflib"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-prashantv-gostub"
     },
     {
       "spdxElementId": "SPDXRef-Package-github.com-Asuka109-mish-mobile-core-wrapper",

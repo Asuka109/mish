@@ -819,6 +819,11 @@ type RootTranslation = {
 	}
 	mobileFixture: {
 		/**
+		 * M​i​h​o​m​o​ ​{​v​e​r​s​i​o​n​}​ ​i​s​ ​p​a​c​k​a​g​e​d​;​ ​V​P​N​ ​t​r​a​f​f​i​c​ ​c​a​p​t​u​r​e​ ​i​s​ ​n​o​t​ ​c​o​n​n​e​c​t​e​d​ ​y​e​t​.
+		 * @param {string} version
+		 */
+		coreReady: RequiredParams<'version'>
+		/**
 		 * T​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.​ ​R​e​t​r​y​ ​a​f​t​e​r​ ​r​e​o​p​e​n​i​n​g​ ​t​h​e​ ​a​p​p​.
 		 */
 		commandFailed: string
@@ -4472,6 +4477,10 @@ export type TranslationFunctions = {
 		settings: () => LocalizedString
 	}
 	mobileFixture: {
+		/**
+		 * Mihomo {version} is packaged; VPN traffic capture is not connected yet.
+		 */
+		coreReady: (arg: { version: string }) => LocalizedString
 		/**
 		 * The native lifecycle command failed. Retry after reopening the app.
 		 */

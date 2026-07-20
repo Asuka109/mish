@@ -8,7 +8,11 @@ pub const CONTRACT_VERSION: u8 = 1;
 pub struct MobileVpnSnapshot {
     pub backend_kind: String,
     pub contract_version: u8,
+    pub core_abi_version: Option<u8>,
     pub core_availability: String,
+    pub core_commit: Option<String>,
+    pub core_version: Option<String>,
+    pub core_wrapper_revision: Option<String>,
     pub foreground: bool,
     pub message: String,
     pub notification_permission: String,
@@ -26,7 +30,11 @@ impl MobileVpnSnapshot {
         Self {
             backend_kind: "fixture".into(),
             contract_version: CONTRACT_VERSION,
+            core_abi_version: None,
             core_availability: "unavailable".into(),
+            core_commit: None,
+            core_version: None,
+            core_wrapper_revision: None,
             foreground: false,
             message: "The Android VPN lifecycle fixture is unavailable on this platform.".into(),
             notification_permission: "not-required".into(),

@@ -16,6 +16,19 @@ allprojects {
     }
 }
 
+subprojects {
+    plugins.withId("com.android.application") {
+        extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
+            buildToolsVersion = "36.1.0"
+        }
+    }
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.api.dsl.LibraryExtension> {
+            buildToolsVersion = "36.1.0"
+        }
+    }
+}
+
 tasks.register("clean").configure {
     delete("build")
 }

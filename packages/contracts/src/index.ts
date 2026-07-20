@@ -73,7 +73,11 @@ export const MobileVpnSnapshotSchema = z
   .object({
     backendKind: z.literal("fixture"),
     contractVersion: z.literal(1),
-    coreAvailability: z.literal("unavailable"),
+    coreAbiVersion: z.literal(1).nullable(),
+    coreAvailability: z.enum(["unavailable", "available"]),
+    coreCommit: z.string().min(7).max(64).nullable(),
+    coreVersion: z.string().min(1).max(32).nullable(),
+    coreWrapperRevision: z.string().min(1).max(64).nullable(),
     foreground: z.boolean(),
     message: z.string().min(1).max(512),
     notificationPermission: MobileVpnNotificationPermissionSchema,
@@ -86,6 +90,22 @@ export const MobileVpnSnapshotSchema = z
   })
   .strict()
   .superRefine((snapshot, context) => {
+    const coreIdentity = [
+      snapshot.coreAbiVersion,
+      snapshot.coreCommit,
+      snapshot.coreVersion,
+      snapshot.coreWrapperRevision,
+    ];
+    if (
+      (snapshot.coreAvailability === "available" && coreIdentity.some((value) => value === null)) ||
+      (snapshot.coreAvailability === "unavailable" && coreIdentity.some((value) => value !== null))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Mobile Core availability and identity evidence must agree",
+        path: ["coreAvailability"],
+      });
+    }
     if (snapshot.foreground && !["starting", "stopping", "unavailable"].includes(snapshot.phase)) {
       context.addIssue({
         code: "custom",

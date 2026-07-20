@@ -3,14 +3,25 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val mishRepositoryRoot = file("../../../../../..").canonicalFile
+
 android {
     buildToolsVersion = "36.1.0"
     namespace = "com.asuka109.mish.vpn"
     compileSdk = 36
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         minSdk = 28
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+        externalNativeBuild {
+            ndkBuild {
+                arguments += "MISH_REPOSITORY_ROOT=${mishRepositoryRoot.absolutePath}"
+            }
+        }
     }
 
     compileOptions {
@@ -21,6 +32,12 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    externalNativeBuild {
+        ndkBuild {
+            path = file("src/main/cpp/Android.mk")
+        }
+    }
 }
 
 dependencies {
@@ -29,4 +46,5 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.core:core-ktx:1.16.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
 }

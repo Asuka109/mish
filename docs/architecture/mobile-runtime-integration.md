@@ -117,6 +117,13 @@ No build downloads a Core implicitly during application startup or ordinary
 tests. Development preparation is explicit and checksum-verified, following the
 same offline principle as desktop packaging.
 
+Android packaging uses an explicit staging command. It accepts only the two
+declared ABIs, verifies each ELF machine and the committed artifact SHA-256, and
+copies the library into the generated, ignored `jniLibs` directory. A small JNI
+shim loads the exact ABI by soname and exposes only bounded version evidence at
+this stage; it does not yet transfer configuration, a TUN descriptor, or Core
+lifecycle authority.
+
 ## Android lifecycle
 
 The Android application requests VPN consent only after an explicit user
