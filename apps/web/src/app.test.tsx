@@ -1070,6 +1070,20 @@ describe("desktop RPC experience", () => {
     expect(legacyStatusActivation).not.toHaveBeenCalled();
   });
 
+  it("presents a safely stopped runtime without a diagnostic shortcut or pending probes", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.probeResults = [];
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    await screen.findByText("Live status from the desktop local service.");
+    expect(screen.queryByRole("link", { name: "Open diagnostics" })).not.toBeInTheDocument();
+
+    const services = screen.getByRole("region", { name: "Service latency monitors" });
+    const google = within(services).getByRole("button", { name: /Google/ });
+    expect(within(google).getByText("not running")).toBeVisible();
+    expect(within(services).queryByText("Pending")).not.toBeInTheDocument();
+  });
+
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot(true);

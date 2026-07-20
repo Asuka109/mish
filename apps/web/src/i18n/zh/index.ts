@@ -696,6 +696,7 @@ const zh = {
     labelError: "请输入标题。",
     manage: "管理",
     metadataDescription: "仅保存演示元数据；Part 1 不会请求此端点。",
+    notRunning: "未运行",
     probeUrl: "探测地址",
     removedToast: "已删除演示服务",
     restoreDefaults: "恢复默认值",

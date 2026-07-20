@@ -224,6 +224,8 @@ export function ServiceMonitorSection() {
   const commandPending = isCommandPending("services");
   const commandSupported = isCommandSupported("services");
   const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
+  const runtimeInactive =
+    snapshot.adapterKind !== "fixture" && snapshot.runtime.phase === "inactive";
 
   async function restoreServices() {
     const result = await restoreDefaultServices();
@@ -303,7 +305,9 @@ export function ServiceMonitorSection() {
                 <strong className="user-authored-label">{service.label}</strong>
                 <span className="service-monitor-latency tabular">
                   {result?.latencyMilliseconds === null || result?.latencyMilliseconds === undefined
-                    ? LL.common.pending()
+                    ? runtimeInactive
+                      ? LL.services.notRunning()
+                      : LL.common.pending()
                     : `${result.latencyMilliseconds} ms`}
                 </span>
               </Button>

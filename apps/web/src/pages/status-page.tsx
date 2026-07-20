@@ -146,7 +146,6 @@ export function StatusPage() {
         {snapshot.adapterKind !== "fixture" &&
         (Boolean(error) ||
           connection.stale ||
-          snapshot.runtime.phase === "inactive" ||
           snapshot.runtime.phase === "error" ||
           snapshot.runtime.systemProxy.phase === "drift") ? (
           <Link className="status-diagnostics-link" to="/events?diagnostics=1">

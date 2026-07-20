@@ -2599,6 +2599,10 @@ type RootTranslation = {
 		 */
 		metadataDescription: string
 		/**
+		 * n​o​t​ ​r​u​n​n​i​n​g
+		 */
+		notRunning: string
+		/**
 		 * P​r​o​b​e​ ​U​R​L
 		 */
 		probeUrl: string
@@ -6263,6 +6267,10 @@ export type TranslationFunctions = {
 		 * Fixture metadata only. Part 1 never requests this endpoint.
 		 */
 		metadataDescription: () => LocalizedString
+		/**
+		 * not running
+		 */
+		notRunning: () => LocalizedString
 		/**
 		 * Probe URL
 		 */
