@@ -45,7 +45,19 @@ The journey proves that:
 8. external System Proxy drift exposes both recovery choices and Repair restores
    the managed state; and
 9. Stop returns to safe-stopped state, restores the prior System Proxy state,
-   and clears the recovery journal.
+   and clears the recovery journal;
+10. deleting and reimporting the same fictional HTTPS identity creates a fresh
+    profile ID, and a reconstructed desktop coordinator activates that new ID
+    without restoring stale capture intent; and
+11. an invalid recovery journal blocks capture restoration and repeated
+    activation with a typed `capture` failure, exposes only **Leave as is**, and
+    emits static actionable Events guidance without fixture URLs or Controller
+    credentials.
+
+The invalid-journal loop completes against local fixtures without a fixed
+network-transition delay. It distinguishes Mish persistence and activation
+state from any installed-app Mihomo or macOS network transition; timing of real
+traffic interruption remains a manual observation.
 
 ## Manual installed-app acceptance
 
@@ -109,6 +121,10 @@ Record only pass/fail, the Mish commit, macOS version, and whether the source wa
    runtime is healthy.
 4. Quit Mish while System Proxy is applied. Confirm the prior macOS state is
    restored and no managed Mihomo process remains.
+5. Delete the HTTPS profile, import the same private address again, and confirm
+   the newly saved profile activates after quit and relaunch. Capture must remain
+   off until explicitly enabled; repeated activation or capture failure must
+   identify System Proxy recovery and leave an actionable redacted event.
 
 Any false success, active System Proxy left after Stop/Quit/Core failure, loss
 of the prior healthy profile after failed replacement, or Status/Traffic loss

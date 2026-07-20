@@ -1115,6 +1115,28 @@ describe("Status fixture experience", () => {
     );
   });
 
+  it("explains invalid recovery state without offering an unsafe repair", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
+    snapshot.runtime.phase = "error";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: "invalid-recovery",
+      observed: "unknown",
+      phase: "drift",
+      recoveryActions: ["leave-as-is"],
+    };
+
+    renderRoute("/status", "en", new DriftRecoveryClient(snapshot));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Mish cannot validate its saved System Proxy recovery record.",
+    );
+    expect(screen.queryByRole("button", { name: "Repair System Proxy" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Leave OS settings as is" })).toBeInTheDocument();
+  });
+
   it("describes System Proxy confirmation while a desktop command is pending", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();

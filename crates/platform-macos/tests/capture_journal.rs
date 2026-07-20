@@ -31,6 +31,13 @@ fn journal_is_private_bounded_and_contains_only_reversible_prior_state() {
         },
     };
 
+    fs::write(&path, b"not a recovery record").unwrap();
+    assert_eq!(
+        store.load().unwrap_err().kind,
+        mish_runtime::CaptureFailureKind::InvalidRecovery
+    );
+    store.clear().unwrap();
+
     store.save(&journal).unwrap();
 
     assert_eq!(store.load().unwrap(), Some(journal));

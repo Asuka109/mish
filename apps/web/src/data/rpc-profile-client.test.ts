@@ -269,4 +269,48 @@ describe("RpcProfileClient", () => {
     client.dispose();
     rpc.dispose();
   });
+
+  it("accepts the backend capture activation failure without dropping the profile update", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcProfileClient(rpc, async () => null);
+    const snapshots: ProfileSnapshotDto[] = [];
+    client.subscribeSnapshots((snapshot) => snapshots.push(snapshot));
+
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: profileSnapshot(null), subscriptionId: "profiles-capture" },
+    });
+    await flushMicrotasks();
+
+    const failed = profileSnapshot(null) as unknown as {
+      activation: Record<string, unknown>;
+    };
+    failed.activation = {
+      ...failed.activation,
+      attemptedAt: 3,
+      commandId: "11111111-1111-4111-8111-111111111111",
+      failure: "capture",
+      operation: "activate",
+      phase: "failure",
+      targetProfileId: "profile-a",
+    };
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "profiles.snapshot",
+      params: { snapshot: failed, subscriptionId: "profiles-capture" },
+    });
+    await flushMicrotasks();
+
+    expect(snapshots.at(-1)?.activation.failure).toBe("capture");
+    client.dispose();
+    rpc.dispose();
+  });
 });
