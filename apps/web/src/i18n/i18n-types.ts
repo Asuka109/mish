@@ -3150,9 +3150,13 @@ type RootTranslation = {
 			rpc: string
 		}
 		/**
-		 * E​v​e​n​t​ ​s​o​u​r​c​e​ ​a​v​a​i​l​a​b​i​l​i​t​y
+		 * E​v​e​n​t​ ​s​o​u​r​c​e​s
 		 */
 		sourceAvailability: string
+		/**
+		 * S​h​o​w​s​ ​w​h​i​c​h​ ​l​o​c​a​l​ ​s​o​u​r​c​e​s​ ​c​a​n​ ​c​o​n​t​r​i​b​u​t​e​ ​m​e​s​s​a​g​e​s​ ​t​o​ ​t​h​e​ ​e​v​e​n​t​ ​l​i​s​t​ ​b​e​l​o​w​.
+		 */
+		sourceDescription: string
 		/**
 		 * F​i​l​t​e​r​ ​b​y​ ​s​o​u​r​c​e
 		 */
@@ -6808,9 +6812,13 @@ export type TranslationFunctions = {
 			rpc: () => LocalizedString
 		}
 		/**
-		 * Event source availability
+		 * Event sources
 		 */
 		sourceAvailability: () => LocalizedString
+		/**
+		 * Shows which local sources can contribute messages to the event list below.
+		 */
+		sourceDescription: () => LocalizedString
 		/**
 		 * Filter by source
 		 */

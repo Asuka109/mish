@@ -1428,6 +1428,7 @@ h2 {
 
 .ui-button {
   display: inline-flex;
+  flex: 0 0 auto;
   height: 34px;
   align-items: center;
   justify-content: center;
@@ -1439,6 +1440,7 @@ h2 {
   color: var(--color-canvas);
   font-size: var(--text-metadata);
   font-weight: var(--font-weight-control);
+  white-space: nowrap;
 }
 
 .ui-button--outline {
@@ -2758,7 +2760,6 @@ h2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1px;
-  padding: 1px;
   margin: 16px;
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-md);
@@ -2798,6 +2799,7 @@ h2 {
   padding-top: 5px;
   color: var(--color-text-muted);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .events-source-status {
@@ -2827,12 +2829,22 @@ h2 {
   font-size: 12px;
 }
 
+.events-sources-section {
+  margin-top: 16px;
+}
+
+.events-source-heading p {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
 .events-source-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
-  padding: 1px;
-  margin-top: 12px;
+  margin-top: 8px;
   overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: var(--radius-md);
@@ -2840,11 +2852,13 @@ h2 {
 }
 
 .events-source-item {
-  display: grid;
+  display: flex;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px 8px;
-  padding: 9px 10px;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
   background: var(--color-canvas);
   font-size: var(--text-metadata);
 }
@@ -2856,18 +2870,42 @@ h2 {
   font-weight: var(--font-weight-control);
 }
 
-.events-source-item .ui-badge {
-  height: 20px;
-}
-
-.events-source-item small {
-  grid-column: 1 / -1;
-  overflow: hidden;
+.events-source-phase {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
   color: var(--color-text-muted);
   font-size: 12px;
-  line-height: 16px;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.events-source-indicator {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  background: var(--color-muted-soft);
+}
+
+.events-source-phase[data-phase="ready"] {
+  color: var(--color-success-text);
+}
+
+.events-source-phase[data-phase="ready"] .events-source-indicator {
+  background: var(--color-success);
+}
+
+.events-source-phase[data-phase="stale"] {
+  color: var(--color-warning);
+}
+
+.events-source-phase[data-phase="stale"] .events-source-indicator {
+  background: var(--color-warning);
+}
+
+.events-source-phase[data-phase="fixture-only"] .events-source-indicator {
+  background: var(--color-brand);
 }
 
 .diagnostics-section {

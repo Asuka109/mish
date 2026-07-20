@@ -921,7 +921,8 @@ const en = {
       platform: "Platform",
       rpc: "RPC",
     },
-    sourceAvailability: "Event source availability",
+    sourceAvailability: "Event sources",
+    sourceDescription: "Shows which local sources can contribute messages to the event list below.",
     sourceLabel: "Filter by source",
     sourcePhase: {
       "fixture-only": "Fixture only",
