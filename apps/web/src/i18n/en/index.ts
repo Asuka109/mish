@@ -872,8 +872,13 @@ const en = {
     rulesEmpty: "No effective rules",
     rulesEmptyDescription: "The current Traffic snapshot contains no rules.",
     searchLabel: "Search Traffic",
-    searchPlaceholder:
-      "Search, or use destination:, process:, rule:, chain:, network:, protocol:, state:",
+    searchPlaceholder: "Search Traffic",
+    searchHelpAria: "Explain Traffic search syntax",
+    searchHelpTitle: "Search Traffic",
+    searchHelpDescription:
+      "Enter text to search visible connection details, or use field:value filters for precise matches. Multiple filters are combined.",
+    searchHelpFields:
+      "Available fields: destination, process, rule, chain, network, protocol, and state.",
     showing: "Showing {visible:number} of {total:number}",
     sortDestination: "Destination",
     sortDownload: "Downloaded",

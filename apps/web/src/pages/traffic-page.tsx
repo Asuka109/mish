@@ -1,4 +1,5 @@
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
+import { Question } from "@phosphor-icons/react/Question";
 import type { EffectiveRuleDto, TrafficConnectionDto } from "@mish/contracts";
 import {
   AlertDialog,
@@ -12,6 +13,8 @@ import {
   Badge,
   Button,
   Dialog,
+  DialogFooter,
+  DialogHeader,
   DialogContent,
   DialogDescription,
   DialogTitle,
@@ -95,6 +98,7 @@ export function TrafficPage() {
   const [selectedConnection, setSelectedConnection] = useState<SelectedConnection | null>(null);
   const [closeTarget, setCloseTarget] = useState<TrafficConnectionDto | null>(null);
   const [closeAllConfirmationOpen, setCloseAllConfirmationOpen] = useState(false);
+  const [searchHelpOpen, setSearchHelpOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const activeConnections = isCurrent ? (snapshot?.activeConnections ?? []) : [];
   const networks = useMemo(
@@ -208,23 +212,35 @@ export function TrafficPage() {
         </TabsList>
 
         <div className="traffic-tools">
-          <Field className="traffic-search-field">
-            <FieldLabel className="sr-only" htmlFor="traffic-search">
-              {LL.traffic.searchLabel()}
-            </FieldLabel>
-            <div className="traffic-search-control">
-              <MagnifyingGlass aria-hidden="true" />
-              <Input
-                autoComplete="off"
-                data-native-search
-                id="traffic-search"
-                onValueChange={setQuery}
-                placeholder={LL.traffic.searchPlaceholder()}
-                spellCheck={false}
-                value={query}
-              />
-            </div>
-          </Field>
+          <div className="traffic-search-row">
+            <Field className="traffic-search-field">
+              <FieldLabel className="sr-only" htmlFor="traffic-search">
+                {LL.traffic.searchLabel()}
+              </FieldLabel>
+              <div className="traffic-search-control">
+                <MagnifyingGlass aria-hidden="true" />
+                <Input
+                  autoComplete="off"
+                  data-native-search
+                  id="traffic-search"
+                  onValueChange={setQuery}
+                  placeholder={LL.traffic.searchPlaceholder()}
+                  spellCheck={false}
+                  value={query}
+                />
+              </div>
+            </Field>
+            <Button
+              aria-label={LL.traffic.searchHelpAria()}
+              className="traffic-search-help-button"
+              onClick={() => setSearchHelpOpen(true)}
+              size="icon-sm"
+              type="button"
+              variant="outline"
+            >
+              <Question aria-hidden="true" />
+            </Button>
+          </div>
           {tab === "rules" ? (
             <RuleSortSelect LL={LL} onChange={setRuleSort} value={ruleSort} />
           ) : (
@@ -331,6 +347,31 @@ export function TrafficPage() {
           if (!open) setSelectedConnection(null);
         }}
       />
+
+      <Dialog onOpenChange={setSearchHelpOpen} open={searchHelpOpen}>
+        <DialogContent className="traffic-search-help-dialog" closeLabel={LL.common.close()}>
+          <DialogHeader>
+            <div>
+              <DialogTitle className="dialog-title">{LL.traffic.searchHelpTitle()}</DialogTitle>
+              <DialogDescription className="dialog-description">
+                {LL.traffic.searchHelpDescription()}
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <div className="traffic-search-help-content">
+            <p>{LL.traffic.searchHelpFields()}</p>
+            <div className="traffic-search-examples">
+              <code>destination:example.com</code>
+              <code>process:browser network:tcp</code>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setSearchHelpOpen(false)} variant="outline">
+              {LL.common.close()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog
         onOpenChange={(open) => {

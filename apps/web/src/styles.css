@@ -492,8 +492,14 @@ h2 {
   font-size: var(--text-metadata);
 }
 
-.notification-trigger {
+.ui-button.notification-trigger {
   position: relative;
+  color: var(--color-text-muted);
+}
+
+.ui-button.notification-trigger:hover,
+.ui-button.notification-trigger[data-popup-open] {
+  color: var(--color-body);
 }
 
 .notification-count {
@@ -2597,8 +2603,16 @@ h2 {
   margin: 12px 0;
 }
 
-.traffic-search-field {
+.traffic-search-row {
   min-width: 240px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.traffic-search-field {
+  min-width: 0;
   flex: 1;
 }
 
@@ -2619,6 +2633,42 @@ h2 {
 
 .traffic-search-control .ui-input {
   padding-left: 34px;
+}
+
+.traffic-search-help-button {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+.traffic-search-help-button:hover {
+  color: var(--color-body);
+}
+
+.traffic-search-help-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.traffic-search-help-content {
+  display: grid;
+  gap: 12px;
+  padding: 4px 16px;
+  color: var(--color-body);
+  font-size: var(--text-metadata);
+  line-height: 20px;
+}
+
+.traffic-search-examples {
+  display: grid;
+  gap: 8px;
+}
+
+.traffic-search-examples code {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-soft);
+  color: var(--color-body);
+  user-select: text;
 }
 
 .traffic-table {

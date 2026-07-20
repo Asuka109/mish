@@ -109,6 +109,19 @@ afterEach(() => {
 });
 
 describe("Traffic page", () => {
+  it("keeps the search placeholder concise and explains structured filters on demand", async () => {
+    const user = userEvent.setup();
+    renderTraffic(new FixtureTrafficClient());
+
+    const search = await screen.findByRole("textbox", { name: "Search Traffic" });
+    expect(search).toHaveAttribute("placeholder", "Search Traffic");
+
+    await user.click(screen.getByRole("button", { name: "Explain Traffic search syntax" }));
+    const dialog = screen.getByRole("dialog", { name: "Search Traffic" });
+    expect(dialog).toHaveTextContent("destination:");
+    expect(dialog).toHaveTextContent("process:browser network:tcp");
+  });
+
   it("renders fictional active observations, explicitly unsupported close controls, and complete row detail", async () => {
     const user = userEvent.setup();
     renderTraffic(new FixtureTrafficClient());
