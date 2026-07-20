@@ -33,7 +33,7 @@ describe("responsive shell CSS", () => {
     )?.[0];
 
     expect(mobileRule).toContain("grid-template-rows: minmax(0, 1fr) auto");
-    expect(mobileRule).toContain("grid-template-columns: repeat(6, minmax(0, 1fr))");
+    expect(mobileRule).toContain("grid-template-columns: repeat(7, minmax(0, 1fr))");
     expect(mobileRule).toContain("env(safe-area-inset-bottom)");
   });
 });

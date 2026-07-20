@@ -287,13 +287,14 @@ h2 {
 }
 
 .settings-link {
-  margin-top: auto;
+  margin-top: 0;
 }
 
-.sidebar-status-area {
-  margin-top: 7px;
-  padding-top: 7px;
-  border-top: 1px solid var(--mish-sidebar-divider);
+.sidebar-bottom-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: auto;
 }
 
 .proxy-control-button {
@@ -304,9 +305,9 @@ h2 {
   align-items: center;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--mish-sidebar-control-border);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  background: var(--mish-sidebar-control-background);
+  background: transparent;
   color: var(--color-text-muted);
   font-size: var(--text-metadata);
   font-weight: var(--font-weight-control);
@@ -322,7 +323,7 @@ h2 {
 }
 
 .proxy-control-button:not([data-status="healthy"]):hover {
-  background: var(--mish-sidebar-control-hover-background);
+  background: var(--mish-sidebar-item-hover-background);
   color: var(--color-body);
 }
 
@@ -468,14 +469,10 @@ h2 {
   height: 15px;
 }
 
-.appearance-menu-trigger {
+.appearance-menu-trigger,
+.language-menu-trigger {
   width: 34px;
   padding: 0;
-  gap: 3px;
-}
-
-.appearance-menu-trigger svg:last-child {
-  width: 11px;
 }
 
 .appearance-menu {
@@ -4773,7 +4770,7 @@ h2 {
     display: grid;
     min-height: 56px;
     grid-row: 2;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr);
     padding: 4px 8px max(6px, env(safe-area-inset-bottom));
     border-top: 1px solid var(--color-hairline);
   }
@@ -4784,9 +4781,13 @@ h2 {
 
   .nav-list {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 2px;
     padding: 0;
+  }
+
+  .sidebar-bottom-items {
+    display: contents;
   }
 
   .nav-item {
@@ -4809,15 +4810,22 @@ h2 {
     margin-top: 0;
   }
 
-  .sidebar-status-area {
-    margin: 0 0 0 4px;
-    padding: 0 0 0 4px;
-    border-top: 0;
-    border-left: 1px solid var(--color-hairline);
-  }
-
   .proxy-control-button {
     height: 44px;
+    font-size: 10px;
+    line-height: 12px;
+  }
+
+  .proxy-control-state {
+    flex-direction: column;
+    gap: 1px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .proxy-control-state svg {
+    width: 18px;
+    height: 18px;
   }
 
   .toolbar {
@@ -4846,10 +4854,7 @@ h2 {
     padding: 0;
   }
 
-  .language-menu-trigger > span,
-  .language-menu-trigger > svg:last-child,
-  .profile-menu-trigger > span,
-  .profile-menu-trigger > svg:last-child {
+  .profile-menu-trigger > span {
     display: none;
   }
 

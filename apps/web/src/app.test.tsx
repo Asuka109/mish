@@ -598,6 +598,30 @@ describe("production routes", () => {
     expect(routesLink).toHaveAttribute("aria-current", "page");
   });
 
+  it("keeps compact toolbar menus and proxy control at their intended hierarchy", async () => {
+    renderRoute("/status");
+    await screen.findByText("Fixture activity at a glance.");
+
+    const theme = screen.getByRole("button", {
+      name: "Change theme. Current theme: Follow system",
+    });
+    const language = screen.getByRole("button", {
+      name: "Change language. Current language: English",
+    });
+    const profile = screen.getByRole("button", { name: /Switch profile/ });
+    for (const trigger of [theme, language, profile]) {
+      expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+    }
+
+    const navigation = screen.getByRole("navigation", { name: "Workspace sections" });
+    const settings = within(navigation).getByRole("link", { name: "Settings" });
+    const proxy = within(navigation).getByRole("button", {
+      name: "Launch the proxy demo state",
+    });
+    expect(settings.parentElement).toBe(proxy.parentElement);
+    expect(settings.parentElement).toHaveClass("sidebar-bottom-items");
+  });
+
   it("starts with fixture data without opening a socket or making a request", async () => {
     const webSocket = vi.fn();
     const fetch = vi.fn();
@@ -1055,7 +1079,7 @@ describe("desktop RPC experience", () => {
     renderRoute("/status", "en", statusClient, profileClient);
 
     const trigger = await screen.findByRole("button", {
-      name: "Switch profile. Current profile: Safely stopped",
+      name: "Switch profile. Current profile: Local Mihomo",
     });
     expect(trigger).toBeEnabled();
     await user.click(trigger);
@@ -1095,7 +1119,7 @@ describe("desktop RPC experience", () => {
     renderRoute("/status", "en", client);
 
     expect(await screen.findByText("Live status from the desktop local service.")).toBeVisible();
-    expect(screen.getByText("Local service")).toBeVisible();
+    expect(screen.queryByText("Local service")).not.toBeInTheDocument();
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
     expect(screen.getByText(/Reconnecting to the Mish background service/i)).toBeInTheDocument();
