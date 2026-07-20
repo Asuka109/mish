@@ -119,6 +119,7 @@ describe("Routes workspace", () => {
     renderRoutes();
 
     expect(await screen.findByRole("heading", { name: "Routes" })).toBeVisible();
+    expect(screen.queryByText(/Current profile:/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Expand 🌐 Proxy" })).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Expand Scale verification pool · 160" }),
