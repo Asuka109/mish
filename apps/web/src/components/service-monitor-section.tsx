@@ -42,6 +42,7 @@ import {
   FieldLabel,
   Input,
   SectionGrid,
+  Spinner,
 } from "@mish/ui";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -80,6 +81,10 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
   const { LL } = useI18nContext();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editedFields, setEditedFields] = useState({ label: false, url: false });
+  const [pendingAction, setPendingAction] = useState<{
+    kind: "delete" | "save";
+    promise: Promise<void>;
+  } | null>(null);
   if (!draft) return null;
 
   const labelInvalid = draft.label.trim().length === 0;
@@ -90,21 +95,25 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
   const existingService = Boolean(draft.id);
   const commandPending = isCommandPending("services");
 
-  async function saveService() {
+  function saveService() {
     if (!draft || !canSave) return;
-    const result = await upsertServiceMonitor(draft);
-    if (!result.ok) return;
-    toast.success(existingService ? LL.services.updatedToast() : LL.services.addedToast());
-    onClose();
+    const promise = upsertServiceMonitor(draft).then((result) => {
+      if (!result.ok) return;
+      toast.success(existingService ? LL.services.updatedToast() : LL.services.addedToast());
+      onClose();
+    });
+    setPendingAction({ kind: "save", promise });
   }
 
-  async function deleteService() {
+  function deleteService() {
     if (!draft?.id) return;
-    const result = await removeServiceMonitor(draft.id);
-    if (!result.ok) return;
-    toast.success(LL.services.removedToast());
-    setDeleteConfirmOpen(false);
-    onClose();
+    const promise = removeServiceMonitor(draft.id).then((result) => {
+      if (!result.ok) return;
+      toast.success(LL.services.removedToast());
+      setDeleteConfirmOpen(false);
+      onClose();
+    });
+    setPendingAction({ kind: "delete", promise });
   }
 
   return (
@@ -124,7 +133,7 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
           className="service-editor-form"
           onSubmit={(event) => {
             event.preventDefault();
-            void saveService();
+            saveService();
           }}
         >
           <FieldGroup>
@@ -183,6 +192,8 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
               <Button
                 className="primary-action-button"
                 disabled={!canSave || commandPending}
+                loading={pendingAction?.kind === "save" ? pendingAction.promise : false}
+                loadingText={LL.common.save()}
                 type="submit"
               >
                 {LL.common.save()}
@@ -203,7 +214,9 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
               <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
               <AlertDialogAction
                 disabled={commandPending}
-                onClick={() => void deleteService()}
+                loading={pendingAction?.kind === "delete" ? pendingAction.promise : false}
+                loadingText={LL.common.delete()}
+                onClick={deleteService}
                 variant="destructive"
               >
                 {LL.common.delete()}
@@ -220,6 +233,7 @@ export function ServiceMonitorSection() {
   const { isCommandPending, isCommandSupported, restoreDefaultServices, snapshot } = useProduct();
   const { LL } = useI18nContext();
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
+  const [restorePending, setRestorePending] = useState(false);
   if (!snapshot) return null;
   const commandPending = isCommandPending("services");
   const commandSupported = isCommandSupported("services");
@@ -228,8 +242,13 @@ export function ServiceMonitorSection() {
     snapshot.adapterKind !== "fixture" && snapshot.runtime.phase === "inactive";
 
   async function restoreServices() {
-    const result = await restoreDefaultServices();
-    if (result.ok) toast.success(LL.services.defaultRestoredToast());
+    setRestorePending(true);
+    try {
+      const result = await restoreDefaultServices();
+      if (result.ok) toast.success(LL.services.defaultRestoredToast());
+    } finally {
+      setRestorePending(false);
+    }
   }
 
   return (
@@ -245,9 +264,12 @@ export function ServiceMonitorSection() {
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger
+            aria-busy={restorePending}
             aria-describedby={actionDescriptionId}
             className="service-manage-trigger"
+            disabled={commandPending}
           >
+            {restorePending ? <Spinner data-icon="inline-start" /> : null}
             {LL.services.manage()}
             <CaretDown aria-hidden="true" weight="bold" />
           </DropdownMenuTrigger>
@@ -269,10 +291,15 @@ export function ServiceMonitorSection() {
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem
+                aria-busy={restorePending}
                 disabled={commandPending || !commandSupported}
                 onClick={() => void restoreServices()}
               >
-                <ArrowCounterClockwise aria-hidden="true" data-icon="inline-start" />
+                {restorePending ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <ArrowCounterClockwise aria-hidden="true" data-icon="inline-start" />
+                )}
                 {LL.services.restoreDefaults()}
               </DropdownMenuItem>
             </DropdownMenuGroup>

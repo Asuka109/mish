@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { StatusCommand, StatusSnapshotDto } from "@mish/contracts";
+import { StatusClientError, type StatusCommand, type StatusSnapshotDto } from "@mish/contracts";
 import { TooltipProvider } from "@mish/ui";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -85,6 +85,17 @@ class DelaySnapshotClient extends SnapshotClient {
       phase: "cancelled",
     };
     return structuredClone(this.confirmedSnapshot);
+  }
+}
+
+class DeferredSelectionClient extends SnapshotClient {
+  rejectSelection: (() => void) | null = null;
+
+  override selectGroupChild() {
+    return new Promise<StatusSnapshotDto>((_, reject) => {
+      this.rejectSelection = () =>
+        reject(new StatusClientError("conflict", "Group selection failed", true));
+    });
   }
 }
 
@@ -244,6 +255,28 @@ describe("Routes workspace", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("shows a targeted loading state while optimistically selecting a group child", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    const client = new DeferredSelectionClient(snapshot);
+    const user = userEvent.setup();
+    renderRoutes(client);
+    await user.click(await screen.findByRole("button", { name: "Expand 🎬 Streaming" }));
+
+    const selection = screen.getByRole("button", {
+      name: "Select 🇯🇵 NRT-03 in 🎬 Streaming",
+    });
+    await user.click(selection);
+
+    expect(selection).toHaveAttribute("aria-busy", "true");
+    expect(selection).toHaveAttribute("aria-pressed", "true");
+    expect(selection).toHaveTextContent("Pending");
+    expect(selection.querySelector(".ui-spinner")).toBeInTheDocument();
+
+    client.rejectSelection?.();
+    await waitFor(() => expect(selection).not.toHaveAttribute("aria-busy"));
+    expect(selection).toHaveAttribute("aria-pressed", "false");
   });
 
   it("does not expose automatic or unsupported group children as manual selectors", async () => {

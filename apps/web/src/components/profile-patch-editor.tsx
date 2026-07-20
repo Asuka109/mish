@@ -252,7 +252,12 @@ export function ProfilePatchEditor({
           </div>
 
           <div className="profile-patch-scroll" aria-live="polite">
-            {loading ? <p>{LL.profiles.loading()}</p> : null}
+            {loading ? (
+              <p className="profile-patch-loading">
+                <Spinner data-icon="inline-start" />
+                {LL.profiles.loading()}
+              </p>
+            ) : null}
             {!loading && draft.length === 0 ? (
               <Empty>
                 <EmptyHeader>
@@ -358,9 +363,10 @@ export function ProfilePatchEditor({
             </Button>
             <Button
               disabled={!dirty || !canSave || isPending("patch-save", profile?.id)}
+              loading={isPending("patch-save", profile?.id)}
+              loadingText={LL.profiles.patchSave()}
               onClick={save}
             >
-              {isPending("patch-save", profile?.id) ? <Spinner data-icon="inline-start" /> : null}
               {LL.profiles.patchSave()}
             </Button>
           </DialogFooter>

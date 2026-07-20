@@ -13,12 +13,14 @@ export interface WindowSurfaceResolution {
 }
 
 interface AppearanceContextValue {
+  appearancePending: boolean;
   preference: AppearancePreference;
   resolvedAppearance: ResolvedAppearance;
   effectiveWindowSurface: EffectiveWindowSurface;
   setPreference: (preference: AppearancePreference) => void;
   setWindowSurfacePreference: (preference: WindowSurfacePreference) => void;
   windowSurfaceFallbackReason: WindowSurfaceFallbackReason;
+  windowSurfacePending: boolean;
   windowSurfacePreference: WindowSurfacePreference;
 }
 
@@ -123,10 +125,12 @@ export function AppearanceProvider({
   ) => Promise<boolean> | void;
 }) {
   const [preference, setPreferenceState] = useState(initialPreference ?? resolveInitialAppearance);
+  const [appearancePending, setAppearancePending] = useState(false);
   const [resolvedAppearance, setResolvedAppearance] = useState(() => resolveAppearance(preference));
   const [windowSurfacePreference, setWindowSurfacePreferenceState] = useState(
     initialWindowSurfacePreference,
   );
+  const [windowSurfacePending, setWindowSurfacePending] = useState(false);
   const [reducedTransparency, setReducedTransparency] = useState(
     () => globalThis.matchMedia?.(reducedTransparencyQuery).matches ?? false,
   );
@@ -171,6 +175,7 @@ export function AppearanceProvider({
 
   const value = useMemo<AppearanceContextValue>(
     () => ({
+      appearancePending,
       preference,
       resolvedAppearance,
       effectiveWindowSurface: windowSurface.effectiveSurface,
@@ -180,11 +185,14 @@ export function AppearanceProvider({
         setPreferenceState(nextPreference);
         const result = onPreferenceChange?.(nextPreference);
         if (result instanceof Promise) {
-          void result.then((confirmed) => {
-            if (confirmed !== false) return;
-            persistAppearance(previousPreference);
-            setPreferenceState(previousPreference);
-          });
+          setAppearancePending(true);
+          void result
+            .then((confirmed) => {
+              if (confirmed !== false) return;
+              persistAppearance(previousPreference);
+              setPreferenceState(previousPreference);
+            })
+            .finally(() => setAppearancePending(false));
         }
       },
       setWindowSurfacePreference: (nextPreference) => {
@@ -192,21 +200,27 @@ export function AppearanceProvider({
         setWindowSurfacePreferenceState(nextPreference);
         const result = onWindowSurfacePreferenceChange?.(nextPreference);
         if (result instanceof Promise) {
-          void result.then((confirmed) => {
-            if (confirmed !== false) return;
-            setWindowSurfacePreferenceState(previousPreference);
-          });
+          setWindowSurfacePending(true);
+          void result
+            .then((confirmed) => {
+              if (confirmed !== false) return;
+              setWindowSurfacePreferenceState(previousPreference);
+            })
+            .finally(() => setWindowSurfacePending(false));
         }
       },
       windowSurfaceFallbackReason: windowSurface.fallbackReason,
+      windowSurfacePending,
       windowSurfacePreference,
     }),
     [
       onPreferenceChange,
       onWindowSurfacePreferenceChange,
+      appearancePending,
       preference,
       resolvedAppearance,
       windowSurface,
+      windowSurfacePending,
       windowSurfacePreference,
     ],
   );

@@ -14,6 +14,8 @@ import { Check, ChevronDown, Search, X } from "lucide-react";
 import {
   createContext,
   useContext,
+  useEffect,
+  useState,
   type ComponentProps,
   type CSSProperties,
   type HTMLAttributes,
@@ -28,22 +30,67 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export interface ButtonProps extends ComponentProps<typeof ButtonPrimitive> {
+  disableWhileLoading?: boolean;
+  loading?: boolean | PromiseLike<unknown>;
+  loadingText?: ReactNode;
   size?: "default" | "sm" | "icon-sm";
   variant?: "default" | "outline" | "ghost" | "destructive";
 }
 
 export function Button({
+  "aria-busy": ariaBusy,
+  children,
   className,
+  disabled,
+  disableWhileLoading = true,
+  loading = false,
+  loadingText,
   size = "default",
   variant = "default",
   ...props
 }: ButtonProps) {
+  const loadingPending = usePromisePending(loading);
+
   return (
     <ButtonPrimitive
+      aria-busy={loadingPending ? true : ariaBusy}
       className={cn("ui-button", `ui-button--${variant}`, `ui-button--${size}`, className)}
+      data-loading={loadingPending || undefined}
       data-slot="button"
+      disabled={disabled || (disableWhileLoading && loadingPending)}
       {...props}
-    />
+    >
+      {loadingPending ? <Spinner data-icon="inline-start" /> : null}
+      {loadingPending && loadingText !== undefined ? loadingText : children}
+    </ButtonPrimitive>
+  );
+}
+
+function usePromisePending(loading: ButtonProps["loading"]) {
+  const promise = isPromiseLike(loading) ? loading : null;
+  const [settledPromise, setSettledPromise] = useState<PromiseLike<unknown> | null>(null);
+
+  useEffect(() => {
+    if (!promise) return;
+    let active = true;
+    const settle = () => {
+      if (active) setSettledPromise(promise);
+    };
+    void Promise.resolve(promise).then(settle, settle);
+    return () => {
+      active = false;
+    };
+  }, [promise]);
+
+  return typeof loading === "boolean" ? loading : promise !== null && promise !== settledPromise;
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "then" in value &&
+    typeof value.then === "function"
   );
 }
 

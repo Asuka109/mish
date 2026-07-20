@@ -445,6 +445,8 @@ describe("profiles page", () => {
     await user.click(screen.getAllByRole("button", { name: "Refresh" })[0]);
     expect(client.refreshProfile).toHaveBeenCalledWith("profile-inactive");
 
+    expect(screen.getByRole("button", { name: "Active" })).toBeDisabled();
+
     const activeDelete = screen.getByRole("button", { name: "Delete Active fictional profile" });
     expect(activeDelete).toBeEnabled();
     await user.click(activeDelete);

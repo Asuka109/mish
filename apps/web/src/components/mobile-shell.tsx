@@ -4,6 +4,7 @@ import { FileText } from "@phosphor-icons/react/FileText";
 import { GearSix } from "@phosphor-icons/react/GearSix";
 import { House } from "@phosphor-icons/react/House";
 import { Pulse } from "@phosphor-icons/react/Pulse";
+import { Spinner } from "@mish/ui";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useEffect, useState } from "react";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -98,6 +99,7 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
           </div>
           {fixture.platform === "android" ? (
             <button
+              aria-busy={commandPending}
               className="mobile-fixture-action"
               disabled={
                 commandPending || snapshot.phase === "starting" || snapshot.phase === "stopping"
@@ -105,7 +107,8 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
               onClick={() => void runLifecycleAction()}
               type="button"
             >
-              {lifecycleActionLabel()}
+              {commandPending ? <Spinner data-icon="inline-start" /> : null}
+              {commandPending ? LL.common.pending() : lifecycleActionLabel()}
             </button>
           ) : null}
         </div>

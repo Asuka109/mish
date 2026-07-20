@@ -169,6 +169,7 @@ interface RouteNodeRowProps {
   delayResult?: GroupDelayChildResultDto;
   node: ProxyNodeDto;
   onSelect(groupId: string, childId: string): void;
+  selectionPending: boolean;
 }
 
 function RouteNodeRow({
@@ -179,6 +180,7 @@ function RouteNodeRow({
   delayResult,
   node,
   onSelect,
+  selectionPending,
 }: RouteNodeRowProps) {
   const { LL } = useI18nContext();
   const selected = group.selectedChildId === node.id;
@@ -221,6 +223,8 @@ function RouteNodeRow({
       aria-pressed={selected}
       className="route-child-row route-child-select"
       disabled={commandPending || !commandSupported}
+      loading={selectionPending}
+      loadingText={LL.common.pending()}
       onClick={() => onSelect(group.id, node.id)}
       variant="ghost"
     >
@@ -237,6 +241,7 @@ interface RouteGroupReferenceRowProps {
   group: PolicyGroupDto;
   parentGroup: PolicyGroupDto;
   onSelect(groupId: string, childId: string): void;
+  selectionPending: boolean;
 }
 
 function RouteGroupReferenceRow({
@@ -247,6 +252,7 @@ function RouteGroupReferenceRow({
   group,
   parentGroup,
   onSelect,
+  selectionPending,
 }: RouteGroupReferenceRowProps) {
   const { LL } = useI18nContext();
   const selected = parentGroup.selectedChildId === group.id;
@@ -281,6 +287,8 @@ function RouteGroupReferenceRow({
       aria-pressed={selected}
       className="route-child-row route-child-select route-group-reference"
       disabled={commandPending || !commandSupported}
+      loading={selectionPending}
+      loadingText={LL.common.pending()}
       onClick={() => onSelect(parentGroup.id, group.id)}
       variant="ghost"
     >
@@ -294,6 +302,10 @@ interface RouteGroupProps {
   commandSupported: boolean;
   delayCommandPending: boolean;
   delayCommandSupported: boolean;
+  delayPendingAction:
+    | { groupId: string; kind: "start" }
+    | { kind: "cancel"; testId: string }
+    | null;
   delayPolicy: GroupDelayPolicyDto;
   delayTest: GroupDelayTestDto;
   disabled: boolean;
@@ -307,6 +319,7 @@ interface RouteGroupProps {
   onSort(groupId: string, sort: RouteSort): void;
   onStartDelay(groupId: string): void;
   onToggle(groupId: string): void;
+  pendingSelectionId?: string;
   search: RouteSearchState;
   sortByGroupId: ReadonlyMap<string, RouteSort>;
 }
@@ -316,6 +329,7 @@ function RouteGroup({
   commandSupported,
   delayCommandPending,
   delayCommandSupported,
+  delayPendingAction,
   delayPolicy,
   delayTest,
   disabled,
@@ -329,6 +343,7 @@ function RouteGroup({
   onSort,
   onStartDelay,
   onToggle,
+  pendingSelectionId,
   search,
   sortByGroupId,
 }: RouteGroupProps) {
@@ -452,8 +467,14 @@ function RouteGroup({
                 </span>
                 {delayMatchesGroup && delayIsActive && delayTest.testId ? (
                   <Button
-                    aria-label={LL.routes.cancelDelay({ group: group.label })}
                     disabled={delayCommandPending}
+                    loading={
+                      delayCommandPending &&
+                      delayPendingAction?.kind === "cancel" &&
+                      delayPendingAction.testId === delayTest.testId
+                    }
+                    loadingText={LL.routes.cancelDelayButton()}
+                    aria-label={LL.routes.cancelDelay({ group: group.label })}
                     onClick={() => onCancelDelay(delayTest.testId!)}
                     size="sm"
                     variant="outline"
@@ -470,6 +491,12 @@ function RouteGroup({
                       delayIsActive ||
                       group.childIds.length === 0
                     }
+                    loading={
+                      delayCommandPending &&
+                      delayPendingAction?.kind === "start" &&
+                      delayPendingAction.groupId === group.id
+                    }
+                    loadingText={LL.routes.startDelayButton()}
                     onClick={() => onStartDelay(group.id)}
                     size="sm"
                     variant="outline"
@@ -496,6 +523,7 @@ function RouteGroup({
                           group={childGroup}
                           onSelect={onSelect}
                           parentGroup={group}
+                          selectionPending={pendingSelectionId === childId}
                         />
                       </li>
                     );
@@ -512,6 +540,7 @@ function RouteGroup({
                         group={group}
                         node={node}
                         onSelect={onSelect}
+                        selectionPending={pendingSelectionId === childId}
                       />
                     </li>
                   );
@@ -545,6 +574,10 @@ export function RoutesPage() {
   const deferredQuery = useDeferredValue(query);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(() => new Set());
   const [sortByGroupId, setSortByGroupId] = useState<Map<string, RouteSort>>(() => new Map());
+  const [pendingSelections, setPendingSelections] = useState<Map<string, string>>(() => new Map());
+  const [delayPendingAction, setDelayPendingAction] = useState<
+    { groupId: string; kind: "start" } | { kind: "cancel"; testId: string } | null
+  >(null);
   const graph = useMemo(
     () => buildRouteGraph(snapshot?.groups ?? [], snapshot?.nodes ?? []),
     [snapshot],
@@ -595,6 +628,37 @@ export function RoutesPage() {
 
   function changeSort(groupId: string, sort: RouteSort) {
     setSortByGroupId((current) => new Map(current).set(groupId, sort));
+  }
+
+  async function selectChild(groupId: string, childId: string) {
+    setPendingSelections((current) => new Map(current).set(groupId, childId));
+    try {
+      await selectGroupChild(groupId, childId);
+    } finally {
+      setPendingSelections((current) => {
+        const next = new Map(current);
+        next.delete(groupId);
+        return next;
+      });
+    }
+  }
+
+  async function startDelay(groupId: string) {
+    setDelayPendingAction({ groupId, kind: "start" });
+    try {
+      await startGroupDelayTest(groupId);
+    } finally {
+      setDelayPendingAction(null);
+    }
+  }
+
+  async function cancelDelay(testId: string) {
+    setDelayPendingAction({ kind: "cancel", testId });
+    try {
+      await cancelGroupDelayTest(testId);
+    } finally {
+      setDelayPendingAction(null);
+    }
   }
 
   return (
@@ -666,26 +730,32 @@ export function RoutesPage() {
               {visibleGroupIds.map((groupId) => {
                 const group = graph.groupById.get(groupId);
                 if (!group) return null;
+                const pendingSelectionId = pendingSelections.get(groupId);
+                const displayedGroup = pendingSelectionId
+                  ? { ...group, selectedChildId: pendingSelectionId }
+                  : group;
                 return (
                   <RouteGroup
                     commandDescriptionId={commandDescriptionId}
                     commandSupported={commandSupported}
                     delayCommandPending={delayCommandPending}
                     delayCommandSupported={delayCommandSupported}
+                    delayPendingAction={delayPendingAction}
                     delayPolicy={snapshot.groupDelayPolicy}
                     delayTest={snapshot.groupDelayTest}
                     disabled={snapshot.routingMode === "global" && !isGlobalGroup(group)}
                     expandedGroupIds={expandedGroupIds}
                     graph={graph}
-                    group={group}
+                    group={displayedGroup}
                     isGroupCommandPending={isGroupCommandPending}
                     key={groupId}
                     locale={locale}
-                    onCancelDelay={(testId) => void cancelGroupDelayTest(testId)}
-                    onSelect={(groupId, childId) => void selectGroupChild(groupId, childId)}
+                    onCancelDelay={(testId) => void cancelDelay(testId)}
+                    onSelect={(groupId, childId) => void selectChild(groupId, childId)}
                     onSort={changeSort}
-                    onStartDelay={(groupId) => void startGroupDelayTest(groupId)}
+                    onStartDelay={(groupId) => void startDelay(groupId)}
                     onToggle={toggleGroup}
+                    pendingSelectionId={pendingSelectionId}
                     search={search}
                     sortByGroupId={sortByGroupId}
                   />

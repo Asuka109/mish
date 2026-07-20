@@ -226,13 +226,20 @@ export function EventsPage() {
           {diagnosticHistory?.activeRunId ? (
             <Button
               disabled={diagnosticPending}
+              loading={diagnosticPending}
+              loadingText={LL.diagnostics.cancel()}
               onClick={() => void cancelDiagnosticRun(diagnosticHistory.activeRunId!)}
               variant="outline"
             >
               {LL.diagnostics.cancel()}
             </Button>
           ) : (
-            <Button disabled={diagnosticPending} onClick={() => void startDiagnosticRun()}>
+            <Button
+              disabled={diagnosticPending}
+              loading={diagnosticPending}
+              loadingText={LL.diagnostics.run()}
+              onClick={() => void startDiagnosticRun()}
+            >
               {LL.diagnostics.run()}
             </Button>
           )}
@@ -263,12 +270,12 @@ export function EventsPage() {
           </div>
           <Button
             disabled={supportBundleAvailability !== "supported" || supportBundlePending}
+            loading={supportBundlePending}
+            loadingText={LL.diagnostics.export.preparing()}
             onClick={() => void previewSupportBundle()}
             variant="outline"
           >
-            {supportBundlePending
-              ? LL.diagnostics.export.preparing()
-              : LL.diagnostics.export.preview()}
+            {LL.diagnostics.export.preview()}
           </Button>
         </div>
         {supportBundleAvailability !== "supported" ? (
@@ -352,11 +359,11 @@ export function EventsPage() {
                 </Button>
                 <Button
                   disabled={supportBundlePending}
+                  loading={supportBundlePending}
+                  loadingText={LL.diagnostics.export.saving()}
                   onClick={() => void saveSupportBundle(supportBundlePreview.previewId)}
                 >
-                  {supportBundlePending
-                    ? LL.diagnostics.export.saving()
-                    : LL.diagnostics.export.confirmSave()}
+                  {LL.diagnostics.export.confirmSave()}
                 </Button>
               </DialogFooter>
             </>

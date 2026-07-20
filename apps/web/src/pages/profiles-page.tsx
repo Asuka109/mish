@@ -195,6 +195,8 @@ export function ProfilesPage() {
         <div className="profiles-import-actions">
           <Button
             disabled={!localSupported || profiles.isPending("preflight")}
+            loading={profiles.isPending("preflight")}
+            loadingText={LL.profiles.importLocal()}
             onClick={preflightLocal}
             variant="outline"
           >
@@ -340,18 +342,23 @@ export function ProfilesPage() {
               {LL.common.cancel()}
             </Button>
             {preview ? (
-              <Button disabled={profiles.isPending("save")} onClick={savePreview}>
-                {profiles.isPending("save") ? <Spinner data-icon="inline-start" /> : null}
-                {profiles.isPending("save") ? LL.profiles.saving() : LL.profiles.saveProfile()}
+              <Button
+                disabled={profiles.isPending("save")}
+                loading={profiles.isPending("save")}
+                loadingText={LL.profiles.saving()}
+                onClick={savePreview}
+              >
+                {LL.profiles.saveProfile()}
               </Button>
             ) : (
               <Button
                 disabled={!url || profiles.isPending("preflight")}
                 form="profile-import-form"
+                loading={profiles.isPending("preflight")}
+                loadingText={LL.profiles.checking()}
                 type="submit"
               >
-                {profiles.isPending("preflight") ? <Spinner data-icon="inline-start" /> : null}
-                {profiles.isPending("preflight") ? LL.profiles.checking() : LL.profiles.preflight()}
+                {LL.profiles.preflight()}
               </Button>
             )}
           </DialogFooter>
@@ -398,27 +405,25 @@ export function ProfilesPage() {
                   </Select>
                   <Button
                     disabled={!replacementProfileId || profiles.isPending("activate")}
+                    loading={profiles.isPending("activate")}
+                    loadingText={LL.profiles.activating()}
                     onClick={() => replacementProfileId && activateProfile(replacementProfileId)}
                     type="button"
                     variant="outline"
                   >
-                    {profiles.isPending("activate") ? <Spinner data-icon="inline-start" /> : null}
-                    {profiles.isPending("activate")
-                      ? LL.profiles.activating()
-                      : LL.profiles.activation()}
+                    {LL.profiles.activation()}
                   </Button>
                 </div>
               ) : null}
               <Button
                 disabled={profiles.isPending("stop") || profiles.isPending("activate")}
+                loading={profiles.isPending("stop")}
+                loadingText={LL.profiles.stopping()}
                 onClick={stopForDeletion}
                 type="button"
                 variant="outline"
               >
-                {profiles.isPending("stop") ? <Spinner data-icon="inline-start" /> : null}
-                {profiles.isPending("stop")
-                  ? LL.profiles.stopping()
-                  : LL.profiles.stopForDeletion()}
+                {LL.profiles.stopForDeletion()}
               </Button>
             </div>
           ) : null}
@@ -430,12 +435,11 @@ export function ProfilesPage() {
                 currentDeleteTarget?.status.active ||
                 profiles.isPending("delete", deleteTarget.id)
               }
+              loading={profiles.isPending("delete", deleteTarget?.id)}
+              loadingText={LL.common.delete()}
               onClick={deleteProfile}
               variant="destructive"
             >
-              {profiles.isPending("delete", deleteTarget?.id) ? (
-                <Spinner data-icon="inline-start" />
-              ) : null}
               {LL.common.delete()}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -586,7 +590,11 @@ function ProfileRow({
             onValueChange={(value) => onSchedule(value as ProfileRefreshPolicy)}
             value={profile.refresh.policy}
           >
-            <SelectTrigger aria-label={`${LL.profiles.automaticRefresh()} ${profile.label}`}>
+            <SelectTrigger
+              aria-busy={schedulePending}
+              aria-label={`${LL.profiles.automaticRefresh()} ${profile.label}`}
+            >
+              {schedulePending ? <Spinner data-icon="inline-start" /> : null}
               <SelectValue>
                 {(value) => refreshPolicyLabel(LL, value as ProfileRefreshPolicy)}
               </SelectValue>
@@ -622,23 +630,23 @@ function ProfileRow({
             !profile.status.valid ||
             (activation.phase === "pending" && !activationPending)
           }
+          disableWhileLoading={false}
+          loading={activationPending}
+          loadingText={LL.profiles.cancelActivation()}
           onClick={activationPending ? onCancelActivation : onActivate}
           variant="outline"
         >
-          {activationPending ? <Spinner data-icon="inline-start" /> : null}
-          {activationPending ? LL.profiles.cancelActivation() : LL.profiles.activation()}
+          {profile.status.active ? LL.profiles.active() : LL.profiles.activation()}
         </Button>
         <Button
           disabled={!refreshSupported || refreshPending}
+          loading={refreshPending}
+          loadingText={LL.profiles.refreshing()}
           onClick={onRefresh}
           variant="outline"
         >
-          {refreshPending ? (
-            <Spinner data-icon="inline-start" />
-          ) : (
-            <ArrowClockwise data-icon="inline-start" />
-          )}
-          {refreshPending ? LL.profiles.refreshing() : LL.profiles.refresh()}
+          <ArrowClockwise data-icon="inline-start" />
+          {LL.profiles.refresh()}
         </Button>
         <Button
           aria-label={`${LL.common.delete()} ${profile.label}`}
@@ -758,18 +766,20 @@ function RuntimeProviders({
         <div className="runtime-provider-actions">
           <Button
             disabled={!supported || !hasProxyProviders || pending("proxy")}
+            loading={pending("proxy")}
+            loadingText={LL.profiles.updateAllProxyProviders()}
             onClick={() => onUpdateAll("proxy")}
             variant="outline"
           >
-            {pending("proxy") ? <Spinner data-icon="inline-start" /> : null}
             {LL.profiles.updateAllProxyProviders()}
           </Button>
           <Button
             disabled={!supported || !hasRuleProviders || pending("rule")}
+            loading={pending("rule")}
+            loadingText={LL.profiles.updateAllRuleProviders()}
             onClick={() => onUpdateAll("rule")}
             variant="outline"
           >
-            {pending("rule") ? <Spinner data-icon="inline-start" /> : null}
             {LL.profiles.updateAllRuleProviders()}
           </Button>
         </div>
@@ -850,13 +860,15 @@ function RuntimeProviderRow({
           <span className="runtime-provider-error">{LL.profiles.providerUpdateFailed()}</span>
         ) : null}
       </div>
-      <Button disabled={!supported || pending} onClick={onUpdate} variant="outline">
-        {pending ? (
-          <Spinner data-icon="inline-start" />
-        ) : (
-          <ArrowClockwise data-icon="inline-start" />
-        )}
-        {pending ? LL.profiles.providerUpdating() : LL.profiles.providerUpdate()}
+      <Button
+        disabled={!supported || pending}
+        loading={pending}
+        loadingText={LL.profiles.providerUpdating()}
+        onClick={onUpdate}
+        variant="outline"
+      >
+        <ArrowClockwise data-icon="inline-start" />
+        {LL.profiles.providerUpdate()}
       </Button>
     </SectionGridItem>
   );

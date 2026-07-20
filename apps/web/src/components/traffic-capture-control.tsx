@@ -9,6 +9,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogTitle,
+  Spinner,
   Toggle,
 } from "@mish/ui";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -33,6 +34,7 @@ interface TrafficCaptureControlProps {
   onSystemProxyChange(value: boolean): void;
   onTunChange(value: boolean): void;
   pending?: boolean;
+  pendingMode?: "systemProxy" | "tun" | null;
   systemProxyEnabled: boolean;
   systemProxySelected: boolean;
   systemProxyStatus: SystemProxyRuntimeStatusDto;
@@ -55,6 +57,7 @@ export function TrafficCaptureControl({
   onSystemProxyChange,
   onTunChange,
   pending = false,
+  pendingMode = null,
   systemProxyEnabled,
   systemProxySelected,
   systemProxyStatus,
@@ -94,6 +97,7 @@ export function TrafficCaptureControl({
       <div className="traffic-capture-stack">
         <div className="capture-control">
           <Toggle
+            aria-busy={pendingMode === "systemProxy"}
             aria-describedby={getCaptureModeDescriptionId(
               adapterKind,
               capabilities.systemProxy,
@@ -112,10 +116,15 @@ export function TrafficCaptureControl({
             pressed={systemProxySelected}
             variant="outline"
           >
-            <Desktop aria-hidden="true" data-icon="inline-start" weight="fill" />
+            {pendingMode === "systemProxy" ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <Desktop aria-hidden="true" data-icon="inline-start" weight="fill" />
+            )}
             <span>{LL.capture.systemProxy()}</span>
           </Toggle>
           <Toggle
+            aria-busy={pendingMode === "tun"}
             aria-describedby={getCaptureModeDescriptionId(
               adapterKind,
               capabilities.tun,
@@ -134,7 +143,11 @@ export function TrafficCaptureControl({
             pressed={tunSelected}
             variant="outline"
           >
-            <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
+            {pendingMode === "tun" ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <ShieldCheck aria-hidden="true" data-icon="inline-start" weight="fill" />
+            )}
             <span>{LL.capture.tun()}</span>
           </Toggle>
           <Button

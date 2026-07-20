@@ -29,6 +29,7 @@ const DEFAULT_SCOPE: LocalBackupScopeDto = {
 };
 
 type OperationResult = "cancelled" | "exported" | "failed" | "idle" | "restored";
+type PendingOperation = "commit-restore" | "choose-restore" | "preview-export" | "save-export";
 
 export function LocalBackupControl() {
   const settings = useSettings();
@@ -36,7 +37,7 @@ export function LocalBackupControl() {
   const { LL } = useI18nContext();
   const [exportOpen, setExportOpen] = useState(false);
   const [exportPreview, setExportPreview] = useState<LocalBackupPreviewDto | null>(null);
-  const [pending, setPending] = useState(false);
+  const [pendingOperation, setPendingOperation] = useState<PendingOperation | null>(null);
   const [resolution, setResolution] = useState<LocalRestoreConflictResolution>("keep-existing");
   const [restorePreview, setRestorePreview] = useState<LocalRestorePreviewDto | null>(null);
   const [result, setResult] = useState<OperationResult>("idle");
@@ -56,20 +57,20 @@ export function LocalBackupControl() {
   }
 
   async function previewExport() {
-    setPending(true);
+    setPendingOperation("preview-export");
     setResult("idle");
     try {
       setExportPreview(await client.previewExport(scope));
     } catch {
       setResult("failed");
     } finally {
-      setPending(false);
+      setPendingOperation(null);
     }
   }
 
   async function saveExport() {
     if (!exportPreview) return;
-    setPending(true);
+    setPendingOperation("save-export");
     try {
       const save = await client.saveExport(exportPreview.previewId);
       setResult(save.status === "written" ? "exported" : "cancelled");
@@ -78,12 +79,12 @@ export function LocalBackupControl() {
     } catch {
       setResult("failed");
     } finally {
-      setPending(false);
+      setPendingOperation(null);
     }
   }
 
   async function chooseRestore() {
-    setPending(true);
+    setPendingOperation("choose-restore");
     setResult("idle");
     try {
       const preview = await client.previewRestore();
@@ -92,13 +93,13 @@ export function LocalBackupControl() {
     } catch {
       setResult("failed");
     } finally {
-      setPending(false);
+      setPendingOperation(null);
     }
   }
 
   async function commitRestore() {
     if (!restorePreview) return;
-    setPending(true);
+    setPendingOperation("commit-restore");
     try {
       const restored = await client.commitRestore(restorePreview.previewId, resolution);
       settings.acceptSnapshot(restored.settingsSnapshot);
@@ -108,11 +109,12 @@ export function LocalBackupControl() {
       setRestorePreview(null);
       setResult("failed");
     } finally {
-      setPending(false);
+      setPendingOperation(null);
     }
   }
 
   const hasScope = scope.settings || scope.profiles || scope.patches || scope.schedules;
+  const pending = pendingOperation !== null;
 
   return (
     <div className="local-backup-control">
@@ -131,6 +133,8 @@ export function LocalBackupControl() {
         </Button>
         <Button
           disabled={!supported || pending}
+          loading={pendingOperation === "choose-restore"}
+          loadingText={LL.settingsPage.backupFlow.restore()}
           onClick={() => void chooseRestore()}
           size="sm"
           type="button"
@@ -207,16 +211,24 @@ export function LocalBackupControl() {
               {LL.common.cancel()}
             </Button>
             {exportPreview ? (
-              <Button disabled={pending} onClick={() => void saveExport()} type="button">
-                {pending ? LL.common.pending() : LL.settingsPage.backupFlow.save()}
+              <Button
+                disabled={pending}
+                loading={pendingOperation === "save-export"}
+                loadingText={LL.common.pending()}
+                onClick={() => void saveExport()}
+                type="button"
+              >
+                {LL.settingsPage.backupFlow.save()}
               </Button>
             ) : (
               <Button
                 disabled={pending || !hasScope}
+                loading={pendingOperation === "preview-export"}
+                loadingText={LL.common.pending()}
                 onClick={() => void previewExport()}
                 type="button"
               >
-                {pending ? LL.common.pending() : LL.settingsPage.backupFlow.preview()}
+                {LL.settingsPage.backupFlow.preview()}
               </Button>
             )}
           </DialogFooter>
@@ -293,8 +305,14 @@ export function LocalBackupControl() {
                 >
                   {LL.common.cancel()}
                 </Button>
-                <Button disabled={pending} onClick={() => void commitRestore()} type="button">
-                  {pending ? LL.common.pending() : LL.settingsPage.backupFlow.commit()}
+                <Button
+                  disabled={pending}
+                  loading={pendingOperation === "commit-restore"}
+                  loadingText={LL.common.pending()}
+                  onClick={() => void commitRestore()}
+                  type="button"
+                >
+                  {LL.settingsPage.backupFlow.commit()}
                 </Button>
               </DialogFooter>
             </>
