@@ -1211,13 +1211,17 @@ export const TunHelperLifecyclePhaseSchema = z.enum([
 export type TunHelperLifecyclePhase = z.infer<typeof TunHelperLifecyclePhaseSchema>;
 
 export const TunHelperFailureKindSchema = z.enum([
+  "authorization-cancelled",
   "confirmation-failed",
   "connection-failed",
   "identity-rejected",
+  "installation-failed",
+  "installer-unavailable",
   "invalid-signature",
   "message-too-large",
   "operation-failed",
   "permission-denied",
+  "preparation-failed",
   "protocol-mismatch",
   "registration-failed",
   "registration-requires-approval",
@@ -1233,6 +1237,11 @@ export const TunHelperSnapshotSchema = z
     availability: TunHelperAvailabilitySchema,
     expectedVersion: z.string().min(1).max(64),
     health: TunHelperHealthSchema,
+    installationId: z
+      .string()
+      .length(64)
+      .regex(/^[a-f0-9]+$/)
+      .nullable(),
     installedVersion: z.string().min(1).max(64).nullable(),
     lastFailure: TunHelperFailureKindSchema.nullable(),
     phase: TunHelperLifecyclePhaseSchema,

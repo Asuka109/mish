@@ -1774,7 +1774,8 @@ fn map_helper_failure(failure: TunHelperFailureKind) -> TunFailureKind {
         TunHelperFailureKind::InvalidSignature | TunHelperFailureKind::UnsignedApp => {
             TunFailureKind::HelperInvalidSignature
         }
-        TunHelperFailureKind::PermissionDenied
+        TunHelperFailureKind::AuthorizationCancelled
+        | TunHelperFailureKind::PermissionDenied
         | TunHelperFailureKind::RegistrationRequiresApproval => {
             TunFailureKind::HelperPermissionDenied
         }
@@ -1782,7 +1783,10 @@ fn map_helper_failure(failure: TunHelperFailureKind) -> TunFailureKind {
             TunFailureKind::HelperProtocolMismatch
         }
         TunHelperFailureKind::VersionMismatch => TunFailureKind::HelperVersionMismatch,
-        TunHelperFailureKind::OperationFailed => TunFailureKind::HelperOperationFailed,
+        TunHelperFailureKind::InstallationFailed
+        | TunHelperFailureKind::InstallerUnavailable
+        | TunHelperFailureKind::OperationFailed
+        | TunHelperFailureKind::PreparationFailed => TunFailureKind::HelperOperationFailed,
         TunHelperFailureKind::ConnectionFailed
         | TunHelperFailureKind::RegistrationFailed
         | TunHelperFailureKind::Unpackaged

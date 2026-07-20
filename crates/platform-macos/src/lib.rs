@@ -1,5 +1,13 @@
 //! Narrow macOS System Proxy adapter.
 
+mod tun_service;
+
+pub use tun_service::{
+    DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL,
+    DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, MacOsTunServiceClient,
+    TunServiceConfig, development_socket_path, run_tun_service,
+};
+
 use std::{
     collections::HashSet,
     fmt,
@@ -166,6 +174,7 @@ impl TunHelperPlatform for MacOsTunHelperPlatform {
             Ok(TunHelperObservation {
                 availability,
                 health,
+                installation_id: None,
                 installed_version: None,
             })
         })

@@ -21,6 +21,7 @@ import { useProduct, type LocalProxyTestState } from "../data/product-provider";
 import { useOptionalEvents } from "../data/events-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { trafficFailureMessage } from "../data/traffic-failure-message";
+import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useOptionalTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -126,6 +127,9 @@ export function NotificationBubble() {
   const tunWarning = tun?.phase === "drift" || tun?.phase === "failed";
   const productFailure = Boolean(snapshot && productError);
   const settingsFailure = Boolean(settingsContext?.error);
+  const settingsFailureMessage = settingsContext?.tunHelperFailure
+    ? tunHelperFailureMessage(LL, settingsContext.tunHelperFailure)
+    : LL.settingsPage.updateFailed();
   const trafficFailure = trafficContext?.commandFailure ?? null;
   const localProxyResult = localProxyFeedback(LL, localProxyTest);
   const localProxyFailure =
@@ -212,7 +216,7 @@ export function NotificationBubble() {
           {
             id: `settings-operation-failure:${settingsFailureObservedAt}`,
             level: "error" as const,
-            message: LL.settingsPage.updateFailed(),
+            message: settingsFailureMessage,
             observedAt: settingsFailureObservedAt,
             source: LL.navigation.settings(),
           },
@@ -340,8 +344,8 @@ export function NotificationBubble() {
     }
     if (settingsFailureToastVisible.current) return;
     settingsFailureToastVisible.current = true;
-    toast.error(LL.settingsPage.updateFailed());
-  }, [LL, settingsFailure]);
+    toast.error(settingsFailureMessage);
+  }, [settingsFailure, settingsFailureMessage]);
 
   useEffect(() => {
     if (!trafficFailure) {

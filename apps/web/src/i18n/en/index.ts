@@ -218,6 +218,8 @@ const en = {
       unavailable: "Unavailable",
     },
     removeTunHelper: "Remove helper",
+    reinstallTunHelper: "Clean reinstall",
+    reinstallTunHelperBlocked: "Stop the active profile before reinstalling the helper.",
     repairTunHelper: "Repair helper",
     quitOnClose: "Quit Mish",
     showWindow: "Show window",
@@ -402,6 +404,37 @@ const en = {
     tunDrift: "Virtual Interface differs from the requested state and was not reported as active.",
     tunFailure: "Virtual Interface was not confirmed. The prior capture state was restored.",
     tunFixtureDescription: "Simulates a TUN virtual network interface for broader traffic.",
+    tunGuide: {
+      authorizationCancelled:
+        "Administrator authorization was cancelled. The installed helper and TUN state were not changed.",
+      confirmationFailed:
+        "Installation finished, but Mish could not confirm the helper version and health. Use Clean reinstall in Settings, then retry.",
+      description:
+        "Virtual Interface reaches traffic that does not follow the macOS System Proxy. Review what changes before continuing.",
+      enable: "Enable Virtual Interface",
+      helperDescription:
+        "Mish uses its verified privileged helper to run Mihomo and create the macOS utun interface. The Web interface never receives root authority.",
+      helperTitle: "Verified helper",
+      installFailed:
+        "The helper was not installed. No TUN change was made; retry and approve the macOS administrator prompt.",
+      installationFailed:
+        "macOS authorization completed, but the privileged installation command failed. The previous helper was left in place; use Clean reinstall in Settings and retry.",
+      installHelper: "Install helper",
+      installingHelper: "Waiting for macOS…",
+      installerUnavailable:
+        "Mish could not start the development helper installer or read its result. Reopen the dev app from pnpm and retry.",
+      notNow: "Not now",
+      preparationFailed:
+        "Helper preparation failed before macOS authorization. Verify the pinned Mihomo artifact and Rust toolchain, then restart the dev app and retry.",
+      reviewSetup: "Review helper setup",
+      restartDescription:
+        "Mish will restart the active Core with TUN enabled and briefly update device routes. Turning it off removes the virtual route and returns to the remaining selected capture modes.",
+      restartTitle: "Core and routes change",
+      setupDescription:
+        "Virtual Interface remains off until the privileged helper is installed or approved. Mish will ask macOS for administrator authorization and confirm the helper before continuing.",
+      setupTitle: "Helper setup required",
+      title: "Before enabling Virtual Interface",
+    },
     tunOff: "Virtual Interface is off.",
     tunPending: "Virtual Interface is waiting for helper confirmation.",
   },

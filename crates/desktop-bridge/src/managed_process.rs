@@ -14,6 +14,7 @@ use tokio::{
 
 use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink};
 use thiserror::Error;
+use uuid::Uuid;
 
 use crate::{MANAGED_CORE_TOKEN_ENV, ManagedCoreLaunch, ManagedCoreOwnership, ManagedCoreProcess};
 
@@ -40,6 +41,114 @@ pub struct DesktopMihomoProcessConfig {
     pub config_file: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrivilegedCoreLaunchRequest {
+    binary: PathBuf,
+    config_directory: PathBuf,
+    config_file: PathBuf,
+    expected_version: String,
+    launch_token: String,
+}
+
+impl PrivilegedCoreLaunchRequest {
+    pub fn new(
+        binary: PathBuf,
+        config_directory: PathBuf,
+        config_file: PathBuf,
+        expected_version: impl Into<String>,
+    ) -> Self {
+        Self {
+            binary,
+            config_directory,
+            config_file,
+            expected_version: expected_version.into(),
+            launch_token: Uuid::new_v4().to_string(),
+        }
+    }
+
+    pub fn binary(&self) -> &std::path::Path {
+        &self.binary
+    }
+
+    pub fn config_directory(&self) -> &std::path::Path {
+        &self.config_directory
+    }
+
+    pub fn config_file(&self) -> &std::path::Path {
+        &self.config_file
+    }
+
+    pub fn expected_version(&self) -> &str {
+        &self.expected_version
+    }
+
+    pub fn launch_token(&self) -> &str {
+        &self.launch_token
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PrivilegedCoreProcess {
+    launch_token: String,
+    pid: u32,
+    tun_enabled: bool,
+}
+
+impl PrivilegedCoreProcess {
+    pub fn new(pid: u32, launch_token: impl Into<String>, tun_enabled: bool) -> Self {
+        Self {
+            launch_token: launch_token.into(),
+            pid,
+            tun_enabled,
+        }
+    }
+
+    pub fn launch_token(&self) -> &str {
+        &self.launch_token
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    pub fn tun_enabled(&self) -> bool {
+        self.tun_enabled
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum PrivilegedCoreHostError {
+    #[error("the privileged Core host is unavailable")]
+    Unavailable,
+    #[error("the privileged Core host rejected the launch request")]
+    Rejected,
+    #[error("the privileged Core host operation failed")]
+    OperationFailed,
+}
+
+pub trait PrivilegedCoreHost: Send + Sync {
+    fn start(
+        &self,
+        request: PrivilegedCoreLaunchRequest,
+    ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>>;
+
+    fn observe(
+        &self,
+        process: PrivilegedCoreProcess,
+    ) -> BoxFuture<'_, Result<Option<PrivilegedCoreProcess>, PrivilegedCoreHostError>>;
+
+    fn stop(
+        &self,
+        process: PrivilegedCoreProcess,
+    ) -> BoxFuture<'_, Result<(), PrivilegedCoreHostError>>;
+
+    fn owns_listener(
+        &self,
+        process: PrivilegedCoreProcess,
+        endpoint: mish_runtime::LoopbackProxyEndpoint,
+    ) -> BoxFuture<'_, Result<bool, PrivilegedCoreHostError>>;
+}
+
 impl std::fmt::Debug for DesktopMihomoProcessConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -61,6 +170,7 @@ struct Inner {
     child: Option<Child>,
     generation: u64,
     owned_process: Option<ManagedCoreProcess>,
+    privileged_process: Option<PrivilegedCoreProcess>,
     status: CoreStatus,
 }
 
@@ -70,6 +180,7 @@ pub struct DesktopMihomoProcess {
     expected_version: Option<&'static str>,
     inner: Arc<Mutex<Inner>>,
     ownership: Option<Arc<ManagedCoreOwnership>>,
+    privileged_host: Option<Arc<dyn PrivilegedCoreHost>>,
     status_events: Arc<OnceLock<CoreStatusEventSink>>,
 }
 
@@ -86,7 +197,7 @@ impl DesktopMihomoProcess {
         config: DesktopMihomoProcessConfig,
         expected_version: Option<&'static str>,
     ) -> Self {
-        Self::with_expected_version_and_ownership(config, expected_version, None)
+        Self::with_execution_backend(config, expected_version, None, None)
     }
 
     pub fn new_pinned_owned(
@@ -94,13 +205,22 @@ impl DesktopMihomoProcess {
         expected_version: &'static str,
         ownership: Arc<ManagedCoreOwnership>,
     ) -> Self {
-        Self::with_expected_version_and_ownership(config, Some(expected_version), Some(ownership))
+        Self::with_execution_backend(config, Some(expected_version), Some(ownership), None)
     }
 
-    fn with_expected_version_and_ownership(
+    pub fn new_pinned_privileged(
+        config: DesktopMihomoProcessConfig,
+        expected_version: &'static str,
+        host: Arc<dyn PrivilegedCoreHost>,
+    ) -> Self {
+        Self::with_execution_backend(config, Some(expected_version), None, Some(host))
+    }
+
+    fn with_execution_backend(
         config: DesktopMihomoProcessConfig,
         expected_version: Option<&'static str>,
         ownership: Option<Arc<ManagedCoreOwnership>>,
+        privileged_host: Option<Arc<dyn PrivilegedCoreHost>>,
     ) -> Self {
         Self {
             config,
@@ -109,6 +229,7 @@ impl DesktopMihomoProcess {
                 child: None,
                 generation: 0,
                 owned_process: None,
+                privileged_process: None,
                 status: CoreStatus {
                     error: None,
                     phase: CorePhase::Stopped,
@@ -117,6 +238,7 @@ impl DesktopMihomoProcess {
                 },
             })),
             ownership,
+            privileged_host,
             status_events: Arc::new(OnceLock::new()),
         }
     }
@@ -159,11 +281,35 @@ impl DesktopMihomoProcess {
         } else {
             None
         };
+        let privileged_process = inner.privileged_process.clone();
         let status = inner.status.clone();
         drop(inner);
         let _ = self.clear_owned_process(owned_process.as_ref());
         if let Some(update) = update {
             self.publish_status(update);
+        }
+        if let (Some(host), Some(process)) = (&self.privileged_host, privileged_process) {
+            match host.observe(process.clone()).await {
+                Ok(Some(observed)) if observed == process => return status,
+                Ok(Some(_)) | Ok(None) | Err(_) => {
+                    let mut inner = self.inner.lock().await;
+                    if inner.privileged_process.as_ref() == Some(&process) {
+                        inner.privileged_process = None;
+                        inner.status = CoreStatus {
+                            error: Some(
+                                "The privileged Mihomo process could not be confirmed".into(),
+                            ),
+                            phase: CorePhase::Failed,
+                            pid: None,
+                            version: inner.status.version.clone(),
+                        };
+                        let failed = inner.status.clone();
+                        drop(inner);
+                        self.publish_status(failed.clone());
+                        return failed;
+                    }
+                }
+            }
         }
         status
     }
@@ -173,7 +319,7 @@ impl DesktopMihomoProcess {
             return Err("Mihomo requires an explicit binary and configuration path".into());
         }
         let mut inner = self.inner.lock().await;
-        if inner.child.is_some() {
+        if inner.child.is_some() || inner.privileged_process.is_some() {
             return Ok(inner.status.clone());
         }
 
@@ -188,6 +334,44 @@ impl DesktopMihomoProcess {
                 return Err(message);
             }
         };
+
+        if let Some(host) = &self.privileged_host {
+            let request = PrivilegedCoreLaunchRequest::new(
+                self.config.binary.clone().expect("checked managed binary"),
+                self.config
+                    .config_directory
+                    .clone()
+                    .expect("privileged process requires managed home"),
+                self.config
+                    .config_file
+                    .clone()
+                    .expect("privileged process requires managed configuration"),
+                version.clone(),
+            );
+            let process = match host.start(request).await {
+                Ok(process) => process,
+                Err(_) => {
+                    let message =
+                        "Unable to start Mihomo through the privileged service".to_owned();
+                    inner.status.phase = CorePhase::Failed;
+                    inner.status.error = Some(message.clone());
+                    return Err(message);
+                }
+            };
+            inner.generation = inner.generation.wrapping_add(1);
+            let generation = inner.generation;
+            inner.status = CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: Some(process.pid()),
+                version: Some(version),
+            };
+            inner.privileged_process = Some(process);
+            let status = inner.status.clone();
+            drop(inner);
+            self.monitor_privileged(generation);
+            return Ok(status);
+        }
 
         let launch = match &self.ownership {
             Some(ownership) => match ownership.begin_launch(
@@ -353,6 +537,26 @@ impl DesktopMihomoProcess {
     pub async fn stop(&self) -> Result<CoreStatus, String> {
         let mut inner = self.inner.lock().await;
         inner.generation = inner.generation.wrapping_add(1);
+        if let Some(process) = inner.privileged_process.take() {
+            inner.status.phase = CorePhase::Stopping;
+            drop(inner);
+            let result = self
+                .privileged_host
+                .as_ref()
+                .expect("privileged process requires a host")
+                .stop(process)
+                .await;
+            let mut inner = self.inner.lock().await;
+            if result.is_err() {
+                inner.status.phase = CorePhase::Failed;
+                inner.status.error = Some("Unable to stop privileged Mihomo".into());
+                return Err("Unable to stop privileged Mihomo".into());
+            }
+            inner.status.phase = CorePhase::Stopped;
+            inner.status.pid = None;
+            inner.status.error = None;
+            return Ok(inner.status.clone());
+        }
         let Some(mut child) = inner.child.take() else {
             inner.status.phase = CorePhase::Stopped;
             inner.status.pid = None;
@@ -419,6 +623,58 @@ impl DesktopMihomoProcess {
                 if let (Some(ownership), Some(process)) = (&ownership, owned_process.as_ref()) {
                     let _ = ownership.clear_process(process);
                 }
+                if let Some(events) = status_events.get() {
+                    events.publish(update);
+                }
+                return;
+            }
+        });
+    }
+
+    fn monitor_privileged(&self, generation: u64) {
+        let inner = Arc::downgrade(&self.inner);
+        let status_events = self.status_events.clone();
+        let Some(host) = self.privileged_host.clone() else {
+            return;
+        };
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(250));
+            interval.tick().await;
+            loop {
+                interval.tick().await;
+                let Some(inner) = inner.upgrade() else {
+                    return;
+                };
+                let process = {
+                    let inner = inner.lock().await;
+                    if inner.generation != generation {
+                        return;
+                    }
+                    let Some(process) = inner.privileged_process.clone() else {
+                        return;
+                    };
+                    process
+                };
+                if matches!(host.observe(process.clone()).await, Ok(Some(observed)) if observed == process)
+                {
+                    continue;
+                }
+                let update = {
+                    let mut inner = inner.lock().await;
+                    if inner.generation != generation
+                        || inner.privileged_process.as_ref() != Some(&process)
+                    {
+                        return;
+                    }
+                    inner.privileged_process = None;
+                    inner.status = CoreStatus {
+                        error: Some("The privileged Mihomo process exited unexpectedly".into()),
+                        phase: CorePhase::Failed,
+                        pid: None,
+                        version: inner.status.version.clone(),
+                    };
+                    inner.status.clone()
+                };
                 if let Some(events) = status_events.get() {
                     events.publish(update);
                 }
@@ -495,6 +751,12 @@ impl CoreRuntime for DesktopMihomoProcess {
         let endpoint = endpoint.clone();
         Box::pin(async move {
             let inner = self.inner.lock().await;
+            if let (Some(host), Some(process)) =
+                (&self.privileged_host, inner.privileged_process.clone())
+            {
+                drop(inner);
+                return host.owns_listener(process, endpoint).await.unwrap_or(false);
+            }
             match (&self.ownership, inner.owned_process.as_ref()) {
                 (Some(ownership), Some(process)) => {
                     ownership.process_owns_listener(process, &endpoint)

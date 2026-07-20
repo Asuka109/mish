@@ -6,11 +6,15 @@ license.workspace = true
 
 [dependencies]
 futures-util = "0.3.33"
+libc = "0.2.186"
+mish-bridge = { path = "../desktop-bridge" }
 mish-runtime = { path = "../runtime" }
 mish-settings = { path = "../settings" }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tokio = { version = "1.53.0", features = ["fs", "io-util", "net", "process", "sync", "time"] }
+serde_norway = "0.9.42"
+tokio = { version = "1.53.0", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+uuid = { version = "1.24.0", features = ["v4"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"

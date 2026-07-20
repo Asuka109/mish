@@ -213,7 +213,7 @@ async fn run_native_command(state: &StatusBarState, id: &str) {
                 .await;
             let enable = !snapshot.runtime.system_proxy.desired;
             let _ = state
-                .runtime
+                .activation
                 .set_capture(
                     CaptureRequest {
                         active: enable,
@@ -236,7 +236,7 @@ async fn run_native_command(state: &StatusBarState, id: &str) {
             selection.tun = enable;
             let active = enable || snapshot.runtime.system_proxy_enabled;
             let _ = state
-                .runtime
+                .activation
                 .set_capture(
                     CaptureRequest { active, selection },
                     StatusAdapterKind::Native,

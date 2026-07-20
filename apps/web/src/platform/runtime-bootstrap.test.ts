@@ -41,8 +41,9 @@ const settingsSnapshot = {
   storageRecovered: false,
   tunHelper: {
     availability: "unpackaged" as const,
-    expectedVersion: "1",
+    expectedVersion: "2",
     health: "not-installed" as const,
+    installationId: null,
     installedVersion: null,
     lastFailure: "unpackaged" as const,
     phase: "idle" as const,

@@ -36,16 +36,17 @@ impl TunHelperPlatform for FakeTunHelper {
     fn initial_snapshot(&self) -> TunHelperSnapshot {
         TunHelperSnapshot {
             availability: TunHelperAvailability::Available,
-            expected_version: "1".to_owned(),
+            expected_version: "2".to_owned(),
             health: TunHelperHealth::Healthy,
-            installed_version: Some("1".to_owned()),
+            installation_id: None,
+            installed_version: Some("2".to_owned()),
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
         }
     }
 
     fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
-        Box::pin(async { Ok(TunHelperObservation::healthy("1")) })
+        Box::pin(async { Ok(TunHelperObservation::healthy("2")) })
     }
 
     fn run_lifecycle(

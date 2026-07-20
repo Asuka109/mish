@@ -47,6 +47,8 @@ pub use local_backup::{
 };
 pub use managed_process::{
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,
+    PrivilegedCoreHost, PrivilegedCoreHostError, PrivilegedCoreLaunchRequest,
+    PrivilegedCoreProcess,
 };
 pub use profile_activation::{
     ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,

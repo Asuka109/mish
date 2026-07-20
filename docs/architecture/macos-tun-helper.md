@@ -25,14 +25,60 @@ authenticated loopback bridge. They do not grant root authority. The helper is
 not a Tauri shell sidecar and cannot be used to bypass macOS registration or
 signing. See Tauri's [capability model](https://v2.tauri.app/security/capabilities/).
 
-## Truthful development boundary
+## Development service
 
-The Tauri configuration can produce an app bundle, but it does not contain a
-LaunchDaemon or helper executable. Development and ad-hoc test packages
-therefore report either `unsigned-app` or `unpackaged`, with
-`invalid-signature` or `not-installed` health. Install, repair, remove, and TUN
-enable commands fail with a typed result. This is a testable integration
-preview, not a production-capable privileged helper.
+Development uses the same runtime architecture as production: one privileged
+service owns the Mihomo process, and that process creates the Darwin `utun`
+interface and applies routes. The Tauri process remains unprivileged. The only
+difference is how the service is installed and trusted.
+
+Run the explicit developer command from a trusted checkout:
+
+```sh
+pnpm macos:tun:install
+pnpm desktop:dev
+```
+
+The install command builds the helper, asks for administrator authorization,
+and installs a root-owned LaunchDaemon, helper, and pinned Mihomo v1.19.29 copy.
+The development app invokes this same bounded installer from the first-TUN
+guide and Settings lifecycle actions. Authorization uses the macOS administrator
+dialog; Mish never accepts or reads the credential. Cancellation remains a
+typed permission failure and TUN stays off.
+Each install derives a SHA-256 installation identity from the helper binary,
+the pinned Core, and the generated LaunchDaemon configuration. The first-TUN
+guide records that identity rather than a permanent completion flag, so an
+artifact or service configuration change naturally requires the guide again
+after reinstalling while identical reinstalls do not repeat it.
+The service exposes a mode-0600 Unix socket owned by the installing user. Mish
+reobserves the service after an in-app lifecycle operation before advertising
+TUN support; an app restart is not required. `pnpm macos:tun:status` inspects
+the LaunchDaemon, and `pnpm macos:tun:uninstall` stops it and moves its installed
+files to the system Trash.
+
+Repeated installs overwrite the three fixed system targets and one fixed,
+private runtime receipt. They do not create per-install temporary directories,
+backup copies, or versioned system files. Uninstall also removes the bounded
+per-user service socket and runtime receipt; shared system directories are
+never removed.
+
+Core activation candidates are separately bounded by runtime ownership. Startup
+removes only UUID-named stale candidates after orphan recovery, failed staging
+removes its own candidate, successful replacement removes the stopped prior
+candidate, and clean shutdown removes the final candidate. Unknown files and
+directories under the runtime root are never swept as garbage.
+
+Settings exposes a clean reinstall action even for a healthy helper. It is
+available only while the managed Core is inactive, then stops the LaunchDaemon,
+overwrites the fixed helper, Core, property-list, and receipt targets, starts the
+service, and reobserves its version, installation identity, and health. This
+operation keeps no historical system copies.
+
+Development trust is deliberately local and explicit: the service accepts only
+the configured user, the exact root-owned Core path, private candidate files
+under Mish's runtime root, the pinned version, and bounded launch tokens. It
+does not make an ad-hoc app bundle production-capable. Ad-hoc packages still
+report the production helper as `unpackaged`.
 
 Production availability requires all of the following to exist in a later
 signed packaging slice:
@@ -52,18 +98,28 @@ before production availability may be reported.
 
 ## Closed helper protocol
 
-The transport-neutral contract exposes only:
+The production transport-neutral lifecycle contract exposes only:
 
 - observed availability, installed and expected versions, health, lifecycle
   phase, and last typed failure;
 - explicit `install`, `repair`, and `remove` lifecycle operations;
 - `health`, `enable-tun`, and `disable-tun` wire commands.
 
-Messages are capped at 16 KiB, reject unknown fields, require protocol version
-1, and require an exact signed peer identifier and team identifier. The helper
-accepts no shell command, executable, filesystem path, Mihomo configuration,
-interface name, route, DNS address, or arbitrary argument. It opens no LAN
-listener.
+Messages are capped at 16 KiB, reject unknown fields, and require protocol
+version 2. Helper snapshot version 2 adds the bounded installation identity used
+by onboarding. Production XPC additionally requires an exact signed peer identifier
+and team identifier. It accepts no shell command, interface name, route, DNS
+address, or arbitrary argument and opens no LAN listener.
+
+The development Unix-socket protocol adds a narrowly validated Core host
+contract: `start`, `observe`, `owns-listener`, `stop`, and `stop-all`. `start`
+accepts only the preinstalled root-owned Mihomo executable and a private
+generated candidate at
+`runtime/candidates/<UUID>/{home,config.yaml}`. The helper reads the generated
+TUN flag, verifies the exact pinned Core version, and owns the complete child
+process lifetime. Paths outside that shape, symlinks, loose permissions,
+foreign ownership, oversized files, malformed tokens, and unknown messages are
+rejected.
 
 Repair and removal first disable and reobserve TUN. Every lifecycle operation
 is serialized and followed by a fresh observation. Permission refusal,
@@ -91,6 +147,8 @@ Source-controlled device names, descriptors, routes, and DNS parameters never
 cross the helper boundary.
 
 System Proxy and TUN transitions are serialized. A transition disables the old
-mode, confirms the requested mode, and restores the prior confirmed Core,
-capture, and OS state on failure. Neither mode may be reported active from
+mode, regenerates the active profile with the new `tun.enable` value, restarts
+the service-owned Core, confirms the requested mode, and restores the prior
+confirmed Core, capture, and OS state on failure. RPC and the native status-bar
+menu call this same transaction. Neither mode may be reported active from
 desired state alone.

@@ -268,3 +268,9 @@ claim that process memory is a secure enclave.
 - A production TUN helper is not yet embedded. The reserved signing identifier
   is `com.asuka109.mish.tun-helper`; ad-hoc test packages continue to report the
   helper as unpackaged and cannot enable TUN.
+- Apple Silicon source development can explicitly install
+  `com.asuka109.mish.tun-helper.dev` as a root LaunchDaemon. When its bounded
+  per-user socket and exact version are healthy, the development composition
+  delegates the complete Mihomo process lifecycle to that service. Switching
+  the TUN selection regenerates the active profile and restarts Core through the
+  same activation transaction used by RPC and the native status-bar menu.

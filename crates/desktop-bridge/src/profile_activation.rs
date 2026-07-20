@@ -8,9 +8,13 @@ use mish_profile::{
     ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfilePatch, ProfilePatchEditor,
     ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
-use mish_runtime::{ApplicationDiagnosticEvent, EventLevel, MishRuntime, ProviderSnapshot};
+use mish_runtime::{
+    ApplicationDiagnosticEvent, CaptureFailureKind, CaptureRequest, CaptureTransitionError,
+    EventLevel, MishRuntime, ProviderSnapshot, StatusAdapterKind,
+};
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
+use serde_json::Value;
 use tokio::{
     sync::{Mutex, broadcast},
     task::JoinHandle,
@@ -314,6 +318,90 @@ impl ProfileActivationCoordinator {
             cancellation.cancel();
         }
         Ok(state.snapshot.clone())
+    }
+
+    pub async fn reactivate_active(
+        self: &Arc<Self>,
+    ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
+        let profile_id = self
+            .activation_snapshot()
+            .await
+            .active_profile_id
+            .ok_or(ProfileActivationCoordinatorError::Unavailable)?;
+        let command_id = Uuid::new_v4().to_string();
+        let mut updates = self.subscribe();
+        let pending = self.activate(&command_id, &profile_id).await?;
+        if pending.phase != ProfileActivationPhase::Pending {
+            return Ok(pending);
+        }
+        loop {
+            let snapshot = updates
+                .recv()
+                .await
+                .map_err(|_| ProfileActivationCoordinatorError::Unavailable)?;
+            if snapshot.command_id.as_deref() == Some(command_id.as_str())
+                && snapshot.phase != ProfileActivationPhase::Pending
+            {
+                return Ok(snapshot);
+            }
+        }
+    }
+
+    pub async fn set_capture(
+        self: &Arc<Self>,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        if request.active && request.selection.system_proxy && request.selection.tun {
+            return self.host.set_capture(request, adapter_kind).await;
+        }
+        let before = self
+            .host
+            .current()
+            .status_snapshot_typed(adapter_kind)
+            .await;
+        let desired_tun = request.active && request.selection.tun;
+        if before.runtime.tun_enabled == desired_tun {
+            return self.host.set_capture(request, adapter_kind).await;
+        }
+        let original_active = before.runtime.system_proxy.desired || before.runtime.tun.desired;
+        let original_selection = before.runtime.capture_selection.clone();
+        let mut policy_selection = request.selection.clone();
+        policy_selection.tun = desired_tun;
+        if desired_tun {
+            policy_selection.system_proxy = false;
+        }
+        self.host
+            .set_capture(
+                CaptureRequest {
+                    active: false,
+                    selection: policy_selection,
+                },
+                adapter_kind,
+            )
+            .await?;
+        let activation_result = self.reactivate_active().await;
+        let reactivated = matches!(
+            activation_result,
+            Ok(ref snapshot) if snapshot.phase == ProfileActivationPhase::Success
+        );
+        if !reactivated {
+            let _ = self
+                .host
+                .set_capture(
+                    CaptureRequest {
+                        active: original_active,
+                        selection: original_selection,
+                    },
+                    adapter_kind,
+                )
+                .await;
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Mihomo could not be reactivated with the requested TUN policy",
+            ));
+        }
+        self.host.set_capture(request, adapter_kind).await
     }
 
     pub async fn stop(

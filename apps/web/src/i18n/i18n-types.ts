@@ -672,6 +672,14 @@ type RootTranslation = {
 		 */
 		removeTunHelper: string
 		/**
+		 * C​l​e​a​n​ ​r​e​i​n​s​t​a​l​l
+		 */
+		reinstallTunHelper: string
+		/**
+		 * S​t​o​p​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​b​e​f​o​r​e​ ​r​e​i​n​s​t​a​l​l​i​n​g​ ​t​h​e​ ​h​e​l​p​e​r​.
+		 */
+		reinstallTunHelperBlocked: string
+		/**
 		 * R​e​p​a​i​r​ ​h​e​l​p​e​r
 		 */
 		repairTunHelper: string
@@ -1284,6 +1292,84 @@ type RootTranslation = {
 		 * S​i​m​u​l​a​t​e​s​ ​a​ ​T​U​N​ ​v​i​r​t​u​a​l​ ​n​e​t​w​o​r​k​ ​i​n​t​e​r​f​a​c​e​ ​f​o​r​ ​b​r​o​a​d​e​r​ ​t​r​a​f​f​i​c​.
 		 */
 		tunFixtureDescription: string
+		tunGuide: {
+			/**
+			 * A​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.​ ​T​h​e​ ​i​n​s​t​a​l​l​e​d​ ​h​e​l​p​e​r​ ​a​n​d​ ​T​U​N​ ​s​t​a​t​e​ ​w​e​r​e​ ​n​o​t​ ​c​h​a​n​g​e​d​.
+			 */
+			authorizationCancelled: string
+			/**
+			 * I​n​s​t​a​l​l​a​t​i​o​n​ ​f​i​n​i​s​h​e​d​,​ ​b​u​t​ ​M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​h​e​l​p​e​r​ ​v​e​r​s​i​o​n​ ​a​n​d​ ​h​e​a​l​t​h​.​ ​U​s​e​ ​C​l​e​a​n​ ​r​e​i​n​s​t​a​l​l​ ​i​n​ ​S​e​t​t​i​n​g​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 */
+			confirmationFailed: string
+			/**
+			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​r​e​a​c​h​e​s​ ​t​r​a​f​f​i​c​ ​t​h​a​t​ ​d​o​e​s​ ​n​o​t​ ​f​o​l​l​o​w​ ​t​h​e​ ​m​a​c​O​S​ ​S​y​s​t​e​m​ ​P​r​o​x​y​.​ ​R​e​v​i​e​w​ ​w​h​a​t​ ​c​h​a​n​g​e​s​ ​b​e​f​o​r​e​ ​c​o​n​t​i​n​u​i​n​g​.
+			 */
+			description: string
+			/**
+			 * E​n​a​b​l​e​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e
+			 */
+			enable: string
+			/**
+			 * M​i​s​h​ ​u​s​e​s​ ​i​t​s​ ​v​e​r​i​f​i​e​d​ ​p​r​i​v​i​l​e​g​e​d​ ​h​e​l​p​e​r​ ​t​o​ ​r​u​n​ ​M​i​h​o​m​o​ ​a​n​d​ ​c​r​e​a​t​e​ ​t​h​e​ ​m​a​c​O​S​ ​u​t​u​n​ ​i​n​t​e​r​f​a​c​e​.​ ​T​h​e​ ​W​e​b​ ​i​n​t​e​r​f​a​c​e​ ​n​e​v​e​r​ ​r​e​c​e​i​v​e​s​ ​r​o​o​t​ ​a​u​t​h​o​r​i​t​y​.
+			 */
+			helperDescription: string
+			/**
+			 * V​e​r​i​f​i​e​d​ ​h​e​l​p​e​r
+			 */
+			helperTitle: string
+			/**
+			 * T​h​e​ ​h​e​l​p​e​r​ ​w​a​s​ ​n​o​t​ ​i​n​s​t​a​l​l​e​d​.​ ​N​o​ ​T​U​N​ ​c​h​a​n​g​e​ ​w​a​s​ ​m​a​d​e​;​ ​r​e​t​r​y​ ​a​n​d​ ​a​p​p​r​o​v​e​ ​t​h​e​ ​m​a​c​O​S​ ​a​d​m​i​n​i​s​t​r​a​t​o​r​ ​p​r​o​m​p​t​.
+			 */
+			installFailed: string
+			/**
+			 * m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​c​o​m​p​l​e​t​e​d​,​ ​b​u​t​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​i​n​s​t​a​l​l​a​t​i​o​n​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​l​p​e​r​ ​w​a​s​ ​l​e​f​t​ ​i​n​ ​p​l​a​c​e​;​ ​u​s​e​ ​C​l​e​a​n​ ​r​e​i​n​s​t​a​l​l​ ​i​n​ ​S​e​t​t​i​n​g​s​ ​a​n​d​ ​r​e​t​r​y​.
+			 */
+			installationFailed: string
+			/**
+			 * I​n​s​t​a​l​l​ ​h​e​l​p​e​r
+			 */
+			installHelper: string
+			/**
+			 * W​a​i​t​i​n​g​ ​f​o​r​ ​m​a​c​O​S​…
+			 */
+			installingHelper: string
+			/**
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​t​a​r​t​ ​t​h​e​ ​d​e​v​e​l​o​p​m​e​n​t​ ​h​e​l​p​e​r​ ​i​n​s​t​a​l​l​e​r​ ​o​r​ ​r​e​a​d​ ​i​t​s​ ​r​e​s​u​l​t​.​ ​R​e​o​p​e​n​ ​t​h​e​ ​d​e​v​ ​a​p​p​ ​f​r​o​m​ ​p​n​p​m​ ​a​n​d​ ​r​e​t​r​y​.
+			 */
+			installerUnavailable: string
+			/**
+			 * N​o​t​ ​n​o​w
+			 */
+			notNow: string
+			/**
+			 * H​e​l​p​e​r​ ​p​r​e​p​a​r​a​t​i​o​n​ ​f​a​i​l​e​d​ ​b​e​f​o​r​e​ ​m​a​c​O​S​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.​ ​V​e​r​i​f​y​ ​t​h​e​ ​p​i​n​n​e​d​ ​M​i​h​o​m​o​ ​a​r​t​i​f​a​c​t​ ​a​n​d​ ​R​u​s​t​ ​t​o​o​l​c​h​a​i​n​,​ ​t​h​e​n​ ​r​e​s​t​a​r​t​ ​t​h​e​ ​d​e​v​ ​a​p​p​ ​a​n​d​ ​r​e​t​r​y​.
+			 */
+			preparationFailed: string
+			/**
+			 * R​e​v​i​e​w​ ​h​e​l​p​e​r​ ​s​e​t​u​p
+			 */
+			reviewSetup: string
+			/**
+			 * M​i​s​h​ ​w​i​l​l​ ​r​e​s​t​a​r​t​ ​t​h​e​ ​a​c​t​i​v​e​ ​C​o​r​e​ ​w​i​t​h​ ​T​U​N​ ​e​n​a​b​l​e​d​ ​a​n​d​ ​b​r​i​e​f​l​y​ ​u​p​d​a​t​e​ ​d​e​v​i​c​e​ ​r​o​u​t​e​s​.​ ​T​u​r​n​i​n​g​ ​i​t​ ​o​f​f​ ​r​e​m​o​v​e​s​ ​t​h​e​ ​v​i​r​t​u​a​l​ ​r​o​u​t​e​ ​a​n​d​ ​r​e​t​u​r​n​s​ ​t​o​ ​t​h​e​ ​r​e​m​a​i​n​i​n​g​ ​s​e​l​e​c​t​e​d​ ​c​a​p​t​u​r​e​ ​m​o​d​e​s​.
+			 */
+			restartDescription: string
+			/**
+			 * C​o​r​e​ ​a​n​d​ ​r​o​u​t​e​s​ ​c​h​a​n​g​e
+			 */
+			restartTitle: string
+			/**
+			 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​r​e​m​a​i​n​s​ ​o​f​f​ ​u​n​t​i​l​ ​t​h​e​ ​p​r​i​v​i​l​e​g​e​d​ ​h​e​l​p​e​r​ ​i​s​ ​i​n​s​t​a​l​l​e​d​ ​o​r​ ​a​p​p​r​o​v​e​d​.​ ​M​i​s​h​ ​w​i​l​l​ ​a​s​k​ ​m​a​c​O​S​ ​f​o​r​ ​a​d​m​i​n​i​s​t​r​a​t​o​r​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​ ​a​n​d​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​h​e​l​p​e​r​ ​b​e​f​o​r​e​ ​c​o​n​t​i​n​u​i​n​g​.
+			 */
+			setupDescription: string
+			/**
+			 * H​e​l​p​e​r​ ​s​e​t​u​p​ ​r​e​q​u​i​r​e​d
+			 */
+			setupTitle: string
+			/**
+			 * B​e​f​o​r​e​ ​e​n​a​b​l​i​n​g​ ​V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e
+			 */
+			title: string
+		}
 		/**
 		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​o​f​f​.
 		 */
@@ -4477,6 +4563,14 @@ export type TranslationFunctions = {
 		 */
 		removeTunHelper: () => LocalizedString
 		/**
+		 * Clean reinstall
+		 */
+		reinstallTunHelper: () => LocalizedString
+		/**
+		 * Stop the active profile before reinstalling the helper.
+		 */
+		reinstallTunHelperBlocked: () => LocalizedString
+		/**
 		 * Repair helper
 		 */
 		repairTunHelper: () => LocalizedString
@@ -5080,6 +5174,84 @@ export type TranslationFunctions = {
 		 * Simulates a TUN virtual network interface for broader traffic.
 		 */
 		tunFixtureDescription: () => LocalizedString
+		tunGuide: {
+			/**
+			 * Administrator authorization was cancelled. The installed helper and TUN state were not changed.
+			 */
+			authorizationCancelled: () => LocalizedString
+			/**
+			 * Installation finished, but Mish could not confirm the helper version and health. Use Clean reinstall in Settings, then retry.
+			 */
+			confirmationFailed: () => LocalizedString
+			/**
+			 * Virtual Interface reaches traffic that does not follow the macOS System Proxy. Review what changes before continuing.
+			 */
+			description: () => LocalizedString
+			/**
+			 * Enable Virtual Interface
+			 */
+			enable: () => LocalizedString
+			/**
+			 * Mish uses its verified privileged helper to run Mihomo and create the macOS utun interface. The Web interface never receives root authority.
+			 */
+			helperDescription: () => LocalizedString
+			/**
+			 * Verified helper
+			 */
+			helperTitle: () => LocalizedString
+			/**
+			 * The helper was not installed. No TUN change was made; retry and approve the macOS administrator prompt.
+			 */
+			installFailed: () => LocalizedString
+			/**
+			 * macOS authorization completed, but the privileged installation command failed. The previous helper was left in place; use Clean reinstall in Settings and retry.
+			 */
+			installationFailed: () => LocalizedString
+			/**
+			 * Install helper
+			 */
+			installHelper: () => LocalizedString
+			/**
+			 * Waiting for macOS…
+			 */
+			installingHelper: () => LocalizedString
+			/**
+			 * Mish could not start the development helper installer or read its result. Reopen the dev app from pnpm and retry.
+			 */
+			installerUnavailable: () => LocalizedString
+			/**
+			 * Not now
+			 */
+			notNow: () => LocalizedString
+			/**
+			 * Helper preparation failed before macOS authorization. Verify the pinned Mihomo artifact and Rust toolchain, then restart the dev app and retry.
+			 */
+			preparationFailed: () => LocalizedString
+			/**
+			 * Review helper setup
+			 */
+			reviewSetup: () => LocalizedString
+			/**
+			 * Mish will restart the active Core with TUN enabled and briefly update device routes. Turning it off removes the virtual route and returns to the remaining selected capture modes.
+			 */
+			restartDescription: () => LocalizedString
+			/**
+			 * Core and routes change
+			 */
+			restartTitle: () => LocalizedString
+			/**
+			 * Virtual Interface remains off until the privileged helper is installed or approved. Mish will ask macOS for administrator authorization and confirm the helper before continuing.
+			 */
+			setupDescription: () => LocalizedString
+			/**
+			 * Helper setup required
+			 */
+			setupTitle: () => LocalizedString
+			/**
+			 * Before enabling Virtual Interface
+			 */
+			title: () => LocalizedString
+		}
 		/**
 		 * Virtual Interface is off.
 		 */

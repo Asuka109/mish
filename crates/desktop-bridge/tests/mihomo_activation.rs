@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -705,9 +705,10 @@ rules:
 fn tun_policy_requires_explicit_selection_and_a_healthy_exact_version() {
     let helper = TunHelperSnapshot {
         availability: TunHelperAvailability::Available,
-        expected_version: "1".to_owned(),
+        expected_version: "2".to_owned(),
         health: TunHelperHealth::Healthy,
-        installed_version: Some("1".to_owned()),
+        installation_id: None,
+        installed_version: Some("2".to_owned()),
         last_failure: None,
         phase: TunHelperLifecyclePhase::Idle,
     };
@@ -951,6 +952,7 @@ rules:
     }
 
     manager.shutdown().await.unwrap();
+    assert_eq!(candidate_count(&root), 0);
     controller.shutdown().await;
 }
 
@@ -1092,6 +1094,7 @@ async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
             .state()
             .is_mish_endpoint(&LoopbackProxyEndpoint::managed())
     );
+    assert_eq!(candidate_count(&root), 1);
 
     coordinator
         .activate(
@@ -1146,6 +1149,7 @@ async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
     coordinator.shutdown().await.unwrap();
     assert_eq!(platform.state(), disabled_capture_service());
     assert!(journal.load().unwrap().is_none());
+    assert_eq!(candidate_count(&root), 0);
 
     controller.shutdown().await;
 }
@@ -2277,6 +2281,12 @@ async fn log_stream(websocket: WebSocketUpgrade) -> Response {
 
 fn runtime_config() -> serde_json::Value {
     runtime_config_with_mode(RoutingMode::Rule)
+}
+
+fn candidate_count(root: &Path) -> usize {
+    std::fs::read_dir(root.join("runtime/candidates"))
+        .map(|entries| entries.flatten().count())
+        .unwrap_or(0)
 }
 
 fn runtime_config_with_mode(mode: RoutingMode) -> serde_json::Value {

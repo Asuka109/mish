@@ -109,7 +109,10 @@ async fn install_requires_confirmation_and_reports_a_healthy_exact_version() {
     let snapshot = helper.install().await.unwrap();
 
     assert!(snapshot.is_healthy());
-    assert_eq!(snapshot.installed_version.as_deref(), Some("1"));
+    assert_eq!(
+        snapshot.installed_version.as_deref(),
+        Some(TUN_HELPER_EXPECTED_VERSION)
+    );
     assert_eq!(snapshot.phase, TunHelperLifecyclePhase::Idle);
 }
 

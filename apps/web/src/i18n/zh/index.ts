@@ -191,6 +191,8 @@ const zh = {
       unavailable: "不可用",
     },
     removeTunHelper: "移除 Helper",
+    reinstallTunHelper: "清理并重装",
+    reinstallTunHelperBlocked: "请先停止当前活动 Profile，再重新安装 Helper。",
     repairTunHelper: "修复 Helper",
     quitOnClose: "退出 Mish",
     showWindow: "显示窗口",
@@ -361,6 +363,34 @@ const zh = {
     tunDrift: "虚拟网卡与请求状态不一致，因此未报告为已启用。",
     tunFailure: "虚拟网卡未获确认；先前的接管状态已恢复。",
     tunFixtureDescription: "模拟通过 TUN 虚拟网络接口接管更完整的流量。",
+    tunGuide: {
+      authorizationCancelled: "管理员授权已取消；已安装的 Helper 和 TUN 状态都没有变化。",
+      confirmationFailed:
+        "安装流程已结束，但 Mish 未能确认 Helper 的版本和健康状态。请在设置中执行“清理并重装”后重试。",
+      description: "虚拟网卡可以接管不遵循 macOS 系统代理的流量。继续前请先了解会发生什么。",
+      enable: "启用虚拟网卡",
+      helperDescription:
+        "Mish 会通过已验证的特权 Helper 运行 Mihomo 并创建 macOS utun 接口；Web 界面不会获得 root 权限。",
+      helperTitle: "已验证的 Helper",
+      installFailed: "Helper 未能安装，TUN 状态没有变化。请重试并批准 macOS 管理员授权。",
+      installationFailed:
+        "macOS 授权已完成，但特权安装命令执行失败。原有 Helper 已保留；请在设置中执行“清理并重装”后重试。",
+      installHelper: "安装 Helper",
+      installingHelper: "等待 macOS 授权…",
+      installerUnavailable:
+        "Mish 无法启动开发版 Helper 安装器，或无法读取其结果。请通过 pnpm 重新启动 dev app 后再试。",
+      notNow: "暂不开启",
+      preparationFailed:
+        "在请求 macOS 授权前，Helper 准备阶段失败。请检查固定版本的 Mihomo 文件和 Rust 工具链，重启 dev app 后再试。",
+      reviewSetup: "查看 Helper 设置",
+      restartDescription:
+        "Mish 会重启当前 Core，并以启用 TUN 的配置短暂更新设备路由；关闭后会移除虚拟路由，并回到仍被选择的其他接管方式。",
+      restartTitle: "Core 与路由会发生变化",
+      setupDescription:
+        "安装或批准特权 Helper 前，虚拟网卡会保持关闭。Mish 将请求 macOS 管理员授权，并在继续前确认 Helper 状态。",
+      setupTitle: "需要设置 Helper",
+      title: "启用虚拟网卡之前",
+    },
     tunOff: "虚拟网卡已关闭。",
     tunPending: "虚拟网卡正在等待 Helper 确认。",
   },

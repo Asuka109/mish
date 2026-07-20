@@ -82,8 +82,9 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
     storageRecovered: false,
     tunHelper: {
       availability: "unavailable",
-      expectedVersion: "1",
+      expectedVersion: "2",
       health: "not-installed",
+      installationId: null,
       installedVersion: null,
       lastFailure: null,
       phase: "idle",

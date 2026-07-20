@@ -2263,6 +2263,8 @@ version = "0.1.0"
 dependencies = [
  "block2",
  "futures-util",
+ "libc",
+ "mish-bridge",
  "mish-runtime",
  "mish-settings",
  "objc2",
@@ -2270,9 +2272,11 @@ dependencies = [
  "objc2-foundation",
  "serde",
  "serde_json",
+ "serde_norway",
  "system-configuration",
  "tempfile",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

@@ -16,14 +16,15 @@ use mish_bridge::{
     LocalRestoreConflictResolution, LocalRestorePreview, LocalRestoreResult, LoopbackServerConfig,
     LoopbackServerHandle, ManagedCoreOwnership, ManagedMihomoResolver, ManagedRuntimeLease,
     ManagedRuntimePolicy, MihomoActivationManager, PreparedLocalBackup, PreparedLocalRestore,
-    PreparedSupportBundle, ProfileActivationCoordinator, RealManagedProcessPlatform,
-    ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,
-    SupportBundlePreview, SupportBundleService, compose_desktop_runtime_with_capture,
-    start_loopback_server_with_runtime_host_and_lifecycle,
+    PreparedSupportBundle, PrivilegedCoreHost, ProfileActivationCoordinator,
+    RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
+    SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
+    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
-    FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsNetworkDnsPlatform,
-    MacOsSystemProxyPlatform, MacOsTunHelperBoundary, MacOsTunHelperPlatform,
+    DEV_TUN_SERVICE_CORE_PATH, FileCaptureJournalStore, MacOsLifecycleEventSource,
+    MacOsNetworkDnsPlatform, MacOsSystemProxyPlatform, MacOsTunHelperBoundary,
+    MacOsTunHelperPlatform, MacOsTunServiceClient,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -585,15 +586,19 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     LocalBackupService::recover_pending(&profile_root)
         .map_err(|error| io::Error::other(error.to_string()))?;
     let mutation_authority = StateMutationAuthority::new();
-    let tun_helper = Arc::new(TunHelperController::new(Arc::new(
-        MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
+    let development_tun_service = (cfg!(target_os = "macos") && tauri::is_dev()).then(|| {
+        Arc::new(MacOsTunServiceClient::development_with_lifecycle(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."),
+        ))
+    });
+    let tun_helper = Arc::new(TunHelperController::new(match &development_tun_service {
+        Some(service) => service.clone(),
+        None => Arc::new(MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
             MacOsTunHelperBoundary::UnsupportedSystem
-        } else if tauri::is_dev() {
-            MacOsTunHelperBoundary::UnsignedApp
         } else {
             MacOsTunHelperBoundary::Unpackaged
-        }),
-    )));
+        })),
+    }));
     let settings_service = Arc::new(
         SettingsService::load_with_platforms_and_authority(
             Arc::new(FileSettingsRepository::new(
@@ -618,15 +623,29 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
     );
-    let resolver = managed_mihomo_resolver(
-        tauri::is_dev(),
-        std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from),
-        &profile_root,
-        &app.path().resource_dir()?,
-    );
+    let requested_mihomo = std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from);
+    let resource_directory = app.path().resource_dir()?;
     let lifecycle_source = platform_lifecycle_event_source()?;
     let bridge = tauri::async_runtime::block_on(async {
         tun_helper.refresh().await;
+        let development_service_ready =
+            development_tun_service.is_some() && tun_helper.snapshot().is_healthy();
+        if development_service_ready {
+            tun_helper
+                .set_tun_enabled(false)
+                .await
+                .map_err(|_| io::Error::other("development TUN service startup cleanup failed"))?;
+        }
+        let resolver = managed_mihomo_resolver(
+            tauri::is_dev(),
+            if development_service_ready {
+                Some(PathBuf::from(DEV_TUN_SERVICE_CORE_PATH))
+            } else {
+                requested_mihomo
+            },
+            &profile_root,
+            &resource_directory,
+        );
         let capture = Arc::new(CaptureReconciler::new_with_tun(
             Arc::new(MacOsSystemProxyPlatform::new()),
             Arc::new(FileCaptureJournalStore::new(
@@ -648,12 +667,24 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|error| io::Error::other(error.to_string()))?;
         let runtime_host =
             DesktopRuntimeHost::with_mutation_authority(safe_runtime.clone(), mutation_authority);
-        let activation_manager = Arc::new(MihomoActivationManager::new_managed(
-            resolver,
-            ActivationTiming::default(),
-            Some(capture.clone()),
-            core_ownership,
-        ));
+        let privileged_host = development_tun_service
+            .filter(|_| development_service_ready)
+            .map(|service| service as Arc<dyn PrivilegedCoreHost>);
+        let activation_manager = Arc::new(match privileged_host {
+            Some(host) => MihomoActivationManager::new_privileged(
+                resolver,
+                ActivationTiming::default(),
+                Some(capture.clone()),
+                core_ownership,
+                host,
+            ),
+            None => MihomoActivationManager::new_managed(
+                resolver,
+                ActivationTiming::default(),
+                Some(capture.clone()),
+                core_ownership,
+            ),
+        });
         activation_manager.recover_startup().await.map_err(|_| {
             io::Error::other("managed Core startup recovery could not be completed")
         })?;

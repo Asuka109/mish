@@ -227,6 +227,20 @@ class DesktopSettingsClient implements SettingsClient {
   });
 }
 
+class InactiveDesktopStatusClient extends FixtureStatusClient {
+  override getConnectionState(): StatusConnectionState {
+    return { attempt: 0, phase: "connected", stale: false };
+  }
+
+  override async getSnapshot(options?: { signal?: AbortSignal }) {
+    const snapshot = await super.getSnapshot(options);
+    snapshot.adapterKind = "rpc";
+    snapshot.capabilities = { systemProxy: "supported", tun: "supported" };
+    snapshot.runtime.phase = "inactive";
+    return snapshot;
+  }
+}
+
 class FailingSettingsClient extends DesktopSettingsClient {
   override setStartup = vi.fn(
     async (_startup: StartupPreferencesDto): Promise<SettingsSnapshotDto> => {
@@ -680,6 +694,35 @@ describe("production routes", () => {
     expect(screen.queryByRole("button", { name: /enable lan/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Window surface")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Native material" })).not.toBeInTheDocument();
+  });
+
+  it("offers a clean helper reinstall when the desktop core is inactive", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.capabilities.tun = "supported";
+    settingsClient.snapshot.tunHelper = {
+      availability: "available",
+      expectedVersion: "2",
+      health: "healthy",
+      installationId: "a".repeat(64),
+      installedVersion: "2",
+      lastFailure: null,
+      phase: "idle",
+    };
+    renderRoute(
+      "/settings",
+      "en",
+      new InactiveDesktopStatusClient(),
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    const reinstall = await screen.findByRole("button", { name: "Clean reinstall" });
+    expect(reinstall).toBeEnabled();
+    await user.click(reinstall);
+
+    expect(settingsClient.repairTunHelper).toHaveBeenCalledOnce();
   });
 
   it("keeps Settings operable by keyboard at the minimum desktop window breakpoint", async () => {

@@ -112,9 +112,10 @@ test ! -e "$HOME/Library/LaunchAgents/Mish.plist" || \
 
 If the app was placed in `/Applications`, move `/Applications/Mish.app` to the
 Trash in Finder instead. User-selected exports and backups live at their chosen
-destinations and are intentionally not deleted. The current ad-hoc prototype has
-no TUN helper, launch daemon, system extension, updater, or crash-reporting state
-to remove.
+destinations and are intentionally not deleted. The ad-hoc app package contains
+no TUN helper, launch daemon, system extension, updater, or crash-reporting
+state. A developer who separately installed the development TUN service must
+also run `pnpm macos:tun:uninstall` from the trusted checkout.
 
 ## Developer ID and notarization secrets
 
@@ -162,3 +163,23 @@ has independently confirmed all of these conditions:
 Ad-hoc signatures must never pass those checks. Adding Apple secrets signs and
 notarizes the application/Core package only; it does not synthesize a helper or
 change the runtime's current `unpackaged` boundary.
+
+Local source development is separate from this packaging gate. On Apple
+Silicon, `pnpm macos:tun:install` installs an explicitly authorized root
+LaunchDaemon and pinned Core outside the app bundle. The development app
+verifies its per-user Unix socket and uses it as the sole Mihomo process owner;
+packaged builds never discover or trust that development service.
+
+The development installer uses fixed helper, Core, property-list, socket, and
+private receipt paths. Reinstall overwrites those targets and derives a fresh
+artifact identity without retaining per-install temporary directories or old
+binaries. Uninstall stops the service and moves only those bounded Mish-owned
+targets to Trash. Managed Core activation likewise retains at most the active
+candidate plus one in-flight replacement and prunes only validated UUID-named
+stale candidates after startup recovery.
+
+Both `pnpm macos:tun:install` and the development app's onboarding/Settings
+actions present the macOS administrator authorization dialog and run the same
+fixed install plan. `pnpm macos:tun:repair` is the CLI equivalent of Settings'
+clean reinstall action. Mish does not collect administrator credentials, and a
+cancelled prompt leaves the helper lifecycle unconfirmed.

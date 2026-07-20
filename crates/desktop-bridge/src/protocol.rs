@@ -1001,16 +1001,14 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            match state
-                .runtime
-                .set_capture(
-                    CaptureRequest {
-                        active: params.active,
-                        selection: params.selection,
-                    },
-                    StatusAdapterKind::Rpc,
-                )
-                .await
+            match set_capture_with_core_reactivation(
+                state,
+                CaptureRequest {
+                    active: params.active,
+                    selection: params.selection,
+                },
+            )
+            .await
             {
                 Ok(snapshot) => snapshot,
                 Err(error) => return Some(capture_error_response(id, error)),
@@ -1184,6 +1182,22 @@ async fn disable_tun_for_helper_lifecycle(
         )
         .await
         .map(|_| ())
+}
+
+async fn set_capture_with_core_reactivation(
+    state: &ProtocolState,
+    request: CaptureRequest,
+) -> Result<Value, CaptureTransitionError> {
+    if let Some(activation) = &state.profile_activation {
+        activation
+            .set_capture(request, StatusAdapterKind::Rpc)
+            .await
+    } else {
+        state
+            .runtime
+            .set_capture(request, StatusAdapterKind::Rpc)
+            .await
+    }
 }
 
 fn constant_time_equal(left: &str, right: &str) -> bool {

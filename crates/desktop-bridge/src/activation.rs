@@ -26,7 +26,8 @@ use uuid::Uuid;
 use crate::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
     DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreOwnership,
-    ManagedCoreRecoveryOutcome, ManagedProcessValidationError, ProfileMappingContext,
+    ManagedCoreRecoveryOutcome, ManagedProcessValidationError, PrivilegedCoreHost,
+    ProfileMappingContext,
 };
 
 enum ManagedBinaryLocation {
@@ -374,6 +375,7 @@ impl fmt::Debug for ActivationCommit {
 }
 
 struct ActiveMihomo {
+    candidate_root: PathBuf,
     fingerprint: String,
     profile_id: String,
     process: Arc<DesktopMihomoProcess>,
@@ -394,6 +396,7 @@ struct ActivationState {
 pub struct MihomoActivationManager {
     capture: Option<Arc<CaptureReconciler>>,
     ownership: Option<Arc<ManagedCoreOwnership>>,
+    privileged_host: Option<Arc<dyn PrivilegedCoreHost>>,
     recovery_outcome: Mutex<Option<ManagedCoreRecoveryOutcome>>,
     resolver: ManagedMihomoResolver,
     state: Mutex<ActivationState>,
@@ -410,7 +413,7 @@ impl MihomoActivationManager {
         timing: ActivationTiming,
         capture: Option<Arc<CaptureReconciler>>,
     ) -> Self {
-        Self::new_with_capture_and_ownership(resolver, timing, capture, None)
+        Self::new_with_execution_backend(resolver, timing, capture, None, None)
     }
 
     pub fn new_managed(
@@ -419,18 +422,36 @@ impl MihomoActivationManager {
         capture: Option<Arc<CaptureReconciler>>,
         ownership: Arc<ManagedCoreOwnership>,
     ) -> Self {
-        Self::new_with_capture_and_ownership(resolver, timing, capture, Some(ownership))
+        Self::new_with_execution_backend(resolver, timing, capture, Some(ownership), None)
     }
 
-    fn new_with_capture_and_ownership(
+    pub fn new_privileged(
+        resolver: ManagedMihomoResolver,
+        timing: ActivationTiming,
+        capture: Option<Arc<CaptureReconciler>>,
+        ownership: Arc<ManagedCoreOwnership>,
+        privileged_host: Arc<dyn PrivilegedCoreHost>,
+    ) -> Self {
+        Self::new_with_execution_backend(
+            resolver,
+            timing,
+            capture,
+            Some(ownership),
+            Some(privileged_host),
+        )
+    }
+
+    fn new_with_execution_backend(
         resolver: ManagedMihomoResolver,
         timing: ActivationTiming,
         capture: Option<Arc<CaptureReconciler>>,
         ownership: Option<Arc<ManagedCoreOwnership>>,
+        privileged_host: Option<Arc<dyn PrivilegedCoreHost>>,
     ) -> Self {
         Self {
             capture,
             ownership,
+            privileged_host,
             recovery_outcome: Mutex::new(None),
             resolver,
             state: Mutex::new(ActivationState::default()),
@@ -452,6 +473,7 @@ impl MihomoActivationManager {
                 .map_err(|_| MihomoActivationError::OwnershipFailed)?,
             None => ManagedCoreRecoveryOutcome::NoRecord,
         };
+        prune_stale_candidates(&self.resolver.runtime_root);
         *recovered = Some(outcome);
         Ok(outcome)
     }
@@ -551,6 +573,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
+                    remove_candidate(&previous.candidate_root);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -576,6 +599,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
+                    remove_candidate(&previous.candidate_root);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -607,6 +631,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
+                    remove_candidate(&previous.candidate_root);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -653,6 +678,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
+                    remove_candidate(&previous.candidate_root);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -667,6 +693,7 @@ impl MihomoActivationManager {
         state.managed = committed_state;
         if let Some(previous) = previous {
             previous.source.close().await;
+            remove_candidate(&previous.candidate_root);
         }
         Ok(ActivationCommit {
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
@@ -703,7 +730,10 @@ impl MihomoActivationManager {
                 .await
                 .map_err(|_| MihomoActivationError::ShutdownFailed)?;
         }
-        state.active = None;
+        if let Some(active) = state.active.take() {
+            active.source.close().await;
+            remove_candidate(&active.candidate_root);
+        }
         state.managed.active_fingerprint = None;
         state.managed.active_profile_id = None;
         state.managed.active_revision = None;
@@ -723,6 +753,7 @@ impl MihomoActivationManager {
         create_private_runtime_directory(&candidates_root)?;
         let staging_root = candidates_root.join(format!(".staging-{candidate_id}"));
         fs::create_dir(&staging_root).map_err(|_| MihomoActivationError::StagingFailed)?;
+        let mut candidate_guard = CandidateDirectoryGuard::new(staging_root.clone());
         set_private_directory_permissions(&staging_root)?;
         let home = staging_root.join("home");
         create_private_runtime_directory(&home)?;
@@ -748,26 +779,29 @@ impl MihomoActivationManager {
                 })
             }
         };
-        if let Err(error) = validation {
-            let _ = fs::remove_dir_all(&staging_root);
-            return Err(error);
-        }
+        validation?;
 
         let candidate_root = candidates_root.join(&candidate_id);
         fs::rename(&staging_root, &candidate_root)
             .map_err(|_| MihomoActivationError::StagingFailed)?;
+        candidate_guard.track(candidate_root.clone());
         let process_config = DesktopMihomoProcessConfig {
             binary: Some(resolved.binary().to_path_buf()),
             config_directory: Some(candidate_root.join("home")),
             config_file: Some(candidate_root.join("config.yaml")),
         };
-        let process = Arc::new(match &self.ownership {
-            Some(ownership) => DesktopMihomoProcess::new_pinned_owned(
+        let process = Arc::new(match (&self.privileged_host, &self.ownership) {
+            (Some(host), _) => DesktopMihomoProcess::new_pinned_privileged(
+                process_config,
+                PINNED_MIHOMO_VERSION,
+                host.clone(),
+            ),
+            (None, Some(ownership)) => DesktopMihomoProcess::new_pinned_owned(
                 process_config,
                 PINNED_MIHOMO_VERSION,
                 ownership.clone(),
             ),
-            None => DesktopMihomoProcess::new_pinned(process_config, PINNED_MIHOMO_VERSION),
+            (None, None) => DesktopMihomoProcess::new_pinned(process_config, PINNED_MIHOMO_VERSION),
         });
         let profile = ProfileMappingContext::new(
             record.metadata.id.as_str(),
@@ -792,7 +826,9 @@ impl MihomoActivationManager {
             source.clone(),
             self.capture.clone(),
         );
+        candidate_guard.disarm();
         Ok(ActiveMihomo {
+            candidate_root,
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
             process,
@@ -968,6 +1004,85 @@ async fn wait_for_candidate(
 async fn rollback_candidate(candidate: ActiveMihomo) {
     candidate.source.close().await;
     let _ = candidate.runtime.stop_core().await;
+    remove_candidate(&candidate.candidate_root);
+}
+
+fn prune_stale_candidates(runtime_root: &Path) {
+    let candidates_root = runtime_root.join("candidates");
+    let Ok(metadata) = fs::symlink_metadata(&candidates_root) else {
+        return;
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(&candidates_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let candidate_id = name.strip_prefix(".staging-").unwrap_or(name);
+        if Uuid::parse_str(candidate_id).is_err() {
+            continue;
+        }
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_dir() && !file_type.is_symlink() {
+            remove_candidate(&entry.path());
+        }
+    }
+}
+
+fn remove_candidate(candidate_root: &Path) {
+    let Some(name) = candidate_root.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+    let candidate_id = name.strip_prefix(".staging-").unwrap_or(name);
+    if Uuid::parse_str(candidate_id).is_err()
+        || candidate_root
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            != Some("candidates")
+    {
+        return;
+    }
+    let Ok(metadata) = fs::symlink_metadata(candidate_root) else {
+        return;
+    };
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        let _ = fs::remove_dir_all(candidate_root);
+    }
+}
+
+struct CandidateDirectoryGuard {
+    armed: bool,
+    path: PathBuf,
+}
+
+impl CandidateDirectoryGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { armed: true, path }
+    }
+
+    fn track(&mut self, path: PathBuf) {
+        self.path = path;
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CandidateDirectoryGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            remove_candidate(&self.path);
+        }
+    }
 }
 
 fn record_failed_attempt(

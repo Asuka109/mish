@@ -4,8 +4,8 @@ use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 
-pub const TUN_HELPER_EXPECTED_VERSION: &str = "1";
-pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 1;
+pub const TUN_HELPER_EXPECTED_VERSION: &str = "2";
+pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 2;
 pub const TUN_HELPER_MAX_MESSAGE_BYTES: usize = 16 * 1024;
 pub const TUN_APP_SIGNING_IDENTIFIER: &str = "com.asuka109.mish";
 pub const TUN_HELPER_SIGNING_IDENTIFIER: &str = "com.asuka109.mish.tun-helper";
@@ -43,16 +43,20 @@ pub enum TunHelperLifecyclePhase {
     Repairing,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TunHelperFailureKind {
+    AuthorizationCancelled,
     ConfirmationFailed,
     ConnectionFailed,
     IdentityRejected,
+    InstallationFailed,
+    InstallerUnavailable,
     InvalidSignature,
     MessageTooLarge,
     OperationFailed,
     PermissionDenied,
+    PreparationFailed,
     ProtocolMismatch,
     RegistrationFailed,
     RegistrationRequiresApproval,
@@ -68,6 +72,7 @@ pub struct TunHelperSnapshot {
     pub availability: TunHelperAvailability,
     pub expected_version: String,
     pub health: TunHelperHealth,
+    pub installation_id: Option<String>,
     pub installed_version: Option<String>,
     pub last_failure: Option<TunHelperFailureKind>,
     pub phase: TunHelperLifecyclePhase,
@@ -83,6 +88,7 @@ impl TunHelperSnapshot {
             availability,
             expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
             health,
+            installation_id: None,
             installed_version: None,
             last_failure: Some(failure),
             phase: TunHelperLifecyclePhase::Idle,
@@ -94,6 +100,7 @@ impl TunHelperSnapshot {
             availability: TunHelperAvailability::Unavailable,
             expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
             health: TunHelperHealth::NotInstalled,
+            installation_id: None,
             installed_version: None,
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
@@ -117,6 +124,7 @@ impl TunHelperSnapshot {
 pub struct TunHelperObservation {
     pub availability: TunHelperAvailability,
     pub health: TunHelperHealth,
+    pub installation_id: Option<String>,
     pub installed_version: Option<String>,
 }
 
@@ -125,6 +133,7 @@ impl TunHelperObservation {
         Self {
             availability: TunHelperAvailability::PermissionRequired,
             health: TunHelperHealth::NotInstalled,
+            installation_id: None,
             installed_version: None,
         }
     }
@@ -133,6 +142,19 @@ impl TunHelperObservation {
         Self {
             availability: TunHelperAvailability::Available,
             health: TunHelperHealth::Healthy,
+            installation_id: None,
+            installed_version: Some(version.into()),
+        }
+    }
+
+    pub fn healthy_installation(
+        version: impl Into<String>,
+        installation_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            availability: TunHelperAvailability::Available,
+            health: TunHelperHealth::Healthy,
+            installation_id: Some(installation_id.into()),
             installed_version: Some(version.into()),
         }
     }
@@ -385,6 +407,7 @@ fn snapshot_from_observation(observation: TunHelperObservation) -> TunHelperSnap
         availability: observation.availability,
         expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
         health: observation.health,
+        installation_id: observation.installation_id,
         installed_version: observation.installed_version,
         last_failure: None,
         phase: TunHelperLifecyclePhase::Idle,

@@ -28,6 +28,7 @@ import { useAppearance } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useProduct } from "../data/product-provider";
 import { useSettings } from "../data/settings-provider";
+import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useI18nContext } from "../i18n/i18n-react";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
@@ -35,7 +36,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type PendingButtonAction = "language" | "launch-at-login" | "login-behavior" | "window-close";
 
-type PromiseButtonAction = "install-helper" | "refresh-network" | "remove-helper" | "repair-helper";
+type PromiseButtonAction =
+  | "install-helper"
+  | "refresh-network"
+  | "reinstall-helper"
+  | "remove-helper"
+  | "repair-helper";
 
 function AvailabilityBadge({ availability }: { availability: SettingsAvailability }) {
   const { LL } = useI18nContext();
@@ -134,7 +140,7 @@ export function SettingsPage() {
   const [pendingButtonAction, setPendingButtonAction] = useState<PendingButtonAction | null>(null);
   const [buttonActionPromise, setButtonActionPromise] = useState<{
     action: PromiseButtonAction;
-    promise: Promise<boolean>;
+    promise: Promise<unknown>;
   } | null>(null);
   const [optimisticCaptureSelection, setOptimisticCaptureSelection] =
     useState<CaptureSelectionDto | null>(null);
@@ -187,7 +193,7 @@ export function SettingsPage() {
     }
   }
 
-  function runPromiseButtonAction(action: PromiseButtonAction, operation: () => Promise<boolean>) {
+  function runPromiseButtonAction(action: PromiseButtonAction, operation: () => Promise<unknown>) {
     setButtonActionPromise({ action, promise: operation() });
   }
 
@@ -308,6 +314,7 @@ export function SettingsPage() {
               commandSupported={captureSupported}
               disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
+              onTunHelperInstall={settings.installTunHelper}
               onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}
               pendingMode={pendingCaptureMode}
@@ -318,6 +325,10 @@ export function SettingsPage() {
               }
               systemProxyStatus={captureRuntime.systemProxy}
               tunEnabled={captureRuntime.tunEnabled}
+              tunGuideIdentity={
+                helper.installationId ?? helper.installedVersion ?? helper.expectedVersion
+              }
+              tunHelperReady={helperAvailable}
               tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
               tunStatus={captureRuntime.tun}
             />
@@ -329,66 +340,95 @@ export function SettingsPage() {
           description={LL.settingsPage.tunHelperDescription()}
           title={LL.settingsPage.tunHelper()}
         >
-          <div className="settings-inline-control">
-            <Badge
-              variant={
-                helperAvailable
-                  ? "success"
-                  : helper.availability === "permission-required" ||
-                      helper.availability === "repair-required"
-                    ? "warning"
-                    : "outline"
-              }
-            >
-              {helperAvailable
-                ? LL.settingsPage.tunHelperHealthy({ version: helper.installedVersion ?? "-" })
-                : helper.availability === "repair-required"
-                  ? LL.settingsPage.tunHelperRepairRequired()
-                  : helper.availability === "permission-required"
-                    ? LL.settingsPage.tunHelperNotInstalled()
-                    : helper.availability === "unsigned-app"
-                      ? LL.settingsPage.tunHelperUnsigned()
-                      : helper.availability === "unpackaged"
-                        ? LL.settingsPage.tunHelperUnpackaged()
-                        : LL.common.unavailable()}
-            </Badge>
-            {helper.availability === "permission-required" ? (
-              <Button
-                disabled={settings.pending}
-                loading={loadingPromise("install-helper")}
-                loadingText={LL.settingsPage.installTunHelper()}
-                onClick={() => runPromiseButtonAction("install-helper", settings.installTunHelper)}
-                size="sm"
-                type="button"
+          <div>
+            <div className="settings-inline-control">
+              <Badge
+                variant={
+                  helperAvailable
+                    ? "success"
+                    : helper.availability === "permission-required" ||
+                        helper.availability === "repair-required"
+                      ? "warning"
+                      : "outline"
+                }
               >
-                {LL.settingsPage.installTunHelper()}
-              </Button>
-            ) : null}
-            {helper.availability === "repair-required" ? (
-              <Button
-                disabled={settings.pending}
-                loading={loadingPromise("repair-helper")}
-                loadingText={LL.settingsPage.repairTunHelper()}
-                onClick={() => runPromiseButtonAction("repair-helper", settings.repairTunHelper)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                {LL.settingsPage.repairTunHelper()}
-              </Button>
-            ) : null}
-            {helperAvailable ? (
-              <Button
-                disabled={settings.pending || captureRuntime?.tunEnabled}
-                loading={loadingPromise("remove-helper")}
-                loadingText={LL.settingsPage.removeTunHelper()}
-                onClick={() => runPromiseButtonAction("remove-helper", settings.removeTunHelper)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                {LL.settingsPage.removeTunHelper()}
-              </Button>
+                {helperAvailable
+                  ? LL.settingsPage.tunHelperHealthy({ version: helper.installedVersion ?? "-" })
+                  : helper.availability === "repair-required"
+                    ? LL.settingsPage.tunHelperRepairRequired()
+                    : helper.availability === "permission-required"
+                      ? LL.settingsPage.tunHelperNotInstalled()
+                      : helper.availability === "unsigned-app"
+                        ? LL.settingsPage.tunHelperUnsigned()
+                        : helper.availability === "unpackaged"
+                          ? LL.settingsPage.tunHelperUnpackaged()
+                          : LL.common.unavailable()}
+              </Badge>
+              {helper.availability === "permission-required" ? (
+                <Button
+                  disabled={settings.pending}
+                  loading={loadingPromise("install-helper")}
+                  loadingText={LL.settingsPage.installTunHelper()}
+                  onClick={() =>
+                    runPromiseButtonAction("install-helper", settings.installTunHelper)
+                  }
+                  size="sm"
+                  type="button"
+                >
+                  {LL.settingsPage.installTunHelper()}
+                </Button>
+              ) : null}
+              {helper.availability === "repair-required" ? (
+                <Button
+                  disabled={settings.pending}
+                  loading={loadingPromise("repair-helper")}
+                  loadingText={LL.settingsPage.repairTunHelper()}
+                  onClick={() => runPromiseButtonAction("repair-helper", settings.repairTunHelper)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {LL.settingsPage.repairTunHelper()}
+                </Button>
+              ) : null}
+              {helperAvailable ? (
+                <Button
+                  disabled={settings.pending || product?.runtime.phase !== "inactive"}
+                  loading={loadingPromise("reinstall-helper")}
+                  loadingText={LL.settingsPage.reinstallTunHelper()}
+                  onClick={() =>
+                    runPromiseButtonAction("reinstall-helper", settings.repairTunHelper)
+                  }
+                  size="sm"
+                  title={
+                    product?.runtime.phase !== "inactive"
+                      ? LL.settingsPage.reinstallTunHelperBlocked()
+                      : undefined
+                  }
+                  type="button"
+                  variant="outline"
+                >
+                  {LL.settingsPage.reinstallTunHelper()}
+                </Button>
+              ) : null}
+              {helperAvailable ? (
+                <Button
+                  disabled={settings.pending || product?.runtime.phase !== "inactive"}
+                  loading={loadingPromise("remove-helper")}
+                  loadingText={LL.settingsPage.removeTunHelper()}
+                  onClick={() => runPromiseButtonAction("remove-helper", settings.removeTunHelper)}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {LL.settingsPage.removeTunHelper()}
+                </Button>
+              ) : null}
+            </div>
+            {settings.tunHelperFailure || helper.lastFailure ? (
+              <p className="dialog-error" role="alert">
+                {tunHelperFailureMessage(LL, settings.tunHelperFailure ?? helper.lastFailure)}
+              </p>
             ) : null}
           </div>
         </SettingsRow>
