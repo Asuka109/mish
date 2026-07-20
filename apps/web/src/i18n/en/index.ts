@@ -135,7 +135,7 @@ const en = {
       description:
         "Use this HTTP or SOCKS5 endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.",
       feedback: {
-        coreUnhealthy: "Start an active Profile, then test the listener again.",
+        coreUnhealthy: "Start the proxy with a valid Profile, then test the listener again.",
         listenerUnavailable:
           "The local listener did not respond. Confirm the active Profile is healthy, then try again.",
         ready: "Listener ready",
@@ -373,7 +373,7 @@ const en = {
     systemProxy: "System Proxy",
     systemProxyApplied: "System Proxy is applied and confirmed by macOS.",
     systemProxyCoreFailure:
-      "System Proxy was not enabled because the active profile and Mihomo core are unavailable.",
+      "System Proxy was not enabled because Mihomo Core did not start with the selected profile.",
     systemProxyInvalidRecovery:
       "Mish cannot validate its saved System Proxy recovery record. Leave the external proxy unchanged to clear Mish ownership, then retry.",
     systemProxyPersistenceFailure:
@@ -390,6 +390,8 @@ const en = {
     systemProxyPending: "System Proxy is pending macOS confirmation.",
     systemProxyPermissionFailure:
       "macOS did not allow the System Proxy change. No success was recorded.",
+    systemProxyRepairRequiresCore:
+      "System Proxy differs from Mish's requested state. Repair requires a running Mihomo core; keep the current OS settings to clear this recovery state before starting the proxy again.",
     systemProxyUnsafeFailure:
       "Automatic or authenticated proxy settings are active. Mish left them unchanged.",
     systemProxyUnknown: "System Proxy is selected off, but the macOS state is not available.",

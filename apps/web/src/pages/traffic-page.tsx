@@ -31,7 +31,6 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Spinner,
   Table,
   TableBody,
   TableCell,
@@ -166,13 +165,12 @@ export function TrafficPage() {
               isCloseAllPending ||
               !isCommandSupported("close-all-active")
             }
+            loading={isCloseAllPending}
+            loadingText={LL.traffic.closingAllActive()}
             onClick={() => setCloseAllConfirmationOpen(true)}
             variant="outline"
           >
-            {isCloseAllPending ? <Spinner data-icon="inline-start" /> : null}
-            {isCloseAllPending
-              ? LL.traffic.closingAllActive()
-              : LL.traffic.closeAllActiveConnections()}
+            {LL.traffic.closeAllActiveConnections()}
           </Button>
         </div>
       </header>
@@ -393,15 +391,12 @@ export function TrafficPage() {
             <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
             <AlertDialogAction
               disabled={!closeTarget || isCloseConnectionPending(closeTarget.id)}
+              loading={Boolean(closeTarget && isCloseConnectionPending(closeTarget.id))}
+              loadingText={LL.traffic.closingConnection()}
               onClick={confirmCloseConnection}
               variant="destructive"
             >
-              {closeTarget && isCloseConnectionPending(closeTarget.id) ? (
-                <Spinner data-icon="inline-start" />
-              ) : null}
-              {closeTarget && isCloseConnectionPending(closeTarget.id)
-                ? LL.traffic.closingConnection()
-                : LL.traffic.closeConnectionConfirm()}
+              {LL.traffic.closeConnectionConfirm()}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -424,13 +419,12 @@ export function TrafficPage() {
             <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
             <AlertDialogAction
               disabled={activeConnections.length === 0 || isCloseAllPending}
+              loading={isCloseAllPending}
+              loadingText={LL.traffic.closingAllActive()}
               onClick={confirmCloseAllActive}
               variant="destructive"
             >
-              {isCloseAllPending ? <Spinner data-icon="inline-start" /> : null}
-              {isCloseAllPending
-                ? LL.traffic.closingAllActive()
-                : LL.traffic.closeAllActiveConfirm()}
+              {LL.traffic.closeAllActiveConfirm()}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -583,14 +577,13 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
               <Button
                 aria-describedby={canClose ? undefined : "traffic-close-scope"}
                 disabled={!canClose || isClosePending(connection.id)}
+                loading={isClosePending(connection.id)}
+                loadingText={LL.traffic.closingConnection()}
                 onClick={() => onRequestClose(connection)}
                 size="sm"
                 variant="ghost"
               >
-                {isClosePending(connection.id) ? <Spinner data-icon="inline-start" /> : null}
-                {isClosePending(connection.id)
-                  ? LL.traffic.closingConnection()
-                  : LL.traffic.close()}
+                {LL.traffic.close()}
               </Button>
             </TableCell>
           </TableRow>
@@ -835,13 +828,12 @@ function ConnectionDetailDialog({
                 <Button
                   aria-describedby={canClose ? undefined : "traffic-close-scope"}
                   disabled={!canClose || isClosePending(connection.id)}
+                  loading={isClosePending(connection.id)}
+                  loadingText={LL.traffic.closingConnection()}
                   onClick={() => onRequestClose(connection)}
                   variant="destructive"
                 >
-                  {isClosePending(connection.id) ? <Spinner data-icon="inline-start" /> : null}
-                  {isClosePending(connection.id)
-                    ? LL.traffic.closingConnection()
-                    : LL.traffic.close()}
+                  {LL.traffic.close()}
                 </Button>
               ) : null}
             </div>

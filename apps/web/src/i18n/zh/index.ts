@@ -119,7 +119,7 @@ const zh = {
       description:
         "可在浏览器扩展或单个应用中使用此 HTTP / SOCKS5 端点。只有该应用的流量经过 Mish；此功能不会启用或更改 macOS 系统代理。",
       feedback: {
-        coreUnhealthy: "请先启动一个有效 Profile，然后重新测试监听器。",
+        coreUnhealthy: "请先使用有效配置启动代理，然后重新测试监听器。",
         listenerUnavailable: "本地监听器没有响应。请确认活动 Profile 运行正常，然后重试。",
         ready: "监听器就绪",
         rpcFailure: "Mish 无法测试本地监听器。请检查本地服务连接，然后重试。",
@@ -338,7 +338,7 @@ const zh = {
     repairSystemProxy: "修复系统代理",
     systemProxy: "系统代理",
     systemProxyApplied: "系统代理已应用，并经 macOS 确认。",
-    systemProxyCoreFailure: "当前配置或 Mihomo core 不可用，因此没有启用系统代理。",
+    systemProxyCoreFailure: "Mihomo Core 未能使用当前所选配置启动，因此没有启用系统代理。",
     systemProxyInvalidRecovery:
       "Mish 无法校验已保存的系统代理恢复记录。请保持外部代理不变并清除 Mish 所有权，然后重试。",
     systemProxyPersistenceFailure: "Mish 无法访问系统代理恢复存储。请检查应用数据目录权限后重试。",
@@ -350,6 +350,8 @@ const zh = {
     systemProxyOff: "系统代理已关闭，并经 macOS 确认。",
     systemProxyPending: "系统代理正在等待 macOS 确认。",
     systemProxyPermissionFailure: "macOS 未允许更改系统代理，因此没有记录成功状态。",
+    systemProxyRepairRequiresCore:
+      "系统代理与 Mish 的请求状态不一致。修复需要正在运行的 Mihomo Core；请先保留系统当前设置以清除此恢复状态，再重新启动代理。",
     systemProxyUnsafeFailure: "系统正在使用自动或认证代理；Mish 未覆盖这些设置。",
     systemProxyUnknown: "系统代理的选择意图为关闭，但当前无法读取 macOS 状态。",
     title: "系统代理与虚拟网卡",

@@ -138,7 +138,7 @@ describe("local proxy listener feedback", () => {
     await expect.element(page.getByText("监听器就绪", { exact: true })).toBeVisible();
     const toaster = document.querySelector("[data-sonner-toaster]");
     expect(toaster?.parentElement).toHaveAttribute("aria-live", "polite");
-    await expect.element(button).toHaveAttribute("aria-busy", "false");
+    await expect.element(button).not.toHaveAttribute("aria-busy");
     expect(measureLocalProxyGeometry()).toEqual(before);
     expect(document.querySelector(".local-proxy-result")).toBeNull();
     expect(

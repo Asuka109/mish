@@ -479,6 +479,20 @@ h2 {
   padding: 0;
 }
 
+.profile-select-trigger {
+  height: 34px;
+  min-width: 112px;
+  max-width: 220px;
+  background: transparent;
+}
+
+.profile-select-trigger > .user-authored-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .appearance-menu {
   min-width: 156px;
 }
@@ -3280,6 +3294,10 @@ h2 {
   justify-content: flex-end;
 }
 
+.local-proxy-control .ui-button {
+  min-width: 112px;
+}
+
 .local-proxy-control .ui-button[aria-busy="true"]:disabled {
   opacity: 1;
 }
@@ -3922,6 +3940,12 @@ h2 {
 .profile-patch-scroll > .ui-empty {
   min-height: 158px;
   border: 0;
+}
+
+.profile-patch-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .profile-patch-row {
@@ -4701,12 +4725,13 @@ h2 {
   }
 
   .language-menu-trigger,
-  .profile-menu-trigger {
+  .profile-select-trigger {
+    min-width: 34px;
     width: 34px;
     padding: 0;
   }
 
-  .profile-menu-trigger > span {
+  .profile-select-trigger > span {
     display: none;
   }
 

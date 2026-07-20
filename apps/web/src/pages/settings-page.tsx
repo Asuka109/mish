@@ -6,27 +6,36 @@ import {
   Button,
   SectionGrid,
   SectionGridItem,
+  Spinner,
   Toggle,
   ToggleGroup,
   ToggleGroupItem,
 } from "@mish/ui";
 import type {
   AppearancePreference,
+  CaptureSelectionDto,
   ConfirmationState,
   LanguagePreference,
   SettingsAvailability,
+  StartupPreferencesDto,
+  WindowCloseBehavior,
   WindowSurfacePreference,
 } from "@mish/contracts";
 import { LOCAL_PROXY_HOST, LOCAL_PROXY_PORT } from "@mish/contracts";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { LocalBackupControl } from "../components/local-backup-control";
 import { useAppearance } from "../appearance";
+import { useCaptureCommand } from "../data/capture-command";
 import { useProduct } from "../data/product-provider";
 import { useSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+
+type PendingButtonAction = "language" | "launch-at-login" | "login-behavior" | "window-close";
+
+type PromiseButtonAction = "install-helper" | "refresh-network" | "remove-helper" | "repair-helper";
 
 function AvailabilityBadge({ availability }: { availability: SettingsAvailability }) {
   const { LL } = useI18nContext();
@@ -105,27 +114,41 @@ function ObservedValues({ empty, values }: { empty: string; values: string[] }) 
 
 export function SettingsPage() {
   const {
+    appearancePending,
     preference,
     setPreference,
     setWindowSurfacePreference,
     windowSurfaceFallbackReason,
+    windowSurfacePending,
     windowSurfacePreference,
   } = useAppearance();
   const {
     connection: productConnection,
-    isCommandPending,
     isCommandSupported,
     localProxyTest,
-    setCapture,
     snapshot: product,
     testLocalProxy,
   } = useProduct();
+  const { pending: capturePending, setCapture } = useCaptureCommand();
   const settings = useSettings();
+  const [pendingButtonAction, setPendingButtonAction] = useState<PendingButtonAction | null>(null);
+  const [buttonActionPromise, setButtonActionPromise] = useState<{
+    action: PromiseButtonAction;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const [optimisticCaptureSelection, setOptimisticCaptureSelection] =
+    useState<CaptureSelectionDto | null>(null);
+  const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
+  const [optimisticStartup, setOptimisticStartup] = useState<StartupPreferencesDto | null>(null);
+  const [optimisticWindowClose, setOptimisticWindowClose] = useState<WindowCloseBehavior | null>(
+    null,
+  );
+  const [pendingLanguage, setPendingLanguage] = useState<LanguagePreference | null>(null);
   const networkAutoRefreshStarted = useRef(false);
   const { LL, locale, setLocale } = useI18nContext();
   const snapshot = settings.snapshot;
   const startup = snapshot.preferences.startup;
-  const capturePending = isCommandPending("capture");
+  const displayedStartup = optimisticStartup ?? startup;
   const captureSupported = isCommandSupported("capture");
   const captureRuntime = product?.runtime;
   const captureActive = Boolean(captureRuntime?.systemProxyEnabled || captureRuntime?.tunEnabled);
@@ -150,19 +173,66 @@ export function SettingsPage() {
     void settings.refreshNetworkDns();
   }, [network.phase, networkSupported, settings]);
 
-  function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
+  async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureRuntime || !captureSupported) return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
-    void setCapture(selection, active);
+    setOptimisticCaptureSelection(selection);
+    setPendingCaptureMode(mode);
+    try {
+      await setCapture(selection, active);
+    } finally {
+      setOptimisticCaptureSelection(null);
+      setPendingCaptureMode(null);
+    }
+  }
+
+  function runPromiseButtonAction(action: PromiseButtonAction, operation: () => Promise<boolean>) {
+    setButtonActionPromise({ action, promise: operation() });
+  }
+
+  function loadingPromise(action: PromiseButtonAction) {
+    return buttonActionPromise?.action === action ? buttonActionPromise.promise : false;
   }
 
   async function changeLanguage(values: string[]) {
     const language = values[0];
     if (!language || !isLocale(language)) return;
-    if (!(await settings.setLanguage(language))) return;
-    persistLocale(language);
-    setLocale(language);
+    setPendingButtonAction("language");
+    setPendingLanguage(language);
+    try {
+      if (!(await settings.setLanguage(language))) return;
+      persistLocale(language);
+      setLocale(language);
+    } finally {
+      setPendingButtonAction(null);
+      setPendingLanguage(null);
+    }
+  }
+
+  async function changeStartup(
+    action: "launch-at-login" | "login-behavior",
+    nextStartup: StartupPreferencesDto,
+  ) {
+    setPendingButtonAction(action);
+    setOptimisticStartup(nextStartup);
+    try {
+      await settings.setStartup(nextStartup);
+    } finally {
+      setPendingButtonAction(null);
+      setOptimisticStartup(null);
+    }
+  }
+
+  async function changeWindowCloseBehavior(behavior: WindowCloseBehavior) {
+    setPendingButtonAction("window-close");
+    setOptimisticWindowClose(behavior);
+    try {
+      await settings.setWindowCloseBehavior(behavior);
+    } finally {
+      setPendingButtonAction(null);
+      setOptimisticWindowClose(null);
+    }
   }
 
   function changeAppearance(values: string[]) {
@@ -240,11 +310,15 @@ export function SettingsPage() {
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
               onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}
+              pendingMode={pendingCaptureMode}
               systemProxyEnabled={captureRuntime.systemProxyEnabled}
-              systemProxySelected={captureRuntime.captureSelection.systemProxy}
+              systemProxySelected={
+                optimisticCaptureSelection?.systemProxy ??
+                captureRuntime.captureSelection.systemProxy
+              }
               systemProxyStatus={captureRuntime.systemProxy}
               tunEnabled={captureRuntime.tunEnabled}
-              tunSelected={captureRuntime.captureSelection.tun}
+              tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
               tunStatus={captureRuntime.tun}
             />
           ) : (
@@ -281,7 +355,9 @@ export function SettingsPage() {
             {helper.availability === "permission-required" ? (
               <Button
                 disabled={settings.pending}
-                onClick={() => void settings.installTunHelper()}
+                loading={loadingPromise("install-helper")}
+                loadingText={LL.settingsPage.installTunHelper()}
+                onClick={() => runPromiseButtonAction("install-helper", settings.installTunHelper)}
                 size="sm"
                 type="button"
               >
@@ -291,7 +367,9 @@ export function SettingsPage() {
             {helper.availability === "repair-required" ? (
               <Button
                 disabled={settings.pending}
-                onClick={() => void settings.repairTunHelper()}
+                loading={loadingPromise("repair-helper")}
+                loadingText={LL.settingsPage.repairTunHelper()}
+                onClick={() => runPromiseButtonAction("repair-helper", settings.repairTunHelper)}
                 size="sm"
                 type="button"
                 variant="outline"
@@ -302,7 +380,9 @@ export function SettingsPage() {
             {helperAvailable ? (
               <Button
                 disabled={settings.pending || captureRuntime?.tunEnabled}
-                onClick={() => void settings.removeTunHelper()}
+                loading={loadingPromise("remove-helper")}
+                loadingText={LL.settingsPage.removeTunHelper()}
+                onClick={() => runPromiseButtonAction("remove-helper", settings.removeTunHelper)}
                 size="sm"
                 type="button"
                 variant="outline"
@@ -324,8 +404,9 @@ export function SettingsPage() {
                 <Badge variant="outline">SOCKS5</Badge>
               </span>
               <Button
-                aria-busy={localProxyTest.phase === "pending"}
                 disabled={localProxyTest.phase === "pending" || productConnection.stale}
+                loading={localProxyTest.phase === "pending"}
+                loadingText={LL.settingsPage.localProxy.test()}
                 onClick={() => void testLocalProxy()}
                 size="sm"
                 type="button"
@@ -344,16 +425,20 @@ export function SettingsPage() {
         >
           <div className="settings-inline-control">
             <Toggle
+              aria-busy={pendingButtonAction === "launch-at-login"}
               aria-label={LL.settingsPage.launchAtLogin()}
               className="settings-switch"
               disabled={!startupSupported || settings.pending}
               onPressedChange={(launchAtLogin) =>
-                void settings.setStartup({ ...startup, launchAtLogin })
+                void changeStartup("launch-at-login", { ...startup, launchAtLogin })
               }
-              pressed={startup.launchAtLogin}
+              pressed={displayedStartup.launchAtLogin}
               variant="outline"
             >
-              {startup.launchAtLogin ? LL.settingsPage.on() : LL.settingsPage.off()}
+              {pendingButtonAction === "launch-at-login" ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              {displayedStartup.launchAtLogin ? LL.settingsPage.on() : LL.settingsPage.off()}
             </Toggle>
             <AvailabilityBadge availability={snapshot.capabilities.launchAtLogin} />
           </div>
@@ -365,19 +450,46 @@ export function SettingsPage() {
           <ToggleGroup
             aria-label={LL.settingsPage.loginWindow()}
             className="settings-segmented"
-            disabled={!startupSupported || !startup.launchAtLogin || settings.pending}
+            disabled={!startupSupported || !displayedStartup.launchAtLogin || settings.pending}
             onValueChange={(values) => {
               const behavior = values[0];
               if (behavior === "show-window" || behavior === "background") {
-                void settings.setStartup({ ...startup, loginLaunchBehavior: behavior });
+                void changeStartup("login-behavior", {
+                  ...startup,
+                  loginLaunchBehavior: behavior,
+                });
               }
             }}
             spacing={0}
-            value={[startup.loginLaunchBehavior]}
+            value={[displayedStartup.loginLaunchBehavior]}
             variant="outline"
           >
-            <ToggleGroupItem value="show-window">{LL.settingsPage.showWindow()}</ToggleGroupItem>
-            <ToggleGroupItem value="background">{LL.settingsPage.background()}</ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "login-behavior" &&
+                displayedStartup.loginLaunchBehavior === "show-window"
+              }
+              value="show-window"
+            >
+              {pendingButtonAction === "login-behavior" &&
+              displayedStartup.loginLaunchBehavior === "show-window" ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              {LL.settingsPage.showWindow()}
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "login-behavior" &&
+                displayedStartup.loginLaunchBehavior === "background"
+              }
+              value="background"
+            >
+              {pendingButtonAction === "login-behavior" &&
+              displayedStartup.loginLaunchBehavior === "background" ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              {LL.settingsPage.background()}
+            </ToggleGroupItem>
           </ToggleGroup>
         </SettingsRow>
         <SettingsRow
@@ -423,7 +535,11 @@ export function SettingsPage() {
             {networkSupported ? (
               <Button
                 disabled={settings.pending}
-                onClick={() => void settings.refreshNetworkDns()}
+                loading={loadingPromise("refresh-network")}
+                loadingText={LL.settingsPage.networkDns.refresh()}
+                onClick={() =>
+                  runPromiseButtonAction("refresh-network", settings.refreshNetworkDns)
+                }
                 size="sm"
                 type="button"
                 variant="outline"
@@ -532,17 +648,37 @@ export function SettingsPage() {
               onValueChange={(values) => {
                 const behavior = values[0];
                 if (behavior === "hide-to-status-bar" || behavior === "quit") {
-                  void settings.setWindowCloseBehavior(behavior);
+                  void changeWindowCloseBehavior(behavior);
                 }
               }}
               spacing={0}
-              value={[snapshot.preferences.windowCloseBehavior]}
+              value={[optimisticWindowClose ?? snapshot.preferences.windowCloseBehavior]}
               variant="outline"
             >
-              <ToggleGroupItem value="hide-to-status-bar">
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "window-close" &&
+                  optimisticWindowClose === "hide-to-status-bar"
+                }
+                value="hide-to-status-bar"
+              >
+                {pendingButtonAction === "window-close" &&
+                optimisticWindowClose === "hide-to-status-bar" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
                 {LL.settingsPage.hideToStatusBar()}
               </ToggleGroupItem>
-              <ToggleGroupItem value="quit">{LL.settingsPage.quitOnClose()}</ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "window-close" && optimisticWindowClose === "quit"
+                }
+                value="quit"
+              >
+                {pendingButtonAction === "window-close" && optimisticWindowClose === "quit" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {LL.settingsPage.quitOnClose()}
+              </ToggleGroupItem>
             </ToggleGroup>
             <AvailabilityBadge availability={snapshot.capabilities.windowLifecycle} />
           </div>
@@ -551,13 +687,21 @@ export function SettingsPage() {
           <ToggleGroup
             aria-label={LL.appearance.label()}
             className="settings-segmented"
+            disabled={appearancePending}
             onValueChange={changeAppearance}
             spacing={0}
             value={[preference]}
             variant="outline"
           >
             {(["system", "light", "dark"] as AppearancePreference[]).map((appearance) => (
-              <ToggleGroupItem key={appearance} value={appearance}>
+              <ToggleGroupItem
+                aria-busy={appearancePending && preference === appearance}
+                key={appearance}
+                value={appearance}
+              >
+                {appearancePending && preference === appearance ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
                 {LL.appearance[appearance]()}
               </ToggleGroupItem>
             ))}
@@ -575,16 +719,28 @@ export function SettingsPage() {
             <ToggleGroup
               aria-label={LL.settingsPage.windowSurface()}
               className="settings-segmented"
-              disabled={settings.pending}
+              disabled={settings.pending || windowSurfacePending}
               onValueChange={changeWindowSurface}
               spacing={0}
               value={[windowSurfacePreference]}
               variant="outline"
             >
-              <ToggleGroupItem value="opaque">
+              <ToggleGroupItem
+                aria-busy={windowSurfacePending && windowSurfacePreference === "opaque"}
+                value="opaque"
+              >
+                {windowSurfacePending && windowSurfacePreference === "opaque" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
                 {LL.settingsPage.windowSurfaceOpaque()}
               </ToggleGroupItem>
-              <ToggleGroupItem value="material">
+              <ToggleGroupItem
+                aria-busy={windowSurfacePending && windowSurfacePreference === "material"}
+                value="material"
+              >
+                {windowSurfacePending && windowSurfacePreference === "material" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
                 {LL.settingsPage.windowSurfaceMaterial()}
               </ToggleGroupItem>
             </ToggleGroup>
@@ -597,13 +753,30 @@ export function SettingsPage() {
           <ToggleGroup
             aria-label={LL.language.label()}
             className="settings-segmented"
+            disabled={settings.pending}
             onValueChange={(values) => void changeLanguage(values)}
             spacing={0}
             value={[locale satisfies LanguagePreference]}
             variant="outline"
           >
-            <ToggleGroupItem value="en">{LL.language.english()}</ToggleGroupItem>
-            <ToggleGroupItem value="zh">{LL.language.simplifiedChinese()}</ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={pendingButtonAction === "language" && pendingLanguage === "en"}
+              value="en"
+            >
+              {pendingButtonAction === "language" && pendingLanguage === "en" ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              {LL.language.english()}
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={pendingButtonAction === "language" && pendingLanguage === "zh"}
+              value="zh"
+            >
+              {pendingButtonAction === "language" && pendingLanguage === "zh" ? (
+                <Spinner data-icon="inline-start" />
+              ) : null}
+              {LL.language.simplifiedChinese()}
+            </ToggleGroupItem>
           </ToggleGroup>
         </SettingsRow>
         <SettingsRow

@@ -720,6 +720,17 @@ impl SystemProxyReconciler {
                 return Err(error);
             }
         };
+        if journal.is_none()
+            && current.system_proxy.phase == SystemProxyPhase::Failed
+            && !observed.is_mish_endpoint(&self.endpoint)
+        {
+            let mut failed = current;
+            failed.system_proxy.observed = observed_state(&observed, &self.endpoint);
+            failed.system_proxy.recovery_actions.clear();
+            failed.system_proxy_enabled = false;
+            *self.status.lock().unwrap() = failed.clone();
+            return Ok(failed);
+        }
         if current.system_proxy.desired
             && journal.is_some()
             && observed.is_mish_endpoint(&self.endpoint)

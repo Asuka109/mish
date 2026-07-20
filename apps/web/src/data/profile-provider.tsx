@@ -63,6 +63,8 @@ interface ProfileContextValue {
     policy: ProfileRefreshPolicy,
   ): Promise<ProfileOperationResult>;
   savePreview(previewId: string): Promise<ProfileOperationResult>;
+  selectedProfileId: string | null;
+  selectProfile(profileId: string): void;
   snapshot: ProfileSnapshotDto | null;
   stopActiveProfile(): Promise<ProfileOperationResult>;
   updateAllProviders(
@@ -73,6 +75,7 @@ interface ProfileContextValue {
     authority: ProviderAuthorityDto,
     providerId: string,
   ): Promise<ProfileOperationResult>;
+  waitForProfileActivation(profileId: string): Promise<ProfileOperationResult>;
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -90,21 +93,58 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
   );
   const [error, setError] = useState<ProfileClientError | null>(null);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(() =>
+    readSelectedProfileId(),
+  );
   const pending = useRef(false);
+  const latestSnapshot = useRef<ProfileSnapshotDto | null>(null);
+  const activationWaiters = useRef(
+    new Map<
+      string,
+      {
+        reject(error: ProfileClientError): void;
+        resolve(activation: ProfileActivationSnapshotDto): void;
+      }
+    >(),
+  );
+
+  const acceptSnapshot = useCallback((nextSnapshot: ProfileSnapshotDto) => {
+    latestSnapshot.current = nextSnapshot;
+    setSnapshot(nextSnapshot);
+    setError(null);
+    setSelectedProfileId((current) => {
+      const available = new Set(nextSnapshot.profiles.map((profile) => profile.id));
+      const next =
+        (current && available.has(current) ? current : null) ??
+        (nextSnapshot.activation.targetProfileId &&
+        available.has(nextSnapshot.activation.targetProfileId)
+          ? nextSnapshot.activation.targetProfileId
+          : null) ??
+        (nextSnapshot.activation.activeProfileId &&
+        available.has(nextSnapshot.activation.activeProfileId)
+          ? nextSnapshot.activation.activeProfileId
+          : null) ??
+        nextSnapshot.profiles.find((profile) => profile.status.active)?.id ??
+        nextSnapshot.profiles[0]?.id ??
+        null;
+      persistSelectedProfileId(next);
+      return next;
+    });
+    const activation = nextSnapshot.activation;
+    if (activation.phase === "pending" || !activation.commandId) return;
+    const waiter = activationWaiters.current.get(activation.commandId);
+    if (!waiter) return;
+    activationWaiters.current.delete(activation.commandId);
+    waiter.resolve(activation);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
-    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot) => {
-      setSnapshot(nextSnapshot);
-      setError(null);
-    });
+    const unsubscribeSnapshots = resolvedClient.subscribeSnapshots(acceptSnapshot);
     resolvedClient
       .getSnapshot({ signal: controller.signal })
-      .then((nextSnapshot) => {
-        setSnapshot(nextSnapshot);
-        setError(null);
-      })
+      .then(acceptSnapshot)
       .catch((failure) => {
         if (controller.signal.aborted) return;
         setError(toProfileClientError(failure));
@@ -113,8 +153,12 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       controller.abort();
       unsubscribeConnection();
       unsubscribeSnapshots();
+      for (const waiter of activationWaiters.current.values()) {
+        waiter.reject(new ProfileClientError("cancelled", "Profile activation wait cancelled"));
+      }
+      activationWaiters.current.clear();
     };
-  }, [resolvedClient]);
+  }, [acceptSnapshot, resolvedClient]);
 
   const runMutation = useCallback(
     async (
@@ -127,14 +171,14 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       setPendingKey(operationKey(operation, profileId));
       setError(null);
       try {
-        setSnapshot(await mutate());
+        acceptSnapshot(await mutate());
         return { ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
         setError(typedError);
         if (operation === "refresh") {
           try {
-            setSnapshot(await resolvedClient.getSnapshot());
+            acceptSnapshot(await resolvedClient.getSnapshot());
           } catch {
             // Keep the previous safe snapshot when reconciliation also fails.
           }
@@ -145,7 +189,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         setPendingKey(null);
       }
     },
-    [resolvedClient],
+    [acceptSnapshot, resolvedClient],
   );
 
   const runPreflight = useCallback(
@@ -223,7 +267,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       setError(null);
       try {
         const editor = await resolvedClient.replacePatches(authority, patches);
-        setSnapshot(await resolvedClient.getSnapshot());
+        acceptSnapshot(await resolvedClient.getSnapshot());
         return { editor, ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
@@ -234,7 +278,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         setPendingKey(null);
       }
     },
-    [resolvedClient],
+    [acceptSnapshot, resolvedClient],
   );
 
   const runActivation = useCallback(
@@ -251,7 +295,11 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       setError(null);
       try {
         const activation = await mutate();
-        setSnapshot((current) => (current ? { ...current, activation } : current));
+        const current = latestSnapshot.current;
+        const alreadyCompleted =
+          current?.activation.commandId === activation.commandId &&
+          current.activation.phase !== "pending";
+        if (current && !alreadyCompleted) acceptSnapshot({ ...current, activation });
         return { ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
@@ -262,15 +310,45 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         setPendingKey(null);
       }
     },
-    [snapshot?.activation.phase],
+    [acceptSnapshot, snapshot?.activation.phase],
   );
+
+  const waitForProfileActivation = useCallback(
+    async (profileId: string): Promise<ProfileOperationResult> => {
+      const activation = latestSnapshot.current?.activation;
+      if (!activation || activation.targetProfileId !== profileId) return conflict();
+      if (activation.phase !== "pending") {
+        return activation.phase === "success"
+          ? { ok: true }
+          : activationFailure(activation.failure);
+      }
+      if (!activation.commandId) return conflict();
+      try {
+        const completed = await new Promise<ProfileActivationSnapshotDto>((resolve, reject) => {
+          activationWaiters.current.set(activation.commandId!, { reject, resolve });
+        });
+        return completed.phase === "success" ? { ok: true } : activationFailure(completed.failure);
+      } catch (failure) {
+        return { error: toProfileClientError(failure), ok: false };
+      }
+    },
+    [],
+  );
+
+  const selectProfile = useCallback((profileId: string) => {
+    if (!latestSnapshot.current?.profiles.some((profile) => profile.id === profileId)) return;
+    persistSelectedProfileId(profileId);
+    setSelectedProfileId(profileId);
+  }, []);
 
   const value = useMemo<ProfileContextValue>(
     () => ({
-      activateProfile: (profileId) =>
-        runActivation("activate", () =>
+      activateProfile: (profileId) => {
+        selectProfile(profileId);
+        return runActivation("activate", () =>
           resolvedClient.activateProfile(crypto.randomUUID(), profileId),
-        ),
+        );
+      },
       cancelActivation: () => {
         const commandId = snapshot?.activation.commandId;
         if (!commandId) return Promise.resolve(conflict());
@@ -302,6 +380,8 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         ),
       savePreview: (previewId) =>
         runMutation("save", undefined, () => resolvedClient.savePreview(previewId)),
+      selectedProfileId,
+      selectProfile,
       snapshot,
       stopActiveProfile: () =>
         runActivation("stop", () => resolvedClient.stopActiveProfile(crypto.randomUUID())),
@@ -309,6 +389,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         runProviderMutation(kind, () => resolvedClient.updateAllProviders(authority, kind)),
       updateProvider: (authority, providerId) =>
         runProviderMutation(providerId, () => resolvedClient.updateProvider(authority, providerId)),
+      waitForProfileActivation,
     }),
     [
       connection,
@@ -321,7 +402,10 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       replacePatches,
       runPreflight,
       runProviderMutation,
+      selectedProfileId,
+      selectProfile,
       snapshot,
+      waitForProfileActivation,
     ],
   );
 
@@ -349,7 +433,33 @@ function conflict() {
   } as const;
 }
 
+function activationFailure(failure: ProfileActivationSnapshotDto["failure"]) {
+  return {
+    error: new ProfileClientError("remote", `Profile activation failed: ${failure ?? "unknown"}`),
+    ok: false,
+  } as const;
+}
+
 function toProfileClientError(error: unknown) {
   if (error instanceof ProfileClientError) return error;
   return new ProfileClientError("unknown", "Unknown profile operation failure");
+}
+
+const selectedProfileStorageKey = "mish.selected-profile-id";
+
+function readSelectedProfileId() {
+  try {
+    return window.localStorage.getItem(selectedProfileStorageKey);
+  } catch {
+    return null;
+  }
+}
+
+function persistSelectedProfileId(profileId: string | null) {
+  try {
+    if (profileId) window.localStorage.setItem(selectedProfileStorageKey, profileId);
+    else window.localStorage.removeItem(selectedProfileStorageKey);
+  } catch {
+    // Selection remains available for the current session when storage is unavailable.
+  }
 }

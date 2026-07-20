@@ -18,13 +18,20 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  Spinner,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@mish/ui";
-import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useAppearance, type AppearancePreference } from "../appearance";
+import { useCaptureCommand } from "../data/capture-command";
 import { useProduct } from "../data/product-provider";
 import { useOptionalProfiles } from "../data/profile-provider";
 import { useOptionalSettings } from "../data/settings-provider";
@@ -115,11 +122,11 @@ function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
 }
 
 function ProxyControlButton() {
-  const { isCommandPending, isCommandSupported, setCapture, snapshot } = useProduct();
+  const { isCommandSupported, snapshot } = useProduct();
+  const { pending, setCapture } = useCaptureCommand();
   const { LL } = useI18nContext();
   const runtime = snapshot?.runtime;
   const active = runtime ? runtime.systemProxyEnabled || runtime.tunEnabled : false;
-  const pending = isCommandPending("capture");
   const commandSupported = isCommandSupported("capture");
   const systemProxyAvailable = snapshot
     ? isCaptureCapabilityAvailable(snapshot.adapterKind, snapshot.capabilities.systemProxy)
@@ -169,6 +176,7 @@ function ProxyControlButton() {
 
   return (
     <button
+      aria-busy={pending}
       aria-describedby={actionDescriptionId}
       aria-label={
         needsAttention
@@ -197,7 +205,7 @@ function ProxyControlButton() {
       {phase === "healthy" ? <StatusShimmer active /> : null}
       {pending ? (
         <span className="proxy-control-state proxy-control-default">
-          <Power aria-hidden="true" />
+          <Spinner />
           <span className="proxy-control-label">{LL.common.pending()}</span>
         </span>
       ) : needsAttention ? (
@@ -311,89 +319,98 @@ function ProfileMenu() {
     );
   }
 
-  const managedActivationSupported = profiles?.snapshot?.capabilities.activation === "supported";
   const fixtureSelectionSupported =
     snapshot.adapterKind === "fixture" && isCommandSupported("profile");
-  const managedProfiles = managedActivationSupported
-    ? profiles.snapshot!.profiles
-    : snapshot.profiles;
-  const managedActiveProfileId =
-    profiles?.snapshot?.activation.activeProfileId ?? snapshot.activeProfileId;
-  const activeProfile = managedProfiles.find((profile) => profile.id === managedActiveProfileId);
+  const savedProfiles = profiles?.snapshot?.profiles ?? [];
+  const useSavedProfiles =
+    snapshot.adapterKind === "rpc" &&
+    profiles?.connection.phase === "connected" &&
+    !profiles.connection.stale &&
+    savedProfiles.length > 0;
+  const managedProfiles = useSavedProfiles ? savedProfiles : snapshot.profiles;
+  const selectedProfileId = useSavedProfiles
+    ? profiles?.selectedProfileId
+    : snapshot.activeProfileId;
+  const selectedProfile = managedProfiles.find((profile) => profile.id === selectedProfileId);
   const statusProfile = snapshot.profiles.find(
     (profile) => profile.id === snapshot.activeProfileId,
   );
-  const activeLabel = activeProfile?.label ?? statusProfile?.label ?? LL.profiles.safeStopped();
+  const displayedProfile =
+    selectedProfile ??
+    (snapshot.adapterKind === "rpc" && savedProfiles.length === 1
+      ? savedProfiles[0]
+      : statusProfile);
+  const activeLabel = displayedProfile?.label ?? LL.profiles.safeStopped();
 
-  const profilePending = managedActivationSupported
-    ? (profiles?.isPending("activate") ?? false)
-    : isCommandPending("profile");
-  const profileSupported = managedActivationSupported || fixtureSelectionSupported;
+  const profilePending = !useSavedProfiles && isCommandPending("profile");
+  const profileSupported = useSavedProfiles || fixtureSelectionSupported;
   const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, profileSupported);
 
   function selectProfile(profileId: string) {
-    if (managedActivationSupported) {
-      void profiles?.activateProfile(profileId);
+    if (useSavedProfiles) {
+      profiles?.selectProfile(profileId);
     } else if (fixtureSelectionSupported) {
       void setActiveProfile(profileId);
     }
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
+    <Select
+      onValueChange={(profileId) =>
+        typeof profileId === "string" ? selectProfile(profileId) : undefined
+      }
+      value={selectedProfile?.id ?? ""}
+    >
+      <SelectTrigger
+        aria-busy={profilePending}
         aria-describedby={actionDescriptionId}
         aria-label={LL.toolbar.switchProfile({ profile: activeLabel })}
-        className="toolbar-button profile-menu-trigger"
-        disabled={
-          profilePending ||
-          !profileSupported ||
-          !managedProfiles.some((profile) => profile.id !== managedActiveProfileId)
-        }
+        className="profile-select-trigger"
+        disabled={profilePending || !profileSupported || managedProfiles.length === 0}
       >
-        <FileText aria-hidden="true" />
+        {profilePending ? <Spinner data-icon="inline-start" /> : <FileText aria-hidden="true" />}
         <span className="user-authored-label">{activeLabel}</span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="profile-menu" sideOffset={8}>
-        <DropdownMenuRadioGroup onValueChange={selectProfile} value={activeProfile?.id ?? ""}>
-          <DropdownMenuLabel className="profile-menu-label">
-            {LL.toolbar.profiles()}
-          </DropdownMenuLabel>
+      </SelectTrigger>
+      <SelectContent align="end" className="profile-menu" sideOffset={8}>
+        <SelectGroup>
           {managedProfiles.map((profile) => (
-            <DropdownMenuRadioItem
-              className="profile-menu-item"
-              disabled={profilePending}
-              key={profile.id}
-              value={profile.id}
-            >
+            <SelectItem className="profile-menu-item" key={profile.id} value={profile.id}>
               <span className="user-authored-label">{profile.label}</span>
-            </DropdownMenuRadioItem>
+            </SelectItem>
           ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }
 
 function LanguageMenu() {
   const { LL, locale, setLocale } = useI18nContext();
   const settings = useOptionalSettings();
+  const [pending, setPending] = useState(false);
   const currentLanguage = locale === "zh" ? LL.language.simplifiedChinese() : LL.language.english();
 
   async function changeLocale(value: string) {
     if (!isLocale(value)) return;
-    if (settings && !(await settings.setLanguage(value))) return;
-    persistLocale(value);
-    setLocale(value);
+    setPending(true);
+    try {
+      if (settings && !(await settings.setLanguage(value))) return;
+      persistLocale(value);
+      setLocale(value);
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        aria-busy={pending}
         aria-label={LL.language.current({ language: currentLanguage })}
         className="toolbar-button language-menu-trigger"
+        disabled={pending}
       >
-        <Translate aria-hidden="true" />
+        {pending ? <Spinner data-icon="icon-only" /> : <Translate aria-hidden="true" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="language-menu" sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={(value) => void changeLocale(value)} value={locale}>
@@ -412,7 +429,7 @@ function LanguageMenu() {
 }
 
 function AppearanceMenu() {
-  const { preference, resolvedAppearance, setPreference } = useAppearance();
+  const { appearancePending, preference, resolvedAppearance, setPreference } = useAppearance();
   const { LL } = useI18nContext();
   const currentAppearance = LL.appearance[preference]();
   const AppearanceIcon = resolvedAppearance === "dark" ? Moon : Sun;
@@ -425,10 +442,12 @@ function AppearanceMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
+        aria-busy={appearancePending}
         aria-label={LL.appearance.current({ appearance: currentAppearance })}
         className="toolbar-button appearance-menu-trigger"
+        disabled={appearancePending}
       >
-        <AppearanceIcon aria-hidden="true" />
+        {appearancePending ? <Spinner /> : <AppearanceIcon aria-hidden="true" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="appearance-menu" sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={changeAppearance} value={preference}>
@@ -460,6 +479,7 @@ function Toolbar() {
     <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
       <span className="toolbar-title">{title}</span>
       <div className="toolbar-actions">
+        <ProfileMenu />
         {runtimeBadge ? (
           <Tooltip>
             <TooltipTrigger className="runtime-data-badge">{runtimeBadge.label}</TooltipTrigger>
@@ -468,7 +488,6 @@ function Toolbar() {
         ) : null}
         <AppearanceMenu />
         <LanguageMenu />
-        <ProfileMenu />
         <NotificationBubble />
       </div>
     </header>

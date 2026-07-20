@@ -417,7 +417,7 @@ type RootTranslation = {
 			description: string
 			feedback: {
 				/**
-				 * S​t​a​r​t​ ​a​n​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​,​ ​t​h​e​n​ ​t​e​s​t​ ​t​h​e​ ​l​i​s​t​e​n​e​r​ ​a​g​a​i​n​.
+				 * S​t​a​r​t​ ​t​h​e​ ​p​r​o​x​y​ ​w​i​t​h​ ​a​ ​v​a​l​i​d​ ​P​r​o​f​i​l​e​,​ ​t​h​e​n​ ​t​e​s​t​ ​t​h​e​ ​l​i​s​t​e​n​e​r​ ​a​g​a​i​n​.
 				 */
 				coreUnhealthy: string
 				/**
@@ -1201,7 +1201,7 @@ type RootTranslation = {
 		 */
 		systemProxyApplied: string
 		/**
-		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​w​a​s​ ​n​o​t​ ​e​n​a​b​l​e​d​ ​b​e​c​a​u​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​M​i​h​o​m​o​ ​c​o​r​e​ ​a​r​e​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​w​a​s​ ​n​o​t​ ​e​n​a​b​l​e​d​ ​b​e​c​a​u​s​e​ ​M​i​h​o​m​o​ ​C​o​r​e​ ​d​i​d​ ​n​o​t​ ​s​t​a​r​t​ ​w​i​t​h​ ​t​h​e​ ​s​e​l​e​c​t​e​d​ ​p​r​o​f​i​l​e​.
 		 */
 		systemProxyCoreFailure: string
 		/**
@@ -1244,6 +1244,10 @@ type RootTranslation = {
 		 * m​a​c​O​S​ ​d​i​d​ ​n​o​t​ ​a​l​l​o​w​ ​t​h​e​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​c​h​a​n​g​e​.​ ​N​o​ ​s​u​c​c​e​s​s​ ​w​a​s​ ​r​e​c​o​r​d​e​d​.
 		 */
 		systemProxyPermissionFailure: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​d​i​f​f​e​r​s​ ​f​r​o​m​ ​M​i​s​h​'​s​ ​r​e​q​u​e​s​t​e​d​ ​s​t​a​t​e​.​ ​R​e​p​a​i​r​ ​r​e​q​u​i​r​e​s​ ​a​ ​r​u​n​n​i​n​g​ ​M​i​h​o​m​o​ ​c​o​r​e​;​ ​k​e​e​p​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​O​S​ ​s​e​t​t​i​n​g​s​ ​t​o​ ​c​l​e​a​r​ ​t​h​i​s​ ​r​e​c​o​v​e​r​y​ ​s​t​a​t​e​ ​b​e​f​o​r​e​ ​s​t​a​r​t​i​n​g​ ​t​h​e​ ​p​r​o​x​y​ ​a​g​a​i​n​.
+		 */
+		systemProxyRepairRequiresCore: string
 		/**
 		 * A​u​t​o​m​a​t​i​c​ ​o​r​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​a​c​t​i​v​e​.​ ​M​i​s​h​ ​l​e​f​t​ ​t​h​e​m​ ​u​n​c​h​a​n​g​e​d​.
 		 */
@@ -4221,7 +4225,7 @@ export type TranslationFunctions = {
 			description: () => LocalizedString
 			feedback: {
 				/**
-				 * Start an active Profile, then test the listener again.
+				 * Start the proxy with a valid Profile, then test the listener again.
 				 */
 				coreUnhealthy: () => LocalizedString
 				/**
@@ -4993,7 +4997,7 @@ export type TranslationFunctions = {
 		 */
 		systemProxyApplied: () => LocalizedString
 		/**
-		 * System Proxy was not enabled because the active profile and Mihomo core are unavailable.
+		 * System Proxy was not enabled because Mihomo Core did not start with the selected profile.
 		 */
 		systemProxyCoreFailure: () => LocalizedString
 		/**
@@ -5036,6 +5040,10 @@ export type TranslationFunctions = {
 		 * macOS did not allow the System Proxy change. No success was recorded.
 		 */
 		systemProxyPermissionFailure: () => LocalizedString
+		/**
+		 * System Proxy differs from Mish's requested state. Repair requires a running Mihomo core; keep the current OS settings to clear this recovery state before starting the proxy again.
+		 */
+		systemProxyRepairRequiresCore: () => LocalizedString
 		/**
 		 * Automatic or authenticated proxy settings are active. Mish left them unchanged.
 		 */
