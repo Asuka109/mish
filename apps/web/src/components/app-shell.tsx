@@ -1,4 +1,3 @@
-import { CaretDown } from "@phosphor-icons/react/CaretDown";
 import { Circle } from "@phosphor-icons/react/Circle";
 import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
 import { FileText } from "@phosphor-icons/react/FileText";
@@ -233,20 +232,19 @@ function Sidebar() {
             <span>{getNavigationLabel(LL, key)}</span>
           </NavLink>
         ))}
-        <NavLink
-          aria-label={LL.navigation.settings()}
-          className={({ isActive }) => `nav-item settings-link${isActive ? " is-active" : ""}`}
-          title={LL.navigation.settings()}
-          to="/settings"
-        >
-          <GearSix aria-hidden="true" />
-          <span>{LL.navigation.settings()}</span>
-        </NavLink>
+        <div className="sidebar-bottom-items">
+          <NavLink
+            aria-label={LL.navigation.settings()}
+            className={({ isActive }) => `nav-item settings-link${isActive ? " is-active" : ""}`}
+            title={LL.navigation.settings()}
+            to="/settings"
+          >
+            <GearSix aria-hidden="true" />
+            <span>{LL.navigation.settings()}</span>
+          </NavLink>
+          <ProxyControlButton />
+        </div>
       </nav>
-
-      <div className="sidebar-status-area">
-        <ProxyControlButton />
-      </div>
     </SurfaceScope>
   );
 }
@@ -269,7 +267,8 @@ function ProfileMenu() {
       : snapshot.profiles;
   const managedActiveProfileId =
     profiles?.snapshot?.activation.activeProfileId ?? snapshot.activeProfileId;
-  const activeProfile = managedProfiles.find((profile) => profile.id === managedActiveProfileId);
+  const activeProfile =
+    managedProfiles.find((profile) => profile.id === managedActiveProfileId) ?? managedProfiles[0];
   const activeLabel = activeProfile?.label ?? LL.profiles.safeStopped();
 
   const profilePending = profiles?.isPending("activate") ?? false;
@@ -290,7 +289,6 @@ function ProfileMenu() {
       >
         <FileText aria-hidden="true" />
         <span className="user-authored-label">{activeLabel}</span>
-        <CaretDown aria-hidden="true" weight="bold" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="profile-menu" sideOffset={8}>
         <DropdownMenuRadioGroup
@@ -335,8 +333,6 @@ function LanguageMenu() {
         className="toolbar-button language-menu-trigger"
       >
         <Translate aria-hidden="true" />
-        <span>{locale === "zh" ? "中" : "EN"}</span>
-        <CaretDown aria-hidden="true" weight="bold" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="language-menu" sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={(value) => void changeLocale(value)} value={locale}>
@@ -372,7 +368,6 @@ function AppearanceMenu() {
         className="toolbar-button appearance-menu-trigger"
       >
         <AppearanceIcon aria-hidden="true" />
-        <CaretDown aria-hidden="true" weight="bold" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="appearance-menu" sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={changeAppearance} value={preference}>
@@ -398,11 +393,7 @@ function Toolbar() {
   const runtimeBadge =
     snapshot?.adapterKind === "fixture"
       ? { description: LL.toolbar.demoDescription(), label: LL.toolbar.demoMode() }
-      : snapshot?.adapterKind === "rpc"
-        ? { description: LL.toolbar.localServiceDescription(), label: LL.toolbar.localService() }
-        : snapshot?.adapterKind === "native"
-          ? { description: LL.toolbar.deviceDescription(), label: LL.toolbar.deviceMode() }
-          : null;
+      : null;
 
   return (
     <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
