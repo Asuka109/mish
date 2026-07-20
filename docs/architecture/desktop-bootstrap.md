@@ -13,10 +13,13 @@ execution. It composes narrow macOS adapters into the shared runtime. The TUN
 adapter currently exposes only the truthful unsigned/unpackaged non-production
 boundary defined by [`macos-tun-helper.md`](macos-tun-helper.md).
 
-An ordinary browser has no Tauri IPC surface. It continues to construct
+An ordinary browser has no Tauri IPC surface. Standalone Vite startup constructs
 fixture clients, performs no startup request, and labels all fixture values and
-actions as demo state. The Tauri WebView alone constructs the Status, Profile,
-Traffic, and Events RPC adapters after validating its private bootstrap payload.
+actions as demo state. A browser explicitly launched from the macOS status-bar
+menu instead loads the same offline bundle from the desktop bridge and constructs
+the Status, Profile, Traffic, Events, Diagnostics, and Settings RPC adapters after
+an authenticated same-origin bootstrap. The Tauri WebView uses a separate private
+IPC bootstrap for those adapters.
 
 ## Local resource flow
 
@@ -27,7 +30,9 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
 4. Tauri's embedded asset resolver serves exact assets and falls back to
    `index.html` for an unknown route so React Router can handle direct links.
 5. During development, the shell explicitly loads `http://127.0.0.1:4173`, and
-   Vite supplies the equivalent SPA fallback.
+   Vite supplies the equivalent SPA fallback. The development command first
+   builds `apps/web/dist` so the bridge can serve a deterministic browser-client
+   artifact through Tauri's asset resolver while the WebView uses Vite HMR.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
    token, resolves Tauri's application-data directory, constructs the private
    profile repository, runtime root, and mode-`0600` System Proxy recovery
@@ -83,6 +88,38 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
     loop, restores a still-confirmed
     Mish-owned System Proxy state, then the coordinator closes the active Status,
     Traffic, and Events sources, stops the core, and finally closes the RPC server.
+
+## Browser-client launch flow
+
+The bridge exposes the bundled Web artifact only on its ephemeral IPv4-loopback
+origin. Exact `GET` and `HEAD` assets use Tauri's resolver, unknown extensionless
+paths fall back to `index.html`, and missing asset filenames return `404`. Asset
+responses disable storage and referrers, disallow framing and privileged browser
+features, restrict scripts, styles, fonts, images, and WebSocket connections to
+the local application origin, and never depend on a CDN.
+
+Each `Open Browser Client` action creates a fresh 256-bit lowercase hexadecimal
+launch nonce, stores only the latest nonce in process memory, and places it in the
+URL fragment. The actual RPC token and endpoint never appear in the URL. Browser
+startup posts the nonce to `/browser-bootstrap` from the same origin, and the
+bridge validates the loopback peer, exact Host, exact Origin, and nonce in
+constant time before consuming it. A successful nonce cannot be replayed. The
+response is non-cacheable and contains the RPC bootstrap in its body; the Web
+client clears the fragment immediately and retains the RPC token only in memory.
+A successful exchange also establishes a scoped HttpOnly, SameSite session
+cookie whose value is the launch nonce, not the RPC token. A non-secret
+`sessionStorage` marker tells the same browser tab to request a fresh in-memory
+bootstrap after navigation or refresh. The bridge accepts only a bounded set of
+process-local browser sessions and applies the same loopback, Host, and Origin
+checks to every refresh. If that process session is gone, the marker is cleared
+and the page cannot claim an authenticated RPC runtime.
+
+The browser client shares the desktop runtime but cannot acquire Tauri-only
+capabilities. Native local-file import, support-bundle export, local backup and
+restore, native Sidebar material, and native window lifecycle are reported as
+unavailable. HTTPS profile import and all authenticated RPC operations continue
+to use the same desktop application services and typed capability checks as the
+WebView.
 
 Managed Core recovery precedes every activation and fixed-listener readiness
 probe. Startup never restores the recorded profile automatically: it terminates
@@ -143,11 +180,10 @@ no Web-supplied path; commit accepts only the retained preview ID and a closed
 conflict policy. The complete privacy, validation, and transaction contract is
 defined in [`local-backup-restore.md`](local-backup-restore.md).
 
-If a later slice moves frontend hosting to the local HTTP bridge, the host must
-serve exact bundled assets, return `index.html` for unknown non-asset `GET` and
-`HEAD` paths, and preserve ordinary `404` responses for missing asset filenames.
-That change belongs to the bridge's HTTP interface and must not be recreated in
-the Tauri shell.
+The local HTTP bridge hosts the browser-client artifact through the Tauri asset
+resolver. This ownership keeps exact asset lookup and SPA fallback in one bridge
+interface instead of recreating a second filesystem or static-file server in the
+Tauri shell.
 
 ## Threat model
 
@@ -219,8 +255,8 @@ claim that process memory is a secure enclave.
 - The macOS shell has a native status-bar menu backed by the same runtime host,
   capture reconciler, and profile activation coordinator as authenticated RPC.
   It deliberately links to Routes instead of duplicating the complete policy-group
-  child tree, and the ordinary browser client remains unavailable because the
-  bridge does not host the product bundle.
+  child tree, and it opens the real browser client through a one-time same-origin
+  bootstrap without exposing the RPC token in a URL.
 - The macOS application bundle uses the stable identifier
   `com.asuka109.mish`, embeds the pinned Apple Silicon Mihomo resource, and can
   be ad-hoc signed for main-branch testing. Developer ID signing and

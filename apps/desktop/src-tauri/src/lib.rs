@@ -10,15 +10,16 @@ use std::{
 };
 
 use mish_bridge::{
-    ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
-    DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES, LocalBackupError, LocalBackupPreview,
-    LocalBackupScope, LocalBackupService, LocalRestoreConflictResolution, LocalRestorePreview,
-    LocalRestoreResult, LoopbackServerConfig, LoopbackServerHandle, ManagedCoreOwnership,
-    ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationManager,
-    PreparedLocalBackup, PreparedLocalRestore, PreparedSupportBundle, ProfileActivationCoordinator,
-    RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
-    SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
-    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
+    ActivationTiming, BrowserAsset, BrowserAssetSource, DesktopMihomoProcess,
+    DesktopMihomoProcessConfig, DesktopProfileService, DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES,
+    LocalBackupError, LocalBackupPreview, LocalBackupScope, LocalBackupService,
+    LocalRestoreConflictResolution, LocalRestorePreview, LocalRestoreResult, LoopbackServerConfig,
+    LoopbackServerHandle, ManagedCoreOwnership, ManagedMihomoResolver, ManagedRuntimeLease,
+    ManagedRuntimePolicy, MihomoActivationManager, PreparedLocalBackup, PreparedLocalRestore,
+    PreparedSupportBundle, ProfileActivationCoordinator, RealManagedProcessPlatform,
+    ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,
+    SupportBundlePreview, SupportBundleService, compose_desktop_runtime_with_capture,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsNetworkDnsPlatform,
@@ -64,6 +65,20 @@ struct RuntimeBootstrap {
 
 struct MainWindowStartup {
     reveal_on_ready: bool,
+}
+
+struct TauriBrowserAssetSource(tauri::AppHandle);
+
+impl BrowserAssetSource for TauriBrowserAssetSource {
+    fn get(&self, path: &str) -> Option<BrowserAsset> {
+        self.0
+            .asset_resolver()
+            .get(path.to_owned())
+            .map(|asset| BrowserAsset {
+                bytes: asset.bytes,
+                content_type: asset.mime_type,
+            })
+    }
 }
 
 #[derive(Clone)]
@@ -672,23 +687,29 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             },
         ));
         activation.start_scheduler().await;
-        let status_bar_state =
-            status_bar::StatusBarState::new(runtime_host.clone(), activation.clone());
         let bridge = start_loopback_server_with_runtime_host_and_lifecycle(
             LoopbackServerConfig {
                 allowed_origins: allowed_origins(tauri::is_dev()),
                 auth_token: auth_token.clone(),
                 bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+                browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
                 max_message_bytes: 1_048_576,
                 profile_activation: Some(activation.clone()),
                 profile_service: Some(profile_service.clone()),
                 settings_service: Some(settings_service.clone()),
             },
-            runtime_host,
+            runtime_host.clone(),
             lifecycle_source,
         )
         .await
         .map_err(io::Error::other)?;
+        let status_bar_state = status_bar::StatusBarState::new(
+            runtime_host,
+            activation.clone(),
+            bridge
+                .browser_client()
+                .ok_or_else(|| io::Error::other("browser client host is unavailable"))?,
+        );
         Ok::<_, io::Error>((bridge, status_bar_state, support_bundle, activation))
     })?;
     let (bridge, status_bar_state, support_bundle, activation) = bridge;

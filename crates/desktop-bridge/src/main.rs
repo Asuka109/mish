@@ -43,6 +43,7 @@ async fn main() -> Result<(), String> {
             allowed_origins: arguments.allow_origin,
             auth_token,
             bind: arguments.bind,
+            browser_assets: None,
             max_message_bytes: arguments.max_message_bytes,
             profile_activation: None,
             profile_service: None,

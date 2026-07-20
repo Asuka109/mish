@@ -153,6 +153,37 @@ async function flushMicrotasks() {
 afterEach(() => vi.useRealTimers());
 
 describe("RpcProfileClient", () => {
+  it("masks native local import for a browser RPC client", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcProfileClient(rpc, null);
+    const snapshots: ProfileSnapshotDto[] = [];
+    client.subscribeSnapshots((snapshot) => snapshots.push(snapshot));
+
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: profileSnapshot(null), subscriptionId: "profiles-browser" },
+    });
+    await flushMicrotasks();
+
+    expect(snapshots.at(-1)?.capabilities.localFileImport).toBe("unavailable");
+    await expect(client.preflightLocal()).rejects.toMatchObject({ code: "unsupported" });
+
+    const refreshPromise = client.refreshProfile("profile-a");
+    const refresh = await waitForRequest(transport, 2);
+    transport.respond({ id: refresh.id, jsonrpc: "2.0", result: profileSnapshot(null) });
+    expect((await refreshPromise).capabilities.localFileImport).toBe("unavailable");
+    client.dispose();
+    rpc.dispose();
+  });
+
   it("sends only fixed refresh policy and provider authority fields", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({

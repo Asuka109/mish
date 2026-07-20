@@ -7,7 +7,7 @@ desktop WebView. It consumes shared components from `packages/ui/` and CSS
 tokens from `packages/design-tokens/`. It does not import source, fixtures, or
 runtime assets from `sketch/`.
 
-Ordinary browser startup uses `FixtureStatusClient`, `FixtureProfileClient`, and
+Standalone Vite browser startup uses `FixtureStatusClient`, `FixtureProfileClient`, and
 `FixtureTrafficClient`, implementations of the independent typed product
 boundaries. Status commands update detached in-memory DTO snapshots only;
 Traffic is read-only and derives Closed rows locally. Profile mutations,
@@ -19,8 +19,10 @@ executed.
 `RpcStatusClient`, `RpcProfileClient`, and `RpcTrafficClient` are available only
 for explicit composition with an injected `RpcClient`. Runtime schemas reject
 malformed results and notifications before they enter product state. The Tauri
-WebView composes them from the validated process-only desktop bootstrap. An
-ordinary browser has no endpoint or token bootstrap and remains fixture-backed.
+WebView composes them from the validated process-only desktop bootstrap. A
+browser explicitly launched by the desktop status-bar menu composes the same
+clients after exchanging a one-time same-origin nonce; a standalone browser has
+no launch nonce and remains fixture-backed.
 
 English and Simplified Chinese UI dictionaries are bundled with the production
 artifact and exposed through generated `typesafe-i18n` functions. Locale changes
@@ -42,9 +44,9 @@ The six stable destinations are:
 
 React Router owns these client routes. Development and Vite preview use SPA
 fallback behavior. Tauri's embedded-asset resolver also returns the bundled
-`index.html` for unknown paths. Any future local HTTP asset host must preserve
-that behavior for unknown non-asset paths so a direct URL or browser refresh
-resolves before React Router takes over.
+`index.html` for unknown paths. The local browser host preserves that behavior
+for unknown non-asset paths while returning `404` for missing asset filenames,
+so a direct URL or browser refresh resolves before React Router takes over.
 
 The application shell, platform bootstrap, first-frame reveal handshake, and
 default `/status` route remain in the eager entry path. The other route pages
@@ -199,10 +201,11 @@ Automated tests cover:
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events;
-- browser startup isolation from desktop IPC, strict loopback endpoint
-  validation, and separation of the authentication token from the WebSocket
-  URL; and
-- desktop token generation plus development/production Origin allowlists.
+- standalone browser isolation from desktop IPC, explicit bridge-launched
+  browser composition, one-time nonce consumption, strict Host/Origin and
+  loopback endpoint validation, HttpOnly refresh-session recovery, and separation
+  of both the launch nonce and RPC authentication token from the WebSocket URL;
+- desktop token generation plus development/production Origin allowlists; and
 - the complete macOS P0 fixture journey across local and HTTPS import,
   validation, activation, Rule/Global/Direct confirmation, System Proxy,
   Status/Routes/Traffic/Events observation, restart, failed activation rollback,
@@ -229,14 +232,21 @@ Before a visible production change is accepted, verify:
 - Services at three columns and one column; and
 - no browser console errors, unexpected runtime requests, or CDN assets.
 
+For a real-client check, launch the desktop shell, choose `Open Browser Client`
+from the status-bar menu, and confirm that Status reports RPC-backed state, a
+refresh of every deep route remains authenticated, and native-only actions such
+as local-file import, backup/restore, support-bundle export, and Sidebar material
+remain unavailable. A direct standalone Vite launch must continue to show demo
+state and make no bootstrap request.
+
 ## Desktop-bridge replacement gate
 
 The desktop bootstrap now provides an explicit endpoint and ephemeral secret,
-while the initial desktop bridge covers loopback binding, strict Host/Origin checks,
+while the desktop bridge covers loopback binding, strict Host/Origin checks,
 authentication, message and subscription bounds, JSON-RPC framing, a sparse
-validated Status snapshot, and explicit process lifecycle. Tauri embeds and
-serves the offline bundle from its own application protocol; a future same-origin
-HTTP host remains a desktop-bridge interface change.
+validated Status snapshot, and explicit process lifecycle. Tauri embeds the
+offline bundle for its application protocol, and the bridge serves that same
+resolver-backed artifact from its authenticated browser-client origin.
 
 The desktop gate is open for Controller-backed Status and Traffic only after a
 repository-owned profile completes managed activation. Tauri starts safely

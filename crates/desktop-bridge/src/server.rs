@@ -1,19 +1,22 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
-    sync::Arc,
+    path::Path,
+    sync::{Arc, Mutex},
 };
 
 use axum::{
     Router,
+    body::Body,
     extract::{ConnectInfo, State, WebSocketUpgrade},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, Method, StatusCode, Uri, header},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use mish_runtime::{MishRuntime, PlatformLifecycleEventSource};
-use mish_settings::SettingsService;
+use mish_settings::{SettingsAdapterKind, SettingsAvailability, SettingsService};
 use serde_json::json;
+use subtle::ConstantTimeEq;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
 use crate::lifecycle::spawn_lifecycle_coordination;
@@ -25,15 +28,61 @@ pub struct LoopbackServerConfig {
     pub allowed_origins: Vec<String>,
     pub auth_token: String,
     pub bind: SocketAddr,
+    pub browser_assets: Option<Arc<dyn BrowserAssetSource>>,
     pub max_message_bytes: usize,
     pub profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     pub profile_service: Option<Arc<DesktopProfileService>>,
     pub settings_service: Option<Arc<SettingsService>>,
 }
 
+pub struct BrowserAsset {
+    pub bytes: Vec<u8>,
+    pub content_type: String,
+}
+
+pub trait BrowserAssetSource: Send + Sync {
+    fn get(&self, path: &str) -> Option<BrowserAsset>;
+}
+
+#[derive(Clone)]
+pub struct BrowserClientHandle {
+    address: SocketAddr,
+    pending_nonce: Arc<Mutex<Option<String>>>,
+}
+
+impl BrowserClientHandle {
+    pub fn issue_launch_url(&self, nonce: String) -> Result<String, String> {
+        if nonce.len() != 64
+            || !nonce
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err("Browser launch nonce must be 32-byte hexadecimal data".into());
+        }
+        *self
+            .pending_nonce
+            .lock()
+            .map_err(|_| "Browser launch state is unavailable")? = Some(nonce.clone());
+        Ok(format!(
+            "http://{}/#mish-browser-bootstrap={nonce}",
+            self.address
+        ))
+    }
+}
+
+struct BrowserHttpState {
+    assets: Arc<dyn BrowserAssetSource>,
+    auth_token: String,
+    pending_nonce: Arc<Mutex<Option<String>>>,
+    rpc_url: String,
+    sessions: Arc<Mutex<VecDeque<String>>>,
+    settings_service: Arc<SettingsService>,
+}
+
 struct HttpState {
     allowed_hosts: HashSet<String>,
     allowed_origins: HashSet<String>,
+    browser: Option<BrowserHttpState>,
     protocol: ProtocolState,
     max_message_bytes: usize,
 }
@@ -46,9 +95,14 @@ pub struct LoopbackServerHandle {
     profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     shutdown: Option<oneshot::Sender<()>>,
     runtime: DesktopRuntimeHost,
+    browser_client: Option<BrowserClientHandle>,
 }
 
 impl LoopbackServerHandle {
+    pub fn browser_client(&self) -> Option<BrowserClientHandle> {
+        self.browser_client.clone()
+    }
+
     pub async fn shutdown(mut self) {
         if let Some(shutdown) = self.audit_shutdown.take() {
             let _ = shutdown.send(());
@@ -90,6 +144,9 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     if config.auth_token.len() < 16 {
         return Err("MISH_BRIDGE_TOKEN must contain at least 16 characters".into());
     }
+    if config.browser_assets.is_some() && config.settings_service.is_none() {
+        return Err("Browser client hosting requires the Settings service".into());
+    }
     if let (Some(profiles), Some(settings)) = (&config.profile_service, &config.settings_service)
         && !profiles
             .mutation_authority()
@@ -115,19 +172,32 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     if matches!(address.ip(), IpAddr::V6(_)) {
         allowed_hosts.insert(format!("[::1]:{}", address.port()));
     }
-    let allowed_origins = if config.allowed_origins.is_empty() {
-        HashSet::from([
-            format!("http://{authority}"),
-            format!("http://localhost:{}", address.port()),
-        ])
-    } else {
-        config.allowed_origins.into_iter().collect()
-    };
+    let mut allowed_origins = HashSet::from([
+        format!("http://{authority}"),
+        format!("http://localhost:{}", address.port()),
+    ]);
+    allowed_origins.extend(config.allowed_origins);
     let profile_activation = config.profile_activation.clone();
     let settings_service = config.settings_service.clone();
+    let pending_browser_nonce = Arc::new(Mutex::new(None));
+    let browser = config.browser_assets.map(|assets| BrowserHttpState {
+        assets,
+        auth_token: config.auth_token.clone(),
+        pending_nonce: pending_browser_nonce.clone(),
+        rpc_url: format!("ws://{authority}/rpc"),
+        sessions: Arc::new(Mutex::new(VecDeque::new())),
+        settings_service: settings_service
+            .clone()
+            .expect("browser Settings service checked before server startup"),
+    });
+    let browser_client = browser.as_ref().map(|_| BrowserClientHandle {
+        address,
+        pending_nonce: pending_browser_nonce,
+    });
     let state = Arc::new(HttpState {
         allowed_hosts,
         allowed_origins,
+        browser,
         protocol: ProtocolState {
             auth_token: config.auth_token,
             profile_activation: config.profile_activation,
@@ -140,6 +210,8 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     let app = Router::new()
         .route("/health", get(health))
         .route("/rpc", get(rpc))
+        .route("/browser-bootstrap", post(browser_bootstrap))
+        .fallback(browser_asset)
         .with_state(state);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let (audit_shutdown_tx, audit_shutdown_rx) = oneshot::channel();
@@ -167,7 +239,183 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         profile_activation,
         shutdown: Some(shutdown_tx),
         runtime,
+        browser_client,
     })
+}
+
+async fn browser_bootstrap(
+    State(state): State<Arc<HttpState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    if !peer.ip().is_loopback() || !valid_host(&state, &headers) || !valid_origin(&state, &headers)
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(browser) = &state.browser else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let launch_nonce = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Mish-Browser "));
+    let accepted_launch = launch_nonce.and_then(|nonce| {
+        browser.pending_nonce.lock().ok().and_then(|mut pending| {
+            let expected = pending.as_ref()?;
+            let matches = bool::from(expected.as_bytes().ct_eq(nonce.as_bytes()));
+            matches.then(|| pending.take()).flatten()
+        })
+    });
+    if launch_nonce.is_some() && accepted_launch.is_none() {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    if accepted_launch.is_none() && !has_browser_session(browser, &headers) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+
+    let mut settings_snapshot = browser.settings_service.snapshot(SettingsAdapterKind::Rpc);
+    settings_snapshot.capabilities.backup_restore = SettingsAvailability::Unavailable;
+    settings_snapshot.capabilities.native_sidebar_material = SettingsAvailability::Unavailable;
+    settings_snapshot.capabilities.window_lifecycle = SettingsAvailability::Unavailable;
+    if let Some(session) = &accepted_launch {
+        let Ok(mut sessions) = browser.sessions.lock() else {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        };
+        if sessions.len() >= 8 {
+            sessions.pop_front();
+        }
+        sessions.push_back(session.clone());
+    }
+    secure_json_response(
+        json!({
+            "authToken": browser.auth_token,
+            "localBackup": false,
+            "rpcUrl": browser.rpc_url,
+            "settingsSnapshot": settings_snapshot,
+            "supportBundleExport": false,
+        }),
+        accepted_launch.as_deref(),
+    )
+}
+
+async fn browser_asset(
+    State(state): State<Arc<HttpState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    if !matches!(method, Method::GET | Method::HEAD) {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    if !peer.ip().is_loopback() || !valid_host(&state, &headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let Some(browser) = &state.browser else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(path) = safe_asset_path(uri.path()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let asset = browser.assets.get(path).or_else(|| {
+        if Path::new(path).extension().is_none() {
+            browser.assets.get("index.html")
+        } else {
+            None
+        }
+    });
+    let Some(asset) = asset else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    secure_asset_response(asset, method == Method::HEAD, &browser.rpc_url)
+}
+
+fn safe_asset_path(path: &str) -> Option<&str> {
+    let path = path.trim_start_matches('/');
+    let path = if path.is_empty() { "index.html" } else { path };
+    (!path.contains(['\\', '\0', '%'])
+        && path
+            .split('/')
+            .all(|component| !matches!(component, "." | "..")))
+    .then_some(path)
+}
+
+fn secure_asset_response(asset: BrowserAsset, head_only: bool, rpc_url: &str) -> Response {
+    let length = asset.bytes.len();
+    let body = if head_only {
+        Body::empty()
+    } else {
+        Body::from(asset.bytes)
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, asset.content_type)
+        .header(header::CONTENT_LENGTH, length)
+        .header(header::CACHE_CONTROL, "no-store")
+        .header(
+            header::CONTENT_SECURITY_POLICY,
+            browser_content_security_policy(rpc_url),
+        )
+        .header(header::REFERRER_POLICY, "no-referrer")
+        .header("cross-origin-resource-policy", "same-origin")
+        .header(
+            "permissions-policy",
+            "camera=(), microphone=(), geolocation=()",
+        )
+        .header("x-content-type-options", "nosniff")
+        .body(body)
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+fn has_browser_session(browser: &BrowserHttpState, headers: &HeaderMap) -> bool {
+    let Some(session) = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|cookies| {
+            cookies.split(';').find_map(|cookie| {
+                cookie
+                    .trim()
+                    .strip_prefix("mish_browser_session=")
+                    .map(str::to_owned)
+            })
+        })
+    else {
+        return false;
+    };
+    browser.sessions.lock().is_ok_and(|sessions| {
+        sessions
+            .iter()
+            .any(|expected| bool::from(expected.as_bytes().ct_eq(session.as_bytes())))
+    })
+}
+
+fn secure_json_response(value: serde_json::Value, browser_session: Option<&str>) -> Response {
+    let mut response = axum::Json(value).into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+    headers.insert(
+        "cross-origin-resource-policy",
+        "same-origin".parse().unwrap(),
+    );
+    headers.insert("x-content-type-options", "nosniff".parse().unwrap());
+    if let Some(session) = browser_session {
+        headers.insert(
+            header::SET_COOKIE,
+            format!(
+                "mish_browser_session={session}; HttpOnly; SameSite=Strict; Path=/browser-bootstrap"
+            )
+            .parse()
+            .unwrap(),
+        );
+    }
+    response
+}
+
+fn browser_content_security_policy(rpc_url: &str) -> String {
+    format!(
+        "default-src 'self'; connect-src 'self' {rpc_url}; font-src 'self'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    )
 }
 
 async fn health(

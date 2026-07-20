@@ -219,7 +219,7 @@ export function ProfilesPage() {
         </p>
       </section>
 
-      {snapshot?.adapterKind === "rpc" ? (
+      {snapshot?.capabilities.localFileImport === "permission-required" ? (
         <p className="profiles-local-boundary">{LL.profiles.localPermission()}</p>
       ) : null}
 

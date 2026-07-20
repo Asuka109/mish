@@ -19,9 +19,11 @@ The repository contains a production TypeScript web foundation in
 [`packages/contracts/`](packages/contracts/), a browser-compatible typed RPC
 client in [`packages/rpc-client/`](packages/rpc-client/), and the retained
 interactive design reference in [`sketch/`](sketch/). The production app exposes
-the six stable destinations. An ordinary browser still uses the visibly labelled
-fixture adapter by default and opens no WebSocket. The Tauri WebView selects the
-authenticated RPC adapter through its private desktop bootstrap.
+the six stable destinations. A standalone Vite launch uses the visibly labelled
+fixture adapter and opens no WebSocket. The desktop status-bar command opens the
+same bundle as a real browser client connected to the authenticated in-process
+bridge. The Tauri WebView selects that RPC adapter through its private desktop
+bootstrap.
 
 The transport-neutral Rust application runtime lives in
 [`crates/runtime/`](crates/runtime/). The desktop local bridge in
@@ -30,9 +32,12 @@ loopback JSON-RPC server and explicit managed-Mihomo lifecycle.
 [`packages/mock-bridge/`](packages/mock-bridge/) provides the matching TypeScript
 mock server for integration tests. The thin Tauri 2 shell in
 [`apps/desktop/`](apps/desktop/) embeds the Vite production bundle, starts the
-desktop bridge in-process on an ephemeral loopback port, and passes a fresh
+desktop bridge in-process on an ephemeral loopback port, serves the same bundled
+Web assets to an explicitly launched local browser, and passes a fresh
 process-only authentication token to its main WebView through one
-capability-scoped command. The ordinary browser does not start either server.
+capability-scoped command. The browser client uses a one-time launch nonce to
+obtain the same in-memory RPC bootstrap from that loopback origin; it does not
+start a second server.
 The isolated
 [`crates/mihomo-controller/`](crates/mihomo-controller/) library implements the
 pinned, bounded Controller observation and command boundary; the desktop bridge
@@ -100,6 +105,12 @@ pnpm typecheck
 pnpm test:run
 pnpm validate
 ```
+
+This standalone command is the safe fixture preview. To use the Web UI as a real
+client, run the desktop shell and choose **Open Browser Client** from the macOS
+status-bar menu. The launched page is served by that desktop process and shares
+its authenticated runtime; closing the native window does not stop it while the
+status-bar process remains running.
 
 ## Run the desktop shell
 
@@ -183,9 +194,10 @@ MISH_MOCK_TOKEN="$(openssl rand -hex 32)" pnpm mock-bridge
 ```
 
 The mock listens on `ws://127.0.0.1:9098/rpc` and accepts the Vite origin by
-default. It is test infrastructure, not a simulated system proxy. Ordinary
-browser startup continues to use its visibly labelled fixture; only the Tauri
-WebView requests the desktop bootstrap.
+default. It is test infrastructure, not a simulated system proxy. Standalone
+Vite startup continues to use its visibly labelled fixture; only the Tauri
+WebView and a browser explicitly launched from the status-bar menu receive a
+desktop bootstrap.
 
 ## Mobile execution model
 

@@ -10,10 +10,10 @@ use futures_util::{
     future::{BoxFuture, ready},
 };
 use mish_bridge::{
-    ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost,
-    LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationManager,
-    ProfileActivationCoordinator, ReqwestHttpsSourceReader, start_loopback_server,
-    start_loopback_server_with_runtime_host,
+    ActivationTiming, BrowserAsset, BrowserAssetSource, DesktopMihomoProcess,
+    DesktopMihomoProcessConfig, DesktopRuntimeHost, LoopbackServerConfig, ManagedMihomoResolver,
+    ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
+    ReqwestHttpsSourceReader, start_loopback_server, start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -33,6 +33,24 @@ use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const TOKEN: &str = "test-token-123456789";
 const ORIGIN: &str = "http://mish.test";
+
+struct BrowserAssets;
+
+impl BrowserAssetSource for BrowserAssets {
+    fn get(&self, path: &str) -> Option<BrowserAsset> {
+        match path {
+            "index.html" => Some(BrowserAsset {
+                bytes: b"<!doctype html><title>Mish</title>".to_vec(),
+                content_type: "text/html; charset=utf-8".into(),
+            }),
+            "assets/app.js" => Some(BrowserAsset {
+                bytes: b"export const mish = true;".to_vec(),
+                content_type: "text/javascript; charset=utf-8".into(),
+            }),
+            _ => None,
+        }
+    }
+}
 
 struct RunningCore;
 
@@ -254,6 +272,7 @@ fn config() -> LoopbackServerConfig {
         allowed_origins: vec![ORIGIN.into()],
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        browser_assets: None,
         max_message_bytes: 1_048_576,
         profile_activation: None,
         profile_service: None,
@@ -313,6 +332,131 @@ async fn authenticate(
     )
     .await;
     assert_eq!(response["result"]["authenticated"], true);
+}
+
+#[tokio::test]
+async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
+    let mut bridge_config = config();
+    bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
+    bridge_config.settings_service = Some(settings_service());
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let browser = bridge.browser_client().expect("browser client handle");
+    let nonce = "a".repeat(64);
+    let launch_url = browser.issue_launch_url(nonce.clone()).unwrap();
+    assert_eq!(
+        launch_url,
+        format!("http://{}/#mish-browser-bootstrap={nonce}", bridge.address)
+    );
+    assert!(!launch_url.contains(TOKEN));
+
+    let client = reqwest::Client::new();
+    let root = client
+        .get(format!("http://{}/", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(root.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        root.headers()["content-security-policy"],
+        format!(
+            "default-src 'self'; connect-src 'self' ws://{}/rpc; font-src 'self'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+            bridge.address
+        )
+    );
+    assert_eq!(root.headers()["referrer-policy"], "no-referrer");
+    assert!(root.text().await.unwrap().contains("<title>Mish</title>"));
+
+    let nested_route = client
+        .get(format!("http://{}/profiles", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(nested_route.status(), reqwest::StatusCode::OK);
+    assert!(
+        nested_route
+            .text()
+            .await
+            .unwrap()
+            .contains("<title>Mish</title>")
+    );
+    let missing_asset = client
+        .get(format!("http://{}/assets/missing.js", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing_asset.status(), reqwest::StatusCode::NOT_FOUND);
+
+    let bootstrap_url = format!("http://{}/browser-bootstrap", bridge.address);
+    let rejected_origin = client
+        .post(&bootstrap_url)
+        .header("Authorization", format!("Mish-Browser {nonce}"))
+        .header("Origin", "https://attacker.example")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected_origin.status(), reqwest::StatusCode::FORBIDDEN);
+
+    let accepted = client
+        .post(&bootstrap_url)
+        .header("Authorization", format!("Mish-Browser {nonce}"))
+        .header("Origin", format!("http://{}", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), reqwest::StatusCode::OK);
+    assert_eq!(accepted.headers()["cache-control"], "no-store");
+    let session_cookie = accepted.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    assert!(
+        accepted.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .contains("HttpOnly")
+    );
+    assert!(
+        accepted.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .contains("SameSite=Strict")
+    );
+    let payload: Value = serde_json::from_str(&accepted.text().await.unwrap()).unwrap();
+    assert_eq!(payload["authToken"], TOKEN);
+    assert_eq!(payload["rpcUrl"], format!("ws://{}/rpc", bridge.address));
+    assert_eq!(payload["settingsSnapshot"]["adapterKind"], "rpc");
+    assert_eq!(
+        payload["settingsSnapshot"]["capabilities"]["nativeSidebarMaterial"],
+        "unavailable"
+    );
+    assert_eq!(payload["localBackup"], false);
+    assert_eq!(payload["supportBundleExport"], false);
+
+    let replay = client
+        .post(&bootstrap_url)
+        .header("Authorization", format!("Mish-Browser {nonce}"))
+        .header("Origin", format!("http://{}", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let refreshed = client
+        .post(&bootstrap_url)
+        .header("Cookie", session_cookie)
+        .header("Origin", format!("http://{}", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), reqwest::StatusCode::OK);
+    let refreshed_payload: Value = serde_json::from_str(&refreshed.text().await.unwrap()).unwrap();
+    assert_eq!(refreshed_payload["authToken"], TOKEN);
+    bridge.shutdown().await;
 }
 
 #[tokio::test]

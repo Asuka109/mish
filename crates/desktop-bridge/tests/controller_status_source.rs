@@ -686,6 +686,7 @@ fn bridge_config() -> LoopbackServerConfig {
         allowed_origins: vec![ORIGIN.into()],
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        browser_assets: None,
         max_message_bytes: 1_048_576,
         profile_activation: None,
         profile_service: None,

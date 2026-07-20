@@ -42,7 +42,7 @@ export class RpcProfileClient implements ProfileClient {
 
   constructor(
     private readonly rpc: MishRpcClient,
-    private readonly localPreflight: LocalProfilePreflight,
+    private readonly localPreflight: LocalProfilePreflight | null,
   ) {
     this.connectionState = mapConnectionState(rpc.getConnectionState());
     this.unsubscribeNotification = rpc.onNotification(
@@ -64,11 +64,15 @@ export class RpcProfileClient implements ProfileClient {
   }
 
   deleteProfile(profileId: string, options?: RpcRequestOptions) {
-    return this.request("profiles.delete", { profileId }, options);
+    return this.request("profiles.delete", { profileId }, options).then((snapshot) =>
+      this.normalizeSnapshot(snapshot),
+    );
   }
 
   getSnapshot(options?: RpcRequestOptions) {
-    return this.request("profiles.getSnapshot", {}, options);
+    return this.request("profiles.getSnapshot", {}, options).then((snapshot) =>
+      this.normalizeSnapshot(snapshot),
+    );
   }
 
   getPatches(authority: ProfilePatchAuthorityDto, options?: RpcRequestOptions) {
@@ -93,6 +97,12 @@ export class RpcProfileClient implements ProfileClient {
   }
 
   async preflightLocal(label?: string) {
+    if (!this.localPreflight) {
+      throw new ProfileClientError(
+        "unsupported",
+        "Local profile import is unavailable in the browser client",
+      );
+    }
     try {
       return ProfilePreviewSchema.nullable().parse(await this.localPreflight(label));
     } catch (error) {
@@ -102,7 +112,9 @@ export class RpcProfileClient implements ProfileClient {
   }
 
   refreshProfile(profileId: string, options?: RpcRequestOptions) {
-    return this.request("profiles.refresh", { profileId }, options);
+    return this.request("profiles.refresh", { profileId }, options).then((snapshot) =>
+      this.normalizeSnapshot(snapshot),
+    );
   }
 
   replacePatches(
@@ -118,11 +130,15 @@ export class RpcProfileClient implements ProfileClient {
   }
 
   setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy, options?: RpcRequestOptions) {
-    return this.request("profiles.setRefreshPolicy", { profileId, policy }, options);
+    return this.request("profiles.setRefreshPolicy", { profileId, policy }, options).then(
+      (snapshot) => this.normalizeSnapshot(snapshot),
+    );
   }
 
   savePreview(previewId: string, options?: RpcRequestOptions) {
-    return this.request("profiles.save", { previewId }, options);
+    return this.request("profiles.save", { previewId }, options).then((snapshot) =>
+      this.normalizeSnapshot(snapshot),
+    );
   }
 
   stopActiveProfile(commandId: string, options?: RpcRequestOptions) {
@@ -207,7 +223,19 @@ export class RpcProfileClient implements ProfileClient {
   private receiveSnapshot(notification: ProfileSnapshotNotificationDto) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-    for (const listener of this.snapshotListeners) listener(notification.snapshot);
+    const snapshot = this.normalizeSnapshot(notification.snapshot);
+    for (const listener of this.snapshotListeners) listener(snapshot);
+  }
+
+  private normalizeSnapshot(snapshot: ProfileSnapshotDto) {
+    if (this.localPreflight) return snapshot;
+    return {
+      ...snapshot,
+      capabilities: {
+        ...snapshot.capabilities,
+        localFileImport: "unavailable" as const,
+      },
+    };
   }
 
   private async request<Method extends keyof typeof mishRpcMethods>(
