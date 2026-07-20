@@ -343,6 +343,42 @@ async fn managed_process_stop_terminates_waits_reaps_and_clears_ownership() {
     assert!(!ownership.has_record().unwrap());
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn managed_process_preserves_ownership_when_child_inspection_fails() {
+    let fixture = OwnershipFixture::new();
+    let lease = ManagedRuntimeLease::acquire(&fixture.runtime_root).unwrap();
+    let ownership = Arc::new(
+        ManagedCoreOwnership::new(
+            fixture.runtime_root.clone(),
+            fixture.platform.clone(),
+            lease,
+        )
+        .unwrap(),
+    );
+    let process = DesktopMihomoProcess::new_pinned_owned(
+        DesktopMihomoProcessConfig {
+            binary: Some(test_fixture("fake-activation-mihomo.sh")),
+            config_directory: Some(fixture.candidate_root.join("home")),
+            config_file: Some(fixture.candidate_root.join("config.yaml")),
+        },
+        "v1.19.29",
+        ownership.clone(),
+    );
+
+    let running = process.start().await.unwrap();
+    let pid = running.pid.unwrap();
+    let pid = i32::try_from(pid).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGKILL) }, 0);
+    let mut exit_status = 0;
+    assert_eq!(unsafe { libc::waitpid(pid, &mut exit_status, 0) }, pid);
+
+    let status = process.status().await;
+
+    assert!(matches!(status.phase, CorePhase::Failed));
+    assert!(ownership.has_record().unwrap());
+}
+
 #[tokio::test]
 async fn managed_process_does_not_claim_an_external_listener() {
     let fixture = OwnershipFixture::new();

@@ -154,7 +154,11 @@ impl DesktopMihomoProcess {
     pub async fn status(&self) -> CoreStatus {
         let mut inner = self.inner.lock().await;
         let update = inspect_child(&mut inner);
-        let owned_process = update.as_ref().and_then(|_| inner.owned_process.take());
+        let owned_process = if update.is_some() && inner.child.is_none() {
+            inner.owned_process.take()
+        } else {
+            None
+        };
         let status = inner.status.clone();
         drop(inner);
         let _ = self.clear_owned_process(owned_process.as_ref());
@@ -402,7 +406,11 @@ impl DesktopMihomoProcess {
                         return;
                     }
                     let update = inspect_child(&mut inner);
-                    let owned_process = update.as_ref().and_then(|_| inner.owned_process.take());
+                    let owned_process = if update.is_some() && inner.child.is_none() {
+                        inner.owned_process.take()
+                    } else {
+                        None
+                    };
                     (update, owned_process)
                 };
                 let Some(update) = update else {
