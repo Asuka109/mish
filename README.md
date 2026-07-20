@@ -100,10 +100,10 @@ The production Vite server listens on `http://127.0.0.1:4173`. Build, test, and
 validate the production Web and typed client boundary with:
 
 ```sh
-pnpm build
-pnpm typecheck
-pnpm test:run
-pnpm validate
+pnpm web:build
+pnpm check:types
+pnpm test:unit
+pnpm check:all
 ```
 
 This standalone command is the safe fixture preview. To use the Web UI as a real
@@ -137,7 +137,7 @@ v1.19.29 Apple Silicon development binary. The script downloads the official
 GitHub release into ignored `.scratch/` storage and verifies its SHA-256 digest:
 
 ```sh
-pnpm mihomo:prepare
+pnpm prepare:mihomo
 ```
 
 The bridge service requires an ephemeral authentication token and explicit
@@ -160,7 +160,7 @@ Transactional activation tests use a fictional fake core by default. Real-core
 activation is explicit and offline after preparation:
 
 ```sh
-pnpm mihomo:prepare
+pnpm prepare:mihomo
 MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
   cargo test -p mish-bridge --test real_core_activation -- --nocapture
 ```
@@ -214,7 +214,7 @@ After changing the English base translation or adding a locale, regenerate the
 strongly typed translation functions before validation:
 
 ```sh
-pnpm i18n:generate
+pnpm generate:i18n
 ```
 
 Every production URL (`/status`, `/routes`, `/profiles`, `/traffic`, `/events`,
@@ -225,9 +225,8 @@ deep links work.
 ## Run the retained prototype
 
 ```sh
-cd sketch
-pnpm install
-pnpm dev
+pnpm --dir sketch install
+pnpm sketch:dev
 ```
 
 Vite is configured to serve the preview on `http://127.0.0.1:4173`.
@@ -238,6 +237,7 @@ Start with the [documentation index](docs/README.md). The primary contracts are:
 
 - [Workstation bootstrap](bootstrap.md)
 - [Development workflow](development.md)
+- [Development commands](docs/operations/development-commands.md)
 - [Product brief](PRODUCT.md)
 - [Design system](DESIGN.md)
 - [Status experience](docs/product/status-experience.md)

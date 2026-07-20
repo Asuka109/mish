@@ -61,30 +61,30 @@ Run from the repository root:
 
 ```sh
 pnpm install
-pnpm i18n:generate
-pnpm lint
-pnpm format:check
-pnpm typecheck
-pnpm test:run
+pnpm generate:i18n
+pnpm check:lint
+pnpm check:format
+pnpm check:types
+pnpm test:unit
 pnpm test:browser:install
 pnpm test:browser
-pnpm rust:format:check
-pnpm rust:check
-pnpm rust:clippy
-pnpm rust:test
-pnpm build
-pnpm design:lint
-pnpm docs:links
+pnpm check:rust:format
+pnpm check:rust
+pnpm check:rust:clippy
+pnpm test:rust
+pnpm web:build
+pnpm check:design
+pnpm check:docs
 git diff --check
 ```
 
-`pnpm validate:pr` is the rapid pull-request gate. It keeps Android project and
+`pnpm check:pr` is the rapid pull-request gate. It keeps Android project and
 workflow contracts, generated i18n, lint, formatting, TypeScript type checks and
 unit tests, Rust formatting, design tokens, and documentation links blocking.
 It intentionally excludes Rust compilation, Clippy, Rust integration tests,
 production builds, Design.md lint, and real-browser coverage.
 
-`pnpm validate` runs the complete non-browser repository checks for local work
+`pnpm check:all` runs the complete non-browser repository checks for local work
 and main-branch inspection. Browser installation, the browser suite, and
 `git diff --check` remain explicit checks.
 
@@ -98,12 +98,13 @@ layout engine.
 Mish separates merge latency from broad regression detection during rapid
 preview development:
 
-- pull requests run `pnpm validate:pr` on Ubuntu with a ten-minute job ceiling
+- pull requests run `pnpm check:pr` on the dedicated macOS runner with a
+  ten-minute job ceiling
   and never build or upload application packages;
 - every push to `main` independently builds the macOS ARM64 and Android test
   packages but does not repeat the complete validation suite;
 - a daily scheduled inspection at 03:23 UTC, plus manual dispatch, checks out
-  the latest `main` and runs `pnpm validate` plus the real-browser suite on
+  the latest `main` and runs `pnpm check:all` plus the real-browser suite on
   macOS; and
 - manual dispatch can select `packages` or `all` to recover package production
   against the latest `main` when an automated merge credential does not emit a

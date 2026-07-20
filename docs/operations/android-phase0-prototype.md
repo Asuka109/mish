@@ -125,7 +125,7 @@ Gradle settings:
 ```sh
 rustup target add aarch64-linux-android x86_64-linux-android
 pnpm mobile:android:init
-pnpm android:check
+pnpm check:android
 ```
 
 Build one debug APK per ABI:

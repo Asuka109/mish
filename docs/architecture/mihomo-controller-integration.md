@@ -330,7 +330,7 @@ and attempt documents contain no configuration, URL, Controller secret, node
 label, or absolute path.
 
 `ManagedMihomoResolver` performs no network access. Development callers must
-pass the explicit path produced by `pnpm mihomo:prepare`. Production callers
+pass the explicit path produced by `pnpm prepare:mihomo`. Production callers
 pass the packaged sidecar/resource directory. Lookup accepts the packaged
 runtime name (`mihomo`, or `mihomo.exe`) and the target-specific bundle input
 name such as `mihomo-aarch64-apple-darwin`. Missing binaries return a typed
@@ -488,7 +488,7 @@ tests and CI therefore do not download or execute Mihomo and do not require
 network access. On Apple Silicon macOS, prepare and run the pinned core with:
 
 ```sh
-pnpm mihomo:prepare
+pnpm prepare:mihomo
 MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
   cargo test -p mish-mihomo-controller --test real_core -- --nocapture
 MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \

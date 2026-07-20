@@ -13,5 +13,5 @@ After changing the source application icon, regenerate every derived icon and
 the checked-in Android launcher resources from the repository root:
 
 ```sh
-pnpm brand:generate
+pnpm generate:brand
 ```

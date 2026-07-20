@@ -53,7 +53,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Run fast pull-request gate
-        run: pnpm validate:pr
+        run: pnpm check:pr
 
   inspect-main:
     name: Inspect main
@@ -86,7 +86,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm test:browser:install
       - name: Run complete validation
-        run: pnpm validate
+        run: pnpm check:all
       - name: Run real-browser responsive suite
         run: pnpm test:browser
 

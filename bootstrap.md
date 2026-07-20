@@ -101,7 +101,7 @@ disposable artifacts from pinned repository inputs.
 The pull-request-equivalent gate is the first check on a new clone:
 
 ```sh
-pnpm validate:pr
+pnpm check:pr
 ```
 
 Then install the repository-owned Playwright browser and run the complete local
@@ -109,12 +109,12 @@ inspection when time permits:
 
 ```sh
 pnpm test:browser:install
-pnpm validate
+pnpm check:all
 pnpm test:browser
 ```
 
-`validate:pr` is the fast static, TypeScript, contract, formatting, token, and
-documentation gate used by pull requests. `validate` additionally compiles and
+`check:pr` is the fast static, TypeScript, contract, formatting, token, and
+documentation gate used by pull requests. `check:all` additionally compiles and
 tests the Rust workspace, builds the Web app, runs Clippy, and checks the design
 contract. See [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for the
 authoritative CI split.
@@ -134,7 +134,7 @@ Prepare the pinned Mihomo v1.19.29 Apple Silicon binary, then run the Tauri
 desktop shell with an explicit development Core:
 
 ```sh
-pnpm mihomo:prepare
+pnpm prepare:mihomo
 export MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29"
 pnpm desktop:dev
 ```
@@ -184,7 +184,7 @@ java -version
 adb version
 sdkmanager --list_installed
 rustup target list --installed
-pnpm android:check
+pnpm check:android
 pnpm mobile:android:test
 ```
 
@@ -289,7 +289,7 @@ git ls-files apps/mobile/src-tauri/gen/android
 - `git status --short` contains only intentional work;
 - Node, pnpm, Rust, and Java match the project baselines;
 - `pnpm install --frozen-lockfile` succeeds;
-- `pnpm validate:pr` succeeds;
+- `pnpm check:pr` succeeds;
 - the browser fixture starts;
 - the macOS shell starts with an explicit pinned Core;
 - Android static checks and plugin tests succeed;

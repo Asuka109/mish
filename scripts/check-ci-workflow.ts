@@ -139,14 +139,14 @@ invariant(
   "The fast gate must install frozen dependencies.",
 );
 invariant(
-  step(prGate, "Run fast pull-request gate").run === "pnpm validate:pr",
+  step(prGate, "Run fast pull-request gate").run === "pnpm check:pr",
   "Pull requests must use the bounded validation command.",
 );
 const expectedPrValidation =
-  "pnpm android:check && pnpm ci:check && pnpm i18n:check && pnpm lint && pnpm format:check && pnpm typecheck:ts && pnpm test:ts && pnpm rust:format:check && pnpm tokens:check && pnpm docs:links";
+  "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:tokens && pnpm check:docs";
 invariant(
-  packageJson.scripts?.["validate:pr"] === expectedPrValidation,
-  "validate:pr must stay bounded to fast static, TypeScript, unit, format, token, and documentation checks.",
+  packageJson.scripts?.["check:pr"] === expectedPrValidation,
+  "check:pr must stay bounded to fast static, TypeScript, unit, format, token, and documentation checks.",
 );
 
 const inspectMain = job("inspect-main");
@@ -163,7 +163,7 @@ invariant(
   "Inspection must install the Playwright-pinned Chromium.",
 );
 invariant(
-  step(inspectMain, "Run complete validation").run === "pnpm validate",
+  step(inspectMain, "Run complete validation").run === "pnpm check:all",
   "Inspection must run complete repository validation.",
 );
 invariant(

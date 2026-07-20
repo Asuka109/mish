@@ -17,6 +17,7 @@ decisions from chat history.
 | How does the desktop bundle and authenticated local startup work?               | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                         |
 | How is the signed macOS TUN helper bounded and observed?                        | [`architecture/macos-tun-helper.md`](architecture/macos-tun-helper.md)                           |
 | How are macOS test and production bundles built and signed?                     | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                 |
+| Which development, build, test, and validation commands should I use?           | [`operations/development-commands.md`](operations/development-commands.md)                       |
 | How is the Android Phase 0 fixture shell built and verified?                    | [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md)               |
 | How do the desktop bridge, Controller adapter, and Mihomo process interact?     | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) |
 | What is the versioned native boundary for an embedded mobile Mihomo Core?       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md)                             |

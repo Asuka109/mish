@@ -110,7 +110,7 @@ Complete as much hardware-independent work as possible before moving:
 
 After cloning on the personal Mac, the recommended order is:
 
-1. complete `bootstrap.md` and run `pnpm validate:pr`;
+1. complete `bootstrap.md` and run `pnpm check:pr`;
 2. build and manually accept the current macOS prototype;
 3. build the checksum-matched ARM64 Android package and install it on the target
    device;
@@ -126,16 +126,16 @@ After cloning on the personal Mac, the recommended order is:
 
 ```sh
 pnpm dev
-pnpm typecheck:ts
-pnpm test:ts
-pnpm lint
+pnpm check:types:ts
+pnpm test:unit
+pnpm check:lint
 ```
 
 After editing the English translation base or locale keys:
 
 ```sh
-pnpm i18n:generate
-pnpm i18n:check
+pnpm generate:i18n
+pnpm check:i18n
 ```
 
 The browser client is a visibly labelled fixture. It must not simulate desktop
@@ -144,10 +144,10 @@ or mobile native success.
 ### Rust runtime and desktop bridge
 
 ```sh
-pnpm rust:format:check
-pnpm rust:check
-pnpm rust:test
-pnpm rust:clippy
+pnpm check:rust:format
+pnpm check:rust
+pnpm test:rust
+pnpm check:rust:clippy
 ```
 
 Use a focused package or integration test while iterating, then run the broader
@@ -162,7 +162,7 @@ Real-Core tests require an explicitly prepared, checksum-verified binary and do
 not run during ordinary startup:
 
 ```sh
-pnpm mihomo:prepare
+pnpm prepare:mihomo
 MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
   cargo test -p mish-bridge --test real_core_activation -- --nocapture
 ```
@@ -184,7 +184,7 @@ Developer ID signing, and notarization remain separate gates.
 ### Android fixture and native plugin
 
 ```sh
-pnpm android:check
+pnpm check:android
 pnpm mobile:android:test
 pnpm mobile:android:build
 ```
@@ -214,7 +214,7 @@ Run the smallest relevant tests during implementation. Before publishing a
 normal preview PR, run:
 
 ```sh
-pnpm validate:pr
+pnpm check:pr
 git diff --check
 git status --short
 ```
@@ -224,14 +224,14 @@ Run additional gates in proportion to the affected risk:
 | Change                    | Additional validation                                              |
 | ------------------------- | ------------------------------------------------------------------ |
 | Web layout or navigation  | `pnpm test:browser`                                                |
-| Rust runtime behavior     | focused tests, then `pnpm rust:test` and Clippy                    |
+| Rust runtime behavior     | focused tests, then `pnpm test:rust` and Clippy                    |
 | macOS bundle or resources | `pnpm desktop:bundle:macos`                                        |
 | Android Kotlin or JNI     | `pnpm mobile:android:test`, plugin assemble, debug APK build       |
 | Mobile Core               | contract, wrapper tests, reproducible build, evidence verification |
-| Documentation             | `pnpm docs:links`                                                  |
-| CI workflow               | `pnpm ci:check`                                                    |
+| Documentation             | `pnpm check:docs`                                                  |
+| CI workflow               | `pnpm check:ci`                                                    |
 
-Pull requests run only the fast Ubuntu gate and upload no package. Pushes to
+Pull requests run only the fast gate on the dedicated macOS runner and upload no package. Pushes to
 `main` build 14-day macOS and Android test artifacts. Daily and manual
 inspections run the complete validation suite. A manual `packages` workflow
 dispatch recovers package builds if an automated merge does not trigger a push
