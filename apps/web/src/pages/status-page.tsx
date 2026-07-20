@@ -9,6 +9,7 @@ import {
   EmptyTitle,
   SectionGrid,
   SectionGridItem,
+  Spinner,
   ToggleGroup,
   ToggleGroupItem,
 } from "@mish/ui";
@@ -18,9 +19,10 @@ import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
+import { useCaptureCommand } from "../data/capture-command";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
-import type { RoutingMode, SelectorPolicyGroupDto } from "@mish/contracts";
+import type { CaptureSelectionDto, RoutingMode, SelectorPolicyGroupDto } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 
@@ -57,18 +59,24 @@ export function StatusPage() {
     isGroupCommandPending,
     isLoading,
     selectGroupChild,
-    setCapture,
     setRoutingMode,
     snapshot,
   } = useProduct();
+  const { pending: capturePending, setCapture } = useCaptureCommand();
   const { LL, locale } = useI18nContext();
   const [pickerGroupId, setPickerGroupId] = useState<string | null>(null);
+  const [optimisticCaptureSelection, setOptimisticCaptureSelection] =
+    useState<CaptureSelectionDto | null>(null);
+  const [optimisticRoutingMode, setOptimisticRoutingMode] = useState<RoutingMode | null>(null);
+  const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
+  const [pendingGroupSelections, setPendingGroupSelections] = useState<Map<string, string>>(
+    () => new Map(),
+  );
   const modeLabels: Record<RoutingMode, string> = {
     direct: LL.status.modeDirect(),
     global: LL.status.modeGlobal(),
     rule: LL.status.modeRule(),
   };
-  const capturePending = isCommandPending("capture");
   const routingPending = isCommandPending("routing");
 
   const frequentGroups = useMemo(() => {
@@ -123,15 +131,44 @@ export function StatusPage() {
     snapshot.traffic.uploadedBytes > 0;
   const hasMetricsData = Object.values(snapshot.metrics).some((value) => value > 0);
 
-  function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
+  async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureSupported) return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
     const active = captureActive ? selection.systemProxy || selection.tun : selected;
-    void setCapture(selection, active);
+    setOptimisticCaptureSelection(selection);
+    setPendingCaptureMode(mode);
+    try {
+      await setCapture(selection, active);
+    } finally {
+      setOptimisticCaptureSelection(null);
+      setPendingCaptureMode(null);
+    }
+  }
+
+  async function changeRoutingMode(mode: RoutingMode) {
+    setOptimisticRoutingMode(mode);
+    try {
+      await setRoutingMode(mode);
+    } finally {
+      setOptimisticRoutingMode(null);
+    }
   }
 
   function openPicker(group: SelectorPolicyGroupDto) {
     setPickerGroupId(group.id);
+  }
+
+  async function selectGroupNode(groupId: string, nodeId: string) {
+    setPendingGroupSelections((current) => new Map(current).set(groupId, nodeId));
+    try {
+      await selectGroupChild(groupId, nodeId);
+    } finally {
+      setPendingGroupSelections((current) => {
+        const next = new Map(current);
+        next.delete(groupId);
+        return next;
+      });
+    }
   }
 
   return (
@@ -163,20 +200,24 @@ export function StatusPage() {
                 onValueChange={(values) => {
                   if (!routingSupported) return;
                   const nextMode = values[0] as RoutingMode | undefined;
-                  if (nextMode) void setRoutingMode(nextMode);
+                  if (nextMode) void changeRoutingMode(nextMode);
                 }}
                 spacing={0}
-                value={[snapshot.routingMode]}
+                value={[optimisticRoutingMode ?? snapshot.routingMode]}
                 variant="outline"
               >
                 {(Object.keys(modeLabels) as RoutingMode[]).map((mode) => (
                   <ToggleGroupItem
+                    aria-busy={routingPending && optimisticRoutingMode === mode}
                     aria-describedby={routingDescriptionId}
                     className="routing-mode-button"
                     disabled={routingPending || !routingSupported}
                     key={mode}
                     value={mode}
                   >
+                    {routingPending && optimisticRoutingMode === mode ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : null}
                     {modeLabels[mode]}
                   </ToggleGroupItem>
                 ))}
@@ -192,11 +233,15 @@ export function StatusPage() {
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
                 pending={capturePending}
+                pendingMode={pendingCaptureMode}
                 systemProxyEnabled={captureRuntime.systemProxyEnabled}
-                systemProxySelected={captureRuntime.captureSelection.systemProxy}
+                systemProxySelected={
+                  optimisticCaptureSelection?.systemProxy ??
+                  captureRuntime.captureSelection.systemProxy
+                }
                 systemProxyStatus={captureRuntime.systemProxy}
                 tunEnabled={captureRuntime.tunEnabled}
-                tunSelected={captureRuntime.captureSelection.tun}
+                tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
                 tunStatus={captureRuntime.tun}
               />
             </SectionGridItem>
@@ -310,11 +355,11 @@ export function StatusPage() {
             {frequentGroups.length > 0 ? (
               <SectionGrid className="policy-group-list">
                 {frequentGroups.map((group, index) => {
-                  const selectedNode = snapshot.nodes.find(
-                    (node) => node.id === group.selectedChildId,
-                  );
+                  const pendingSelectionId = pendingGroupSelections.get(group.id);
+                  const displayedChildId = pendingSelectionId ?? group.selectedChildId;
+                  const selectedNode = snapshot.nodes.find((node) => node.id === displayedChildId);
                   const selectedGroup = snapshot.groups.find(
-                    (candidate) => candidate.id === group.selectedChildId,
+                    (candidate) => candidate.id === displayedChildId,
                   );
                   const rowContent = (
                     <>
@@ -357,6 +402,8 @@ export function StatusPage() {
                       className="section-grid-item policy-group-row"
                       disabled={isGroupCommandPending(group.id) || !groupSupported}
                       key={group.id}
+                      loading={Boolean(pendingSelectionId)}
+                      loadingText={LL.common.pending()}
                       onClick={() => openPicker(group)}
                       type="button"
                       variant="ghost"
@@ -384,7 +431,7 @@ export function StatusPage() {
         nodes={pickerNodes}
         onOpenChange={(open) => !open && setPickerGroupId(null)}
         onSelect={(nodeId) => {
-          if (pickerGroup) void selectGroupChild(pickerGroup.id, nodeId);
+          if (pickerGroup) void selectGroupNode(pickerGroup.id, nodeId);
         }}
         open={pickerGroup !== null}
       />

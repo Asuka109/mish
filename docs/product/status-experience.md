@@ -18,7 +18,7 @@ canonical primary group.
 
 The page is arranged in this order:
 
-1. **Toolbar** — current page title and a quiet active-profile menu.
+1. **Toolbar** — current page title and a quiet selected-profile menu.
 2. **Routing controls** — two stacked rows in one grouped surface: Routing mode
    and Traffic capture.
 3. **Session** — live and cumulative traffic plus compact runtime metrics.
@@ -57,12 +57,26 @@ The DOM element owns the fallback blue surface and text contrast.
 - Selected capture controls use the same pressed treatment as Routing mode.
   A remembered-but-stopped selection remains muted, while a running selection
   uses a restrained green icon.
-- The profile menu is intentionally muted because profile switching is less
-  frequent than changing a group or capture state.
+- The profile control is a compact framed Select so it reads as persistent
+  choice rather than an action menu; it stays quieter than primary controls.
+- The profile menu names the user's currently selected configuration, including
+  while capture and Mihomo Core are stopped. Selection is the configuration the
+  next start will use; it is not evidence that Core or either capture path is
+  running.
+- Changing the profile menu only changes that persisted preference. It remains
+  available while Core is absent or transitioning and does not itself activate,
+  restart, or stop a runtime.
+- Selecting an unselected capture mode while stopped starts Mihomo Core with
+  that selected configuration, waits for its managed listener to become ready,
+  and then applies the complete selected capture combination. The UI must not
+  send a capture-only request to a safely stopped runtime.
 - Capture drift, typed confirmation failures, and their recovery actions appear
   in transient notifications and the notification center without shifting the
   routing controls. System Proxy drift offers both repair and keep-current when
   the runtime advertises those actions.
+- The notification center merges runtime feedback and event records strictly by
+  observation time, newest first. Severity, source, and available actions never
+  influence ordering.
 
 ## Session
 

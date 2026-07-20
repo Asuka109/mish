@@ -139,6 +139,15 @@ active flag. Stopping may therefore disable both runtime paths without erasing
 the selection, while starting can restore the complete remembered combination.
 The default selection is off, and profile activation does not mutate it.
 
+The toolbar profile value is configuration selection, not a Core-health claim.
+It remains visible while the runtime is safely stopped and identifies the
+profile used by the next start. Changing it is a preference mutation only and
+does not activate Core. A frontend start from that state first completes
+the selected profile's activation transaction, then sends the capture command;
+it never asks the capture reconciler to apply System Proxy against an unhealthy
+Core. A capture-mode click has the same immediate-start semantics as the
+aggregate control.
+
 `SystemProxyRuntimeStatusDto` reports `desired`, the observed classification,
 the reconciliation phase, an optional typed failure, and bounded recovery
 actions. `pending` means a transaction has not yet been confirmed; `applied`

@@ -417,7 +417,7 @@ type RootTranslation = {
 			description: string
 			feedback: {
 				/**
-				 * S​t​a​r​t​ ​a​n​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​,​ ​t​h​e​n​ ​t​e​s​t​ ​t​h​e​ ​l​i​s​t​e​n​e​r​ ​a​g​a​i​n​.
+				 * S​t​a​r​t​ ​t​h​e​ ​p​r​o​x​y​ ​w​i​t​h​ ​a​ ​v​a​l​i​d​ ​P​r​o​f​i​l​e​,​ ​t​h​e​n​ ​t​e​s​t​ ​t​h​e​ ​l​i​s​t​e​n​e​r​ ​a​g​a​i​n​.
 				 */
 				coreUnhealthy: string
 				/**
@@ -1201,7 +1201,7 @@ type RootTranslation = {
 		 */
 		systemProxyApplied: string
 		/**
-		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​w​a​s​ ​n​o​t​ ​e​n​a​b​l​e​d​ ​b​e​c​a​u​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​M​i​h​o​m​o​ ​c​o​r​e​ ​a​r​e​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​w​a​s​ ​n​o​t​ ​e​n​a​b​l​e​d​ ​b​e​c​a​u​s​e​ ​M​i​h​o​m​o​ ​C​o​r​e​ ​d​i​d​ ​n​o​t​ ​s​t​a​r​t​ ​w​i​t​h​ ​t​h​e​ ​s​e​l​e​c​t​e​d​ ​p​r​o​f​i​l​e​.
 		 */
 		systemProxyCoreFailure: string
 		/**
@@ -4221,7 +4221,7 @@ export type TranslationFunctions = {
 			description: () => LocalizedString
 			feedback: {
 				/**
-				 * Start an active Profile, then test the listener again.
+				 * Start the proxy with a valid Profile, then test the listener again.
 				 */
 				coreUnhealthy: () => LocalizedString
 				/**
@@ -4993,7 +4993,7 @@ export type TranslationFunctions = {
 		 */
 		systemProxyApplied: () => LocalizedString
 		/**
-		 * System Proxy was not enabled because the active profile and Mihomo core are unavailable.
+		 * System Proxy was not enabled because Mihomo Core did not start with the selected profile.
 		 */
 		systemProxyCoreFailure: () => LocalizedString
 		/**

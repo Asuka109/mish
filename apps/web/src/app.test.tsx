@@ -321,6 +321,29 @@ class SnapshotStatusClient extends FixtureStatusClient {
   }
 }
 
+class RecordingCaptureClient extends SnapshotStatusClient {
+  readonly setCapture = vi.fn(
+    async (selection: CaptureSelectionDto, active: boolean): Promise<StatusSnapshotDto> => {
+      const snapshot = await this.getSnapshot();
+      snapshot.runtime.captureSelection = selection;
+      snapshot.runtime.phase = active ? "healthy" : "inactive";
+      snapshot.runtime.systemProxyEnabled = active && selection.systemProxy;
+      snapshot.runtime.systemProxy = {
+        desired: active && selection.systemProxy,
+        failure: null,
+        observed: active && selection.systemProxy ? "mish" : "disabled",
+        phase: active && selection.systemProxy ? "applied" : "off",
+        recoveryActions: [],
+      };
+      return snapshot;
+    },
+  );
+
+  override supportsCommand(command: StatusCommand) {
+    return command === "capture";
+  }
+}
+
 async function managedProfileSnapshot(): Promise<ProfileSnapshotDto> {
   const snapshot: ProfileSnapshotDto = await new FixtureProfileClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -363,6 +386,70 @@ function createActivationProfileClient() {
       return () => undefined;
     },
     subscribeSnapshots: () => () => undefined,
+  } satisfies ProfileClient;
+}
+
+async function createCompletingActivationProfileClient() {
+  const fixture = new FixtureProfileClient();
+  let snapshot = await managedProfileSnapshot();
+  const profileId = snapshot.profiles[0].id;
+  snapshot.activation.targetProfileId = profileId;
+  const listeners = new Set<(nextSnapshot: ProfileSnapshotDto) => void>();
+  const publish = () => {
+    const nextSnapshot = structuredClone(snapshot);
+    for (const listener of listeners) listener(nextSnapshot);
+  };
+  const activateProfile = vi.fn(async (commandId: string, targetProfileId: string) => {
+    snapshot = {
+      ...snapshot,
+      activation: {
+        ...snapshot.activation,
+        commandId,
+        operation: "activate",
+        phase: "pending",
+        targetProfileId,
+      },
+    };
+    queueMicrotask(() => {
+      snapshot = {
+        ...snapshot,
+        activation: {
+          ...snapshot.activation,
+          activeProfileId: targetProfileId,
+          failure: null,
+          phase: "success",
+          safeStopped: false,
+        },
+      };
+      publish();
+    });
+    return structuredClone(snapshot.activation);
+  });
+  return {
+    activateProfile,
+    cancelActivation: fixture.cancelActivation.bind(fixture),
+    deleteProfile: fixture.deleteProfile.bind(fixture),
+    dispose: fixture.dispose.bind(fixture),
+    getConnectionState: () => ({ attempt: 0, phase: "connected" as const, stale: false }),
+    getPatches: fixture.getPatches.bind(fixture),
+    getSnapshot: async () => structuredClone(snapshot),
+    preflightHttps: fixture.preflightHttps.bind(fixture),
+    preflightLocal: fixture.preflightLocal.bind(fixture),
+    refreshProfile: fixture.refreshProfile.bind(fixture),
+    replacePatches: fixture.replacePatches.bind(fixture),
+    setRefreshPolicy: fixture.setRefreshPolicy.bind(fixture),
+    savePreview: fixture.savePreview.bind(fixture),
+    stopActiveProfile: fixture.stopActiveProfile.bind(fixture),
+    subscribeConnection: (listener) => {
+      listener({ attempt: 0, phase: "connected", stale: false });
+      return () => undefined;
+    },
+    subscribeSnapshots: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    updateAllProviders: fixture.updateAllProviders.bind(fixture),
+    updateProvider: fixture.updateProvider.bind(fixture),
   } satisfies ProfileClient;
 }
 
@@ -677,10 +764,12 @@ describe("production routes", () => {
     const language = screen.getByRole("button", {
       name: "Change language. Current language: English",
     });
-    const profile = screen.getByRole("button", { name: /Switch profile/ });
-    for (const trigger of [theme, language, profile]) {
+    const profile = screen.getByRole("combobox", { name: /Switch profile/ });
+    for (const trigger of [theme, language]) {
       expect(trigger.querySelectorAll("svg")).toHaveLength(1);
     }
+    expect(profile.querySelectorAll("svg")).toHaveLength(2);
+    expect(profile.parentElement?.firstElementChild).toBe(profile);
 
     const navigation = screen.getByRole("navigation", { name: "Workspace sections" });
     const settings = within(navigation).getByRole("link", { name: "Settings" });
@@ -695,17 +784,17 @@ describe("production routes", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    const trigger = await screen.findByRole("button", {
+    const trigger = await screen.findByRole("combobox", {
       name: "Switch profile. Current profile: Home",
     });
     expect(trigger).toBeEnabled();
     expect(trigger).toHaveAccessibleDescription(/local fixture data only/);
 
     await user.click(trigger);
-    await user.click(await screen.findByRole("menuitemradio", { name: "Work 工作" }));
+    await user.click(await screen.findByRole("option", { name: "Work 工作" }));
 
     expect(
-      await screen.findByRole("button", {
+      await screen.findByRole("combobox", {
         name: "Switch profile. Current profile: Work 工作",
       }),
     ).toBeEnabled();
@@ -757,6 +846,8 @@ describe("desktop RPC experience", () => {
     await user.click(testButton);
 
     await waitFor(() => expect(statusClient.testLocalProxy).toHaveBeenCalledTimes(1));
+    expect(testButton).toHaveAttribute("aria-busy", "true");
+    expect(testButton.querySelector(".ui-spinner")).toBeInTheDocument();
     expect(testButton).toHaveTextContent("Test listener");
     expect(screen.queryByText("Testing…")).not.toBeInTheDocument();
     expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
@@ -780,12 +871,12 @@ describe("desktop RPC experience", () => {
 
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
-        "Start an active Profile, then test the listener again.",
+        "Start the proxy with a valid Profile, then test the listener again.",
       ),
     );
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Start an active Profile, then test the listener again.",
+      "Start the proxy with a valid Profile, then test the listener again.",
     );
   });
 
@@ -1161,27 +1252,106 @@ describe("desktop RPC experience", () => {
     ).toBeInTheDocument();
   });
 
-  it("uses the Profile activation command seam from the Status selector", async () => {
+  it("changes the selected Profile preference without activating Core", async () => {
     const user = userEvent.setup();
     const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
     const profileClient = createActivationProfileClient();
     const legacyStatusActivation = vi.spyOn(statusClient, "setActiveProfile");
     renderRoute("/status", "en", statusClient, profileClient);
 
-    const trigger = await screen.findByRole("button", {
-      name: "Switch profile. Current profile: Local Mihomo",
+    const trigger = await screen.findByRole("combobox", {
+      name: "Switch profile. Current profile: Studio route set",
     });
     expect(trigger).toBeEnabled();
     await user.click(trigger);
-    await user.click(await screen.findByRole("menuitemradio", { name: "Studio route set" }));
+    const option = await screen.findByRole("option", { name: "Studio route set" });
+    expect(option).toHaveAttribute("aria-selected", "true");
+    await user.click(option);
 
-    await waitFor(() =>
-      expect(profileClient.activateProfile).toHaveBeenCalledWith(
-        expect.any(String),
-        "fixture-profile-studio",
-      ),
-    );
+    expect(profileClient.activateProfile).not.toHaveBeenCalled();
     expect(legacyStatusActivation).not.toHaveBeenCalled();
+  });
+
+  it("allows selecting any saved Profile while Core is stopped and marks the choice", async () => {
+    const user = userEvent.setup();
+    const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
+    const profileClient = createActivationProfileClient();
+    profileClient.getSnapshot = async () => {
+      const snapshot = await managedProfileSnapshot();
+      snapshot.profiles.push({
+        ...structuredClone(snapshot.profiles[0]),
+        id: "fixture-profile-travel",
+        label: "Travel route set",
+        status: { ...snapshot.profiles[0].status, active: false },
+      });
+      return snapshot;
+    };
+    renderRoute("/status", "en", statusClient, profileClient);
+
+    await user.click(
+      await screen.findByRole("combobox", {
+        name: "Switch profile. Current profile: Studio route set",
+      }),
+    );
+    await user.click(await screen.findByRole("option", { name: "Travel route set" }));
+
+    expect(
+      await screen.findByRole("combobox", {
+        name: "Switch profile. Current profile: Travel route set",
+      }),
+    ).toBeEnabled();
+    expect(profileClient.activateProfile).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("combobox", { name: /Current profile: Travel route set/ }));
+    expect(await screen.findByRole("option", { name: "Travel route set" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("opens the Profile menu when its only managed profile is already active", async () => {
+    const user = userEvent.setup();
+    const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
+    const profileClient = createActivationProfileClient();
+    profileClient.getSnapshot = async () => {
+      const snapshot = await managedProfileSnapshot();
+      const profile = snapshot.profiles[0];
+      snapshot.activation.activeProfileId = profile.id;
+      profile.status.active = true;
+      return snapshot;
+    };
+    renderRoute("/status", "en", statusClient, profileClient);
+
+    const trigger = await screen.findByRole("combobox", {
+      name: "Switch profile. Current profile: Studio route set",
+    });
+    expect(trigger).toBeEnabled();
+    await user.click(trigger);
+
+    expect(await screen.findByRole("option", { name: "Studio route set" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("opens the Profile menu for inspection when activation is unavailable", async () => {
+    const user = userEvent.setup();
+    const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
+    const profileClient = createActivationProfileClient();
+    profileClient.getSnapshot = async () => {
+      const snapshot = await managedProfileSnapshot();
+      snapshot.capabilities.activation = "unavailable";
+      return snapshot;
+    };
+    renderRoute("/status", "en", statusClient, profileClient);
+
+    const trigger = await screen.findByRole("combobox", {
+      name: "Switch profile. Current profile: Studio route set",
+    });
+    expect(trigger).toBeEnabled();
+    await user.click(trigger);
+
+    expect(await screen.findByRole("option", { name: "Studio route set" })).toBeEnabled();
   });
 
   it("presents a safely stopped runtime without a diagnostic shortcut or pending probes", async () => {
@@ -1227,7 +1397,7 @@ describe("desktop RPC experience", () => {
     expect(tun).toHaveAccessibleDescription(/Virtual Interface is unavailable/i);
 
     expect(screen.getByRole("button", { name: "Rule" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Switch profile/ })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: /Switch profile/ })).toBeDisabled();
     const manage = screen.getByRole("button", { name: "Manage" });
     expect(manage).toBeEnabled();
     await user.click(manage);
@@ -1348,6 +1518,34 @@ describe("Status fixture experience", () => {
     expect(
       await screen.findByRole("button", { name: "Launch the proxy demo state" }),
     ).toBeInTheDocument();
+  });
+
+  it("starts the selected profile before enabling a capture mode from safe stop", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection = { systemProxy: false, tun: false };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    const profileClient = await createCompletingActivationProfileClient();
+    renderRoute("/status", "en", statusClient, profileClient);
+
+    await user.click(
+      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
+    );
+
+    await waitFor(() => expect(statusClient.setCapture).toHaveBeenCalledTimes(1));
+    expect(profileClient.activateProfile).toHaveBeenCalledWith(
+      expect.any(String),
+      "fixture-profile-studio",
+    );
+    expect(statusClient.setCapture).toHaveBeenCalledWith(
+      { systemProxy: true, tun: false },
+      true,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(profileClient.activateProfile.mock.invocationCallOrder[0]).toBeLessThan(
+      statusClient.setCapture.mock.invocationCallOrder[0],
+    );
   });
 
   it("remembers selected capture modes when the master control stops and resumes capture", async () => {
@@ -1629,6 +1827,9 @@ describe("Status fixture experience", () => {
 
     await user.click(globalMode);
     expect(globalMode).toBeDisabled();
+    expect(globalMode).toHaveAttribute("aria-busy", "true");
+    expect(globalMode).toHaveAttribute("aria-pressed", "true");
+    expect(globalMode.querySelector(".ui-spinner")).toBeInTheDocument();
     await user.click(globalMode);
     expect(client.calls).toBe(1);
 
@@ -1639,6 +1840,7 @@ describe("Status fixture experience", () => {
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
     await waitFor(() => expect(globalMode).not.toBeDisabled());
+    expect(globalMode).toHaveAttribute("aria-busy", "false");
     expect(globalMode).toHaveAttribute("aria-pressed", "false");
   });
 
