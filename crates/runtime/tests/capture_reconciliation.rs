@@ -95,16 +95,21 @@ impl CaptureJournalStore for MemoryJournalStore {
     }
 }
 
-#[derive(Default)]
 struct InvalidJournalStore {
+    fail_clears_remaining: Mutex<usize>,
     invalid: Mutex<bool>,
 }
 
 impl InvalidJournalStore {
     fn new() -> Self {
         Self {
+            fail_clears_remaining: Mutex::new(0),
             invalid: Mutex::new(true),
         }
+    }
+
+    fn fail_next_clear(&self) {
+        *self.fail_clears_remaining.lock().unwrap() = 1;
     }
 }
 
@@ -124,6 +129,14 @@ impl CaptureJournalStore for InvalidJournalStore {
     }
 
     fn clear(&self) -> Result<(), CaptureTransitionError> {
+        let mut failures = self.fail_clears_remaining.lock().unwrap();
+        if *failures > 0 {
+            *failures -= 1;
+            return Err(CaptureTransitionError::new(
+                mish_runtime::CaptureFailureKind::PersistenceFailed,
+                "Synthetic recovery journal clear failure",
+            ));
+        }
         *self.invalid.lock().unwrap() = false;
         Ok(())
     }
@@ -457,6 +470,54 @@ async fn invalid_restart_journal_is_visible_and_can_be_relinquished_without_prox
     assert_eq!(drift.system_proxy.phase, SystemProxyPhase::Drift);
     assert_eq!(
         drift.system_proxy.recovery_actions,
+        [CaptureRecoveryAction::LeaveAsIs]
+    );
+    assert_eq!(platform.apply_count(), 0);
+
+    platform.fail_next_observations(1);
+    let observation_error = reconciler
+        .recover(CaptureRecoveryAction::LeaveAsIs, false)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        observation_error.kind,
+        mish_runtime::CaptureFailureKind::ObservationFailed
+    );
+    let after_observation_failure = reconciler.status();
+    assert_eq!(
+        after_observation_failure.system_proxy.failure,
+        Some(mish_runtime::CaptureFailureKind::InvalidRecovery)
+    );
+    assert_eq!(
+        after_observation_failure.system_proxy.recovery_actions,
+        [CaptureRecoveryAction::LeaveAsIs]
+    );
+    let repair_error = reconciler
+        .recover(CaptureRecoveryAction::Repair, true)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        repair_error.kind,
+        mish_runtime::CaptureFailureKind::InvalidRecovery
+    );
+    assert_eq!(platform.apply_count(), 0);
+
+    journal.fail_next_clear();
+    let persistence_error = reconciler
+        .recover(CaptureRecoveryAction::LeaveAsIs, false)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        persistence_error.kind,
+        mish_runtime::CaptureFailureKind::PersistenceFailed
+    );
+    let after_persistence_failure = reconciler.status();
+    assert_eq!(
+        after_persistence_failure.system_proxy.failure,
+        Some(mish_runtime::CaptureFailureKind::InvalidRecovery)
+    );
+    assert_eq!(
+        after_persistence_failure.system_proxy.recovery_actions,
         [CaptureRecoveryAction::LeaveAsIs]
     );
     assert_eq!(platform.apply_count(), 0);

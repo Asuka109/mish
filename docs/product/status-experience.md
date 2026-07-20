@@ -59,6 +59,10 @@ The DOM element owns the fallback blue surface and text contrast.
   uses a restrained green icon.
 - The profile menu is intentionally muted because profile switching is less
   frequent than changing a group or capture state.
+- Capture drift, typed confirmation failures, and their recovery actions appear
+  in transient notifications and the notification center without shifting the
+  routing controls. System Proxy drift offers both repair and keep-current when
+  the runtime advertises those actions.
 
 ## Session
 
@@ -100,6 +104,9 @@ Services monitors a user-managed set of endpoint probes. The default fixture
 contains Google, GitHub, Cloudflare, Baidu, Apple, and Microsoft. Normal display
 shows a solid service icon, title, and latency; the URL appears only in the
 editor. Manage supports add, edit, delete, and Restore defaults.
+
+Manage remains openable when service mutation is unavailable so the menu can
+explain the capability boundary; unsupported commands remain disabled.
 
 A result means “the configured endpoint responded through the explicitly chosen
 probe path.” It is not proof of a globally active proxy node. Probe transport and

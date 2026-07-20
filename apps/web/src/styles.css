@@ -669,32 +669,6 @@ h2 {
   padding: 10px 0;
 }
 
-.system-proxy-reconciliation {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-  line-height: 18px;
-}
-
-.system-proxy-reconciliation[data-phase="applied"] {
-  color: var(--color-success-text);
-}
-
-.system-proxy-reconciliation[data-phase="drift"],
-.system-proxy-reconciliation[data-phase="failed"] {
-  color: var(--color-error);
-}
-
-.system-proxy-recovery-actions {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .capture-mode-button {
   gap: 7px;
   padding: 0 10px;
@@ -1039,6 +1013,17 @@ h2 {
   height: 12px;
 }
 
+.service-manage-unavailable {
+  display: block;
+  max-width: 236px;
+  padding: 6px 9px 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: var(--font-weight-body);
+  line-height: 17px;
+  white-space: normal;
+}
+
 .service-monitor-row {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
@@ -1299,6 +1284,13 @@ h2 {
   line-height: 19px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 3px;
 }
 
 .notification-empty {
@@ -2620,15 +2612,6 @@ h2 {
   color: var(--color-warning);
 }
 
-.traffic-command-error {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--color-error) 28%, var(--color-hairline));
-  border-radius: var(--radius-md);
-  color: var(--color-error);
-  font-size: var(--text-metadata);
-}
-
 .traffic-source-status > span:last-child {
   flex: 0 0 auto;
   color: var(--color-text-muted);
@@ -3329,7 +3312,6 @@ h2 {
 }
 
 .settings-header + .settings-section,
-.settings-header + .fixture-error,
 .settings-header + .settings-notice {
   margin-top: 24px;
 }
@@ -3823,11 +3805,6 @@ h2 {
 
 .settings-row .traffic-capture-stack {
   align-items: flex-end;
-}
-
-.settings-row .system-proxy-reconciliation {
-  max-width: 460px;
-  text-align: right;
 }
 
 .settings-version {
@@ -4547,10 +4524,6 @@ h2 {
   .settings-row-control {
     width: 100%;
     min-width: 0;
-  }
-
-  .settings-row .system-proxy-reconciliation {
-    text-align: left;
   }
 
   .network-interface-list,

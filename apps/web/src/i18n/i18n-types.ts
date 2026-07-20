@@ -949,7 +949,7 @@ type RootTranslation = {
 	}
 	notifications: {
 		/**
-		 * R​e​c​e​n​t​ ​w​a​r​n​i​n​g​ ​a​n​d​ ​e​r​r​o​r​ ​e​v​e​n​t​s​.
+		 * R​e​c​e​n​t​ ​w​a​r​n​i​n​g​s​,​ ​e​r​r​o​r​s​,​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​a​c​t​i​o​n​s​.
 		 */
 		description: string
 		/**
@@ -4674,7 +4674,7 @@ export type TranslationFunctions = {
 	}
 	notifications: {
 		/**
-		 * Recent warning and error events.
+		 * Recent warnings, errors, and recovery actions.
 		 */
 		description: () => LocalizedString
 		/**

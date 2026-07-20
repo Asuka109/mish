@@ -56,7 +56,6 @@ export function StatusPage() {
     isCommandSupported,
     isGroupCommandPending,
     isLoading,
-    recoverSystemProxy,
     selectGroupChild,
     setCapture,
     setRoutingMode,
@@ -139,11 +138,6 @@ export function StatusPage() {
     <div className="page-scroll">
       <div className="status-page">
         <h1 className="sr-only">{LL.navigation.status()}</h1>
-        {error ? (
-          <p className="fixture-error" role="alert">
-            {error}
-          </p>
-        ) : null}
         {snapshot.adapterKind !== "fixture" && connection.stale ? (
           <p className="fixture-error" role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
@@ -197,7 +191,6 @@ export function StatusPage() {
                 commandSupported={captureSupported}
                 disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
-                onSystemProxyRecovery={(action) => void recoverSystemProxy(action)}
                 onTunChange={(selected) => changeCaptureMode("tun", selected)}
                 pending={capturePending}
                 systemProxyEnabled={captureRuntime.systemProxyEnabled}

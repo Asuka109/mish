@@ -113,11 +113,9 @@ export function SettingsPage() {
   } = useAppearance();
   const {
     connection: productConnection,
-    error: productError,
     isCommandPending,
     isCommandSupported,
     localProxyTest,
-    recoverSystemProxy,
     setCapture,
     snapshot: product,
     testLocalProxy,
@@ -211,11 +209,6 @@ export function SettingsPage() {
         </p>
       </header>
 
-      {settings.error || productError ? (
-        <p className="fixture-error" role="alert">
-          {LL.settingsPage.updateFailed()}
-        </p>
-      ) : null}
       {snapshot.storageRecovered ? (
         <p className="settings-notice" role="status">
           <Warning aria-hidden="true" />
@@ -245,7 +238,6 @@ export function SettingsPage() {
               commandSupported={captureSupported}
               disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
-              onSystemProxyRecovery={(action) => void recoverSystemProxy(action)}
               onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}
               systemProxyEnabled={captureRuntime.systemProxyEnabled}
