@@ -27,6 +27,14 @@ Core executable, Controller, Traffic and Events streams, and System Proxy
 platform are also local fixtures. No account, subscription, credential, proxy
 server, or machine network setting is used.
 
+The workspace Rust suite complements that end-to-end journey with focused
+crash-safety fixtures. They reject corrupt, stale, oversized, foreign,
+non-private, and symlink System Proxy journals; preserve explicit drift when a
+journal becomes unreadable; exercise every local-restore commit crash boundary;
+and reject invalid restore journals or transaction workspaces without changing
+the prior Profile or Settings generation. These tests use only temporary
+directories and in-memory System Proxy platforms.
+
 The journey proves that:
 
 1. local-file and HTTPS sources pass the same preflight, normalization, preview,

@@ -3,14 +3,15 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use mish_bridge::DesktopRuntimeHost;
 use mish_runtime::{
-    CoreError, CorePhase, CoreRuntime, CoreStatus, EventLevel, EventRecord, EventSource,
-    EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource, EventsSnapshot,
-    MishRuntime, ProviderAuthority, ProviderCapabilityAvailability, ProviderCommandExecution,
-    ProviderCommandOperation, ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType,
-    ProviderUpdateState, RuntimeProvider, StatusAdapterKind, StatusDataSource, StatusSnapshot,
-    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot,
-    TrafficDataSource,
+    CaptureFailureKind, CaptureRecoveryAction, CoreError, CorePhase, CoreRuntime, CoreStatus,
+    EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
+    EventsDataSource, EventsSnapshot, MishRuntime, ProviderAuthority,
+    ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
+    ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateState,
+    RuntimeProvider, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
+    TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot, TrafficDataSource,
 };
+use mish_state_authority::StateMutationAuthority;
 use tokio::sync::{Notify, broadcast};
 
 struct RunningCore;
@@ -242,6 +243,21 @@ async fn replacing_the_runtime_changes_status_traffic_and_events_as_one_profile_
     assert_eq!(events["profileId"], "profile-b");
     assert_eq!(events["sessionId"], "events-profile-b");
     assert_eq!(events["events"][0]["id"], "profile-b:1");
+}
+
+#[tokio::test]
+async fn system_proxy_recovery_cannot_overlap_an_authoritative_restore() {
+    let authority = StateMutationAuthority::new();
+    let restore_permit = authority.try_acquire().unwrap();
+    let host = DesktopRuntimeHost::with_mutation_authority(runtime("profile-a"), authority);
+
+    let error = host
+        .recover_system_proxy(CaptureRecoveryAction::Repair, StatusAdapterKind::Rpc)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, CaptureFailureKind::InvalidRecovery);
+    drop(restore_permit);
 }
 
 #[tokio::test]

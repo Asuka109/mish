@@ -5,7 +5,7 @@ use std::{
     fmt,
     fs::{self, OpenOptions},
     io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::PathBuf,
     process::Stdio,
     sync::{
@@ -29,6 +29,7 @@ use mish_settings::{
     DnsObservation, NetworkDnsFailureKind, NetworkDnsObservation, NetworkDnsObservationError,
     NetworkDnsPlatform, NetworkDnsSource, NetworkInterfaceKind, NetworkInterfaceObservation,
 };
+use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
@@ -38,6 +39,8 @@ use tokio::{
 };
 
 const JOURNAL_MAX_BYTES: u64 = 65_536;
+const JOURNAL_OWNER: &str = "com.asuka109.mish";
+const JOURNAL_VERSION: u32 = 1;
 const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
@@ -351,60 +354,121 @@ pub struct FileCaptureJournalStore {
     path: PathBuf,
 }
 
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredCaptureJournal {
+    journal: CaptureJournal,
+    owner: String,
+    version: u32,
+}
+
+static NEXT_JOURNAL_TEMP_ID: AtomicU64 = AtomicU64::new(1);
+
 impl FileCaptureJournalStore {
     pub fn new(path: PathBuf) -> Self {
         Self { path }
+    }
+
+    fn validated_metadata(
+        &self,
+        enforce_size_bound: bool,
+    ) -> Result<Option<fs::Metadata>, CaptureTransitionError> {
+        let metadata = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(persistence_error()),
+        };
+        let parent = self.path.parent().ok_or_else(persistence_error)?;
+        let parent_metadata = fs::symlink_metadata(parent).map_err(|_| persistence_error())?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || (enforce_size_bound && metadata.len() > JOURNAL_MAX_BYTES)
+            || metadata.permissions().mode() & 0o777 != 0o600
+            || parent_metadata.file_type().is_symlink()
+            || !parent_metadata.is_dir()
+            || metadata.uid() != parent_metadata.uid()
+        {
+            return Err(invalid_recovery_error());
+        }
+        Ok(Some(metadata))
     }
 }
 
 impl CaptureJournalStore for FileCaptureJournalStore {
     fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
-        let metadata = match fs::metadata(&self.path) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(persistence_error()),
-        };
-        if metadata.len() > JOURNAL_MAX_BYTES {
-            return Err(invalid_recovery_error());
+        if self.validated_metadata(true)?.is_none() {
+            return Ok(None);
         }
         let bytes = fs::read(&self.path).map_err(|_| persistence_error())?;
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|_| invalid_recovery_error())
+        let stored: StoredCaptureJournal =
+            serde_json::from_slice(&bytes).map_err(|_| invalid_recovery_error())?;
+        if stored.version != JOURNAL_VERSION || stored.owner != JOURNAL_OWNER {
+            return Err(invalid_recovery_error());
+        }
+        Ok(Some(stored.journal))
     }
 
     fn save(&self, journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
-        let bytes = serde_json::to_vec(journal).map_err(|_| persistence_error())?;
+        match fs::symlink_metadata(&self.path) {
+            Ok(_) => {
+                self.load()?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(persistence_error()),
+        }
+        let bytes = serde_json::to_vec(&StoredCaptureJournal {
+            journal: journal.clone(),
+            owner: JOURNAL_OWNER.to_owned(),
+            version: JOURNAL_VERSION,
+        })
+        .map_err(|_| persistence_error())?;
         if bytes.len() as u64 > JOURNAL_MAX_BYTES {
             return Err(persistence_error());
         }
         let parent = self.path.parent().ok_or_else(persistence_error)?;
         fs::create_dir_all(parent).map_err(|_| persistence_error())?;
-        let temporary = self.path.with_extension("tmp");
+        let parent_metadata = fs::symlink_metadata(parent).map_err(|_| persistence_error())?;
+        if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+            return Err(persistence_error());
+        }
+        let temporary = self.path.with_extension(format!(
+            "tmp-{}-{}",
+            std::process::id(),
+            NEXT_JOURNAL_TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .write(true)
             .mode(0o600)
             .open(&temporary)
             .map_err(|_| persistence_error())?;
-        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
-            .map_err(|_| persistence_error())?;
-        file.write_all(&bytes).map_err(|_| persistence_error())?;
-        file.sync_all().map_err(|_| persistence_error())?;
-        fs::rename(&temporary, &self.path).map_err(|_| persistence_error())?;
+        if fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600)).is_err() {
+            let _ = fs::remove_file(&temporary);
+            return Err(persistence_error());
+        }
+        let result = file
+            .write_all(&bytes)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| fs::rename(&temporary, &self.path))
+            .and_then(|()| fs::File::open(parent))
+            .and_then(|directory| directory.sync_all())
+            .map_err(|_| persistence_error());
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
+    }
+
+    fn clear(&self) -> Result<(), CaptureTransitionError> {
+        if self.validated_metadata(false)?.is_none() {
+            return Ok(());
+        }
+        let parent = self.path.parent().ok_or_else(persistence_error)?;
+        fs::remove_file(&self.path).map_err(|_| persistence_error())?;
         fs::File::open(parent)
             .and_then(|directory| directory.sync_all())
             .map_err(|_| persistence_error())?;
         Ok(())
-    }
-
-    fn clear(&self) -> Result<(), CaptureTransitionError> {
-        match fs::remove_file(&self.path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(persistence_error()),
-        }
     }
 }
 

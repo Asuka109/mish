@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
@@ -1220,14 +1220,20 @@ where
             return Ok(());
         }
         let metadata =
-            fs::metadata(&journal_path).map_err(|_| LocalBackupError::RecoveryRequired)?;
+            fs::symlink_metadata(&journal_path).map_err(|_| LocalBackupError::RecoveryRequired)?;
         if !metadata.is_file() || metadata.len() > RESTORE_JOURNAL_MAX_BYTES {
             return Err(LocalBackupError::RecoveryRequired);
         }
+        validate_private_restore_file(root, &metadata)?;
         let bytes = fs::read(&journal_path).map_err(|_| LocalBackupError::RecoveryRequired)?;
         let journal: RestoreJournal =
             serde_json::from_slice(&bytes).map_err(|_| LocalBackupError::RecoveryRequired)?;
         validate_restore_journal(&journal)?;
+        ensure_safe_component(root, &root.join("profiles"))?;
+        ensure_safe_component(root, &root.join("settings.json"))?;
+        let (stage_root, rollback_root) = restore_roots(root, &journal.transaction_id);
+        validate_restore_workspace(root, &stage_root)?;
+        validate_restore_workspace(root, &rollback_root)?;
         let transaction = Self {
             filesystem,
             journal: journal.clone(),
@@ -1375,6 +1381,41 @@ fn ensure_safe_component(root: &Path, path: &Path) -> Result<(), LocalBackupErro
     }
     if fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(LocalBackupError::Storage);
+    }
+    Ok(())
+}
+
+fn validate_private_restore_file(
+    root: &Path,
+    metadata: &fs::Metadata,
+) -> Result<(), LocalBackupError> {
+    #[cfg(unix)]
+    {
+        let root_metadata =
+            fs::symlink_metadata(root).map_err(|_| LocalBackupError::RecoveryRequired)?;
+        if metadata.permissions().mode() & 0o777 != 0o600 || metadata.uid() != root_metadata.uid() {
+            return Err(LocalBackupError::RecoveryRequired);
+        }
+    }
+    Ok(())
+}
+
+fn validate_restore_workspace(root: &Path, path: &Path) -> Result<(), LocalBackupError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(LocalBackupError::RecoveryRequired),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(LocalBackupError::RecoveryRequired);
+    }
+    #[cfg(unix)]
+    {
+        let root_metadata =
+            fs::symlink_metadata(root).map_err(|_| LocalBackupError::RecoveryRequired)?;
+        if metadata.permissions().mode() & 0o777 != 0o700 || metadata.uid() != root_metadata.uid() {
+            return Err(LocalBackupError::RecoveryRequired);
+        }
     }
     Ok(())
 }
@@ -1932,6 +1973,25 @@ rules:
         );
     }
 
+    fn assert_invalid_recovery_journal_is_preserved(mutate: impl FnOnce(&Path)) {
+        let (root, transaction, original_settings) = transaction_fixture(Arc::new(
+            InjectedFilesystem::crashing_at(RestoreCheckpoint::JournalCommitting),
+        ));
+        assert_eq!(
+            transaction.commit().unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        let journal = root.path().join(RESTORE_JOURNAL_FILE);
+        mutate(&journal);
+
+        assert_eq!(
+            RestoreTransaction::recover(root.path()).unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        assert_original_generation(root.path(), original_settings);
+        assert!(journal.exists());
+    }
+
     #[test]
     fn ordinary_multi_component_failure_rolls_back_every_completed_rename() {
         let (root, transaction, original_settings) =
@@ -2004,5 +2064,61 @@ rules:
                 assert_original_generation(root.path(), original_settings);
             }
         }
+    }
+
+    #[test]
+    fn startup_recovery_rejects_a_non_private_journal_without_mutating_state() {
+        let (root, transaction, original_settings) = transaction_fixture(Arc::new(
+            InjectedFilesystem::crashing_at(RestoreCheckpoint::JournalCommitting),
+        ));
+        assert_eq!(
+            transaction.commit().unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        let journal = root.path().join(RESTORE_JOURNAL_FILE);
+        fs::set_permissions(&journal, fs::Permissions::from_mode(0o644)).unwrap();
+
+        assert_eq!(
+            RestoreTransaction::recover(root.path()).unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        assert_original_generation(root.path(), original_settings);
+        assert!(journal.exists());
+    }
+
+    #[test]
+    fn startup_recovery_rejects_corrupt_stale_and_oversized_journals() {
+        assert_invalid_recovery_journal_is_preserved(|journal| {
+            fs::write(journal, b"{").unwrap();
+        });
+        assert_invalid_recovery_journal_is_preserved(|journal| {
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&fs::read(journal).unwrap()).unwrap();
+            value["version"] = 0.into();
+            fs::write(journal, serde_json::to_vec(&value).unwrap()).unwrap();
+        });
+        assert_invalid_recovery_journal_is_preserved(|journal| {
+            fs::write(journal, vec![b'x'; RESTORE_JOURNAL_MAX_BYTES as usize + 1]).unwrap();
+        });
+    }
+
+    #[test]
+    fn startup_recovery_rejects_a_non_private_transaction_workspace() {
+        let (root, transaction, original_settings) = transaction_fixture(Arc::new(
+            InjectedFilesystem::crashing_at(RestoreCheckpoint::JournalCommitting),
+        ));
+        let (stage_root, _) = restore_roots(root.path(), &transaction.journal.transaction_id);
+        assert_eq!(
+            transaction.commit().unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        fs::set_permissions(&stage_root, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(
+            RestoreTransaction::recover(root.path()).unwrap_err(),
+            LocalBackupError::RecoveryRequired
+        );
+        assert_original_generation(root.path(), original_settings);
+        assert!(root.path().join(RESTORE_JOURNAL_FILE).exists());
     }
 }

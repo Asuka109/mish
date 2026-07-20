@@ -31,8 +31,11 @@ Traffic, and Events RPC adapters after validating its private bootstrap payload.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
    token, resolves Tauri's application-data directory, constructs the private
    profile repository, runtime root, and mode-`0600` System Proxy recovery
-   journal there, and starts `mish-bridge` on `127.0.0.1:0` in the explicit safe
-   stopped state.
+   journal there. Before exposing `mish-bridge`, it synchronously audits that
+   journal with the safe-stopped runtime. A confirmed orphaned Mish proxy is
+   restored to its recorded prior state; an unreadable or unconfirmed record
+   remains explicit recovery drift and cannot be published as off or applied.
+   The bridge then starts on `127.0.0.1:0`.
    The bridge-handle slot is created before `run_return`; Tauri's `Ready` setup
    hook fills it before the WebView can invoke bootstrap, and the exit path later
    takes the same handle for ordered shutdown.
@@ -171,8 +174,11 @@ claim that process memory is a secure enclave.
   user selection,
   requires a healthy configured core and reachable application-owned mixed
   proxy listener, confirms every applied change, and restores only state
-  recorded in its private journal. The generated Mihomo configuration and the
-  macOS adapter share that same managed loopback endpoint. All other
+  recorded in its private journal. That journal uses a strict versioned
+  application-owner envelope, rejects non-private, foreign, stale, malformed,
+  oversized, and symlink records, and is replaced through a unique mode-0600
+  temporary file plus file and directory flushes. The generated Mihomo
+  configuration and the macOS adapter share that same managed loopback endpoint. All other
   network-changing Status commands remain unsupported.
 - The macOS shell has a native status-bar menu backed by the same runtime host,
   capture reconciler, and profile activation coordinator as authenticated RPC.

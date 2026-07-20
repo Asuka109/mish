@@ -76,11 +76,24 @@ impl TunHelperPlatform for FakeTunHelper {
 
 #[derive(Default)]
 struct MemoryJournalStore {
+    fail_reads: Mutex<bool>,
     journal: Mutex<Option<CaptureJournal>>,
+}
+
+impl MemoryJournalStore {
+    fn fail_reads(&self) {
+        *self.fail_reads.lock().unwrap() = true;
+    }
 }
 
 impl CaptureJournalStore for MemoryJournalStore {
     fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        if *self.fail_reads.lock().unwrap() {
+            return Err(CaptureTransitionError::new(
+                mish_runtime::CaptureFailureKind::PersistenceFailed,
+                "Synthetic recovery journal failure",
+            ));
+        }
         Ok(self.journal.lock().unwrap().clone())
     }
 
@@ -92,6 +105,25 @@ impl CaptureJournalStore for MemoryJournalStore {
     fn clear(&self) -> Result<(), CaptureTransitionError> {
         *self.journal.lock().unwrap() = None;
         Ok(())
+    }
+}
+
+struct UnreadableJournalStore;
+
+impl CaptureJournalStore for UnreadableJournalStore {
+    fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        Err(CaptureTransitionError::new(
+            mish_runtime::CaptureFailureKind::PersistenceFailed,
+            "Synthetic recovery journal failure",
+        ))
+    }
+
+    fn save(&self, _journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
+        unreachable!("an unreadable startup journal must fail before mutation")
+    }
+
+    fn clear(&self) -> Result<(), CaptureTransitionError> {
+        unreachable!("an unreadable startup journal must not be cleared")
     }
 }
 
@@ -445,6 +477,85 @@ async fn startup_audit_confirms_default_off_without_selecting_system_proxy() {
     );
     assert!(!status.capture_selection.system_proxy);
     assert!(!status.system_proxy.desired);
+}
+
+#[tokio::test]
+async fn startup_journal_failure_is_explicit_recovery_without_platform_mutation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(UnreadableJournalStore),
+        LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap(),
+    );
+
+    let error = reconciler
+        .audit(CaptureAuditReason::Restart, false)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::PersistenceFailed
+    );
+    let status = reconciler.status();
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Drift);
+    assert_eq!(
+        status.system_proxy.observed,
+        SystemProxyObservedState::Unknown
+    );
+    assert_eq!(
+        status.system_proxy.recovery_actions,
+        [
+            CaptureRecoveryAction::Repair,
+            CaptureRecoveryAction::LeaveAsIs
+        ]
+    );
+    assert!(!status.system_proxy_enabled);
+    assert_eq!(platform.apply_count(), 0);
+}
+
+#[tokio::test]
+async fn journal_failure_replaces_applied_with_unknown_drift_without_mutation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap();
+    let reconciler = CaptureReconciler::new(platform.clone(), journal.clone(), endpoint.clone());
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let applied_count = platform.apply_count();
+    journal.fail_reads();
+
+    let error = reconciler
+        .audit(CaptureAuditReason::NetworkChanged, true)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::PersistenceFailed
+    );
+    let status = reconciler.status();
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Drift);
+    assert_eq!(
+        status.system_proxy.observed,
+        SystemProxyObservedState::Unknown
+    );
+    assert!(status.system_proxy.desired);
+    assert!(status.capture_selection.system_proxy);
+    assert!(!status.system_proxy_enabled);
+    assert_eq!(platform.apply_count(), applied_count);
+    assert!(platform.service("service-a").is_mish_endpoint(&endpoint));
 }
 
 #[tokio::test]
