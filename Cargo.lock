@@ -2184,6 +2184,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures-util",
+ "libc",
  "mish-mihomo-controller",
  "mish-profile",
  "mish-runtime",

@@ -735,7 +735,8 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::PriorStopFailed => ProfileActivationFailure::PriorStop,
         MihomoActivationError::StateCommitFailed
         | MihomoActivationError::RollbackFailedSafeStopped
-        | MihomoActivationError::ShutdownFailed => ProfileActivationFailure::StateCommit,
+        | MihomoActivationError::ShutdownFailed
+        | MihomoActivationError::OwnershipFailed => ProfileActivationFailure::StateCommit,
     }
 }
 
@@ -759,7 +760,8 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
         MihomoActivationError::PriorStopFailed
         | MihomoActivationError::StateCommitFailed
         | MihomoActivationError::RollbackFailedSafeStopped
-        | MihomoActivationError::ShutdownFailed => {
+        | MihomoActivationError::ShutdownFailed
+        | MihomoActivationError::OwnershipFailed => {
             "Keep Mish in the reported safe state and retry after the lifecycle failure is resolved"
         }
         MihomoActivationError::Resolve(_)

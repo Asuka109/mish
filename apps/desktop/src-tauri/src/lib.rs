@@ -13,12 +13,12 @@ use mish_bridge::{
     ActivationTiming, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
     DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES, LocalBackupError, LocalBackupPreview,
     LocalBackupScope, LocalBackupService, LocalRestoreConflictResolution, LocalRestorePreview,
-    LocalRestoreResult, LoopbackServerConfig, LoopbackServerHandle, ManagedMihomoResolver,
-    ManagedRuntimePolicy, MihomoActivationManager, PreparedLocalBackup, PreparedLocalRestore,
-    PreparedSupportBundle, ProfileActivationCoordinator, ReqwestHttpsSourceReader,
-    SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform, SupportBundlePreview,
-    SupportBundleService, compose_desktop_runtime_with_capture,
-    start_loopback_server_with_runtime_host_and_lifecycle,
+    LocalRestoreResult, LoopbackServerConfig, LoopbackServerHandle, ManagedCoreOwnership,
+    ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationManager,
+    PreparedLocalBackup, PreparedLocalRestore, PreparedSupportBundle, ProfileActivationCoordinator,
+    RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
+    SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
+    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsLifecycleEventSource, MacOsNetworkDnsPlatform,
@@ -556,6 +556,17 @@ pub fn run() -> Result<i32, String> {
 fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
+    let runtime_root = profile_root.join("runtime");
+    let runtime_lease = ManagedRuntimeLease::acquire(&runtime_root)
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    let core_ownership = Arc::new(
+        ManagedCoreOwnership::new(
+            runtime_root,
+            Arc::new(RealManagedProcessPlatform),
+            runtime_lease,
+        )
+        .map_err(|error| io::Error::other(error.to_string()))?,
+    );
     LocalBackupService::recover_pending(&profile_root)
         .map_err(|error| io::Error::other(error.to_string()))?;
     let mutation_authority = StateMutationAuthority::new();
@@ -620,14 +631,18 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;
-        let _ = capture.audit(CaptureAuditReason::Restart, false).await;
         let runtime_host =
             DesktopRuntimeHost::with_mutation_authority(safe_runtime.clone(), mutation_authority);
-        let activation_manager = Arc::new(MihomoActivationManager::new_with_capture(
+        let activation_manager = Arc::new(MihomoActivationManager::new_managed(
             resolver,
             ActivationTiming::default(),
             Some(capture.clone()),
+            core_ownership,
         ));
+        activation_manager.recover_startup().await.map_err(|_| {
+            io::Error::other("managed Core startup recovery could not be completed")
+        })?;
+        let _ = capture.audit(CaptureAuditReason::Restart, false).await;
         activation_manager
             .shutdown()
             .await

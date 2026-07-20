@@ -1491,7 +1491,15 @@ impl CaptureReconciler {
             })
     }
 
-    pub async fn test_local_proxy(&self, core_healthy: bool) -> LocalProxyTestResult {
+    pub fn local_proxy_endpoint(&self) -> &LoopbackProxyEndpoint {
+        &self.system_proxy.endpoint
+    }
+
+    pub async fn test_local_proxy(
+        &self,
+        core_healthy: bool,
+        core_owns_listener: bool,
+    ) -> LocalProxyTestResult {
         let endpoint = &self.system_proxy.endpoint;
         let result = |phase| LocalProxyTestResult {
             host: endpoint.host().to_string(),
@@ -1500,6 +1508,9 @@ impl CaptureReconciler {
         };
         if !core_healthy {
             return result(LocalProxyTestPhase::CoreUnhealthy);
+        }
+        if !core_owns_listener {
+            return result(LocalProxyTestPhase::ListenerUnavailable);
         }
         if self.runtime_transition.load(Ordering::Acquire) {
             return result(LocalProxyTestPhase::RuntimeTransition);

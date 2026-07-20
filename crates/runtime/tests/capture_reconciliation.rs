@@ -1298,7 +1298,7 @@ async fn local_proxy_test_confirms_only_the_listener_and_leaves_system_proxy_unt
         LoopbackProxyEndpoint::managed(),
     );
 
-    let result = reconciler.test_local_proxy(true).await;
+    let result = reconciler.test_local_proxy(true, true).await;
 
     assert_eq!(result.phase, LocalProxyTestPhase::Ready);
     assert_eq!(result.host, "127.0.0.1");
@@ -1325,7 +1325,7 @@ async fn local_proxy_test_skips_all_platform_access_while_core_is_unhealthy() {
         LoopbackProxyEndpoint::managed(),
     );
 
-    let result = reconciler.test_local_proxy(false).await;
+    let result = reconciler.test_local_proxy(false, false).await;
 
     assert_eq!(result.phase, LocalProxyTestPhase::CoreUnhealthy);
     assert_eq!(platform.listener_test_count(), 0);

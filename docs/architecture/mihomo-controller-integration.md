@@ -294,6 +294,20 @@ Commit requires all of the following:
 4. the first complete observation batch maps to valid Status and Traffic
    snapshots.
 
+Production desktop candidates also require the fixed mixed-proxy listener to be
+owned by the same recorded PID and process identity before commit. Controller
+readiness from a candidate that failed to bind `127.0.0.1:7890` is therefore not
+activation success, even if another process makes that port connectable.
+
+Core lifecycle ownership is durable independently from `activation-state.json`.
+The schema-1 ownership record binds the controlled executable, candidate home,
+candidate configuration, PID when known, process start identity, random launch
+generation/token, and launch phase. It is private, bounded, versioned, and
+atomically replaced. The launch-intent phase is persisted before spawn so a
+crash between spawn and PID commit can still recover only the token-matched
+process. The active-profile record remains display-safe and is not process
+termination authority.
+
 Events `/logs` readiness is deliberately excluded from activation commit. An
 unavailable or malformed log stream remains visible through the independent
 Events contract and cannot delay profile activation or invalidate the committed
@@ -435,6 +449,12 @@ Desktop shutdown is ordered and awaitable:
 3. The runtime stops the managed Mihomo lifecycle.
 4. The loopback bridge requests graceful RPC server shutdown and awaits the
    server task.
+
+Stopping the managed process sends TERM, waits and reaps the child, escalates to
+KILL only after the bounded grace period, waits and reaps again, then clears the
+matching ownership generation. A process-name match, an occupied proxy port, or
+an ownership record whose start identity, arguments, or token no longer match
+is never sufficient to signal a process.
 
 Closing the source is idempotent. Dropping an unclosed source also signals
 cancellation, but production ownership uses the awaited shutdown path.

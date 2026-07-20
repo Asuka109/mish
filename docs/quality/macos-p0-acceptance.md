@@ -35,6 +35,15 @@ and reject invalid restore journals or transaction workspaces without changing
 the prior Profile or Settings generation. These tests use only temporary
 directories and in-memory System Proxy platforms.
 
+Managed Core lifecycle fixtures use a fake process registry and temporary
+private runtime root. They cover a desktop crash after spawn and before PID
+commit, a crash after the running ownership commit, next-launch orphan recovery
+before listener probing, PID reuse, process identity/token mismatch, corrupt
+ownership, an unrelated Mihomo-shaped process, normal TERM/wait/reap cleanup,
+external fixed-port occupancy, and the exclusive desktop-instance lease. They
+never enumerate or signal host processes and never inspect or mutate host
+System Proxy state.
+
 The journey proves that:
 
 1. local-file and HTTPS sources pass the same preflight, normalization, preview,
@@ -68,7 +77,9 @@ state from any installed-app Mihomo or macOS network transition; timing of real
 traffic interruption remains a manual observation.
 
 The focused local-proxy fixtures additionally prove that
-`status.testLocalProxy` checks only the fixed managed listener. They keep the
+`status.testLocalProxy` checks only the fixed listener owned by the current
+managed runtime identity. A connectable external or old-orphan listener is not
+ready. The fixtures keep the
 injected platform state byte-for-byte unchanged, perform no System Proxy apply,
 and create no recovery journal. These tests do not inspect the host macOS System
 Proxy.
@@ -159,6 +170,22 @@ Record only pass/fail, the Mish commit, macOS version, and whether the source wa
    the newly saved profile activates after quit and relaunch. Capture must remain
    off until explicitly enabled; repeated activation or capture failure must
    identify System Proxy recovery and leave an actionable redacted event.
+6. With System Proxy off, activate the test Profile and record the managed Core
+   PID. Force-quit the Mish desktop process, not Mihomo. Confirm the Core becomes
+   orphaned only for this controlled recovery exercise, then relaunch Mish.
+   Before activating a Profile or choosing **Test listener**, confirm the old
+   PID exits, Status is safe stopped, `127.0.0.1:7890` is no longer held by that
+   PID, and no Core ownership record remains. Activate again and require a new
+   managed PID plus **Listener ready**.
+7. Repeat with an independently started Mihomo-compatible fixture or harmless
+   external listener on `127.0.0.1:7890`. Relaunching Mish must not terminate
+   that process. Activation must fail safely or remain unavailable, and **Test
+   listener** must not report the external socket as the current Mish runtime.
+   Remove the external fixture manually after recording the result.
+8. While one installed Mish instance is running, attempt a second launch from
+   the same account and app-data root. It must not start a second bridge or Core.
+   Quit the first instance normally, then launch the replacement and confirm the
+   lease does not interfere with the sequential restart or verified upgrade.
 
 Any false success, active System Proxy left after Stop/Quit/Core failure, loss
 of the prior healthy profile after failed replacement, or Status/Traffic loss
