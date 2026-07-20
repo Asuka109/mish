@@ -524,4 +524,23 @@ describe("profiles page", () => {
     );
     expect(await screen.findByText(/Provider update was not confirmed/i)).toBeVisible();
   });
+
+  it("shows an actionable capture recovery reason for asynchronous activation failure", async () => {
+    const client = createDesktopClient();
+    const snapshot = desktopSnapshot();
+    snapshot.activation = {
+      ...snapshot.activation,
+      attemptedAt: 1_721_296_000_000,
+      commandId: "11111111-1111-4111-8111-111111111111",
+      failure: "capture",
+      operation: "activate",
+      phase: "failure",
+      targetProfileId: "profile-inactive",
+    };
+    client.getSnapshot.mockResolvedValue(snapshot);
+
+    renderProfiles(client);
+
+    expect(await screen.findByText(/System Proxy recovery blocked activation/i)).toBeVisible();
+  });
 });

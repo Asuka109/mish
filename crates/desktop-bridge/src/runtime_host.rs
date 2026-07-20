@@ -1,10 +1,10 @@
 use mish_runtime::{
-    CaptureAuditReason, CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError,
-    CoreStatus, DiagnosticHistory, EventsSnapshot, MishRuntime, ProviderAuthority,
-    ProviderCommandExecution, ProviderCommandResult, ProviderKind, ProviderSnapshot,
-    ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
-    TrafficCommandOperation, TrafficCommandResult,
+    ApplicationDiagnosticEvent, CaptureAuditReason, CaptureRecoveryAction, CaptureRequest,
+    CaptureTransitionError, CoreError, CoreStatus, DiagnosticHistory, EventsSnapshot, MishRuntime,
+    ProviderAuthority, ProviderCommandExecution, ProviderCommandResult, ProviderKind,
+    ProviderSnapshot, ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand,
+    StatusCommandError, StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution,
+    TrafficCommandFailureKind, TrafficCommandOperation, TrafficCommandResult,
 };
 use serde_json::Value;
 use tokio::sync::watch;
@@ -242,6 +242,10 @@ impl DesktopRuntimeHost {
 
     pub fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         self.current().events_snapshot(adapter_kind)
+    }
+
+    pub fn record_application_event(&self, event: ApplicationDiagnosticEvent) {
+        self.current().record_application_event(event);
     }
 
     pub async fn support_bundle_runtime_snapshot(

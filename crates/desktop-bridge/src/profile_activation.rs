@@ -8,7 +8,7 @@ use mish_profile::{
     ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfilePatch, ProfilePatchEditor,
     ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
-use mish_runtime::{MishRuntime, ProviderSnapshot};
+use mish_runtime::{ApplicationDiagnosticEvent, EventLevel, MishRuntime, ProviderSnapshot};
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
 use tokio::{
@@ -617,6 +617,10 @@ impl ProfileActivationCoordinator {
                     state.snapshot.failure = Some(ProfileActivationFailure::StateCommit);
                     state.snapshot.phase = ProfileActivationPhase::Failure;
                     let _ = self.updates.send(state.snapshot.clone());
+                    drop(state);
+                    self.host.record_application_event(activation_failure_event(
+                        MihomoActivationError::StateCommitFailed,
+                    ));
                     return;
                 };
                 self.host.replace(runtime);
@@ -639,6 +643,12 @@ impl ProfileActivationCoordinator {
                 state.snapshot.failure = Some(map_failure(error));
                 state.snapshot.phase = ProfileActivationPhase::Failure;
                 state.snapshot.safe_stopped = managed.is_safe_stopped();
+                let diagnostic = activation_failure_event(error);
+                let snapshot = state.snapshot.clone();
+                let _ = self.updates.send(snapshot);
+                drop(state);
+                self.host.record_application_event(diagnostic);
+                return;
             }
         }
         let _ = self.updates.send(state.snapshot.clone());
@@ -727,4 +737,36 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         | MihomoActivationError::RollbackFailedSafeStopped
         | MihomoActivationError::ShutdownFailed => ProfileActivationFailure::StateCommit,
     }
+}
+
+fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnosticEvent {
+    let detail = match error {
+        MihomoActivationError::CaptureFailed => {
+            "Resolve System Proxy recovery on Status, then retry profile activation"
+        }
+        MihomoActivationError::ControllerFailure
+        | MihomoActivationError::ReadinessTimeout
+        | MihomoActivationError::VersionMismatch => {
+            "Review Events for Controller readiness, then restart the profile after the cause is resolved"
+        }
+        MihomoActivationError::StartFailed | MihomoActivationError::EarlyExit => {
+            "Check for another process using the managed loopback ports, then retry activation"
+        }
+        MihomoActivationError::ValidationFailed | MihomoActivationError::InvalidArtifact => {
+            "Refresh or reimport the profile after correcting its validated runtime configuration"
+        }
+        MihomoActivationError::Cancelled => "Retry activation when no lifecycle command is pending",
+        MihomoActivationError::PriorStopFailed
+        | MihomoActivationError::StateCommitFailed
+        | MihomoActivationError::RollbackFailedSafeStopped
+        | MihomoActivationError::ShutdownFailed => {
+            "Keep Mish in the reported safe state and retry after the lifecycle failure is resolved"
+        }
+        MihomoActivationError::Resolve(_)
+        | MihomoActivationError::StagingFailed
+        | MihomoActivationError::InvalidTiming => {
+            "Verify the packaged Mihomo resource and private application-data storage, then retry"
+        }
+    };
+    ApplicationDiagnosticEvent::new(EventLevel::Error, "Profile activation failed", Some(detail))
 }

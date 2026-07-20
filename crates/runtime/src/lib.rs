@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    sync::{Arc, Weak},
+    sync::{Arc, Mutex, Weak},
 };
 
 use futures_util::future::BoxFuture;
@@ -271,16 +271,21 @@ pub trait TrafficDataSource: Send + Sync {
 pub trait EventsDataSource: Send + Sync {
     fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot;
     fn subscribe_events(&self) -> broadcast::Receiver<()>;
+    fn record_application_event(&self, _event: ApplicationDiagnosticEvent) {}
 }
 
 struct LifecycleStatusDataSource {
+    application_events: Mutex<ApplicationEventBuffer>,
     event_updates: broadcast::Sender<()>,
 }
 
 impl LifecycleStatusDataSource {
     fn new() -> Self {
         let (event_updates, _) = broadcast::channel(1);
-        Self { event_updates }
+        Self {
+            application_events: Mutex::new(ApplicationEventBuffer::new()),
+            event_updates,
+        }
     }
 }
 
@@ -298,11 +303,25 @@ impl TrafficDataSource for LifecycleStatusDataSource {
 
 impl EventsDataSource for LifecycleStatusDataSource {
     fn events_snapshot(&self, adapter_kind: StatusAdapterKind) -> EventsSnapshot {
-        EventsSnapshot::unavailable(adapter_kind)
+        self.application_events
+            .lock()
+            .expect("application event state poisoned")
+            .snapshot(adapter_kind)
     }
 
     fn subscribe_events(&self) -> broadcast::Receiver<()> {
         self.event_updates.subscribe()
+    }
+
+    fn record_application_event(&self, event: ApplicationDiagnosticEvent) {
+        let inserted = self
+            .application_events
+            .lock()
+            .expect("application event state poisoned")
+            .push(event);
+        if inserted {
+            let _ = self.event_updates.send(());
+        }
     }
 }
 
@@ -461,7 +480,10 @@ impl MishRuntime {
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.reconcile(request, healthy).await;
         self.publish_status(&core);
-        result?;
+        if let Err(error) = result {
+            self.record_application_event(ApplicationDiagnosticEvent::capture_failure(error.kind));
+            return Err(error);
+        }
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -492,7 +514,10 @@ impl MishRuntime {
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.recover(action, healthy).await;
         self.publish_status(&core);
-        result?;
+        if let Err(error) = result {
+            self.record_application_event(ApplicationDiagnosticEvent::capture_failure(error.kind));
+            return Err(error);
+        }
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -509,12 +534,26 @@ impl MishRuntime {
         let result = capture.audit(reason, healthy).await;
         let after = capture.status();
         if before == after {
-            result?;
-            return Ok(false);
+            return match result {
+                Ok(_) => Ok(false),
+                Err(error) => {
+                    self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
+                        error.kind,
+                    ));
+                    Err(error)
+                }
+            };
         }
         self.publish_status(&core);
-        result?;
-        Ok(true)
+        match result {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
+                    error.kind,
+                ));
+                Err(error)
+            }
+        }
     }
 
     pub async fn restore_capture_intent(&self) -> Result<bool, CaptureTransitionError> {
@@ -544,7 +583,15 @@ impl MishRuntime {
         if before != after {
             self.publish_status(&core);
         }
-        result.map(|_| before != after)
+        match result {
+            Ok(_) => Ok(before != after),
+            Err(error) => {
+                self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
+                    error.kind,
+                ));
+                Err(error)
+            }
+        }
     }
 
     pub async fn pause_observations(&self, reason: RuntimeObservationPauseReason) {
@@ -667,6 +714,10 @@ impl MishRuntime {
 
     pub fn subscribe_events(&self) -> broadcast::Receiver<()> {
         self.events_source.subscribe_events()
+    }
+
+    pub fn record_application_event(&self, event: ApplicationDiagnosticEvent) {
+        self.events_source.record_application_event(event);
     }
 
     pub fn run_proxy_diagnostic(

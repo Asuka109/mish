@@ -365,12 +365,12 @@ impl CaptureJournalStore for FileCaptureJournalStore {
             Err(_) => return Err(persistence_error()),
         };
         if metadata.len() > JOURNAL_MAX_BYTES {
-            return Err(persistence_error());
+            return Err(invalid_recovery_error());
         }
         let bytes = fs::read(&self.path).map_err(|_| persistence_error())?;
         serde_json::from_slice(&bytes)
             .map(Some)
-            .map_err(|_| persistence_error())
+            .map_err(|_| invalid_recovery_error())
     }
 
     fn save(&self, journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
@@ -1229,6 +1229,13 @@ fn persistence_error() -> CaptureTransitionError {
     CaptureTransitionError::new(
         CaptureFailureKind::PersistenceFailed,
         "The System Proxy recovery journal is unavailable",
+    )
+}
+
+fn invalid_recovery_error() -> CaptureTransitionError {
+    CaptureTransitionError::new(
+        CaptureFailureKind::InvalidRecovery,
+        "The System Proxy recovery journal is invalid",
     )
 }
 

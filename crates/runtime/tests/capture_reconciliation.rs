@@ -95,6 +95,40 @@ impl CaptureJournalStore for MemoryJournalStore {
     }
 }
 
+#[derive(Default)]
+struct InvalidJournalStore {
+    invalid: Mutex<bool>,
+}
+
+impl InvalidJournalStore {
+    fn new() -> Self {
+        Self {
+            invalid: Mutex::new(true),
+        }
+    }
+}
+
+impl CaptureJournalStore for InvalidJournalStore {
+    fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        if *self.invalid.lock().unwrap() {
+            return Err(CaptureTransitionError::new(
+                mish_runtime::CaptureFailureKind::InvalidRecovery,
+                "Synthetic invalid recovery journal",
+            ));
+        }
+        Ok(None)
+    }
+
+    fn save(&self, _journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
+        panic!("invalid recovery must be relinquished before a new journal is saved")
+    }
+
+    fn clear(&self) -> Result<(), CaptureTransitionError> {
+        *self.invalid.lock().unwrap() = false;
+        Ok(())
+    }
+}
+
 struct FakePlatform {
     active_service_id: Mutex<String>,
     apply_count: Mutex<usize>,
@@ -398,6 +432,47 @@ async fn startup_audit_confirms_default_off_without_selecting_system_proxy() {
     );
     assert!(!status.capture_selection.system_proxy);
     assert!(!status.system_proxy.desired);
+}
+
+#[tokio::test]
+async fn invalid_restart_journal_is_visible_and_can_be_relinquished_without_proxy_mutation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(InvalidJournalStore::new());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap(),
+    );
+
+    let error = reconciler
+        .audit(CaptureAuditReason::Restart, false)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::InvalidRecovery
+    );
+    let drift = reconciler.status();
+    assert_eq!(drift.system_proxy.phase, SystemProxyPhase::Drift);
+    assert_eq!(
+        drift.system_proxy.recovery_actions,
+        [CaptureRecoveryAction::LeaveAsIs]
+    );
+    assert_eq!(platform.apply_count(), 0);
+
+    let recovered = reconciler
+        .recover(CaptureRecoveryAction::LeaveAsIs, false)
+        .await
+        .unwrap();
+
+    assert_eq!(recovered.system_proxy.phase, SystemProxyPhase::Off);
+    assert_eq!(
+        recovered.system_proxy.observed,
+        SystemProxyObservedState::Disabled
+    );
+    assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
 }
 
 #[tokio::test]

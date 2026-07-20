@@ -340,6 +340,9 @@ const zh = {
     systemProxy: "系统代理",
     systemProxyApplied: "系统代理已应用，并经 macOS 确认。",
     systemProxyCoreFailure: "当前配置或 Mihomo core 不可用，因此没有启用系统代理。",
+    systemProxyInvalidRecovery:
+      "Mish 无法校验已保存的系统代理恢复记录。请保持外部代理不变并清除 Mish 所有权，然后重试。",
+    systemProxyPersistenceFailure: "Mish 无法访问系统代理恢复存储。请检查应用数据目录权限后重试。",
     systemProxyDescription: "接管遵循系统代理设置的应用流量。",
     systemProxyDrift: "系统代理与 Mish 的请求状态不一致。你可以修复，或保留系统当前设置。",
     systemProxyFailure: "系统代理未获确认；先前状态已保留或恢复。",
@@ -516,7 +519,14 @@ const zh = {
     patchValidationValue: "值超出受限的结构化模型",
     patches: "结构化 patches",
     activationCancelled: "激活已取消；此前健康的配置保持不变。",
+    activationCaptureFailed: "系统代理恢复状态阻止了激活。请先在“状态”中完成恢复，再重试。",
+    activationControllerFailed:
+      "Mihomo 未提供有效的 Controller 就绪快照。请查看“事件”，然后重新启动此配置。",
     activationFailed: "激活失败；此前健康的配置或明确的安全停止状态仍为权威状态。",
+    activationLifecycleFailed:
+      "受管 Mihomo 进程无法安全切换。请检查是否有其他进程占用 Mish 的回环端口，然后重试。",
+    activationStateFailed:
+      "Mish 无法提交安全的激活状态。请保持当前报告的安全状态，并在重试前查看“事件”。",
     activationUnavailable: "当前运行环境不支持激活。",
     activating: "正在激活…",
     automaticRefresh: "自动刷新配置来源",

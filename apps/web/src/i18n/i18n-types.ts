@@ -1209,6 +1209,14 @@ type RootTranslation = {
 		 */
 		systemProxyCoreFailure: string
 		/**
+		 * M​i​s​h​ ​c​a​n​n​o​t​ ​v​a​l​i​d​a​t​e​ ​i​t​s​ ​s​a​v​e​d​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​r​e​c​o​v​e​r​y​ ​r​e​c​o​r​d​.​ ​L​e​a​v​e​ ​t​h​e​ ​e​x​t​e​r​n​a​l​ ​p​r​o​x​y​ ​u​n​c​h​a​n​g​e​d​ ​t​o​ ​c​l​e​a​r​ ​M​i​s​h​ ​o​w​n​e​r​s​h​i​p​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+		 */
+		systemProxyInvalidRecovery: string
+		/**
+		 * M​i​s​h​ ​c​a​n​n​o​t​ ​a​c​c​e​s​s​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​r​e​c​o​v​e​r​y​ ​s​t​o​r​a​g​e​.​ ​C​h​e​c​k​ ​a​p​p​l​i​c​a​t​i​o​n​-​d​a​t​a​ ​p​e​r​m​i​s​s​i​o​n​s​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
+		 */
+		systemProxyPersistenceFailure: string
+		/**
 		 * R​o​u​t​e​s​ ​a​p​p​l​i​c​a​t​i​o​n​s​ ​t​h​a​t​ ​f​o​l​l​o​w​ ​t​h​e​ ​s​y​s​t​e​m​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​.
 		 */
 		systemProxyDescription: string
@@ -1913,9 +1921,25 @@ type RootTranslation = {
 		 */
 		activationCancelled: string
 		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​r​e​c​o​v​e​r​y​ ​b​l​o​c​k​e​d​ ​a​c​t​i​v​a​t​i​o​n​.​ ​R​e​s​o​l​v​e​ ​t​h​e​ ​r​e​c​o​v​e​r​y​ ​s​t​a​t​e​ ​o​n​ ​S​t​a​t​u​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+		 */
+		activationCaptureFailed: string
+		/**
+		 * M​i​h​o​m​o​ ​d​i​d​ ​n​o​t​ ​p​r​o​v​i​d​e​ ​a​ ​v​a​l​i​d​ ​C​o​n​t​r​o​l​l​e​r​ ​r​e​a​d​i​n​e​s​s​ ​s​n​a​p​s​h​o​t​.​ ​R​e​v​i​e​w​ ​E​v​e​n​t​s​,​ ​t​h​e​n​ ​r​e​s​t​a​r​t​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
+		 */
+		activationControllerFailed: string
+		/**
 		 * A​c​t​i​v​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​a​l​t​h​y​ ​p​r​o​f​i​l​e​ ​o​r​ ​s​a​f​e​ ​s​t​o​p​p​e​d​ ​s​t​a​t​e​ ​r​e​m​a​i​n​s​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​.
 		 */
 		activationFailed: string
+		/**
+		 * T​h​e​ ​m​a​n​a​g​e​d​ ​M​i​h​o​m​o​ ​p​r​o​c​e​s​s​ ​c​o​u​l​d​ ​n​o​t​ ​t​r​a​n​s​i​t​i​o​n​ ​s​a​f​e​l​y​.​ ​C​h​e​c​k​ ​f​o​r​ ​a​n​o​t​h​e​r​ ​p​r​o​c​e​s​s​ ​u​s​i​n​g​ ​M​i​s​h​'​s​ ​l​o​o​p​b​a​c​k​ ​p​o​r​t​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+		 */
+		activationLifecycleFailed: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​m​i​t​ ​a​ ​s​a​f​e​ ​a​c​t​i​v​a​t​i​o​n​ ​s​t​a​t​e​.​ ​K​e​e​p​ ​t​h​e​ ​r​e​p​o​r​t​e​d​ ​s​a​f​e​ ​s​t​a​t​e​ ​a​n​d​ ​r​e​v​i​e​w​ ​E​v​e​n​t​s​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
+		 */
+		activationStateFailed: string
 		/**
 		 * A​c​t​i​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​r​u​n​t​i​m​e​.
 		 */
@@ -4904,6 +4928,14 @@ export type TranslationFunctions = {
 		 */
 		systemProxyCoreFailure: () => LocalizedString
 		/**
+		 * Mish cannot validate its saved System Proxy recovery record. Leave the external proxy unchanged to clear Mish ownership, then retry.
+		 */
+		systemProxyInvalidRecovery: () => LocalizedString
+		/**
+		 * Mish cannot access System Proxy recovery storage. Check application-data permissions before retrying.
+		 */
+		systemProxyPersistenceFailure: () => LocalizedString
+		/**
 		 * Routes applications that follow the system proxy settings.
 		 */
 		systemProxyDescription: () => LocalizedString
@@ -5574,9 +5606,25 @@ export type TranslationFunctions = {
 		 */
 		activationCancelled: () => LocalizedString
 		/**
+		 * System Proxy recovery blocked activation. Resolve the recovery state on Status, then retry.
+		 */
+		activationCaptureFailed: () => LocalizedString
+		/**
+		 * Mihomo did not provide a valid Controller readiness snapshot. Review Events, then restart this profile.
+		 */
+		activationControllerFailed: () => LocalizedString
+		/**
 		 * Activation failed. The previous healthy profile or safe stopped state remains authoritative.
 		 */
 		activationFailed: () => LocalizedString
+		/**
+		 * The managed Mihomo process could not transition safely. Check for another process using Mish's loopback ports, then retry.
+		 */
+		activationLifecycleFailed: () => LocalizedString
+		/**
+		 * Mish could not commit a safe activation state. Keep the reported safe state and review Events before retrying.
+		 */
+		activationStateFailed: () => LocalizedString
 		/**
 		 * Activation is unavailable in this runtime.
 		 */
