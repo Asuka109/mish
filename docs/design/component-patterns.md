@@ -53,6 +53,21 @@ capture toggles because it explains the modes rather than selecting one.
 Do not rebuild pressed-state or roving-focus behavior with manually coordinated
 buttons.
 
+## Settings items
+
+Every Settings preference uses the shared `SettingsRow` anatomy: one copy slot
+for its title and description, followed by one control slot for the value,
+status, selector, or action. The row owns responsive placement; individual
+controls must not choose their own row alignment.
+
+At comfortable widths, the copy starts at the leading edge and the control slot
+ends at the trailing edge. When the row reflows, the control slot moves below
+the copy and every control aligns to the leading edge. This keeps the control
+attached to its explanation and gives mixed-width buttons, badges, and selectors
+one stable scan line. Compound controls may wrap internally, but must preserve
+that shared leading edge. Use a container query for this component-level reflow
+instead of inferring available row space from the full window width.
+
 ## Dialogs, menus, and forms
 
 Use shadcn Base UI `DropdownMenu` for compact action and profile menus. Compose

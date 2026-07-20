@@ -3218,6 +3218,8 @@ h2 {
 }
 
 .settings-page {
+  container-name: settings-page;
+  container-type: inline-size;
   width: min(100%, 960px);
   margin: 0 auto;
   padding: 32px 32px 48px;
@@ -3282,10 +3284,10 @@ h2 {
 }
 
 .settings-row {
-  display: flex;
+  display: grid;
   min-height: 62px;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
-  justify-content: space-between;
   gap: 20px;
   padding: 11px 14px;
 }
@@ -3317,8 +3319,10 @@ h2 {
 }
 
 .settings-row-control {
+  display: grid;
   min-width: fit-content;
-  flex: 0 0 auto;
+  justify-items: end;
+  text-align: end;
 }
 
 .settings-inline-control,
@@ -3740,6 +3744,60 @@ h2 {
   color: var(--color-text-muted);
   font-size: var(--text-metadata);
   font-variant-numeric: tabular-nums;
+}
+
+@container settings-page (max-width: 680px) {
+  .settings-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+  }
+
+  .settings-row-control {
+    width: 100%;
+    min-width: 0;
+    justify-items: start;
+    text-align: start;
+  }
+
+  .settings-row-control .settings-inline-control {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .settings-row .traffic-capture-stack {
+    align-items: flex-start;
+  }
+
+  .settings-row-control .local-proxy-control {
+    justify-content: flex-start;
+  }
+
+  .settings-row-control .local-backup-control {
+    justify-items: start;
+  }
+
+  .settings-row-control .local-backup-result {
+    text-align: start;
+  }
+
+  .network-interface-list,
+  .network-interface-addresses,
+  .network-dns-primary,
+  .network-dns-detail {
+    max-width: 100%;
+    justify-items: start;
+    text-align: start;
+  }
+
+  .network-dns-values {
+    max-width: 100%;
+    justify-content: flex-start;
+  }
+
+  .network-interface-addresses > .settings-inline-control {
+    justify-content: flex-start;
+  }
 }
 
 .profiles-page {
@@ -4509,34 +4567,6 @@ h2 {
 
   .content-grid {
     grid-template-columns: 1fr;
-  }
-
-  .settings-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .settings-row-control {
-    width: 100%;
-    min-width: 0;
-  }
-
-  .network-interface-list,
-  .network-interface-addresses,
-  .network-dns-primary,
-  .network-dns-detail {
-    max-width: 100%;
-    justify-items: start;
-    text-align: left;
-  }
-
-  .network-dns-values {
-    max-width: 100%;
-    justify-content: flex-start;
-  }
-
-  .network-interface-addresses > .settings-inline-control {
-    justify-content: flex-start;
   }
 
   .service-monitor-list {
