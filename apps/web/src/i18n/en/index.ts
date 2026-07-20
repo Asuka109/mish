@@ -508,7 +508,7 @@ const en = {
     patchEditTitle: "Edit structured patch",
     patchEditorDescription:
       "Review bounded rule and selector-group changes without editing source YAML.",
-    patchEditorTitle: "Patches for {profile:string}",
+    patchEditorTitle: "Rules and groups for {profile:string}",
     patchEmptyDescription:
       "The immutable source currently flows into application policy without user patches.",
     patchEmptyTitle: "No profile patches",
@@ -564,7 +564,7 @@ const en = {
     patchValidationTarget: "Target no longer exists in this revision",
     patchValidationValid: "Validated for the current revision",
     patchValidationValue: "Value is outside the bounded structured model",
-    patches: "Structured patches",
+    patches: "Rules and groups",
     activationCancelled: "Activation cancelled. The previous healthy profile was preserved.",
     activationCaptureFailed:
       "System Proxy recovery blocked activation. Resolve the recovery state on Status, then retry.",
@@ -604,20 +604,21 @@ const en = {
     description:
       "Validate and store Mihomo profile sources without changing the running core configuration.",
     desktopDescription:
-      "Profiles are stored privately in Mish app data. HTTPS import and manual refresh use the authenticated local service.",
-    emptyDescription: "Import an HTTPS source or choose a local YAML file to begin.",
+      "Profile files stay on this device. Subscription imports and manual refreshes are handled by Mish's authenticated local service.",
+    editRulesAndGroups: "Edit rules and groups",
+    emptyDescription: "Import a subscription link or choose a local YAML file to begin.",
     emptyTitle: "No saved profiles",
     error: "Latest attempt failed",
     fixtureDescription:
       "This browser-only view uses fictional metadata. Import, refresh, save, delete, and local file access are unavailable.",
     groups: "Groups",
     httpsDescription:
-      "The complete URL is sent only to the authenticated local service and is never shown again after preflight.",
-    httpsLabel: "HTTPS profile URL",
+      "The complete subscription URL is sent only to the authenticated local service and is never shown again after preview.",
+    httpsLabel: "Subscription URL",
     importDescription:
       "Preflight checks size, transport, YAML structure, and application/platform ownership before anything is saved.",
     importFailed: "Profile preflight failed. No profile was saved or activated.",
-    importHttps: "Import HTTPS",
+    importHttps: "Import subscription link",
     importLocal: "Choose local file",
     importTitle: "Import profile",
     labelDescription: "Optional. If empty, Mish uses a safe source-derived label.",
@@ -657,7 +658,7 @@ const en = {
     provenanceImpactReplacedApplication: "Replaced by an application-managed value",
     provenanceImpactReplacedPlatform: "Replaced by a platform-managed value",
     provenanceLayerFlow:
-      "Source → User patches → Application policy → Platform integration → Effective runtime",
+      "Source → User changes → Application policy → Platform integration → Effective runtime",
     provenanceOwnerApplication: "Application policy",
     provenanceOwnerPlatform: "Platform integration",
     provenanceOwnerSource: "Source",
@@ -734,9 +735,9 @@ const en = {
     safeStopped: "Safely stopped",
     stopping: "Stopping…",
     sensitiveNotice:
-      "Sensitive source or configuration data will stay in Mish's private app-data storage.",
+      "Sensitive profile sources and contents stay in Mish's private storage on this device.",
     source: "Source",
-    sourceHttps: "HTTPS",
+    sourceHttps: "Subscription link",
     sourceLocal: "Local file",
     stale: "Stale",
     title: "Profiles",
@@ -744,6 +745,24 @@ const en = {
     updateAllRuleProviders: "Update all rule providers",
     valid: "Valid",
     warning: "Review warnings",
+    reviewWarnings: "Review warnings for {profile:string}",
+    warningDialogDescription:
+      "Mish found details that may affect how this profile is stored or activated.",
+    warningDialogTitle: "Warnings for {profile:string}",
+    warningDetailsUnavailable: "The local service did not provide more detail for this warning.",
+    warningReason: {
+      "application-settings-overridden":
+        "Some settings are managed by Mish and use the application's values.",
+      "platform-settings-disabled":
+        "Some settings that do not apply to this platform were disabled.",
+      "sensitive-data-present":
+        "This profile may contain credentials or other sensitive data and stays on this device.",
+      "source-formatting-not-round-tripped":
+        "Comments and source formatting will not be preserved when Mish stores this profile.",
+      "unknown-keys-preserved":
+        "Mish found settings it does not recognize and preserved them unchanged.",
+      "unsafe-paths-rejected": "Unsafe file paths were found and were not imported.",
+    },
     warnings: "Warnings: {count:number}",
   },
   services: {
@@ -874,8 +893,7 @@ const en = {
     target: "Target",
     title: "Traffic",
     unavailable: "Unavailable",
-    unavailableNotice:
-      "The desktop local service has no configured Traffic observation source. No active state is claimed.",
+    unavailableNotice: "No traffic data is available right now.",
     upload: "Uploaded",
   },
   events: {

@@ -255,6 +255,15 @@ describe("Traffic page", () => {
     expect(screen.getByText("No active connections")).toBeVisible();
   });
 
+  it("explains unavailable traffic data in plain language", async () => {
+    const client = new FixtureTrafficClient();
+    const snapshot = await client.getSnapshot();
+    client.publishSnapshot({ ...snapshot, adapterKind: "rpc", phase: "unavailable" });
+    renderTraffic(client);
+
+    expect(await screen.findByText("No traffic data is available right now.")).toBeVisible();
+  });
+
   it("keeps large snapshots bounded to incremental render batches", async () => {
     const client = new FixtureTrafficClient();
     const snapshot = await client.getSnapshot();

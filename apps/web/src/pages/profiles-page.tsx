@@ -49,6 +49,7 @@ import type {
   ProfilePreviewDto,
   ProfileRuntimeProvenanceDto,
   ProfileRefreshPolicy,
+  ProfileValidationIssueCode,
   ProviderKind,
   ProviderSnapshotDto,
   RuntimeProviderDto,
@@ -481,6 +482,7 @@ function ProfileRow({
   schedulePending,
   schedulingSupported,
 }: ProfileRowProps) {
+  const [warningsOpen, setWarningsOpen] = useState(false);
   const activationPending =
     activation.phase === "pending" && activation.targetProfileId === profile.id;
   const activationMessage =
@@ -507,7 +509,18 @@ function ProfileRow({
             ) : null}
             {profile.status.stale ? <Badge variant="warning">{LL.profiles.stale()}</Badge> : null}
             {profile.status.warning ? (
-              <Badge variant="warning">{LL.profiles.warning()}</Badge>
+              <button
+                aria-label={LL.profiles.reviewWarnings({ profile: profile.label })}
+                className="profile-warning-trigger"
+                onClick={() => setWarningsOpen(true)}
+                type="button"
+              >
+                <Badge variant="warning">
+                  {profile.warningCodes.length > 0
+                    ? LL.profiles.warnings({ count: profile.warningCodes.length })
+                    : LL.profiles.warning()}
+                </Badge>
+              </button>
             ) : null}
             {profile.status.valid ? <Badge>{LL.profiles.valid()}</Badge> : null}
             {profile.lastKnownValid && profile.status.error ? (
@@ -600,7 +613,7 @@ function ProfileRow({
       </div>
       <div className="profile-row-actions">
         <Button onClick={onEditPatches} variant="outline">
-          {LL.profiles.patches()}
+          {LL.profiles.editRulesAndGroups()}
         </Button>
         <Button
           disabled={
@@ -648,8 +661,34 @@ function ProfileRow({
         isActive={profile.status.active}
         review={profile.runtimeProvenance}
       />
+      <Dialog onOpenChange={setWarningsOpen} open={warningsOpen}>
+        <DialogContent className="profile-warnings-dialog" closeLabel={LL.common.close()}>
+          <DialogHeader>
+            <DialogTitle>{LL.profiles.warningDialogTitle({ profile: profile.label })}</DialogTitle>
+            <DialogDescription>{LL.profiles.warningDialogDescription()}</DialogDescription>
+          </DialogHeader>
+          <ul className="profile-warning-list">
+            {profile.warningCodes.length > 0 ? (
+              profile.warningCodes.map((code) => (
+                <li key={code}>{profileWarningMessage(LL, code)}</li>
+              ))
+            ) : (
+              <li>{LL.profiles.warningDetailsUnavailable()}</li>
+            )}
+          </ul>
+          <DialogFooter>
+            <Button onClick={() => setWarningsOpen(false)} variant="outline">
+              {LL.common.close()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SectionGridItem>
   );
+}
+
+function profileWarningMessage(LL: TranslationFunctions, code: ProfileValidationIssueCode) {
+  return LL.profiles.warningReason[code]();
 }
 
 function activationFailureMessage(
