@@ -326,8 +326,8 @@ const androidBuild = step(packageAndroid, "Build Android debug APKs");
 const mobileCoreBuild = step(packageAndroid, "Build and stage verified Mobile Core");
 for (const command of [
   "pnpm mobile-core:build",
-  "pnpm mobile-core:verify",
-  "pnpm mobile-core:stage:android",
+  "pnpm mobile-core:verify -- --evidence-dir .scratch/mobile-core/evidence --artifact-dir .scratch/mobile-core/pass-1/android",
+  "pnpm mobile-core:stage:android -- --evidence-dir .scratch/mobile-core/evidence",
 ]) {
   invariant(
     mobileCoreBuild.run?.includes(command),
@@ -385,7 +385,7 @@ const androidVerification = step(packageAndroid, "Verify Android debug APKs").ru
 for (const requirement of [
   "libmish_mobile_core.so",
   "libmish_vpn_jni.so",
-  "mobile-core/evidence/android-v1.19.29/SHA256SUMS",
+  ".scratch/mobile-core/evidence/SHA256SUMS",
   "actual_core",
   "expected_core",
 ]) {
@@ -394,6 +394,10 @@ for (const requirement of [
     `Android package verification must retain ${requirement}.`,
   );
 }
+invariant(
+  !androidVerification.includes("mobile-core/evidence/android-v1.19.29/SHA256SUMS"),
+  "CI must verify packaged Core hashes against the current host build evidence.",
+);
 
 console.log(
   "CI workflow contract valid: PRs use the fast gate, main pushes package, and scheduled/manual main inspections run the heavy suite.",

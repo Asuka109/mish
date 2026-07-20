@@ -28,11 +28,12 @@ pnpm mobile-core:verify
 pnpm mobile-core:stage:android
 ```
 
-`mobile-core:build` downloads the pinned official Go archive when necessary,
-verifies its SHA-256, checks or creates an exact Mihomo source checkout, builds
-both Android ABIs twice into different output paths, and fails if their bytes or
-v1 symbols differ. Set `MISH_GO_ROOT`, `ANDROID_NDK_HOME`, `--source-dir`,
-`--scratch-dir`, or `--evidence-dir` only to point at equivalent pinned inputs.
+`mobile-core:build` downloads the pinned official Go archive for the current
+host when necessary, verifies its SHA-256, checks or creates an exact Mihomo
+source checkout, builds both Android ABIs twice into different output paths,
+and fails if their bytes or v1 symbols differ. Set `MISH_GO_ROOT`,
+`ANDROID_NDK_HOME`, `--source-dir`, `--scratch-dir`, or `--evidence-dir` only to
+point at equivalent pinned inputs.
 
 Build outputs remain under `.scratch` and are ignored by Git. The committed
 evidence directory contains only checksums, provenance, the ABI symbol baseline,
@@ -42,10 +43,16 @@ GPL notice, disk measurements, and an SPDX 2.3 SBOM. To reclaim build space:
 trash .scratch/mobile-core
 ```
 
-Never copy the resulting `.so` files into the repository. A later Android
-integration task stages only outputs whose ELF architecture and SHA-256 match
-the committed evidence. The generated Android `jniLibs` files remain ignored
-and are never source-controlled.
+Never copy the resulting `.so` files into the repository. By default, Android
+staging accepts only outputs whose ELF architecture and SHA-256 match the
+committed canonical evidence. CI explicitly selects the evidence produced by
+its own dual-pass build because Go `c-shared` output is reproducible on one
+host/toolchain but is not assumed to be byte-identical across Go hosts. Before
+staging that runtime evidence, verification locks its source commit and tree,
+current wrapper digest, current-host Go archive, NDK, build contract, ABI paths,
+ELF machines, exported symbols, checksums, and SBOM to repository-owned inputs.
+The generated Android `jniLibs` files remain ignored and are never
+source-controlled.
 
 The ABI contract is
 [`../docs/architecture/mobile-core-abi.md`](../docs/architecture/mobile-core-abi.md).

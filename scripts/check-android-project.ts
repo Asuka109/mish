@@ -167,6 +167,8 @@ for (const requirement of [
 }
 for (const requirement of [
   "SHA256SUMS",
+  "--evidence-dir",
+  "verify-mobile-core.ts",
   "readUInt16LE(18)",
   "libmish_mobile_core.so",
   "apps/mobile/src-tauri/gen/android/app/src/main/jniLibs",
