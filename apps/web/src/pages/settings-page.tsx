@@ -110,14 +110,7 @@ export function SettingsPage() {
     windowSurfaceFallbackReason,
     windowSurfacePreference,
   } = useAppearance();
-  const {
-    error: productError,
-    isCommandPending,
-    isCommandSupported,
-    recoverSystemProxy,
-    setCapture,
-    snapshot: product,
-  } = useProduct();
+  const { isCommandPending, isCommandSupported, setCapture, snapshot: product } = useProduct();
   const settings = useSettings();
   const networkAutoRefreshStarted = useRef(false);
   const { LL, locale, setLocale } = useI18nContext();
@@ -207,11 +200,6 @@ export function SettingsPage() {
         </p>
       </header>
 
-      {settings.error || productError ? (
-        <p className="fixture-error" role="alert">
-          {LL.settingsPage.updateFailed()}
-        </p>
-      ) : null}
       {snapshot.storageRecovered ? (
         <p className="settings-notice" role="status">
           <Warning aria-hidden="true" />
@@ -241,7 +229,6 @@ export function SettingsPage() {
               commandSupported={captureSupported}
               disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
-              onSystemProxyRecovery={(action) => void recoverSystemProxy(action)}
               onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}
               systemProxyEnabled={captureRuntime.systemProxyEnabled}

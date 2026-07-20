@@ -225,6 +225,14 @@ class DesktopSettingsClient implements SettingsClient {
   });
 }
 
+class FailingSettingsClient extends DesktopSettingsClient {
+  override setStartup = vi.fn(
+    async (_startup: StartupPreferencesDto): Promise<SettingsSnapshotDto> => {
+      throw new Error("Settings update failed");
+    },
+  );
+}
+
 class TestLocalBackupClient implements LocalBackupClient {
   readonly availability = "supported" as const;
   readonly previewExport = vi.fn(async (scope: LocalBackupScopeDto) => ({
@@ -778,7 +786,36 @@ describe("desktop RPC experience", () => {
     );
   });
 
+  it("moves a Settings operation failure into a toast and the notification center", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    const settingsClient = new FailingSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Launch at login" }));
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "The setting could not be confirmed. The last confirmed state is still shown.",
+      ),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "The setting could not be confirmed. The last confirmed state is still shown.",
+    );
+  });
+
   it("reuses the System Proxy drift and recovery model inside Settings", async () => {
+    const user = userEvent.setup();
+    const warningToast = vi.spyOn(toast, "warning");
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection.systemProxy = true;
@@ -800,10 +837,19 @@ describe("desktop RPC experience", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    await waitFor(() => expect(warningToast).toHaveBeenCalled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent(
       "System Proxy differs from Mish's requested state.",
     );
-    expect(screen.getByRole("button", { name: "Repair System Proxy" })).toBeInTheDocument();
+    expect(
+      within(notificationCenter).getByRole("button", { name: "Repair System Proxy" }),
+    ).toBeInTheDocument();
+    expect(
+      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+    ).toBeInTheDocument();
   });
 
   it("uses the Profile activation command seam from the Status selector", async () => {
@@ -830,6 +876,7 @@ describe("desktop RPC experience", () => {
   });
 
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
+    const user = userEvent.setup();
     const snapshot = await createRpcSnapshot(true);
     const client = new SnapshotStatusClient(snapshot, {
       attempt: 2,
@@ -842,7 +889,7 @@ describe("desktop RPC experience", () => {
     expect(screen.getByText("Local service")).toBeVisible();
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(/reconnecting/i);
+    expect(screen.getByText(/Reconnecting to the Mish background service/i)).toBeInTheDocument();
 
     const proxyControl = screen.getByRole("button", { name: "Launch proxy" });
     expect(proxyControl).toBeDisabled();
@@ -858,7 +905,20 @@ describe("desktop RPC experience", () => {
 
     expect(screen.getByRole("button", { name: "Rule" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Switch profile/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Manage" })).toBeDisabled();
+    const manage = screen.getByRole("button", { name: "Manage" });
+    expect(manage).toBeEnabled();
+    manage.focus();
+    await user.keyboard("{Enter}");
+    const menu = await screen.findByRole("menu");
+    expect(
+      within(menu).getByText("This action is not supported by the current local service."),
+    ).toBeVisible();
+    expect(within(menu).getByText("Add service").closest("[role='menuitem']")).toHaveAttribute(
+      "data-disabled",
+    );
+    expect(within(menu).getByText("Restore defaults").closest("[role='menuitem']")).toHaveAttribute(
+      "data-disabled",
+    );
     expect(
       screen.getByText("The local desktop service reports no service monitors."),
     ).toBeVisible();
@@ -1064,6 +1124,7 @@ describe("Status fixture experience", () => {
 
   it("does not remember an unconfirmed capture-mode change", async () => {
     const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
     renderRoute("/status", "en", new FailingCaptureClient());
 
     await user.click(
@@ -1072,7 +1133,10 @@ describe("Status fixture experience", () => {
       }),
     );
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
+    await waitFor(() => expect(errorToast).toHaveBeenCalledWith("The command failed."));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
     expect(
       screen.getByRole("button", { name: "System Proxy, not selected, not running" }),
     ).toHaveAttribute("aria-pressed", "false");
@@ -1085,6 +1149,7 @@ describe("Status fixture experience", () => {
 
   it("shows observed System Proxy drift and offers typed recovery choices", async () => {
     const user = userEvent.setup();
+    const warningToast = vi.spyOn(toast, "warning");
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
@@ -1100,12 +1165,26 @@ describe("Status fixture experience", () => {
 
     renderRoute("/status", "en", client);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "System Proxy differs from Mish's requested state.",
+    await screen.findByText("Live status from the desktop local service.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(warningToast).toHaveBeenCalledWith(
+        expect.stringContaining("System Proxy differs from Mish's requested state."),
+        expect.objectContaining({ action: expect.any(Object), cancel: expect.any(Object) }),
+      ),
     );
     expect(screen.getByRole("button", { name: "Proxy needs attention" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Repair System Proxy" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Leave OS settings as is" }));
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent(
+      "System Proxy differs from Mish's requested state.",
+    );
+    expect(
+      within(notificationCenter).getByRole("button", { name: "Repair System Proxy" }),
+    ).toBeInTheDocument();
+    await user.click(
+      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+    );
 
     await waitFor(() =>
       expect(client.recoverSystemProxy).toHaveBeenCalledWith(
@@ -1130,6 +1209,7 @@ describe("Status fixture experience", () => {
   });
 
   it("describes a typed permission failure without claiming success", async () => {
+    const errorToast = vi.spyOn(toast, "error");
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.systemProxy = {
@@ -1141,10 +1221,44 @@ describe("Status fixture experience", () => {
     };
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    await screen.findByText("Live status from the desktop local service.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "macOS did not allow the System Proxy change. No success was recorded.",
+      ),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
       "macOS did not allow the System Proxy change. No success was recorded.",
     );
     expect(screen.getByRole("button", { name: "Proxy needs attention" })).toBeDisabled();
+  });
+
+  it("moves a TUN drift warning into a toast and the notification center", async () => {
+    const user = userEvent.setup();
+    const warningToast = vi.spyOn(toast, "warning");
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "unavailable", tun: "supported" };
+    snapshot.runtime.tun = {
+      desired: true,
+      failure: null,
+      observed: "disabled",
+      phase: "drift",
+    };
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    await waitFor(() =>
+      expect(warningToast).toHaveBeenCalledWith(
+        "Virtual Interface differs from the requested state and was not reported as active.",
+      ),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Virtual Interface differs from the requested state and was not reported as active.",
+    );
   });
 
   it("prevents duplicate commands while pending and preserves confirmed state on failure", async () => {
@@ -1159,8 +1273,12 @@ describe("Status fixture experience", () => {
     await user.click(globalMode);
     expect(client.calls).toBe(1);
 
+    const errorToast = vi.spyOn(toast, "error");
     client.rejectCommand?.();
-    expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
+    await waitFor(() => expect(errorToast).toHaveBeenCalledWith("The command failed."));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
     await waitFor(() => expect(globalMode).not.toBeDisabled());
     expect(globalMode).toHaveAttribute("aria-pressed", "false");
   });
@@ -1178,6 +1296,7 @@ describe("Status fixture experience", () => {
 
   it("does not show a success toast after a failed service command", async () => {
     const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
     const successToast = vi.spyOn(toast, "success");
     renderRoute("/status", "en", new FailingServicesClient());
     await screen.findByText("Fixture activity at a glance.");
@@ -1185,7 +1304,10 @@ describe("Status fixture experience", () => {
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(await screen.findByRole("menuitem", { name: "Restore defaults" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("The command failed.");
+    await waitFor(() => expect(errorToast).toHaveBeenCalledWith("The command failed."));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
     expect(successToast).not.toHaveBeenCalled();
   });
 

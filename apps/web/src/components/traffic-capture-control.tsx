@@ -14,7 +14,6 @@ import {
 import { useI18nContext } from "../i18n/i18n-react";
 import type {
   CapabilityAvailability,
-  CaptureRecoveryAction,
   PlatformCapabilitiesDto,
   StatusAdapterKind,
   SystemProxyRuntimeStatusDto,
@@ -24,13 +23,13 @@ import {
   getCaptureModeDescriptionId,
   isCaptureCapabilityAvailable,
 } from "../data/status-capabilities";
+import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
 
 interface TrafficCaptureControlProps {
   adapterKind: StatusAdapterKind;
   capabilities: PlatformCapabilitiesDto;
   commandSupported: boolean;
   disabled?: boolean;
-  onSystemProxyRecovery(action: CaptureRecoveryAction): void;
   onSystemProxyChange(value: boolean): void;
   onTunChange(value: boolean): void;
   pending?: boolean;
@@ -54,7 +53,6 @@ export function TrafficCaptureControl({
   commandSupported,
   disabled = false,
   onSystemProxyChange,
-  onSystemProxyRecovery,
   onTunChange,
   pending = false,
   systemProxyEnabled,
@@ -68,31 +66,6 @@ export function TrafficCaptureControl({
   const { LL } = useI18nContext();
   const systemProxyAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.systemProxy);
   const tunAvailable = isCaptureCapabilityAvailable(adapterKind, capabilities.tun);
-
-  function systemProxyStatusMessage() {
-    if (systemProxyStatus.phase === "drift") return LL.capture.systemProxyDrift();
-    if (systemProxyStatus.phase === "failed") {
-      if (systemProxyStatus.failure === "permission-denied") {
-        return LL.capture.systemProxyPermissionFailure();
-      }
-      if (systemProxyStatus.failure === "unsafe-existing-configuration") {
-        return LL.capture.systemProxyUnsafeFailure();
-      }
-      if (systemProxyStatus.failure === "core-unhealthy") {
-        return LL.capture.systemProxyCoreFailure();
-      }
-      return LL.capture.systemProxyFailure();
-    }
-    if (pending || systemProxyStatus.phase === "pending") {
-      return LL.capture.systemProxyPending();
-    }
-    if (systemProxyStatus.phase === "applied") return LL.capture.systemProxyApplied();
-    if (systemProxyStatus.observed === "other" || systemProxyStatus.observed === "mish") {
-      return LL.capture.systemProxyLeftAsIs();
-    }
-    if (systemProxyStatus.observed === "unknown") return LL.capture.systemProxyUnknown();
-    return LL.capture.systemProxyOff();
-  }
 
   function getHelpDescription(mode: "systemProxy" | "tun", availability: CapabilityAvailability) {
     if (adapterKind === "fixture") {
@@ -114,14 +87,6 @@ export function TrafficCaptureControl({
     return mode === "systemProxy"
       ? LL.capture.systemProxyDescription()
       : LL.capture.tunDescription();
-  }
-
-  function tunStatusMessage() {
-    if (tunStatus.phase === "drift") return LL.capture.tunDrift();
-    if (tunStatus.phase === "failed") return LL.capture.tunFailure();
-    if (pending || tunStatus.phase === "pending") return LL.capture.tunPending();
-    if (tunStatus.phase === "applied") return LL.capture.tunApplied();
-    return LL.capture.tunOff();
   }
 
   return (
@@ -184,52 +149,10 @@ export function TrafficCaptureControl({
           </Button>
         </div>
         {adapterKind === "fixture" ? null : (
-          <div
-            className="system-proxy-reconciliation"
-            data-phase={
-              systemProxyStatus.phase === "drift" || systemProxyStatus.phase === "failed"
-                ? systemProxyStatus.phase
-                : pending
-                  ? "pending"
-                  : systemProxyStatus.phase
-            }
-            role={
-              systemProxyStatus.phase === "drift" || systemProxyStatus.phase === "failed"
-                ? "alert"
-                : pending || systemProxyStatus.phase === "pending"
-                  ? "status"
-                  : undefined
-            }
-          >
-            <p>{systemProxyStatusMessage()}</p>
-            <p>{tunStatusMessage()}</p>
-            {systemProxyStatus.recoveryActions.length > 0 ? (
-              <div className="system-proxy-recovery-actions">
-                {systemProxyStatus.recoveryActions.includes("repair") ? (
-                  <Button
-                    disabled={pending}
-                    onClick={() => onSystemProxyRecovery("repair")}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    {LL.capture.repairSystemProxy()}
-                  </Button>
-                ) : null}
-                {systemProxyStatus.recoveryActions.includes("leave-as-is") ? (
-                  <Button
-                    disabled={pending}
-                    onClick={() => onSystemProxyRecovery("leave-as-is")}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    {LL.capture.leaveAsIs()}
-                  </Button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+          <span aria-live="polite" className="sr-only" role="status">
+            {systemProxyStatusMessage(LL, systemProxyStatus, pending)}{" "}
+            {tunStatusMessage(LL, tunStatus, pending)}
+          </span>
         )}
       </div>
 

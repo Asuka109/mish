@@ -210,3 +210,7 @@ export function useTraffic() {
   if (!context) throw new Error("useTraffic must be used inside TrafficProvider");
   return context;
 }
+
+export function useOptionalTraffic() {
+  return useContext(TrafficContext);
+}

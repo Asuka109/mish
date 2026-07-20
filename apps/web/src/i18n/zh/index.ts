@@ -254,7 +254,7 @@ const zh = {
     switchProfile: "切换配置。当前配置：{profile}",
   },
   notifications: {
-    description: "最近的警告与错误事件。",
+    description: "最近的警告、错误与恢复操作。",
     emptyDescription: "新的警告与错误会显示在这里。",
     emptyTitle: "暂无通知",
     markAllRead: "全部已读",
