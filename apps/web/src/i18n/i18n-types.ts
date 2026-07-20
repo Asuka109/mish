@@ -2959,9 +2959,25 @@ type RootTranslation = {
 		 */
 		searchLabel: string
 		/**
-		 * S​e​a​r​c​h​,​ ​o​r​ ​u​s​e​ ​d​e​s​t​i​n​a​t​i​o​n​:​,​ ​p​r​o​c​e​s​s​:​,​ ​r​u​l​e​:​,​ ​c​h​a​i​n​:​,​ ​n​e​t​w​o​r​k​:​,​ ​p​r​o​t​o​c​o​l​:​,​ ​s​t​a​t​e​:
+		 * S​e​a​r​c​h​ ​T​r​a​f​f​i​c
 		 */
 		searchPlaceholder: string
+		/**
+		 * E​x​p​l​a​i​n​ ​T​r​a​f​f​i​c​ ​s​e​a​r​c​h​ ​s​y​n​t​a​x
+		 */
+		searchHelpAria: string
+		/**
+		 * S​e​a​r​c​h​ ​T​r​a​f​f​i​c
+		 */
+		searchHelpTitle: string
+		/**
+		 * E​n​t​e​r​ ​t​e​x​t​ ​t​o​ ​s​e​a​r​c​h​ ​v​i​s​i​b​l​e​ ​c​o​n​n​e​c​t​i​o​n​ ​d​e​t​a​i​l​s​,​ ​o​r​ ​u​s​e​ ​f​i​e​l​d​:​v​a​l​u​e​ ​f​i​l​t​e​r​s​ ​f​o​r​ ​p​r​e​c​i​s​e​ ​m​a​t​c​h​e​s​.​ ​M​u​l​t​i​p​l​e​ ​f​i​l​t​e​r​s​ ​a​r​e​ ​c​o​m​b​i​n​e​d​.
+		 */
+		searchHelpDescription: string
+		/**
+		 * A​v​a​i​l​a​b​l​e​ ​f​i​e​l​d​s​:​ ​d​e​s​t​i​n​a​t​i​o​n​,​ ​p​r​o​c​e​s​s​,​ ​r​u​l​e​,​ ​c​h​a​i​n​,​ ​n​e​t​w​o​r​k​,​ ​p​r​o​t​o​c​o​l​,​ ​a​n​d​ ​s​t​a​t​e​.
+		 */
+		searchHelpFields: string
 		/**
 		 * S​h​o​w​i​n​g​ ​{​v​i​s​i​b​l​e​}​ ​o​f​ ​{​t​o​t​a​l​}
 		 * @param {number} total
@@ -6672,9 +6688,25 @@ export type TranslationFunctions = {
 		 */
 		searchLabel: () => LocalizedString
 		/**
-		 * Search, or use destination:, process:, rule:, chain:, network:, protocol:, state:
+		 * Search Traffic
 		 */
 		searchPlaceholder: () => LocalizedString
+		/**
+		 * Explain Traffic search syntax
+		 */
+		searchHelpAria: () => LocalizedString
+		/**
+		 * Search Traffic
+		 */
+		searchHelpTitle: () => LocalizedString
+		/**
+		 * Enter text to search visible connection details, or use field:value filters for precise matches. Multiple filters are combined.
+		 */
+		searchHelpDescription: () => LocalizedString
+		/**
+		 * Available fields: destination, process, rule, chain, network, protocol, and state.
+		 */
+		searchHelpFields: () => LocalizedString
 		/**
 		 * Showing {visible} of {total}
 		 */

@@ -788,8 +788,13 @@ const zh = {
     rulesEmpty: "没有规则",
     rulesEmptyDescription: "当前 Traffic 快照中没有规则。",
     searchLabel: "搜索流量",
-    searchPlaceholder:
-      "搜索，或使用 destination:、process:、rule:、chain:、network:、protocol:、state:",
+    searchPlaceholder: "搜索流量",
+    searchHelpAria: "了解流量搜索语法",
+    searchHelpTitle: "搜索流量",
+    searchHelpDescription:
+      "输入关键词可搜索当前显示的连接详情，也可以使用“字段:值”进行精确筛选。多个条件会同时生效。",
+    searchHelpFields:
+      "可用字段：destination（目标）、process（进程）、rule（规则）、chain（路由链）、network（网络）、protocol（协议）和 state（状态）。",
     showing: "显示 {total} 项中的 {visible} 项",
     sortDestination: "目标",
     sortDownload: "下载量",

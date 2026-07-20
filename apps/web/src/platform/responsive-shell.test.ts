@@ -36,4 +36,14 @@ describe("responsive shell CSS", () => {
     expect(mobileRule).toContain("grid-template-columns: repeat(7, minmax(0, 1fr))");
     expect(mobileRule).toContain("env(safe-area-inset-bottom)");
   });
+
+  it("keeps the notification icon aligned with the toolbar color states", () => {
+    const notificationRule = styles.match(/\.ui-button\.notification-trigger \{[\s\S]*?\n\}/)?.[0];
+    const notificationInteractiveRule = styles.match(
+      /\.ui-button\.notification-trigger:hover,[\s\S]*?\n\}/,
+    )?.[0];
+
+    expect(notificationRule).toContain("color: var(--color-text-muted)");
+    expect(notificationInteractiveRule).toContain("color: var(--color-body)");
+  });
 });
