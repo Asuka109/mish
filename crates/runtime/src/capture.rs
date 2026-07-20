@@ -664,9 +664,7 @@ impl SystemProxyReconciler {
         let journal = match self.journal.load() {
             Ok(journal) => journal,
             Err(error) => {
-                if current.system_proxy.desired {
-                    self.record_unknown_drift(current, error.kind);
-                }
+                self.record_unknown_drift(current, error.kind);
                 return Err(error);
             }
         };

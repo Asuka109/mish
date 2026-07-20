@@ -26,7 +26,8 @@ use mish_platform_macos::{
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
-    CaptureReconciler, LoopbackProxyEndpoint, PlatformLifecycleEventSource, TunHelperController,
+    CaptureAuditReason, CaptureReconciler, LoopbackProxyEndpoint, PlatformLifecycleEventSource,
+    TunHelperController,
 };
 use mish_settings::{
     FileSettingsRepository, LoginLaunchBehavior, SettingsAdapterKind, SettingsAvailability,
@@ -370,6 +371,7 @@ async fn local_backup_export_save(
 async fn local_backup_restore_preview(
     state: tauri::State<'_, LocalBackupState>,
 ) -> Result<Option<LocalRestorePreview>, LocalBackupCommandError> {
+    invalidate_pending(&state.pending_restore)?;
     let selected = tauri::async_runtime::spawn_blocking(|| {
         rfd::FileDialog::new()
             .add_filter("Mish local backup", &["json"])
@@ -425,6 +427,8 @@ async fn local_backup_restore_commit(
     resolution: LocalRestoreConflictResolution,
     state: tauri::State<'_, LocalBackupState>,
 ) -> Result<LocalRestoreResult, LocalBackupCommandError> {
+    let service = state.service.clone();
+    let permit = service.try_begin_restore().map_err(local_backup_error)?;
     let prepared = {
         let mut pending = state
             .pending_restore
@@ -441,8 +445,6 @@ async fn local_backup_restore_commit(
         }
         pending.take().ok_or_else(local_backup_state_error)?
     };
-    let service = state.service.clone();
-    let permit = service.try_begin_restore().map_err(local_backup_error)?;
     let active_profile_id = state
         .activation
         .active_profile_id_authorized(&permit)
@@ -467,6 +469,11 @@ async fn local_backup_restore_commit(
     state.activation.publish().await;
     drop(permit);
     Ok(result)
+}
+
+fn invalidate_pending<T>(pending: &Mutex<Option<T>>) -> Result<(), LocalBackupCommandError> {
+    *pending.lock().map_err(|_| local_backup_state_error())? = None;
+    Ok(())
 }
 
 pub fn run() -> Result<i32, String> {
@@ -581,7 +588,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let profile_service = Arc::new(
         ReqwestHttpsSourceReader::profile_service_with_authority(
             profile_root.clone(),
-            mutation_authority,
+            mutation_authority.clone(),
         )
         .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
     );
@@ -613,7 +620,9 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .await
         .map_err(|error| io::Error::other(error.to_string()))?;
-        let runtime_host = DesktopRuntimeHost::new(safe_runtime.clone());
+        let _ = capture.audit(CaptureAuditReason::Restart, false).await;
+        let runtime_host =
+            DesktopRuntimeHost::with_mutation_authority(safe_runtime.clone(), mutation_authority);
         let activation_manager = Arc::new(MihomoActivationManager::new_with_capture(
             resolver,
             ActivationTiming::default(),
@@ -1141,14 +1150,14 @@ impl Drop for TemporarySupportBundle {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, sync::Mutex};
 
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, PRODUCTION_ORIGINS,
         SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
-        atomic_write_support_bundle_with_failure, generate_auth_token, managed_mihomo_resolver,
-        read_local_backup, save_support_bundle_selection, should_hide_main_window_on_close,
-        should_show_main_window,
+        atomic_write_support_bundle_with_failure, generate_auth_token, invalidate_pending,
+        managed_mihomo_resolver, read_local_backup, save_support_bundle_selection,
+        should_hide_main_window_on_close, should_show_main_window,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -1328,6 +1337,15 @@ mod tests {
                 .starts_with(".mish-backup-")
         }));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn beginning_a_new_restore_preview_expires_the_previous_preview() {
+        let pending = Mutex::new(Some("stale-preview"));
+
+        invalidate_pending(&pending).unwrap();
+
+        assert!(pending.lock().unwrap().is_none());
     }
 
     fn support_bundle_test_directory(name: &str) -> std::path::PathBuf {

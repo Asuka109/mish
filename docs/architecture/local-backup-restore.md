@@ -25,6 +25,14 @@ uses non-blocking acquisition and returns a typed `busy` conflict while one of
 those operations is in progress. It does not cancel that operation. Duplicate
 activation command IDs retain their existing idempotent result.
 
+The desktop runtime host also acquires this authority for a System Proxy
+recovery command. A backup commit and System Proxy Repair or Leave-as-is action
+therefore cannot overlap. A busy recovery attempt does not consume the retained
+backup preview, so the caller can retry the same confirmation after the current
+recovery finishes. Starting a new native restore selection invalidates any
+older retained preview before the file panel opens, including cancellation and
+validation-failure paths.
+
 The JSON backup manifest is a transfer envelope only. Format version 1 records
 the profile, normalized-artifact, patch, and settings schema versions that were
 used to produce it. Unknown envelope fields, unsupported schema versions,
@@ -143,6 +151,13 @@ managed runtime. `committing` and `rolling-back` transactions are idempotently
 rolled back to the prior generation. `committed` transactions retain the new
 generation and finish cleanup. Any recovery failure aborts startup and preserves
 diagnostic state for a later retry.
+
+Startup accepts only a regular, bounded, mode-0600 restore journal owned by the
+same account as the application-data root. Its transaction stage and rollback
+roots must remain private mode-0700 directories with the same ownership. A
+symlink, non-private file, stale version, malformed record, oversized record,
+or ownership mismatch aborts recovery without renaming an authoritative
+Profile or Settings component.
 
 These terms are intentionally distinct:
 

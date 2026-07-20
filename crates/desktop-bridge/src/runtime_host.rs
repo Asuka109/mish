@@ -6,20 +6,37 @@ use mish_runtime::{
     StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
     TrafficCommandOperation, TrafficCommandResult,
 };
+use mish_state_authority::StateMutationAuthority;
 use serde_json::Value;
 use tokio::sync::watch;
 
 #[derive(Clone)]
 pub struct DesktopRuntimeHost {
     diagnostics: crate::DiagnosticCoordinator,
+    mutation_authority: Option<StateMutationAuthority>,
     runtime: watch::Sender<MishRuntime>,
 }
 
 impl DesktopRuntimeHost {
     pub fn new(runtime: MishRuntime) -> Self {
+        Self::with_optional_mutation_authority(runtime, None)
+    }
+
+    pub fn with_mutation_authority(
+        runtime: MishRuntime,
+        mutation_authority: StateMutationAuthority,
+    ) -> Self {
+        Self::with_optional_mutation_authority(runtime, Some(mutation_authority))
+    }
+
+    fn with_optional_mutation_authority(
+        runtime: MishRuntime,
+        mutation_authority: Option<StateMutationAuthority>,
+    ) -> Self {
         let (runtime, _) = watch::channel(runtime);
         Self {
             diagnostics: crate::DiagnosticCoordinator::new(),
+            mutation_authority,
             runtime,
         }
     }
@@ -87,6 +104,17 @@ impl DesktopRuntimeHost {
         action: CaptureRecoveryAction,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
+        let _permit = self
+            .mutation_authority
+            .as_ref()
+            .map(StateMutationAuthority::try_acquire)
+            .transpose()
+            .map_err(|_| {
+                CaptureTransitionError::new(
+                    mish_runtime::CaptureFailureKind::InvalidRecovery,
+                    "Another state recovery operation is in progress",
+                )
+            })?;
         self.current()
             .recover_system_proxy(action, adapter_kind)
             .await
