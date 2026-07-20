@@ -18,6 +18,14 @@ promise byte-for-byte formatting, comments, anchors, or in-place editing. Every
 successful preflight therefore reports this limitation and keeps the immutable
 source.
 
+The Profile service also derives a bounded, read-only route catalog from the
+patched effective configuration. This catalog exposes policy-group type and
+configuration order, direct member order, opaque labels, and proxy protocol,
+but never returns source YAML or credentials. Routes uses it only when no live
+Controller catalog is available, so a selected profile remains inspectable
+while Mihomo is stopped. Runtime selection, provider expansion, health, and
+latency remain Controller-owned observations.
+
 ## Domain vocabulary
 
 | Term                  | Meaning                                                                                            |

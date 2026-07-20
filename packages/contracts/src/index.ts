@@ -1000,7 +1000,7 @@ const PolicyGroupBaseSchema = z.object({
 });
 
 export const SelectorPolicyGroupSchema = PolicyGroupBaseSchema.extend({
-  selectedChildId: IdentifierSchema,
+  selectedChildId: IdentifierSchema.nullable(),
   type: z.literal("selector"),
 }).strict();
 
@@ -1875,6 +1875,17 @@ export const ProfileSnapshotSchema = z
   .strict();
 export interface ProfileSnapshotDto extends z.infer<typeof ProfileSnapshotSchema> {}
 
+export const ProfileRouteCatalogSchema = z
+  .object({
+    fingerprint: ProfileFingerprintSchema,
+    groups: z.array(PolicyGroupSchema).max(1024),
+    nodes: z.array(ProxyNodeSchema).max(8192),
+    profileId: IdentifierSchema,
+    routingMode: RoutingModeSchema,
+  })
+  .strict();
+export interface ProfileRouteCatalogDto extends z.infer<typeof ProfileRouteCatalogSchema> {}
+
 export const RpcProfileSnapshotSchema = ProfileSnapshotSchema.extend({
   adapterKind: z.literal("rpc"),
 });
@@ -2210,6 +2221,10 @@ export const profileRpcMethods = {
   "profiles.getPatches": {
     params: ProfilePatchAuthoritySchema,
     result: ProfilePatchEditorSchema,
+  },
+  "profiles.getRoutes": {
+    params: ProfileIdCommandSchema,
+    result: ProfileRouteCatalogSchema,
   },
   "profiles.preflightHttps": {
     params: ProfilePreflightHttpsCommandSchema,
@@ -2584,6 +2599,10 @@ export interface ProfileClient {
     authority: ProfilePatchAuthorityDto,
     options?: { signal?: AbortSignal },
   ): Promise<ProfilePatchEditorDto>;
+  getRoutes?(
+    profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileRouteCatalogDto>;
   preflightHttps(
     url: string,
     label?: string,

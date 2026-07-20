@@ -7,6 +7,7 @@ import {
   type ProfilePatchEditorDto,
   type ProfilePreviewDto,
   type ProfileRefreshPolicy,
+  type ProfileRouteCatalogDto,
   type ProfileSnapshotDto,
   type ProviderAuthorityDto,
   type ProviderKind,
@@ -148,6 +149,15 @@ export class FixtureProfileClient implements ProfileClient {
     return structuredClone(fixturePatchEditor);
   }
 
+  async getRoutes(
+    profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileRouteCatalogDto> {
+    if (options?.signal?.aborted) throw cancelled();
+    if (profileId !== "fixture-profile-studio") throw unsupported();
+    return structuredClone(fixtureRouteCatalog);
+  }
+
   async deleteProfile(
     _profileId: string,
     options?: { signal?: AbortSignal },
@@ -281,6 +291,14 @@ const fixturePatchEditor = {
   ],
   schemaVersion: 1,
 } satisfies ProfilePatchEditorDto;
+
+const fixtureRouteCatalog = {
+  fingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  groups: [],
+  nodes: [],
+  profileId: "fixture-profile-studio",
+  routingMode: "rule",
+} satisfies ProfileRouteCatalogDto;
 
 function cancelled() {
   return new ProfileClientError("cancelled", "The fixture profile request was cancelled");

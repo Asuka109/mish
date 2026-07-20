@@ -515,9 +515,6 @@ const en = {
     noGroupsTitle: "No policy groups",
     noMatchesDescription: "Try another complete group or child label.",
     noMatchesTitle: "No matching routes",
-    readOnlyDescription:
-      "The current local service does not support policy-group selection. You can inspect and sort each group, but choices remain disabled.",
-    readOnlyTitle: "Routes are read-only",
     searchLabel: "Search policy groups and children",
     searchPlaceholder: "Search complete labels",
     selectChild: "Select {child:string} in {group:string}",

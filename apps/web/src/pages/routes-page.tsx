@@ -10,6 +10,7 @@ import type {
   GroupDelayTestDto,
   PolicyGroupDto,
   PolicyGroupType,
+  ProfileRouteCatalogDto,
   ProxyNodeDto,
 } from "@mish/contracts";
 import {
@@ -25,7 +26,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@mish/ui";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useOptionalProfiles } from "../data/profile-provider";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -569,6 +571,7 @@ export function RoutesPage() {
     snapshot,
     startGroupDelayTest,
   } = useProduct();
+  const profiles = useOptionalProfiles();
   const { LL, locale } = useI18nContext();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -578,14 +581,41 @@ export function RoutesPage() {
   const [delayPendingAction, setDelayPendingAction] = useState<
     { groupId: string; kind: "start" } | { kind: "cancel"; testId: string } | null
   >(null);
-  const graph = useMemo(
-    () => buildRouteGraph(snapshot?.groups ?? [], snapshot?.nodes ?? []),
-    [snapshot],
-  );
+  const configuredProfileId =
+    snapshot &&
+    snapshot.groups.length === 0 &&
+    snapshot.runtime.phase !== "healthy" &&
+    profiles?.selectedProfileId
+      ? profiles.selectedProfileId
+      : null;
+  const [configuredRoutes, setConfiguredRoutes] = useState<ProfileRouteCatalogDto | null>(null);
+  const configuredRoutesActive =
+    configuredProfileId !== null && configuredRoutes?.profileId === configuredProfileId;
+  const groups = configuredRoutesActive ? configuredRoutes.groups : (snapshot?.groups ?? []);
+  const nodes = configuredRoutesActive ? configuredRoutes.nodes : (snapshot?.nodes ?? []);
+  const routingMode = configuredRoutesActive
+    ? configuredRoutes.routingMode
+    : (snapshot?.routingMode ?? "rule");
+  const graph = useMemo(() => buildRouteGraph(groups, nodes), [groups, nodes]);
   const search = useMemo(
     () => createRouteSearchState(graph, deferredQuery, locale === "zh" ? "zh-CN" : "en"),
     [deferredQuery, graph, locale],
   );
+
+  useEffect(() => {
+    if (!configuredProfileId || !profiles) {
+      setConfiguredRoutes(null);
+      return;
+    }
+    let cancelled = false;
+    void profiles.loadRoutes(configuredProfileId).then((result) => {
+      if (cancelled || !result.ok) return;
+      setConfiguredRoutes(result.catalog);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [configuredProfileId, profiles]);
 
   if (isLoading) {
     return (
@@ -604,15 +634,13 @@ export function RoutesPage() {
   }
 
   const commandSupported = isCommandSupported("group");
-  const delayCommandSupported = isCommandSupported("group-delay");
+  const liveCommandSupported = commandSupported && !configuredRoutesActive;
+  const delayCommandSupported = isCommandSupported("group-delay") && !configuredRoutesActive;
   const delayCommandPending = isCommandPending("group-delay");
-  const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
-  const modeGroups = snapshot.groups
-    .filter((group) => snapshot.routingMode === "global" || !isGlobalGroup(group))
-    .toSorted((first, second) => {
-      if (snapshot.routingMode !== "global") return 0;
-      return Number(isGlobalGroup(second)) - Number(isGlobalGroup(first));
-    });
+  const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, liveCommandSupported);
+  const modeGroups = groups.filter(
+    (group) => routingMode === "global" || !isGlobalGroup(group),
+  );
   const visibleGroupIds = modeGroups
     .map((group) => group.id)
     .filter((groupId) => !search.queryActive || search.visibleEntityIds.has(groupId));
@@ -674,13 +702,6 @@ export function RoutesPage() {
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
-        {!commandSupported ? (
-          <aside className="routes-read-only" role="note">
-            <strong>{LL.routes.readOnlyTitle()}</strong>
-            <span>{LL.routes.readOnlyDescription()}</span>
-          </aside>
-        ) : null}
-
         <Field className="routes-search-field">
           <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
           <span className="routes-search-control">
@@ -710,7 +731,7 @@ export function RoutesPage() {
               ))}
             </ul>
           </section>
-        ) : snapshot.groups.length === 0 ? (
+        ) : groups.length === 0 ? (
           <Empty className="routes-empty">
             <EmptyHeader>
               <EmptyTitle>{LL.routes.noGroupsTitle()}</EmptyTitle>
@@ -737,13 +758,13 @@ export function RoutesPage() {
                 return (
                   <RouteGroup
                     commandDescriptionId={commandDescriptionId}
-                    commandSupported={commandSupported}
+                    commandSupported={liveCommandSupported}
                     delayCommandPending={delayCommandPending}
                     delayCommandSupported={delayCommandSupported}
                     delayPendingAction={delayPendingAction}
                     delayPolicy={snapshot.groupDelayPolicy}
                     delayTest={snapshot.groupDelayTest}
-                    disabled={snapshot.routingMode === "global" && !isGlobalGroup(group)}
+                    disabled={routingMode === "global" && !isGlobalGroup(group)}
                     expandedGroupIds={expandedGroupIds}
                     graph={graph}
                     group={displayedGroup}

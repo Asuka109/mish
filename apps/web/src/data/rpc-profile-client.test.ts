@@ -245,8 +245,27 @@ describe("RpcProfileClient", () => {
     transport.respond({ id: getPatches.id, jsonrpc: "2.0", result: patchEditor });
     await getPatchesPromise;
 
+    const getRoutesPromise = client.getRoutes("profile-a");
+    const getRoutes = await waitForRequest(transport, 4);
+    expect(getRoutes).toMatchObject({
+      method: "profiles.getRoutes",
+      params: { profileId: "profile-a" },
+    });
+    transport.respond({
+      id: getRoutes.id,
+      jsonrpc: "2.0",
+      result: {
+        fingerprint: patchAuthority.artifactFingerprint,
+        groups: [],
+        nodes: [],
+        profileId: "profile-a",
+        routingMode: "rule",
+      },
+    });
+    await getRoutesPromise;
+
     const replacePatchesPromise = client.replacePatches(patchAuthority, []);
-    const replacePatches = await waitForRequest(transport, 4);
+    const replacePatches = await waitForRequest(transport, 5);
     expect(replacePatches).toMatchObject({
       method: "profiles.replacePatches",
       params: { authority: patchAuthority, patches: [], schemaVersion: 1 },

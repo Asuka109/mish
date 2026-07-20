@@ -1684,14 +1684,6 @@ type RootTranslation = {
 		 */
 		noMatchesTitle: string
 		/**
-		 * T​h​e​ ​c​u​r​r​e​n​t​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​d​o​e​s​ ​n​o​t​ ​s​u​p​p​o​r​t​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​s​e​l​e​c​t​i​o​n​.​ ​Y​o​u​ ​c​a​n​ ​i​n​s​p​e​c​t​ ​a​n​d​ ​s​o​r​t​ ​e​a​c​h​ ​g​r​o​u​p​,​ ​b​u​t​ ​c​h​o​i​c​e​s​ ​r​e​m​a​i​n​ ​d​i​s​a​b​l​e​d​.
-		 */
-		readOnlyDescription: string
-		/**
-		 * R​o​u​t​e​s​ ​a​r​e​ ​r​e​a​d​-​o​n​l​y
-		 */
-		readOnlyTitle: string
-		/**
 		 * S​e​a​r​c​h​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​a​n​d​ ​c​h​i​l​d​r​e​n
 		 */
 		searchLabel: string
@@ -5552,14 +5544,6 @@ export type TranslationFunctions = {
 		 * No matching routes
 		 */
 		noMatchesTitle: () => LocalizedString
-		/**
-		 * The current local service does not support policy-group selection. You can inspect and sort each group, but choices remain disabled.
-		 */
-		readOnlyDescription: () => LocalizedString
-		/**
-		 * Routes are read-only
-		 */
-		readOnlyTitle: () => LocalizedString
 		/**
 		 * Search policy groups and children
 		 */

@@ -760,6 +760,8 @@ impl MihomoActivationManager {
         let config_file = staging_root.join("config.yaml");
         let generated = RuntimeConfigGenerator::generate_record(record, policy)
             .map_err(|_| MihomoActivationError::InvalidArtifact)?;
+        let policy_group_order = mish_profile::configured_policy_group_order(&generated)
+            .map_err(|_| MihomoActivationError::InvalidArtifact)?;
         write_private_file(&config_file, &generated)?;
 
         let staging_process = DesktopMihomoProcess::new_pinned(
@@ -808,7 +810,8 @@ impl MihomoActivationManager {
             record.effective_fingerprint().as_str(),
             &record.metadata.label,
         )
-        .map_err(|_| MihomoActivationError::InvalidArtifact)?;
+        .map_err(|_| MihomoActivationError::InvalidArtifact)?
+        .with_policy_group_order(policy_group_order);
         let base_url = Url::parse(&format!("http://{}", policy.controller_address()))
             .map_err(|_| MihomoActivationError::ControllerFailure)?;
         let mut observation = ControllerObservationConfig::new(base_url, profile);

@@ -178,6 +178,30 @@ fn initialized_mapper() -> ControllerStatusMapper {
 }
 
 #[test]
+fn preserves_configured_policy_group_order_instead_of_controller_map_order() {
+    let ordered_context = context("sha256:profile-a")
+        .with_policy_group_order(vec![OUTER_GROUP.into(), INNER_GROUP.into()]);
+    let mut mapper = ControllerStatusMapper::new(ordered_context);
+    mapper
+        .apply(ControllerObservationBatch {
+            runtime_config: Some(runtime_config()),
+            proxies: Some(proxy_catalog()),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+
+    let snapshot = mapper.snapshot(&core(), StatusAdapterKind::Rpc, 0).unwrap();
+    assert_eq!(
+        snapshot
+            .groups
+            .iter()
+            .map(|group| group.label.as_str())
+            .collect::<Vec<_>>(),
+        [OUTER_GROUP, INNER_GROUP]
+    );
+}
+
+#[test]
 fn revalidates_selector_type_and_direct_membership_against_the_current_catalog() {
     let mapper = initialized_mapper();
     let snapshot = mapper.snapshot(&core(), StatusAdapterKind::Rpc, 0).unwrap();

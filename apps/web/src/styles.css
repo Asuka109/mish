@@ -1998,30 +1998,9 @@ h2 {
   line-height: 21px;
 }
 
-.routes-workspace > .fixture-error,
-.routes-workspace > .routes-read-only {
+.routes-workspace > .fixture-error {
   margin-top: 16px;
   margin-bottom: 0;
-}
-
-.routes-read-only {
-  display: grid;
-  gap: 3px;
-  padding: 11px 12px;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-soft);
-}
-
-.routes-read-only strong {
-  font-size: var(--text-metadata);
-  font-weight: var(--font-weight-heading);
-}
-
-.routes-read-only span {
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-  line-height: 19px;
 }
 
 .routes-search-field {

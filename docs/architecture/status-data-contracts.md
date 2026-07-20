@@ -247,6 +247,19 @@ read-only.
 | Rules                               | `/rules`                                                                             | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
 | Routing mode                        | `/configs` read/update                                                               | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
 
+`/proxies` is available only while Mihomo is running. When no live catalog is
+available, Routes may read the selected Profile's bounded route catalog derived
+from its patched effective YAML. That fallback has no current selection,
+latency, health, or expanded proxy-provider membership and therefore remains
+read-only. Once Controller observations are available, they replace the
+configuration fallback.
+
+The Controller response is a keyed map and does not carry authoritative
+top-level policy-group order. Desktop activation therefore records the ordered
+`proxy-groups` names from the generated effective configuration and applies
+that order when mapping live groups. Direct child order continues to follow
+each Controller group's `all` array.
+
 For the implemented Controller mapper, profile IDs are caller-supplied. Group
 and proxy IDs are deterministic SHA-256-derived identifiers scoped by a
 caller-supplied stable profile fingerprint and prefixed with `group:` or

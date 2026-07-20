@@ -1,13 +1,20 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StatusClientError, type StatusCommand, type StatusSnapshotDto } from "@mish/contracts";
+import {
+  StatusClientError,
+  type ProfileRouteCatalogDto,
+  type StatusCommand,
+  type StatusSnapshotDto,
+} from "@mish/contracts";
 import { TooltipProvider } from "@mish/ui";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
 import { FixtureStatusClient } from "../data/fixture-status-client";
+import { FixtureProfileClient } from "../data/fixture-profile-client";
 import { ProductProvider } from "../data/product-provider";
+import { ProfileProvider } from "../data/profile-provider";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 
@@ -99,6 +106,36 @@ class DeferredSelectionClient extends SnapshotClient {
   }
 }
 
+class ConfiguredRoutesProfileClient extends FixtureProfileClient {
+  override async getRoutes(): Promise<ProfileRouteCatalogDto> {
+    return {
+      fingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      groups: [
+        {
+          childIds: ["node-z", "node-a"],
+          id: "group-z",
+          label: "Z first",
+          selectedChildId: null,
+          type: "selector",
+        },
+        {
+          childIds: ["node-a", "node-z"],
+          id: "group-a",
+          label: "A second",
+          selectedChildId: null,
+          type: "url-test",
+        },
+      ],
+      nodes: [
+        { id: "node-z", label: "Zulu node", latencyMilliseconds: null, protocol: "ss" },
+        { id: "node-a", label: "Alpha node", latencyMilliseconds: null, protocol: "trojan" },
+      ],
+      profileId: "fixture-profile-studio",
+      routingMode: "rule",
+    };
+  }
+}
+
 describe("Routes workspace", () => {
   it("hides the special GLOBAL selector in Rule mode", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
@@ -115,7 +152,7 @@ describe("Routes workspace", () => {
     expect(screen.queryByRole("button", { name: "Expand GLOBAL" })).not.toBeInTheDocument();
   });
 
-  it("pins GLOBAL first and disables other policy groups in Global mode", async () => {
+  it("keeps configured order and disables non-GLOBAL policy groups in Global mode", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
     snapshot.routingMode = "global";
     snapshot.groups.push({
@@ -129,8 +166,8 @@ describe("Routes workspace", () => {
 
     const routes = await screen.findByRole("region", { name: "Routes" });
     const groupToggles = within(routes).getAllByRole("button", { name: /^Expand / });
-    expect(groupToggles[0]).toHaveAccessibleName("Expand GLOBAL");
-    expect(groupToggles[0]).toBeEnabled();
+    expect(groupToggles.at(-1)).toHaveAccessibleName("Expand GLOBAL");
+    expect(groupToggles.at(-1)).toBeEnabled();
     expect(screen.getByRole("button", { name: "Expand 🌐 Proxy" })).toBeDisabled();
   });
 
@@ -335,14 +372,15 @@ describe("Routes workspace", () => {
     ).toBeDisabled();
   });
 
-  it("explains and disables policy selection for the read-only RPC adapter", async () => {
+  it("disables policy selection without showing a read-only service warning", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
     snapshot.adapterKind = "rpc";
     snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
     const user = userEvent.setup();
     renderRoutes(new SnapshotClient(snapshot, false));
 
-    expect(await screen.findByText("Routes are read-only")).toBeVisible();
+    await screen.findByRole("heading", { name: "Routes" });
+    expect(screen.queryByText("Routes are read-only")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Expand 🎬 Streaming" }));
     const selection = screen.getByRole("button", {
       name: "Select 🇯🇵 NRT-03 in 🎬 Streaming",
@@ -351,6 +389,43 @@ describe("Routes workspace", () => {
     expect(selection).toHaveAccessibleDescription(
       "This action is not supported by the current local service.",
     );
+  });
+
+  it("shows the selected profile's configured groups while Mihomo is stopped", async () => {
+    const user = userEvent.setup();
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.activeProfileId = "local";
+    snapshot.groups = [];
+    snapshot.nodes = [];
+    snapshot.runtime.phase = "inactive";
+
+    render(
+      <AppearanceProvider>
+        <TypesafeI18n locale="en">
+          <MemoryRouter initialEntries={["/routes"]}>
+            <ProductProvider client={new SnapshotClient(snapshot, false)}>
+              <ProfileProvider client={new ConfiguredRoutesProfileClient()}>
+                <TooltipProvider>
+                  <AppRoutes />
+                </TooltipProvider>
+              </ProfileProvider>
+            </ProductProvider>
+          </MemoryRouter>
+        </TypesafeI18n>
+      </AppearanceProvider>,
+    );
+
+    const routes = await screen.findByRole("region", { name: "Routes" });
+    const groups = within(routes).getAllByRole("button", { name: /^Expand / });
+    expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+      "Expand Z first",
+      "Expand A second",
+    ]);
+
+    await user.click(groups[0]);
+    expect(screen.getByRole("button", { name: "Select Zulu node in Z first" })).toBeDisabled();
+    expect(screen.getAllByText("No single current child")[0]).toBeVisible();
   });
 
   it("shows a safe graph error instead of rendering inconsistent relationships", async () => {

@@ -79,6 +79,10 @@ export class RpcProfileClient implements ProfileClient {
     return this.request("profiles.getPatches", authority, options);
   }
 
+  getRoutes(profileId: string, options?: RpcRequestOptions) {
+    return this.request("profiles.getRoutes", { profileId }, options);
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;

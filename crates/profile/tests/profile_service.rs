@@ -172,6 +172,35 @@ fn service(
 }
 
 #[tokio::test]
+async fn route_catalog_is_available_without_activating_the_profile() {
+    let temp = TestDir::new();
+    let service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]),
+    );
+    let preview = service
+        .preflight_local(
+            "/fictional/profile.yaml".into(),
+            Some("Offline profile".into()),
+        )
+        .await
+        .unwrap();
+    let profile_id = service
+        .save_preview(&preview.preview_id)
+        .await
+        .unwrap()
+        .profiles[0]
+        .id
+        .clone();
+
+    let catalog = service.route_catalog(&profile_id).unwrap();
+    assert_eq!(catalog.profile_id, profile_id);
+    assert_eq!(catalog.groups[0].label, "Fictional group");
+    assert_eq!(catalog.groups[0].selected_child_id, None);
+    assert_eq!(catalog.nodes[2].label, "fictional-node");
+}
+
+#[tokio::test]
 async fn failed_refresh_keeps_the_last_known_valid_revision() {
     let temp = TestDir::new();
     let reader = SequencedReader::new([

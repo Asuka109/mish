@@ -724,6 +724,20 @@ async fn handle_message(
                 Err(error) => return Some(profile_error_response(id, error)),
             }
         }
+        "profiles.getRoutes" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileIdParams =
+                match serde_json::from_value::<ProfileIdParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.profile_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match service.route_catalog(&params.profile_id) {
+                Ok(catalog) => serde_json::to_value(catalog).expect("serializable route catalog"),
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
         "profiles.replacePatches" => {
             let Some(service) = &state.profile_service else {
                 return Some(profile_capability_error(id));

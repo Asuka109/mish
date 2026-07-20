@@ -469,8 +469,6 @@ const zh = {
     noGroupsTitle: "没有策略组",
     noMatchesDescription: "请尝试输入其他完整的策略组或子项名称。",
     noMatchesTitle: "没有匹配的路由",
-    readOnlyDescription: "当前版本还不能切换策略组。你仍然可以查看和排序，选择按钮暂时无法使用。",
-    readOnlyTitle: "路由当前为只读",
     searchLabel: "搜索策略组与子项",
     searchPlaceholder: "搜索完整名称",
     selectChild: "在 {group} 中选择 {child}",

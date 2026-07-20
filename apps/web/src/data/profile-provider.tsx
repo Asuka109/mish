@@ -7,6 +7,7 @@ import {
   type ProfilePatchDto,
   type ProfilePatchEditorDto,
   type ProfileRefreshPolicy,
+  type ProfileRouteCatalogDto,
   type ProviderAuthorityDto,
   type ProviderKind,
   type ProfilePreviewDto,
@@ -41,6 +42,9 @@ export type ProfilePreviewResult =
 export type ProfilePatchEditorResult =
   | { editor: ProfilePatchEditorDto; ok: true }
   | { error: ProfileClientError; ok: false };
+export type ProfileRouteCatalogResult =
+  | { catalog: ProfileRouteCatalogDto; ok: true }
+  | { error: ProfileClientError; ok: false };
 
 interface ProfileContextValue {
   activateProfile(profileId: string): Promise<ProfileOperationResult>;
@@ -51,6 +55,7 @@ interface ProfileContextValue {
   isLoading: boolean;
   isPending(operation: ProfileOperation, profileId?: string): boolean;
   loadPatches(authority: ProfilePatchAuthorityDto): Promise<ProfilePatchEditorResult>;
+  loadRoutes(profileId: string): Promise<ProfileRouteCatalogResult>;
   preflightHttps(url: string, label?: string): Promise<ProfilePreviewResult>;
   preflightLocal(label?: string): Promise<ProfilePreviewResult>;
   refreshProfile(profileId: string): Promise<ProfileOperationResult>;
@@ -256,6 +261,28 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     [resolvedClient],
   );
 
+  const loadRoutes = useCallback(
+    async (profileId: string): Promise<ProfileRouteCatalogResult> => {
+      if (!resolvedClient.getRoutes) {
+        return {
+          error: new ProfileClientError(
+            "unsupported",
+            "Configured routes are unavailable in this profile client",
+          ),
+          ok: false,
+        };
+      }
+      try {
+        return { catalog: await resolvedClient.getRoutes(profileId), ok: true };
+      } catch (failure) {
+        const typedError = toProfileClientError(failure);
+        setError(typedError);
+        return { error: typedError, ok: false };
+      }
+    },
+    [resolvedClient],
+  );
+
   const replacePatches = useCallback(
     async (
       authority: ProfilePatchAuthorityDto,
@@ -369,6 +396,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         return pendingKey === operationKey(operation, profileId);
       },
       loadPatches,
+      loadRoutes,
       preflightHttps: (url, label) => runPreflight(() => resolvedClient.preflightHttps(url, label)),
       preflightLocal: (label) => runPreflight(() => resolvedClient.preflightLocal(label)),
       refreshProfile: (profileId) =>
@@ -399,6 +427,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       runActivation,
       runMutation,
       loadPatches,
+      loadRoutes,
       replacePatches,
       runPreflight,
       runProviderMutation,

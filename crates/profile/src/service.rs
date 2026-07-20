@@ -513,6 +513,14 @@ where
         Ok(record)
     }
 
+    pub fn route_catalog(
+        &self,
+        profile_id: &str,
+    ) -> Result<crate::ProfileRouteCatalog, ProfileServiceError> {
+        let record = self.activation_record(profile_id)?;
+        Ok(crate::profile_route_catalog(&record)?)
+    }
+
     pub fn patch_editor(
         &self,
         profile_id: &str,

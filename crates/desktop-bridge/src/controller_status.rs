@@ -18,6 +18,7 @@ const DEFAULT_SEEN_CONNECTION_LIMIT: usize = 65_536;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProfileMappingContext {
+    policy_group_order: Vec<String>,
     profile_id: String,
     profile_fingerprint: String,
     profile_label: String,
@@ -30,6 +31,7 @@ impl ProfileMappingContext {
         profile_label: impl Into<String>,
     ) -> Result<Self, StatusMappingError> {
         let context = Self {
+            policy_group_order: Vec::new(),
             profile_id: profile_id.into(),
             profile_fingerprint: profile_fingerprint.into(),
             profile_label: profile_label.into(),
@@ -47,6 +49,11 @@ impl ProfileMappingContext {
         Ok(context)
     }
 
+    pub fn with_policy_group_order(mut self, policy_group_order: Vec<String>) -> Self {
+        self.policy_group_order = policy_group_order;
+        self
+    }
+
     pub fn profile_id(&self) -> &str {
         &self.profile_id
     }
@@ -57,6 +64,10 @@ impl ProfileMappingContext {
 
     pub fn profile_label(&self) -> &str {
         &self.profile_label
+    }
+
+    pub fn policy_group_order(&self) -> &[String] {
+        &self.policy_group_order
     }
 }
 
@@ -536,6 +547,18 @@ fn map_catalog(
             kind,
         });
     }
+    let configured_index: HashMap<_, _> = context
+        .policy_group_order()
+        .iter()
+        .enumerate()
+        .map(|(index, label)| (label.as_str(), index))
+        .collect();
+    mapped.groups.sort_by_key(|group| {
+        configured_index
+            .get(group.label.as_str())
+            .copied()
+            .unwrap_or(usize::MAX)
+    });
     Ok(mapped)
 }
 
