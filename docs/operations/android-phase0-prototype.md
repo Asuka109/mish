@@ -3,14 +3,19 @@
 ## Scope and claim boundary
 
 Phase 0 packages the standalone Mish mobile shell with a typed Tauri native
-fixture. The shell has Home, Routes, Profiles, Activity, and Settings as its
-five primary destinations. It does not reuse the desktop loopback bridge or a
-desktop sidecar.
+fixture and a Kotlin `VpnService` lifecycle prototype. The shell has Home,
+Routes, Profiles, Activity, and Settings as its five primary destinations. It
+does not reuse the desktop loopback bridge or a desktop sidecar.
 
-The fixture reports both the native Core and VPN capability as unavailable.
-No Mihomo binary, VPN service, subscription, token, node, or user configuration
-is included. This work proves the **compiled shell** evidence level and part of
-the **native fixture** level defined by
+The Android prototype requests VPN consent only after an explicit user action,
+uses a protected foreground service and honest notification, serializes
+lifecycle transitions, and publishes versioned snapshots and events across
+Activity or WebView recreation. Its replaceable fixture backend reports both
+the native Core and VPN capability as unavailable. It never calls
+`VpnService.Builder.establish`, creates a TUN, captures traffic, or starts
+Mihomo. No Mihomo binary, ABI wrapper, subscription, token, node, or user
+configuration is included. This work proves the **compiled shell** evidence
+level and part of the **native fixture** level defined by
 [`../quality/mobile-validation.md`](../quality/mobile-validation.md). It does
 not prove an **installable app** because no Android device or emulator was
 connected for installation and launch, and it does not prove a device VPN.
@@ -33,6 +38,43 @@ official sources:
   requires JDK 17 for Android Gradle Plugin 8.x.
 - [Install and configure the NDK](https://developer.android.com/studio/projects/install-ndk#apply-specific-version)
   recommends pinning `ndkVersion` for reproducible builds.
+- [Android 16 behavior changes](https://developer.android.com/about/versions/16/behavior-changes-16)
+  make edge-to-edge and predictive back the target-36 defaults. The shell keeps
+  edge-to-edge inset handling and uses AndroidX back dispatch without an opt-out.
+- [`VpnService`](https://developer.android.com/reference/android/net/VpnService)
+  requires explicit `prepare()` consent, a service protected by
+  `BIND_VPN_SERVICE`, foreground promotion on Android 8+, and conservative
+  cleanup from `onRevoke()`.
+- [Foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types)
+  list configured VPN applications under `systemExempted`; the Manifest and
+  runtime `startForeground` type match and the service starts only after consent.
+- [Notification runtime permission](https://developer.android.com/develop/ui/views/notifications/notification-permission)
+  does not gate foreground-service startup, but the application requests it in
+  context so the persistent status can appear in the notification drawer.
+- [Tauri mobile plugin development](https://v2.tauri.app/develop/plugins/develop-mobile/)
+  defines Kotlin commands, activity-result callbacks, lifecycle hooks, and
+  typed plugin events used by the local `mish-vpn` plugin.
+
+## Lifecycle and recovery contract
+
+- `VpnService.prepare()` is evaluated without showing UI during snapshot
+  reconciliation. Its returned consent activity is launched only by the visible
+  **Review VPN permission** command.
+- Consent success never starts the service. The user must separately run the
+  lifecycle check, and the service rechecks consent before foreground startup.
+- `MishVpnService` owns a single-thread executor. Start, stop, revoke,
+  destruction, and recovery transitions cannot mutate lifecycle state in
+  parallel.
+- Snapshots persist a session identifier and globally increasing sequence.
+  WebView listeners reject older sequences and request a complete snapshot on
+  bootstrap before accepting later events.
+- A persisted `starting`, `running`, or `stopping` phase after process creation
+  becomes `recovery-required`. Consequential commands are never replayed after
+  an unknown outcome.
+- The production Phase 0 wiring uses `FixtureVpnBackend`. Its start operation
+  always returns `unavailable`; the honest fixture notification remains
+  foreground only until explicit stop, revoke, or destruction. `vpnActive` and
+  Core availability remain false/unavailable throughout.
 
 ## Retained local toolchain
 
@@ -98,20 +140,73 @@ The local build completed for both requested ABIs:
 
 | Artifact                   | ABI entry                              | SHA-256                                                            |
 | -------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
-| `Mish-arm64-v8a-debug.apk` | `lib/arm64-v8a/libmish_mobile.so` only | `95659f23fa9184b270d408f3fd7a471f5cd6b3a0c0d56ff09e4a9b7a52d6cbeb` |
-| `Mish-x86_64-debug.apk`    | `lib/x86_64/libmish_mobile.so` only    | `4fc9446707bb92ca2487bfcb6f1a1778fd5ef5a2753728cbb8dc021bdc74bf0c` |
+| `Mish-arm64-v8a-debug.apk` | `lib/arm64-v8a/libmish_mobile.so` only | `ef6eae65c7cbbd841f9e4776ff4dc77acb9dd7bcda7de55896387c94c94d9ba9` |
+| `Mish-x86_64-debug.apk`    | `lib/x86_64/libmish_mobile.so` only    | `2cc493cde54d57ed909e7a426b61395491b11685eb4f14bcd4b5aea83042b30e` |
 
 Both APKs passed Android debug-signature verification and report application ID
 `com.asuka109.mish`, version `0.1.0`, minimum SDK 28, and target SDK 36. The
-source Manifest requests only Internet access and declares no VPN service. The
-merged Manifest also contains AndroidX's application-scoped dynamic-receiver
-permission.
+application source Manifest requests only Internet access. The local plugin
+Manifest owns the three bounded foreground/notification declarations and one
+`VpnService` protected by `BIND_VPN_SERVICE`. The generated Android TV launcher,
+FileProvider, and external-storage root path policy are absent. The project
+checker rejects their return and rejects TUN/Core implementation markers in the
+Phase 0 Kotlin source.
 
 Archive entry and embedded-string checks found no desktop loopback bootstrap,
 desktop WebView identifier, subscription, token, node, or user configuration.
 `adb devices -l` returned no connected device, so installation, launch, offline
 asset loading, activity recreation, and Meizu 20 Pro behavior remain manual
 acceptance work.
+
+## Meizu 20 Pro Android 16 manual acceptance
+
+Use a Meizu 20 Pro running Android 16 with USB debugging enabled. Record the
+device build fingerprint and attach timestamps or a short screen recording to
+each result. This checklist validates only the lifecycle fixture, not packet
+routing or Core readiness.
+
+1. Build the ARM64 debug APK, verify its signature and ABI entry, install it with
+   `adb install -r`, and launch `com.asuka109.mish/.MainActivity`. Confirm all Web
+   assets load offline and the five labeled destinations remain above the
+   gesture/navigation inset in portrait and landscape.
+2. On Home, confirm the fixture disclosure says VPN and Core are unavailable.
+   Tap **Review VPN permission**. Deny once and verify the state remains
+   permission-required, no foreground notification appears, and no service
+   remains in `adb shell dumpsys activity services com.asuka109.mish`.
+3. Retry and accept the system VPN dialog. Confirm returning to the Activity
+   does not start a service, show a VPN key, create a network interface, or
+   change traffic behavior.
+4. On Android 13+, tap **Allow status notification**. Exercise both allow and
+   deny on clean app-data runs. Denial must not crash; the UI must keep an honest
+   fixture state and Android may expose foreground status only in Task Manager.
+5. Tap **Run lifecycle check**. Confirm the low-importance notification text
+   says `Lifecycle fixture only · no traffic capture`; the fixture reaches
+   `unavailable`, keeps that honest notification visible, and never shows a
+   connected VPN key. Tap **Stop lifecycle check** and confirm foreground state
+   and the notification are removed.
+6. During the check, rotate the device, background and foreground the app,
+   reload/destroy the WebView through the developer setting, and run
+   `adb shell am force-stop com.asuka109.mish` followed by relaunch. Confirm a
+   complete snapshot is reconciled and no stale sequence overwrites it.
+7. For process recovery, capture a debug snapshot in a transitional phase,
+   terminate the application process without clearing data, and relaunch. The
+   first authoritative snapshot must be `recovery-required`; it must not replay
+   start. Use **Reset lifecycle state** and verify the result is stopped.
+8. Revoke Mish under Android VPN settings while the fixture service is being
+   exercised. Confirm `onRevoke` reaches permission-required, foreground state
+   is removed, and the next check requires explicit system consent again.
+9. Exercise gesture and three-button back from child routes. Confirm predictive
+   back returns within React Router history before the system home transition,
+   with no double-pop, frozen WebView, or custom edge gesture conflict.
+10. Inspect `adb shell dumpsys package com.asuka109.mish`, the merged Manifest,
+    `adb shell dumpsys notification`, and network interfaces. Confirm there is
+    one protected `systemExempted` VPN service, no Leanback launcher or
+    FileProvider, no TUN/interface owned by Mish, and no embedded Mihomo/Core
+    library or desktop executable.
+
+Record failures as Phase 0 lifecycle defects. TCP, UDP, DNS, routing, socket
+protection, network switching, 24-hour endurance, and VPN key persistence are
+explicitly deferred until the real pinned Core/ABI backend replaces the fixture.
 
 ## CI policy
 

@@ -230,7 +230,13 @@ const zh = {
     settings: "设置",
   },
   mobileFixture: {
+    commandFailed: "原生生命周期命令失败，请重新打开应用后重试。",
     label: "原生测试夹具",
+    lifecycleAction: "运行生命周期检查",
+    notificationAction: "允许状态通知",
+    permissionAction: "查看 VPN 权限",
+    reconcileAction: "重置生命周期状态",
+    stopAction: "停止生命周期检查",
     unavailable: "此测试版本尚未实现 VPN 与嵌入式 Core。",
   },
   toolbar: {

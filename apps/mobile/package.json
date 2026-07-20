@@ -6,6 +6,7 @@
     "android:build": "pnpm android:configure && tauri android build --debug --target aarch64 x86_64 --split-per-abi",
     "android:configure": "node ../../scripts/configure-android-project.ts",
     "android:init": "tauri android init --ci --skip-targets-install && pnpm android:configure",
+    "android:test": "pnpm android:configure && src-tauri/gen/android/gradlew -p src-tauri/gen/android :tauri-plugin-mish-vpn:testDebugUnitTest",
     "test:run": "cargo test --manifest-path src-tauri/Cargo.toml",
     "typecheck": "cargo check --manifest-path src-tauri/Cargo.toml"
   },

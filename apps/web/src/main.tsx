@@ -108,7 +108,12 @@ async function startApplication() {
                         supportBundleClient={startup.supportBundleClient}
                       >
                         <TooltipProvider delay={500}>
-                          <AppRoutes mobileFixture={startup.mobileFixture} runtime={runtime} />
+                          <AppRoutes
+                            mobileFixture={startup.mobileFixture}
+                            mobileVpnClient={startup.mobileVpnClient}
+                            mobileVpnSnapshot={startup.mobileVpnSnapshot}
+                            runtime={runtime}
+                          />
                           <AppearanceToaster />
                         </TooltipProvider>
                       </EventsProvider>

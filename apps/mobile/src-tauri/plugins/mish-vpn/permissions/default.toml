@@ -1,0 +1,15 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows the Mish Phase 0 mobile shell to exercise the bounded Android VPN lifecycle fixture."
+permissions = [
+  "allow-get-snapshot",
+  "allow-register-listener",
+  "allow-registerListener",
+  "allow-remove-listener",
+  "allow-removeListener",
+  "allow-request-notification-permission",
+  "allow-request-vpn-consent",
+  "allow-start-fixture-lifecycle",
+  "allow-stop",
+]
