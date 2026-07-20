@@ -89,6 +89,63 @@ class DelaySnapshotClient extends SnapshotClient {
 }
 
 describe("Routes workspace", () => {
+  it("hides the special GLOBAL selector in Rule mode", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    snapshot.groups.unshift({
+      childIds: ["proxy"],
+      id: "global",
+      label: "GLOBAL",
+      selectedChildId: "proxy",
+      type: "selector",
+    });
+    renderRoutes(new SnapshotClient(snapshot));
+
+    expect(await screen.findByRole("button", { name: "Expand 🌐 Proxy" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Expand GLOBAL" })).not.toBeInTheDocument();
+  });
+
+  it("pins GLOBAL first and disables other policy groups in Global mode", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    snapshot.routingMode = "global";
+    snapshot.groups.push({
+      childIds: ["proxy"],
+      id: "global",
+      label: "GLOBAL",
+      selectedChildId: "proxy",
+      type: "selector",
+    });
+    renderRoutes(new SnapshotClient(snapshot));
+
+    const routes = await screen.findByRole("region", { name: "Routes" });
+    const groupToggles = within(routes).getAllByRole("button", { name: /^Expand / });
+    expect(groupToggles[0]).toHaveAccessibleName("Expand GLOBAL");
+    expect(groupToggles[0]).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Expand 🌐 Proxy" })).toBeDisabled();
+  });
+
+  it("keeps referenced policy groups independent while showing direct references inside parents", async () => {
+    const user = userEvent.setup();
+    renderRoutes();
+
+    expect(await screen.findByRole("button", { name: "Expand ⚡ 自动选择・Auto" })).toBeVisible();
+    expect(
+      screen.getByText(
+        "Browse the active profile's policy groups independently. Expanding a group shows its direct choices, and each selection changes only that group.",
+      ),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Expand 🌐 Proxy" }));
+
+    const proxy = screen.getByRole("button", { name: "Collapse 🌐 Proxy" }).closest("article")!;
+    const referencedGroup = within(proxy).getByRole("button", {
+      name: "Select ⚡ 自动选择・Auto in 🌐 Proxy",
+    });
+    expect(referencedGroup).toBeVisible();
+    expect(referencedGroup).toHaveTextContent("Policy group · URL test");
+    expect(
+      within(proxy).queryByRole("button", { name: "Expand ⚡ 自动选择・Auto" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("reconciles a Status shortcut selection into Routes through the shared client seam", async () => {
     const user = userEvent.setup();
     render(
@@ -114,7 +171,7 @@ describe("Routes workspace", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("renders all group types as a nested graph without mounting a collapsed large fixture", async () => {
+  it("renders every group independently without mounting a collapsed large fixture", async () => {
     const user = userEvent.setup();
     renderRoutes();
 

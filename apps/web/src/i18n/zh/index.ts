@@ -384,7 +384,7 @@ const zh = {
     collapseGroup: "折叠 {group}",
     configurationOrder: "配置顺序",
     currentChild: "当前子项：{child}",
-    description: "浏览当前配置的策略组关系图；每次选择都只作用于其所属的选择器。",
+    description: "独立浏览当前配置的策略组；展开后显示该组的直接可选项，选择只会更改当前组。",
     desktopDescription: "桌面本地服务报告的策略组。",
     delayCancelled: "已取消",
     delayDisconnected: "连接中断",
@@ -409,6 +409,7 @@ const zh = {
     fixtureDescription: "用于交互与规模验证的嵌套演示策略组。",
     graphErrorDescription: "策略组关系不一致，因此 Mish 未渲染该图；没有更改任何路由选择。",
     graphErrorTitle: "策略组关系图无效",
+    groupReferenceType: "策略组 · {type}",
     groupType: {
       direct: "直连",
       fallback: "故障转移",

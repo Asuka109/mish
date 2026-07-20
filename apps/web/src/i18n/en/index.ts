@@ -426,7 +426,7 @@ const en = {
     configurationOrder: "Configuration",
     currentChild: "Current: {child:string}",
     description:
-      "Browse the active profile's policy-group graph. Every choice remains scoped to its owning selector.",
+      "Browse the active profile's policy groups independently. Expanding a group shows its direct choices, and each selection changes only that group.",
     desktopDescription: "Policy groups reported by the desktop local service.",
     delayCancelled: "Cancelled",
     delayDisconnected: "Disconnected",
@@ -452,6 +452,7 @@ const en = {
     graphErrorDescription:
       "Mish did not render this graph because its relationships are inconsistent. No route choice was changed.",
     graphErrorTitle: "The policy-group graph is invalid",
+    groupReferenceType: "Policy group · {type:string}",
     groupType: {
       direct: "Direct",
       fallback: "Fallback",
