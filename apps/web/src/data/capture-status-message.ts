@@ -6,7 +6,15 @@ export function systemProxyStatusMessage(
   status: SystemProxyRuntimeStatusDto,
   pending = false,
 ) {
-  if (status.phase === "drift") return LL.capture.systemProxyDrift();
+  if (status.phase === "drift") {
+    if (status.failure === "invalid-recovery") {
+      return LL.capture.systemProxyInvalidRecovery();
+    }
+    if (status.failure === "persistence-failed") {
+      return LL.capture.systemProxyPersistenceFailure();
+    }
+    return LL.capture.systemProxyDrift();
+  }
   if (status.phase === "failed") {
     if (status.failure === "permission-denied") {
       return LL.capture.systemProxyPermissionFailure();
@@ -16,6 +24,12 @@ export function systemProxyStatusMessage(
     }
     if (status.failure === "core-unhealthy") {
       return LL.capture.systemProxyCoreFailure();
+    }
+    if (status.failure === "invalid-recovery") {
+      return LL.capture.systemProxyInvalidRecovery();
+    }
+    if (status.failure === "persistence-failed") {
+      return LL.capture.systemProxyPersistenceFailure();
     }
     return LL.capture.systemProxyFailure();
   }

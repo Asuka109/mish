@@ -1738,6 +1738,7 @@ export const ProfileActivationFailureSchema = z.enum([
   "controller",
   "timeout",
   "cancelled",
+  "capture",
   "prior-stop",
   "state-commit",
 ]);

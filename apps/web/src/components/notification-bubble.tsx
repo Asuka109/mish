@@ -103,7 +103,7 @@ export function NotificationBubble() {
             actions: driftActions,
             id: `system-proxy-drift:${driftObservedAt}`,
             level: "warning" as const,
-            message: LL.capture.systemProxyDrift(),
+            message: systemProxy ? systemProxyStatusMessage(LL, systemProxy) : "",
             observedAt: driftObservedAt,
             source: LL.navigation.status(),
           },
@@ -187,7 +187,7 @@ export function NotificationBubble() {
     }
     if (driftToastVisible.current) return;
     driftToastVisible.current = true;
-    toast.warning(LL.capture.systemProxyDrift(), {
+    toast.warning(systemProxy ? systemProxyStatusMessage(LL, systemProxy) : "", {
       action: canRepairSystemProxy
         ? {
             label: LL.capture.repairSystemProxy(),
@@ -203,7 +203,14 @@ export function NotificationBubble() {
       duration: Number.POSITIVE_INFINITY,
       id: "system-proxy-drift",
     });
-  }, [LL, canLeaveSystemProxy, canRepairSystemProxy, recoverSystemProxy, systemProxyDrift]);
+  }, [
+    LL,
+    canLeaveSystemProxy,
+    canRepairSystemProxy,
+    recoverSystemProxy,
+    systemProxy,
+    systemProxyDrift,
+  ]);
 
   useEffect(() => {
     if (!systemProxyFailed || !systemProxy) {

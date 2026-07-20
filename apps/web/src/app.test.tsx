@@ -1194,6 +1194,43 @@ describe("Status fixture experience", () => {
     );
   });
 
+  it("explains invalid recovery state without offering an unsafe repair", async () => {
+    const user = userEvent.setup();
+    const warningToast = vi.spyOn(toast, "warning");
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
+    snapshot.runtime.phase = "error";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: "invalid-recovery",
+      observed: "unknown",
+      phase: "drift",
+      recoveryActions: ["leave-as-is"],
+    };
+
+    renderRoute("/status", "en", new DriftRecoveryClient(snapshot));
+
+    await waitFor(() =>
+      expect(warningToast).toHaveBeenCalledWith(
+        expect.stringContaining("Mish cannot validate its saved System Proxy recovery record."),
+        expect.objectContaining({ action: undefined, cancel: expect.any(Object) }),
+      ),
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent(
+      "Mish cannot validate its saved System Proxy recovery record.",
+    );
+    expect(
+      within(notificationCenter).queryByRole("button", { name: "Repair System Proxy" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+    ).toBeInTheDocument();
+  });
+
   it("describes System Proxy confirmation while a desktop command is pending", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
