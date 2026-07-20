@@ -47,6 +47,52 @@ const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OpenBrowserError {
+    InvalidUrl,
+    Rejected,
+    Unsupported,
+}
+
+#[cfg(target_os = "macos")]
+pub fn open_browser_url(url: &str) -> Result<(), OpenBrowserError> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSString, NSURL};
+
+    let value = NSString::from_str(url);
+    let url = NSURL::URLWithString(&value).ok_or(OpenBrowserError::InvalidUrl)?;
+    NSWorkspace::sharedWorkspace()
+        .openURL(&url)
+        .then_some(())
+        .ok_or(OpenBrowserError::Rejected)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn open_browser_url(_url: &str) -> Result<(), OpenBrowserError> {
+    Err(OpenBrowserError::Unsupported)
+}
+
+#[cfg(target_os = "macos")]
+pub fn show_browser_open_error() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSAlertStyle};
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let alert = NSAlert::new(mtm);
+    alert.setAlertStyle(NSAlertStyle::Warning);
+    alert.setMessageText(&NSString::from_str("Mish couldn't open the browser client"));
+    alert.setInformativeText(&NSString::from_str(
+        "Try Open Browser Client again. Mish did not expose an RPC credential in the failed URL.",
+    ));
+    alert.runModal();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_browser_open_error() {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MacOsTunHelperBoundary {
     Unpackaged,
     UnsignedApp,

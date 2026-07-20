@@ -4,6 +4,28 @@ import type { RpcClient } from "@mish/rpc-client";
 import { RpcSettingsClient } from "./rpc-settings-client";
 
 describe("RPC settings client", () => {
+  it("keeps native window capabilities unavailable in a browser RPC client", async () => {
+    const request = vi.fn(async () => ({
+      capabilities: {
+        backupRestore: "supported",
+        nativeSidebarMaterial: "supported",
+        windowLifecycle: "supported",
+      },
+    }));
+    const client = new RpcSettingsClient(
+      { request } as unknown as RpcClient<typeof mishRpcMethods>,
+      false,
+    );
+
+    await expect(client.getSnapshot()).resolves.toMatchObject({
+      capabilities: {
+        backupRestore: "unavailable",
+        nativeSidebarMaterial: "unavailable",
+        windowLifecycle: "unavailable",
+      },
+    });
+  });
+
   it("sends only bounded typed preference commands", async () => {
     const request = vi.fn(async (..._arguments: unknown[]) => ({ adapterKind: "rpc" }));
     const client = new RpcSettingsClient({ request } as unknown as RpcClient<

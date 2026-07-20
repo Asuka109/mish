@@ -5,7 +5,7 @@
   "identifier": "com.asuka109.mish",
   "build": {
     "beforeBuildCommand": "pnpm --dir ../.. --filter @mish/web build",
-    "beforeDevCommand": "pnpm --dir ../.. --filter @mish/web dev",
+    "beforeDevCommand": "pnpm --dir ../.. --filter @mish/web build && pnpm --dir ../.. --filter @mish/web dev",
     "devUrl": "http://127.0.0.1:4173",
     "frontendDist": "../../web/dist"
   },

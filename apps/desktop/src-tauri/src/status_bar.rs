@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use mish_bridge::{
-    DesktopRuntimeHost, ProfileActivationAvailability, ProfileActivationCoordinator,
-    ProfileActivationPhase, ProfileActivationSnapshot,
+    BrowserClientHandle, DesktopRuntimeHost, ProfileActivationAvailability,
+    ProfileActivationCoordinator, ProfileActivationPhase, ProfileActivationSnapshot,
 };
+use mish_platform_macos::{open_browser_url, show_browser_open_error};
 use mish_runtime::{
     CapabilityAvailability, CaptureRecoveryAction, CaptureRequest, CaptureSelection, RoutingMode,
     RuntimePhase, StatusAdapterKind, StatusCommand, StatusSnapshot, SystemProxyPhase, TunPhase,
@@ -17,6 +18,7 @@ use uuid::Uuid;
 
 const TRAY_ID: &str = "mish-status-bar";
 const OPEN_MISH_ID: &str = "status-bar.open-mish";
+const OPEN_BROWSER_ID: &str = "status-bar.open-browser";
 const OPEN_ROUTES_ID: &str = "status-bar.open-routes";
 const TOGGLE_SYSTEM_PROXY_ID: &str = "status-bar.toggle-system-proxy";
 const TOGGLE_TUN_ID: &str = "status-bar.toggle-tun";
@@ -31,6 +33,7 @@ const QUIT_ID: &str = "status-bar.quit";
 #[derive(Clone)]
 pub(crate) struct StatusBarState {
     activation: Arc<ProfileActivationCoordinator>,
+    browser_client: BrowserClientHandle,
     runtime: DesktopRuntimeHost,
 }
 
@@ -38,9 +41,11 @@ impl StatusBarState {
     pub(crate) fn new(
         runtime: DesktopRuntimeHost,
         activation: Arc<ProfileActivationCoordinator>,
+        browser_client: BrowserClientHandle,
     ) -> Self {
         Self {
             activation,
+            browser_client,
             runtime,
         }
     }
@@ -163,6 +168,7 @@ pub(crate) fn initialize(
 fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
     match id {
         OPEN_MISH_ID => show_main_window(app, None),
+        OPEN_BROWSER_ID => open_browser_client(&state),
         OPEN_ROUTES_ID => show_main_window(app, Some("/routes")),
         QUIT_ID => app.exit(0),
         TOGGLE_SYSTEM_PROXY_ID
@@ -181,6 +187,20 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
             });
         }
         _ => {}
+    }
+}
+
+fn open_browser_client(state: &StatusBarState) {
+    let Ok(nonce) = super::generate_auth_token() else {
+        show_browser_open_error();
+        return;
+    };
+    let Ok(url) = state.browser_client.issue_launch_url(nonce) else {
+        show_browser_open_error();
+        return;
+    };
+    if open_browser_url(&url).is_err() {
+        show_browser_open_error();
     }
 }
 
@@ -318,9 +338,8 @@ fn build_menu<M: Manager<tauri::Wry>>(
 ) -> tauri::Result<Menu<tauri::Wry>> {
     let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish").build(manager)?;
     let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Open Routes").build(manager)?;
-    let browser = MenuItemBuilder::new("Browser Client — Unavailable")
-        .enabled(false)
-        .build(manager)?;
+    let browser =
+        MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client").build(manager)?;
     let profile = MenuItemBuilder::new(&model.current_profile)
         .enabled(false)
         .build(manager)?;

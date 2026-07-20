@@ -56,8 +56,9 @@ pub use profile_activation::{
 pub use profiles::{DesktopProfileService, ReqwestHttpsSourceReader};
 pub use runtime_host::DesktopRuntimeHost;
 pub use server::{
-    LoopbackServerConfig, LoopbackServerHandle, start_loopback_server,
-    start_loopback_server_with_runtime_host, start_loopback_server_with_runtime_host_and_lifecycle,
+    BrowserAsset, BrowserAssetSource, BrowserClientHandle, LoopbackServerConfig,
+    LoopbackServerHandle, start_loopback_server, start_loopback_server_with_runtime_host,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
 pub use support_bundle::{
     PreparedSupportBundle, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,

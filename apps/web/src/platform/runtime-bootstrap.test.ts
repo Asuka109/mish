@@ -80,6 +80,81 @@ describe("desktop runtime bootstrap", () => {
     expect(invokeLocalProfilePreflight).not.toHaveBeenCalled();
   });
 
+  it("connects an explicitly launched browser client to the authenticated desktop RPC", async () => {
+    const clearNonce = vi.fn();
+    const fetchBootstrap = vi.fn(async () => ({
+      authToken: token,
+      localBackup: false,
+      rpcUrl: "ws://127.0.0.1:43123/rpc",
+      settingsSnapshot,
+      supportBundleExport: false,
+    }));
+    const transport = {
+      addEventListener: vi.fn(),
+      close: vi.fn(),
+      readyState: 0,
+      removeEventListener: vi.fn(),
+      send: vi.fn(),
+    };
+    const openWebSocket = vi.fn((_url: string) => transport as unknown as WebSocket);
+
+    const startup = await resolveStartupStatusClient({
+      browserBootstrap: {
+        clearNonce,
+        clearSession: vi.fn(),
+        fetch: fetchBootstrap,
+        hasSession: () => false,
+        markSession: vi.fn(),
+        nonce: () => "a".repeat(64),
+      },
+      invokeBootstrap: vi.fn(),
+      invokeLocalProfilePreflight: vi.fn(),
+      ...supportBundleDependencies,
+      isDesktop: () => false,
+      openWebSocket,
+    });
+
+    expect(fetchBootstrap).toHaveBeenCalledWith("a".repeat(64));
+    expect(clearNonce).toHaveBeenCalledOnce();
+    expect(startup.runtime).toBe("browser");
+    expect(startup.settingsSnapshot.adapterKind).toBe("rpc");
+    const request = startup.client?.getSnapshot();
+    expect(openWebSocket).toHaveBeenCalledWith("ws://127.0.0.1:43123/rpc");
+    startup.dispose();
+    await expect(request).rejects.toMatchObject({ code: "disconnected" });
+  });
+
+  it("restores an explicitly launched browser client after a page refresh", async () => {
+    const markSession = vi.fn();
+    const fetchBootstrap = vi.fn(async () => ({
+      authToken: token,
+      localBackup: false,
+      rpcUrl: "ws://127.0.0.1:43123/rpc",
+      settingsSnapshot,
+      supportBundleExport: false,
+    }));
+    const startup = await resolveStartupStatusClient({
+      browserBootstrap: {
+        clearNonce: vi.fn(),
+        clearSession: vi.fn(),
+        fetch: fetchBootstrap,
+        hasSession: () => true,
+        markSession,
+        nonce: () => null,
+      },
+      invokeBootstrap: vi.fn(),
+      invokeLocalProfilePreflight: vi.fn(),
+      ...supportBundleDependencies,
+      isDesktop: () => false,
+      openWebSocket: vi.fn(),
+    });
+
+    expect(fetchBootstrap).toHaveBeenCalledWith(null);
+    expect(markSession).toHaveBeenCalledOnce();
+    expect(startup.settingsSnapshot.adapterKind).toBe("rpc");
+    startup.dispose();
+  });
+
   it("routes local profile preflight only through the injected native boundary", async () => {
     const invokeLocalProfilePreflight = vi.fn(async () => null);
     const startup = await resolveStartupStatusClient({

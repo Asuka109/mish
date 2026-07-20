@@ -36,7 +36,17 @@ interface RuntimeBootstrapPayload {
   supportBundleExport: boolean;
 }
 
+interface BrowserBootstrapDependencies {
+  clearNonce(): void;
+  clearSession(): void;
+  fetch(nonce: string | null): Promise<unknown>;
+  hasSession(): boolean;
+  markSession(): void;
+  nonce(): string | null;
+}
+
 interface BootstrapDependencies {
+  browserBootstrap?: BrowserBootstrapDependencies;
   invokeCommitLocalRestore(
     previewId: string,
     resolution: LocalRestoreConflictResolution,
@@ -70,6 +80,14 @@ export interface StartupStatusClient {
 }
 
 const defaultDependencies: BootstrapDependencies = {
+  browserBootstrap: {
+    clearNonce: clearBrowserBootstrapNonce,
+    clearSession: clearBrowserBootstrapSession,
+    fetch: fetchBrowserBootstrap,
+    hasSession: hasBrowserBootstrapSession,
+    markSession: markBrowserBootstrapSession,
+    nonce: readBrowserBootstrapNonce,
+  },
   invokeCommitLocalRestore: (previewId, resolution) =>
     invoke("local_backup_restore_commit", { previewId, resolution }),
   invokeBootstrap: () => invoke("runtime_bootstrap"),
@@ -87,6 +105,20 @@ export async function resolveStartupStatusClient(
   dependencies: BootstrapDependencies = defaultDependencies,
 ): Promise<StartupStatusClient> {
   if (!dependencies.isDesktop()) {
+    const nonce = dependencies.browserBootstrap?.nonce() ?? null;
+    const hasSession = dependencies.browserBootstrap?.hasSession() ?? false;
+    if (nonce || hasSession) {
+      try {
+        const bootstrap = parseRuntimeBootstrap(await dependencies.browserBootstrap?.fetch(nonce));
+        dependencies.browserBootstrap?.markSession();
+        return createRpcStartup(bootstrap, dependencies, "browser", "mish-browser-client");
+      } catch (error) {
+        dependencies.browserBootstrap?.clearSession();
+        if (nonce) throw error;
+      } finally {
+        if (nonce) dependencies.browserBootstrap?.clearNonce();
+      }
+    }
     const settingsClient = new FixtureSettingsClient();
     return {
       dispose: () => undefined,
@@ -99,9 +131,18 @@ export async function resolveStartupStatusClient(
   }
 
   const bootstrap = parseRuntimeBootstrap(await dependencies.invokeBootstrap());
+  return createRpcStartup(bootstrap, dependencies, "desktop", "mish-desktop-webview");
+}
+
+function createRpcStartup(
+  bootstrap: RuntimeBootstrapPayload,
+  dependencies: BootstrapDependencies,
+  runtime: "browser" | "desktop",
+  clientName: string,
+): StartupStatusClient {
   const rpc = new RpcClient({
     authentication: () => ({
-      clientName: "mish-desktop-webview",
+      clientName,
       clientVersion: "bootstrap-v1",
       token: bootstrap.authToken,
     }),
@@ -111,9 +152,12 @@ export async function resolveStartupStatusClient(
   const client = new RpcStatusClient(rpc, true);
   const eventsClient = new RpcEventsClient(rpc);
   const diagnosticsClient = new RpcDiagnosticsClient(rpc);
-  const profileClient = new RpcProfileClient(rpc, dependencies.invokeLocalProfilePreflight);
+  const profileClient = new RpcProfileClient(
+    rpc,
+    runtime === "desktop" ? dependencies.invokeLocalProfilePreflight : null,
+  );
   const trafficClient = new RpcTrafficClient(rpc);
-  const settingsClient = new RpcSettingsClient(rpc);
+  const settingsClient = new RpcSettingsClient(rpc, runtime === "desktop");
   const settingsSnapshot = bootstrap.settingsSnapshot;
   return {
     client,
@@ -144,8 +188,59 @@ export async function resolveStartupStatusClient(
       trafficClient.dispose();
       client.dispose();
     },
-    runtime: "desktop",
+    runtime,
   };
+}
+
+function readBrowserBootstrapNonce() {
+  const nonce = new URLSearchParams(window.location.hash.slice(1)).get("mish-browser-bootstrap");
+  return nonce && /^[a-f0-9]{64}$/.test(nonce) ? nonce : null;
+}
+
+function clearBrowserBootstrapNonce() {
+  const url = new URL(window.location.href);
+  url.hash = "";
+  window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+}
+
+const browserBootstrapSessionKey = "mish-browser-client-session";
+
+function hasBrowserBootstrapSession() {
+  try {
+    return window.sessionStorage.getItem(browserBootstrapSessionKey) === "active";
+  } catch {
+    return false;
+  }
+}
+
+function markBrowserBootstrapSession() {
+  try {
+    window.sessionStorage.setItem(browserBootstrapSessionKey, "active");
+  } catch {
+    // The HttpOnly bridge session still protects the current in-memory bootstrap.
+  }
+}
+
+function clearBrowserBootstrapSession() {
+  try {
+    window.sessionStorage.removeItem(browserBootstrapSessionKey);
+  } catch {
+    // Storage can be unavailable under strict browser privacy policies.
+  }
+}
+
+async function fetchBrowserBootstrap(nonce: string | null) {
+  const response = await fetch("/browser-bootstrap", {
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      ...(nonce ? { Authorization: `Mish-Browser ${nonce}` } : {}),
+    },
+    method: "POST",
+  });
+  if (!response.ok) throw new Error("Browser bootstrap unavailable");
+  return response.json();
 }
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {

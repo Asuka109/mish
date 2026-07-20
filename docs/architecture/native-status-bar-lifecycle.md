@@ -31,11 +31,18 @@ The implemented compact surface contains:
   profile; and
 - quit.
 
-The local bridge does not host the product bundle for an ordinary browser, so
-`Browser Client — Unavailable` remains disabled rather than opening a private
-RPC endpoint or a development URL. Full policy-group child selection is not
-duplicated in the native menu in this slice. `Open Routes` is the supported
-progressive-disclosure path.
+`Open Browser Client` creates a fresh one-time launch nonce and opens the
+desktop bridge's bundled-asset origin in the default browser. The nonce is not
+the RPC credential, is consumed by an Origin-validated bootstrap request, and
+is removed from the address bar immediately. A scoped HttpOnly session permits
+refresh without persisting the RPC credential. Full policy-group child selection
+is not duplicated in the native menu in this slice. `Open Routes` remains the
+native progressive-disclosure path.
+
+Successful launch is visible as the newly opened browser window. CSPRNG, launch
+state, invalid-URL, or operating-system open failures display a native warning
+dialog with an accessible message and safe retry instruction; they do not
+silently leave a dead menu command or expose a credential for manual recovery.
 
 The menu never includes node labels, node identifiers, service URLs,
 authentication tokens, filesystem paths, controller addresses, RPC endpoints,

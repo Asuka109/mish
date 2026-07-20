@@ -273,10 +273,12 @@ but it is not required merely to optimize a hosted-web cold start.
 
 `apps/desktop` implements the first shell slice. Tauri embeds `apps/web/dist`,
 uses its application-protocol `index.html` fallback for React Router paths, and
-starts the existing loopback desktop bridge on an ephemeral port. One permission-scoped
-IPC command passes a process-only token and validated endpoint to the main
-WebView. Ordinary browser startup remains fixture-backed. The detailed resource
-flow and threat model are documented in
+starts the existing loopback desktop bridge on an ephemeral port. One
+permission-scoped IPC command passes a process-only token and validated endpoint
+to the main WebView. A standalone Vite browser remains fixture-backed; a browser
+explicitly opened from the status-bar menu receives the same RPC composition
+through the bridge's one-time same-origin bootstrap and bundled-asset host. The
+detailed resource flow and threat model are documented in
 [`desktop-bootstrap.md`](desktop-bootstrap.md).
 
 ## macOS status-bar behavior

@@ -14,8 +14,9 @@ tokio = { version = "1.53.0", features = ["fs", "io-util", "net", "process", "sy
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWorkspace"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["block2", "NSNotification", "NSOperation", "NSString"] }
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSAlert", "NSApplication", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["block2", "NSNotification", "NSOperation", "NSString", "NSURL"] }
 system-configuration = "0.7.0"
 
 [dev-dependencies]

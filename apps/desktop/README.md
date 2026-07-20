@@ -18,8 +18,13 @@ loopback port. It creates a fresh 256-bit authentication token for each desktop
 process and returns the endpoint and token only through the `runtime_bootstrap`
 command allowed to the `main` WebView. The token is sent in the first JSON-RPC
 message, never in a URL, and neither the shell nor the Web client logs or
-persists it. The browser build does not call this command and remains visibly
-fixture-backed.
+persists it. A standalone Vite browser remains visibly fixture-backed. The
+status-bar `Open Browser Client` command serves the embedded bundle from the
+same bridge origin and opens it with a fresh one-time nonce in the URL fragment.
+The page exchanges that nonce once for the process-only bootstrap, immediately
+removes the fragment, and keeps the actual RPC token in memory only. A scoped
+HttpOnly, SameSite session cookie lets that browser tab reacquire an in-memory
+bootstrap after refresh without exposing the RPC token to browser storage.
 
 The same bootstrap includes a validated settings snapshot loaded from private
 application data before the Web UI renders. Settings updates travel through the
@@ -64,9 +69,9 @@ that route into the existing WebView.
 Tauri's bundled-asset resolver returns `index.html` for an unknown asset path,
 so direct loads of `/status`, `/routes`, and the other React Router paths work in
 the packaged WebView. Vite provides the equivalent fallback during development.
-Any future local HTTP asset host must preserve that same rule for unknown
-non-asset `GET`/`HEAD` paths while returning ordinary `404` responses for
-missing files with extensions.
+The desktop bridge uses the same resolver for its browser client: exact assets
+are served directly, unknown non-asset `GET`/`HEAD` paths fall back to
+`index.html`, and missing filenames with extensions return `404`.
 
 The Tauri composition starts in an explicit safe stopped state and does not
 automatically select or restore a private profile. Authenticated activation
@@ -96,8 +101,9 @@ The macOS shell also installs a native status-bar menu backed directly by the
 same runtime host, capture reconciler, and profile activation coordinator as the
 authenticated Web UI. It exposes current profile state, System Proxy commands
 and recovery, routing mode when supported, a Routes entry, Core restart/recovery,
-and quit. TUN and the ordinary browser client are explicitly unavailable. The
-menu never lists nodes, service URLs, RPC endpoints, paths, or credentials.
+an explicit browser-client launcher, and quit. TUN remains explicitly
+unavailable. The menu never lists nodes, service URLs, RPC endpoints, paths, or
+credentials.
 
 Closing the main window defaults to hiding the existing window while the bridge,
 Core supervision, capture reconciliation, and status menu continue. Settings can
