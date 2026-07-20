@@ -962,7 +962,7 @@ async fn repository_backed_activation_atomically_replaces_the_profile_context() 
     let root = std::env::temp_dir().join(format!("mish-coordinator-{}", Uuid::new_v4()));
     let profile_root = root.join("profile-store");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    FileProfileRepository::new(profile_root.clone())
+    FileProfileRepository::new(profile_root.join("profile-store"))
         .save(&record)
         .unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
@@ -1020,7 +1020,7 @@ async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
     let profile_root = root.join("profile-store");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
     let replacement = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
-    let repository = FileProfileRepository::new(profile_root.clone());
+    let repository = FileProfileRepository::new(profile_root.join("profile-store"));
     repository.save(&record).unwrap();
     repository.save(&replacement).unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
@@ -1160,7 +1160,7 @@ async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable
     let root = std::env::temp_dir().join(format!("mish-invalid-capture-{}", Uuid::new_v4()));
     let profile_root = root.join("profile-store");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    FileProfileRepository::new(profile_root.clone())
+    FileProfileRepository::new(profile_root.join("profile-store"))
         .save(&record)
         .unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
@@ -1301,7 +1301,7 @@ async fn coordinator_republishes_the_restored_runtime_after_commit_failure() {
     let profile_root = root.join("profile-store");
     let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
     let candidate = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
-    let repository = FileProfileRepository::new(profile_root.clone());
+    let repository = FileProfileRepository::new(profile_root.join("profile-store"));
     repository.save(&prior).unwrap();
     repository.save(&candidate).unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
@@ -1370,7 +1370,7 @@ async fn duplicate_profile_activation_is_deduplicated_and_cancellable() {
     let root = std::env::temp_dir().join(format!("mish-coordinator-cancel-{}", Uuid::new_v4()));
     let profile_root = root.join("profile-store");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
-    FileProfileRepository::new(profile_root.clone())
+    FileProfileRepository::new(profile_root.join("profile-store"))
         .save(&record)
         .unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
@@ -1438,7 +1438,7 @@ async fn active_profile_deletion_requires_replacement_or_an_explicit_safe_stop()
     let profile_root = root.join("profile-store");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
     let replacement = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
-    let repository = FileProfileRepository::new(profile_root.clone());
+    let repository = FileProfileRepository::new(profile_root.join("profile-store"));
     repository.save(&record).unwrap();
     repository.save(&replacement).unwrap();
     let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());

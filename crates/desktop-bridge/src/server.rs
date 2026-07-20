@@ -21,7 +21,9 @@ use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 
 use crate::lifecycle::spawn_lifecycle_coordination;
 use crate::protocol::{ProtocolState, serve_socket};
-use crate::{DesktopProfileService, DesktopRuntimeHost, ProfileActivationCoordinator};
+use crate::{
+    DesktopProfileService, DesktopRuntimeHost, ProfileActivationCoordinator, ProfileFileActions,
+};
 
 #[derive(Clone)]
 pub struct LoopbackServerConfig {
@@ -31,6 +33,7 @@ pub struct LoopbackServerConfig {
     pub browser_assets: Option<Arc<dyn BrowserAssetSource>>,
     pub max_message_bytes: usize,
     pub profile_activation: Option<Arc<ProfileActivationCoordinator>>,
+    pub profile_file_actions: Option<Arc<ProfileFileActions>>,
     pub profile_service: Option<Arc<DesktopProfileService>>,
     pub settings_service: Option<Arc<SettingsService>>,
 }
@@ -201,6 +204,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         protocol: ProtocolState {
             auth_token: config.auth_token,
             profile_activation: config.profile_activation,
+            profile_file_actions: config.profile_file_actions,
             profile_service: config.profile_service,
             runtime: runtime.clone(),
             settings_service: config.settings_service,

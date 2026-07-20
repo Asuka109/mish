@@ -638,9 +638,7 @@ export function RoutesPage() {
   const delayCommandSupported = isCommandSupported("group-delay") && !configuredRoutesActive;
   const delayCommandPending = isCommandPending("group-delay");
   const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, liveCommandSupported);
-  const modeGroups = groups.filter(
-    (group) => routingMode === "global" || !isGlobalGroup(group),
-  );
+  const modeGroups = groups.filter((group) => routingMode === "global" || !isGlobalGroup(group));
   const visibleGroupIds = modeGroups
     .map((group) => group.id)
     .filter((groupId) => !search.queryActive || search.visibleEntityIds.has(groupId));

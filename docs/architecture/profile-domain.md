@@ -120,35 +120,55 @@ within the managed layout.
 ```text
 <app-local-root>/
   profiles/
-    <profile-uuid>/
-      metadata.json
-      source/
-        source.json
-        revisions/
-          <source-sha256>.yaml
-      artifacts/
-        <artifact-sha256>.yaml
-      patches/
-        index.json
-        sets/
-          <patch-set-sha256>.json
+    <user-visible-name>.yaml
+  profile-store/
+    profiles/
+      <profile-uuid>/
+        metadata.json
+        source/
+          source.json
+          revisions/
+            <source-sha256>.yaml
+        artifacts/
+          <artifact-sha256>.yaml
+        patches/
+          index.json
+          sets/
+            <patch-set-sha256>.json
 ```
 
-`metadata.json` is the ordinary display-safe document. It contains the redacted
-source summary, provenance hashes, validation state, attempts, success, and
-status flags. `source/source.json` contains the sensitive source descriptor,
-including a complete tokenized URL when one is required for manual refresh.
-Revision YAML and artifact YAML may also contain credentials and private names.
-Patch state is private because typed rule values and user labels can still be
-sensitive. These categories are deliberately separate: ordinary Profile listing
-reads validated metadata plus the effective patch fingerprint, but never opens
-source descriptors or YAML artifacts.
+`profiles/` is the user-facing configuration seam. Every direct regular
+`.yaml` or `.yml` file in that directory is a Profile; nested directories and
+symbolic links are ignored. Saves and successful subscription refreshes
+atomically materialize source bytes there. A one-second desktop reconciliation
+loop detects external creates, changes, and deletes. It suppresses self-writes
+by source revision, imports valid new files, retains last-known-good private
+state when an edited file is invalid, and removes inactive records whose files
+were deleted. Detaching a subscription keeps the same materialized file and
+changes only its source and scheduling metadata.
+
+`profile-store/` is a private implementation detail. UUIDs, immutable
+revisions, normalized artifacts, and patch sets never determine the directory
+opened by the configuration page.
+
+`metadata.json` contains the redacted source summary, provenance hashes,
+validation state, attempts, success, and status flags. `source/source.json`
+contains the sensitive source descriptor, including a complete tokenized URL
+when one is required for refresh. The authenticated Profiles snapshot reads that
+descriptor so the configuration page can show the complete subscription address
+as an explicit user-facing source locator. Logs, events, diagnostics, previews,
+errors, and support bundles continue to use only redacted summaries. Revision
+YAML and artifact YAML may also contain credentials and private names. Patch
+state is private because typed rule values and user labels can still be
+sensitive.
 
 On Unix, managed directories are mode `0700` and atomically written files are
 created as mode `0600`. These permissions are defense in depth, not encryption;
 the host must choose the platform app-data location and may add operating-system
 data protection later. Sensitive files must never be copied to logs, error
-messages, screenshots, clipboard payloads, or default diagnostics.
+messages, clipboard payloads, or default diagnostics. The configuration page is
+the deliberate exception for displaying the complete subscription URL; users
+should expect it to be visible in screenshots of that page.
 
 Initial save writes a private staging directory, fsyncs each temporary file,
 renames files within their destination directory, fsyncs directories, and

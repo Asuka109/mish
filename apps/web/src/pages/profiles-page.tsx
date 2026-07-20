@@ -1,19 +1,11 @@
+import { Alarm } from "@phosphor-icons/react/Alarm";
 import { ArrowClockwise } from "@phosphor-icons/react/ArrowClockwise";
-import { FileText } from "@phosphor-icons/react/FileText";
 import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
 import { GlobeHemisphereWest } from "@phosphor-icons/react/GlobeHemisphereWest";
-import { Trash } from "@phosphor-icons/react/Trash";
+import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Badge,
   Button,
   Dialog,
@@ -22,6 +14,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -31,33 +30,22 @@ import {
   FieldGroup,
   FieldLabel,
   Input,
-  SectionGrid,
-  SectionGridItem,
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  Spinner,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@mish/ui";
-import type {
-  ProfileActivationFailure,
-  ProfileActivationSnapshotDto,
-  ProfileListItemDto,
-  ProfilePolicyClassificationDto,
-  ProfilePreviewDto,
-  ProfileRuntimeProvenanceDto,
-  ProfileRefreshPolicy,
-  ProfileValidationIssueCode,
-  ProviderKind,
-  ProviderSnapshotDto,
-  RuntimeProviderDto,
-} from "@mish/contracts";
+import type { ProfileListItemDto, ProfilePreviewDto, ProfileRefreshPolicy } from "@mish/contracts";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
-import { ProfilePatchEditor } from "../components/profile-patch-editor";
+
+const refreshPolicies: ProfileRefreshPolicy[] = [
+  "off",
+  "six-hours",
+  "twelve-hours",
+  "daily",
+  "weekly",
+];
 
 export function ProfilesPage() {
   const { LL, locale } = useI18nContext();
@@ -65,29 +53,25 @@ export function ProfilesPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [preview, setPreview] = useState<ProfilePreviewDto | null>(null);
   const [url, setUrl] = useState("");
-  const [label, setLabel] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<ProfileListItemDto | null>(null);
-  const [replacementProfileId, setReplacementProfileId] = useState<string | null>(null);
-  const [patchTarget, setPatchTarget] = useState<ProfileListItemDto | null>(null);
+  const [fileName, setFileName] = useState("");
   const dateFormatter = useMemo(
-    () => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }),
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        month: "short",
+      }),
     [locale],
   );
 
   const snapshot = profiles.snapshot;
   const httpsSupported = snapshot?.capabilities.httpsImport === "supported";
-  const localSupported =
-    snapshot?.capabilities.localFileImport === "supported" ||
-    snapshot?.capabilities.localFileImport === "permission-required";
-  const currentDeleteTarget = snapshot?.profiles.find((profile) => profile.id === deleteTarget?.id);
-  const replacementProfiles =
-    snapshot?.profiles.filter(
-      (profile) => profile.id !== deleteTarget?.id && profile.status.valid,
-    ) ?? [];
+  const fileActionsSupported = profiles.fileActionsAvailable;
 
   function openHttpsImport() {
     setUrl("");
-    setLabel("");
+    setFileName("");
     setPreview(null);
     setImportOpen(true);
   }
@@ -96,29 +80,18 @@ export function ProfilesPage() {
     setImportOpen(false);
     setPreview(null);
     setUrl("");
-    setLabel("");
+    setFileName("");
   }
 
   async function preflightHttps(event: FormEvent) {
     event.preventDefault();
-    const result = await profiles.preflightHttps(url, label.trim() || undefined);
+    const result = await profiles.preflightHttps(url, normalizeFileName(fileName));
+    if (!result.ok) {
+      toast.error(LL.profiles.importFailed());
+      return;
+    }
     setUrl("");
-    if (!result.ok) {
-      toast.error(LL.profiles.importFailed());
-      return;
-    }
     setPreview(result.preview);
-  }
-
-  async function preflightLocal() {
-    const result = await profiles.preflightLocal();
-    if (!result.ok) {
-      toast.error(LL.profiles.importFailed());
-      return;
-    }
-    if (!result.preview) return;
-    setPreview(result.preview);
-    setImportOpen(true);
   }
 
   async function savePreview() {
@@ -132,11 +105,13 @@ export function ProfilesPage() {
     closeImport();
   }
 
-  async function refreshProfile(profileId: string) {
-    const result = await profiles.refreshProfile(profileId);
+  async function refreshProfile(profile: ProfileListItemDto) {
+    const result = await profiles.refreshProfile(profile.id);
     if (!result.ok) {
       toast.error(LL.profiles.refreshFailed());
+      return;
     }
+    toast.success(LL.profiles.subscriptionUpdated());
   }
 
   async function setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy) {
@@ -144,39 +119,18 @@ export function ProfilesPage() {
     if (!result.ok) toast.error(LL.profiles.scheduleFailed());
   }
 
-  async function updateProvider(providerId: string) {
-    const authority = snapshot?.providers.authority;
-    if (!authority) return;
-    const result = await profiles.updateProvider(authority, providerId);
-    if (!result.ok) toast.error(LL.profiles.providerUpdateFailed());
-  }
-
-  async function updateAllProviders(kind: ProviderKind) {
-    const authority = snapshot?.providers.authority;
-    if (!authority) return;
-    const result = await profiles.updateAllProviders(authority, kind);
-    if (!result.ok) toast.error(LL.profiles.providerUpdateFailed());
-  }
-
-  async function switchRunningProfile(profileId: string) {
-    const result = await profiles.activateProfile(profileId);
-    if (!result.ok) toast.error(LL.profiles.activationFailed());
-  }
-
-  async function stopForDeletion() {
-    const result = await profiles.stopActiveProfile();
-    if (!result.ok) toast.error(LL.profiles.activationFailed());
-  }
-
-  async function deleteProfile() {
-    if (!deleteTarget) return;
-    const result = await profiles.deleteProfile(deleteTarget.id);
+  async function detachSubscription(profile: ProfileListItemDto) {
+    const result = await profiles.detachSubscription(profile.id);
     if (!result.ok) {
-      toast.error(LL.profiles.deleteFailed());
+      toast.error(LL.profiles.detachSubscriptionFailed());
       return;
     }
-    toast.success(LL.profiles.deletedToast());
-    setDeleteTarget(null);
+    toast.success(LL.profiles.subscriptionDetached());
+  }
+
+  async function openDirectory() {
+    const result = await profiles.openProfileDirectory();
+    if (!result.ok) toast.error(LL.profiles.fileActionFailed());
   }
 
   return (
@@ -188,42 +142,24 @@ export function ProfilesPage() {
         </div>
         <div className="profiles-import-actions">
           <Button
-            disabled={!localSupported || profiles.isPending("preflight")}
-            loading={profiles.isPending("preflight")}
-            loadingText={LL.profiles.importLocal()}
-            onClick={preflightLocal}
+            disabled={!fileActionsSupported}
+            onClick={() => void openDirectory()}
             variant="outline"
           >
             <FolderOpen data-icon="inline-start" />
-            {LL.profiles.importLocal()}
+            {LL.profiles.openConfigDirectory()}
           </Button>
-          <Button
-            disabled={!httpsSupported || profiles.isPending("preflight")}
-            onClick={openHttpsImport}
-          >
+          <Button disabled={!httpsSupported} onClick={openHttpsImport}>
             <GlobeHemisphereWest data-icon="inline-start" />
-            {LL.profiles.importHttps()}
+            {LL.profiles.addSubscription()}
           </Button>
         </div>
       </header>
 
-      <section className="profiles-boundary" aria-label={LL.profiles.title()}>
-        <FileText aria-hidden="true" />
-        <p>
-          {snapshot?.adapterKind === "fixture"
-            ? LL.profiles.fixtureDescription()
-            : LL.profiles.desktopDescription()}
-        </p>
-      </section>
-
-      {snapshot?.capabilities.localFileImport === "permission-required" ? (
-        <p className="profiles-local-boundary">{LL.profiles.localPermission()}</p>
-      ) : null}
-
       {profiles.isLoading ? <p className="profiles-loading">{LL.profiles.loading()}</p> : null}
 
       {snapshot && snapshot.profiles.length === 0 ? (
-        <Empty>
+        <Empty className="profiles-empty">
           <EmptyHeader>
             <EmptyTitle>{LL.profiles.emptyTitle()}</EmptyTitle>
             <EmptyDescription>{LL.profiles.emptyDescription()}</EmptyDescription>
@@ -232,18 +168,17 @@ export function ProfilesPage() {
       ) : null}
 
       {snapshot && snapshot.profiles.length > 0 ? (
-        <SectionGrid aria-label={LL.profiles.profilesAria()} className="profile-list">
+        <section aria-label={LL.profiles.profilesAria()} className="profile-card-list">
           {snapshot.profiles.map((profile) => (
-            <ProfileRow
+            <ProfileCard
               LL={LL}
               dateFormatter={dateFormatter}
-              deletionSupported={snapshot.capabilities.deletion === "supported"}
-              activation={snapshot.activation}
+              fileActionsSupported={fileActionsSupported}
               key={profile.id}
-              onDelete={() => setDeleteTarget(profile)}
-              onEditPatches={() => setPatchTarget(profile)}
-              onRefresh={() => refreshProfile(profile.id)}
-              onSchedule={(policy) => setRefreshPolicy(profile.id, policy)}
+              onDetach={() => void detachSubscription(profile)}
+              onRefresh={() => void refreshProfile(profile)}
+              onOpenDirectory={() => void openDirectory()}
+              onSchedule={(policy) => void setRefreshPolicy(profile.id, policy)}
               profile={profile}
               refreshPending={profiles.isPending("refresh", profile.id)}
               refreshSupported={snapshot.capabilities.refresh === "supported"}
@@ -251,29 +186,8 @@ export function ProfilesPage() {
               schedulingSupported={snapshot.capabilities.scheduling === "supported"}
             />
           ))}
-        </SectionGrid>
+        </section>
       ) : null}
-
-      {snapshot ? (
-        <RuntimeProviders
-          LL={LL}
-          dateFormatter={dateFormatter}
-          onUpdateAll={updateAllProviders}
-          onUpdateOne={updateProvider}
-          pending={(providerId) => profiles.isPending("provider-update", providerId)}
-          snapshot={snapshot.providers}
-        />
-      ) : null}
-
-      <ProfilePatchEditor
-        canSave={snapshot?.capabilities.patches === "supported"}
-        fixture={snapshot?.adapterKind === "fixture"}
-        onOpenChange={(open) => {
-          if (!open) setPatchTarget(null);
-        }}
-        open={patchTarget !== null}
-        profile={patchTarget}
-      />
 
       <Dialog
         onOpenChange={(open) => (open ? setImportOpen(true) : closeImport())}
@@ -283,10 +197,12 @@ export function ProfilesPage() {
           <DialogHeader>
             <div>
               <DialogTitle className="dialog-title">
-                {preview ? LL.profiles.previewTitle() : LL.profiles.importTitle()}
+                {preview ? LL.profiles.previewTitle() : LL.profiles.addSubscription()}
               </DialogTitle>
               <DialogDescription className="dialog-description">
-                {preview ? LL.profiles.previewDescription() : LL.profiles.importDescription()}
+                {preview
+                  ? LL.profiles.previewDescription()
+                  : LL.profiles.subscriptionImportDescription()}
               </DialogDescription>
             </div>
           </DialogHeader>
@@ -300,15 +216,16 @@ export function ProfilesPage() {
             >
               <FieldGroup>
                 <Field>
-                  <FieldLabel htmlFor="profile-label">{LL.profiles.labelLabel()}</FieldLabel>
+                  <FieldLabel htmlFor="profile-file-name">{LL.profiles.fileNameLabel()}</FieldLabel>
                   <Input
                     autoComplete="off"
-                    id="profile-label"
+                    id="profile-file-name"
                     maxLength={120}
-                    onValueChange={setLabel}
-                    value={label}
+                    onValueChange={setFileName}
+                    placeholder="studio-route-set.yaml"
+                    value={fileName}
                   />
-                  <FieldDescription>{LL.profiles.labelDescription()}</FieldDescription>
+                  <FieldDescription>{LL.profiles.fileNameDescription()}</FieldDescription>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="profile-url">{LL.profiles.httpsLabel()}</FieldLabel>
@@ -320,7 +237,7 @@ export function ProfilesPage() {
                     onValueChange={setUrl}
                     required
                     spellCheck={false}
-                    type="password"
+                    type="url"
                     value={url}
                   />
                   <FieldDescription>{LL.profiles.httpsDescription()}</FieldDescription>
@@ -337,7 +254,7 @@ export function ProfilesPage() {
                 disabled={profiles.isPending("save")}
                 loading={profiles.isPending("save")}
                 loadingText={LL.profiles.saving()}
-                onClick={savePreview}
+                onClick={() => void savePreview()}
               >
                 {LL.profiles.saveProfile()}
               </Button>
@@ -349,107 +266,23 @@ export function ProfilesPage() {
                 loadingText={LL.profiles.checking()}
                 type="submit"
               >
-                {LL.profiles.preflight()}
+                {LL.profiles.checkAndSave()}
               </Button>
             )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog
-        onOpenChange={(open) => {
-          if (!open) {
-            setDeleteTarget(null);
-            setReplacementProfileId(null);
-          }
-        }}
-        open={deleteTarget !== null}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {LL.profiles.deleteTitle({ profile: deleteTarget?.label ?? "" })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>{LL.profiles.deleteDescription()}</AlertDialogDescription>
-          </AlertDialogHeader>
-          {currentDeleteTarget?.status.active ? (
-            <div className="profile-delete-active-options">
-              <p>{LL.profiles.chooseReplacement()}</p>
-              {replacementProfiles.length > 0 ? (
-                <div className="profile-delete-replacement">
-                  <Select
-                    onValueChange={(value) => setReplacementProfileId(value)}
-                    value={replacementProfileId}
-                  >
-                    <SelectTrigger aria-label={LL.profiles.chooseReplacement()}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {replacementProfiles.map((profile) => (
-                          <SelectItem key={profile.id} value={profile.id}>
-                            <span className="user-authored-label">{profile.label}</span>
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    disabled={!replacementProfileId || profiles.isPending("activate")}
-                    loading={profiles.isPending("activate")}
-                    loadingText={LL.profiles.switching()}
-                    onClick={() =>
-                      replacementProfileId && void switchRunningProfile(replacementProfileId)
-                    }
-                    type="button"
-                    variant="outline"
-                  >
-                    {LL.profiles.switchProfile()}
-                  </Button>
-                </div>
-              ) : null}
-              <Button
-                disabled={profiles.isPending("stop") || profiles.isPending("activate")}
-                loading={profiles.isPending("stop")}
-                loadingText={LL.profiles.stopping()}
-                onClick={stopForDeletion}
-                type="button"
-                variant="outline"
-              >
-                {LL.profiles.stopForDeletion()}
-              </Button>
-            </div>
-          ) : null}
-          <AlertDialogFooter>
-            <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={
-                !deleteTarget ||
-                currentDeleteTarget?.status.active ||
-                profiles.isPending("delete", deleteTarget.id)
-              }
-              loading={profiles.isPending("delete", deleteTarget?.id)}
-              loadingText={LL.common.delete()}
-              onClick={deleteProfile}
-              variant="destructive"
-            >
-              {LL.common.delete()}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
 
-interface ProfileRowProps {
+interface ProfileCardProps {
   LL: TranslationFunctions;
-  activation: ProfileActivationSnapshotDto;
   dateFormatter: Intl.DateTimeFormat;
-  deletionSupported: boolean;
-  onDelete(): void;
-  onEditPatches(): void;
+  fileActionsSupported: boolean;
+  onDetach(): void;
   onRefresh(): void;
+  onOpenDirectory(): void;
   onSchedule(policy: ProfileRefreshPolicy): void;
   profile: ProfileListItemDto;
   refreshPending: boolean;
@@ -458,235 +291,197 @@ interface ProfileRowProps {
   schedulingSupported: boolean;
 }
 
-function ProfileRow({
+function ProfileCard({
   LL,
-  activation,
   dateFormatter,
-  deletionSupported,
-  onDelete,
-  onEditPatches,
+  fileActionsSupported,
+  onDetach,
   onRefresh,
+  onOpenDirectory,
   onSchedule,
   profile,
   refreshPending,
   refreshSupported,
   schedulePending,
   schedulingSupported,
-}: ProfileRowProps) {
-  const [warningsOpen, setWarningsOpen] = useState(false);
-  const activationMessage =
-    activation.availability === "missing-binary"
-      ? LL.profiles.binaryMissing()
-      : activation.phase === "failure" && activation.targetProfileId === profile.id
-        ? activation.failure === "cancelled"
-          ? LL.profiles.activationCancelled()
-          : activationFailureMessage(LL, activation.failure)
-        : null;
+}: ProfileCardProps) {
+  const subscription = profile.source.sourceType === "https";
+  const fileName = profileFileName(profile);
+  const lastUpdateAt = profile.refresh.lastSuccessAt ?? profile.lastSuccessAt;
+
   return (
-    <SectionGridItem className="profile-row">
-      <div className="profile-row-main">
-        <div className="profile-row-title">
-          <strong className="user-authored-label" title={profile.label}>
-            {profile.label}
-          </strong>
-          <div className="profile-statuses">
-            {profile.status.active ? <Badge variant="success">{LL.profiles.active()}</Badge> : null}
-            {profile.status.error ? (
-              <Badge variant="destructive">{LL.profiles.error()}</Badge>
-            ) : null}
-            {profile.status.stale ? <Badge variant="warning">{LL.profiles.stale()}</Badge> : null}
-            {profile.status.warning ? (
-              <button
-                aria-label={LL.profiles.reviewWarnings({ profile: profile.label })}
-                className="profile-warning-trigger"
-                onClick={() => setWarningsOpen(true)}
-                type="button"
-              >
-                <Badge variant="warning">
-                  {profile.warningCodes.length > 0
-                    ? LL.profiles.warnings({ count: profile.warningCodes.length })
-                    : LL.profiles.warning()}
-                </Badge>
-              </button>
-            ) : null}
-            {profile.status.valid ? <Badge>{LL.profiles.valid()}</Badge> : null}
-            {profile.lastKnownValid && profile.status.error ? (
-              <Badge variant="outline">{LL.profiles.lastKnownValid()}</Badge>
-            ) : null}
-          </div>
+    <article className="profile-card" data-source={subscription ? "subscription" : "local"}>
+      <header className="profile-card-header">
+        <div className="profile-card-title">
+          <FileNameTitle fileName={fileName} />
+          {profile.status.active ? <Badge variant="outline">{LL.profiles.active()}</Badge> : null}
         </div>
-        <span className="profile-source-summary user-authored-label" title={profile.source.display}>
-          {profile.source.display}
-        </span>
-        <dl className="profile-timestamps">
-          <div>
-            <dt>{LL.profiles.lastAttempt()}</dt>
-            <dd>
-              {profile.lastAttempt
-                ? `${dateFormatter.format(profile.lastAttempt.attemptedAt)} · ${
-                    profile.lastAttempt.outcome === "succeeded"
-                      ? LL.profiles.attemptSucceeded()
-                      : LL.profiles.attemptFailed()
-                  }`
-                : LL.profiles.never()}
-            </dd>
-          </div>
-          <div>
-            <dt>{LL.profiles.lastSuccess()}</dt>
-            <dd>
-              {profile.lastSuccessAt
-                ? dateFormatter.format(profile.lastSuccessAt)
-                : LL.profiles.never()}
-            </dd>
-          </div>
-          <div>
-            <dt>{LL.profiles.nextRefresh()}</dt>
-            <dd>
-              {profile.refresh.nextRunAt
-                ? dateFormatter.format(profile.refresh.nextRunAt)
-                : LL.profiles.automaticRefreshOff()}
-            </dd>
-          </div>
-          <div>
-            <dt>{LL.profiles.lastRefreshSuccess()}</dt>
-            <dd>
-              {profile.refresh.lastSuccessAt
-                ? dateFormatter.format(profile.refresh.lastSuccessAt)
-                : LL.profiles.never()}
-            </dd>
-          </div>
-          <div>
-            <dt>{LL.profiles.lastRefreshFailure()}</dt>
-            <dd>
-              {profile.refresh.lastFailureAt
-                ? dateFormatter.format(profile.refresh.lastFailureAt)
-                : LL.profiles.never()}
-            </dd>
-          </div>
-        </dl>
-        <div className="profile-refresh-policy">
-          <span>{LL.profiles.automaticRefresh()}</span>
-          <Select
-            disabled={
-              !schedulingSupported || schedulePending || profile.source.sourceType !== "https"
-            }
-            onValueChange={(value) => onSchedule(value as ProfileRefreshPolicy)}
-            value={profile.refresh.policy}
-          >
-            <SelectTrigger
-              aria-busy={schedulePending}
-              aria-label={`${LL.profiles.automaticRefresh()} ${profile.label}`}
+        <div className="profile-card-actions">
+          {subscription ? (
+            <Button
+              disabled={!refreshSupported || refreshPending}
+              loading={refreshPending}
+              loadingText={LL.profiles.updatingSubscription()}
+              onClick={onRefresh}
             >
-              {schedulePending ? <Spinner data-icon="inline-start" /> : null}
-              <SelectValue>
-                {(value) => refreshPolicyLabel(LL, value as ProfileRefreshPolicy)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="off">{LL.profiles.scheduleOff()}</SelectItem>
-                <SelectItem value="six-hours">{LL.profiles.scheduleSixHours()}</SelectItem>
-                <SelectItem value="twelve-hours">{LL.profiles.scheduleTwelveHours()}</SelectItem>
-                <SelectItem value="daily">{LL.profiles.scheduleDaily()}</SelectItem>
-                <SelectItem value="weekly">{LL.profiles.scheduleWeekly()}</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <small>
-            {profile.source.sourceType === "https"
-              ? LL.profiles.scheduleBackoff({ count: profile.refresh.consecutiveFailures })
-              : LL.profiles.scheduleRemoteOnly()}
-          </small>
-        </div>
-        {profile.status.active ? (
-          <p className="profile-boundary-explanation">{LL.profiles.activeDeleteUnavailable()}</p>
-        ) : null}
-      </div>
-      <div className="profile-row-actions">
-        <Button onClick={onEditPatches} variant="outline">
-          {LL.profiles.editRulesAndGroups()}
-        </Button>
-        <Button
-          disabled={!refreshSupported || refreshPending}
-          loading={refreshPending}
-          loadingText={LL.profiles.refreshing()}
-          onClick={onRefresh}
-          variant="outline"
-        >
-          <ArrowClockwise data-icon="inline-start" />
-          {LL.profiles.refresh()}
-        </Button>
-        <Button
-          aria-label={`${LL.common.delete()} ${profile.label}`}
-          disabled={!deletionSupported}
-          onClick={onDelete}
-          size="icon-sm"
-          title={profile.status.active ? LL.profiles.chooseReplacement() : LL.common.delete()}
-          variant="ghost"
-        >
-          <Trash aria-hidden="true" />
-        </Button>
-      </div>
-      {activationMessage ? (
-        <p className="profile-activation-explanation">{activationMessage}</p>
-      ) : null}
-      <ProfileProvenance
-        LL={LL}
-        activeFingerprint={activation.activeFingerprint}
-        effectiveFingerprint={profile.effectiveFingerprint}
-        isActive={profile.status.active}
-        review={profile.runtimeProvenance}
-      />
-      <Dialog onOpenChange={setWarningsOpen} open={warningsOpen}>
-        <DialogContent className="profile-warnings-dialog" closeLabel={LL.common.close()}>
-          <DialogHeader>
-            <DialogTitle>{LL.profiles.warningDialogTitle({ profile: profile.label })}</DialogTitle>
-            <DialogDescription>{LL.profiles.warningDialogDescription()}</DialogDescription>
-          </DialogHeader>
-          <ul className="profile-warning-list">
-            {profile.warningCodes.length > 0 ? (
-              profile.warningCodes.map((code) => (
-                <li key={code}>{profileWarningMessage(LL, code)}</li>
-              ))
-            ) : (
-              <li>{LL.profiles.warningDetailsUnavailable()}</li>
-            )}
-          </ul>
-          <DialogFooter>
-            <Button onClick={() => setWarningsOpen(false)} variant="outline">
-              {LL.common.close()}
+              <ArrowClockwise data-icon="inline-start" />
+              {LL.profiles.updateSubscription()}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </SectionGridItem>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label={LL.profiles.openConfigDirectory()}
+                  disabled={!fileActionsSupported}
+                  onClick={onOpenDirectory}
+                  size="icon-sm"
+                  variant="outline"
+                />
+              }
+            >
+              <FolderOpen aria-hidden="true" data-icon="icon-only" />
+            </TooltipTrigger>
+            <TooltipContent>{LL.profiles.openConfigDirectory()}</TooltipContent>
+          </Tooltip>
+        </div>
+      </header>
+      {subscription ? (
+        <div className="profile-subscription">
+          <div className="profile-subscription-grid">
+            <div className="profile-subscription-source">
+              <span>
+                <GlobeHemisphereWest aria-hidden="true" />
+                {LL.profiles.subscriptionAddress()}
+              </span>
+              <span className="profile-subscription-url" title={profile.source.display}>
+                {profile.source.display}
+              </span>
+            </div>
+            <ProfileDate
+              label={LL.profiles.lastUpdate()}
+              value={formatTimestamp(lastUpdateAt, dateFormatter, LL)}
+            />
+            <div className="profile-subscription-date">
+              <span>{LL.profiles.nextUpdate()}</span>
+              <div className="profile-next-update">
+                <strong>
+                  {profile.refresh.policy === "off"
+                    ? LL.profiles.automaticRefreshOff()
+                    : formatTimestamp(profile.refresh.nextRunAt, dateFormatter, LL)}
+                </strong>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    aria-label={LL.profiles.setUpdateInterval({ profile: fileName })}
+                    className="profile-interval-trigger"
+                    disabled={!schedulingSupported || schedulePending}
+                  >
+                    <Alarm aria-hidden="true" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="profile-interval-menu" sideOffset={7}>
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>{LL.profiles.updateInterval()}</DropdownMenuLabel>
+                    </DropdownMenuGroup>
+                    <DropdownMenuRadioGroup
+                      onValueChange={(value) => {
+                        if (isRefreshPolicy(value)) onSchedule(value);
+                      }}
+                      value={profile.refresh.policy}
+                    >
+                      {refreshPolicies.map((policy) => (
+                        <DropdownMenuRadioItem key={policy} value={policy}>
+                          {refreshPolicyLabel(LL, policy)}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </div>
+          <p className="profile-overwrite-note">
+            <WarningCircle aria-hidden="true" />
+            <span>
+              {LL.profiles.subscriptionOverwriteBeforeDetach()}
+              <button onClick={onDetach} type="button">
+                {LL.profiles.detachSubscription()}
+              </button>
+              {LL.profiles.subscriptionOverwriteAfterDetach()}
+            </span>
+          </p>
+        </div>
+      ) : null}
+    </article>
   );
 }
 
-function profileWarningMessage(LL: TranslationFunctions, code: ProfileValidationIssueCode) {
-  return LL.profiles.warningReason[code]();
+function FileNameTitle({ fileName }: { fileName: string }) {
+  const extensionStart = fileName.lastIndexOf(".");
+  const hasExtension = extensionStart > 0;
+  const name = hasExtension ? fileName.slice(0, extensionStart) : fileName;
+  const extension = hasExtension ? fileName.slice(extensionStart) : "";
+  return (
+    <strong className="profile-file-title" title={fileName}>
+      <span>{name}</span>
+      {extension ? <span className="profile-file-extension">{extension}</span> : null}
+    </strong>
+  );
 }
 
-function activationFailureMessage(
+function ProfileDate({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="profile-subscription-date">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: ProfilePreviewDto }) {
+  return (
+    <div className="profile-preview profile-preview-compact">
+      <FileNameTitle fileName={normalizeFileName(preview.label) ?? preview.label} />
+      <dl>
+        <div>
+          <dt>{LL.profiles.proxies()}</dt>
+          <dd>{preview.proxyCount}</dd>
+        </div>
+        <div>
+          <dt>{LL.profiles.groups()}</dt>
+          <dd>{preview.groupCount}</dd>
+        </div>
+        <div>
+          <dt>{LL.profiles.rules()}</dt>
+          <dd>{preview.ruleCount}</dd>
+        </div>
+      </dl>
+      {preview.warningCodes.length > 0 ? (
+        <p>{LL.profiles.warnings({ count: preview.warningCodes.length })}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function profileFileName(profile: ProfileListItemDto) {
+  return profile.fileName ?? normalizeFileName(profile.label) ?? "profile.yaml";
+}
+
+function normalizeFileName(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  return /\.(?:yaml|yml)$/i.test(trimmed) ? trimmed : `${trimmed}.yaml`;
+}
+
+function formatTimestamp(
+  timestamp: number | null,
+  formatter: Intl.DateTimeFormat,
   LL: TranslationFunctions,
-  failure: ProfileActivationFailure | null,
 ) {
-  switch (failure) {
-    case "capture":
-      return LL.profiles.activationCaptureFailed();
-    case "controller":
-    case "timeout":
-    case "version-mismatch":
-      return LL.profiles.activationControllerFailed();
-    case "start":
-    case "early-exit":
-    case "prior-stop":
-      return LL.profiles.activationLifecycleFailed();
-    case "state-commit":
-      return LL.profiles.activationStateFailed();
-    default:
-      return LL.profiles.activationFailed();
-  }
+  return timestamp === null ? LL.profiles.never() : formatter.format(timestamp);
+}
+
+function isRefreshPolicy(value: string): value is ProfileRefreshPolicy {
+  return refreshPolicies.some((policy) => policy === value);
 }
 
 function refreshPolicyLabel(LL: TranslationFunctions, policy: ProfileRefreshPolicy) {
@@ -701,392 +496,5 @@ function refreshPolicyLabel(LL: TranslationFunctions, policy: ProfileRefreshPoli
       return LL.profiles.scheduleDaily();
     case "weekly":
       return LL.profiles.scheduleWeekly();
-  }
-}
-
-interface RuntimeProvidersProps {
-  LL: TranslationFunctions;
-  dateFormatter: Intl.DateTimeFormat;
-  onUpdateAll(kind: ProviderKind): void;
-  onUpdateOne(providerId: string): void;
-  pending(providerId: string): boolean;
-  snapshot: ProviderSnapshotDto;
-}
-
-function RuntimeProviders({
-  LL,
-  dateFormatter,
-  onUpdateAll,
-  onUpdateOne,
-  pending,
-  snapshot,
-}: RuntimeProvidersProps) {
-  const supported = snapshot.capability === "supported" && snapshot.authority !== null;
-  const proxyProviders = snapshot.providers.filter((provider) => provider.kind === "proxy");
-  const hasProxyProviders = proxyProviders.length > 0;
-  return (
-    <section className="runtime-providers" aria-labelledby="runtime-providers-title">
-      <div className="runtime-providers-heading">
-        <div>
-          <h2 id="runtime-providers-title">{LL.profiles.runtimeProviders()}</h2>
-          <p>{LL.profiles.runtimeProvidersDescription()}</p>
-        </div>
-        <div className="runtime-provider-actions">
-          <Button
-            disabled={!supported || !hasProxyProviders || pending("proxy")}
-            loading={pending("proxy")}
-            loadingText={LL.profiles.updateAllProxyProviders()}
-            onClick={() => onUpdateAll("proxy")}
-            variant="outline"
-          >
-            {LL.profiles.updateAllProxyProviders()}
-          </Button>
-        </div>
-      </div>
-      <p className="runtime-provider-boundary">
-        {snapshot.capability === "fixture-only"
-          ? LL.profiles.providerFixtureBoundary()
-          : LL.profiles.providerRuntimeBoundary()}
-      </p>
-      {!snapshot.remotelyCancellable && supported ? (
-        <p className="runtime-provider-cancellation">{LL.profiles.providerNotCancellable()}</p>
-      ) : null}
-      {snapshot.observationFailure ? (
-        <p className="runtime-provider-error">{LL.profiles.providerObservationFailed()}</p>
-      ) : null}
-      {proxyProviders.length > 0 ? (
-        <SectionGrid className="runtime-provider-list" aria-label={LL.profiles.runtimeProviders()}>
-          {proxyProviders.map((provider) => (
-            <RuntimeProviderRow
-              LL={LL}
-              dateFormatter={dateFormatter}
-              key={provider.id}
-              onUpdate={() => onUpdateOne(provider.id)}
-              pending={pending(provider.id)}
-              provider={provider}
-              supported={supported}
-            />
-          ))}
-        </SectionGrid>
-      ) : (
-        <p className="runtime-provider-empty">
-          {supported ? LL.profiles.noRuntimeProviders() : LL.profiles.providersUnavailable()}
-        </p>
-      )}
-    </section>
-  );
-}
-
-function RuntimeProviderRow({
-  LL,
-  dateFormatter,
-  onUpdate,
-  pending,
-  provider,
-  supported,
-}: {
-  LL: TranslationFunctions;
-  dateFormatter: Intl.DateTimeFormat;
-  onUpdate(): void;
-  pending: boolean;
-  provider: RuntimeProviderDto;
-  supported: boolean;
-}) {
-  return (
-    <SectionGridItem className="runtime-provider-row">
-      <div className="runtime-provider-main">
-        <div className="runtime-provider-title">
-          <strong className="user-authored-label">{provider.label}</strong>
-          <Badge variant={provider.health === "unavailable" ? "destructive" : "outline"}>
-            {providerHealth(LL, provider.health)}
-          </Badge>
-          <Badge variant="outline">
-            {provider.kind === "proxy" ? LL.profiles.proxyProvider() : LL.profiles.ruleProvider()}
-          </Badge>
-        </div>
-        <span>
-          {providerSource(LL, provider.sourceType)} ·{" "}
-          {LL.profiles.providerRecords({
-            count: provider.recordCount,
-          })}
-          {provider.behavior ? ` · ${provider.behavior}` : ""}
-        </span>
-        <span>
-          {LL.profiles.providerLastUpdate()}:{" "}
-          {formatProviderDate(provider.updatedAt, dateFormatter, LL)}
-        </span>
-        {provider.update.phase === "failure" ? (
-          <span className="runtime-provider-error">{LL.profiles.providerUpdateFailed()}</span>
-        ) : null}
-      </div>
-      <Button
-        disabled={!supported || pending}
-        loading={pending}
-        loadingText={LL.profiles.providerUpdating()}
-        onClick={onUpdate}
-        variant="outline"
-      >
-        <ArrowClockwise data-icon="inline-start" />
-        {LL.profiles.providerUpdate()}
-      </Button>
-    </SectionGridItem>
-  );
-}
-
-function providerHealth(LL: TranslationFunctions, health: RuntimeProviderDto["health"]) {
-  switch (health) {
-    case "available":
-      return LL.profiles.providerAvailable();
-    case "degraded":
-      return LL.profiles.providerDegraded();
-    case "unavailable":
-      return LL.profiles.providerUnavailable();
-    case "unknown":
-      return LL.profiles.providerUnknown();
-  }
-}
-
-function providerSource(LL: TranslationFunctions, source: RuntimeProviderDto["sourceType"]) {
-  switch (source) {
-    case "file":
-      return LL.profiles.providerSourceFile();
-    case "http":
-      return LL.profiles.providerSourceHttp();
-    case "compatible":
-      return LL.profiles.providerSourceCompatible();
-    case "inline":
-      return LL.profiles.providerSourceInline();
-  }
-}
-
-function formatProviderDate(
-  value: string | null,
-  formatter: Intl.DateTimeFormat,
-  LL: TranslationFunctions,
-) {
-  if (!value) return LL.profiles.never();
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? formatter.format(timestamp) : LL.profiles.never();
-}
-
-function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: ProfilePreviewDto }) {
-  return (
-    <div className="profile-preview">
-      <div className="profile-preview-heading">
-        <strong className="user-authored-label">{preview.label}</strong>
-        <Badge variant="outline">
-          {preview.sourceType === "https" ? LL.profiles.sourceHttps() : LL.profiles.sourceLocal()}
-        </Badge>
-      </div>
-      <SectionGrid className="profile-preview-counts" columns={3}>
-        <SectionGridItem>
-          <span>{LL.profiles.proxies()}</span>
-          <strong>{preview.proxyCount}</strong>
-        </SectionGridItem>
-        <SectionGridItem>
-          <span>{LL.profiles.groups()}</span>
-          <strong>{preview.groupCount}</strong>
-        </SectionGridItem>
-        <SectionGridItem>
-          <span>{LL.profiles.rules()}</span>
-          <strong>{preview.ruleCount}</strong>
-        </SectionGridItem>
-      </SectionGrid>
-      <div className="profile-preview-classifications">
-        <strong>{LL.profiles.classifications()}</strong>
-        <span>
-          {LL.profiles.classificationPreserved({ count: preview.classificationCounts.preserved })}
-        </span>
-        <span>
-          {LL.profiles.classificationApplicationOverridden({
-            count: preview.classificationCounts.applicationOverridden,
-          })}
-        </span>
-        <span>
-          {LL.profiles.classificationPlatformOverridden({
-            count: preview.classificationCounts.platformOverridden,
-          })}
-        </span>
-        <span>
-          {LL.profiles.classificationDisabled({ count: preview.classificationCounts.disabled })}
-        </span>
-        <span>
-          {LL.profiles.classificationRejected({ count: preview.classificationCounts.rejected })}
-        </span>
-      </div>
-      <p className="profile-preview-sensitive">{LL.profiles.sensitiveNotice()}</p>
-      <Badge variant="warning">
-        {LL.profiles.warnings({ count: preview.warningCodes.length })}
-      </Badge>
-      <ProfileProvenance LL={LL} preview review={preview.runtimeProvenance} />
-    </div>
-  );
-}
-
-interface ProfileProvenanceProps {
-  LL: TranslationFunctions;
-  activeFingerprint?: string | null;
-  effectiveFingerprint?: string;
-  isActive?: boolean;
-  preview?: boolean;
-  review: ProfileRuntimeProvenanceDto;
-}
-
-function ProfileProvenance({
-  LL,
-  activeFingerprint,
-  effectiveFingerprint,
-  isActive = false,
-  preview = false,
-  review,
-}: ProfileProvenanceProps) {
-  const revisionMatchesRuntime =
-    !isActive || activeFingerprint === (effectiveFingerprint ?? review.artifactFingerprint);
-  return (
-    <details className="profile-provenance" open={preview || undefined}>
-      <summary>
-        <span>{LL.profiles.provenanceDetail()}</span>
-        <span className="profile-provenance-authority">
-          {review.authority === "desktop-policy"
-            ? LL.profiles.provenanceAuthorityDesktop()
-            : review.authority === "illustrative-browser-fixture"
-              ? LL.profiles.provenanceAuthorityFixture()
-              : LL.profiles.provenanceAuthorityMigrated()}
-        </span>
-      </summary>
-      <div className="profile-provenance-content">
-        <p className="profile-provenance-flow">{LL.profiles.provenanceLayerFlow()}</p>
-        <p className="profile-provenance-binding">
-          {LL.profiles.provenanceRevisionBinding({
-            fingerprint: shortHash(review.artifactFingerprint),
-            revision: shortHash(review.sourceRevision),
-          })}
-        </p>
-        {!revisionMatchesRuntime ? (
-          <p className="profile-provenance-mismatch">{LL.profiles.provenanceRevisionMismatch()}</p>
-        ) : null}
-        <ul className="profile-provenance-items">
-          {review.items.map((item) => (
-            <ProvenanceItem LL={LL} item={item} key={`${item.fieldIdentity}:${item.owner}`} />
-          ))}
-        </ul>
-      </div>
-    </details>
-  );
-}
-
-function ProvenanceItem({
-  LL,
-  item,
-}: {
-  LL: TranslationFunctions;
-  item: ProfilePolicyClassificationDto;
-}) {
-  return (
-    <li className="profile-provenance-item">
-      <div className="profile-provenance-item-heading">
-        <code>{item.fieldIdentity}</code>
-        <Badge variant={item.disposition === "rejected" ? "destructive" : "outline"}>
-          {policyDisposition(LL, item.disposition)}
-        </Badge>
-      </div>
-      <p>
-        {policyOwner(LL, item.owner)} · {policyReason(LL, item.reason)}
-      </p>
-      <p>
-        {LL.profiles.provenanceActivationImpact()}: {activationImpact(LL, item.activationImpact)}
-      </p>
-      <span className="profile-provenance-presence">
-        {item.sourcePresent
-          ? LL.profiles.provenanceSourceField()
-          : LL.profiles.provenanceBaseline()}
-      </span>
-    </li>
-  );
-}
-
-function shortHash(value: string) {
-  return `${value.slice(0, 8)}…`;
-}
-
-function policyDisposition(
-  LL: TranslationFunctions,
-  disposition: ProfilePolicyClassificationDto["disposition"],
-) {
-  switch (disposition) {
-    case "preserved":
-      return LL.profiles.provenancePreserved();
-    case "application-overridden":
-      return LL.profiles.provenanceApplicationOverridden();
-    case "platform-overridden":
-      return LL.profiles.provenancePlatformOverridden();
-    case "disabled":
-      return LL.profiles.provenanceDisabled();
-    case "rejected":
-      return LL.profiles.provenanceRejected();
-  }
-}
-
-function policyOwner(LL: TranslationFunctions, owner: ProfilePolicyClassificationDto["owner"]) {
-  switch (owner) {
-    case "source":
-      return LL.profiles.provenanceOwnerSource();
-    case "application-policy":
-      return LL.profiles.provenanceOwnerApplication();
-    case "platform-integration":
-      return LL.profiles.provenanceOwnerPlatform();
-  }
-}
-
-function policyReason(LL: TranslationFunctions, reason: ProfilePolicyClassificationDto["reason"]) {
-  switch (reason) {
-    case "portable-source-policy":
-      return LL.profiles.provenanceReasonPortable();
-    case "unknown-key-preserved":
-      return LL.profiles.provenanceReasonUnknown();
-    case "managed-proxy-ingress":
-      return LL.profiles.provenanceReasonManagedIngress();
-    case "loopback-only-binding":
-      return LL.profiles.provenanceReasonLoopback();
-    case "private-controller":
-      return LL.profiles.provenanceReasonController();
-    case "managed-runtime-behavior":
-      return LL.profiles.provenanceReasonManagedRuntime();
-    case "capture-requires-explicit-permission":
-      return LL.profiles.provenanceReasonCapture();
-    case "passive-inspection-only":
-      return LL.profiles.provenanceReasonPassive();
-    case "runtime-persistence-disabled":
-      return LL.profiles.provenanceReasonRuntimePersistence();
-    case "dns-integration-managed":
-      return LL.profiles.provenanceReasonDns();
-    case "external-surface-disabled":
-      return LL.profiles.provenanceReasonExternal();
-    case "device-integration-unsafe":
-      return LL.profiles.provenanceReasonDevice();
-    case "provider-path-unsafe":
-      return LL.profiles.provenanceReasonProviderPath();
-    case "relative-provider-path":
-      return LL.profiles.provenanceReasonRelativeProviderPath();
-  }
-}
-
-function activationImpact(
-  LL: TranslationFunctions,
-  impact: ProfilePolicyClassificationDto["activationImpact"],
-) {
-  switch (impact) {
-    case "preserved-in-effective-runtime":
-      return LL.profiles.provenanceImpactPreserved();
-    case "replaced-by-application-value":
-      return LL.profiles.provenanceImpactReplacedApplication();
-    case "replaced-by-platform-value":
-      return LL.profiles.provenanceImpactReplacedPlatform();
-    case "forced-off":
-      return LL.profiles.provenanceImpactForcedOff();
-    case "blocks-import":
-      return LL.profiles.provenanceImpactBlocksImport();
-    case "excluded-from-effective-runtime":
-      return LL.profiles.provenanceImpactExcluded();
   }
 }

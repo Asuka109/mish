@@ -167,6 +167,7 @@ pub struct ProfileActivationCoordinator {
     policy_factory: Arc<PolicyFactory>,
     profiles: Arc<DesktopProfileService>,
     safe_runtime: MishRuntime,
+    directory_task: Mutex<Option<JoinHandle<()>>>,
     scheduler_cancellation: CancellationToken,
     scheduler_task: Mutex<Option<JoinHandle<()>>>,
     state: Mutex<CoordinatorState>,
@@ -196,6 +197,7 @@ impl ProfileActivationCoordinator {
             policy_factory: Arc::new(policy_factory),
             profiles,
             safe_runtime,
+            directory_task: Mutex::new(None),
             scheduler_cancellation: CancellationToken::new(),
             scheduler_task: Mutex::new(None),
             state: Mutex::new(CoordinatorState {
@@ -609,12 +611,37 @@ impl ProfileActivationCoordinator {
         }
         let coordinator = self.clone();
         *task = Some(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let mut refresh_interval = tokio::time::interval(Duration::from_secs(60));
+            refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = coordinator.scheduler_cancellation.cancelled() => return,
+                    _ = refresh_interval.tick() => coordinator.run_due_refreshes().await,
+                }
+            }
+        }));
+    }
+
+    pub async fn start_directory_reconciler(self: &Arc<Self>) {
+        let mut task = self.directory_task.lock().await;
+        if task.is_some() {
+            return;
+        }
+        let coordinator = self.clone();
+        *task = Some(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 tokio::select! {
                     _ = coordinator.scheduler_cancellation.cancelled() => return,
-                    _ = interval.tick() => coordinator.run_due_refreshes().await,
+                    _ = interval.tick() => {
+                        if matches!(
+                            coordinator.profiles.reconcile_profile_directory().await,
+                            Ok(true)
+                        ) {
+                            coordinator.publish().await;
+                        }
+                    },
                 }
             }
         }));
@@ -661,6 +688,9 @@ impl ProfileActivationCoordinator {
     pub async fn shutdown(&self) -> Result<(), ProfileActivationCoordinatorError> {
         self.scheduler_cancellation.cancel();
         if let Some(task) = self.scheduler_task.lock().await.take() {
+            let _ = task.await;
+        }
+        if let Some(task) = self.directory_task.lock().await.take() {
             let _ = task.await;
         }
         if let Some(cancellation) = &self.state.lock().await.cancellation {

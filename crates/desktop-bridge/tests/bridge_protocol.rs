@@ -1,8 +1,8 @@
 use std::{
     env, fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::PathBuf,
-    sync::Arc,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 use futures_util::{
@@ -13,6 +13,7 @@ use mish_bridge::{
     ActivationTiming, BrowserAsset, BrowserAssetSource, DesktopMihomoProcess,
     DesktopMihomoProcessConfig, DesktopRuntimeHost, LoopbackServerConfig, ManagedMihomoResolver,
     ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
+    ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
     ReqwestHttpsSourceReader, start_loopback_server, start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
@@ -35,6 +36,18 @@ const TOKEN: &str = "test-token-123456789";
 const ORIGIN: &str = "http://mish.test";
 
 struct BrowserAssets;
+
+#[derive(Default)]
+struct RecordingProfileFilePlatform {
+    opened: Mutex<Vec<PathBuf>>,
+}
+
+impl ProfileFileActionPlatform for RecordingProfileFilePlatform {
+    fn open_directory(&self, path: &Path) -> Result<(), ProfileFileActionError> {
+        self.opened.lock().unwrap().push(path.to_owned());
+        Ok(())
+    }
+}
 
 impl BrowserAssetSource for BrowserAssets {
     fn get(&self, path: &str) -> Option<BrowserAsset> {
@@ -275,6 +288,7 @@ fn config() -> LoopbackServerConfig {
         browser_assets: None,
         max_message_bytes: 1_048_576,
         profile_activation: None,
+        profile_file_actions: None,
         profile_service: None,
         settings_service: None,
     }
@@ -1033,6 +1047,32 @@ async fn authenticated_profile_rpc_exposes_only_safe_operations_and_redacted_err
 
     bridge.shutdown().await;
     let _ = fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn authenticated_profile_file_action_opens_the_shared_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("profiles");
+    let platform = Arc::new(RecordingProfileFilePlatform::default());
+    let actions = Arc::new(ProfileFileActions::new(directory.clone(), platform.clone()));
+    let mut bridge_config = config();
+    bridge_config.profile_file_actions = Some(actions);
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let opened = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"profiles.openDirectory", "params":{}}),
+    )
+    .await;
+    assert_eq!(opened["result"], true);
+
+    assert_eq!(platform.opened.lock().unwrap().as_slice(), &[directory]);
+
+    bridge.shutdown().await;
 }
 
 #[tokio::test]

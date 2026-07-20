@@ -272,6 +272,13 @@ describe("RpcProfileClient", () => {
     });
     transport.respond({ id: replacePatches.id, jsonrpc: "2.0", result: patchEditor });
     await replacePatchesPromise;
+
+    const openDirectoryPromise = client.openProfileDirectory();
+    const openDirectory = await waitForRequest(transport, 6);
+    expect(openDirectory).toMatchObject({ method: "profiles.openDirectory", params: {} });
+    transport.respond({ id: openDirectory.id, jsonrpc: "2.0", result: true });
+    await openDirectoryPromise;
+
     client.dispose();
     rpc.dispose();
   });

@@ -46,6 +46,7 @@ async fn main() -> Result<(), String> {
             browser_assets: None,
             max_message_bytes: arguments.max_message_bytes,
             profile_activation: None,
+            profile_file_actions: None,
             profile_service: None,
             settings_service: None,
         },

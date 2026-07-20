@@ -219,7 +219,7 @@ impl LocalBackupService {
             .try_acquire()
             .map_err(|_| LocalBackupError::Busy)?;
         scope.validate()?;
-        let repository = FileProfileRepository::new(self.root.clone());
+        let repository = FileProfileRepository::new(self.root.join("profile-store"));
         let mut entries = Vec::new();
         if scope.touches_profiles() {
             let metadata = repository.list_metadata().map_err(map_repository_error)?;
@@ -360,7 +360,7 @@ impl LocalBackupService {
         if self.state_digest(active_profile_id)? != prepared.state_digest {
             return Err(LocalBackupError::StateChanged);
         }
-        let repository = FileProfileRepository::new(self.root.clone());
+        let repository = FileProfileRepository::new(self.root.join("profile-store"));
         let mut desired = BTreeMap::new();
         for metadata in repository.list_metadata().map_err(map_repository_error)? {
             let record = repository
@@ -406,6 +406,9 @@ impl LocalBackupService {
             }
             return Err(error);
         }
+        if prepared.manifest.scope.touches_profiles() {
+            self.materialize_profile_directory()?;
+        }
         if let Some(preferences) = prepared.manifest.settings {
             self.settings
                 .accept_restored_preferences_authorized(permit, preferences)
@@ -420,12 +423,38 @@ impl LocalBackupService {
         })
     }
 
+    fn materialize_profile_directory(&self) -> Result<(), LocalBackupError> {
+        let directory = self.root.join("profiles");
+        create_private_restore_dir(&directory)?;
+        for entry in fs::read_dir(&directory).map_err(|_| LocalBackupError::Storage)? {
+            let path = entry.map_err(|_| LocalBackupError::Storage)?.path();
+            if matches!(
+                path.extension().and_then(|extension| extension.to_str()),
+                Some("yaml" | "yml")
+            ) {
+                fs::remove_file(path).map_err(|_| LocalBackupError::Storage)?;
+            }
+        }
+        let repository = FileProfileRepository::new(self.root.join("profile-store"));
+        let writer = StdRestoreFilesystem;
+        for metadata in repository.list_metadata().map_err(map_repository_error)? {
+            let record = repository
+                .load(&metadata.id)
+                .map_err(map_repository_error)?;
+            let file_name = materialized_profile_file_name(&record)?;
+            writer
+                .write_private_atomic(&directory.join(file_name), &record.source_bytes)
+                .map_err(map_restore_failure)?;
+        }
+        Ok(())
+    }
+
     fn restore_plan(
         &self,
         manifest: &LocalBackupManifest,
         active_profile_id: Option<&str>,
     ) -> Result<(LocalRestoreActionCounts, Vec<LocalRestoreConflict>), LocalBackupError> {
-        let repository = FileProfileRepository::new(self.root.clone());
+        let repository = FileProfileRepository::new(self.root.join("profile-store"));
         let metadata = repository.list_metadata().map_err(map_repository_error)?;
         let by_id = metadata
             .iter()
@@ -462,7 +491,7 @@ impl LocalBackupService {
     }
 
     fn state_digest(&self, active_profile_id: Option<&str>) -> Result<String, LocalBackupError> {
-        let repository = FileProfileRepository::new(self.root.clone());
+        let repository = FileProfileRepository::new(self.root.join("profile-store"));
         let mut hasher = Sha256::new();
         for metadata in repository.list_metadata().map_err(map_repository_error)? {
             let record = repository
@@ -919,6 +948,47 @@ fn map_repository_error(_error: RepositoryError) -> LocalBackupError {
     LocalBackupError::Storage
 }
 
+fn materialized_profile_file_name(record: &ProfileRecord) -> Result<String, LocalBackupError> {
+    let source = record.source.safe_summary();
+    let source_path = Path::new(&source.display);
+    let source_is_private_revision = source_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| {
+            stem.len() == 64
+                && stem
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        });
+    let candidate = if source.source_type == ProfileSourceType::LocalFile
+        && !source_is_private_revision
+        && matches!(
+            source_path
+                .extension()
+                .and_then(|extension| extension.to_str()),
+            Some("yaml" | "yml")
+        ) {
+        source.display
+    } else {
+        let label = record.metadata.label.trim();
+        if label.ends_with(".yaml") || label.ends_with(".yml") {
+            label.to_owned()
+        } else {
+            format!("{label}.yaml")
+        }
+    };
+    let path = Path::new(&candidate);
+    if path.components().count() != 1
+        || !matches!(
+            path.components().next(),
+            Some(std::path::Component::Normal(_))
+        )
+    {
+        return Err(LocalBackupError::InvalidManifest);
+    }
+    Ok(candidate)
+}
+
 struct RestoreTransaction<F = StdRestoreFilesystem> {
     filesystem: Arc<F>,
     journal: RestoreJournal,
@@ -1068,7 +1138,7 @@ where
         settings: Option<SettingsPreferences>,
         filesystem: Arc<F>,
     ) -> Result<Self, LocalBackupError> {
-        ensure_safe_component(root, &root.join("profiles"))?;
+        ensure_safe_component(root, &root.join("profile-store"))?;
         ensure_safe_component(root, &root.join("settings.json"))?;
         ensure_safe_component(root, &root.join(RESTORE_JOURNAL_FILE))?;
         if root.join(RESTORE_JOURNAL_FILE).exists() {
@@ -1081,13 +1151,13 @@ where
         let mut stage_guard = TemporaryRestoreRoot::new(stage_root.clone());
         let mut components = Vec::new();
         if let Some(profiles) = profiles {
-            let repository = FileProfileRepository::new(stage_root.clone());
-            create_private_restore_dir(&stage_root.join("profiles"))?;
+            let repository = FileProfileRepository::new(stage_root.join("profile-store"));
+            create_private_restore_dir(&stage_root.join("profile-store"))?;
             for record in profiles.into_values() {
                 repository.save(&record).map_err(map_repository_error)?;
             }
             components.push(RestoreJournalComponent {
-                had_original: root.join("profiles").exists(),
+                had_original: root.join("profile-store").exists(),
                 kind: RestoreComponentKind::Profiles,
             });
         }
@@ -1229,7 +1299,7 @@ where
         let journal: RestoreJournal =
             serde_json::from_slice(&bytes).map_err(|_| LocalBackupError::RecoveryRequired)?;
         validate_restore_journal(&journal)?;
-        ensure_safe_component(root, &root.join("profiles"))?;
+        ensure_safe_component(root, &root.join("profile-store"))?;
         ensure_safe_component(root, &root.join("settings.json"))?;
         let (stage_root, rollback_root) = restore_roots(root, &journal.transaction_id);
         validate_restore_workspace(root, &stage_root)?;
@@ -1286,9 +1356,9 @@ where
         let (stage_root, rollback_root) = restore_roots(&self.root, &self.journal.transaction_id);
         match kind {
             RestoreComponentKind::Profiles => RestoreComponentPaths {
-                destination: self.root.join("profiles"),
-                original: rollback_root.join("profiles"),
-                staged: stage_root.join("profiles"),
+                destination: self.root.join("profile-store"),
+                original: rollback_root.join("profile-store"),
+                staged: stage_root.join("profile-store"),
             },
             RestoreComponentKind::Settings => RestoreComponentPaths {
                 destination: self.root.join("settings.json"),
@@ -1649,7 +1719,7 @@ rules:
         let source = service(source_root.path());
         let record = profile_record(VALID_PROFILE, ProfileId::new()).await;
         let profile_id = record.metadata.id.clone();
-        FileProfileRepository::new(source_root.path().to_path_buf())
+        FileProfileRepository::new(source_root.path().join("profile-store"))
             .save(&record)
             .unwrap();
         let backup = source
@@ -1681,7 +1751,7 @@ rules:
             )
             .unwrap();
 
-        let restored = FileProfileRepository::new(destination_root.path().to_path_buf())
+        let restored = FileProfileRepository::new(destination_root.path().join("profile-store"))
             .load(&profile_id)
             .unwrap();
         assert_eq!(restored.source_bytes, record.source_bytes);
@@ -1787,7 +1857,7 @@ rules:
         let source = service(source_root.path());
         let record = profile_record(VALID_PROFILE, ProfileId::new()).await;
         let profile_id = record.metadata.id.as_str().to_owned();
-        FileProfileRepository::new(source_root.path().to_path_buf())
+        FileProfileRepository::new(source_root.path().join("profile-store"))
             .save(&record)
             .unwrap();
         let backup = source
@@ -1808,7 +1878,7 @@ rules:
         let destination = service(destination_root.path());
         let mut current = record;
         current.metadata.label = "Current active label".to_owned();
-        FileProfileRepository::new(destination_root.path().to_path_buf())
+        FileProfileRepository::new(destination_root.path().join("profile-store"))
             .save(&current)
             .unwrap();
 
@@ -1848,7 +1918,7 @@ rules:
             )
             .unwrap();
         assert_eq!(result.applied.skip, 1);
-        let persisted = FileProfileRepository::new(destination_root.path().to_path_buf())
+        let persisted = FileProfileRepository::new(destination_root.path().join("profile-store"))
             .load(&ProfileId::parse(profile_id).unwrap())
             .unwrap();
         assert_eq!(persisted.metadata.label, "Current active label");
@@ -1941,8 +2011,8 @@ rules:
         SettingsPreferences,
     ) {
         let root = tempdir().unwrap();
-        fs::create_dir(root.path().join("profiles")).unwrap();
-        fs::write(root.path().join("profiles/original"), b"profile-state").unwrap();
+        fs::create_dir(root.path().join("profile-store")).unwrap();
+        fs::write(root.path().join("profile-store/original"), b"profile-state").unwrap();
         let original_settings = SettingsPreferences::default();
         FileSettingsRepository::new(root.path().join("settings.json"))
             .save(&original_settings)
@@ -1961,7 +2031,7 @@ rules:
 
     fn assert_original_generation(root: &Path, settings: SettingsPreferences) {
         assert_eq!(
-            fs::read(root.join("profiles/original")).unwrap(),
+            fs::read(root.join("profile-store/original")).unwrap(),
             b"profile-state"
         );
         assert_eq!(
@@ -2051,7 +2121,7 @@ rules:
             RestoreTransaction::recover(root.path()).unwrap();
             assert!(!root.path().join(RESTORE_JOURNAL_FILE).exists());
             if checkpoint == RestoreCheckpoint::JournalCommitted {
-                assert!(!root.path().join("profiles/original").exists());
+                assert!(!root.path().join("profile-store/original").exists());
                 assert_eq!(
                     FileSettingsRepository::new(root.path().join("settings.json"))
                         .load()

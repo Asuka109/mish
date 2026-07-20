@@ -2056,6 +2056,10 @@ type RootTranslation = {
 		 */
 		active: string
 		/**
+		 * A​d​d​ ​s​u​b​s​c​r​i​p​t​i​o​n
+		 */
+		addSubscription: string
+		/**
 		 * T​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​c​a​n​n​o​t​ ​b​e​ ​d​e​l​e​t​e​d​ ​w​i​t​h​o​u​t​ ​a​ ​s​a​f​e​ ​r​e​p​l​a​c​e​m​e​n​t​ ​o​r​ ​s​t​o​p​p​e​d​-​s​t​a​t​e​ ​t​r​a​n​s​a​c​t​i​o​n​.
 		 */
 		activeDeleteUnavailable: string
@@ -2118,7 +2122,15 @@ type RootTranslation = {
 		 */
 		deletedToast: string
 		/**
-		 * V​a​l​i​d​a​t​e​ ​a​n​d​ ​s​t​o​r​e​ ​M​i​h​o​m​o​ ​p​r​o​f​i​l​e​ ​s​o​u​r​c​e​s​ ​w​i​t​h​o​u​t​ ​c​h​a​n​g​i​n​g​ ​t​h​e​ ​r​u​n​n​i​n​g​ ​c​o​r​e​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
+		 * d​e​t​a​c​h​ ​t​h​e​ ​s​u​b​s​c​r​i​p​t​i​o​n
+		 */
+		detachSubscription: string
+		/**
+		 * T​h​e​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​d​e​t​a​c​h​e​d​.
+		 */
+		detachSubscriptionFailed: string
+		/**
+		 * A​l​l​ ​p​r​o​f​i​l​e​s​ ​a​r​e​ ​s​t​o​r​e​d​ ​a​s​ ​l​o​c​a​l​ ​Y​A​M​L​ ​f​i​l​e​s​;​ ​s​u​b​s​c​r​i​p​t​i​o​n​s​ ​k​e​e​p​ ​t​h​e​i​r​ ​f​i​l​e​s​ ​u​p​ ​t​o​ ​d​a​t​e​.
 		 */
 		description: string
 		/**
@@ -2150,7 +2162,7 @@ type RootTranslation = {
 		 */
 		groups: string
 		/**
-		 * T​h​e​ ​c​o​m​p​l​e​t​e​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​ ​i​s​ ​s​e​n​t​ ​o​n​l​y​ ​t​o​ ​t​h​e​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​a​n​d​ ​i​s​ ​n​e​v​e​r​ ​s​h​o​w​n​ ​a​g​a​i​n​ ​a​f​t​e​r​ ​p​r​e​v​i​e​w​.
+		 * T​h​e​ ​c​o​m​p​l​e​t​e​ ​a​d​d​r​e​s​s​ ​r​e​m​a​i​n​s​ ​v​i​s​i​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​r​o​f​i​l​e​'​s​ ​c​a​r​d​.
 		 */
 		httpsDescription: string
 		/**
@@ -2166,7 +2178,7 @@ type RootTranslation = {
 		 */
 		importFailed: string
 		/**
-		 * I​m​p​o​r​t​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​l​i​n​k
+		 * A​d​d​ ​s​u​b​s​c​r​i​p​t​i​o​n
 		 */
 		importHttps: string
 		/**
@@ -2185,6 +2197,18 @@ type RootTranslation = {
 		 * P​r​o​f​i​l​e​ ​l​a​b​e​l
 		 */
 		labelLabel: string
+		/**
+		 * T​h​e​ ​f​o​l​d​e​r​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​o​p​e​n​e​d​.
+		 */
+		fileActionFailed: string
+		/**
+		 * O​p​t​i​o​n​a​l​.​ ​T​h​e​ ​.​y​a​m​l​ ​e​x​t​e​n​s​i​o​n​ ​i​s​ ​a​d​d​e​d​ ​a​u​t​o​m​a​t​i​c​a​l​l​y​.
+		 */
+		fileNameDescription: string
+		/**
+		 * L​o​c​a​l​ ​f​i​l​e​ ​n​a​m​e
+		 */
+		fileNameLabel: string
 		/**
 		 * L​a​s​t​ ​a​t​t​e​m​p​t
 		 */
@@ -2206,6 +2230,10 @@ type RootTranslation = {
 		 */
 		lastSuccess: string
 		/**
+		 * L​a​s​t​ ​u​p​d​a​t​e
+		 */
+		lastUpdate: string
+		/**
 		 * L​o​a​d​i​n​g​ ​p​r​o​f​i​l​e​s​…
 		 */
 		loading: string
@@ -2218,15 +2246,19 @@ type RootTranslation = {
 		 */
 		never: string
 		/**
-		 * N​e​x​t​ ​s​o​u​r​c​e​ ​r​e​f​r​e​s​h
+		 * N​e​x​t​ ​u​p​d​a​t​e
 		 */
 		nextRefresh: string
+		/**
+		 * N​e​x​t​ ​u​p​d​a​t​e
+		 */
+		nextUpdate: string
 		/**
 		 * T​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​ ​h​a​s​ ​n​o​ ​p​r​o​x​y​ ​p​r​o​v​i​d​e​r​s​.
 		 */
 		noRuntimeProviders: string
 		/**
-		 * T​h​i​s​ ​s​u​m​m​a​r​y​ ​c​o​n​t​a​i​n​s​ ​n​o​ ​s​o​u​r​c​e​ ​Y​A​M​L​,​ ​c​r​e​d​e​n​t​i​a​l​s​,​ ​c​o​m​p​l​e​t​e​ ​l​o​c​a​l​ ​p​a​t​h​,​ ​o​r​ ​r​a​w​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​U​R​L​.
+		 * R​e​v​i​e​w​ ​t​h​e​ ​l​o​c​a​l​ ​f​i​l​e​ ​n​a​m​e​ ​a​n​d​ ​p​a​r​s​e​d​ ​p​r​o​f​i​l​e​ ​c​o​u​n​t​s​ ​b​e​f​o​r​e​ ​s​a​v​i​n​g​.
 		 */
 		previewDescription: string
 		/**
@@ -2554,6 +2586,11 @@ type RootTranslation = {
 		 */
 		scheduleWeekly: string
 		/**
+		 * S​e​t​ ​u​p​d​a​t​e​ ​i​n​t​e​r​v​a​l​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
+		 * @param {string} profile
+		 */
+		setUpdateInterval: RequiredParams<'profile'>
+		/**
 		 * R​u​l​e​s
 		 */
 		rules: string
@@ -2614,6 +2651,34 @@ type RootTranslation = {
 		 */
 		sourceLocal: string
 		/**
+		 * S​u​b​s​c​r​i​p​t​i​o​n​ ​a​d​d​r​e​s​s
+		 */
+		subscriptionAddress: string
+		/**
+		 * S​u​b​s​c​r​i​p​t​i​o​n​ ​d​e​t​a​c​h​e​d​;​ ​t​h​e​ ​l​o​c​a​l​ ​Y​A​M​L​ ​f​i​l​e​ ​w​a​s​ ​k​e​p​t
+		 */
+		subscriptionDetached: string
+		/**
+		 * T​h​e​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​i​s​ ​v​a​l​i​d​a​t​e​d​ ​a​n​d​ ​s​t​o​r​e​d​ ​l​o​c​a​l​l​y​ ​a​s​ ​a​ ​Y​A​M​L​ ​p​r​o​f​i​l​e​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​b​e​ ​u​s​e​d​.
+		 */
+		subscriptionImportDescription: string
+		/**
+		 * D​i​r​e​c​t​ ​e​d​i​t​s​ ​w​i​l​l​ ​b​e​ ​o​v​e​r​w​r​i​t​t​e​n​ ​t​h​e​ ​n​e​x​t​ ​t​i​m​e​ ​t​h​i​s​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​i​s​ ​u​p​d​a​t​e​d​.
+		 */
+		subscriptionOverwriteNote: string
+		/**
+		 * D​i​r​e​c​t​ ​e​d​i​t​s​ ​w​i​l​l​ ​b​e​ ​o​v​e​r​w​r​i​t​t​e​n​ ​t​h​e​ ​n​e​x​t​ ​t​i​m​e​ ​t​h​i​s​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​i​s​ ​u​p​d​a​t​e​d​.​ ​T​o​ ​k​e​e​p​ ​t​h​i​s​ ​f​i​l​e​,
+		 */
+		subscriptionOverwriteBeforeDetach: string
+		/**
+		 * .
+		 */
+		subscriptionOverwriteAfterDetach: string
+		/**
+		 * S​u​b​s​c​r​i​p​t​i​o​n​ ​u​p​d​a​t​e​d
+		 */
+		subscriptionUpdated: string
+		/**
 		 * S​t​a​l​e
 		 */
 		stale: string
@@ -2621,6 +2686,26 @@ type RootTranslation = {
 		 * P​r​o​f​i​l​e​s
 		 */
 		title: string
+		/**
+		 * O​p​e​n​ ​f​o​l​d​e​r
+		 */
+		openConfigDirectory: string
+		/**
+		 * U​p​d​a​t​e​ ​i​n​t​e​r​v​a​l
+		 */
+		updateInterval: string
+		/**
+		 * U​p​d​a​t​e​ ​s​u​b​s​c​r​i​p​t​i​o​n
+		 */
+		updateSubscription: string
+		/**
+		 * U​p​d​a​t​i​n​g​…
+		 */
+		updatingSubscription: string
+		/**
+		 * C​h​e​c​k​ ​a​n​d​ ​s​a​v​e
+		 */
+		checkAndSave: string
 		/**
 		 * U​p​d​a​t​e​ ​a​l​l​ ​p​r​o​x​y​ ​p​r​o​v​i​d​e​r​s
 		 */
@@ -5907,6 +5992,10 @@ export type TranslationFunctions = {
 		 */
 		active: () => LocalizedString
 		/**
+		 * Add subscription
+		 */
+		addSubscription: () => LocalizedString
+		/**
 		 * The active profile cannot be deleted without a safe replacement or stopped-state transaction.
 		 */
 		activeDeleteUnavailable: () => LocalizedString
@@ -5963,7 +6052,15 @@ export type TranslationFunctions = {
 		 */
 		deletedToast: () => LocalizedString
 		/**
-		 * Validate and store Mihomo profile sources without changing the running core configuration.
+		 * detach the subscription
+		 */
+		detachSubscription: () => LocalizedString
+		/**
+		 * The subscription could not be detached.
+		 */
+		detachSubscriptionFailed: () => LocalizedString
+		/**
+		 * All profiles are stored as local YAML files; subscriptions keep their files up to date.
 		 */
 		description: () => LocalizedString
 		/**
@@ -5995,7 +6092,7 @@ export type TranslationFunctions = {
 		 */
 		groups: () => LocalizedString
 		/**
-		 * The complete subscription URL is sent only to the authenticated local service and is never shown again after preview.
+		 * The complete address remains visible on this profile's card.
 		 */
 		httpsDescription: () => LocalizedString
 		/**
@@ -6011,7 +6108,7 @@ export type TranslationFunctions = {
 		 */
 		importFailed: () => LocalizedString
 		/**
-		 * Import subscription link
+		 * Add subscription
 		 */
 		importHttps: () => LocalizedString
 		/**
@@ -6030,6 +6127,18 @@ export type TranslationFunctions = {
 		 * Profile label
 		 */
 		labelLabel: () => LocalizedString
+		/**
+		 * The folder could not be opened.
+		 */
+		fileActionFailed: () => LocalizedString
+		/**
+		 * Optional. The .yaml extension is added automatically.
+		 */
+		fileNameDescription: () => LocalizedString
+		/**
+		 * Local file name
+		 */
+		fileNameLabel: () => LocalizedString
 		/**
 		 * Last attempt
 		 */
@@ -6051,6 +6160,10 @@ export type TranslationFunctions = {
 		 */
 		lastSuccess: () => LocalizedString
 		/**
+		 * Last update
+		 */
+		lastUpdate: () => LocalizedString
+		/**
 		 * Loading profiles…
 		 */
 		loading: () => LocalizedString
@@ -6063,15 +6176,19 @@ export type TranslationFunctions = {
 		 */
 		never: () => LocalizedString
 		/**
-		 * Next source refresh
+		 * Next update
 		 */
 		nextRefresh: () => LocalizedString
+		/**
+		 * Next update
+		 */
+		nextUpdate: () => LocalizedString
 		/**
 		 * The current runtime has no proxy providers.
 		 */
 		noRuntimeProviders: () => LocalizedString
 		/**
-		 * This summary contains no source YAML, credentials, complete local path, or raw subscription URL.
+		 * Review the local file name and parsed profile counts before saving.
 		 */
 		previewDescription: () => LocalizedString
 		/**
@@ -6395,6 +6512,10 @@ export type TranslationFunctions = {
 		 */
 		scheduleWeekly: () => LocalizedString
 		/**
+		 * Set update interval for {profile}
+		 */
+		setUpdateInterval: (arg: { profile: string }) => LocalizedString
+		/**
 		 * Rules
 		 */
 		rules: () => LocalizedString
@@ -6455,6 +6576,34 @@ export type TranslationFunctions = {
 		 */
 		sourceLocal: () => LocalizedString
 		/**
+		 * Subscription address
+		 */
+		subscriptionAddress: () => LocalizedString
+		/**
+		 * Subscription detached; the local YAML file was kept
+		 */
+		subscriptionDetached: () => LocalizedString
+		/**
+		 * The subscription is validated and stored locally as a YAML profile before it can be used.
+		 */
+		subscriptionImportDescription: () => LocalizedString
+		/**
+		 * Direct edits will be overwritten the next time this subscription is updated.
+		 */
+		subscriptionOverwriteNote: () => LocalizedString
+		/**
+		 * Direct edits will be overwritten the next time this subscription is updated. To keep this file,
+		 */
+		subscriptionOverwriteBeforeDetach: () => LocalizedString
+		/**
+		 * .
+		 */
+		subscriptionOverwriteAfterDetach: () => LocalizedString
+		/**
+		 * Subscription updated
+		 */
+		subscriptionUpdated: () => LocalizedString
+		/**
 		 * Stale
 		 */
 		stale: () => LocalizedString
@@ -6462,6 +6611,26 @@ export type TranslationFunctions = {
 		 * Profiles
 		 */
 		title: () => LocalizedString
+		/**
+		 * Open folder
+		 */
+		openConfigDirectory: () => LocalizedString
+		/**
+		 * Update interval
+		 */
+		updateInterval: () => LocalizedString
+		/**
+		 * Update subscription
+		 */
+		updateSubscription: () => LocalizedString
+		/**
+		 * Updating…
+		 */
+		updatingSubscription: () => LocalizedString
+		/**
+		 * Check and save
+		 */
+		checkAndSave: () => LocalizedString
 		/**
 		 * Update all proxy providers
 		 */

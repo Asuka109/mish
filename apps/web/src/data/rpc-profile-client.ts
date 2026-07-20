@@ -69,10 +69,20 @@ export class RpcProfileClient implements ProfileClient {
     );
   }
 
+  detachSubscription(profileId: string, options?: RpcRequestOptions) {
+    return this.request("profiles.detachSubscription", { profileId }, options).then((snapshot) =>
+      this.normalizeSnapshot(snapshot),
+    );
+  }
+
   getSnapshot(options?: RpcRequestOptions) {
     return this.request("profiles.getSnapshot", {}, options).then((snapshot) =>
       this.normalizeSnapshot(snapshot),
     );
+  }
+
+  openProfileDirectory(options?: RpcRequestOptions) {
+    return this.request("profiles.openDirectory", {}, options).then(() => undefined);
   }
 
   getPatches(authority: ProfilePatchAuthorityDto, options?: RpcRequestOptions) {

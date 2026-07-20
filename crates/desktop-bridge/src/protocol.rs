@@ -51,6 +51,7 @@ struct Authentication {
 pub(crate) struct ProtocolState {
     pub auth_token: String,
     pub profile_activation: Option<std::sync::Arc<crate::ProfileActivationCoordinator>>,
+    pub profile_file_actions: Option<std::sync::Arc<crate::ProfileFileActions>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
     pub runtime: crate::DesktopRuntimeHost,
     pub settings_service: Option<std::sync::Arc<SettingsService>>,
@@ -417,6 +418,7 @@ async fn handle_message(
             | "status.subscribe"
             | "status.testLocalProxy"
             | "profiles.getSnapshot"
+            | "profiles.openDirectory"
             | "profiles.subscribe"
             | "traffic.getSnapshot"
             | "traffic.subscribe"
@@ -707,6 +709,15 @@ async fn handle_message(
             Ok(snapshot) => snapshot,
             Err(error) => return Some(profile_error_response(id, error)),
         },
+        "profiles.openDirectory" => {
+            let Some(actions) = &state.profile_file_actions else {
+                return Some(profile_file_action_error_response(id));
+            };
+            match actions.open_profiles_directory() {
+                Ok(()) => json!(true),
+                Err(_) => return Some(profile_file_action_error_response(id)),
+            }
+        }
         "profiles.getPatches" => {
             let Some(service) = &state.profile_service else {
                 return Some(profile_capability_error(id));
@@ -931,6 +942,25 @@ async fn handle_message(
                     }
                 }
                 Err(response) => return Some(response),
+            }
+        }
+        "profiles.detachSubscription" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileIdParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.detach_subscription(&params.profile_id) {
+                Ok(_) => {
+                    publish_profile_update(state).await;
+                    match profile_rpc_snapshot(state).await {
+                        Ok(snapshot) => snapshot,
+                        Err(error) => return Some(profile_error_response(id, error)),
+                    }
+                }
+                Err(error) => return Some(profile_error_response(id, error)),
             }
         }
         "profiles.setRefreshPolicy" => {
@@ -1449,6 +1479,10 @@ fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {
             error_response(id, -32041, "Profile storage operation failed", None)
         }
     }
+}
+
+fn profile_file_action_error_response(id: Value) -> Value {
+    error_response(id, -32021, "Profile file action failed", None)
 }
 
 fn valid_patch_authority(authority: &ProfilePatchAuthorityParams) -> bool {
