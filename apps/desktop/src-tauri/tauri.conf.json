@@ -40,7 +40,13 @@
     "active": true,
     "category": "Utility",
     "copyright": "Copyright © 2026 Asuka109 and Mish contributors",
-    "icon": ["icons/icon.png"],
+    "icon": [
+      "../../../packages/brand-assets/generated/tauri/32x32.png",
+      "../../../packages/brand-assets/generated/tauri/128x128.png",
+      "../../../packages/brand-assets/generated/tauri/128x128@2x.png",
+      "../../../packages/brand-assets/generated/tauri/icon.icns",
+      "../../../packages/brand-assets/generated/tauri/icon.ico"
+    ],
     "macOS": {
       "hardenedRuntime": true,
       "minimumSystemVersion": "13.0"

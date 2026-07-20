@@ -31,6 +31,6 @@
   "bundle": {
     "active": true,
     "category": "Utility",
-    "icon": ["../../desktop/src-tauri/icons/icon.png"]
+    "icon": ["../../../packages/brand-assets/generated/tauri/icon.png"]
   }
 }

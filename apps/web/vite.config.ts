@@ -1,5 +1,6 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -7,6 +8,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 700,
   },
   plugins: [react(), tailwindcss()],
+  publicDir: fileURLToPath(new URL("../../packages/brand-assets/public", import.meta.url)),
   server: {
     allowedHosts: ["terminal.local"],
     host: "127.0.0.1",
