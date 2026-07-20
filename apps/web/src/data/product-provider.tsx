@@ -127,9 +127,15 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   const [localProxyTest, setLocalProxyTest] = useState<LocalProxyTestState>({ phase: "idle" });
   const pendingCommands = useRef(new Set<ProductCommand>());
   const commandControllers = useRef(new Map<string, AbortController>());
+  const localProxyAuthority = snapshot
+    ? JSON.stringify([snapshot.activeProfileId, snapshot.runtime.phase])
+    : null;
+  const localProxyAuthorityRef = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
+    localProxyAuthorityRef.current = null;
+    setLocalProxyTest({ phase: "idle" });
     setConnection(resolvedClient.getConnectionState());
     const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
     const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot) => {
@@ -158,6 +164,17 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       unsubscribeSnapshots();
     };
   }, [resolvedClient]);
+
+  useEffect(() => {
+    const previousAuthority = localProxyAuthorityRef.current;
+    localProxyAuthorityRef.current = localProxyAuthority;
+    if (previousAuthority === null || previousAuthority === localProxyAuthority) return;
+
+    const controller = commandControllers.current.get("local-proxy");
+    controller?.abort();
+    if (controller) commandControllers.current.delete("local-proxy");
+    setLocalProxyTest({ phase: "idle" });
+  }, [localProxyAuthority]);
 
   const runCommand = useCallback(
     async (
@@ -222,13 +239,17 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     setLocalProxyTest({ phase: "pending" });
     try {
       const result = await resolvedClient.testLocalProxy({ signal: controller.signal });
+      if (controller.signal.aborted) return null;
       setLocalProxyTest({ phase: "success", result });
       return result;
     } catch (error) {
+      if (controller.signal.aborted) return null;
       setLocalProxyTest({ error: toStatusClientError(error), phase: "failure" });
       return null;
     } finally {
-      commandControllers.current.delete(key);
+      if (commandControllers.current.get(key) === controller) {
+        commandControllers.current.delete(key);
+      }
     }
   }, [resolvedClient]);
 

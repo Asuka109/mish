@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { toast } from "sonner";
@@ -392,6 +392,19 @@ class LocalProxyClient extends SnapshotStatusClient {
   }));
 }
 
+class MutableLocalProxyClient extends LocalProxyClient {
+  private readonly listeners = new Set<(snapshot: StatusSnapshotDto) => void>();
+
+  publish(snapshot: StatusSnapshotDto) {
+    for (const listener of this.listeners) listener(structuredClone(snapshot));
+  }
+
+  override subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+}
+
 async function createRpcSnapshot(sparse = false) {
   const snapshot = await new FixtureStatusClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -591,6 +604,23 @@ describe("desktop RPC experience", () => {
     expect(await screen.findByText("Listener ready")).toBeVisible();
     expect(snapshot.runtime.systemProxy.phase).toBe("off");
     expect(snapshot.runtime.systemProxyEnabled).toBe(false);
+  });
+
+  it("expires listener readiness when the active runtime changes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.runtime.phase = "healthy";
+    const statusClient = new MutableLocalProxyClient(snapshot);
+    renderRoute("/settings", "en", statusClient);
+
+    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+    expect(await screen.findByText("Listener ready")).toBeVisible();
+
+    snapshot.runtime.phase = "stopping";
+    act(() => statusClient.publish(snapshot));
+
+    expect(await screen.findByText("Not tested")).toBeVisible();
+    expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
   });
 
   it("shows a source-labeled read-only macOS Network and DNS observation", async () => {
