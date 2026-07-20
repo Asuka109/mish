@@ -203,7 +203,8 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
     drop(importing);
 
     let controller = P0Controller::start().await;
-    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let profiles =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root.clone()).unwrap());
     let platform = Arc::new(MemoryCapturePlatform::default());
     let journal = Arc::new(MemoryCaptureJournal::default());
     let capture = Arc::new(CaptureReconciler::new(
@@ -363,6 +364,111 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
     assert!(journal.load().unwrap().is_none());
 
     coordinator.shutdown().await.unwrap();
+    let remaining = coordinator.delete_profile(&https_profile_id).await.unwrap();
+    assert!(
+        remaining
+            .profiles
+            .iter()
+            .all(|profile| profile.id != https_profile_id)
+    );
+    drop(updates);
+    drop(coordinator);
+
+    let reimporting = ProfileService::new(
+        profile_root.clone(),
+        StdLocalSourceReader,
+        FixtureHttpsReader::new(P0_PROFILE),
+        SourceReadPolicy::default(),
+    );
+    let reimport_preview = reimporting
+        .preflight_https(
+            "https://fixture.invalid/profile.yaml",
+            Some("HTTPS fixture reimported".to_owned()),
+        )
+        .await
+        .unwrap();
+    let reimport_snapshot = reimporting
+        .save_preview(&reimport_preview.preview_id)
+        .await
+        .unwrap();
+    let reimported_profile_id = reimport_snapshot
+        .profiles
+        .iter()
+        .find(|profile| profile.label == "HTTPS fixture reimported")
+        .unwrap()
+        .id
+        .clone();
+    assert_ne!(reimported_profile_id, https_profile_id);
+    drop(reimporting);
+
+    let restarted_profiles =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let restarted_capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let restarted_manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(restarted_capture.clone()),
+    ));
+    restarted_manager.shutdown().await.unwrap();
+    let restarted_safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        restarted_capture,
+    );
+    let restarted_host = DesktopRuntimeHost::new(restarted_safe_runtime.clone());
+    let restarted_coordinator = Arc::new(ProfileActivationCoordinator::new(
+        restarted_profiles,
+        restarted_manager,
+        restarted_host.clone(),
+        restarted_safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "fixture-controller-authentication"),
+    ));
+    let mut restarted_updates = restarted_coordinator.subscribe();
+
+    restarted_coordinator
+        .activate(&Uuid::new_v4().to_string(), &reimported_profile_id)
+        .await
+        .unwrap();
+    let reactivated = wait_for_activation(&restarted_coordinator, &mut restarted_updates).await;
+    assert_eq!(reactivated.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        reactivated.active_profile_id.as_deref(),
+        Some(reimported_profile_id.as_str())
+    );
+    let restarted_status = restarted_host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(restarted_status["runtime"]["systemProxy"]["phase"], "off");
+    assert!(
+        !restarted_status["runtime"]["captureSelection"]["systemProxy"]
+            .as_bool()
+            .unwrap()
+    );
+
+    let reapplied = restarted_host
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    assert_eq!(reapplied["runtime"]["systemProxy"]["phase"], "applied");
+
+    restarted_coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 }
 
@@ -1041,6 +1147,146 @@ async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
     assert_eq!(platform.state(), disabled_capture_service());
     assert!(journal.load().unwrap().is_none());
 
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable_event() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-invalid-capture-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.clone())
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let platform = Arc::new(MemoryCapturePlatform::default());
+    let journal = Arc::new(MemoryCaptureJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-invalid-capture-secret"),
+    ));
+    let mut updates = coordinator.subscribe();
+
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), record.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_activation(&coordinator, &mut updates).await.phase,
+        ProfileActivationPhase::Success
+    );
+    host.set_capture(
+        CaptureRequest {
+            active: true,
+            selection: CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+        },
+        StatusAdapterKind::Rpc,
+    )
+    .await
+    .unwrap();
+    journal.invalidate();
+    assert_eq!(
+        journal.load().unwrap_err().kind,
+        mish_runtime::CaptureFailureKind::InvalidRecovery
+    );
+    let captured = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(captured["runtime"]["systemProxy"]["desired"], true);
+    assert_eq!(captured["runtime"]["systemProxy"]["phase"], "applied");
+
+    for attempt in 0..2 {
+        if attempt > 0 {
+            let capture_error = host
+                .set_capture(
+                    CaptureRequest {
+                        active: true,
+                        selection: CaptureSelection {
+                            system_proxy: true,
+                            tun: false,
+                        },
+                    },
+                    StatusAdapterKind::Rpc,
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(
+                capture_error.kind,
+                mish_runtime::CaptureFailureKind::InvalidRecovery
+            );
+        }
+        let pending = coordinator
+            .activate(&Uuid::new_v4().to_string(), record.metadata.id.as_str())
+            .await
+            .unwrap();
+        assert_eq!(pending.phase, ProfileActivationPhase::Pending);
+        let failed = wait_for_activation(&coordinator, &mut updates).await;
+        assert_eq!(failed.phase, ProfileActivationPhase::Failure);
+        assert_eq!(
+            failed.failure,
+            Some(mish_bridge::ProfileActivationFailure::Capture)
+        );
+        assert_eq!(
+            failed.active_profile_id.as_deref(),
+            Some(record.metadata.id.as_str())
+        );
+        assert_eq!(
+            host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["systemProxy"]["phase"],
+            "drift"
+        );
+    }
+
+    let events = host.events_snapshot(StatusAdapterKind::Rpc);
+    let activation_event = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["message"] == "Profile activation failed")
+        .unwrap();
+    assert_eq!(activation_event["source"], "application");
+    assert!(
+        activation_event["detail"]
+            .as_str()
+            .unwrap()
+            .contains("System Proxy recovery")
+    );
+    let serialized_events = events.to_string();
+    assert!(!serialized_events.contains("synthetic-invalid-capture-secret"));
+    assert!(!serialized_events.contains("profile.yaml"));
+
+    host.recover_system_proxy(CaptureRecoveryAction::LeaveAsIs, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+    platform.set_state(disabled_capture_service());
+    coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 }
 
@@ -1733,20 +1979,36 @@ impl CapturePlatform for MemoryCapturePlatform {
 }
 
 #[derive(Default)]
-struct MemoryCaptureJournal(std::sync::Mutex<Option<CaptureJournal>>);
+struct MemoryCaptureJournal {
+    invalid: std::sync::Mutex<bool>,
+    journal: std::sync::Mutex<Option<CaptureJournal>>,
+}
+
+impl MemoryCaptureJournal {
+    fn invalidate(&self) {
+        *self.invalid.lock().unwrap() = true;
+    }
+}
 
 impl CaptureJournalStore for MemoryCaptureJournal {
     fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
-        Ok(self.0.lock().unwrap().clone())
+        if *self.invalid.lock().unwrap() {
+            return Err(CaptureTransitionError::new(
+                mish_runtime::CaptureFailureKind::InvalidRecovery,
+                "Synthetic invalid recovery journal",
+            ));
+        }
+        Ok(self.journal.lock().unwrap().clone())
     }
 
     fn save(&self, journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
-        *self.0.lock().unwrap() = Some(journal.clone());
+        *self.journal.lock().unwrap() = Some(journal.clone());
         Ok(())
     }
 
     fn clear(&self) -> Result<(), CaptureTransitionError> {
-        *self.0.lock().unwrap() = None;
+        *self.invalid.lock().unwrap() = false;
+        *self.journal.lock().unwrap() = None;
         Ok(())
     }
 }

@@ -42,6 +42,7 @@ import {
   Spinner,
 } from "@mish/ui";
 import type {
+  ProfileActivationFailure,
   ProfileActivationSnapshotDto,
   ProfileListItemDto,
   ProfilePolicyClassificationDto,
@@ -488,7 +489,7 @@ function ProfileRow({
       : activation.phase === "failure" && activation.targetProfileId === profile.id
         ? activation.failure === "cancelled"
           ? LL.profiles.activationCancelled()
-          : LL.profiles.activationFailed()
+          : activationFailureMessage(LL, activation.failure)
         : !activationSupported
           ? LL.profiles.activationUnavailable()
           : null;
@@ -649,6 +650,28 @@ function ProfileRow({
       />
     </SectionGridItem>
   );
+}
+
+function activationFailureMessage(
+  LL: TranslationFunctions,
+  failure: ProfileActivationFailure | null,
+) {
+  switch (failure) {
+    case "capture":
+      return LL.profiles.activationCaptureFailed();
+    case "controller":
+    case "timeout":
+    case "version-mismatch":
+      return LL.profiles.activationControllerFailed();
+    case "start":
+    case "early-exit":
+    case "prior-stop":
+      return LL.profiles.activationLifecycleFailed();
+    case "state-commit":
+      return LL.profiles.activationStateFailed();
+    default:
+      return LL.profiles.activationFailed();
+  }
 }
 
 function refreshPolicyLabel(LL: TranslationFunctions, policy: ProfileRefreshPolicy) {

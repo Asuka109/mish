@@ -665,6 +665,9 @@ impl SystemProxyReconciler {
             Ok(journal) => journal,
             Err(error) => {
                 self.record_unknown_drift(current, error.kind);
+                if error.kind == CaptureFailureKind::InvalidRecovery {
+                    self.restrict_recovery_to_relinquish();
+                }
                 return Err(error);
             }
         };
@@ -841,6 +844,14 @@ impl SystemProxyReconciler {
                 "System Proxy recovery is available only while drift is observed",
             ));
         }
+        if action == CaptureRecoveryAction::Repair
+            && current.system_proxy.failure == Some(CaptureFailureKind::InvalidRecovery)
+        {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::InvalidRecovery,
+                "An invalid System Proxy recovery record can only be relinquished",
+            ));
+        }
         if action == CaptureRecoveryAction::Repair && !core_healthy {
             let error = CaptureTransitionError::new(
                 CaptureFailureKind::CoreUnhealthy,
@@ -984,6 +995,11 @@ impl SystemProxyReconciler {
         ];
         status.system_proxy_enabled = false;
         *self.status.lock().unwrap() = status;
+    }
+
+    fn restrict_recovery_to_relinquish(&self) {
+        let mut status = self.status.lock().unwrap();
+        status.system_proxy.recovery_actions = vec![CaptureRecoveryAction::LeaveAsIs];
     }
 
     async fn rollback_after_failure(

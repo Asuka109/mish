@@ -2,8 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
-    CoreError, CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, MishRuntime,
-    ProfileSummary, StatusAdapterKind, StatusDataSource, StatusSnapshot,
+    ApplicationDiagnosticEvent, CoreError, CoreErrorKind, CorePhase, CoreRuntime, CoreStatus,
+    CoreStatusEventSink, EventLevel, MishRuntime, ProfileSummary, StatusAdapterKind,
+    StatusDataSource, StatusSnapshot,
 };
 use tokio::time::{Duration, timeout};
 
@@ -265,4 +266,29 @@ async fn runtime_shuts_down_status_source_before_core_lifecycle() {
     runtime.shutdown().await.unwrap();
 
     assert_eq!(*order.lock().unwrap(), ["status-source", "core"]);
+}
+
+#[test]
+fn safe_stopped_runtime_exposes_bounded_actionable_application_events() {
+    let runtime = MishRuntime::new(Arc::new(UnavailableCore));
+    runtime.record_application_event(ApplicationDiagnosticEvent::new(
+        EventLevel::Error,
+        "Profile activation failed",
+        Some("Resolve System Proxy recovery on Status, then retry activation"),
+    ));
+
+    let snapshot = runtime.events_snapshot_typed(StatusAdapterKind::Rpc);
+
+    assert_eq!(snapshot.phase, mish_runtime::EventsDataPhase::Ready);
+    assert_eq!(snapshot.events.len(), 1);
+    assert_eq!(
+        snapshot.events[0].source,
+        mish_runtime::EventSource::Application
+    );
+    assert_eq!(snapshot.events[0].message, "Profile activation failed");
+    assert_eq!(
+        snapshot.events[0].detail.as_deref(),
+        Some("Resolve System Proxy recovery on Status, then retry activation")
+    );
+    assert!(!format!("{snapshot:?}").contains("subscription"));
 }

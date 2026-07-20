@@ -388,7 +388,7 @@ impl FileCaptureJournalStore {
             || !parent_metadata.is_dir()
             || metadata.uid() != parent_metadata.uid()
         {
-            return Err(persistence_error());
+            return Err(invalid_recovery_error());
         }
         Ok(Some(metadata))
     }
@@ -401,9 +401,9 @@ impl CaptureJournalStore for FileCaptureJournalStore {
         }
         let bytes = fs::read(&self.path).map_err(|_| persistence_error())?;
         let stored: StoredCaptureJournal =
-            serde_json::from_slice(&bytes).map_err(|_| persistence_error())?;
+            serde_json::from_slice(&bytes).map_err(|_| invalid_recovery_error())?;
         if stored.version != JOURNAL_VERSION || stored.owner != JOURNAL_OWNER {
-            return Err(persistence_error());
+            return Err(invalid_recovery_error());
         }
         Ok(Some(stored.journal))
     }
@@ -1293,6 +1293,13 @@ fn persistence_error() -> CaptureTransitionError {
     CaptureTransitionError::new(
         CaptureFailureKind::PersistenceFailed,
         "The System Proxy recovery journal is unavailable",
+    )
+}
+
+fn invalid_recovery_error() -> CaptureTransitionError {
+    CaptureTransitionError::new(
+        CaptureFailureKind::InvalidRecovery,
+        "The System Proxy recovery journal is invalid",
     )
 }
 
