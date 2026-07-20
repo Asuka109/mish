@@ -411,40 +411,32 @@ type RootTranslation = {
 			 * U​s​e​ ​t​h​i​s​ ​H​T​T​P​ ​o​r​ ​S​O​C​K​S​5​ ​e​n​d​p​o​i​n​t​ ​i​n​ ​a​ ​b​r​o​w​s​e​r​ ​e​x​t​e​n​s​i​o​n​ ​o​r​ ​a​n​ ​a​p​p​-​s​p​e​c​i​f​i​c​ ​p​r​o​x​y​.​ ​O​n​l​y​ ​t​h​a​t​ ​a​p​p​'​s​ ​t​r​a​f​f​i​c​ ​u​s​e​s​ ​M​i​s​h​;​ ​t​h​i​s​ ​d​o​e​s​ ​n​o​t​ ​e​n​a​b​l​e​ ​o​r​ ​c​h​a​n​g​e​ ​m​a​c​O​S​ ​S​y​s​t​e​m​ ​P​r​o​x​y​.
 			 */
 			description: string
-			/**
-			 * N​o​t​ ​t​e​s​t​e​d
-			 */
-			notTested: string
-			phase: {
+			feedback: {
 				/**
-				 * S​t​a​r​t​ ​a​n​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​b​e​f​o​r​e​ ​t​e​s​t​i​n​g
+				 * S​t​a​r​t​ ​a​n​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​,​ ​t​h​e​n​ ​t​e​s​t​ ​t​h​e​ ​l​i​s​t​e​n​e​r​ ​a​g​a​i​n​.
 				 */
-				'core-unhealthy': string
+				coreUnhealthy: string
 				/**
-				 * L​i​s​t​e​n​e​r​ ​u​n​a​v​a​i​l​a​b​l​e
+				 * T​h​e​ ​l​o​c​a​l​ ​l​i​s​t​e​n​e​r​ ​d​i​d​ ​n​o​t​ ​r​e​s​p​o​n​d​.​ ​C​o​n​f​i​r​m​ ​t​h​e​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​i​s​ ​h​e​a​l​t​h​y​,​ ​t​h​e​n​ ​t​r​y​ ​a​g​a​i​n​.
 				 */
-				'listener-unavailable': string
+				listenerUnavailable: string
 				/**
 				 * L​i​s​t​e​n​e​r​ ​r​e​a​d​y
 				 */
 				ready: string
 				/**
-				 * C​o​r​e​ ​t​r​a​n​s​i​t​i​o​n​ ​i​n​ ​p​r​o​g​r​e​s​s
+				 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​t​e​s​t​ ​t​h​e​ ​l​o​c​a​l​ ​l​i​s​t​e​n​e​r​.​ ​C​h​e​c​k​ ​t​h​e​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​ ​c​o​n​n​e​c​t​i​o​n​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
 				 */
-				'runtime-transition': string
+				rpcFailure: string
 				/**
-				 * L​i​s​t​e​n​e​r​ ​t​e​s​t​ ​u​n​a​v​a​i​l​a​b​l​e
+				 * T​h​e​ ​C​o​r​e​ ​i​s​ ​c​h​a​n​g​i​n​g​ ​s​t​a​t​e​.​ ​W​a​i​t​ ​f​o​r​ ​i​t​ ​t​o​ ​f​i​n​i​s​h​,​ ​t​h​e​n​ ​t​e​s​t​ ​a​g​a​i​n​.
 				 */
-				unavailable: string
+				runtimeTransition: string
 			}
 			/**
 			 * T​e​s​t​ ​l​i​s​t​e​n​e​r
 			 */
 			test: string
-			/**
-			 * T​e​s​t​i​n​g​…
-			 */
-			testing: string
 			/**
 			 * L​o​c​a​l​-​o​n​l​y​ ​m​a​n​u​a​l​ ​p​r​o​x​y
 			 */
@@ -4142,40 +4134,32 @@ export type TranslationFunctions = {
 			 * Use this HTTP or SOCKS5 endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.
 			 */
 			description: () => LocalizedString
-			/**
-			 * Not tested
-			 */
-			notTested: () => LocalizedString
-			phase: {
+			feedback: {
 				/**
-				 * Start an active Profile before testing
+				 * Start an active Profile, then test the listener again.
 				 */
-				'core-unhealthy': () => LocalizedString
+				coreUnhealthy: () => LocalizedString
 				/**
-				 * Listener unavailable
+				 * The local listener did not respond. Confirm the active Profile is healthy, then try again.
 				 */
-				'listener-unavailable': () => LocalizedString
+				listenerUnavailable: () => LocalizedString
 				/**
 				 * Listener ready
 				 */
 				ready: () => LocalizedString
 				/**
-				 * Core transition in progress
+				 * Mish could not test the local listener. Check the local service connection and try again.
 				 */
-				'runtime-transition': () => LocalizedString
+				rpcFailure: () => LocalizedString
 				/**
-				 * Listener test unavailable
+				 * The Core is changing state. Wait for it to finish, then test again.
 				 */
-				unavailable: () => LocalizedString
+				runtimeTransition: () => LocalizedString
 			}
 			/**
 			 * Test listener
 			 */
 			test: () => LocalizedString
-			/**
-			 * Testing…
-			 */
-			testing: () => LocalizedString
 			/**
 			 * Local-only manual proxy
 			 */

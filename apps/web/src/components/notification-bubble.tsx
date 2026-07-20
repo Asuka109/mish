@@ -17,7 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
-import { useProduct } from "../data/product-provider";
+import { useProduct, type LocalProxyTestState } from "../data/product-provider";
 import { useOptionalEvents } from "../data/events-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { trafficFailureMessage } from "../data/traffic-failure-message";
@@ -47,11 +47,63 @@ interface NotificationEntry {
   source: string;
 }
 
+type LocalProxyFeedback =
+  | { id: string; level: "success"; message: string }
+  | { id: string; level: "warning" | "error"; message: string };
+
+function localProxyFeedback(
+  LL: TranslationFunctions,
+  state: LocalProxyTestState,
+): LocalProxyFeedback | null {
+  if (state.phase === "failure") {
+    return {
+      id: "rpc-failure",
+      level: "error",
+      message: LL.settingsPage.localProxy.feedback.rpcFailure(),
+    };
+  }
+  if (state.phase !== "success") return null;
+  switch (state.result.phase) {
+    case "ready":
+      return {
+        id: "ready",
+        level: "success",
+        message: LL.settingsPage.localProxy.feedback.ready(),
+      };
+    case "core-unhealthy":
+      return {
+        id: "core-unhealthy",
+        level: "warning",
+        message: LL.settingsPage.localProxy.feedback.coreUnhealthy(),
+      };
+    case "runtime-transition":
+      return {
+        id: "runtime-transition",
+        level: "warning",
+        message: LL.settingsPage.localProxy.feedback.runtimeTransition(),
+      };
+    case "listener-unavailable":
+      return {
+        id: "listener-unavailable",
+        level: "error",
+        message: LL.settingsPage.localProxy.feedback.listenerUnavailable(),
+      };
+    default:
+      return null;
+  }
+}
+
 export function NotificationBubble() {
   const eventsContext = useOptionalEvents();
   const settingsContext = useOptionalSettings();
   const trafficContext = useOptionalTraffic();
-  const { error: productError, isCommandPending, recoverSystemProxy, snapshot } = useProduct();
+  const {
+    error: productError,
+    isCommandPending,
+    localProxyTest,
+    recoverSystemProxy,
+    snapshot,
+  } = useProduct();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
   const [readState, setReadState] = useState<ReadNotificationState>({
@@ -75,12 +127,16 @@ export function NotificationBubble() {
   const productFailure = Boolean(snapshot && productError);
   const settingsFailure = Boolean(settingsContext?.error);
   const trafficFailure = trafficContext?.commandFailure ?? null;
+  const localProxyResult = localProxyFeedback(LL, localProxyTest);
+  const localProxyFailure =
+    localProxyResult && localProxyResult.level !== "success" ? localProxyResult : null;
   const driftObservedAt = useObservedAt(systemProxyDrift);
   const systemProxyFailureObservedAt = useObservedAt(systemProxyFailed);
   const tunWarningObservedAt = useObservedAt(tunWarning);
   const productFailureObservedAt = useObservedAt(productFailure);
   const settingsFailureObservedAt = useObservedAt(settingsFailure);
   const trafficFailureObservedAt = useObservedAt(Boolean(trafficFailure));
+  const localProxyFailureObservedAt = useObservedAt(Boolean(localProxyFailure));
   const canRepairSystemProxy = systemProxy?.recoveryActions.includes("repair") ?? false;
   const canLeaveSystemProxy = systemProxy?.recoveryActions.includes("leave-as-is") ?? false;
   const driftActions: NotificationAction[] = [];
@@ -164,6 +220,17 @@ export function NotificationBubble() {
           },
         ]
       : []),
+    ...(localProxyFailure
+      ? [
+          {
+            id: `local-proxy-${localProxyFailure.id}:${localProxyFailureObservedAt}`,
+            level: localProxyFailure.level,
+            message: localProxyFailure.message,
+            observedAt: localProxyFailureObservedAt,
+            source: LL.navigation.settings(),
+          },
+        ]
+      : []),
     ...importantEvents.map((event) => ({
       id: event.id,
       level: event.level as "error" | "warning",
@@ -178,6 +245,19 @@ export function NotificationBubble() {
   const productFailureToastVisible = useRef(false);
   const settingsFailureToastVisible = useRef(false);
   const trafficFailureToastVisible = useRef(false);
+  const localProxyToastVisible = useRef(false);
+
+  useEffect(() => {
+    if (!localProxyResult) {
+      localProxyToastVisible.current = false;
+      return;
+    }
+    if (localProxyToastVisible.current) return;
+    localProxyToastVisible.current = true;
+    if (localProxyResult.level === "success") toast.success(localProxyResult.message);
+    else if (localProxyResult.level === "warning") toast.warning(localProxyResult.message);
+    else toast.error(localProxyResult.message);
+  }, [localProxyResult]);
 
   useEffect(() => {
     if (!systemProxyDrift) {
