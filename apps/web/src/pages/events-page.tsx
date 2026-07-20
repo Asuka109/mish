@@ -192,17 +192,23 @@ export function EventsPage() {
       </div>
 
       {snapshot ? (
-        <div aria-label={LL.events.sourceAvailability()} className="events-source-grid">
-          {snapshot.sourceStatuses.map((status) => (
-            <div className="events-source-item" key={status.source}>
-              <span>{sourceLabel(LL, status.source)}</span>
-              <Badge variant={sourceBadge(status.phase)}>
-                {sourcePhaseLabel(LL, status.phase)}
-              </Badge>
-              <small>{status.detail}</small>
-            </div>
-          ))}
-        </div>
+        <section aria-labelledby="event-sources-title" className="events-sources-section">
+          <div className="events-source-heading">
+            <h2 id="event-sources-title">{LL.events.sourceAvailability()}</h2>
+            <p>{LL.events.sourceDescription()}</p>
+          </div>
+          <div className="events-source-grid">
+            {snapshot.sourceStatuses.map((status) => (
+              <div className="events-source-item" key={status.source}>
+                <span>{sourceLabel(LL, status.source)}</span>
+                <span className="events-source-phase" data-phase={status.phase}>
+                  <span aria-hidden="true" className="events-source-indicator" />
+                  {sourcePhaseLabel(LL, status.phase)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <section
@@ -652,12 +658,6 @@ function sourceFilterLabel(LL: TranslationFunctions, source: EventSource | "all"
 
 function sourcePhaseLabel(LL: TranslationFunctions, phase: EventSourcePhase) {
   return LL.events.sourcePhase[phase]();
-}
-
-function sourceBadge(phase: EventSourcePhase) {
-  if (phase === "ready") return "success" as const;
-  if (phase === "stale") return "warning" as const;
-  return "outline" as const;
 }
 
 function levelBadge(level: EventLevel) {

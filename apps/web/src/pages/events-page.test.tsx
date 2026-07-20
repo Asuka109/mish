@@ -49,10 +49,18 @@ afterEach(() => {
 
 describe("Events page", () => {
   it("labels browser data as fictional and exposes every unsupported source explicitly", async () => {
-    renderEvents(new FixtureEventsClient());
+    const view = renderEvents(new FixtureEventsClient());
 
     expect(await screen.findByText(/Fictional browser fixture events/)).toBeVisible();
-    expect(screen.getAllByText("Fixture only")).toHaveLength(4);
+    const sources = screen.getByRole("region", { name: "Event sources" });
+    expect(
+      within(sources).getByText(
+        "Shows which local sources can contribute messages to the event list below.",
+      ),
+    ).toBeVisible();
+    expect(within(sources).getAllByText("Fixture only")).toHaveLength(4);
+    expect(within(sources).queryByText(/Synthetic browser-only fixture/)).not.toBeInTheDocument();
+    expect(view.container.querySelectorAll(".events-source-indicator")).toHaveLength(4);
     expect(screen.getByRole("button", { name: "Preview support bundle" })).toBeDisabled();
     expect(screen.getByText(/unavailable in the browser/i)).toBeVisible();
   });

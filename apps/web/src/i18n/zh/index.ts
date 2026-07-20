@@ -841,7 +841,8 @@ const zh = {
       platform: "平台",
       rpc: "RPC",
     },
-    sourceAvailability: "事件来源可用性",
+    sourceAvailability: "事件来源",
+    sourceDescription: "显示下方事件列表可以接收哪些本地消息来源。",
     sourceLabel: "按来源筛选",
     sourcePhase: {
       "fixture-only": "仅演示",
