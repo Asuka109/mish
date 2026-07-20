@@ -907,8 +907,7 @@ describe("desktop RPC experience", () => {
     expect(screen.getByRole("button", { name: /Switch profile/ })).toBeDisabled();
     const manage = screen.getByRole("button", { name: "Manage" });
     expect(manage).toBeEnabled();
-    manage.focus();
-    await user.keyboard("{Enter}");
+    await user.click(manage);
     const menu = await screen.findByRole("menu");
     expect(
       within(menu).getByText("This action is not supported by the current local service."),
