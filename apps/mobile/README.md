@@ -1,8 +1,11 @@
 # Mish Mobile Shell
 
 This package owns the Tauri 2 mobile application shell. Phase 0 packages a
-typed native fixture only. It does not contain Mihomo, request VPN permission,
-create a TUN interface, or claim VPN capability.
+typed native fixture and an Android `VpnService` lifecycle prototype. The
+prototype requests VPN consent only after an explicit user action, exercises
+foreground-service and recovery semantics, and publishes authoritative typed
+snapshots. Its replaceable fixture backend never creates a TUN interface,
+captures traffic, starts Mihomo, or claims VPN/Core availability.
 
 The Android project is generated from the committed Tauri configuration with:
 

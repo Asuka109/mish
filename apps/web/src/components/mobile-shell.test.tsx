@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { MobileShell } from "./mobile-shell";
+import type { MobileVpnClient } from "../platform/mobile-vpn-client";
 
 loadAllLocales();
 
@@ -18,12 +19,42 @@ const fixture = MobileFixtureBootstrapSchema.parse({
   vpn: { availability: "unavailable", kind: "fixture" },
 });
 
+const vpnSnapshot = {
+  backendKind: "fixture" as const,
+  contractVersion: 1 as const,
+  coreAvailability: "unavailable" as const,
+  foreground: false,
+  message: "Fixture only. No TUN or Core is available.",
+  notificationPermission: "required" as const,
+  permission: "required" as const,
+  phase: "permission-required" as const,
+  sequence: 1,
+  sessionId: "session-1",
+  updatedAtMillis: 1,
+  vpnActive: false as const,
+};
+
+const vpnClient: MobileVpnClient = {
+  dispose: () => undefined,
+  getSnapshot: () => vpnSnapshot,
+  initialize: async () => vpnSnapshot,
+  requestNotificationPermission: async () => vpnSnapshot,
+  requestVpnConsent: async () => vpnSnapshot,
+  startFixtureLifecycle: async () => vpnSnapshot,
+  stop: async () => vpnSnapshot,
+  subscribe: () => () => undefined,
+};
+
 function renderShell(path: string) {
   return render(
     <TypesafeI18n locale="en">
       <MemoryRouter initialEntries={[path]}>
         <Routes>
-          <Route element={<MobileShell fixture={fixture} />}>
+          <Route
+            element={
+              <MobileShell fixture={fixture} vpnClient={vpnClient} vpnSnapshot={vpnSnapshot} />
+            }
+          >
             <Route element={<div>Route content</div>} path="*" />
           </Route>
         </Routes>
@@ -43,6 +74,7 @@ describe("MobileShell", () => {
     expect(
       screen.getByText("VPN and embedded Core are not implemented in this test build."),
     ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review VPN permission" })).toBeVisible();
   });
 
   it("selects Activity and its Rules child from a desktop-compatible deep link", () => {

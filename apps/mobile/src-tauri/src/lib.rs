@@ -48,6 +48,7 @@ fn mobile_fixture_bootstrap() -> MobileFixtureBootstrap {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_mish_vpn::init())
         .invoke_handler(tauri::generate_handler![mobile_fixture_bootstrap])
         .run(tauri::generate_context!())
         .expect("Mish mobile shell failed to start");

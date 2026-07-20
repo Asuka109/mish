@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { resolveMobileStartup } from "./mobile-runtime-bootstrap";
+import type { MobileVpnClient } from "./mobile-vpn-client";
 
 const fixture = {
   adapterKind: "native",
@@ -11,14 +12,44 @@ const fixture = {
   vpn: { availability: "unavailable", kind: "fixture" },
 };
 
+const vpnSnapshot = {
+  backendKind: "fixture" as const,
+  contractVersion: 1 as const,
+  coreAvailability: "unavailable" as const,
+  foreground: false,
+  message: "Fixture only. No TUN or Core is available.",
+  notificationPermission: "required" as const,
+  permission: "required" as const,
+  phase: "permission-required" as const,
+  sequence: 1,
+  sessionId: "session-1",
+  updatedAtMillis: 1,
+  vpnActive: false as const,
+};
+
+function createVpnClient(): MobileVpnClient {
+  return {
+    dispose: vi.fn(),
+    getSnapshot: () => vpnSnapshot,
+    initialize: vi.fn(async () => vpnSnapshot),
+    requestNotificationPermission: vi.fn(async () => vpnSnapshot),
+    requestVpnConsent: vi.fn(async () => vpnSnapshot),
+    startFixtureLifecycle: vi.fn(async () => vpnSnapshot),
+    stop: vi.fn(async () => vpnSnapshot),
+    subscribe: vi.fn(() => () => undefined),
+  };
+}
+
 describe("mobile native fixture bootstrap", () => {
   it("constructs native mobile clients without desktop bootstrap or sockets", async () => {
     const invokeBootstrap = vi.fn(async () => fixture);
-    const startup = await resolveMobileStartup({ invokeBootstrap });
+    const mobileVpnClient = createVpnClient();
+    const startup = await resolveMobileStartup({ invokeBootstrap, mobileVpnClient });
 
     expect(invokeBootstrap).toHaveBeenCalledOnce();
     expect(startup.runtime).toBe("mobile");
     expect(startup.mobileFixture).toEqual(fixture);
+    expect(startup.mobileVpnSnapshot).toEqual(vpnSnapshot);
     await expect(startup.client?.getSnapshot()).resolves.toMatchObject({
       adapterKind: "native",
       capabilities: { systemProxy: "unavailable", tun: "unavailable" },
@@ -30,6 +61,7 @@ describe("mobile native fixture bootstrap", () => {
     await expect(
       resolveMobileStartup({
         invokeBootstrap: async () => ({ ...fixture, vpn: { availability: "supported" } }),
+        mobileVpnClient: createVpnClient(),
       }),
     ).rejects.toThrow();
   });

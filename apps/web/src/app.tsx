@@ -2,7 +2,8 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AppShell } from "./components/app-shell";
 import { MobileShell } from "./components/mobile-shell";
-import type { MobileFixtureBootstrapDto } from "@mish/contracts";
+import type { MobileFixtureBootstrapDto, MobileVpnSnapshotDto } from "@mish/contracts";
+import type { MobileVpnClient } from "./platform/mobile-vpn-client";
 import type { RuntimeKind } from "./platform/runtime-kind";
 import { NotFoundPage } from "./pages/not-found-page";
 import { StatusPage } from "./pages/status-page";
@@ -39,14 +40,30 @@ function renderDeferredRoute(children: ReactNode) {
 
 interface AppRoutesProps {
   mobileFixture?: MobileFixtureBootstrapDto;
+  mobileVpnClient?: MobileVpnClient;
+  mobileVpnSnapshot?: MobileVpnSnapshotDto;
   runtime?: RuntimeKind;
 }
 
-export function AppRoutes({ mobileFixture, runtime = "desktop" }: AppRoutesProps) {
-  if (runtime === "mobile" && !mobileFixture) {
-    throw new Error("Mobile routes require a validated native fixture");
+export function AppRoutes({
+  mobileFixture,
+  mobileVpnClient,
+  mobileVpnSnapshot,
+  runtime = "desktop",
+}: AppRoutesProps) {
+  if (runtime === "mobile" && (!mobileFixture || !mobileVpnClient || !mobileVpnSnapshot)) {
+    throw new Error("Mobile routes require validated native fixture snapshots");
   }
-  const shell = runtime === "mobile" ? <MobileShell fixture={mobileFixture!} /> : <AppShell />;
+  const shell =
+    runtime === "mobile" ? (
+      <MobileShell
+        fixture={mobileFixture!}
+        vpnClient={mobileVpnClient!}
+        vpnSnapshot={mobileVpnSnapshot!}
+      />
+    ) : (
+      <AppShell />
+    );
   return (
     <Routes>
       <Route element={shell}>

@@ -819,9 +819,33 @@ type RootTranslation = {
 	}
 	mobileFixture: {
 		/**
+		 * T​h​e​ ​n​a​t​i​v​e​ ​l​i​f​e​c​y​c​l​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.​ ​R​e​t​r​y​ ​a​f​t​e​r​ ​r​e​o​p​e​n​i​n​g​ ​t​h​e​ ​a​p​p​.
+		 */
+		commandFailed: string
+		/**
 		 * N​a​t​i​v​e​ ​f​i​x​t​u​r​e
 		 */
 		label: string
+		/**
+		 * R​u​n​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k
+		 */
+		lifecycleAction: string
+		/**
+		 * A​l​l​o​w​ ​s​t​a​t​u​s​ ​n​o​t​i​f​i​c​a​t​i​o​n
+		 */
+		notificationAction: string
+		/**
+		 * R​e​v​i​e​w​ ​V​P​N​ ​p​e​r​m​i​s​s​i​o​n
+		 */
+		permissionAction: string
+		/**
+		 * R​e​s​e​t​ ​l​i​f​e​c​y​c​l​e​ ​s​t​a​t​e
+		 */
+		reconcileAction: string
+		/**
+		 * S​t​o​p​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k
+		 */
+		stopAction: string
 		/**
 		 * V​P​N​ ​a​n​d​ ​e​m​b​e​d​d​e​d​ ​C​o​r​e​ ​a​r​e​ ​n​o​t​ ​i​m​p​l​e​m​e​n​t​e​d​ ​i​n​ ​t​h​i​s​ ​t​e​s​t​ ​b​u​i​l​d​.
 		 */
@@ -4449,9 +4473,33 @@ export type TranslationFunctions = {
 	}
 	mobileFixture: {
 		/**
+		 * The native lifecycle command failed. Retry after reopening the app.
+		 */
+		commandFailed: () => LocalizedString
+		/**
 		 * Native fixture
 		 */
 		label: () => LocalizedString
+		/**
+		 * Run lifecycle check
+		 */
+		lifecycleAction: () => LocalizedString
+		/**
+		 * Allow status notification
+		 */
+		notificationAction: () => LocalizedString
+		/**
+		 * Review VPN permission
+		 */
+		permissionAction: () => LocalizedString
+		/**
+		 * Reset lifecycle state
+		 */
+		reconcileAction: () => LocalizedString
+		/**
+		 * Stop lifecycle check
+		 */
+		stopAction: () => LocalizedString
 		/**
 		 * VPN and embedded Core are not implemented in this test build.
 		 */

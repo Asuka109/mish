@@ -24,6 +24,7 @@
     "mihomo:prepare": "node scripts/prepare-mihomo.ts",
     "mobile:android:build": "pnpm --filter @mish/mobile android:build",
     "mobile:android:init": "pnpm --filter @mish/mobile android:init",
+    "mobile:android:test": "pnpm --filter @mish/mobile android:test",
     "preview": "pnpm --filter @mish/web preview",
     "test": "pnpm --filter @mish/web test",
     "test:browser": "pnpm --filter @mish/web test:browser",
