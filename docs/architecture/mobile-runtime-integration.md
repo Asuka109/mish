@@ -118,11 +118,16 @@ tests. Development preparation is explicit and checksum-verified, following the
 same offline principle as desktop packaging.
 
 Android packaging uses an explicit staging command. It accepts only the two
-declared ABIs, verifies each ELF machine and the committed artifact SHA-256, and
-copies the library into the generated, ignored `jniLibs` directory. A small JNI
-shim loads the exact ABI by soname and exposes only bounded version evidence at
-this stage; it does not yet transfer configuration, a TUN descriptor, or Core
-lifecycle authority.
+declared ABIs and copies each verified library into the generated, ignored
+`jniLibs` directory. Local staging defaults to the committed canonical
+checksums. CI explicitly selects evidence from its current dual-pass build:
+verification anchors that evidence to the source manifest, current wrapper
+digest, current-host Go archive, NDK and build settings, ABI paths, ELF
+machines, exported symbols, checksums, and SBOM. This preserves same-host
+reproducibility without assuming that Go `c-shared` output is byte-identical
+across Darwin and Linux hosts. A small JNI shim loads the exact ABI by soname
+and exposes only bounded version evidence at this stage; it does not yet
+transfer configuration, a TUN descriptor, or Core lifecycle authority.
 
 ## Android lifecycle
 

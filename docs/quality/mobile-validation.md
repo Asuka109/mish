@@ -160,6 +160,13 @@ Every Android and Apple artifact check records:
 - SBOM; and
 - automated ABI compatibility results.
 
+Android build evidence is host-specific. A CI package may use checksums created
+by its current dual-pass build only when the verifier also matches the fixed
+source manifest, current wrapper digest, exact current-host Go archive, NDK and
+build contract, expected artifact paths, actual ELF machines and exported
+symbols, and SBOM. Local staging defaults to the committed canonical evidence;
+cross-host byte identity is not a release claim.
+
 No release accepts a third-party prebuilt AAR, `.so`, static library, or
 XCFramework without reproducible source inputs and independent digest
 verification.

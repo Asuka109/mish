@@ -136,9 +136,13 @@ pnpm mobile-core:stage:android
 pnpm mobile:android:build
 ```
 
-The staging command rejects missing, wrong-architecture, or checksum-mismatched
-Core artifacts. The app build always reapplies API 36, Build Tools 36.1.0, NDK
-29, and the ARM64/x86_64 debug-symbol rules before invoking Tauri.
+The staging command rejects missing, wrong-architecture, wrong-symbol, or
+checksum-mismatched Core artifacts. Its default evidence is the committed local
+canonical set. CI passes the current host's generated evidence explicitly only
+after the verifier has matched its source, wrapper, pinned host toolchain,
+build settings, ABI contract, checksums, and SBOM. The app build always
+reapplies API 36, Build Tools 36.1.0, NDK 29, and the ARM64/x86_64 debug-symbol
+rules before invoking Tauri.
 
 ## 2026-07-20 artifact evidence
 
@@ -238,11 +242,15 @@ explicitly deferred until the verified Core/ABI backend replaces the fixture.
 Pull requests run the bounded fast gate and upload no Android package. Only a
 push to `main` runs the independent Android packaging job. That job installs the
 pinned JDK, Android command-line tools, SDK, NDK, and Rust targets; restores
-pnpm, Gradle, and Rust build caches; reproducibly builds and stages the pinned
-Mobile Core; builds separate ARM64 and x86_64 debug APKs; verifies signatures,
-ABI entries, JNI probes, and the exact Core hashes against committed evidence;
-publishes hashes and provenance in the job summary; and uploads a 14-day,
-explicitly non-production test artifact.
+pnpm, Gradle, and Rust build caches; builds the pinned Mobile Core twice and
+requires byte-identical output on that host; verifies and stages the first pass
+against the generated evidence anchored to repository-owned source and
+toolchain inputs; builds separate ARM64 and x86_64 debug APKs; verifies
+signatures, ABI entries, JNI probes, and the exact packaged Core hashes against
+that same evidence; publishes hashes and provenance in the job summary; and
+uploads a 14-day, explicitly non-production test artifact. Local default
+staging continues to use the committed canonical evidence rather than silently
+trusting arbitrary generated checksums.
 Complete repository and real-browser validation run as a daily or manually
 dispatched inspection of the latest `main`.
 

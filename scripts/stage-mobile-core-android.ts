@@ -1,9 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const evidenceRoot = resolve(repositoryRoot, "mobile-core/evidence/android-v1.19.29");
+const canonicalEvidenceRoot = resolve(repositoryRoot, "mobile-core/evidence/android-v1.19.29");
 const defaultSourceRoot = resolve(repositoryRoot, ".scratch/mobile-core/pass-1/android");
 const defaultDestinationRoot = resolve(
   repositoryRoot,
@@ -54,7 +55,7 @@ function selectedArtifacts(): AndroidArtifact[] {
   return selected;
 }
 
-function expectedChecksums(): Map<string, string> {
+function expectedChecksums(evidenceRoot: string): Map<string, string> {
   const lines = readFileSync(resolve(evidenceRoot, "SHA256SUMS"), "utf8").trim().split("\n");
   return new Map(
     lines.map((line) => {
@@ -82,7 +83,19 @@ function verifyElf(path: string, artifact: AndroidArtifact): void {
 function main(): void {
   const sourceRoot = resolve(argument("--source-dir") ?? defaultSourceRoot);
   const destinationRoot = resolve(argument("--destination-dir") ?? defaultDestinationRoot);
-  const checksums = expectedChecksums();
+  const evidenceRoot = resolve(argument("--evidence-dir") ?? canonicalEvidenceRoot);
+  execFileSync(
+    process.execPath,
+    [
+      resolve(repositoryRoot, "scripts/verify-mobile-core.ts"),
+      "--evidence-dir",
+      evidenceRoot,
+      "--artifact-dir",
+      sourceRoot,
+    ],
+    { stdio: "inherit" },
+  );
+  const checksums = expectedChecksums(evidenceRoot);
 
   for (const artifact of selectedArtifacts()) {
     const source = resolve(sourceRoot, artifact.relativePath);
@@ -94,7 +107,7 @@ function main(): void {
     const actual = sha256(source);
     const expected = checksums.get(artifact.relativePath);
     if (!expected || actual !== expected) {
-      throw new Error(`${artifact.abi} Mobile Core does not match committed build evidence`);
+      throw new Error(`${artifact.abi} Mobile Core does not match selected build evidence`);
     }
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(source, destination);
