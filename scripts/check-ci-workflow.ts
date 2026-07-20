@@ -15,7 +15,7 @@ type Job = {
   env?: Record<string, unknown>;
   if?: string;
   needs?: unknown;
-  "runs-on"?: string;
+  "runs-on"?: string | string[];
   steps?: Step[];
   "timeout-minutes"?: number;
 };
@@ -128,7 +128,10 @@ invariant(
 
 const prGate = job("pr-gate");
 invariant(prGate.if === pullRequestOnly, "The fast gate must run only for pull requests.");
-invariant(prGate["runs-on"] === "ubuntu-24.04", "The fast gate must use Ubuntu 24.04.");
+invariant(
+  JSON.stringify(prGate["runs-on"]) === JSON.stringify(["self-hosted", "macOS", "ARM64", "mish"]),
+  "The fast gate must use the dedicated Mish macOS ARM64 runner.",
+);
 invariant(prGate["timeout-minutes"] === 10, "The fast gate must retain its ten-minute ceiling.");
 assertNodeCache(prGate, "The fast gate");
 invariant(
