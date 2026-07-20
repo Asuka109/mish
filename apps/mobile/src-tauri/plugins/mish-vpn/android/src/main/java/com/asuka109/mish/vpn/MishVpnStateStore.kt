@@ -29,7 +29,6 @@ internal class MishVpnStateStore(context: Context) : SnapshotRepository {
             val next = transformed.copy(
                 backendKind = "fixture",
                 contractVersion = CONTRACT_VERSION,
-                coreAvailability = "unavailable",
                 sequence = current.sequence + 1,
                 updatedAtMillis = System.currentTimeMillis(),
                 vpnActive = transformed.vpnActive && transformed.phase == VpnPhase.RUNNING.wireName,
@@ -41,6 +40,29 @@ internal class MishVpnStateStore(context: Context) : SnapshotRepository {
             publish(next)
             next
         }
+
+    fun reconcileCore(identity: MobileCoreIdentity?): MobileVpnSnapshot {
+        val current = current()
+        val availability = if (identity == null) "unavailable" else "available"
+        if (
+            current.coreAvailability == availability &&
+            current.coreAbiVersion == identity?.abiVersion &&
+            current.coreCommit == identity?.commit &&
+            current.coreVersion == identity?.version &&
+            current.coreWrapperRevision == identity?.wrapperRevision
+        ) {
+            return current
+        }
+        return update {
+            it.copy(
+                coreAbiVersion = identity?.abiVersion,
+                coreAvailability = availability,
+                coreCommit = identity?.commit,
+                coreVersion = identity?.version,
+                coreWrapperRevision = identity?.wrapperRevision,
+            )
+        }
+    }
 
     fun recoverAfterProcessStart(): MobileVpnSnapshot {
         val snapshot = current()

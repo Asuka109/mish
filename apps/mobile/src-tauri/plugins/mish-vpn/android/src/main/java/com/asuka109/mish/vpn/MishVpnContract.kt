@@ -19,7 +19,11 @@ internal enum class VpnPhase(val wireName: String) {
 internal data class MobileVpnSnapshot(
     val backendKind: String = "fixture",
     val contractVersion: Int = CONTRACT_VERSION,
+    val coreAbiVersion: Int? = null,
     val coreAvailability: String = "unavailable",
+    val coreCommit: String? = null,
+    val coreVersion: String? = null,
+    val coreWrapperRevision: String? = null,
     val foreground: Boolean = false,
     val message: String = "Android VPN lifecycle fixture ready. No TUN or Core is available.",
     val notificationPermission: String = "not-required",
@@ -33,7 +37,11 @@ internal data class MobileVpnSnapshot(
     fun toJson(): JSONObject = JSONObject()
         .put("backendKind", backendKind)
         .put("contractVersion", contractVersion)
+        .put("coreAbiVersion", coreAbiVersion)
         .put("coreAvailability", coreAvailability)
+        .put("coreCommit", coreCommit)
+        .put("coreVersion", coreVersion)
+        .put("coreWrapperRevision", coreWrapperRevision)
         .put("foreground", foreground)
         .put("message", message)
         .put("notificationPermission", notificationPermission)
@@ -48,7 +56,11 @@ internal data class MobileVpnSnapshot(
         fun fromJson(value: JSONObject): MobileVpnSnapshot = MobileVpnSnapshot(
             backendKind = value.optString("backendKind", "fixture"),
             contractVersion = value.optInt("contractVersion", CONTRACT_VERSION),
+            coreAbiVersion = value.optIntOrNull("coreAbiVersion"),
             coreAvailability = value.optString("coreAvailability", "unavailable"),
+            coreCommit = value.optStringOrNull("coreCommit"),
+            coreVersion = value.optStringOrNull("coreVersion"),
+            coreWrapperRevision = value.optStringOrNull("coreWrapperRevision"),
             foreground = value.optBoolean("foreground", false),
             message = value.optString(
                 "message",
@@ -64,6 +76,12 @@ internal data class MobileVpnSnapshot(
         )
     }
 }
+
+private fun JSONObject.optIntOrNull(name: String): Int? =
+    if (isNull(name)) null else optInt(name).takeIf { it > 0 }
+
+private fun JSONObject.optStringOrNull(name: String): String? =
+    if (isNull(name)) null else optString(name).takeIf { it.isNotBlank() }
 
 internal data class MobileVpnEvent(
     val eventKind: String = "snapshot-changed",

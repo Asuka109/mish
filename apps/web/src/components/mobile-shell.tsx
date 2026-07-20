@@ -89,7 +89,11 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
         <div className="mobile-fixture-banner">
           <div role="status">
             <strong>{LL.mobileFixture.label()}</strong>
-            <span>{LL.mobileFixture.unavailable()}</span>
+            <span>
+              {snapshot.coreAvailability === "available" && snapshot.coreVersion
+                ? LL.mobileFixture.coreReady({ version: snapshot.coreVersion })
+                : LL.mobileFixture.unavailable()}
+            </span>
             {commandFailed ? <span role="alert">{LL.mobileFixture.commandFailed()}</span> : null}
           </div>
           {fixture.platform === "android" ? (

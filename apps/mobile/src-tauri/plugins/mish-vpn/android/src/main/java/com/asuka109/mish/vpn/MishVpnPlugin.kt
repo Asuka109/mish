@@ -31,6 +31,7 @@ import app.tauri.plugin.Plugin
     ],
 )
 class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
+    private val coreProbe = MishMobileCoreProbe()
     private val store = MishVpnStateStore(activity)
     private var receiverRegistered = false
     private val snapshotReceiver = object : BroadcastReceiver() {
@@ -56,7 +57,7 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun getSnapshot(invoke: Invoke) {
-        invoke.resolveObject(reconcilePermissions())
+        invoke.resolveObject(reconcileSnapshot())
     }
 
     @Command
@@ -100,7 +101,7 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun requestNotificationPermission(invoke: Invoke) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || hasNotificationPermission()) {
-            invoke.resolveObject(reconcilePermissions())
+            invoke.resolveObject(reconcileSnapshot())
             return
         }
         requestPermissionForAlias("notifications", invoke, "notificationPermissionResult")
@@ -135,14 +136,19 @@ class MishVpnPlugin(private val activity: Activity) : Plugin(activity) {
         }
         val intent = Intent(activity, MishVpnService::class.java).setAction(MishVpnService.ACTION_START)
         ContextCompat.startForegroundService(activity, intent)
-        invoke.resolveObject(reconcilePermissions())
+        invoke.resolveObject(reconcileSnapshot())
     }
 
     @Command
     fun stop(invoke: Invoke) {
         val intent = Intent(activity, MishVpnService::class.java).setAction(MishVpnService.ACTION_STOP)
         activity.startService(intent)
-        invoke.resolveObject(reconcilePermissions())
+        invoke.resolveObject(reconcileSnapshot())
+    }
+
+    private fun reconcileSnapshot(): MobileVpnSnapshot {
+        reconcilePermissions()
+        return store.reconcileCore(coreProbe.inspect())
     }
 
     private fun reconcilePermissions(): MobileVpnSnapshot {

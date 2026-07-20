@@ -5,7 +5,9 @@ typed native fixture and an Android `VpnService` lifecycle prototype. The
 prototype requests VPN consent only after an explicit user action, exercises
 foreground-service and recovery semantics, and publishes authoritative typed
 snapshots. Its replaceable fixture backend never creates a TUN interface,
-captures traffic, starts Mihomo, or claims VPN/Core availability.
+captures traffic, or starts Mihomo. A separately verified Mobile Core build may
+be staged into generated `jniLibs`; the native probe then reports its bounded
+ABI and version identity without claiming that VPN traffic capture is connected.
 
 The Android project is generated from the committed Tauri configuration with:
 

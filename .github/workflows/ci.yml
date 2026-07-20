@@ -306,6 +306,12 @@ jobs:
         with:
           shared-key: android-package
           cache-on-failure: true
+      - name: Build and stage verified Mobile Core
+        run: |
+          export ANDROID_NDK_HOME="$NDK_HOME"
+          pnpm mobile-core:build
+          pnpm mobile-core:verify
+          pnpm mobile-core:stage:android
       - name: Build Android debug APKs
         run: pnpm mobile:android:build
       - name: Verify Android debug APKs
@@ -316,6 +322,7 @@ jobs:
           short_sha="${GITHUB_SHA:0:7}"
           output_root="apps/mobile/src-tauri/gen/android/app/build/outputs/apk"
           artifact_root=".scratch/artifacts/android"
+          core_checksums="mobile-core/evidence/android-v1.19.29/SHA256SUMS"
           mkdir -p "$artifact_root"
           arm64_count=0
           x86_64_count=0
@@ -323,10 +330,20 @@ jobs:
             "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose "$apk"
             entries="$(unzip -Z1 "$apk")"
             if grep -q '^lib/arm64-v8a/' <<< "$entries"; then
+              grep -qx 'lib/arm64-v8a/libmish_mobile_core.so' <<< "$entries"
+              grep -qx 'lib/arm64-v8a/libmish_vpn_jni.so' <<< "$entries"
+              expected_core="$(awk '$2 == "android/arm64-v8a/libmish_mobile_core.so" { print $1 }' "$core_checksums")"
+              actual_core="$(unzip -p "$apk" lib/arm64-v8a/libmish_mobile_core.so | sha256sum | awk '{print $1}')"
+              test "$actual_core" = "$expected_core"
               cp "$apk" "$artifact_root/Mish-${short_sha}-arm64-v8a-debug.apk"
               arm64_count=$((arm64_count + 1))
             fi
             if grep -q '^lib/x86_64/' <<< "$entries"; then
+              grep -qx 'lib/x86_64/libmish_mobile_core.so' <<< "$entries"
+              grep -qx 'lib/x86_64/libmish_vpn_jni.so' <<< "$entries"
+              expected_core="$(awk '$2 == "android/x86_64/libmish_mobile_core.so" { print $1 }' "$core_checksums")"
+              actual_core="$(unzip -p "$apk" lib/x86_64/libmish_mobile_core.so | sha256sum | awk '{print $1}')"
+              test "$actual_core" = "$expected_core"
               cp "$apk" "$artifact_root/Mish-${short_sha}-x86_64-debug.apk"
               x86_64_count=$((x86_64_count + 1))
             fi
@@ -376,7 +393,7 @@ jobs:
             echo "| App ID | \`com.asuka109.mish\` |"
             echo "| Supported ABIs | \`arm64-v8a\`, \`x86_64\` |"
             echo "| Signing mode | Android debug |"
-            echo "| Core | Not included; typed native fixture only |"
+            echo "| Core | Mihomo v1.19.29 identity probe; VPN lifecycle remains fixture-only |"
             echo "| ARM64 SHA-256 | \`$ARM64_SHA256\` |"
             echo "| x86_64 SHA-256 | \`$X86_64_SHA256\` |"
             echo "| Production use | No |"

@@ -6,7 +6,11 @@ function snapshot(sequence: number, phase = "stopped") {
   return {
     backendKind: "fixture",
     contractVersion: 1,
+    coreAbiVersion: null,
     coreAvailability: "unavailable",
+    coreCommit: null,
+    coreVersion: null,
+    coreWrapperRevision: null,
     foreground: false,
     message: "Fixture only. No TUN or Core is available.",
     notificationPermission: "required",

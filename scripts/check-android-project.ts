@@ -12,12 +12,16 @@ function invariant(condition: unknown, message: string): asserts condition {
 }
 
 const gradle = source("apps/mobile/src-tauri/gen/android/app/build.gradle.kts");
+const rootGradle = source("apps/mobile/src-tauri/gen/android/build.gradle.kts");
 const manifest = source("apps/mobile/src-tauri/gen/android/app/src/main/AndroidManifest.xml");
 const pluginRoot = "apps/mobile/src-tauri/plugins/mish-vpn";
 const pluginManifest = source(`${pluginRoot}/android/src/main/AndroidManifest.xml`);
 const pluginBuild = source(`${pluginRoot}/build.rs`);
 const pluginGradle = source(`${pluginRoot}/android/build.gradle.kts`);
+const pluginNativeBuild = source(`${pluginRoot}/android/src/main/cpp/Android.mk`);
+const pluginNativeBridge = source(`${pluginRoot}/android/src/main/cpp/mish_vpn_jni.c`);
 const pluginPermission = source(`${pluginRoot}/permissions/default.toml`);
+const mobileCoreStage = source("scripts/stage-mobile-core-android.ts");
 const mobileIgnore = source("apps/mobile/src-tauri/.gitignore");
 const mobilePackage = JSON.parse(source("apps/mobile/package.json")) as {
   scripts?: Record<string, string>;
@@ -40,9 +44,16 @@ for (const setting of [
   invariant(gradle.includes(setting), `Android project is missing the pinned setting: ${setting}`);
 }
 invariant(
+  rootGradle.includes('plugins.withId("com.android.library")') &&
+    rootGradle.includes('buildToolsVersion = "36.1.0"'),
+  "All generated Android library modules must use the retained Build Tools version.",
+);
+invariant(
   pluginGradle.includes('buildToolsVersion = "36.1.0"') &&
     pluginGradle.includes("compileSdk = 36") &&
-    pluginGradle.includes("minSdk = 28"),
+    pluginGradle.includes("minSdk = 28") &&
+    pluginGradle.includes('ndkVersion = "29.0.14206865"') &&
+    pluginGradle.includes("externalNativeBuild"),
   "The Android VPN plugin must share the pinned app SDK and Build Tools baseline.",
 );
 
@@ -57,8 +68,17 @@ invariant(
   "Android initialization must preserve the minimal Rust target set and reapply pinned versions.",
 );
 invariant(
-  mobilePackage.scripts?.["android:test"]?.includes(":tauri-plugin-mish-vpn:testDebugUnitTest"),
+  mobilePackage.scripts?.["android:test"]?.includes("android:prepare-plugin-tests") &&
+    mobilePackage.scripts?.["android:test"]?.includes(":tauri-plugin-mish-vpn:testDebugUnitTest"),
   "The Kotlin lifecycle state-machine tests must remain directly runnable.",
+);
+invariant(
+  mobilePackage.scripts?.tauri === "tauri",
+  "Nested Gradle Rust tasks must be able to re-enter the package-local Tauri CLI.",
+);
+invariant(
+  source("package.json").includes('"mobile-core:stage:android"'),
+  "The verified Mobile Core Android staging command must remain registered.",
 );
 invariant(
   manifest.match(/<uses-permission\b/gu)?.length === 1 &&
@@ -107,6 +127,8 @@ for (const requirement of [
   "NotificationChannel(",
   "Executors.newSingleThreadExecutor",
   "class FixtureVpnBackend",
+  'System.loadLibrary("mish_vpn_jni")',
+  "class MishMobileCoreProbe",
   "recoverAfterProcessStart",
   'trigger("snapshot"',
 ]) {
@@ -115,16 +137,43 @@ for (const requirement of [
     `Android VPN lifecycle source is missing: ${requirement}`,
   );
 }
-for (const forbidden of [
-  ".establish(",
-  "ParcelFileDescriptor",
-  "System.loadLibrary",
-  "libmihomo",
-  "MihomoCore",
-]) {
+for (const forbidden of [".establish(", "ParcelFileDescriptor", "libmihomo", "MihomoCore"]) {
   invariant(
     !kotlin.includes(forbidden),
     `The Phase 0 fixture must not implement a TUN or Core boundary: ${forbidden}`,
+  );
+}
+for (const requirement of [
+  "LOCAL_MODULE := mish_vpn_jni",
+  "MISH_REPOSITORY_ROOT",
+  "mobile-core/abi",
+]) {
+  invariant(
+    pluginNativeBuild.includes(requirement) || pluginGradle.includes(requirement),
+    `Android JNI build boundary is missing: ${requirement}`,
+  );
+}
+for (const requirement of [
+  'dlopen("libmish_mobile_core.so"',
+  "mish_core_abi_version_v1",
+  "mish_core_version_v1",
+  "mish_core_free_buffer_v1",
+  "MISH_CORE_MAX_RESPONSE_BYTES_V1",
+]) {
+  invariant(
+    pluginNativeBridge.includes(requirement),
+    `Android Mobile Core probe is missing: ${requirement}`,
+  );
+}
+for (const requirement of [
+  "SHA256SUMS",
+  "readUInt16LE(18)",
+  "libmish_mobile_core.so",
+  "apps/mobile/src-tauri/gen/android/app/src/main/jniLibs",
+]) {
+  invariant(
+    mobileCoreStage.includes(requirement),
+    `Android Mobile Core staging verification is missing: ${requirement}`,
   );
 }
 for (const command of [
@@ -157,5 +206,5 @@ invariant(
 );
 
 console.log(
-  "Android project valid: API 36, protected Phase 0 VpnService, honest fixture backend, predictive back, and no generated TV/FileProvider residue.",
+  "Android project valid: API 36, protected fixture VpnService, verified optional Mobile Core probe, predictive back, and no generated TV/FileProvider residue.",
 );

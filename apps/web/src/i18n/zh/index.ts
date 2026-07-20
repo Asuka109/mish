@@ -230,6 +230,7 @@ const zh = {
     settings: "设置",
   },
   mobileFixture: {
+    coreReady: "已打包 Mihomo {version}；VPN 流量接管尚未接通。",
     commandFailed: "原生生命周期命令失败，请重新打开应用后重试。",
     label: "原生测试夹具",
     lifecycleAction: "运行生命周期检查",

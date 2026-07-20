@@ -22,7 +22,11 @@ const fixture = MobileFixtureBootstrapSchema.parse({
 const vpnSnapshot = {
   backendKind: "fixture" as const,
   contractVersion: 1 as const,
+  coreAbiVersion: null,
   coreAvailability: "unavailable" as const,
+  coreCommit: null,
+  coreVersion: null,
+  coreWrapperRevision: null,
   foreground: false,
   message: "Fixture only. No TUN or Core is available.",
   notificationPermission: "required" as const,
@@ -82,5 +86,38 @@ describe("MobileShell", () => {
 
     expect(screen.getByRole("link", { name: "Activity" })).toHaveClass("is-active");
     expect(screen.getByRole("link", { name: "Rules" })).toHaveClass("is-active");
+  });
+
+  it("shows verified packaged Core identity without claiming a running VPN", () => {
+    render(
+      <TypesafeI18n locale="en">
+        <MemoryRouter initialEntries={["/status"]}>
+          <Routes>
+            <Route
+              element={
+                <MobileShell
+                  fixture={fixture}
+                  vpnClient={vpnClient}
+                  vpnSnapshot={{
+                    ...vpnSnapshot,
+                    coreAbiVersion: 1,
+                    coreAvailability: "available",
+                    coreCommit: "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+                    coreVersion: "v1.19.29",
+                    coreWrapperRevision: "mish-mobile-core-v1",
+                  }}
+                />
+              }
+            >
+              <Route element={<div>Route content</div>} path="*" />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </TypesafeI18n>,
+    );
+
+    expect(
+      screen.getByText("Mihomo v1.19.29 is packaged; VPN traffic capture is not connected yet."),
+    ).toBeVisible();
   });
 });

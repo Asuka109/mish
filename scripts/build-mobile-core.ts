@@ -244,28 +244,47 @@ function ensureSource(sourceDirectory: string): void {
   ) {
     throw new Error(`Mihomo checkout does not match the pinned commit/tree/tag relationship`);
   }
+  const dirty = run("git", ["status", "--porcelain", "--untracked-files=no"], {
+    cwd: sourceDirectory,
+    quiet: true,
+  }).trim();
+  if (dirty) throw new Error("Mihomo checkout contains modified tracked files");
 }
 
-function prepareModfile(goBinary: string, scratchRoot: string, sourceDirectory: string): string {
-  const directory = path.join(scratchRoot, "modfile");
-  const modfile = path.join(directory, "wrapper.mod");
-  mkdirSync(directory, { recursive: true });
-  copyFileSync(path.join(repositoryRoot, "mobile-core/wrapper/go.mod"), modfile);
+interface BuildTree {
+  moduleRoot: string;
+  wrapperRoot: string;
+}
+
+function prepareBuildTree(sourceDirectory: string, scratchRoot: string): BuildTree {
+  const moduleRoot = path.join(scratchRoot, "source-build", manifest.mihomo.tree);
+  const trackedFiles = run("git", ["ls-files", "-z"], {
+    cwd: sourceDirectory,
+    quiet: true,
+  })
+    .split("\0")
+    .filter(Boolean);
+  for (const relative of trackedFiles) {
+    const destination = path.join(moduleRoot, relative);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    copyFileSync(path.join(sourceDirectory, relative), destination);
+  }
+
+  const wrapperRoot = path.join(moduleRoot, "mish-mobile-core-wrapper");
+  mkdirSync(wrapperRoot, { recursive: true });
+  for (const file of ["main.go", "runtime.go"]) {
+    copyFileSync(
+      path.join(repositoryRoot, "mobile-core/wrapper", file),
+      path.join(wrapperRoot, file),
+    );
+  }
+  const abiRoot = path.join(moduleRoot, "abi");
+  mkdirSync(abiRoot, { recursive: true });
   copyFileSync(
-    path.join(repositoryRoot, "mobile-core/wrapper/go.sum"),
-    path.join(directory, "wrapper.sum"),
+    path.join(repositoryRoot, "mobile-core/abi/mish_mobile_core.h"),
+    path.join(abiRoot, "mish_mobile_core.h"),
   );
-  run(
-    goBinary,
-    [
-      "mod",
-      "edit",
-      `-modfile=${modfile}`,
-      `-replace=github.com/metacubex/mihomo=${sourceDirectory}`,
-    ],
-    { cwd: path.join(repositoryRoot, "mobile-core/wrapper") },
-  );
-  return modfile;
+  return { moduleRoot, wrapperRoot };
 }
 
 function buildEnvironment(
@@ -318,7 +337,7 @@ function inspectArtifact(
 function buildPass(
   pass: string,
   goBinary: string,
-  modfile: string,
+  wrapperRoot: string,
   ndkToolchain: string,
   scratchRoot: string,
 ): ArtifactEvidence[] {
@@ -332,18 +351,18 @@ function buildPass(
       goBinary,
       [
         "build",
-        `-modfile=${modfile}`,
         "-mod=readonly",
         "-buildmode=c-shared",
         "-buildvcs=false",
         "-trimpath",
+        "-gcflags=github.com/metacubex/mihomo/mish-mobile-core-wrapper=-lang=go1.26",
         `-tags=${manifest.android.buildTags.join(",")}`,
         `-ldflags=-buildid= -s -w -X main.wrapperRevision=${manifest.wrapperRevision} -X main.mihomoVersion=${manifest.mihomo.version} -X main.mihomoCommit=${manifest.mihomo.commit}`,
         "-o",
         output,
         ".",
       ],
-      { cwd: path.join(repositoryRoot, "mobile-core/wrapper"), env: environment },
+      { cwd: wrapperRoot, env: environment },
     );
     artifacts.push(inspectArtifact(output, target, ndkToolchain));
   }
@@ -377,22 +396,24 @@ function parseJSONStream(output: string): GoModule[] {
   return modules;
 }
 
-function collectModules(goBinary: string, modfile: string, scratchRoot: string): GoModule[] {
+function collectModules(goBinary: string, moduleRoot: string, scratchRoot: string): GoModule[] {
   const environment = {
     ...process.env,
     GOMODCACHE: path.join(scratchRoot, "cache/modules"),
     GOTOOLCHAIN: "local",
   };
-  const output = run(
-    goBinary,
-    ["list", `-modfile=${modfile}`, "-mod=readonly", "-m", "-json", "all"],
-    {
-      cwd: path.join(repositoryRoot, "mobile-core/wrapper"),
-      env: environment,
-      quiet: true,
-    },
+  const output = run(goBinary, ["list", "-mod=readonly", "-m", "-json", "all"], {
+    cwd: moduleRoot,
+    env: environment,
+    quiet: true,
+  });
+  const modules = parseJSONStream(output).map((module) =>
+    module.Path === "github.com/metacubex/mihomo"
+      ? { ...module, Main: false, Version: manifest.mihomo.version }
+      : module,
   );
-  return parseJSONStream(output).sort((left, right) => left.Path.localeCompare(right.Path));
+  modules.push({ Path: "github.com/Asuka109/mish/mobile-core/wrapper", Main: true });
+  return modules.sort((left, right) => left.Path.localeCompare(right.Path));
 }
 
 function spdxIdentifier(value: string): string {
@@ -477,9 +498,16 @@ function writeEvidence(
     build: {
       minimumApi: manifest.android.minimumApi,
       tags: manifest.android.buildTags,
-      flags: ["-buildmode=c-shared", "-buildvcs=false", "-trimpath", "-ldflags=-buildid= -s -w"],
+      flags: [
+        "-buildmode=c-shared",
+        "-buildvcs=false",
+        "-trimpath",
+        "-gcflags=github.com/metacubex/mihomo/mish-mobile-core-wrapper=-lang=go1.26",
+        "-ldflags=-buildid= -s -w",
+      ],
       sourceDateEpoch: manifest.mihomo.sourceDateEpoch,
       cCompiler: "NDK clang with an explicit --target triple and API suffix",
+      moduleMode: "wrapper copied into the pinned Mihomo module tree",
     },
     correspondingSource: manifest.mihomo.correspondingSource,
     license: "GPL-3.0-only",
@@ -515,15 +543,15 @@ async function main(): Promise<void> {
   const ndk = resolveNdk();
   const ndkToolchain = ndkHostDirectory(ndk);
   ensureSource(sourceDirectory);
-  const modfile = prepareModfile(goBinary, scratchRoot, sourceDirectory);
-  const first = buildPass("pass-1", goBinary, modfile, ndkToolchain, scratchRoot);
-  const second = buildPass("pass-2", goBinary, modfile, ndkToolchain, scratchRoot);
+  const buildTree = prepareBuildTree(sourceDirectory, scratchRoot);
+  const first = buildPass("pass-1", goBinary, buildTree.wrapperRoot, ndkToolchain, scratchRoot);
+  const second = buildPass("pass-2", goBinary, buildTree.wrapperRoot, ndkToolchain, scratchRoot);
   for (let index = 0; index < first.length; index++) {
     if (first[index].sha256 !== second[index].sha256) {
       throw new Error(`${first[index].abi} is not reproducible across clean output paths`);
     }
   }
-  const modules = collectModules(goBinary, modfile, scratchRoot);
+  const modules = collectModules(goBinary, buildTree.moduleRoot, scratchRoot);
   writeEvidence(evidenceDirectory, first, modules, wrapperDigest(), goBinary);
   console.log(
     `Built and reproduced ${first.map((artifact) => artifact.abi).join(", ")} from ${manifest.mihomo.commit}.`,

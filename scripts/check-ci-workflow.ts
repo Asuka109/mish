@@ -323,6 +323,22 @@ for (const component of [
 }
 
 const androidBuild = step(packageAndroid, "Build Android debug APKs");
+const mobileCoreBuild = step(packageAndroid, "Build and stage verified Mobile Core");
+for (const command of [
+  "pnpm mobile-core:build",
+  "pnpm mobile-core:verify",
+  "pnpm mobile-core:stage:android",
+]) {
+  invariant(
+    mobileCoreBuild.run?.includes(command),
+    `Android packaging must run ${command} before the application build.`,
+  );
+}
+invariant(
+  (packageAndroid.steps?.indexOf(mobileCoreBuild) ?? -1) <
+    (packageAndroid.steps?.indexOf(androidBuild) ?? -1),
+  "Verified Mobile Core staging must finish before the Android application build.",
+);
 invariant(
   androidBuild.run === "pnpm mobile:android:build",
   "Android packaging must use the repository build command.",
@@ -364,6 +380,20 @@ invariant(
   !androidSummary.includes("subscription") && !androidSummary.includes("token"),
   "The Android package summary must not mention sensitive Profile material.",
 );
+
+const androidVerification = step(packageAndroid, "Verify Android debug APKs").run ?? "";
+for (const requirement of [
+  "libmish_mobile_core.so",
+  "libmish_vpn_jni.so",
+  "mobile-core/evidence/android-v1.19.29/SHA256SUMS",
+  "actual_core",
+  "expected_core",
+]) {
+  invariant(
+    androidVerification.includes(requirement),
+    `Android package verification must retain ${requirement}.`,
+  );
+}
 
 console.log(
   "CI workflow contract valid: PRs use the fast gate, main pushes package, and scheduled/manual main inspections run the heavy suite.",

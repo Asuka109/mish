@@ -13,7 +13,7 @@
   },
   "wrapper": {
     "revision": "mish-mobile-core-v1",
-    "sha256": "ccfac1c5c03f43a6381c940d4c1cce0cfa4ecd39d29ff7be8e254d11f7d1975d"
+    "sha256": "06819438b9d719dfef576503b10b76cb39ec98cafb0f9152cd6e00c3e4017a89"
   },
   "toolchains": {
     "go": {
@@ -27,10 +27,20 @@
   },
   "build": {
     "minimumApi": 28,
-    "tags": ["cmfa", "with_gvisor"],
-    "flags": ["-buildmode=c-shared", "-buildvcs=false", "-trimpath", "-ldflags=-buildid= -s -w"],
+    "tags": [
+      "cmfa",
+      "with_gvisor"
+    ],
+    "flags": [
+      "-buildmode=c-shared",
+      "-buildvcs=false",
+      "-trimpath",
+      "-gcflags=github.com/metacubex/mihomo/mish-mobile-core-wrapper=-lang=go1.26",
+      "-ldflags=-buildid= -s -w"
+    ],
     "sourceDateEpoch": 1784373534,
-    "cCompiler": "NDK clang with an explicit --target triple and API suffix"
+    "cCompiler": "NDK clang with an explicit --target triple and API suffix",
+    "moduleMode": "wrapper copied into the pinned Mihomo module tree"
   },
   "correspondingSource": "https://github.com/MetaCubeX/mihomo/tree/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
   "license": "GPL-3.0-only",
@@ -54,8 +64,8 @@
         "mish_core_version_v1"
       ],
       "machine": "AArch64",
-      "sha256": "b87b9348d8cdcca1264065bcd036b2f29fd9c755a9b3c831ec459b73d374aba6",
-      "size": 51527672
+      "sha256": "ef5db794bf29970d5f813d3147e27ada01ecd32aaed62b76779f6d1388386034",
+      "size": 42642328
     },
     {
       "abi": "x86_64",
@@ -77,8 +87,8 @@
         "mish_core_version_v1"
       ],
       "machine": "Advanced Micro Devices X86-64",
-      "sha256": "d4987a4d16340e29929c7329f18606d6916b4aa94ffaa8280becf0abf28eaf25",
-      "size": 56027096
+      "sha256": "3c011331bbcc42ce421b160a3495227a3376836d16cbf2a009a2a4ca67cf4091",
+      "size": 46779544
     }
   ]
 }
