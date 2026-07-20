@@ -64,6 +64,10 @@ function getEntityLabel(graph: RouteGraph, entityId: string | null | undefined) 
   return graph.groupById.get(entityId)?.label ?? graph.nodeById.get(entityId)?.label ?? entityId;
 }
 
+function isGlobalGroup(group: PolicyGroupDto) {
+  return group.label === "GLOBAL";
+}
+
 function getGraphErrorMessage(LL: TranslationFunctions, graph: RouteGraph, error: RouteGraphError) {
   const group = getEntityLabel(graph, error.groupId);
   const child = getEntityLabel(graph, error.childId);
@@ -225,6 +229,66 @@ function RouteNodeRow({
   );
 }
 
+interface RouteGroupReferenceRowProps {
+  commandDescriptionId: string | undefined;
+  commandPending: boolean;
+  commandSupported: boolean;
+  delayResult?: GroupDelayChildResultDto;
+  group: PolicyGroupDto;
+  parentGroup: PolicyGroupDto;
+  onSelect(groupId: string, childId: string): void;
+}
+
+function RouteGroupReferenceRow({
+  commandDescriptionId,
+  commandPending,
+  commandSupported,
+  delayResult,
+  group,
+  parentGroup,
+  onSelect,
+}: RouteGroupReferenceRowProps) {
+  const { LL } = useI18nContext();
+  const selected = parentGroup.selectedChildId === group.id;
+  const content = (
+    <>
+      <span className="route-child-copy">
+        <strong className="user-authored-label" title={group.label}>
+          {group.label}
+        </strong>
+        <span>{LL.routes.groupReferenceType({ type: getGroupTypeLabel(LL, group) })}</span>
+      </span>
+      <span className="route-child-status">
+        <DelayResult result={delayResult} />
+        {selected ? (
+          <span className="route-selected-status">
+            <Check aria-hidden="true" />
+            {LL.routes.selected()}
+          </span>
+        ) : null}
+      </span>
+    </>
+  );
+
+  if (parentGroup.type !== "selector") {
+    return <div className="route-child-row route-group-reference">{content}</div>;
+  }
+
+  return (
+    <Button
+      aria-describedby={commandDescriptionId}
+      aria-label={LL.routes.selectChild({ child: group.label, group: parentGroup.label })}
+      aria-pressed={selected}
+      className="route-child-row route-child-select route-group-reference"
+      disabled={commandPending || !commandSupported}
+      onClick={() => onSelect(parentGroup.id, group.id)}
+      variant="ghost"
+    >
+      {content}
+    </Button>
+  );
+}
+
 interface RouteGroupProps {
   commandDescriptionId: string | undefined;
   commandSupported: boolean;
@@ -232,7 +296,7 @@ interface RouteGroupProps {
   delayCommandSupported: boolean;
   delayPolicy: GroupDelayPolicyDto;
   delayTest: GroupDelayTestDto;
-  depth: number;
+  disabled: boolean;
   expandedGroupIds: Set<string>;
   graph: RouteGraph;
   group: PolicyGroupDto;
@@ -243,8 +307,6 @@ interface RouteGroupProps {
   onSort(groupId: string, sort: RouteSort): void;
   onStartDelay(groupId: string): void;
   onToggle(groupId: string): void;
-  parentGroup?: PolicyGroupDto;
-  parentDelayResult?: GroupDelayChildResultDto;
   search: RouteSearchState;
   sortByGroupId: ReadonlyMap<string, RouteSort>;
 }
@@ -256,7 +318,7 @@ function RouteGroup({
   delayCommandSupported,
   delayPolicy,
   delayTest,
-  depth,
+  disabled,
   expandedGroupIds,
   graph,
   group,
@@ -267,19 +329,17 @@ function RouteGroup({
   onSort,
   onStartDelay,
   onToggle,
-  parentGroup,
-  parentDelayResult,
   search,
   sortByGroupId,
 }: RouteGroupProps) {
   const { LL } = useI18nContext();
   const hasChildren = group.childIds.length > 0;
   const expanded =
-    hasChildren && (expandedGroupIds.has(group.id) || search.autoExpandedGroupIds.has(group.id));
+    !disabled &&
+    hasChildren &&
+    (expandedGroupIds.has(group.id) || search.autoExpandedGroupIds.has(group.id));
   const childrenId = `route-group-${encodeURIComponent(group.id)}`;
   const currentChild = getEntityLabel(graph, group.selectedChildId);
-  const selectedInParent = parentGroup?.selectedChildId === group.id;
-  const canSelectInParent = parentGroup?.type === "selector";
   const sort = sortByGroupId.get(group.id) ?? "configuration";
   const sortedChildIds = expanded ? sortRouteChildIds(graph, group, sort, locale, delayTest) : [];
   const delayIsActive = delayTest.phase === "pending" || delayTest.phase === "progress";
@@ -317,13 +377,12 @@ function RouteGroup({
       <Badge aria-label={LL.routes.childCount({ count: group.childIds.length })} variant="outline">
         {group.childIds.length}
       </Badge>
-      <DelayResult result={parentDelayResult} />
     </>
   );
 
   return (
-    <li className="route-group-item" data-depth={depth}>
-      <article className="route-group">
+    <li className="route-group-item">
+      <article className="route-group" data-disabled={disabled ? "true" : undefined}>
         <div className="route-group-header">
           {hasChildren ? (
             <Button
@@ -335,6 +394,7 @@ function RouteGroup({
                   : LL.routes.expandGroup({ group: group.label })
               }
               className="route-group-toggle"
+              disabled={disabled}
               onClick={() => onToggle(group.id)}
               variant="ghost"
             >
@@ -343,21 +403,6 @@ function RouteGroup({
           ) : (
             <div className="route-group-toggle route-group-static">{headerContent}</div>
           )}
-          {canSelectInParent && parentGroup ? (
-            <Button
-              aria-describedby={commandDescriptionId}
-              aria-label={LL.routes.selectChild({ child: group.label, group: parentGroup.label })}
-              aria-pressed={selectedInParent}
-              className="route-group-select"
-              disabled={isGroupCommandPending(parentGroup.id) || !commandSupported}
-              onClick={() => onSelect(parentGroup.id, group.id)}
-              size="sm"
-              variant={selectedInParent ? "outline" : "ghost"}
-            >
-              {selectedInParent ? <Check aria-hidden="true" /> : null}
-              {selectedInParent ? LL.routes.selected() : getGroupTypeLabel(LL, group)}
-            </Button>
-          ) : null}
         </div>
 
         {expanded ? (
@@ -442,30 +487,17 @@ function RouteGroup({
                   const childGroup = graph.groupById.get(childId);
                   if (childGroup) {
                     return (
-                      <RouteGroup
-                        commandDescriptionId={commandDescriptionId}
-                        commandSupported={commandSupported}
-                        delayCommandPending={delayCommandPending}
-                        delayCommandSupported={delayCommandSupported}
-                        delayPolicy={delayPolicy}
-                        delayTest={delayTest}
-                        depth={depth + 1}
-                        expandedGroupIds={expandedGroupIds}
-                        graph={graph}
-                        group={childGroup}
-                        isGroupCommandPending={isGroupCommandPending}
-                        key={childId}
-                        locale={locale}
-                        onCancelDelay={onCancelDelay}
-                        onSelect={onSelect}
-                        onSort={onSort}
-                        onStartDelay={onStartDelay}
-                        onToggle={onToggle}
-                        parentGroup={group}
-                        parentDelayResult={getGroupDelayResult(delayTest, group.id, childId)}
-                        search={search}
-                        sortByGroupId={sortByGroupId}
-                      />
+                      <li key={childId}>
+                        <RouteGroupReferenceRow
+                          commandDescriptionId={commandDescriptionId}
+                          commandPending={isGroupCommandPending(group.id)}
+                          commandSupported={commandSupported}
+                          delayResult={getGroupDelayResult(delayTest, group.id, childId)}
+                          group={childGroup}
+                          onSelect={onSelect}
+                          parentGroup={group}
+                        />
+                      </li>
                     );
                   }
                   const node = graph.nodeById.get(childId);
@@ -542,9 +574,15 @@ export function RoutesPage() {
   const delayCommandSupported = isCommandSupported("group-delay");
   const delayCommandPending = isCommandPending("group-delay");
   const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
-  const visibleRootGroupIds = search.queryActive
-    ? graph.rootGroupIds.filter((groupId) => search.visibleEntityIds.has(groupId))
-    : graph.rootGroupIds;
+  const modeGroups = snapshot.groups
+    .filter((group) => snapshot.routingMode === "global" || !isGlobalGroup(group))
+    .toSorted((first, second) => {
+      if (snapshot.routingMode !== "global") return 0;
+      return Number(isGlobalGroup(second)) - Number(isGlobalGroup(first));
+    });
+  const visibleGroupIds = modeGroups
+    .map((group) => group.id)
+    .filter((groupId) => !search.queryActive || search.visibleEntityIds.has(groupId));
 
   function toggleGroup(groupId: string) {
     setExpandedGroupIds((current) => {
@@ -615,7 +653,7 @@ export function RoutesPage() {
               <EmptyDescription>{LL.routes.noGroupsDescription()}</EmptyDescription>
             </EmptyHeader>
           </Empty>
-        ) : visibleRootGroupIds.length === 0 ? (
+        ) : visibleGroupIds.length === 0 ? (
           <Empty className="routes-empty">
             <EmptyHeader>
               <EmptyTitle>{LL.routes.noMatchesTitle()}</EmptyTitle>
@@ -625,7 +663,7 @@ export function RoutesPage() {
         ) : (
           <section aria-label={LL.routes.title()} className="routes-graph">
             <ul className="route-root-list">
-              {visibleRootGroupIds.map((groupId) => {
+              {visibleGroupIds.map((groupId) => {
                 const group = graph.groupById.get(groupId);
                 if (!group) return null;
                 return (
@@ -636,7 +674,7 @@ export function RoutesPage() {
                     delayCommandSupported={delayCommandSupported}
                     delayPolicy={snapshot.groupDelayPolicy}
                     delayTest={snapshot.groupDelayTest}
-                    depth={0}
+                    disabled={snapshot.routingMode === "global" && !isGlobalGroup(group)}
                     expandedGroupIds={expandedGroupIds}
                     graph={graph}
                     group={group}

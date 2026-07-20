@@ -2215,6 +2215,10 @@ h2 {
   background: var(--color-canvas);
 }
 
+.route-group[data-disabled="true"] {
+  opacity: 0.55;
+}
+
 .route-group-header {
   display: flex;
   min-width: 0;
@@ -2295,14 +2299,6 @@ h2 {
   font-size: var(--text-metadata);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.route-group-select {
-  height: auto;
-  min-height: 34px;
-  align-self: center;
-  flex: 0 0 auto;
-  margin-right: 10px;
 }
 
 .route-group-body {
@@ -2402,15 +2398,6 @@ h2 {
   background: var(--color-canvas);
 }
 
-.route-children-list .route-group {
-  border: 0;
-  border-radius: 0;
-}
-
-.route-children-list .route-group-toggle {
-  padding-left: 16px;
-}
-
 .route-child-row {
   display: grid;
   width: 100%;
@@ -2426,6 +2413,10 @@ h2 {
   background: var(--color-canvas);
   color: var(--color-body);
   text-align: left;
+}
+
+.route-group-reference .route-child-copy span {
+  color: var(--color-text-subtle);
 }
 
 .route-child-select:hover,
