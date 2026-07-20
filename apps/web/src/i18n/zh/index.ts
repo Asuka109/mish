@@ -350,6 +350,8 @@ const zh = {
     systemProxyOff: "系统代理已关闭，并经 macOS 确认。",
     systemProxyPending: "系统代理正在等待 macOS 确认。",
     systemProxyPermissionFailure: "macOS 未允许更改系统代理，因此没有记录成功状态。",
+    systemProxyRepairRequiresCore:
+      "系统代理与 Mish 的请求状态不一致。修复需要正在运行的 Mihomo Core；请先保留系统当前设置以清除此恢复状态，再重新启动代理。",
     systemProxyUnsafeFailure: "系统正在使用自动或认证代理；Mish 未覆盖这些设置。",
     systemProxyUnknown: "系统代理的选择意图为关闭，但当前无法读取 macOS 状态。",
     title: "系统代理与虚拟网卡",

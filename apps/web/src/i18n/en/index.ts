@@ -390,6 +390,8 @@ const en = {
     systemProxyPending: "System Proxy is pending macOS confirmation.",
     systemProxyPermissionFailure:
       "macOS did not allow the System Proxy change. No success was recorded.",
+    systemProxyRepairRequiresCore:
+      "System Proxy differs from Mish's requested state. Repair requires a running Mihomo core; keep the current OS settings to clear this recovery state before starting the proxy again.",
     systemProxyUnsafeFailure:
       "Automatic or authenticated proxy settings are active. Mish left them unchanged.",
     systemProxyUnknown: "System Proxy is selected off, but the macOS state is not available.",

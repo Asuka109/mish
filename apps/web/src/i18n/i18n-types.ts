@@ -1245,6 +1245,10 @@ type RootTranslation = {
 		 */
 		systemProxyPermissionFailure: string
 		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​d​i​f​f​e​r​s​ ​f​r​o​m​ ​M​i​s​h​'​s​ ​r​e​q​u​e​s​t​e​d​ ​s​t​a​t​e​.​ ​R​e​p​a​i​r​ ​r​e​q​u​i​r​e​s​ ​a​ ​r​u​n​n​i​n​g​ ​M​i​h​o​m​o​ ​c​o​r​e​;​ ​k​e​e​p​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​O​S​ ​s​e​t​t​i​n​g​s​ ​t​o​ ​c​l​e​a​r​ ​t​h​i​s​ ​r​e​c​o​v​e​r​y​ ​s​t​a​t​e​ ​b​e​f​o​r​e​ ​s​t​a​r​t​i​n​g​ ​t​h​e​ ​p​r​o​x​y​ ​a​g​a​i​n​.
+		 */
+		systemProxyRepairRequiresCore: string
+		/**
 		 * A​u​t​o​m​a​t​i​c​ ​o​r​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​a​c​t​i​v​e​.​ ​M​i​s​h​ ​l​e​f​t​ ​t​h​e​m​ ​u​n​c​h​a​n​g​e​d​.
 		 */
 		systemProxyUnsafeFailure: string
@@ -5036,6 +5040,10 @@ export type TranslationFunctions = {
 		 * macOS did not allow the System Proxy change. No success was recorded.
 		 */
 		systemProxyPermissionFailure: () => LocalizedString
+		/**
+		 * System Proxy differs from Mish's requested state. Repair requires a running Mihomo core; keep the current OS settings to clear this recovery state before starting the proxy again.
+		 */
+		systemProxyRepairRequiresCore: () => LocalizedString
 		/**
 		 * Automatic or authenticated proxy settings are active. Mish left them unchanged.
 		 */

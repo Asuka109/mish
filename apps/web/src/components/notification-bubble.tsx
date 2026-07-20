@@ -137,8 +137,17 @@ export function NotificationBubble() {
   const settingsFailureObservedAt = useObservedAt(settingsFailure);
   const trafficFailureObservedAt = useObservedAt(Boolean(trafficFailure));
   const localProxyFailureObservedAt = useObservedAt(Boolean(localProxyFailure));
-  const canRepairSystemProxy = systemProxy?.recoveryActions.includes("repair") ?? false;
+  const repairRequiresCore =
+    Boolean(systemProxy?.recoveryActions.includes("repair")) &&
+    snapshot?.runtime.phase !== "healthy";
+  const canRepairSystemProxy =
+    (systemProxy?.recoveryActions.includes("repair") ?? false) && !repairRequiresCore;
   const canLeaveSystemProxy = systemProxy?.recoveryActions.includes("leave-as-is") ?? false;
+  const systemProxyDriftMessage = repairRequiresCore
+    ? LL.capture.systemProxyRepairRequiresCore()
+    : systemProxy
+      ? systemProxyStatusMessage(LL, systemProxy)
+      : "";
   const driftActions: NotificationAction[] = [];
   if (canRepairSystemProxy) {
     driftActions.push({
@@ -159,7 +168,7 @@ export function NotificationBubble() {
             actions: driftActions,
             id: `system-proxy-drift:${driftObservedAt}`,
             level: "warning" as const,
-            message: systemProxy ? systemProxyStatusMessage(LL, systemProxy) : "",
+            message: systemProxyDriftMessage,
             observedAt: driftObservedAt,
             source: LL.navigation.status(),
           },
@@ -267,7 +276,7 @@ export function NotificationBubble() {
     }
     if (driftToastVisible.current) return;
     driftToastVisible.current = true;
-    toast.warning(systemProxy ? systemProxyStatusMessage(LL, systemProxy) : "", {
+    toast.warning(systemProxyDriftMessage, {
       action: canRepairSystemProxy
         ? {
             label: LL.capture.repairSystemProxy(),
@@ -288,7 +297,7 @@ export function NotificationBubble() {
     canLeaveSystemProxy,
     canRepairSystemProxy,
     recoverSystemProxy,
-    systemProxy,
+    systemProxyDriftMessage,
     systemProxyDrift,
   ]);
 

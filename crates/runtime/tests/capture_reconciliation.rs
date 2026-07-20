@@ -1288,6 +1288,47 @@ async fn listener_readiness_failure_never_modifies_system_proxy_or_reports_succe
 }
 
 #[tokio::test]
+async fn pre_apply_core_failure_does_not_become_drift_during_audit() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            false,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::CoreUnhealthy);
+
+    let audited = reconciler
+        .audit(CaptureAuditReason::Periodic, false)
+        .await
+        .unwrap();
+
+    assert_eq!(audited.system_proxy.phase, SystemProxyPhase::Failed);
+    assert_eq!(
+        audited.system_proxy.failure,
+        Some(mish_runtime::CaptureFailureKind::CoreUnhealthy)
+    );
+    assert!(audited.system_proxy.recovery_actions.is_empty());
+    assert!(!audited.system_proxy_enabled);
+    assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
+}
+
+#[tokio::test]
 async fn local_proxy_test_confirms_only_the_listener_and_leaves_system_proxy_untouched() {
     let prior = disabled_service();
     let platform = Arc::new(FakePlatform::new(prior.clone()));

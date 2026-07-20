@@ -1219,6 +1219,7 @@ describe("desktop RPC experience", () => {
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection.systemProxy = true;
+    snapshot.runtime.phase = "healthy";
     snapshot.runtime.systemProxy = {
       desired: true,
       failure: null,
@@ -1673,7 +1674,7 @@ describe("Status fixture experience", () => {
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
-    snapshot.runtime.phase = "error";
+    snapshot.runtime.phase = "healthy";
     snapshot.runtime.systemProxy = {
       desired: true,
       failure: null,
@@ -1712,6 +1713,31 @@ describe("Status fixture experience", () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
+  });
+
+  it("does not offer System Proxy repair while Mihomo Core is stopped", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "other",
+      phase: "drift",
+      recoveryActions: ["repair", "leave-as-is"],
+    };
+    renderRoute("/status", "en", new DriftRecoveryClient(snapshot));
+
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent("Repair requires a running Mihomo core");
+    expect(
+      within(notificationCenter).queryByRole("button", { name: "Repair System Proxy" }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+    ).toBeEnabled();
   });
 
   it("explains invalid recovery state without offering an unsafe repair", async () => {
