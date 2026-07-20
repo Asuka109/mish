@@ -30,8 +30,10 @@ import {
 } from "@mish/ui";
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
+import { toast } from "sonner";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
+import { useCurrentProfileCommand } from "../data/current-profile-command";
 import { useProduct } from "../data/product-provider";
 import { useOptionalProfiles } from "../data/profile-provider";
 import { useOptionalSettings } from "../data/settings-provider";
@@ -310,6 +312,7 @@ function ProfileMenu() {
   const { connection, isCommandPending, isCommandSupported, setActiveProfile, snapshot } =
     useProduct();
   const profiles = useOptionalProfiles();
+  const { pending: currentProfilePending, selectCurrentProfile } = useCurrentProfileCommand();
   const { LL } = useI18nContext();
   if (!snapshot) {
     return (
@@ -342,22 +345,23 @@ function ProfileMenu() {
       : statusProfile);
   const activeLabel = displayedProfile?.label ?? LL.profiles.safeStopped();
 
-  const profilePending = !useSavedProfiles && isCommandPending("profile");
+  const profilePending = useSavedProfiles ? currentProfilePending : isCommandPending("profile");
   const profileSupported = useSavedProfiles || fixtureSelectionSupported;
   const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, profileSupported);
 
-  function selectProfile(profileId: string) {
+  async function selectProfile(profileId: string) {
     if (useSavedProfiles) {
-      profiles?.selectProfile(profileId);
+      const result = await selectCurrentProfile(profileId);
+      if (!result.ok) toast.error(LL.profiles.switchFailed());
     } else if (fixtureSelectionSupported) {
-      void setActiveProfile(profileId);
+      await setActiveProfile(profileId);
     }
   }
 
   return (
     <Select
       onValueChange={(profileId) =>
-        typeof profileId === "string" ? selectProfile(profileId) : undefined
+        typeof profileId === "string" ? void selectProfile(profileId) : undefined
       }
       value={selectedProfile?.id ?? ""}
     >

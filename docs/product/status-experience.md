@@ -63,9 +63,11 @@ The DOM element owns the fallback blue surface and text contrast.
   while capture and Mihomo Core are stopped. Selection is the configuration the
   next start will use; it is not evidence that Core or either capture path is
   running.
-- Changing the profile menu only changes that persisted preference. It remains
-  available while Core is absent or transitioning and does not itself activate,
-  restart, or stop a runtime.
+- Changing the profile menu while the proxy is stopped only changes that
+  persisted preference and does not start Core. While System Proxy or Virtual
+  Interface is running, the same selection safely switches Core to the chosen
+  configuration and preserves the active capture combination. The menu is
+  disabled while that switch is pending.
 - Selecting an unselected capture mode while stopped starts Mihomo Core with
   that selected configuration, waits for its managed listener to become ready,
   and then applies the complete selected capture combination. The UI must not
@@ -87,7 +89,8 @@ Session presents:
 - active connection count;
 - effective rule count;
 - Mihomo core memory in use; and
-- uptime.
+- proxy-session uptime, shown only while System Proxy or Virtual Interface is
+  running.
 
 Downloaded and Uploaded rows contain optional decorative sparklines. The text
 values remain the accessible source of truth. The “Open live traffic” action is

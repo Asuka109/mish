@@ -620,8 +620,9 @@ const en = {
     binaryMissing:
       "The pinned Mihomo binary is missing. Prepare it explicitly for development or include the packaged production resource; Mish will not download it at runtime.",
     cancelActivation: "Cancel activation",
-    chooseReplacement: "Choose a validated replacement before deleting the active profile.",
-    active: "Active",
+    chooseReplacement:
+      "Choose a validated replacement before deleting the profile running in Core.",
+    active: "Running in Core",
     activeDeleteUnavailable:
       "The active profile cannot be deleted without a safe replacement or stopped-state transaction.",
     attemptFailed: "Failed",
@@ -670,7 +671,7 @@ const en = {
       "Local files can only be opened through the native picker after an explicit user choice.",
     never: "Never",
     nextRefresh: "Next source refresh",
-    noRuntimeProviders: "The current runtime has no proxy or rule providers.",
+    noRuntimeProviders: "The current runtime has no proxy providers.",
     previewDescription:
       "This summary contains no source YAML, credentials, complete local path, or raw subscription URL.",
     previewTitle: "Ready to save",
@@ -737,8 +738,8 @@ const en = {
       "Provider inventory could not be re-observed. The prior runtime observation remains visible.",
     providerRecords: "{count:number} records",
     providerRuntimeBoundary:
-      "These are providers loaded by the current runtime. They are separate from profile-source refresh above.",
-    providersUnavailable: "Runtime provider observation is unavailable.",
+      "These proxy providers come from Mihomo's proxy-providers configuration in the current runtime. They are node sources, not policy groups.",
+    providersUnavailable: "Proxy-provider observation is unavailable.",
     providerSourceCompatible: "Compatible runtime source",
     providerSourceFile: "File source",
     providerSourceHttp: "HTTP source",
@@ -751,9 +752,9 @@ const en = {
     providerUpdating: "Updating…",
     proxyProvider: "Proxy provider",
     ruleProvider: "Rule provider",
-    runtimeProviders: "Current runtime providers",
+    runtimeProviders: "Proxy providers",
     runtimeProvidersDescription:
-      "Read-only health and explicitly scoped update commands for the active profile runtime.",
+      "Node sources loaded by the running Mihomo configuration, with health and explicitly scoped update commands.",
     scheduleBackoff:
       "Only fixed safe intervals are allowed. Consecutive scheduled failures: {count:number}; the next run backs off.",
     scheduleDaily: "Every day",
@@ -771,6 +772,10 @@ const en = {
     stopForDeletion: "Stop safely",
     safeStopped: "Safely stopped",
     stopping: "Stopping…",
+    switchFailed:
+      "The current profile could not be switched. The previous profile remains selected.",
+    switchProfile: "Switch profile",
+    switching: "Switching…",
     sensitiveNotice:
       "Sensitive profile sources and contents stay in Mish's private storage on this device.",
     source: "Source",

@@ -403,9 +403,17 @@ function createActivationProfileClient() {
   } satisfies ProfileClient;
 }
 
-async function createCompletingActivationProfileClient() {
+async function createCompletingActivationProfileClient(includeTravelProfile = false) {
   const fixture = new FixtureProfileClient();
   let snapshot = await managedProfileSnapshot();
+  if (includeTravelProfile) {
+    snapshot.profiles.push({
+      ...structuredClone(snapshot.profiles[0]),
+      id: "fixture-profile-travel",
+      label: "Travel route set",
+      status: { ...snapshot.profiles[0].status, active: false },
+    });
+  }
   const profileId = snapshot.profiles[0].id;
   snapshot.activation.targetProfileId = profileId;
   const listeners = new Set<(nextSnapshot: ProfileSnapshotDto) => void>();
@@ -1356,6 +1364,43 @@ describe("desktop RPC experience", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  it("switches the running Core when the current Profile selection changes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.phase = "healthy";
+    snapshot.runtime.systemProxyEnabled = true;
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "mish",
+      phase: "applied",
+      recoveryActions: [],
+    };
+    const statusClient = new SnapshotStatusClient(snapshot);
+    const profileClient = await createCompletingActivationProfileClient(true);
+    renderRoute("/status", "en", statusClient, profileClient);
+
+    await user.click(
+      await screen.findByRole("combobox", {
+        name: "Switch profile. Current profile: Studio route set",
+      }),
+    );
+    await user.click(await screen.findByRole("option", { name: "Travel route set" }));
+
+    await waitFor(() =>
+      expect(profileClient.activateProfile).toHaveBeenCalledWith(
+        expect.any(String),
+        "fixture-profile-travel",
+      ),
+    );
+    expect(
+      await screen.findByRole("combobox", {
+        name: "Switch profile. Current profile: Travel route set",
+      }),
+    ).toBeEnabled();
   });
 
   it("opens the Profile menu when its only managed profile is already active", async () => {

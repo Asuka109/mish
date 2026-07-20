@@ -79,7 +79,6 @@ export function ProfilesPage() {
   const localSupported =
     snapshot?.capabilities.localFileImport === "supported" ||
     snapshot?.capabilities.localFileImport === "permission-required";
-  const activationSupported = snapshot?.capabilities.activation === "supported";
   const currentDeleteTarget = snapshot?.profiles.find((profile) => profile.id === deleteTarget?.id);
   const replacementProfiles =
     snapshot?.profiles.filter(
@@ -159,13 +158,8 @@ export function ProfilesPage() {
     if (!result.ok) toast.error(LL.profiles.providerUpdateFailed());
   }
 
-  async function activateProfile(profileId: string) {
+  async function switchRunningProfile(profileId: string) {
     const result = await profiles.activateProfile(profileId);
-    if (!result.ok) toast.error(LL.profiles.activationFailed());
-  }
-
-  async function cancelActivation() {
-    const result = await profiles.cancelActivation();
     if (!result.ok) toast.error(LL.profiles.activationFailed());
   }
 
@@ -245,10 +239,7 @@ export function ProfilesPage() {
               dateFormatter={dateFormatter}
               deletionSupported={snapshot.capabilities.deletion === "supported"}
               activation={snapshot.activation}
-              activationSupported={activationSupported}
               key={profile.id}
-              onActivate={() => activateProfile(profile.id)}
-              onCancelActivation={cancelActivation}
               onDelete={() => setDeleteTarget(profile)}
               onEditPatches={() => setPatchTarget(profile)}
               onRefresh={() => refreshProfile(profile.id)}
@@ -406,12 +397,14 @@ export function ProfilesPage() {
                   <Button
                     disabled={!replacementProfileId || profiles.isPending("activate")}
                     loading={profiles.isPending("activate")}
-                    loadingText={LL.profiles.activating()}
-                    onClick={() => replacementProfileId && activateProfile(replacementProfileId)}
+                    loadingText={LL.profiles.switching()}
+                    onClick={() =>
+                      replacementProfileId && void switchRunningProfile(replacementProfileId)
+                    }
                     type="button"
                     variant="outline"
                   >
-                    {LL.profiles.activation()}
+                    {LL.profiles.switchProfile()}
                   </Button>
                 </div>
               ) : null}
@@ -452,11 +445,8 @@ export function ProfilesPage() {
 interface ProfileRowProps {
   LL: TranslationFunctions;
   activation: ProfileActivationSnapshotDto;
-  activationSupported: boolean;
   dateFormatter: Intl.DateTimeFormat;
   deletionSupported: boolean;
-  onActivate(): void;
-  onCancelActivation(): void;
   onDelete(): void;
   onEditPatches(): void;
   onRefresh(): void;
@@ -471,11 +461,8 @@ interface ProfileRowProps {
 function ProfileRow({
   LL,
   activation,
-  activationSupported,
   dateFormatter,
   deletionSupported,
-  onActivate,
-  onCancelActivation,
   onDelete,
   onEditPatches,
   onRefresh,
@@ -487,8 +474,6 @@ function ProfileRow({
   schedulingSupported,
 }: ProfileRowProps) {
   const [warningsOpen, setWarningsOpen] = useState(false);
-  const activationPending =
-    activation.phase === "pending" && activation.targetProfileId === profile.id;
   const activationMessage =
     activation.availability === "missing-binary"
       ? LL.profiles.binaryMissing()
@@ -496,9 +481,7 @@ function ProfileRow({
         ? activation.failure === "cancelled"
           ? LL.profiles.activationCancelled()
           : activationFailureMessage(LL, activation.failure)
-        : !activationSupported
-          ? LL.profiles.activationUnavailable()
-          : null;
+        : null;
   return (
     <SectionGridItem className="profile-row">
       <div className="profile-row-main">
@@ -624,21 +607,6 @@ function ProfileRow({
           {LL.profiles.editRulesAndGroups()}
         </Button>
         <Button
-          disabled={
-            !activationSupported ||
-            profile.status.active ||
-            !profile.status.valid ||
-            (activation.phase === "pending" && !activationPending)
-          }
-          disableWhileLoading={false}
-          loading={activationPending}
-          loadingText={LL.profiles.cancelActivation()}
-          onClick={activationPending ? onCancelActivation : onActivate}
-          variant="outline"
-        >
-          {profile.status.active ? LL.profiles.active() : LL.profiles.activation()}
-        </Button>
-        <Button
           disabled={!refreshSupported || refreshPending}
           loading={refreshPending}
           loadingText={LL.profiles.refreshing()}
@@ -754,8 +722,8 @@ function RuntimeProviders({
   snapshot,
 }: RuntimeProvidersProps) {
   const supported = snapshot.capability === "supported" && snapshot.authority !== null;
-  const hasProxyProviders = snapshot.providers.some((provider) => provider.kind === "proxy");
-  const hasRuleProviders = snapshot.providers.some((provider) => provider.kind === "rule");
+  const proxyProviders = snapshot.providers.filter((provider) => provider.kind === "proxy");
+  const hasProxyProviders = proxyProviders.length > 0;
   return (
     <section className="runtime-providers" aria-labelledby="runtime-providers-title">
       <div className="runtime-providers-heading">
@@ -773,15 +741,6 @@ function RuntimeProviders({
           >
             {LL.profiles.updateAllProxyProviders()}
           </Button>
-          <Button
-            disabled={!supported || !hasRuleProviders || pending("rule")}
-            loading={pending("rule")}
-            loadingText={LL.profiles.updateAllRuleProviders()}
-            onClick={() => onUpdateAll("rule")}
-            variant="outline"
-          >
-            {LL.profiles.updateAllRuleProviders()}
-          </Button>
         </div>
       </div>
       <p className="runtime-provider-boundary">
@@ -795,9 +754,9 @@ function RuntimeProviders({
       {snapshot.observationFailure ? (
         <p className="runtime-provider-error">{LL.profiles.providerObservationFailed()}</p>
       ) : null}
-      {snapshot.providers.length > 0 ? (
+      {proxyProviders.length > 0 ? (
         <SectionGrid className="runtime-provider-list" aria-label={LL.profiles.runtimeProviders()}>
-          {snapshot.providers.map((provider) => (
+          {proxyProviders.map((provider) => (
             <RuntimeProviderRow
               LL={LL}
               dateFormatter={dateFormatter}

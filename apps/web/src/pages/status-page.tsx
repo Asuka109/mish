@@ -353,7 +353,9 @@ export function StatusPage() {
               <SectionGridItem className="session-metric">
                 <span>{LL.status.uptime()}</span>
                 <strong className="tabular">
-                  {hasMetricsData ? formatUptime(snapshot.metrics.uptimeSeconds) : "-"}
+                  {captureActive && hasMetricsData
+                    ? formatUptime(snapshot.metrics.uptimeSeconds)
+                    : "-"}
                 </strong>
               </SectionGridItem>
             </SectionGrid>

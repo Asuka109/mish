@@ -321,11 +321,12 @@ describe("profiles page", () => {
     expect(screen.getByRole("button", { name: "Choose local file" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Import subscription link" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Activate" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Activate" })).not.toBeInTheDocument();
     expect(
       screen.getByText(/does not observe a real Mihomo runtime or execute provider updates/i),
     ).toBeVisible();
     expect(screen.getByRole("button", { name: "Update all proxy providers" })).toBeDisabled();
+    expect(screen.queryByText("Remote rule set")).not.toBeInTheDocument();
   });
 
   it("opens profile warning details from the warning badge", async () => {
@@ -445,7 +446,8 @@ describe("profiles page", () => {
     await user.click(screen.getAllByRole("button", { name: "Refresh" })[0]);
     expect(client.refreshProfile).toHaveBeenCalledWith("profile-inactive");
 
-    expect(screen.getByRole("button", { name: "Active" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Running in Core" })).not.toBeInTheDocument();
+    expect(screen.getByText("Running in Core")).toBeVisible();
 
     const activeDelete = screen.getByRole("button", { name: "Delete Active fictional profile" });
     expect(activeDelete).toBeEnabled();

@@ -194,7 +194,7 @@ const initialSnapshot: StatusSnapshotDto = {
     activeConnections: 24,
     effectiveRules: 12_846,
     memoryBytes: 90_177_536,
-    uptimeSeconds: 5_047,
+    uptimeSeconds: 0,
   },
   nodes: [...fixtureNodes, ...largeFixtureNodes],
   probeResults: [
@@ -342,6 +342,7 @@ export class FixtureStatusClient implements StatusClient {
     const systemProxyEnabled = active && selection.systemProxy;
     const tunEnabled = active && selection.tun;
     const captureActive = systemProxyEnabled || tunEnabled;
+    this.snapshot.metrics.uptimeSeconds = captureActive ? 1 : 0;
     this.snapshot.runtime = {
       captureSelection: { ...selection },
       message: captureActive ? "Fixture capture is active" : "Fixture capture is inactive",

@@ -2056,11 +2056,11 @@ type RootTranslation = {
 		 */
 		cancelActivation: string
 		/**
-		 * C​h​o​o​s​e​ ​a​ ​v​a​l​i​d​a​t​e​d​ ​r​e​p​l​a​c​e​m​e​n​t​ ​b​e​f​o​r​e​ ​d​e​l​e​t​i​n​g​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​.
+		 * C​h​o​o​s​e​ ​a​ ​v​a​l​i​d​a​t​e​d​ ​r​e​p​l​a​c​e​m​e​n​t​ ​b​e​f​o​r​e​ ​d​e​l​e​t​i​n​g​ ​t​h​e​ ​p​r​o​f​i​l​e​ ​r​u​n​n​i​n​g​ ​i​n​ ​C​o​r​e​.
 		 */
 		chooseReplacement: string
 		/**
-		 * A​c​t​i​v​e
+		 * R​u​n​n​i​n​g​ ​i​n​ ​C​o​r​e
 		 */
 		active: string
 		/**
@@ -2230,7 +2230,7 @@ type RootTranslation = {
 		 */
 		nextRefresh: string
 		/**
-		 * T​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​ ​h​a​s​ ​n​o​ ​p​r​o​x​y​ ​o​r​ ​r​u​l​e​ ​p​r​o​v​i​d​e​r​s​.
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​ ​h​a​s​ ​n​o​ ​p​r​o​x​y​ ​p​r​o​v​i​d​e​r​s​.
 		 */
 		noRuntimeProviders: string
 		/**
@@ -2469,11 +2469,11 @@ type RootTranslation = {
 		 */
 		providerRecords: RequiredParams<'count'>
 		/**
-		 * T​h​e​s​e​ ​a​r​e​ ​p​r​o​v​i​d​e​r​s​ ​l​o​a​d​e​d​ ​b​y​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​.​ ​T​h​e​y​ ​a​r​e​ ​s​e​p​a​r​a​t​e​ ​f​r​o​m​ ​p​r​o​f​i​l​e​-​s​o​u​r​c​e​ ​r​e​f​r​e​s​h​ ​a​b​o​v​e​.
+		 * T​h​e​s​e​ ​p​r​o​x​y​ ​p​r​o​v​i​d​e​r​s​ ​c​o​m​e​ ​f​r​o​m​ ​M​i​h​o​m​o​'​s​ ​p​r​o​x​y​-​p​r​o​v​i​d​e​r​s​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​i​n​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​.​ ​T​h​e​y​ ​a​r​e​ ​n​o​d​e​ ​s​o​u​r​c​e​s​,​ ​n​o​t​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​.
 		 */
 		providerRuntimeBoundary: string
 		/**
-		 * R​u​n​t​i​m​e​ ​p​r​o​v​i​d​e​r​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 * P​r​o​x​y​-​p​r​o​v​i​d​e​r​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.
 		 */
 		providersUnavailable: string
 		/**
@@ -2521,11 +2521,11 @@ type RootTranslation = {
 		 */
 		ruleProvider: string
 		/**
-		 * C​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​ ​p​r​o​v​i​d​e​r​s
+		 * P​r​o​x​y​ ​p​r​o​v​i​d​e​r​s
 		 */
 		runtimeProviders: string
 		/**
-		 * R​e​a​d​-​o​n​l​y​ ​h​e​a​l​t​h​ ​a​n​d​ ​e​x​p​l​i​c​i​t​l​y​ ​s​c​o​p​e​d​ ​u​p​d​a​t​e​ ​c​o​m​m​a​n​d​s​ ​f​o​r​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​ ​r​u​n​t​i​m​e​.
+		 * N​o​d​e​ ​s​o​u​r​c​e​s​ ​l​o​a​d​e​d​ ​b​y​ ​t​h​e​ ​r​u​n​n​i​n​g​ ​M​i​h​o​m​o​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​,​ ​w​i​t​h​ ​h​e​a​l​t​h​ ​a​n​d​ ​e​x​p​l​i​c​i​t​l​y​ ​s​c​o​p​e​d​ ​u​p​d​a​t​e​ ​c​o​m​m​a​n​d​s​.
 		 */
 		runtimeProvidersDescription: string
 		/**
@@ -2593,6 +2593,18 @@ type RootTranslation = {
 		 * S​t​o​p​p​i​n​g​…
 		 */
 		stopping: string
+		/**
+		 * T​h​e​ ​c​u​r​r​e​n​t​ ​p​r​o​f​i​l​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​s​w​i​t​c​h​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​p​r​o​f​i​l​e​ ​r​e​m​a​i​n​s​ ​s​e​l​e​c​t​e​d​.
+		 */
+		switchFailed: string
+		/**
+		 * S​w​i​t​c​h​ ​p​r​o​f​i​l​e
+		 */
+		switchProfile: string
+		/**
+		 * S​w​i​t​c​h​i​n​g​…
+		 */
+		switching: string
 		/**
 		 * S​e​n​s​i​t​i​v​e​ ​p​r​o​f​i​l​e​ ​s​o​u​r​c​e​s​ ​a​n​d​ ​c​o​n​t​e​n​t​s​ ​s​t​a​y​ ​i​n​ ​M​i​s​h​'​s​ ​p​r​i​v​a​t​e​ ​s​t​o​r​a​g​e​ ​o​n​ ​t​h​i​s​ ​d​e​v​i​c​e​.
 		 */
@@ -5903,11 +5915,11 @@ export type TranslationFunctions = {
 		 */
 		cancelActivation: () => LocalizedString
 		/**
-		 * Choose a validated replacement before deleting the active profile.
+		 * Choose a validated replacement before deleting the profile running in Core.
 		 */
 		chooseReplacement: () => LocalizedString
 		/**
-		 * Active
+		 * Running in Core
 		 */
 		active: () => LocalizedString
 		/**
@@ -6071,7 +6083,7 @@ export type TranslationFunctions = {
 		 */
 		nextRefresh: () => LocalizedString
 		/**
-		 * The current runtime has no proxy or rule providers.
+		 * The current runtime has no proxy providers.
 		 */
 		noRuntimeProviders: () => LocalizedString
 		/**
@@ -6307,11 +6319,11 @@ export type TranslationFunctions = {
 		 */
 		providerRecords: (arg: { count: number }) => LocalizedString
 		/**
-		 * These are providers loaded by the current runtime. They are separate from profile-source refresh above.
+		 * These proxy providers come from Mihomo's proxy-providers configuration in the current runtime. They are node sources, not policy groups.
 		 */
 		providerRuntimeBoundary: () => LocalizedString
 		/**
-		 * Runtime provider observation is unavailable.
+		 * Proxy-provider observation is unavailable.
 		 */
 		providersUnavailable: () => LocalizedString
 		/**
@@ -6359,11 +6371,11 @@ export type TranslationFunctions = {
 		 */
 		ruleProvider: () => LocalizedString
 		/**
-		 * Current runtime providers
+		 * Proxy providers
 		 */
 		runtimeProviders: () => LocalizedString
 		/**
-		 * Read-only health and explicitly scoped update commands for the active profile runtime.
+		 * Node sources loaded by the running Mihomo configuration, with health and explicitly scoped update commands.
 		 */
 		runtimeProvidersDescription: () => LocalizedString
 		/**
@@ -6430,6 +6442,18 @@ export type TranslationFunctions = {
 		 * Stopping…
 		 */
 		stopping: () => LocalizedString
+		/**
+		 * The current profile could not be switched. The previous profile remains selected.
+		 */
+		switchFailed: () => LocalizedString
+		/**
+		 * Switch profile
+		 */
+		switchProfile: () => LocalizedString
+		/**
+		 * Switching…
+		 */
+		switching: () => LocalizedString
 		/**
 		 * Sensitive profile sources and contents stay in Mish's private storage on this device.
 		 */
