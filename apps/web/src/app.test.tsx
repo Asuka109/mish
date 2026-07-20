@@ -13,6 +13,7 @@ import {
   type LanguagePreference,
   type LocalBackupClient,
   type LocalBackupScopeDto,
+  type LocalProxyTestPhase,
   type RoutingMode,
   type SettingsClient,
   type SettingsSnapshotDto,
@@ -392,15 +393,46 @@ class DeferredCaptureClient extends SnapshotStatusClient {
   }
 }
 
-class LocalProxyClient extends SnapshotStatusClient {
+class LocalProxyPhaseClient extends SnapshotStatusClient {
+  constructor(
+    snapshot: StatusSnapshotDto,
+    private readonly phase: LocalProxyTestPhase,
+  ) {
+    super(snapshot);
+  }
+
   readonly testLocalProxy = vi.fn(async () => ({
     host: "127.0.0.1" as const,
-    phase: "ready" as const,
+    phase: this.phase,
     port: 7890 as const,
   }));
 }
 
-class MutableLocalProxyClient extends LocalProxyClient {
+class DeferredLocalProxyClient extends SnapshotStatusClient {
+  private completeTest: (() => void) | null = null;
+
+  readonly testLocalProxy = vi.fn(
+    () =>
+      new Promise<{ host: "127.0.0.1"; phase: "ready"; port: 7890 }>((resolve) => {
+        this.completeTest = () => resolve({ host: "127.0.0.1", phase: "ready", port: 7890 });
+      }),
+  );
+
+  complete() {
+    this.completeTest?.();
+  }
+}
+
+class FailingLocalProxyClient extends SnapshotStatusClient {
+  readonly testLocalProxy = vi.fn(async () => {
+    throw new StatusClientError(
+      "remote",
+      "bridge-token=super-secret controller said arbitrary backend detail",
+    );
+  });
+}
+
+class MutableLocalProxyClient extends LocalProxyPhaseClient {
   private readonly listeners = new Set<(snapshot: StatusSnapshotDto) => void>();
 
   publish(snapshot: StatusSnapshotDto) {
@@ -586,11 +618,12 @@ describe("production routes", () => {
 });
 
 describe("desktop RPC experience", () => {
-  it("makes the app-only manual proxy discoverable and testable without System Proxy", async () => {
+  it("reports listener readiness without changing the Settings row layout", async () => {
     const user = userEvent.setup();
+    const successToast = vi.spyOn(toast, "success");
     const settingsClient = new DesktopSettingsClient();
     const snapshot = await createRpcSnapshot();
-    const statusClient = new LocalProxyClient(snapshot);
+    const statusClient = new DeferredLocalProxyClient(snapshot);
     renderRoute(
       "/settings",
       "en",
@@ -606,29 +639,125 @@ describe("desktop RPC experience", () => {
     expect(screen.getByText("HTTP")).toBeVisible();
     expect(screen.getByText("SOCKS5")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Test listener" }));
+    const testButton = screen.getByRole("button", { name: "Test listener" });
+    await user.click(testButton);
 
     await waitFor(() => expect(statusClient.testLocalProxy).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText("Listener ready")).toBeVisible();
+    expect(testButton).toHaveTextContent("Test listener");
+    expect(screen.queryByText("Testing…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
+
+    act(() => statusClient.complete());
+
+    await waitFor(() => expect(successToast).toHaveBeenCalledWith("Listener ready"));
+    expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
     expect(snapshot.runtime.systemProxy.phase).toBe("off");
     expect(snapshot.runtime.systemProxyEnabled).toBe(false);
   });
 
-  it("expires listener readiness when the active runtime changes", async () => {
+  it("routes an unhealthy Core listener result through toast and notifications", async () => {
     const user = userEvent.setup();
+    const warningToast = vi.spyOn(toast, "warning");
     const snapshot = await createRpcSnapshot();
-    snapshot.runtime.phase = "healthy";
-    const statusClient = new MutableLocalProxyClient(snapshot);
+    const statusClient = new LocalProxyPhaseClient(snapshot, "core-unhealthy");
     renderRoute("/settings", "en", statusClient);
 
     await user.click(await screen.findByRole("button", { name: "Test listener" }));
-    expect(await screen.findByText("Listener ready")).toBeVisible();
+
+    await waitFor(() =>
+      expect(warningToast).toHaveBeenCalledWith(
+        "Start an active Profile, then test the listener again.",
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Start an active Profile, then test the listener again.",
+    );
+  });
+
+  it("explains a runtime transition through toast and notifications", async () => {
+    const user = userEvent.setup();
+    const warningToast = vi.spyOn(toast, "warning");
+    const snapshot = await createRpcSnapshot();
+    const statusClient = new LocalProxyPhaseClient(snapshot, "runtime-transition");
+    renderRoute("/settings", "en", statusClient);
+
+    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+
+    await waitFor(() =>
+      expect(warningToast).toHaveBeenCalledWith(
+        "The Core is changing state. Wait for it to finish, then test again.",
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "The Core is changing state. Wait for it to finish, then test again.",
+    );
+  });
+
+  it("reports an unavailable listener through toast and notifications", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    const snapshot = await createRpcSnapshot();
+    const statusClient = new LocalProxyPhaseClient(snapshot, "listener-unavailable");
+    renderRoute("/settings", "en", statusClient);
+
+    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "The local listener did not respond. Confirm the active Profile is healthy, then try again.",
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "The local listener did not respond. Confirm the active Profile is healthy, then try again.",
+    );
+  });
+
+  it("redacts an RPC listener-test failure in toast and notifications", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    const snapshot = await createRpcSnapshot();
+    const statusClient = new FailingLocalProxyClient(snapshot);
+    renderRoute("/settings", "en", statusClient);
+
+    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "Mish could not test the local listener. Check the local service connection and try again.",
+      ),
+    );
+    expect(document.body).not.toHaveTextContent("super-secret");
+    expect(document.body).not.toHaveTextContent("arbitrary backend detail");
+
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Mish could not test the local listener. Check the local service connection and try again.",
+    );
+    expect(document.body).not.toHaveTextContent("super-secret");
+    expect(document.body).not.toHaveTextContent("arbitrary backend detail");
+  });
+
+  it("expires a listener failure notification when the active runtime changes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.runtime.phase = "healthy";
+    const statusClient = new MutableLocalProxyClient(snapshot, "listener-unavailable");
+    renderRoute("/settings", "en", statusClient);
+
+    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent("The local listener did not respond.");
 
     snapshot.runtime.phase = "stopping";
     act(() => statusClient.publish(snapshot));
 
-    expect(await screen.findByText("Not tested")).toBeVisible();
-    expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(notificationCenter).not.toHaveTextContent("The local listener did not respond."),
+    );
   });
 
   it("shows a source-labeled read-only macOS Network and DNS observation", async () => {

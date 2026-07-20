@@ -117,16 +117,14 @@ const zh = {
     localProxy: {
       description:
         "可在浏览器扩展或单个应用中使用此 HTTP / SOCKS5 端点。只有该应用的流量经过 Mish；此功能不会启用或更改 macOS 系统代理。",
-      notTested: "尚未测试",
-      phase: {
-        "core-unhealthy": "请先启动一个有效 Profile",
-        "listener-unavailable": "监听器不可用",
+      feedback: {
+        coreUnhealthy: "请先启动一个有效 Profile，然后重新测试监听器。",
+        listenerUnavailable: "本地监听器没有响应。请确认活动 Profile 运行正常，然后重试。",
         ready: "监听器就绪",
-        "runtime-transition": "Core 正在切换",
-        unavailable: "监听器测试不可用",
+        rpcFailure: "Mish 无法测试本地监听器。请检查本地服务连接，然后重试。",
+        runtimeTransition: "Core 正在切换状态。请等待切换完成，然后重新测试。",
       },
       test: "测试监听器",
-      testing: "测试中…",
       title: "仅本机手动代理",
     },
     motion: "减少动态效果",

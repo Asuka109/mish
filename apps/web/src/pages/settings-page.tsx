@@ -324,23 +324,15 @@ export function SettingsPage() {
                 <Badge variant="outline">SOCKS5</Badge>
               </span>
               <Button
+                aria-busy={localProxyTest.phase === "pending"}
                 disabled={localProxyTest.phase === "pending" || productConnection.stale}
                 onClick={() => void testLocalProxy()}
                 size="sm"
                 type="button"
                 variant="outline"
               >
-                {localProxyTest.phase === "pending"
-                  ? LL.settingsPage.localProxy.testing()
-                  : LL.settingsPage.localProxy.test()}
+                {LL.settingsPage.localProxy.test()}
               </Button>
-              <span aria-live="polite" className="local-proxy-result">
-                {localProxyTest.phase === "success"
-                  ? LL.settingsPage.localProxy.phase[localProxyTest.result.phase]()
-                  : localProxyTest.phase === "failure"
-                    ? LL.settingsPage.localProxy.phase.unavailable()
-                    : LL.settingsPage.localProxy.notTested()}
-              </span>
             </div>
           ) : (
             <AvailabilityBadge availability="unavailable" />

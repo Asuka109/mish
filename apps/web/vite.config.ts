@@ -20,7 +20,7 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
-    exclude: [...configDefaults.exclude, "**/*.browser.test.ts"],
+    exclude: [...configDefaults.exclude, "**/*.browser.test.ts", "**/*.browser.test.tsx"],
     setupFiles: "./src/test/setup.ts",
   },
 });
