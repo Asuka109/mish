@@ -1,10 +1,9 @@
 # macOS Packaging and Signing
 
 Mish produces one Apple Silicon test package from pushes to `main`. Pull
-requests run the complete validation job but never build or upload an app
-archive. The packaging job is independent from validation so that both jobs are
-attempted and report their own failures. A failed application build cannot reach
-the artifact upload step.
+requests run the bounded `check:pr` gate but never build or upload an app
+archive. Daily and manual inspection own complete validation. Packaging remains
+independent, so a failed application build cannot reach artifact upload.
 
 ## Test package
 

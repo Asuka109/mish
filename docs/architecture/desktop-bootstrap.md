@@ -242,11 +242,12 @@ claim that process memory is a secure enclave.
   A future restore policy requires an explicit recorded policy and the same
   transactional failure recovery; it may not enable System Proxy or TUN.
 - System Proxy and TUN are the bounded network-changing Status commands. Both
-  default off; TUN additionally requires a healthy signed helper and explicit
-  user selection,
-  requires a healthy configured core and reachable application-owned mixed
-  proxy listener, confirms every applied change, and restores only state
-  recorded in its private journal. That journal uses a strict versioned
+  default off and require explicit user selection. System Proxy requires a
+  healthy configured core and reachable application-owned mixed-proxy listener.
+  Source-development TUN requires the explicitly installed healthy development
+  service; packaged TUN requires the signed embedded `SMAppService` boundary.
+  Each command confirms applied state and restores only state recorded in its
+  private journal. That journal uses a strict versioned
   application-owner envelope, rejects non-private, foreign, stale, malformed,
   oversized, and symlink records, and is replaced through a unique mode-0600
   temporary file plus file and directory flushes. The generated Mihomo

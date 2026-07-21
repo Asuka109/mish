@@ -3,6 +3,7 @@
 ## Metadata
 
 - Status: Draft for product review
+- Implementation status: Not authoritative; see [PRD suite](README.md)
 - Version: 0.1
 - Date: 2026-07-18
 - Parent: [PRD suite](README.md)

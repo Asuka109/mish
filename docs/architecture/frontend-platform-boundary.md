@@ -182,19 +182,20 @@ PAC, automatic discovery, and enabled authenticated proxy settings are observed
 but never overwritten.
 
 Commands not backed by real controller or platform reconciliation return a
-typed capability error instead of fake success. TUN now has a shared lifecycle,
-status, and rollback contract, but the current desktop build remains truthfully
-unsigned or unpackaged until the signed `SMAppService` composition in
-[`macos-tun-helper.md`](macos-tun-helper.md) exists.
+typed capability error instead of fake success. TUN has a shared lifecycle,
+status, and rollback contract. Trusted source development can use the explicitly
+installed root LaunchDaemon; packaged builds remain unavailable until the signed
+`SMAppService` composition in [`macos-tun-helper.md`](macos-tun-helper.md)
+exists.
 When the Controller source is present, the RPC Status client also discovers
 only the reconciled routing-mode and group-selection commands. Missing-core and
 lifecycle-only compositions advertise neither Controller command.
 Profile import, persistence, refresh, and inactive deletion use the separate
 Profile application service. Activation uses its own typed, cancellable command
-seam from Profiles and the Status selector. Service and TUN controls remain
-unavailable rather than runnable. Active deletion requires
-successful replacement activation or an explicit safe stop. Profile activation
-never implicitly enables System Proxy.
+seam from Profiles and the Status selector. Browser and lifecycle-only
+compositions keep native service and TUN controls unavailable. Active deletion
+requires successful replacement activation or an explicit safe stop. Profile
+activation never implicitly enables System Proxy.
 
 Protocol version 4 adds Traffic command capabilities and typed results for
 closing one stable current connection ID or every connection in the complete

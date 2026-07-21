@@ -1,400 +1,48 @@
-# Mish 五端 Web 客户端研发计划
-
-状态：Draft v0.2
-日期：2026-07-20
-项目仓库：当前工作仓库（本地目录名属于历史路径，不作为产品品牌）
-目标平台：macOS、Windows、Linux、Android、iOS
-
-文档说明：本文件用于阶段与工期规划；当前产品、设计、交互、数据与
-平台边界以 `docs/README.md` 中的权威文档索引为准。两者冲突时，应更新
-本计划，而不是用旧计划覆盖已确认的项目契约。
-
-## 1. 项目目标
-
-开发 Mish：一个基于 Mihomo 内核、以 Web 技术栈为主的跨平台代理客户端，产品体验参考 Clash Pro、Clash Mi、Stash 和 Clash Verge Rev。
-
-首要目标不是一次性复制成熟客户端的全部功能，而是以尽可能低的研发与维护成本，建立一套能够长期演进、可独立构建、可审计、可发布的五端基础架构。
-
-核心原则：
-
-- React、TypeScript 和 CSS 承担五端共用的界面与绝大多数业务逻辑。
-- Tauri 2 作为首选跨平台应用壳。
-- VPN、TUN、后台生命周期、提权和系统扩展保留必要的原生实现。
-- 桌面端以 Mihomo 独立进程运行；移动端将 Mihomo 编译成原生库。
-- 只跟踪 Mihomo 的真实开发与发布分支，不使用默认 `main` 幌子分支。
-- 第一阶段只交付稳定代理能力，不追求功能数量。
-
-## 2. 当前技术决策
-
-### 2.1 推荐技术栈
-
-| 层级 | 选择 | 说明 |
-| --- | --- | --- |
-| Web UI | React + TypeScript + Vite | 生态成熟，便于参考 Clash Verge Rev，并支持响应式五端界面 |
-| 状态管理 | Zustand 或等价轻量方案 | 保存应用状态，避免将高频连接数据放入全局状态 |
-| 服务端状态 | TanStack Query | 统一 Mihomo API 查询、缓存、轮询和错误处理 |
-| 路由 | React Router | 共享路由语义；桌面六入口侧栏与移动五入口底栏分别由独立 Shell 编排 |
-| 桌面壳 | Tauri 2 + Rust | 体积和资源占用低，适合管理 Sidecar 与特权服务 |
-| Android 原生层 | Kotlin + `VpnService` | 负责 VPN 授权、TUN 文件描述符和后台服务生命周期 |
-| iOS 原生层 | Swift + `NEPacketTunnelProvider` | 负责 Packet Tunnel App Extension 和系统 VPN 生命周期 |
-| 核心 | Mihomo Go | 桌面构建为独立可执行文件，移动构建为共享库或静态框架 |
-| IPC | Typed `CoreAdapter` | Web 层不直接依赖平台实现 |
-| 工程组织 | pnpm workspace + Cargo workspace | 管理前端、Tauri、原生插件和共享协议 |
-
-### 2.2 不采用的主方案
-
-- Flutter：不符合产品团队的技术偏好。
-- Electron + Capacitor：需要维护桌面和移动两套应用壳，Electron 的资源成本也更高。
-- React Native：并非真正的 Web 渲染栈，Linux 和桌面支持分散。
-- Wails：适合桌面，但不能覆盖 Android 和 iOS。
-- 纯 PWA：无法获得系统 VPN、TUN、后台服务和 Network Extension 能力。
-
-### 2.3 必须接受的原生边界
-
-“基于 Web 技术栈”不代表 VPN 数据面可以运行在 WebView 中：
-
-- Android VPN 必须由 Kotlin `VpnService` 承载。
-- iOS VPN 必须由 Swift `NEPacketTunnelProvider` App Extension 承载。
-- WebView 被挂起或主应用被系统杀死时，VPN 必须继续运行。
-- 桌面 TUN、系统代理和 DNS 修改需要 Rust 后端或最小权限 Helper/Service。
-
-## 3. 总体架构
-
-```mermaid
-flowchart TD
-    UI["React + TypeScript + Vite<br/>五端共享 UI 与业务逻辑"]
-    Adapter["Typed CoreAdapter"]
-
-    UI --> Adapter
-    Adapter --> Desktop["Tauri Desktop<br/>Windows / macOS / Linux"]
-    Adapter --> Android["Tauri Android Plugin<br/>Kotlin"]
-    Adapter --> IOS["Tauri iOS Plugin<br/>Swift"]
-
-    Desktop --> Sidecar["Mihomo Sidecar<br/>Unix Socket / Named Pipe"]
-    Desktop --> Helper["Minimal Privileged Helper<br/>TUN / DNS / System Proxy"]
-
-    Android --> VpnService["Android VpnService"]
-    VpnService --> AndroidCore["libmihomo.so"]
-
-    IOS --> Manager["NETunnelProviderManager"]
-    Manager --> Extension["PacketTunnel Extension"]
-    Extension --> IOSCore["Libmihomo.xcframework"]
-```
-
-### 3.1 统一前端接口
-
-前端只依赖统一的 `CoreAdapter`，建议第一版包含：
-
-- `prepare()`：检查权限、资源和核心版本。
-- `start(profile)` / `stop()` / `restart()`。
-- `getStatus()` / `subscribeStatus()`。
-- `getProxies()` / `selectProxy()`。
-- `getTraffic()` / `subscribeTraffic()`。
-- `getConnections()` / `closeConnection()`。
-- `getLogs()` / `subscribeLogs()`。
-- `importProfile()` / `updateProfile()` / `deleteProfile()`。
-- `validateConfig()`。
-- `getPlatformCapabilities()`。
-
-平台差异通过能力声明暴露，避免前端依赖 `if (ios)` 一类分支扩散。
-
-### 3.2 Mihomo 版本策略
-
-- 开发期跟踪官方 `Alpha` 分支以验证新接口。
-- 产品版本只固定到官方 `Meta` 分支对应的稳定 tag 或经过审计的明确 commit。
-- 禁止从默认 `main` 分支构建产品核心。
-- 桌面与移动端必须由同一个 Mihomo commit 构建。
-- 每次构建记录 commit、Go 版本、构建参数、SHA-256 和 SBOM。
-- 核心升级必须通过自动化协议、配置兼容性和网络生命周期测试。
-
-## 4. 开源项目利用策略
-
-### 4.1 Clash Verge Rev
-
-用途：桌面端架构，以及跨平台核心生命周期、配置校验和失败回滚的实现参考。
-
-优先研究或选择性移植：
-
-- Mihomo Sidecar 生命周期管理。
-- Unix Socket / Windows Named Pipe IPC。
-- TUN 特权服务与安装流程。
-- 配置合并、订阅更新、日志和连接管理。
-- 桌面系统代理、托盘、更新和诊断逻辑。
-
-移动端只借鉴生命周期语义和控制面契约，不移植桌面 Sidecar、托盘或
-提权模型；移动数据面必须由 Android `VpnService` 或 iOS Packet Tunnel
-Extension 持有。
-
-不直接继承：
-
-- 广告和赞助商集成。
-- 项目更新源与远程推广内容。
-- 订阅服务商控制的身份、设备绑定或原生模块。
-- 未经独立审计的默认配置与网络请求。
-
-Clash Verge Rev 使用 GPL-3.0。若复制或修改其代码，发行方案必须按照 GPL-3.0 设计；若产品需要闭源，则只能研究架构并独立实现，不能复制其 GPL 代码。
-
-### 4.2 移动客户端参考
-
-- Clash Mi：优先参考移动端嵌入式核心、Android `VpnService`、Apple Packet
-  Tunnel 工程结构和原生桥接边界；其公开仓库缺少的部分依赖和预构建产物
-  必须由本项目补齐可复现构建，不能直接视为可发布基线。
-- Clash Meta for Android：交叉验证 `VpnService`、JNI、后台生命周期和
-  Android 打包方式。
-- FlClash：交叉验证 Android `c-shared` 构建、五端 UI 和移动 VPN 行为，
-  不采用 Flutter 产品层。
-- Stash、Clash Pro：作为产品和交互参考，不作为可复制的源码基线。
-
-具体采用、改造和拒绝项见
-`docs/research/mobile-runtime-reference-review-2026-07-20.md`；最终运行时边界见
-`docs/architecture/mobile-runtime-integration.md`。
-
-### 4.3 Fork 策略
-
-默认不直接将任一现有客户端整体 Fork 为产品仓库。建议新建独立 Monorepo，再按许可证要求选择性移植已审计模块。
-
-原因：
-
-- Clash Verge Rev 的核心架构明显偏桌面。
-- 移动端需要完全不同的核心运行和生命周期模型。
-- 新仓库更容易建立清晰的平台边界、权限模型和供应链规则。
-- 可避免继承历史广告、遥测、更新与治理决策。
-
-## 5. MVP 范围
-
-### 5.1 必须交付
-
-- 本地 YAML 导入。
-- 订阅 URL 添加、手动更新和定时更新。
-- Rule、Global、Direct 模式。
-- 代理组查看、节点选择和延迟测试。
-- 系统代理和 TUN/VPN 模式。
-- 实时流量、基础日志和活动连接。
-- 基础 DNS、LAN、IPv6 和绕过局域网设置。
-- 启停状态、错误诊断和核心版本展示。
-- 深色/浅色主题。
-- 桌面侧栏与移动底栏分别由 `DesktopShell` 和 `MobileShell` 编排，不能只用
-  CSS 将侧栏移动到底部。
-- 移动端固定五个一级入口：Home、Routes、Profiles、Activity、Settings；
-  Connections、Rules、Events、Diagnostics 收入 Activity 二级入口。
-- 五端可重复构建和签名流程。
-
-### 5.2 首版明确不做
-
-- MITM 和证书管理。
-- JavaScript 脚本运行环境。
-- Sub-Store。
-- WebDAV 或账户同步。
-- 可视化规则编辑器。
-- 多内核切换。
-- Provider 商业面板和登录体系。
-- 设备指纹、不可导出身份或订阅 DRM。
-- 小组件、快捷指令和复杂系统集成。
-- 连接历史数据库和长期流量统计。
-
-## 6. 阶段计划
-
-### Phase 0：Android 优先技术可行性门（第 1 周）
-
-目标：在投入产品开发前消除最大的不确定性。
-
-交付物：
-
-- Tauri 2 桌面空壳、Android 可安装调试壳，以及可编译的 iOS 主应用、插件和
-  Packet Tunnel Extension 工程。
-- 从同一 Mihomo commit 产出桌面二进制、Android `.so` 和 Apple XCFramework。
-- Android 真机完成一次 `VpnService` 连接。
-- iOS 在无付费开发者权限条件下完成 XCFramework 链接、插件调用和扩展侧
-  生命周期 fixture；需要签名的真机连接、Archive/TestFlight 和 Entitlements
-  验收延后到权限具备后执行。
-- 桌面三端启动 Mihomo 并通过 IPC 调用 `/version`。
-- 构建记录、SHA-256 和失败清单。
-
-Go/No-Go 条件：
-
-- Android 能代理 TCP、UDP 和 DNS，且 WebView 挂起后仍能维持连接。
-- Android 调试包能够重复安装，并能稳定加载固定 commit 的 Mihomo `.so`。
-- iOS 主应用、插件、Packet Tunnel Extension 和 XCFramework 能在不依赖付费
-  签名的范围内重复构建和测试。
-- Tauri 重新生成移动工程时不会不可控地破坏扩展配置。
-
-若 iOS Tauri 集成失败，立即切换到降级架构：桌面使用 Tauri，移动端使用薄 Swift/Kotlin WebView 壳，共享同一个 React 构建产物和 TypeScript 业务包。
-
-### Phase 1：工程骨架与桌面 MVP（第 2–6 周）
-
-- 建立 Monorepo、CI、代码质量与发布流水线。
-- 实现 `CoreAdapter` 和 Desktop Adapter。
-- 完成订阅、配置、代理组、日志、流量和启停状态。
-- 完成 Windows、macOS、Linux 的系统代理与基础 TUN。
-- 建立配置迁移、崩溃日志和诊断包。
-- 完成响应式 Web UI 基础设计系统。
-- 在真实 macOS Tauri 窗口中验证原生 vibrancy 侧栏：由窗口层应用
-  `NSVisualEffectView`/Tauri window effects，仅让 WebView 的侧栏区域透明，
-  主工作区保持不透明；普通浏览器与不支持的平台继续使用固定浅灰背景。
-  同时验证窗口激活状态、“减少透明度”、深浅色模式、缩放与能耗，网页视觉稿
-  阶段不使用 CSS 或桌面截图伪造该效果。
-
-退出条件：桌面三端可供内部日常使用一周，不出现配置损坏、权限残留或无法恢复的断网问题。
-
-### Phase 2：Android MVP（第 5–9 周）
-
-- Kotlin Tauri Plugin。
-- `VpnService` 权限与前台服务。
-- TUN FD 与 Mihomo Native ABI。
-- 应用休眠、进程回收、重启和网络切换。
-- 完成 Android Material 3 风格 `MobileShell`、五入口底栏、二级 Activity 导航、
-  返回键和通知状态。
-- 持续产出可安装调试包，作为移动功能集成的首要验证载体。
-
-退出条件：通过连续 24 小时运行、Wi-Fi/蜂窝切换、睡眠唤醒、TCP/UDP/DNS 和异常恢复测试。
-
-### Phase 3：iOS 并行准备与延后验收（第 5–11 周）
-
-- Swift 主应用插件与 Packet Tunnel Extension。
-- App Group 配置、状态共享和日志桥接。
-- Mihomo XCFramework 集成。
-- 完成 iOS 原生风格 `MobileShell`、五入口 Tab Bar、NavigationStack 层级和
-  sheet/toolbar 行为。
-- 在无付费开发者权限阶段完成编译、链接、接口 fixture、模拟器可覆盖的主应用
-  流程，以及 Entitlements/隐私清单的静态检查。
-- 权限到位后再执行真机内存、后台生命周期、Network Extension、Archive、
-  TestFlight、签名和隐私声明验收。
-
-阶段退出条件：无签名阻塞项之外，iOS 工程和运行时集成均达到可交付验证状态。
-正式发布门仍要求通过 TestFlight 安装，并完成持续运行、切网、锁屏、按需连接
-和异常恢复测试。
-
-### Phase 4：五端统一与公开测试（第 10–16 周）
-
-- 统一配置语义和能力降级提示。
-- 完成自动更新、签名、校验和回滚策略。
-- 安全审计、许可证清单和 SBOM。
-- 完成安装、迁移、卸载与权限清理测试。
-- 建立公开 Beta 发布说明和问题模板。
-
-### Phase 5：稳定版准备（第 16–20 周）
-
-- 修复 Beta 阶段高优先级问题。
-- 完成多语言、无障碍和性能优化。
-- 建立核心升级自动化与五端回归矩阵。
-- 完成商店合规、隐私政策和支持流程。
-
-## 7. 安全、隐私与项目治理红线
-
-Clash Verge Rev 的 CVD 争议应转化为项目级约束：
-
-- 默认零遥测；未来如需崩溃统计，必须明确告知、默认关闭并可审计。
-- 不建立静默、持久且用户不可导出的设备或订阅身份。
-- 所有密钥由用户控制，支持导入、导出、备份和删除。
-- 禁止订阅服务商按远程配置加载闭源原生模块。
-- 禁止广告、推广或远程内容获得原生执行能力。
-- 列出客户端发起的全部非代理业务网络请求及用途。
-- 更新清单必须签名，下载后校验哈希。
-- Release 必须由受保护 CI 构建，减少个人开发机发布。
-- 每个二进制包含版本、源码 commit 和构建信息。
-- 对核心、Helper、移动 Native Library 生成 SBOM。
-- 重要权限、系统代理、DNS 和 VPN 变化必须可见、可撤销。
-- 卸载后不得遗留服务、路由、DNS、证书或自启动项。
-
-## 8. 测试矩阵
-
-### 8.1 网络行为
-
-- TCP、UDP、ICMP 可见性。
-- IPv4、IPv6、双栈和无 IPv6 网络。
-- DNS Fake-IP、Redir-Host、DoH/DoT 上游。
-- Wi-Fi、蜂窝、有线网络和热点。
-- 睡眠、锁屏、唤醒、切网和飞行模式。
-- Captive Portal。
-- 局域网访问与绕过。
-- TUN/VPN 与系统代理切换。
-- 内核崩溃、配置错误和订阅失效恢复。
-
-### 8.2 平台行为
-
-- Windows Service 安装、升级和卸载。
-- macOS Helper、签名、公证和系统扩展权限。
-- Linux systemd、桌面环境和 Wayland/X11。
-- Android 前台服务、Always-on VPN 和电池优化。
-- iOS Packet Tunnel、App Group、On Demand 和内存限制。
-
-### 8.3 供应链
-
-- 构建产物哈希一致性。
-- 第三方依赖许可证。
-- npm、Cargo、Go Modules 和原生依赖漏洞扫描。
-- Mihomo commit 与发布 tag 对应关系。
-- 更新服务器和 Release Manifest 防篡改。
-
-## 9. 人员与工期估算
-
-建议最低配置：
-
-- 1 名 React/TypeScript/Tauri/Rust 工程师。
-- 1 名 Go/Swift/Kotlin 网络工程师。
-
-两名资深工程师全职投入：
-
-- 技术验证：1 周。
-- 内部可用版本：8–12 周。
-- 五端公开 Beta：14–20 周。
-- 稳定商店版本：视 iOS 审核和 Beta 反馈，预计再增加 4–8 周。
-
-单人开发可以完成，但更现实的公开 Beta 周期是 6–9 个月，并且必须熟悉 Swift、Kotlin、Go、Rust 和 TypeScript 中的大部分技术栈。
-
-## 10. 主要风险
-
-| 风险 | 等级 | 应对 |
-| --- | --- | --- |
-| Tauri iOS App Extension 集成不稳定 | 高 | 先完成无签名编译与工程生成验证，权限到位后补真机与 CI 签名；保留原生 WebView 壳降级方案 |
-| iOS Network Extension 内存与生命周期 | 高 | 核心裁剪、流式日志、限制缓存、真机压力测试 |
-| 五端 Mihomo Native ABI 分叉 | 高 | 极窄 C ABI、同 commit 构建、自动兼容测试 |
-| 桌面 TUN 提权与卸载残留 | 高 | 最小权限 Helper、幂等安装卸载、系统状态恢复测试 |
-| GPL 污染闭源商业计划 | 高 | 项目启动前确定许可证；复制代码前进行来源登记 |
-| 上游删库或分支伪装 | 中 | 固定 commit、镜像源码、保存 tag 与构建依赖 |
-| 广告/赞助影响产品决策 | 中 | 资金披露、功能评审、隐私红线、禁止供应商控制模块 |
-| 商店审核与地区合规 | 高 | 不阻塞 Android 调试版；准备海外组织账号、隐私披露和分地区发行策略，权限到位后尽早 TestFlight |
-
-## 11. 首周具体任务
-
-1. 创建 Monorepo 和最小 React/Tauri 2 工程。
-2. 确定产品许可证：GPL-3.0 开源或 Clean-room 独立实现。
-3. 固定一个 Mihomo `Meta` 稳定 tag 和对应 commit。
-4. 定义第一版 C ABI 和 TypeScript `CoreAdapter`。
-5. 优先产出桌面与 Android 核心构建物；同时产出可链接的 Apple XCFramework
-   及全部产物的 SBOM。
-6. 桌面验证 Sidecar、Socket/Named Pipe 和优雅退出。
-7. Android 验证 TUN FD 传递和后台生命周期。
-8. iOS 创建 Packet Tunnel Extension，完成无付费账号可执行的编译、链接和
-   生命周期 fixture。
-9. 验证 Tauri 重新生成工程不会丢失 App Extension、App Group 和 Entitlements
-   配置；真机签名验证列入权限到位后的发布门。
-10. 输出 Go/No-Go 报告和修订后的工期估算。
-
-## 12. 待决策事项
-
-- 产品是否必须闭源；这将决定能否直接复用 GPL 客户端代码。
-- iOS App Store 的账号主体、首发地区和签名时间；不影响 Android 优先调试和
-  iOS 工程并行准备。
-- 是否允许订阅增强脚本；首版建议不允许。
-- 是否支持远程 Dashboard；首版建议只将其作为开发诊断能力。
-- 桌面 macOS 是否使用 Network Extension，还是首版沿用 Mihomo TUN + Helper。
-- 产品是否面向公共用户发行，还是先服务于受控用户群。
-- 最低系统版本和 CPU 架构支持范围。
-
-## 13. 参考资料
-
-- [Mihomo](https://github.com/MetaCubeX/mihomo)
-- [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev)
-- [Clash Meta for Android](https://github.com/MetaCubeX/ClashMetaForAndroid)
-- [Clash Mi](https://github.com/KaringX/clashmi)
-- [Tauri Mobile Plugin Development](https://v2.tauri.app/develop/plugins/develop-mobile/)
-- [Android VpnService](https://developer.android.com/reference/android/net/VpnService)
-- [Apple NEPacketTunnelProvider](https://developer.apple.com/documentation/networkextension/nepackettunnelprovider)
-- [Tauri iOS App Extension Entitlements Issue](https://github.com/tauri-apps/tauri/issues/15663)
-- [Clash Verge Rev CVD Discussion](https://github.com/clash-verge-rev/clash-verge-rev/issues/7187)
-- [Clash Verge Rev CVD Revert](https://github.com/clash-verge-rev/clash-verge-rev/commit/fa27d3eae57c8444c440f133e95966f01bdd2b7a)
-- `docs/research/mobile-runtime-reference-review-2026-07-20.md`
-- `docs/architecture/mobile-runtime-integration.md`
-- `docs/design/mobile-navigation-and-layout.md`
-- `docs/quality/mobile-validation.md`
+# Mish 五端 Web 客户端研发计划（历史摘要）
+
+状态：已被当前代码、契约与验收文档取代
+
+日期：原计划 2026-07-20；摘要更新 2026-07-21
+
+本文件只保留早期方案中仍有解释价值的方向，不再承担 backlog、工期、
+实现状态或验收依据。开始任务时先读 `docs/README.md`，再按任务加载最小的
+产品、架构和质量文档。
+
+## 保留的方向
+
+- React、TypeScript、Vite 负责共享产品层；Tauri 2 提供平台壳。
+- 桌面端运行独立 Mihomo 进程；移动端使用受控、可验证的原生 Core。
+- Android 由 Kotlin `VpnService` 持有授权、TUN、socket protection 与后台
+  生命周期；iOS 由 Swift `NEPacketTunnelProvider` 持有 Packet Tunnel。
+- WebView 不持有 VPN/TUN 生命周期，平台能力通过类型化边界暴露。
+- Mihomo 固定到稳定 tag/commit，构建记录工具链、参数、SHA-256 与 SBOM。
+- 原生网络状态修改必须显式、可确认、可恢复；不支持的能力如实显示为
+  unavailable。
+
+## 当前现实
+
+| 领域 | 现状与权威来源 |
+| --- | --- |
+| 产品与视觉 | `PRODUCT.md`、`DESIGN.md`、`docs/product/status-experience.md` |
+| Web 与 macOS | 已有生产 Web 基础、Tauri 壳、认证 RPC、Profiles 与 Controller-backed 功能；见 `docs/quality/prototype-validation.md` |
+| macOS TUN | 已有显式安装的开发服务；生产打包仍受签名、嵌入与注册门约束 |
+| Android | 已有安装包壳、`VpnService` 生命周期原型与 Mobile Core 身份探针；真实 VPN 数据面尚未接通 |
+| iOS | 只有架构和验收契约，尚无完整 shell、Packet Tunnel extension 或 XCFramework 流程 |
+| 许可证 | 已确定为 GPL-3.0-only；上游来源见 `THIRD_PARTY_NOTICES.md` |
+
+## 下一阶段边界
+
+1. 不从本文件推导任务优先级；以用户请求、当前 issues/PR 和代码事实为准。
+2. Android 只有在配置加载、TUN 所有权、socket protection、生命周期与安全
+   停止同时闭环后，才能从 fixture 变为真实 VPN。
+3. iOS 在账号和 capability 条件具备前，只能推进不冒充真机证据的编译级工作。
+4. TUN、System Proxy、签名、安装与网络恢复必须使用对应 operations/quality
+   文档，不得以早期阶段计划替代验收。
+
+## 当前入口
+
+- 文档路由：`docs/README.md`
+- 开发流程：`development.md`
+- 移动架构：`docs/architecture/mobile-runtime-integration.md`
+- Android 现状：`docs/operations/android-phase0-prototype.md`
+- 移动证据等级：`docs/quality/mobile-validation.md`

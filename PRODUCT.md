@@ -53,8 +53,12 @@ glassmorphism, gradients, pill-heavy controls, and visibly generated AI slop.
 
 The macOS-first Status experience and its interaction rules are specified in
 [`docs/product/status-experience.md`](docs/product/status-experience.md). The
-current React prototype is a reference for that surface, not evidence that the
-network integration is complete.
+production React app implements the six desktop destinations; the standalone
+browser remains fixture-backed, while the Tauri composition supplies confirmed
+native and Mihomo-backed capabilities. The retained [`sketch/`](sketch/) is only
+an interaction reference. Exact Web implementation claims live in
+[`docs/quality/production-web-validation.md`](docs/quality/production-web-validation.md);
+native readiness uses the target-specific quality documents.
 
 ## Accessibility & Inclusion
 

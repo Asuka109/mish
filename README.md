@@ -1,256 +1,94 @@
 # Mish
 
-Mish is an independent, open-source, cross-platform proxy client powered by the
-Mihomo core. It has a shared React and TypeScript product layer, with macOS as
-the first target. The same offline web bundle is intended to run in a browser
-and inside a thin Tauri shell.
+Mish is an independent GPL-3.0 proxy client powered by the Mihomo core. The
+shared React/TypeScript product runs as an offline browser fixture, in a Tauri 2
+macOS shell, and in an Android prototype. Mish is not affiliated with MetaCubeX.
 
-## Brand and core terminology
+## What works today
 
-**Mish** names this client, its product surfaces, shared packages, and native
-shells. **Mihomo** names the upstream core, its Controller API and configuration,
-and the wrappers, managed processes, native libraries, and lifecycle operations
-that integrate that core. Mish is not affiliated with MetaCubeX.
+| Target  | Observed state                                                                                                                                                                                         |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Browser | Six-route product UI backed by an explicit fixture; it opens no desktop RPC connection.                                                                                                                |
+| macOS   | Authenticated in-process bridge, managed Mihomo lifecycle, Profiles, Status, Routes, Traffic, Events, Settings, reversible System Proxy, native window/status bar, and source-development TUN service. |
+| Android | Installable Tauri shell, `VpnService` lifecycle prototype, and verified Mobile Core identity probe. The production backend still does not create a TUN or capture traffic.                             |
+| iOS     | Architecture and validation contracts only; no complete shell, Packet Tunnel extension, or XCFramework flow.                                                                                           |
 
-## Current status
+The desktop Core is pinned to Mihomo `v1.19.29`. Packaged TUN, Developer ID
+signing, notarization, and a real mobile VPN remain separate release gates. See
+[production Web validation](docs/quality/production-web-validation.md),
+[macOS P0 acceptance](docs/quality/macos-p0-acceptance.md), and
+[mobile validation](docs/quality/mobile-validation.md) for exact claim levels.
 
-The repository contains a production TypeScript web foundation in
-[`apps/web/`](apps/web/), shared runtime-validated contracts in
-[`packages/contracts/`](packages/contracts/), a browser-compatible typed RPC
-client in [`packages/rpc-client/`](packages/rpc-client/), and the retained
-interactive design reference in [`sketch/`](sketch/). The production app exposes
-the six stable destinations. A standalone Vite launch uses the visibly labelled
-fixture adapter and opens no WebSocket. The desktop status-bar command opens the
-same bundle as a real browser client connected to the authenticated in-process
-bridge. The Tauri WebView selects that RPC adapter through its private desktop
-bootstrap.
+## Quick start
 
-The transport-neutral Rust application runtime lives in
-[`crates/runtime/`](crates/runtime/). The desktop local bridge in
-[`crates/desktop-bridge/`](crates/desktop-bridge/) provides an authenticated
-loopback JSON-RPC server and explicit managed-Mihomo lifecycle.
-[`packages/mock-bridge/`](packages/mock-bridge/) provides the matching TypeScript
-mock server for integration tests. The thin Tauri 2 shell in
-[`apps/desktop/`](apps/desktop/) embeds the Vite production bundle, starts the
-desktop bridge in-process on an ephemeral loopback port, serves the same bundled
-Web assets to an explicitly launched local browser, and passes a fresh
-process-only authentication token to its main WebView through one
-capability-scoped command. The browser client uses a one-time launch nonce to
-obtain the same in-memory RPC bootstrap from that loopback origin; it does not
-start a second server.
-The isolated
-[`crates/mihomo-controller/`](crates/mihomo-controller/) library implements the
-pinned, bounded Controller observation and command boundary; the desktop bridge
-composes it only from an explicit loopback Controller configuration.
-The Tauri macOS composition includes Controller-backed Status, Routes, Traffic,
-and Events; transactional profile activation; confirmed, reversible System
-Proxy reconciliation; native Sidebar material; and a status-bar menu for daily
-Core, capture, and routing commands. It also includes native application menus,
-window lifecycle preferences, Apple Silicon ad-hoc test packaging, and an
-explicitly installed root LaunchDaemon for real source-development TUN testing.
-Packaged TUN remains truthfully unavailable until the production helper is
-signed, embedded, and registered. Developer ID signing and notarization remain
-credential-gated release work.
-
-The production interface includes complete English and Simplified Chinese
-locales generated by `typesafe-i18n`. The initial locale follows a saved user
-choice, then the browser language, and otherwise falls back to English. The
-toolbar language menu persists subsequent changes locally.
-
-The Routes destination is a policy-group workspace. It preserves
-nested group and node relationships, validates the graph before rendering,
-supports complete Unicode search and per-group sorting, and keeps every manual
-choice scoped to a Selector group. The desktop RPC adapter enables selection
-only when a Controller source can revalidate membership and confirm the result.
-
-## Confirmed direction
-
-- React 19, TypeScript, Vite, React Router, Tailwind CSS v4, Base UI, and shadcn
-  composition patterns for the shared product layer.
-- A pnpm workspace with the production Web app plus the shared UI and
-  design-token packages that Part 1 uses today. Cargo and Rust packages begin
-  with the first desktop-bridge vertical slice.
-- A local Rust bridge service that owns the Mihomo core lifecycle and Mish
-  application state and exposes authenticated JSON-RPC over a loopback
-  WebSocket. Tauri embeds and serves the offline Web bundle.
-- A transport-neutral Rust runtime whose `CoreRuntime` interface can be backed
-  by the desktop managed-process adapter, an Android native-core adapter, or an
-  iOS Packet Tunnel adapter without bringing desktop process dependencies into
-  mobile builds.
-- A thin Tauri 2 macOS shell for the window, status-bar menu, native material,
-  permissions, and other platform capabilities.
-- GPL-3.0 licensing and the upstream Mihomo core.
-
-## License and source
-
-Mish is licensed under [GPL-3.0-only](LICENSE). Apple Silicon test packages also
-include the pinned Mihomo v1.19.29 executable; its exact version, source commit,
-license, and corresponding-source location are recorded in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Mish is not affiliated with
-MetaCubeX.
-
-## Run the production web app
-
-From the repository root:
+Requirements: Node.js 24, pnpm 11.13.1, and stable Rust.
 
 ```sh
-pnpm install
+pnpm install --frozen-lockfile
+pnpm check:pr
 pnpm dev
 ```
 
-The production Vite server listens on `http://127.0.0.1:4173`. Build, test, and
-validate the production Web and typed client boundary with:
+`pnpm dev` serves the browser fixture at `http://127.0.0.1:4173`. It does not
+start Mihomo or change system network settings.
+
+For desktop development:
 
 ```sh
-pnpm web:build
-pnpm check:types
-pnpm test:unit
-pnpm check:all
-```
-
-This standalone command is the safe fixture preview. To use the Web UI as a real
-client, run the desktop shell and choose **Open Browser Client** from the macOS
-status-bar menu. The launched page is served by that desktop process and shares
-its authenticated runtime; closing the native window does not stop it while the
-status-bar process remains running.
-
-## Run the desktop shell
-
-The desktop development shell uses the same explicit Vite server. The production
-command builds the Web UI first, embeds it in the Tauri binary, and creates no
-installer or signed bundle:
-
-```sh
+pnpm prepare:mihomo
+export MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29"
 pnpm desktop:dev
-pnpm desktop:build
 ```
 
-The shell generates its desktop-bridge token internally. Do not set or persist a
-desktop token. The current desktop RPC snapshot is real desktop-bridge state but is
-deliberately sparse: Mihomo is not configured or started automatically, and
-unsupported commands fail instead of simulating a successful system change.
-See [`docs/architecture/desktop-bootstrap.md`](docs/architecture/desktop-bootstrap.md)
-for the resource flow and threat model.
+The preparation command downloads the pinned official release into ignored
+scratch storage and verifies its digest. The desktop process creates its own
+ephemeral bridge token; do not configure or persist one.
 
-## Run the desktop local bridge slice
+Use [`bootstrap.md`](bootstrap.md) for a new workstation and
+[`docs/operations/development-commands.md`](docs/operations/development-commands.md)
+for the complete command registry.
 
-Install the stable Rust toolchain with `rustup`, then prepare the pinned Mihomo
-v1.19.29 Apple Silicon development binary. The script downloads the official
-GitHub release into ignored `.scratch/` storage and verifies its SHA-256 digest:
+## Repository map
 
-```sh
-pnpm prepare:mihomo
-```
+| Path                                                   | Ownership                                                       |
+| ------------------------------------------------------ | --------------------------------------------------------------- |
+| [`apps/web`](apps/web)                                 | Shared product UI and browser/desktop/mobile client selection   |
+| [`apps/desktop`](apps/desktop)                         | Thin Tauri desktop shell and native composition                 |
+| [`apps/mobile`](apps/mobile)                           | Tauri mobile shell and Android plugin                           |
+| [`crates/runtime`](crates/runtime)                     | Transport-neutral application runtime contracts                 |
+| [`crates/desktop-bridge`](crates/desktop-bridge)       | Authenticated RPC, lifecycle, profiles, and desktop effects     |
+| [`crates/mihomo-controller`](crates/mihomo-controller) | Bounded Mihomo Controller adapter                               |
+| [`crates/profile`](crates/profile)                     | Profile validation, persistence, patches, and activation inputs |
+| [`mobile-core`](mobile-core)                           | Pinned native Core ABI, build, and evidence                     |
+| [`packages`](packages)                                 | Contracts, RPC client, fixtures, UI, tokens, and brand assets   |
+| [`sketch`](sketch)                                     | Retained interaction reference; never runtime evidence          |
 
-The bridge service requires an ephemeral authentication token and explicit
-Mihomo configuration. It never starts Mihomo merely because the Web app starts:
+## Non-negotiable boundaries
 
-```sh
-export MISH_BRIDGE_TOKEN="$(openssl rand -hex 32)"
-pnpm bridge -- \
-  --mihomo-binary .scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29 \
-  --mihomo-config-directory /absolute/path/to/mihomo/config \
-  --allow-origin http://127.0.0.1:4173
-```
-
-The loopback health endpoint is `http://127.0.0.1:9099/health`; WebSocket RPC is
-available at `ws://127.0.0.1:9099/rpc`. Mihomo is started only after an
-authenticated `core.start` RPC command and is stopped when the bridge shuts
-down. Do not put the token or private configuration path in the repository.
-
-Transactional activation tests use a fictional fake core by default. Real-core
-activation is explicit and offline after preparation:
-
-```sh
-pnpm prepare:mihomo
-MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  cargo test -p mish-bridge --test real_core_activation -- --nocapture
-```
-
-No ordinary test, application startup, or activation path downloads Mihomo. The
-Apple Silicon packaging command verifies and embeds the target-specific Core;
-a missing production resource is reported as unavailable:
-
-```sh
-pnpm desktop:bundle:macos
-```
-
-See [`docs/operations/macos-packaging.md`](docs/operations/macos-packaging.md)
-for CI triggers, ad-hoc and Developer ID signing modes, notarization secrets,
-and the production TUN helper gates.
-
-Run the complete credential-free macOS P0 fixture journey with:
-
-```sh
-pnpm test:macos:p0
-```
-
-The matching installed-app acceptance and failure drills are documented in
-[`docs/quality/macos-p0-acceptance.md`](docs/quality/macos-p0-acceptance.md).
-
-For transport and UI-adapter development without Mihomo, run the TypeScript
-mock server explicitly:
-
-```sh
-MISH_MOCK_TOKEN="$(openssl rand -hex 32)" pnpm mock-bridge
-```
-
-The mock listens on `ws://127.0.0.1:9098/rpc` and accepts the Vite origin by
-default. It is test infrastructure, not a simulated system proxy. Standalone
-Vite startup continues to use its visibly labelled fixture; only the Tauri
-WebView and a browser explicitly launched from the status-bar menu receive a
-desktop bootstrap.
-
-## Mobile execution model
-
-The desktop Mihomo executable is not a mobile implementation. Android must own
-VPN authorization, the TUN file descriptor, and background lifetime in a Kotlin
-`VpnService`, with Mihomo linked as a native Go library. iOS must own tunnel
-lifetime in a Swift `NEPacketTunnelProvider` extension, with Mihomo linked as a
-static framework. Those platform adapters will implement the shared Rust
-`CoreRuntime` semantics or bridge equivalent commands and events; they will not
-spawn the managed desktop Mihomo process or depend on the desktop loopback
-server.
-
-After changing the English base translation or adding a locale, regenerate the
-strongly typed translation functions before validation:
-
-```sh
-pnpm generate:i18n
-```
-
-Every production URL (`/status`, `/routes`, `/profiles`, `/traffic`, `/events`,
-and `/settings`) is a client-side route. A static or local-bridge host must serve
-`index.html` as the fallback for unknown file paths so browser refresh and direct
-deep links work.
-
-## Run the retained prototype
-
-```sh
-pnpm --dir sketch install
-pnpm sketch:dev
-```
-
-Vite is configured to serve the preview on `http://127.0.0.1:4173`.
+- Browser fixtures never claim native or network success.
+- The WebView never owns a TUN descriptor, VPN lifetime, or privileged state.
+- Native changes are confirmed and reversible; unsupported capabilities stay
+  visibly unavailable.
+- Real profiles, subscription URLs, credentials, bridge tokens, and raw
+  Controller payloads never enter source, logs, screenshots, CI, or docs.
+- Runtime assets ship locally. Network access is limited to user configuration,
+  explicit probes, and explicitly initiated preparation/update paths.
 
 ## Documentation
 
-Start with the [documentation index](docs/README.md). The primary contracts are:
+Start at the [task-oriented documentation index](docs/README.md), then load only
+the contract relevant to the change. The main authorities are:
 
-- [Workstation bootstrap](bootstrap.md)
-- [Development workflow](development.md)
-- [Development commands](docs/operations/development-commands.md)
-- [Product brief](PRODUCT.md)
-- [Design system](DESIGN.md)
-- [Status experience](docs/product/status-experience.md)
-- [Frontend and platform boundary](docs/architecture/frontend-platform-boundary.md)
-- [Mihomo Controller integration](docs/architecture/mihomo-controller-integration.md)
-- [Status data contracts](docs/architecture/status-data-contracts.md)
-- [Component patterns](docs/design/component-patterns.md)
-- [Prototype validation](docs/quality/prototype-validation.md)
-- [Production Web validation](docs/quality/production-web-validation.md)
+- [`PRODUCT.md`](PRODUCT.md) — users, product behavior, and claim boundaries;
+- [`DESIGN.md`](DESIGN.md) — visual tokens and styling rules;
+- [`development.md`](development.md) — repository workflow and validation;
+- [`docs/architecture`](docs/architecture) — runtime and platform contracts;
+- [`docs/quality`](docs/quality) — evidence and acceptance gates.
 
-The Chinese [development plan](.claude/plans/development-plan.md) remains a
-planning artifact. When it conflicts with the product, design, or architecture
-contracts above, update the plan rather than treating it as the current product
-truth.
+The Chinese [development plan](.claude/plans/development-plan.md) is a compact
+historical direction record, not the current implementation backlog.
+
+## License
+
+Mish is licensed under [GPL-3.0-only](LICENSE). Pinned upstream source and
+attribution are recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

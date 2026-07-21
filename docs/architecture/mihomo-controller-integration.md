@@ -358,8 +358,9 @@ does not depend on the Controller crate or any desktop transport.
 | Capabilities and capture | System Proxy and TUN are unavailable, disabled, and unselected                                                      |
 
 That capability row describes the Controller mapper alone. A desktop host may
-compose the independent capture reconciler afterward; the macOS Tauri host does
-so for System Proxy while leaving TUN unavailable.
+compose the independent capture reconciler afterward. The macOS Tauri host does
+so for System Proxy and can replace TUN availability only after confirming the
+explicit source-development service; packaged TUN remains unavailable.
 
 Catalog application is transactional. A missing selection, duplicate child,
 unknown child, out-of-group selection, or derived identifier collision rejects
