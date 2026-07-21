@@ -152,6 +152,23 @@ async fn version_drift_requires_repair_and_repair_reobserves_health() {
 }
 
 #[tokio::test]
+async fn development_runtime_restriction_preserves_the_typed_observation_failure() {
+    let helper = TunHelperController::new(Arc::new(FakeHelperPlatform::not_installed()));
+    helper.install().await.unwrap();
+
+    helper.mark_runtime_unavailable(TunHelperFailureKind::ObservationForeign);
+
+    let snapshot = helper.snapshot();
+    assert_eq!(snapshot.availability, TunHelperAvailability::Unavailable);
+    assert_eq!(snapshot.phase, TunHelperLifecyclePhase::Failed);
+    assert_eq!(
+        snapshot.last_failure,
+        Some(TunHelperFailureKind::ObservationForeign)
+    );
+    assert!(!snapshot.is_healthy());
+}
+
+#[tokio::test]
 async fn remove_disables_tun_before_confirming_absence() {
     let platform = Arc::new(FakeHelperPlatform::not_installed());
     let helper = TunHelperController::new(platform.clone());

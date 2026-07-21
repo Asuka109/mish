@@ -148,9 +148,14 @@ interface. Non-port-53 resolvers do not prove or disprove this packet-path
 effect. A missing route remains partial, a mixture of captured and bypassing
 nameservers is partial, and nameservers whose more specific routes use another
 interface leave DNS absent. This observes Mihomo's actual Darwin DNS hijack
-path without changing system DNS settings. Command execution is capped at five
-seconds and 64 KiB; parsers cap interfaces, routes, resolvers, nameservers,
-names, addresses, process descriptors, and child-owned interfaces.
+path without changing system DNS settings. Each version or system-observation
+step is capped at five seconds and command output is capped at 64 KiB. Client
+deadlines cover the complete server budget: one observation step for read-only
+requests, three steps plus process settling for start, and graceful stop,
+bounded forced stop, and final observation for stop. A response margin keeps a
+completed bounded operation from being reported unavailable while the service
+continues changing state. Parsers cap interfaces, routes, resolvers,
+nameservers, names, addresses, process descriptors, and child-owned interfaces.
 Configuration `tun.enable` is used only to decide whether to begin ownership
 tracking and is never returned as observed runtime truth.
 
@@ -158,6 +163,13 @@ An untracked `utun` carrying an IPv4 address is foreign rather than absent.
 This conservative rule prevents a helper restart, orphaned Core, or another
 TUN product from being mistaken for clean state and prevents Mish from claiming
 that interface during a later launch.
+
+Development startup classifies that foreign baseline as read-only and does not
+send `stop-all`. Mish continues with its ordinary unprivileged Core while TUN
+policy generation remains unavailable with the typed foreign observation. A
+known Mish Core or non-foreign residual state is eligible for bounded cleanup;
+an unconfirmed cleanup similarly degrades only TUN and privileged Core
+operations instead of aborting the desktop bridge.
 
 Enabled requires a fresh observation with all four components confirmed.
 Disabled requires fresh absence of every Mish-owned interface, route, and DNS

@@ -350,6 +350,16 @@ impl TunHelperController {
         self.refresh_locked(None).await
     }
 
+    pub fn mark_runtime_unavailable(&self, failure: TunHelperFailureKind) {
+        let mut snapshot = self
+            .snapshot
+            .lock()
+            .expect("TUN helper snapshot lock poisoned");
+        snapshot.availability = TunHelperAvailability::Unavailable;
+        snapshot.phase = TunHelperLifecyclePhase::Failed;
+        snapshot.last_failure = Some(failure);
+    }
+
     pub async fn install(&self) -> Result<TunHelperSnapshot, TunHelperError> {
         self.run_lifecycle(TunHelperLifecycleOperation::Install)
             .await

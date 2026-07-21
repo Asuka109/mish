@@ -354,9 +354,6 @@ impl ProfileActivationCoordinator {
         request: CaptureRequest,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
-        if request.active && request.selection.system_proxy && request.selection.tun {
-            return self.host.set_capture(request, adapter_kind).await;
-        }
         let before = self
             .host
             .current()

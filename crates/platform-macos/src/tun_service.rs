@@ -41,8 +41,10 @@ pub const DEV_TUN_SERVICE_PLIST_PATH: &str =
     "/Library/LaunchDaemons/com.asuka109.mish.tun-helper.dev.plist";
 pub const DEV_TUN_SERVICE_SOCKET_PREFIX: &str = "/var/run/com.asuka109.mish.tun-helper";
 const CONFIG_MAX_BYTES: u64 = 8 * 1024 * 1024;
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+const BOUNDED_STEP_TIMEOUT: Duration = Duration::from_secs(5);
+const FORCED_STOP_TIMEOUT: Duration = Duration::from_secs(2);
+const CLIENT_RESPONSE_SLACK: Duration = Duration::from_secs(1);
+const STARTUP_SETTLE_TIME: Duration = Duration::from_millis(150);
 const TUN_INTERFACE_LIMIT: usize = 128;
 const TUN_ROUTE_LIMIT: usize = 512;
 const TUN_DNS_RESOLVER_LIMIT: usize = 64;
@@ -655,6 +657,12 @@ pub struct MacOsTunServiceClient {
     socket_path: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DevelopmentTunStartup {
+    Ready,
+    ReadOnly(TunHelperFailureKind),
+}
+
 #[derive(Clone, Debug)]
 struct DevelopmentTunLifecycle {
     repository_root: PathBuf,
@@ -692,6 +700,7 @@ impl MacOsTunServiceClient {
     }
 
     async fn request(&self, command: ServiceCommand) -> Result<ServiceStatus, ServiceClientError> {
+        let request_timeout = service_request_timeout(&command);
         let request = ServiceRequest {
             command,
             protocol_version: TUN_HELPER_PROTOCOL_VERSION,
@@ -738,7 +747,7 @@ impl MacOsTunServiceClient {
             }
             Ok(response.status)
         };
-        timeout(REQUEST_TIMEOUT, operation)
+        timeout(request_timeout, operation)
             .await
             .map_err(|_| ServiceClientError::Unavailable)?
     }
@@ -746,6 +755,58 @@ impl MacOsTunServiceClient {
     async fn health(&self) -> Result<ServiceStatus, ServiceClientError> {
         self.request(ServiceCommand::Health).await
     }
+
+    pub async fn prepare_development_startup(&self) -> DevelopmentTunStartup {
+        let status = match self.health().await {
+            Ok(status) => status,
+            Err(_) => {
+                return DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ConnectionFailed);
+            }
+        };
+        let now = tun_observation_now();
+        if !status.observation.is_fresh_at(now) {
+            return DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationStale);
+        }
+        if [
+            status.observation.core,
+            status.observation.interface,
+            status.observation.routes,
+            status.observation.dns,
+        ]
+        .contains(&TunObservationComponentState::Foreign)
+        {
+            return DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationForeign);
+        }
+        if status.core.is_none() && status.observation.confirms_disabled_at(now) {
+            return DevelopmentTunStartup::Ready;
+        }
+        match self.request(ServiceCommand::StopAll).await {
+            Ok(cleaned)
+                if cleaned
+                    .observation
+                    .confirms_disabled_at(tun_observation_now()) =>
+            {
+                DevelopmentTunStartup::Ready
+            }
+            Ok(cleaned) => DevelopmentTunStartup::ReadOnly(
+                cleaned.observation.failure_kind_at(tun_observation_now()),
+            ),
+            Err(_) => DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::OperationFailed),
+        }
+    }
+}
+
+fn service_request_timeout(command: &ServiceCommand) -> Duration {
+    let server_budget = match command {
+        ServiceCommand::Health
+        | ServiceCommand::Observe { .. }
+        | ServiceCommand::OwnsListener { .. } => BOUNDED_STEP_TIMEOUT,
+        ServiceCommand::Start { .. } => BOUNDED_STEP_TIMEOUT * 3 + STARTUP_SETTLE_TIME,
+        ServiceCommand::Stop { .. } | ServiceCommand::StopAll => {
+            BOUNDED_STEP_TIMEOUT * 2 + FORCED_STOP_TIMEOUT
+        }
+    };
+    server_budget + CLIENT_RESPONSE_SLACK
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1370,7 +1431,7 @@ async fn execute_request(
                     installation_id,
                 );
             };
-            tokio::time::sleep(Duration::from_millis(150)).await;
+            tokio::time::sleep(STARTUP_SETTLE_TIME).await;
             if !matches!(child.try_wait(), Ok(None)) {
                 return ServiceResponse::error(
                     ServiceErrorCode::OperationFailed,
@@ -1823,14 +1884,34 @@ fn reap_if_exited(state: &mut ServiceState) {
 }
 
 async fn stop_process(state: &mut ServiceState) -> Result<(), ()> {
+    stop_process_with_timeouts(state, BOUNDED_STEP_TIMEOUT, FORCED_STOP_TIMEOUT).await
+}
+
+async fn stop_process_with_timeouts(
+    state: &mut ServiceState,
+    graceful_timeout: Duration,
+    forced_timeout: Duration,
+) -> Result<(), ()> {
     let Some(mut process) = state.process.take() else {
         return Ok(());
     };
     // SAFETY: kill receives a positive PID returned for the child owned by this service.
     let _ = unsafe { libc::kill(process.pid as i32, libc::SIGTERM) };
-    if !matches!(timeout(STOP_TIMEOUT, process.child.wait()).await, Ok(Ok(_))) {
-        process.child.start_kill().map_err(|_| ())?;
-        process.child.wait().await.map_err(|_| ())?;
+    if !matches!(
+        timeout(graceful_timeout, process.child.wait()).await,
+        Ok(Ok(_))
+    ) {
+        if process.child.start_kill().is_err() {
+            state.process = Some(process);
+            return Err(());
+        }
+        if !matches!(
+            timeout(forced_timeout, process.child.wait()).await,
+            Ok(Ok(_))
+        ) {
+            state.process = Some(process);
+            return Err(());
+        }
     }
     Ok(())
 }
@@ -1920,7 +2001,9 @@ fn read_tun_enabled(path: &Path) -> Result<bool, ()> {
 }
 
 async fn verify_core_version(binary: &Path, expected: &str) -> Result<(), ()> {
-    let output = timeout(REQUEST_TIMEOUT, Command::new(binary).arg("-v").output())
+    let mut command = Command::new(binary);
+    command.arg("-v").kill_on_drop(true);
+    let output = timeout(BOUNDED_STEP_TIMEOUT, command.output())
         .await
         .map_err(|_| ())?
         .map_err(|_| ())?;
@@ -2023,7 +2106,9 @@ fn peer_uid(_stream: &UnixStream) -> Result<u32, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::VecDeque, os::unix::fs::PermissionsExt, sync::Mutex as StdMutex};
+    use std::{
+        collections::VecDeque, os::unix::fs::PermissionsExt, sync::Mutex as StdMutex, time::Instant,
+    };
 
     struct SequenceObserver {
         owned_interfaces: Result<Vec<String>, ()>,
@@ -2499,6 +2584,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn foreign_vpn_baseline_enters_read_only_startup_without_cleanup() {
+        let foreign = healthy_snapshot();
+        let (_temporary, client, _binary, _home, _config_file, server) =
+            fixture(vec![foreign], Ok(Vec::new())).await;
+
+        assert_eq!(
+            client.prepare_development_startup().await,
+            DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationForeign)
+        );
+        assert!(client.health().await.unwrap().core.is_none());
+
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn sole_foreign_utun_during_launch_never_confirms_applied() {
         let baseline = baseline_snapshot();
         let foreign = healthy_snapshot();
@@ -2579,6 +2679,172 @@ mod tests {
         );
         assert!(!observation.confirms_disabled_at(tun_observation_now()));
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn mish_owned_residual_cleanup_failure_enters_typed_read_only_startup() {
+        let baseline = baseline_snapshot();
+        let healthy = healthy_snapshot();
+        let (_temporary, client, binary, home, config_file, server) = fixture(
+            vec![
+                baseline,
+                healthy.clone(),
+                healthy.clone(),
+                healthy.clone(),
+                healthy,
+            ],
+            Ok(vec!["utun1".into()]),
+        )
+        .await;
+        let process = client
+            .start(PrivilegedCoreLaunchRequest::new(
+                binary,
+                home,
+                config_file,
+                "v1.19.29",
+            ))
+            .await
+            .unwrap();
+        client.stop(process).await.unwrap();
+
+        assert_eq!(
+            client.prepare_development_startup().await,
+            DevelopmentTunStartup::ReadOnly(TunHelperFailureKind::ObservationPartial)
+        );
+
+        server.abort();
+    }
+
+    fn child_service_state(root: &Path, body: &str) -> ServiceState {
+        let binary = root.join("stop-fixture.sh");
+        fs::write(&binary, format!("#!/bin/sh\n{body}\n")).unwrap();
+        fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+        let child = Command::new(binary).spawn().unwrap();
+        let pid = child.id().unwrap();
+        ServiceState {
+            process: Some(ServiceProcess {
+                child,
+                launch_token: uuid::Uuid::new_v4().to_string(),
+                pid,
+            }),
+            tun: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn slow_graceful_stop_finishes_inside_its_server_budget() {
+        let temporary = tempfile::tempdir().unwrap();
+        let ready = temporary.path().join("ready");
+        let marker = temporary.path().join("terminated");
+        let mut state = child_service_state(
+            temporary.path(),
+            &format!(
+                "trap 'touch {} ; exit 0' TERM\ntouch {}\nwhile :; do /bin/sleep 0.2; done",
+                marker.display(),
+                ready.display(),
+            ),
+        );
+        while !ready.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        stop_process_with_timeouts(
+            &mut state,
+            Duration::from_secs(2),
+            Duration::from_millis(200),
+        )
+        .await
+        .unwrap();
+
+        assert!(marker.exists());
+        assert!(state.process.is_none());
+    }
+
+    #[tokio::test]
+    async fn forced_stop_finishes_inside_its_bounded_follow_up_budget() {
+        let temporary = tempfile::tempdir().unwrap();
+        let ready = temporary.path().join("ready");
+        let mut state = child_service_state(
+            temporary.path(),
+            &format!(
+                "trap '' TERM\ntouch {}\nwhile :; do /bin/sleep 0.2; done",
+                ready.display()
+            ),
+        );
+        while !ready.exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let started = Instant::now();
+
+        stop_process_with_timeouts(
+            &mut state,
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+        )
+        .await
+        .unwrap();
+
+        assert!(started.elapsed() >= Duration::from_millis(100));
+        assert!(state.process.is_none());
+    }
+
+    #[tokio::test]
+    async fn slow_stop_response_is_not_cut_off_by_the_observation_timeout() {
+        let temporary = tempfile::tempdir().unwrap();
+        let socket_path = temporary.path().join("slow-helper.sock");
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let length = stream.read_u32().await.unwrap() as usize;
+            let mut request = vec![0; length];
+            stream.read_exact(&mut request).await.unwrap();
+            let request: ServiceRequest = serde_json::from_slice(&request).unwrap();
+            assert!(matches!(request.command, ServiceCommand::StopAll));
+            tokio::time::sleep(BOUNDED_STEP_TIMEOUT + Duration::from_millis(100)).await;
+            let response = ServiceResponse::ok(
+                None,
+                TunNetworkObservation::disabled(tun_observation_now()),
+                &"a".repeat(64),
+            );
+            let response = serde_json::to_vec(&response).unwrap();
+            stream.write_u32(response.len() as u32).await.unwrap();
+            stream.write_all(&response).await.unwrap();
+        });
+
+        MacOsTunServiceClient::new(socket_path)
+            .request(ServiceCommand::StopAll)
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn client_deadlines_cover_start_version_baseline_stop_and_observation_budgets() {
+        let health = service_request_timeout(&ServiceCommand::Health);
+        let observe = service_request_timeout(&ServiceCommand::Observe {
+            launch_token: uuid::Uuid::new_v4().to_string(),
+        });
+        let start = service_request_timeout(&ServiceCommand::Start {
+            binary: PathBuf::from("/fixture/mihomo"),
+            config_directory: PathBuf::from("/fixture/home"),
+            config_file: PathBuf::from("/fixture/config.yaml"),
+            expected_version: "v1.19.29".into(),
+            launch_token: uuid::Uuid::new_v4().to_string(),
+        });
+        let stop = service_request_timeout(&ServiceCommand::StopAll);
+
+        assert_eq!(health, BOUNDED_STEP_TIMEOUT + CLIENT_RESPONSE_SLACK);
+        assert_eq!(observe, health);
+        assert_eq!(
+            start,
+            BOUNDED_STEP_TIMEOUT * 3 + STARTUP_SETTLE_TIME + CLIENT_RESPONSE_SLACK
+        );
+        assert_eq!(
+            stop,
+            BOUNDED_STEP_TIMEOUT * 2 + FORCED_STOP_TIMEOUT + CLIENT_RESPONSE_SLACK
+        );
+        assert!(start > BOUNDED_STEP_TIMEOUT);
+        assert!(stop > BOUNDED_STEP_TIMEOUT);
     }
 
     #[tokio::test]

@@ -38,8 +38,10 @@ use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError,
     LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState, RoutingMode,
-    StatusAdapterKind, TunHelperAvailability, TunHelperHealth, TunHelperLifecyclePhase,
-    TunHelperSnapshot,
+    StatusAdapterKind, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController,
+    TunHelperError, TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
+    TunHelperObservation, TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation,
+    tun_observation_now,
 };
 use serde_json::json;
 use serde_norway::Value;
@@ -48,6 +50,52 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
+
+#[derive(Default)]
+struct HealthyTunPlatform {
+    enabled: Mutex<bool>,
+}
+
+impl TunHelperPlatform for HealthyTunPlatform {
+    fn initial_snapshot(&self) -> TunHelperSnapshot {
+        TunHelperSnapshot {
+            availability: TunHelperAvailability::Available,
+            expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
+            health: TunHelperHealth::Healthy,
+            installation_id: None,
+            installed_version: Some(TUN_HELPER_EXPECTED_VERSION.to_owned()),
+            last_failure: None,
+            phase: TunHelperLifecyclePhase::Idle,
+        }
+    }
+
+    fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
+        Box::pin(async { Ok(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)) })
+    }
+
+    fn run_lifecycle(
+        &self,
+        _operation: TunHelperLifecycleOperation,
+    ) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        let enabled = *self.enabled.lock().unwrap();
+        Box::pin(async move {
+            Ok(if enabled {
+                TunNetworkObservation::enabled(tun_observation_now())
+            } else {
+                TunNetworkObservation::disabled(tun_observation_now())
+            })
+        })
+    }
+
+    fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
+        *self.enabled.lock().unwrap() = enabled;
+        Box::pin(async { Ok(()) })
+    }
+}
 
 #[tokio::test]
 async fn empty_app_data_startup_keeps_service_presets_across_runtime_hydration_and_relaunch() {
@@ -128,6 +176,107 @@ async fn empty_app_data_startup_keeps_service_presets_across_runtime_hydration_a
     assert_default_service_presets(&subsequent_launch);
     assert_eq!(subsequent_launch["probeResults"], json!([]));
 
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
+    let root = tempfile::tempdir().unwrap();
+    let profile_root = root.path().join("profiles");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let controller = FakeController::start("v1.19.29").await;
+    let tun_helper = Arc::new(TunHelperController::new(Arc::new(
+        HealthyTunPlatform::default(),
+    )));
+    let capture = Arc::new(CaptureReconciler::new_with_tun(
+        Arc::new(MemoryCapturePlatform::default()),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+        Some(tun_helper.clone()),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture.clone(),
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let policy_capture = capture.clone();
+    let policy_helper = tun_helper.clone();
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || {
+            ManagedRuntimePolicy::new(address, "dual-capture-secret")?.with_tun_enabled(
+                &policy_helper.snapshot(),
+                policy_capture.status().capture_selection.tun,
+            )
+        },
+    ));
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), record.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert_eq!(
+        wait_for_activation(&coordinator, &mut updates).await.phase,
+        ProfileActivationPhase::Success
+    );
+    coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    let system_proxy_core = host.current();
+
+    let dual = coordinator
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: true,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+
+    assert!(!system_proxy_core.is_same_instance(&host.current()));
+    assert_eq!(dual["runtime"]["systemProxy"]["phase"], "applied");
+    assert_eq!(dual["runtime"]["tun"]["phase"], "applied");
+    assert_eq!(dual["runtime"]["captureSelection"]["systemProxy"], true);
+    assert_eq!(dual["runtime"]["captureSelection"]["tun"], true);
+    let config = only_candidate_config(root.path());
+    assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+
+    coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 }
 
@@ -2296,6 +2445,16 @@ fn candidate_count(root: &Path) -> usize {
     std::fs::read_dir(root.join("runtime/candidates"))
         .map(|entries| entries.flatten().count())
         .unwrap_or(0)
+}
+
+fn only_candidate_config(root: &Path) -> Value {
+    let candidates = std::fs::read_dir(root.join("runtime/candidates"))
+        .unwrap()
+        .flatten()
+        .collect::<Vec<_>>();
+    assert_eq!(candidates.len(), 1);
+    let bytes = std::fs::read(candidates[0].path().join("config.yaml")).unwrap();
+    serde_norway::from_slice(&bytes).unwrap()
 }
 
 fn runtime_config_with_mode(mode: RoutingMode) -> serde_json::Value {
