@@ -63,6 +63,12 @@ export class RpcProfileClient implements ProfileClient {
     return this.request("profiles.cancelActivation", { commandId }, options);
   }
 
+  createProfile(fileName: string, options?: RpcRequestOptions) {
+    return this.request("profiles.create", { fileName }, options).then((snapshot) =>
+      this.normalizeSnapshot(snapshot),
+    );
+  }
+
   deleteProfile(profileId: string, options?: RpcRequestOptions) {
     return this.request("profiles.delete", { profileId }, options).then((snapshot) =>
       this.normalizeSnapshot(snapshot),

@@ -67,6 +67,12 @@ struct ProfilePreflightHttpsParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileCreateParams {
+    file_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProfileIdParams {
     profile_id: String,
 }
@@ -468,7 +474,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 14,
+            "protocolVersion": 15,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -709,13 +715,43 @@ async fn handle_message(
             Ok(snapshot) => snapshot,
             Err(error) => return Some(profile_error_response(id, error)),
         },
+        "profiles.create" => {
+            let Some(actions) = &state.profile_file_actions else {
+                return Some(profile_file_action_error_response(
+                    id,
+                    crate::ProfileFileActionError::Unavailable,
+                ));
+            };
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileCreateParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            if let Err(error) = actions.create_basic_profile(&params.file_name) {
+                return Some(profile_file_action_error_response(id, error));
+            }
+            match service.reconcile_profile_directory().await {
+                Ok(_) | Err(ProfileServiceError::Busy) => {}
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+            publish_profile_update(state).await;
+            match profile_rpc_snapshot(state).await {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(profile_error_response(id, error)),
+            }
+        }
         "profiles.openDirectory" => {
             let Some(actions) = &state.profile_file_actions else {
-                return Some(profile_file_action_error_response(id));
+                return Some(profile_file_action_error_response(
+                    id,
+                    crate::ProfileFileActionError::Unavailable,
+                ));
             };
             match actions.open_profiles_directory() {
                 Ok(()) => json!(true),
-                Err(_) => return Some(profile_file_action_error_response(id)),
+                Err(error) => return Some(profile_file_action_error_response(id, error)),
             }
         }
         "profiles.getPatches" => {
@@ -1481,8 +1517,21 @@ fn profile_error_response(id: Value, error: ProfileServiceError) -> Value {
     }
 }
 
-fn profile_file_action_error_response(id: Value) -> Value {
-    error_response(id, -32021, "Profile file action failed", None)
+fn profile_file_action_error_response(id: Value, error: crate::ProfileFileActionError) -> Value {
+    match error {
+        crate::ProfileFileActionError::AlreadyExists => error_response(
+            id,
+            -32009,
+            "A profile with this file name already exists",
+            Some(json!({ "kind": "already-exists" })),
+        ),
+        crate::ProfileFileActionError::InvalidFileName => {
+            error_response(id, -32602, "Invalid params", None)
+        }
+        crate::ProfileFileActionError::Unavailable => {
+            error_response(id, -32021, "Profile file action failed", None)
+        }
+    }
 }
 
 fn valid_patch_authority(authority: &ProfilePatchAuthorityParams) -> bool {

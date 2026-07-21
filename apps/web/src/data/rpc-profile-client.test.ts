@@ -279,6 +279,15 @@ describe("RpcProfileClient", () => {
     transport.respond({ id: openDirectory.id, jsonrpc: "2.0", result: true });
     await openDirectoryPromise;
 
+    const createPromise = client.createProfile("new-profile.yaml");
+    const create = await waitForRequest(transport, 7);
+    expect(create).toMatchObject({
+      method: "profiles.create",
+      params: { fileName: "new-profile.yaml" },
+    });
+    transport.respond({ id: create.id, jsonrpc: "2.0", result: profileSnapshot(null) });
+    await createPromise;
+
     client.dispose();
     rpc.dispose();
   });

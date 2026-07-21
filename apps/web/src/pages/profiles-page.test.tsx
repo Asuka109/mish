@@ -167,6 +167,7 @@ function createDesktopClient() {
   return {
     activateProfile: vi.fn(async () => snapshot.activation),
     cancelActivation: vi.fn(async () => snapshot.activation),
+    createProfile: vi.fn(async () => snapshot),
     deleteProfile: vi.fn(async () => snapshot),
     detachSubscription: vi.fn(async () => snapshot),
     dispose: vi.fn(),
@@ -272,6 +273,20 @@ describe("profiles page", () => {
 
     await user.click(screen.getAllByRole("button", { name: "Open folder" })[0]);
     expect(client.openProfileDirectory).toHaveBeenCalledOnce();
+  });
+
+  it("creates a basic local profile from a normalized file name", async () => {
+    const user = userEvent.setup();
+    const client = createDesktopClient();
+    renderProfiles(client);
+    await screen.findByText("studio-route-set");
+
+    await user.click(screen.getByRole("button", { name: "New profile" }));
+    await user.type(screen.getByLabelText("Local file name"), "travel.YML");
+    await user.click(screen.getByRole("button", { name: "New profile" }));
+
+    await waitFor(() => expect(client.createProfile).toHaveBeenCalledWith("travel.yml"));
+    await waitFor(() => expect(screen.queryByText("Create local profile")).not.toBeInTheDocument());
   });
 
   it("uses a visible URL field and normalizes the optional subscription file name", async () => {

@@ -1551,7 +1551,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(14),
+    protocolVersion: z.literal(15),
     statusCommands: z
       .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
       .strict(),
@@ -2106,6 +2106,9 @@ export interface ProfilePatchEditorDto extends z.infer<typeof ProfilePatchEditor
 export const ProfilePreflightHttpsCommandSchema = z
   .object({ label: z.string().optional(), url: z.string().min(1).max(8192) })
   .strict();
+export const ProfileCreateCommandSchema = z
+  .object({ fileName: z.string().min(1).max(120) })
+  .strict();
 export const ProfileSaveCommandSchema = z.object({ previewId: IdentifierSchema }).strict();
 export const ProfileIdCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
 export const ProfileRefreshPolicyCommandSchema = z
@@ -2216,6 +2219,10 @@ export const profileRpcMethods = {
   "profiles.cancelActivation": {
     params: ProfileActivationControlCommandSchema,
     result: ProfileActivationSnapshotSchema,
+  },
+  "profiles.create": {
+    params: ProfileCreateCommandSchema,
+    result: RpcProfileSnapshotSchema,
   },
   "profiles.delete": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.detachSubscription": {
@@ -2597,6 +2604,7 @@ export interface ProfileClient {
     commandId: string,
     options?: { signal?: AbortSignal },
   ): Promise<ProfileActivationSnapshotDto>;
+  createProfile?(fileName: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
   deleteProfile(profileId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
   detachSubscription?(
     profileId: string,

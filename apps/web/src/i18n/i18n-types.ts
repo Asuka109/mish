@@ -2105,6 +2105,30 @@ type RootTranslation = {
 		 */
 		classifications: string
 		/**
+		 * E​n​t​e​r​ ​a​ ​f​i​l​e​ ​n​a​m​e​ ​t​o​ ​c​r​e​a​t​e​ ​a​ ​b​a​s​i​c​ ​l​o​c​a​l​ ​Y​A​M​L​ ​p​r​o​f​i​l​e​ ​w​i​t​h​ ​d​i​r​e​c​t​ ​r​o​u​t​i​n​g​ ​e​n​a​b​l​e​d​.
+		 */
+		createDescription: string
+		/**
+		 * T​h​e​ ​p​r​o​f​i​l​e​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​c​r​e​a​t​e​d​.​ ​C​h​e​c​k​ ​t​h​e​ ​f​i​l​e​ ​n​a​m​e​ ​o​r​ ​c​h​o​o​s​e​ ​a​n​o​t​h​e​r​ ​o​n​e​.
+		 */
+		createFailed: string
+		/**
+		 * N​e​w​ ​p​r​o​f​i​l​e
+		 */
+		createProfile: string
+		/**
+		 * C​r​e​a​t​e​ ​l​o​c​a​l​ ​p​r​o​f​i​l​e
+		 */
+		createTitle: string
+		/**
+		 * P​r​o​f​i​l​e​ ​c​r​e​a​t​e​d
+		 */
+		createdToast: string
+		/**
+		 * C​r​e​a​t​i​n​g​…
+		 */
+		creating: string
+		/**
 		 * T​h​i​s​ ​r​e​m​o​v​e​s​ ​t​h​e​ ​s​o​u​r​c​e​,​ ​i​m​m​u​t​a​b​l​e​ ​r​e​v​i​s​i​o​n​s​,​ ​n​o​r​m​a​l​i​z​e​d​ ​a​r​t​i​f​a​c​t​s​,​ ​a​n​d​ ​p​r​o​f​i​l​e​-​s​c​o​p​e​d​ ​l​o​c​a​l​ ​s​t​a​t​e​.
 		 */
 		deleteDescription: string
@@ -6039,6 +6063,30 @@ export type TranslationFunctions = {
 		 * Ownership changes
 		 */
 		classifications: () => LocalizedString
+		/**
+		 * Enter a file name to create a basic local YAML profile with direct routing enabled.
+		 */
+		createDescription: () => LocalizedString
+		/**
+		 * The profile could not be created. Check the file name or choose another one.
+		 */
+		createFailed: () => LocalizedString
+		/**
+		 * New profile
+		 */
+		createProfile: () => LocalizedString
+		/**
+		 * Create local profile
+		 */
+		createTitle: () => LocalizedString
+		/**
+		 * Profile created
+		 */
+		createdToast: () => LocalizedString
+		/**
+		 * Creating…
+		 */
+		creating: () => LocalizedString
 		/**
 		 * This removes the source, immutable revisions, normalized artifacts, and profile-scoped local state.
 		 */

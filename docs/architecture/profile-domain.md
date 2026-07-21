@@ -239,6 +239,11 @@ and is composed through the user-mediated Tauri picker boundary. Neither the
 service view nor its errors expose raw URLs, source YAML, credentials, or full
 local paths.
 
+Protocol version 15 adds authenticated `profiles.create`. It accepts only a
+single bounded `.yaml` or `.yml` file name, creates a minimal direct-routing
+profile without overwriting an existing file, reconciles it through the same
+Profile validation pipeline, and returns the updated snapshot.
+
 ## Activation transaction seam
 
 Activation remains outside the profile crate. The authenticated Profiles

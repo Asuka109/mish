@@ -1,5 +1,6 @@
 import { Alarm } from "@phosphor-icons/react/Alarm";
 import { ArrowClockwise } from "@phosphor-icons/react/ArrowClockwise";
+import { FilePlus } from "@phosphor-icons/react/FilePlus";
 import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
 import { GlobeHemisphereWest } from "@phosphor-icons/react/GlobeHemisphereWest";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
@@ -50,6 +51,8 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
 export function ProfilesPage() {
   const { LL, locale } = useI18nContext();
   const profiles = useProfiles();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createFileName, setCreateFileName] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [preview, setPreview] = useState<ProfilePreviewDto | null>(null);
   const [url, setUrl] = useState("");
@@ -68,6 +71,30 @@ export function ProfilesPage() {
   const snapshot = profiles.snapshot;
   const httpsSupported = snapshot?.capabilities.httpsImport === "supported";
   const fileActionsSupported = profiles.fileActionsAvailable;
+  const createSupported = profiles.createProfileAvailable;
+
+  function openCreate() {
+    setCreateFileName("");
+    setCreateOpen(true);
+  }
+
+  function closeCreate() {
+    setCreateOpen(false);
+    setCreateFileName("");
+  }
+
+  async function createProfile(event: FormEvent) {
+    event.preventDefault();
+    const normalized = normalizeFileName(createFileName);
+    if (!normalized) return;
+    const result = await profiles.createProfile(normalized);
+    if (!result.ok) {
+      toast.error(LL.profiles.createFailed());
+      return;
+    }
+    toast.success(LL.profiles.createdToast());
+    closeCreate();
+  }
 
   function openHttpsImport() {
     setUrl("");
@@ -141,6 +168,10 @@ export function ProfilesPage() {
           <p>{LL.profiles.description()}</p>
         </div>
         <div className="profiles-import-actions">
+          <Button disabled={!createSupported} onClick={openCreate} variant="outline">
+            <FilePlus data-icon="inline-start" />
+            {LL.profiles.createProfile()}
+          </Button>
           <Button
             disabled={!fileActionsSupported}
             onClick={() => void openDirectory()}
@@ -188,6 +219,58 @@ export function ProfilesPage() {
           ))}
         </section>
       ) : null}
+
+      <Dialog
+        onOpenChange={(open) => (open ? setCreateOpen(true) : closeCreate())}
+        open={createOpen}
+      >
+        <DialogContent className="profile-import-dialog" closeLabel={LL.common.close()}>
+          <DialogHeader>
+            <div>
+              <DialogTitle className="dialog-title">{LL.profiles.createTitle()}</DialogTitle>
+              <DialogDescription className="dialog-description">
+                {LL.profiles.createDescription()}
+              </DialogDescription>
+            </div>
+          </DialogHeader>
+          <form className="profile-import-form" id="profile-create-form" onSubmit={createProfile}>
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="profile-create-file-name">
+                  {LL.profiles.fileNameLabel()}
+                </FieldLabel>
+                <Input
+                  aria-required="true"
+                  autoComplete="off"
+                  autoFocus
+                  id="profile-create-file-name"
+                  maxLength={115}
+                  onValueChange={setCreateFileName}
+                  placeholder="my-profile.yaml"
+                  required
+                  spellCheck={false}
+                  value={createFileName}
+                />
+                <FieldDescription>{LL.profiles.fileNameDescription()}</FieldDescription>
+              </Field>
+            </FieldGroup>
+          </form>
+          <DialogFooter>
+            <Button onClick={closeCreate} type="button" variant="outline">
+              {LL.common.cancel()}
+            </Button>
+            <Button
+              disabled={!normalizeFileName(createFileName) || profiles.isPending("create")}
+              form="profile-create-form"
+              loading={profiles.isPending("create")}
+              loadingText={LL.profiles.creating()}
+              type="submit"
+            >
+              {LL.profiles.createProfile()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         onOpenChange={(open) => (open ? setImportOpen(true) : closeImport())}
@@ -469,7 +552,10 @@ function profileFileName(profile: ProfileListItemDto) {
 function normalizeFileName(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  return /\.(?:yaml|yml)$/i.test(trimmed) ? trimmed : `${trimmed}.yaml`;
+  const extension = /\.(?:yaml|yml)$/i.exec(trimmed);
+  return extension
+    ? `${trimmed.slice(0, extension.index)}${extension[0].toLowerCase()}`
+    : `${trimmed}.yaml`;
 }
 
 function formatTimestamp(

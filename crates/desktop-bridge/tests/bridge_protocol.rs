@@ -760,7 +760,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 14);
+    assert_eq!(info["result"]["protocolVersion"], 15);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false})
@@ -1071,6 +1071,46 @@ async fn authenticated_profile_file_action_opens_the_shared_directory() {
     assert_eq!(opened["result"], true);
 
     assert_eq!(platform.opened.lock().unwrap().as_slice(), &[directory]);
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn authenticated_profile_file_action_creates_and_imports_a_basic_profile() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = root.path().join("profiles");
+    let platform = Arc::new(RecordingProfileFilePlatform::default());
+    let actions = Arc::new(ProfileFileActions::new(directory.clone(), platform));
+    let service =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.path().to_path_buf()).unwrap());
+    let mut bridge_config = config();
+    bridge_config.profile_file_actions = Some(actions);
+    bridge_config.profile_service = Some(service);
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let created = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"profiles.create",
+            "params":{"fileName":"new-profile.yaml"}
+        }),
+    )
+    .await;
+
+    assert_eq!(
+        created["result"]["profiles"][0]["fileName"],
+        "new-profile.yaml"
+    );
+    assert_eq!(
+        fs::read_to_string(directory.join("new-profile.yaml")).unwrap(),
+        "mode: rule\nproxies: []\nproxy-groups: []\nrules:\n  - MATCH,DIRECT\n"
+    );
 
     bridge.shutdown().await;
 }

@@ -632,6 +632,13 @@ const en = {
     classificationPreserved: "Preserved: {count:number}",
     classificationRejected: "Rejected: {count:number}",
     classifications: "Ownership changes",
+    createDescription:
+      "Enter a file name to create a basic local YAML profile with direct routing enabled.",
+    createFailed: "The profile could not be created. Check the file name or choose another one.",
+    createProfile: "New profile",
+    createTitle: "Create local profile",
+    createdToast: "Profile created",
+    creating: "Creating…",
     deleteDescription:
       "This removes the source, immutable revisions, normalized artifacts, and profile-scoped local state.",
     deleteFailed: "The profile could not be deleted.",

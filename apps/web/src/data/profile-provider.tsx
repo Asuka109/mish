@@ -27,6 +27,7 @@ import { createFixtureProfileClient } from "./fixture-profile-client";
 
 export type ProfileOperation =
   | "activate"
+  | "create"
   | "delete"
   | "detach"
   | "preflight"
@@ -51,6 +52,8 @@ interface ProfileContextValue {
   activateProfile(profileId: string): Promise<ProfileOperationResult>;
   cancelActivation(): Promise<ProfileOperationResult>;
   connection: ProfileConnectionState;
+  createProfile(fileName: string): Promise<ProfileOperationResult>;
+  createProfileAvailable: boolean;
   deleteProfile(profileId: string): Promise<ProfileOperationResult>;
   detachSubscription(profileId: string): Promise<ProfileOperationResult>;
   error: ProfileClientError | null;
@@ -409,6 +412,14 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         return runActivation("activate", () => resolvedClient.cancelActivation(commandId), true);
       },
       connection,
+      createProfile: (fileName) =>
+        resolvedClient.createProfile
+          ? runMutation("create", undefined, () => resolvedClient.createProfile!(fileName))
+          : Promise.resolve({
+              error: new ProfileClientError("unsupported", "Profile creation is unavailable"),
+              ok: false as const,
+            }),
+      createProfileAvailable: Boolean(resolvedClient.createProfile),
       deleteProfile: (profileId) =>
         runMutation("delete", profileId, () => resolvedClient.deleteProfile(profileId)),
       detachSubscription: (profileId) =>
