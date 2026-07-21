@@ -8,6 +8,7 @@ mod lifecycle;
 mod local_backup;
 mod managed_process;
 mod profile_activation;
+mod profile_file_actions;
 mod profiles;
 mod protocol;
 mod runtime_host;
@@ -54,6 +55,9 @@ pub use profile_activation::{
     ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,
     ProfileActivationCoordinatorError, ProfileActivationFailure, ProfileActivationOperation,
     ProfileActivationPhase, ProfileActivationSnapshot, ProfileStartupPolicy,
+};
+pub use profile_file_actions::{
+    ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
 };
 pub use profiles::{DesktopProfileService, ReqwestHttpsSourceReader};
 pub use runtime_host::DesktopRuntimeHost;

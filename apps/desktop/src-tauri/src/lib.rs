@@ -16,7 +16,7 @@ use mish_bridge::{
     LocalRestoreConflictResolution, LocalRestorePreview, LocalRestoreResult, LoopbackServerConfig,
     LoopbackServerHandle, ManagedCoreOwnership, ManagedMihomoResolver, ManagedRuntimeLease,
     ManagedRuntimePolicy, MihomoActivationManager, PreparedLocalBackup, PreparedLocalRestore,
-    PreparedSupportBundle, PrivilegedCoreHost, ProfileActivationCoordinator,
+    PreparedSupportBundle, PrivilegedCoreHost, ProfileActivationCoordinator, ProfileFileActions,
     RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
     SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
     compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
@@ -86,7 +86,9 @@ impl BrowserAssetSource for TauriBrowserAssetSource {
 struct BridgeState(Arc<Mutex<Option<LoopbackServerHandle>>>);
 
 #[derive(Clone)]
-struct ProfileState(Arc<DesktopProfileService>);
+struct ProfileState {
+    service: Arc<DesktopProfileService>,
+}
 
 #[derive(Clone)]
 struct SettingsState(Arc<SettingsService>);
@@ -220,7 +222,7 @@ async fn profile_preflight_local(
     };
 
     state
-        .0
+        .service
         .preflight_local(path, label)
         .await
         .map(Some)
@@ -718,6 +720,7 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             },
         ));
         activation.start_scheduler().await;
+        activation.start_directory_reconciler().await;
         let bridge = start_loopback_server_with_runtime_host_and_lifecycle(
             LoopbackServerConfig {
                 allowed_origins: allowed_origins(tauri::is_dev()),
@@ -726,6 +729,9 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
                 max_message_bytes: 1_048_576,
                 profile_activation: Some(activation.clone()),
+                profile_file_actions: Some(Arc::new(ProfileFileActions::system(
+                    profile_root.join("profiles"),
+                ))),
                 profile_service: Some(profile_service.clone()),
                 settings_service: Some(settings_service.clone()),
             },
@@ -761,7 +767,9 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 .login_launch_behavior,
         ),
     });
-    app.manage(ProfileState(profile_service));
+    app.manage(ProfileState {
+        service: profile_service,
+    });
     app.manage(SettingsState(settings_service.clone()));
     app.manage(SupportBundleState {
         pending: Arc::new(Mutex::new(None)),

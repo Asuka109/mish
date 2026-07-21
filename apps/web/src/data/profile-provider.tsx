@@ -28,6 +28,7 @@ import { createFixtureProfileClient } from "./fixture-profile-client";
 export type ProfileOperation =
   | "activate"
   | "delete"
+  | "detach"
   | "preflight"
   | "patch-save"
   | "provider-update"
@@ -51,11 +52,14 @@ interface ProfileContextValue {
   cancelActivation(): Promise<ProfileOperationResult>;
   connection: ProfileConnectionState;
   deleteProfile(profileId: string): Promise<ProfileOperationResult>;
+  detachSubscription(profileId: string): Promise<ProfileOperationResult>;
   error: ProfileClientError | null;
+  fileActionsAvailable: boolean;
   isLoading: boolean;
   isPending(operation: ProfileOperation, profileId?: string): boolean;
   loadPatches(authority: ProfilePatchAuthorityDto): Promise<ProfilePatchEditorResult>;
   loadRoutes(profileId: string): Promise<ProfileRouteCatalogResult>;
+  openProfileDirectory(): Promise<ProfileOperationResult>;
   preflightHttps(url: string, label?: string): Promise<ProfilePreviewResult>;
   preflightLocal(label?: string): Promise<ProfilePreviewResult>;
   refreshProfile(profileId: string): Promise<ProfileOperationResult>;
@@ -91,7 +95,10 @@ interface ProfileProviderProps {
 }
 
 export function ProfileProvider({ children, client }: ProfileProviderProps) {
-  const resolvedClient = useMemo(() => client ?? createFixtureProfileClient(), [client]);
+  const resolvedClient = useMemo<ProfileClient>(
+    () => client ?? createFixtureProfileClient(),
+    [client],
+  );
   const [snapshot, setSnapshot] = useState<ProfileSnapshotDto | null>(null);
   const [connection, setConnection] = useState<ProfileConnectionState>(() =>
     resolvedClient.getConnectionState(),
@@ -283,6 +290,26 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     [resolvedClient],
   );
 
+  const runFileAction = useCallback(
+    async (action: (() => Promise<void>) | undefined): Promise<ProfileOperationResult> => {
+      if (!action) {
+        return {
+          error: new ProfileClientError("unsupported", "Profile file actions are unavailable"),
+          ok: false,
+        };
+      }
+      try {
+        await action();
+        return { ok: true };
+      } catch (failure) {
+        const typedError = toProfileClientError(failure);
+        setError(typedError);
+        return { error: typedError, ok: false };
+      }
+    },
+    [],
+  );
+
   const replacePatches = useCallback(
     async (
       authority: ProfilePatchAuthorityDto,
@@ -384,7 +411,18 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       connection,
       deleteProfile: (profileId) =>
         runMutation("delete", profileId, () => resolvedClient.deleteProfile(profileId)),
+      detachSubscription: (profileId) =>
+        resolvedClient.detachSubscription
+          ? runMutation("detach", profileId, () => resolvedClient.detachSubscription!(profileId))
+          : Promise.resolve({
+              error: new ProfileClientError(
+                "unsupported",
+                "Subscription detachment is unavailable",
+              ),
+              ok: false as const,
+            }),
       error,
+      fileActionsAvailable: Boolean(resolvedClient.openProfileDirectory),
       isLoading: snapshot === null && error === null,
       isPending: (operation, profileId) => {
         if (
@@ -397,6 +435,12 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       },
       loadPatches,
       loadRoutes,
+      openProfileDirectory: () =>
+        runFileAction(
+          resolvedClient.openProfileDirectory
+            ? () => resolvedClient.openProfileDirectory!()
+            : undefined,
+        ),
       preflightHttps: (url, label) => runPreflight(() => resolvedClient.preflightHttps(url, label)),
       preflightLocal: (label) => runPreflight(() => resolvedClient.preflightLocal(label)),
       refreshProfile: (profileId) =>
@@ -431,6 +475,7 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       replacePatches,
       runPreflight,
       runProviderMutation,
+      runFileAction,
       selectedProfileId,
       selectProfile,
       snapshot,

@@ -259,6 +259,19 @@ impl ProfileSource {
         }
     }
 
+    pub fn display_summary(&self) -> SourceSummary {
+        match self {
+            Self::LocalFile { path } => SourceSummary {
+                display: path.display_name(),
+                source_type: ProfileSourceType::LocalFile,
+            },
+            Self::Https { url } => SourceSummary {
+                display: url.expose().to_owned(),
+                source_type: ProfileSourceType::Https,
+            },
+        }
+    }
+
     pub fn inferred_label(&self) -> String {
         match self {
             Self::LocalFile { path } => path.display_name(),

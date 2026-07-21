@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, VecDeque},
-    path::PathBuf,
+    fs,
+    path::{Component, Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -69,6 +70,7 @@ pub struct ProfileAttemptView {
 #[serde(rename_all = "camelCase")]
 pub struct ProfileListItem {
     pub effective_fingerprint: String,
+    pub file_name: String,
     pub id: String,
     pub label: String,
     pub last_attempt: Option<ProfileAttemptView>,
@@ -172,8 +174,10 @@ struct PendingPreflights {
 
 pub struct ProfileService<L, H, W = StdAtomicWriter> {
     authority: StateMutationAuthority,
+    profile_directory: PathBuf,
     https_reader: H,
     local_reader: L,
+    observed_directory_revisions: Mutex<HashMap<String, RevisionId>>,
     pending: Mutex<PendingPreflights>,
     policy: SourceReadPolicy,
     repository: FileProfileRepository<W>,
@@ -201,13 +205,16 @@ where
         policy: SourceReadPolicy,
         authority: StateMutationAuthority,
     ) -> Self {
+        let profile_directory = root.join("profiles");
         Self {
             authority,
+            profile_directory,
             https_reader,
             local_reader,
+            observed_directory_revisions: Mutex::new(HashMap::new()),
             pending: Mutex::new(PendingPreflights::default()),
             policy,
-            repository: FileProfileRepository::new(root),
+            repository: FileProfileRepository::new(root.join("profile-store")),
         }
     }
 }
@@ -225,13 +232,16 @@ where
         policy: SourceReadPolicy,
         writer: W,
     ) -> Self {
+        let profile_directory = root.join("profiles");
         Self {
             authority: StateMutationAuthority::new(),
+            profile_directory,
             https_reader,
             local_reader,
+            observed_directory_revisions: Mutex::new(HashMap::new()),
             pending: Mutex::new(PendingPreflights::default()),
             policy,
-            repository: FileProfileRepository::with_writer(root, writer),
+            repository: FileProfileRepository::with_writer(root.join("profile-store"), writer),
         }
     }
 
@@ -241,9 +251,10 @@ where
             .list_metadata_with_effective_fingerprints()?
             .into_iter()
             .map(|(metadata, effective_fingerprint)| {
-                profile_list_item(metadata, effective_fingerprint)
+                let source = self.repository.load(&metadata.id)?.source.display_summary();
+                Ok(profile_list_item(metadata, effective_fingerprint, source))
             })
-            .collect();
+            .collect::<Result<Vec<_>, RepositoryError>>()?;
         Ok(ProfileSnapshot {
             adapter_kind: ProfileAdapterKind::Rpc,
             capabilities: ProfileCapabilities {
@@ -302,8 +313,21 @@ where
     ) -> Result<ProfileSnapshot, ProfileServiceError> {
         self.validate_permit(permit)?;
         let report = self.take_pending(preview_id).await?;
-        let record = report.into_record(ProfileId::new(), Timestamp::now());
-        self.repository.save(&record)?;
+        let mut record = report.into_record(ProfileId::new(), Timestamp::now());
+        let materialized_path = self.materialized_path(&record)?;
+        if materialized_path.exists() {
+            return Err(RepositoryError::AlreadyExists.into());
+        }
+        self.write_materialized(&record)?;
+        if record.source.source_type() == ProfileSourceType::LocalFile {
+            record.source = ProfileSource::local_file(materialized_path.clone())
+                .map_err(ImportError::SourceValidation)?;
+            record.metadata.provenance.source = record.source.safe_summary();
+        }
+        if let Err(error) = self.repository.save(&record) {
+            let _ = remove_materialized_file(&materialized_path);
+            return Err(error.into());
+        }
         self.snapshot()
     }
 
@@ -363,6 +387,27 @@ where
         self.set_refresh_policy_authorized(&permit, profile_id, policy)
     }
 
+    pub fn detach_subscription(
+        &self,
+        profile_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let _permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
+        let mut current = self.repository.load(&id)?;
+        if current.source.source_type() != ProfileSourceType::Https {
+            return Err(ProfileServiceError::SchedulingUnavailable);
+        }
+        let path = self.materialized_path(&current)?;
+        current.source = ProfileSource::local_file(path).map_err(ImportError::SourceValidation)?;
+        current.metadata.provenance.source = current.source.safe_summary();
+        current.metadata.refresh = ProfileRefreshState::default();
+        self.repository.replace_source(&current)?;
+        self.snapshot()
+    }
+
     pub fn set_refresh_policy_authorized(
         &self,
         permit: &StateMutationPermit,
@@ -399,6 +444,157 @@ where
             })
             .map(|metadata| metadata.id.as_str().to_owned())
             .collect())
+    }
+
+    pub async fn reconcile_profile_directory(&self) -> Result<bool, ProfileServiceError> {
+        let _permit = self
+            .authority
+            .try_acquire()
+            .map_err(|_| ProfileServiceError::Busy)?;
+        fs::create_dir_all(&self.profile_directory)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        let directory_metadata = fs::symlink_metadata(&self.profile_directory)
+            .map_err(|_| RepositoryError::ReadFailed)?;
+        if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
+            return Err(RepositoryError::UnsafeStoragePath.into());
+        }
+
+        let mut records = HashMap::new();
+        for metadata in self.repository.list_metadata()? {
+            let record = self.repository.load(&metadata.id)?;
+            records.insert(
+                profile_file_name(&record.metadata.label, &record.source.display_summary()),
+                record,
+            );
+        }
+
+        let mut paths = fs::read_dir(&self.profile_directory)
+            .map_err(|_| RepositoryError::ReadFailed)?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| is_yaml_path(path))
+            .collect::<Vec<_>>();
+        paths.sort();
+
+        let preflight =
+            ImportPreflight::new(&self.local_reader, &self.https_reader, self.policy.clone());
+        let observed = self.observed_directory_revisions.lock().await.clone();
+        let mut next_observed = HashMap::new();
+        let mut changed = false;
+        for path in paths {
+            match fs::symlink_metadata(&path) {
+                Ok(metadata)
+                    if metadata.is_file()
+                        && !metadata.file_type().is_symlink()
+                        && metadata.len() <= self.policy.max_bytes as u64 => {}
+                _ => continue,
+            }
+            let Some(file_name) = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let source_bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            let source_revision = RevisionId::from_source(&source_bytes);
+            let current = records.remove(&file_name);
+            next_observed.insert(file_name.clone(), source_revision.clone());
+            if observed.get(&file_name) == Some(&source_revision)
+                || current.as_ref().is_some_and(|record| {
+                    source_revision == record.metadata.revision.id && !record.metadata.status.error
+                })
+            {
+                continue;
+            }
+            let source = match ProfileSource::local_file(path.clone()) {
+                Ok(source) => source,
+                Err(_) => continue,
+            };
+            let report = preflight
+                .run(ImportRequest {
+                    label: Some(file_name),
+                    source,
+                })
+                .await;
+            match (current, report) {
+                (None, Ok(report)) => {
+                    let record = report.into_record(ProfileId::new(), Timestamp::now());
+                    self.repository.save(&record)?;
+                    changed = true;
+                }
+                (Some(current), Ok(report)) => {
+                    let completed_at = Timestamp::now();
+                    let mut refreshed =
+                        report.into_record(current.metadata.id.clone(), completed_at);
+                    refreshed.metadata.provenance.imported_at =
+                        current.metadata.provenance.imported_at;
+                    refreshed.metadata.status.active = current.metadata.status.active;
+                    if current.source.source_type() == ProfileSourceType::Https {
+                        refreshed.source = current.source.clone();
+                        refreshed.metadata.provenance.source = current.source.safe_summary();
+                        refreshed.metadata.refresh = current.metadata.refresh.clone();
+                    }
+                    match crate::bind_and_apply_profile_patches(
+                        &refreshed.normalized_bytes,
+                        &refreshed.metadata.revision.id,
+                        &refreshed.metadata.artifact.fingerprint,
+                        current.patches.patches.clone(),
+                    ) {
+                        Ok((patches, _)) => {
+                            refreshed.patches = patches;
+                            if refreshed.source == current.source {
+                                self.repository.update(&refreshed)?;
+                            } else {
+                                self.repository.replace_source(&refreshed)?;
+                            }
+                        }
+                        Err(_) => self.mark_directory_profile_invalid(current)?,
+                    }
+                    changed = true;
+                }
+                (Some(current), Err(_)) => {
+                    self.mark_directory_profile_invalid(current)?;
+                    changed = true;
+                }
+                (None, Err(_)) => {}
+            }
+        }
+
+        for (file_name, mut record) in records {
+            if record.metadata.status.active {
+                if !record.metadata.status.error || !record.metadata.status.stale {
+                    record.metadata.status.error = true;
+                    record.metadata.status.stale = true;
+                    self.repository.update(&record)?;
+                    changed = true;
+                }
+            } else {
+                self.repository.delete(&record.metadata.id)?;
+                changed = true;
+            }
+            next_observed.remove(&file_name);
+        }
+        *self.observed_directory_revisions.lock().await = next_observed;
+        Ok(changed)
+    }
+
+    fn mark_directory_profile_invalid(
+        &self,
+        mut record: crate::ProfileRecord,
+    ) -> Result<(), RepositoryError> {
+        record.metadata.last_attempt = Some(ProfileAttempt {
+            attempted_at: Timestamp::now(),
+            outcome: AttemptOutcome::Failed,
+        });
+        record.metadata.status.error = true;
+        record.metadata.status.stale = true;
+        record.metadata.status.updating = false;
+        record.metadata.status.valid = record.metadata.last_success.is_some();
+        self.repository.update(&record)
     }
 
     async fn refresh_with_trigger(
@@ -465,6 +661,7 @@ where
                 refreshed.metadata.refresh.last_success_at = Some(completed_at);
                 refreshed.metadata.refresh.next_run_at =
                     next_regular_run(refreshed.metadata.refresh.policy, completed_at);
+                self.write_materialized(&refreshed)?;
                 self.repository.update(&refreshed)?;
                 self.snapshot()
             }
@@ -643,7 +840,10 @@ where
         if metadata.status.active {
             return Err(ProfileServiceError::ActiveProfileDeletionDisabled);
         }
+        let record = self.repository.load(&id)?;
+        let materialized_path = self.materialized_path(&record)?;
         self.repository.delete(&id)?;
+        remove_materialized_file(&materialized_path)?;
         self.snapshot()
     }
 
@@ -658,7 +858,10 @@ where
             return Err(ProfileServiceError::ActiveProfileDeletionDisabled);
         }
         let id = ProfileId::parse(profile_id.to_owned()).map_err(|_| RepositoryError::NotFound)?;
+        let record = self.repository.load(&id)?;
+        let materialized_path = self.materialized_path(&record)?;
         self.repository.delete(&id)?;
+        remove_materialized_file(&materialized_path)?;
         self.snapshot()
     }
 
@@ -666,6 +869,34 @@ where
         self.authority
             .validate(permit)
             .map_err(|_| ProfileServiceError::Busy)
+    }
+
+    fn materialized_path(&self, record: &crate::ProfileRecord) -> Result<PathBuf, RepositoryError> {
+        let file_name = profile_file_name(&record.metadata.label, &record.source.display_summary());
+        let path = Path::new(&file_name);
+        if path.components().count() != 1
+            || !matches!(path.components().next(), Some(Component::Normal(_)))
+            || !matches!(
+                path.extension().and_then(|extension| extension.to_str()),
+                Some("yaml" | "yml")
+            )
+        {
+            return Err(RepositoryError::UnsafeStoragePath);
+        }
+        Ok(self.profile_directory.join(path))
+    }
+
+    fn write_materialized(&self, record: &crate::ProfileRecord) -> Result<(), RepositoryError> {
+        fs::create_dir_all(&self.profile_directory)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        let directory_metadata = fs::symlink_metadata(&self.profile_directory)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)?;
+        if directory_metadata.file_type().is_symlink() || !directory_metadata.is_dir() {
+            return Err(RepositoryError::UnsafeStoragePath);
+        }
+        StdAtomicWriter
+            .write(&self.materialized_path(record)?, &record.source_bytes)
+            .map_err(|_| RepositoryError::AtomicWriteFailed)
     }
 
     async fn preflight(
@@ -729,6 +960,7 @@ impl PendingPreflights {
 fn profile_list_item(
     metadata: crate::ProfileMetadata,
     effective_fingerprint: Fingerprint,
+    source: crate::SourceSummary,
 ) -> ProfileListItem {
     let warning_codes = metadata
         .validation
@@ -738,6 +970,7 @@ fn profile_list_item(
         .collect();
     ProfileListItem {
         effective_fingerprint: effective_fingerprint.as_str().to_owned(),
+        file_name: profile_file_name(&metadata.label, &source),
         id: metadata.id.as_str().to_owned(),
         label: metadata.label,
         last_attempt: metadata.last_attempt.map(|attempt| ProfileAttemptView {
@@ -764,11 +997,37 @@ fn profile_list_item(
                 .map(Timestamp::as_unix_milliseconds),
             policy: metadata.refresh.policy,
         },
-        source: metadata.provenance.source,
+        source,
         status: metadata.status,
         runtime_provenance: metadata.runtime_provenance,
         warning_codes,
     }
+}
+
+fn profile_file_name(label: &str, source: &crate::SourceSummary) -> String {
+    if source.source_type == crate::ProfileSourceType::LocalFile {
+        return source.display.clone();
+    }
+    let trimmed = label.trim();
+    if trimmed.ends_with(".yaml") || trimmed.ends_with(".yml") {
+        return trimmed.to_owned();
+    }
+    format!("{trimmed}.yaml")
+}
+
+fn remove_materialized_file(path: &Path) -> Result<(), RepositoryError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(RepositoryError::AtomicWriteFailed),
+    }
+}
+
+fn is_yaml_path(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("yaml" | "yml")
+    )
 }
 
 fn next_regular_run(policy: ProfileRefreshPolicy, completed_at: Timestamp) -> Option<Timestamp> {

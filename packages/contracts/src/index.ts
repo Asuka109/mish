@@ -1706,6 +1706,7 @@ export const ProfileRefreshStateSchema = z
 export const ProfileListItemSchema = z
   .object({
     effectiveFingerprint: ProfileFingerprintSchema,
+    fileName: z.string().min(1).max(255).optional(),
     id: IdentifierSchema,
     label: z.string(),
     lastAttempt: ProfileAttemptSchema.nullable(),
@@ -2217,7 +2218,12 @@ export const profileRpcMethods = {
     result: ProfileActivationSnapshotSchema,
   },
   "profiles.delete": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.detachSubscription": {
+    params: ProfileIdCommandSchema,
+    result: RpcProfileSnapshotSchema,
+  },
   "profiles.getSnapshot": { params: EmptyCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.openDirectory": { params: EmptyCommandSchema, result: z.literal(true) },
   "profiles.getPatches": {
     params: ProfilePatchAuthoritySchema,
     result: ProfilePatchEditorSchema,
@@ -2592,9 +2598,14 @@ export interface ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProfileActivationSnapshotDto>;
   deleteProfile(profileId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  detachSubscription?(
+    profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto>;
   dispose(): void;
   getConnectionState(): ProfileConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  openProfileDirectory?(options?: { signal?: AbortSignal }): Promise<void>;
   getPatches(
     authority: ProfilePatchAuthorityDto,
     options?: { signal?: AbortSignal },

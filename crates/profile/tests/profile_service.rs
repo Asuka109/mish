@@ -9,8 +9,8 @@ use futures_util::{FutureExt, future::BoxFuture};
 use mish_profile::{
     AttemptOutcome, FileProfileRepository, HttpsSourceReader, LocalSourceReader, ProfilePatch,
     ProfilePatchError, ProfilePatchOperation, ProfileRefreshPolicy, ProfileService,
-    ProfileServiceError, RedirectTarget, SensitivePath, SensitiveUrl, SourceContent,
-    SourceReadError, SourceReadPolicy, Timestamp,
+    ProfileServiceError, ProfileSourceType, RedirectTarget, SensitivePath, SensitiveUrl,
+    SourceContent, SourceReadError, SourceReadPolicy, StdLocalSourceReader, Timestamp,
 };
 
 const VALID_PROFILE: &str = r#"
@@ -106,6 +106,36 @@ impl HttpsSourceReader for SequencedReader {
         }
         .boxed()
     }
+}
+
+#[tokio::test]
+async fn profile_directory_reconciliation_tracks_direct_yaml_files_and_preserves_lkg() {
+    let temp = TestDir::new();
+    let directory = temp.path().join("profiles");
+    fs::create_dir(&directory).unwrap();
+    let profile_path = directory.join("studio.yaml");
+    fs::write(&profile_path, VALID_PROFILE).unwrap();
+    let service = ProfileService::new(
+        temp.path().to_path_buf(),
+        StdLocalSourceReader,
+        SequencedReader::new([]),
+        SourceReadPolicy::default(),
+    );
+
+    assert!(service.reconcile_profile_directory().await.unwrap());
+    let imported = service.snapshot().unwrap();
+    assert_eq!(imported.profiles.len(), 1);
+    assert_eq!(imported.profiles[0].file_name, "studio.yaml");
+
+    fs::write(&profile_path, "proxies: [malformed").unwrap();
+    assert!(service.reconcile_profile_directory().await.unwrap());
+    let invalid = service.snapshot().unwrap();
+    assert!(invalid.profiles[0].status.error);
+    assert!(invalid.profiles[0].last_known_valid);
+
+    fs::remove_file(&profile_path).unwrap();
+    assert!(service.reconcile_profile_directory().await.unwrap());
+    assert!(service.snapshot().unwrap().profiles.is_empty());
 }
 
 #[derive(Clone)]
@@ -235,7 +265,7 @@ async fn failed_refresh_keeps_the_last_known_valid_revision() {
         AttemptOutcome::Failed
     );
 
-    let repository = FileProfileRepository::new(temp.path().to_path_buf());
+    let repository = FileProfileRepository::new(temp.path().join("profile-store"));
     let stored = repository
         .load(&mish_profile::ProfileId::parse(profile_id).unwrap())
         .unwrap();
@@ -369,7 +399,7 @@ async fn failed_scheduled_refresh_preserves_lkg_and_backs_off() {
     let failed_at = failed.refresh.last_failure_at.unwrap();
     assert!(failed.refresh.next_run_at.unwrap() >= failed_at + 12 * 60 * 60 * 1_000);
 
-    let repository = FileProfileRepository::new(temp.path().to_path_buf());
+    let repository = FileProfileRepository::new(temp.path().join("profile-store"));
     let stored = repository
         .load(&mish_profile::ProfileId::parse(profile_id).unwrap())
         .unwrap();
@@ -378,7 +408,7 @@ async fn failed_scheduled_refresh_preserves_lkg_and_backs_off() {
 }
 
 #[tokio::test]
-async fn preview_and_snapshot_serialization_redact_source_and_configuration_secrets() {
+async fn preview_redacts_secrets_while_the_profile_snapshot_exposes_its_subscription_url() {
     const TOKEN: &str = "private-subscription-token";
     let temp = TestDir::new();
     let reader = SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]);
@@ -400,10 +430,10 @@ async fn preview_and_snapshot_serialization_redact_source_and_configuration_secr
         .await
         .unwrap();
     let snapshot_json = serde_json::to_string(&snapshot).unwrap();
-    assert!(!snapshot_json.contains(TOKEN));
+    assert!(snapshot_json.contains(TOKEN));
     assert!(!snapshot_json.contains("not-a-real-password"));
     assert!(!snapshot_json.contains("192.0.2.10"));
-    assert!(snapshot_json.contains("https://profiles.example/…"));
+    assert!(snapshot_json.contains("https://profiles.example/config.yaml?token="));
 
     let local_temp = TestDir::new();
     let local_source = local_temp.path().join("private/local-profile.yaml");
@@ -426,6 +456,44 @@ async fn preview_and_snapshot_serialization_redact_source_and_configuration_secr
     let local_snapshot_json = serde_json::to_string(&local_snapshot).unwrap();
     assert!(!local_snapshot_json.contains(&local_source_text));
     assert!(local_snapshot_json.contains("local-profile.yaml"));
+}
+
+#[tokio::test]
+async fn detaching_a_subscription_keeps_the_current_revision_as_a_local_profile() {
+    let temp = TestDir::new();
+    let profile_service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([VALID_PROFILE.as_bytes().to_vec()]),
+    );
+    let preview = profile_service
+        .preflight_https(
+            "https://profiles.example/studio-route-set.yaml",
+            Some("studio-route-set.yaml".into()),
+        )
+        .await
+        .unwrap();
+    let saved = profile_service
+        .save_preview(&preview.preview_id)
+        .await
+        .unwrap();
+    let materialized = temp.path().join("profiles/studio-route-set.yaml");
+    assert_eq!(fs::read(&materialized).unwrap(), VALID_PROFILE.as_bytes());
+    let profile_id = saved.profiles[0].id.clone();
+    profile_service
+        .set_refresh_policy(&profile_id, ProfileRefreshPolicy::TwelveHours)
+        .unwrap();
+
+    let detached = profile_service.detach_subscription(&profile_id).unwrap();
+
+    assert_eq!(
+        detached.profiles[0].source.source_type,
+        ProfileSourceType::LocalFile
+    );
+    assert_eq!(
+        detached.profiles[0].refresh.policy,
+        ProfileRefreshPolicy::Off
+    );
+    assert_eq!(detached.profiles[0].source.display, "studio-route-set.yaml");
 }
 
 #[tokio::test]
@@ -461,7 +529,7 @@ async fn inactive_profiles_can_be_deleted_but_active_profiles_cannot() {
         .profiles[0]
         .id
         .clone();
-    let repository = FileProfileRepository::new(temp.path().to_path_buf());
+    let repository = FileProfileRepository::new(temp.path().join("profile-store"));
     let parsed_id = mish_profile::ProfileId::parse(second_id.clone()).unwrap();
     let mut active = repository.load(&parsed_id).unwrap();
     active.metadata.status.active = true;
@@ -492,6 +560,7 @@ async fn activation_records_are_reloaded_and_revalidated_from_private_storage() 
     let record = service.activation_record(&profile_id).unwrap();
     let artifact = temp
         .path()
+        .join("profile-store")
         .join("profiles")
         .join(&profile_id)
         .join("artifacts")
@@ -551,7 +620,7 @@ async fn patches_round_trip_and_missing_refresh_targets_preserve_lkg() {
         .unwrap();
     assert_eq!(saved_editor.patches[0].id, patch_id);
 
-    let repository = FileProfileRepository::new(temp.path().to_path_buf());
+    let repository = FileProfileRepository::new(temp.path().join("profile-store"));
     let parsed_id = mish_profile::ProfileId::parse(profile.id.clone()).unwrap();
     let before_refresh = repository.load(&parsed_id).unwrap();
     assert_eq!(before_refresh.patches.patches[0].id, patch_id);

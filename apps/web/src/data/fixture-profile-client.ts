@@ -41,6 +41,7 @@ const fixtureSnapshot = {
   profiles: [
     {
       effectiveFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      fileName: "studio-route-set.yaml",
       id: "fixture-profile-studio",
       label: "Studio route set",
       lastAttempt: { attemptedAt: 1_721_296_000_000, outcome: "succeeded" },
@@ -49,11 +50,14 @@ const fixtureSnapshot = {
       refresh: {
         consecutiveFailures: 0,
         lastFailureAt: null,
-        lastSuccessAt: null,
-        nextRunAt: null,
-        policy: "off",
+        lastSuccessAt: 1_721_296_000_000,
+        nextRunAt: 1_721_339_200_000,
+        policy: "twelve-hours",
       },
-      source: { display: "https://profiles.example/…", sourceType: "https" },
+      source: {
+        display: "https://profiles.example/subscriptions/studio-route-set.yaml",
+        sourceType: "https",
+      },
       status: {
         active: false,
         error: false,
@@ -102,6 +106,46 @@ const fixtureSnapshot = {
         unknownKeyCount: 0,
       },
       warningCodes: ["source-formatting-not-round-tripped"],
+    },
+    {
+      effectiveFingerprint: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      fileName: "home.yaml",
+      id: "fixture-profile-home",
+      label: "home.yaml",
+      lastAttempt: { attemptedAt: 1_721_292_400_000, outcome: "succeeded" },
+      lastKnownValid: true,
+      lastSuccessAt: 1_721_292_400_000,
+      refresh: {
+        consecutiveFailures: 0,
+        lastFailureAt: null,
+        lastSuccessAt: null,
+        nextRunAt: null,
+        policy: "off",
+      },
+      source: { display: "home.yaml", sourceType: "local-file" },
+      status: {
+        active: false,
+        error: false,
+        stale: false,
+        updating: false,
+        valid: true,
+        warning: false,
+      },
+      runtimeProvenance: {
+        artifactFingerprint: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        authority: "illustrative-browser-fixture",
+        items: [],
+        layers: [
+          "source",
+          "user-patches",
+          "application-policy",
+          "platform-integration",
+          "effective-runtime",
+        ],
+        sourceRevision: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        unknownKeyCount: 0,
+      },
+      warningCodes: [],
     },
   ],
   providers: {
@@ -159,6 +203,14 @@ export class FixtureProfileClient implements ProfileClient {
   }
 
   async deleteProfile(
+    _profileId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto> {
+    if (options?.signal?.aborted) throw cancelled();
+    throw unsupported();
+  }
+
+  async detachSubscription(
     _profileId: string,
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto> {

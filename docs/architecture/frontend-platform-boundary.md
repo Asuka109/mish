@@ -236,6 +236,13 @@ and activation, revalidates against repository-owned bytes, and returns only
 display-safe catalog and provenance fields. Browser fixtures show one fictional
 patch but do not claim validation, persistence, or activation.
 
+Profile file actions follow the same boundary. Authenticated
+`profiles.openDirectory` opens the single application-managed YAML directory.
+The page header and each Profile card call that same command; cards do not
+expose private revision paths. The Tauri WebView and a browser client launched
+by Mish therefore use the same desktop adapter; standalone browser fixtures
+do not expose the action and never claim a filesystem side effect.
+
 Protocol version 13 adds the empty-parameter
 `settings.refreshNetworkDns` observation. The result carries explicit source,
 freshness, observation time, and typed failure. The browser fixture reports the

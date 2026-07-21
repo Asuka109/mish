@@ -689,6 +689,7 @@ fn bridge_config() -> LoopbackServerConfig {
         browser_assets: None,
         max_message_bytes: 1_048_576,
         profile_activation: None,
+        profile_file_actions: None,
         profile_service: None,
         settings_service: None,
     }

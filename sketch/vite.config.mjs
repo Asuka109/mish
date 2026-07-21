@@ -7,6 +7,14 @@ import { fileURLToPath } from "node:url";
 const projectDirectory = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: {
+        index: path.resolve(projectDirectory, "index.html"),
+        profiles: path.resolve(projectDirectory, "profiles.html"),
+      },
+    },
+  },
   optimizeDeps: {
     include: ["react", "react-dom/client"],
   },

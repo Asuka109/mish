@@ -146,6 +146,23 @@ where
         self.write_revision_artifact_and_metadata(&profile_path, record)
     }
 
+    pub fn replace_source(&self, record: &ProfileRecord) -> Result<(), RepositoryError> {
+        validate_record(record)?;
+        self.prepare_root()?;
+        let profile_path = self.profile_path(&record.metadata.id);
+        if !profile_path.exists() {
+            return Err(RepositoryError::NotFound);
+        }
+        reject_symlinks_between(&self.root, &profile_path)?;
+        let source_descriptor = serde_json::to_vec_pretty(&record.source).map_err(|_| {
+            RepositoryError::CorruptData {
+                component: RepositoryComponent::SourceDescriptor,
+            }
+        })?;
+        self.write(&profile_path.join("source/source.json"), &source_descriptor)?;
+        self.write_revision_artifact_and_metadata(&profile_path, record)
+    }
+
     pub fn list_metadata(&self) -> Result<Vec<ProfileMetadata>, RepositoryError> {
         if !self.root.is_absolute() {
             return Err(RepositoryError::UnsafeStoragePath);

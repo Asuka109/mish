@@ -12,6 +12,24 @@ When implementing from a selected generated mock, treat that image as the source
 
 ## Prototype design direction
 
+- Review the Profiles redesign as an interactive sketch page rather than
+  generated mock imagery. Treat every Profile as a watched local YAML file;
+  an HTTPS subscription is maintenance metadata attached to one materialized
+  YAML. Keep source-file recovery separate from the last-known-good runtime
+  snapshot and demonstrate the actionable notification recovery flow. Render
+  each Profile in its own card and do not expose GUI configuration editing
+  actions.
+  Use the materialized file name as the card title, with its extension visually
+  subdued. Keep the update interval behind a borderless icon beside the next
+  update time, and present detaching the subscription as an inline action within
+  the overwrite explanation. Keep local-file cards header-only and place invalid
+  file recovery in the actionable notification. Subscription cards expose both
+  update and reveal-in-folder actions, with reveal placed at the far right, and
+  keep their source and aligned update metadata in one compact row. Show no card
+  badges except the active-state badge. Do not repeat the watched directory path
+  above the card list. Display the complete subscription URL without masking it,
+  and pair the schedule labels as “上次更新” and “下次更新”.
+
 - Use the Cal.com design system at `https://getdesign.md/cal/design-md` as the
   selected token and component-language reference. Adapt its neutral product UI
   patterns to macOS; do not copy its marketing layouts or branding.
