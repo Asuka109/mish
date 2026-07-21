@@ -4,8 +4,8 @@ mod tun_service;
 
 pub use tun_service::{
     DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL,
-    DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, MacOsTunServiceClient,
-    TunServiceConfig, development_socket_path, run_tun_service,
+    DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentTunStartup,
+    MacOsTunServiceClient, TunServiceConfig, development_socket_path, run_tun_service,
 };
 
 use std::{

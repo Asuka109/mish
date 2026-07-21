@@ -22,9 +22,10 @@ use mish_bridge::{
     compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
-    DEV_TUN_SERVICE_CORE_PATH, FileCaptureJournalStore, MacOsLifecycleEventSource,
-    MacOsNetworkDnsPlatform, MacOsSystemProxyPlatform, MacOsTunHelperBoundary,
-    MacOsTunHelperPlatform, MacOsTunServiceClient, show_browser_pairing_pin,
+    DEV_TUN_SERVICE_CORE_PATH, DevelopmentTunStartup, FileCaptureJournalStore,
+    MacOsLifecycleEventSource, MacOsNetworkDnsPlatform, MacOsSystemProxyPlatform,
+    MacOsTunHelperBoundary, MacOsTunHelperPlatform, MacOsTunServiceClient,
+    show_browser_pairing_pin,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -645,14 +646,18 @@ fn initialize(
     let lifecycle_source = platform_lifecycle_event_source()?;
     let bridge = tauri::async_runtime::block_on(async {
         tun_helper.refresh().await;
-        let development_service_ready =
-            development_tun_service.is_some() && tun_helper.snapshot().is_healthy();
-        if development_service_ready {
-            tun_helper
-                .set_tun_enabled(false)
-                .await
-                .map_err(|_| io::Error::other("development TUN service startup cleanup failed"))?;
-        }
+        let development_service_ready = match development_tun_service.as_ref() {
+            Some(service) if tun_helper.snapshot().is_healthy() => {
+                match service.prepare_development_startup().await {
+                    DevelopmentTunStartup::Ready => true,
+                    DevelopmentTunStartup::ReadOnly(failure) => {
+                        tun_helper.mark_runtime_unavailable(failure);
+                        false
+                    }
+                }
+            }
+            _ => false,
+        };
         let startup_mihomo = development_service_ready
             .then(|| PathBuf::from(DEV_TUN_SERVICE_CORE_PATH))
             .or(requested_mihomo);
