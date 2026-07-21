@@ -12,7 +12,7 @@ use axum::{
     },
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, put},
+    routing::{delete, get, patch, put},
 };
 use futures_util::StreamExt;
 use mish_mihomo_controller::{
@@ -130,7 +130,7 @@ async fn rejects_zero_delay_without_treating_it_as_success() {
 }
 
 #[tokio::test]
-async fn sends_authenticated_strict_unicode_mutations() {
+async fn sends_authenticated_partial_config_patches_and_scoped_puts() {
     async fn record_config(
         headers: HeaderMap,
         State(state): State<Arc<MutationState>>,
@@ -171,7 +171,7 @@ async fn sends_authenticated_strict_unicode_mutations() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let app = Router::new()
-        .route("/configs", put(record_config))
+        .route("/configs", patch(record_config))
         .route("/proxies/{group}", put(record_group))
         .with_state(state.clone());
     let server = tokio::spawn(axum::serve(listener, app).into_future());
@@ -189,9 +189,27 @@ async fn sends_authenticated_strict_unicode_mutations() {
         .await
         .unwrap();
     client
+        .set_routing_mode(mish_mihomo_controller::RoutingMode::Direct)
+        .await
+        .unwrap();
+    client
+        .set_routing_mode(mish_mihomo_controller::RoutingMode::Rule)
+        .await
+        .unwrap();
+    client
         .select_group_child("策略组 / 東京", "节点 🚄")
         .await
         .unwrap();
+
+    let obsolete = reqwest::Client::new()
+        .put(format!("http://{address}/configs"))
+        .header("authorization", AUTHORIZATION)
+        .header("content-type", "application/json")
+        .body(r#"{"mode":"global"}"#)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(obsolete.status(), StatusCode::METHOD_NOT_ALLOWED);
 
     let requests = state.requests.lock().unwrap();
     assert_eq!(
@@ -201,6 +219,16 @@ async fn sends_authenticated_strict_unicode_mutations() {
                 "/configs".into(),
                 AUTHORIZATION.into(),
                 r#"{"mode":"global"}"#.into(),
+            ),
+            (
+                "/configs".into(),
+                AUTHORIZATION.into(),
+                r#"{"mode":"direct"}"#.into(),
+            ),
+            (
+                "/configs".into(),
+                AUTHORIZATION.into(),
+                r#"{"mode":"rule"}"#.into(),
             ),
             (
                 "/proxies/策略组 / 東京".into(),

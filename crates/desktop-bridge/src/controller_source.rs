@@ -1547,6 +1547,18 @@ fn map_selection_error(error: SelectionTargetError) -> StatusCommandError {
 
 fn map_command_error(error: ControllerError) -> StatusCommandError {
     use mish_mihomo_controller::ControllerErrorKind;
+    if matches!(
+        &error,
+        ControllerError::HttpStatus {
+            status: 502 | 503 | 504,
+            ..
+        }
+    ) {
+        return StatusCommandError::new(
+            StatusCommandErrorKind::Disconnected,
+            "The Controller became unavailable while reconciling the command",
+        );
+    }
     match error.kind() {
         ControllerErrorKind::UnsupportedVersion => StatusCommandError::new(
             StatusCommandErrorKind::VersionDrift,
@@ -1556,13 +1568,20 @@ fn map_command_error(error: ControllerError) -> StatusCommandError {
             StatusCommandErrorKind::Timeout,
             "The Controller command timed out",
         ),
-        ControllerErrorKind::Shutdown
-        | ControllerErrorKind::Transport
-        | ControllerErrorKind::HttpStatus
-        | ControllerErrorKind::StreamEnded => StatusCommandError::new(
-            StatusCommandErrorKind::Disconnected,
-            "The Controller disconnected while reconciling the command",
+        ControllerErrorKind::Shutdown => StatusCommandError::new(
+            StatusCommandErrorKind::Cancelled,
+            "The Controller command was cancelled",
         ),
+        ControllerErrorKind::HttpStatus => StatusCommandError::new(
+            StatusCommandErrorKind::Rejected,
+            "The Controller rejected the command",
+        ),
+        ControllerErrorKind::Transport | ControllerErrorKind::StreamEnded => {
+            StatusCommandError::new(
+                StatusCommandErrorKind::Disconnected,
+                "The Controller disconnected while reconciling the command",
+            )
+        }
         _ => StatusCommandError::new(
             StatusCommandErrorKind::InconsistentObservation,
             "The Controller command could not be reconciled safely",
@@ -1583,6 +1602,9 @@ fn command_failure_message(kind: StatusCommandErrorKind) -> &'static str {
         StatusCommandErrorKind::Disconnected => {
             "the Controller disconnected during command reconciliation"
         }
+        StatusCommandErrorKind::Cancelled => "the command was cancelled",
+        StatusCommandErrorKind::Rejected => "the Controller rejected the command",
+        StatusCommandErrorKind::RuntimeReplaced => "the runtime was replaced during the command",
         StatusCommandErrorKind::VersionDrift => {
             "the Controller version changed during command reconciliation"
         }

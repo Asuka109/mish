@@ -84,10 +84,11 @@ the snapshot's `supported`, `unavailable`, `permission-required`, and
 
 Routing and group commands return only after a post-command Controller read
 confirms the requested value and its mapped snapshot has been published.
-Timeout, disconnect, pinned-version drift, inconsistent observation,
-unsupported group type, and stale membership are distinct typed failures. The
-last confirmed snapshot is refreshed and retained on failure; a 2xx Controller
-response alone never produces a success state.
+Timeout, rejection, disconnect, cancellation, runtime replacement,
+pinned-version drift, inconsistent observation, unsupported group type, and
+stale membership are distinct typed failures. The last confirmed snapshot is
+refreshed and retained on failure; a 2xx Controller response alone never
+produces a success state.
 
 Group delay state has explicit `idle`, `pending`, `progress`, `cancelled`,
 `completed`, `partial`, and `failed` phases. Each direct child is independently
@@ -249,7 +250,7 @@ read-only.
 | Select a group child                | `PUT /proxies/{group}` with a child name                                             | Validate the child still belongs to the group.                                                                                                         |
 | Direct-child delay                  | `GET /proxies/{name}/delay` with application-owned URL, timeout, and expected status | Mish schedules only children captured from one current group and revalidates membership before publishing.                                             |
 | Rules                               | `/rules`                                                                             | Exclude entries explicitly marked disabled when presenting an effective count. Do not assume every implementation exposes identical disabled metadata. |
-| Routing mode                        | `/configs` read/update                                                               | Represent Rule, Global, and Direct as a closed product enum.                                                                                           |
+| Routing mode                        | `GET /configs` observation and `PATCH /configs` mutation                             | Represent Rule, Global, and Direct as a closed product enum and confirm the patched mode through a fresh observation.                                  |
 
 `/proxies` is available only while Mihomo is running. When no live catalog is
 available, Routes may read the selected Profile's bounded route catalog derived

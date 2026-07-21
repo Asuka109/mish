@@ -29,6 +29,13 @@ pub trait ControllerTransport: Send + Sync {
         max_body_bytes: usize,
     ) -> BoxFuture<'_, Result<Bytes, ControllerError>>;
 
+    fn patch(
+        &self,
+        endpoint: Endpoint,
+        body: Bytes,
+        max_body_bytes: usize,
+    ) -> BoxFuture<'_, Result<(), ControllerError>>;
+
     fn stream(
         &self,
         endpoint: Endpoint,
@@ -350,6 +357,36 @@ impl ControllerTransport for HttpTransport {
                 }
             });
             Ok(Box::pin(messages) as RawMessageStream)
+        })
+    }
+
+    fn patch(
+        &self,
+        endpoint: Endpoint,
+        body: Bytes,
+        max_body_bytes: usize,
+    ) -> BoxFuture<'_, Result<(), ControllerError>> {
+        Box::pin(async move {
+            let operation = async {
+                if body.len() > max_body_bytes {
+                    return Err(ControllerError::BodyTooLarge {
+                        endpoint,
+                        limit: max_body_bytes,
+                    });
+                }
+                let request = self
+                    .client
+                    .patch(self.mutation_url(endpoint, None)?)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json");
+                let response = self.authorize(request).send().await.map_err(|error| {
+                    ControllerError::transport(endpoint, error.without_url().to_string())
+                })?;
+                ensure_success(endpoint, response.status())
+            };
+            timeout(self.request_timeout, operation)
+                .await
+                .map_err(|_| ControllerError::Timeout { endpoint })?
         })
     }
 

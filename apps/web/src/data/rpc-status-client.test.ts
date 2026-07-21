@@ -362,6 +362,22 @@ describe("RpcStatusClient", () => {
       }),
     );
 
+    const replacedCommand = client.setRoutingMode("direct");
+    const replacedRequest = await waitForRequest(transports[0], 4);
+    transports[0].respond({
+      error: {
+        code: -32_054,
+        data: { kind: "runtime-replaced" },
+        message: "The Status runtime was replaced before the command completed",
+      },
+      id: replacedRequest.id,
+      jsonrpc: "2.0",
+    });
+    await expect(replacedCommand).rejects.toMatchObject({
+      code: "runtime-replaced",
+      retryable: true,
+    });
+
     transports[0].close(1006, "Lost");
     expect(client.getConnectionState()).toMatchObject({ phase: "reconnecting", stale: true });
     await vi.advanceTimersByTimeAsync(5);

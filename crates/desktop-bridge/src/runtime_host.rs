@@ -162,7 +162,15 @@ impl DesktopRuntimeHost {
         mode: RoutingMode,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
-        self.current().set_routing_mode(mode, adapter_kind).await
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let result = runtime.set_routing_mode(mode, adapter_kind).await;
+        if changes.has_changed().unwrap_or(true)
+            || !runtime.is_same_instance(&changes.borrow_and_update())
+        {
+            return Err(StatusCommandError::runtime_replaced());
+        }
+        result
     }
 
     pub async fn select_group_child(

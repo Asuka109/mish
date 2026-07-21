@@ -79,7 +79,7 @@ flowchart TB
   Profile -->|"loaded by Mihomo at startup"| ProxyEngine
 
   HttpTransport -->|"GET and WebSocket reads"| ControllerApi
-  HttpTransport -->|"Bounded PUT and DELETE commands"| ControllerApi
+  HttpTransport -->|"Bounded PATCH, PUT, and DELETE commands"| ControllerApi
   ControllerApi -->|"bounded JSON responses and samples"| HttpTransport
 
   DeviceTraffic -->|"local proxy, System Proxy, or TUN ingress"| ProxyEngine
@@ -139,7 +139,7 @@ The adapter validates the pinned version explicitly through
 `verify_version()`. Callers may still read `/version` without claiming that an
 unknown version is supported.
 
-The command surface is deliberately limited to `PUT /configs` for the closed
+The command surface is deliberately limited to `PATCH /configs` for the closed
 Rule, Global, and Direct mode enum and `PUT /proxies/{group}` for one named
 child. The desktop source serializes commands with observation refreshes,
 rechecks the pinned version and current proxy catalog before every write, and
@@ -500,13 +500,19 @@ The Controller harness writes a synthetic configuration under ignored
 `.scratch` storage. The activation harness uses a private operating-system temp
 directory. Both bind the Controller only to an ephemeral loopback port, disable
 proxy ingress, LAN access, DNS, and TUN, and use no providers or remote proxy
-endpoints. They read `/version`, `/configs`, `/proxies`, `/rules`, `/traffic`,
-`/memory`, and `/connections`; they do not call delay tests or generate routed
-traffic.
+endpoints. They require no user credential or private profile data. The
+Controller harness reads `/version`, `/configs`, `/proxies`, `/rules`,
+`/traffic`, `/memory`, and `/connections`, then confirms Rule -> Global ->
+Direct -> Rule through `PATCH /configs` while preserving the fictional policy
+group choice. The activation harness repeats that transition through the
+authenticated desktop `status.setRoutingMode` RPC and compares each result with
+the Native Status observation. Neither harness calls delay tests or generates
+routed traffic.
 
 ## Upstream references
 
 - [Mihomo Controller API](https://wiki.metacubex.one/en/api/)
+- [v1.19.29 configuration endpoints](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/configs.go)
 - [v1.19.29 Controller routes](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/server.go)
 - [v1.19.29 connection endpoint](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/hub/route/connections.go)
 - [v1.19.29 connection snapshot](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/tunnel/statistic/manager.go)

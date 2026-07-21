@@ -161,7 +161,7 @@ impl ControllerClient {
             ProviderKind::Rule => Endpoint::RuleProviders,
         };
         self.validate_provider_id(endpoint, provider)?;
-        self.mutate(endpoint, Some(provider.to_owned()), Vec::new())
+        self.put(endpoint, Some(provider.to_owned()), Vec::new())
             .await
     }
 
@@ -194,9 +194,8 @@ impl ControllerClient {
     }
 
     pub async fn set_routing_mode(&self, mode: RoutingMode) -> Result<(), ControllerError> {
-        self.mutate(
+        self.patch(
             Endpoint::Configs,
-            None,
             serde_json::to_vec(&serde_json::json!({ "mode": mode }))
                 .expect("routing mode command must serialize"),
         )
@@ -210,7 +209,7 @@ impl ControllerClient {
     ) -> Result<(), ControllerError> {
         self.validate_command_label("group", group)?;
         self.validate_command_label("child", child)?;
-        self.mutate(
+        self.put(
             Endpoint::Proxies,
             Some(group.to_owned()),
             serde_json::to_vec(&serde_json::json!({ "name": child }))
@@ -288,7 +287,15 @@ impl ControllerClient {
         Ok(())
     }
 
-    async fn mutate(
+    async fn patch(&self, endpoint: Endpoint, body: Vec<u8>) -> Result<(), ControllerError> {
+        tokio::select! {
+            biased;
+            _ = self.shutdown.cancelled() => Err(ControllerError::Shutdown { endpoint }),
+            result = self.transport.patch(endpoint, Bytes::from(body), self.limits.max_body_bytes) => result,
+        }
+    }
+
+    async fn put(
         &self,
         endpoint: Endpoint,
         path_segment: Option<String>,
@@ -469,6 +476,15 @@ mod tests {
             _max_body_bytes: usize,
         ) -> futures_util::future::BoxFuture<'_, Result<Bytes, ControllerError>> {
             std::future::ready(Ok(self.unary.clone())).boxed()
+        }
+
+        fn patch(
+            &self,
+            _endpoint: Endpoint,
+            _body: Bytes,
+            _max_body_bytes: usize,
+        ) -> futures_util::future::BoxFuture<'_, Result<(), ControllerError>> {
+            std::future::ready(Ok(())).boxed()
         }
 
         fn stream(

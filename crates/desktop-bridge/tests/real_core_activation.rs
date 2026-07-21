@@ -1,7 +1,14 @@
-use std::{env, net::TcpListener, path::PathBuf, time::Duration};
+use std::{
+    env,
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener},
+    path::PathBuf,
+    time::Duration,
+};
 
+use futures_util::{SinkExt, StreamExt};
 use mish_bridge::{
-    ActivationTiming, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationManager,
+    ActivationTiming, LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy,
+    MihomoActivationManager, start_loopback_server,
 };
 use mish_profile::{
     Fingerprint, ImmutableRevision, NORMALIZED_ARTIFACT_SCHEMA_VERSION, NormalizedArtifact,
@@ -10,10 +17,15 @@ use mish_profile::{
     Timestamp, ValidationResult, ValidationStatus,
 };
 use mish_runtime::StatusAdapterKind;
+use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 use uuid::Uuid;
 
+const ORIGIN: &str = "http://real-core-activation.test";
+const TOKEN: &str = "real-core-activation-token";
+
 #[tokio::test]
-async fn activates_the_explicitly_prepared_pinned_core() {
+async fn activates_the_pinned_core_and_confirms_modes_through_authenticated_rpc() {
     let Some(binary) = env::var_os("MIHOMO_BIN").map(PathBuf::from) else {
         eprintln!("skipped: set MIHOMO_BIN to opt in to transactional real-core activation");
         return;
@@ -49,7 +61,98 @@ async fn activates_the_explicitly_prepared_pinned_core() {
     assert_eq!(snapshot["runtime"]["systemProxyEnabled"], false);
     assert_eq!(snapshot["runtime"]["tunEnabled"], false);
     assert_eq!(snapshot["groups"][0]["label"], "synthetic-group");
+
+    let bridge = start_loopback_server(bridge_config(), runtime.clone())
+        .await
+        .unwrap();
+    let mut socket = socket(bridge.address).await;
+    authenticate(&mut socket).await;
+    for (id, mode) in [(2, "global"), (3, "direct"), (4, "rule")] {
+        let changed = rpc_request(
+            &mut socket,
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "status.setRoutingMode",
+                "params": {"mode": mode}
+            }),
+        )
+        .await;
+        assert_eq!(changed["result"]["routingMode"], mode);
+        assert_eq!(
+            runtime.status_snapshot(StatusAdapterKind::Native).await["routingMode"],
+            mode
+        );
+    }
+
+    socket.close(None).await.unwrap();
+    bridge.shutdown().await;
     manager.shutdown().await.unwrap();
+}
+
+fn bridge_config() -> LoopbackServerConfig {
+    LoopbackServerConfig {
+        allowed_origins: vec![ORIGIN.into()],
+        auth_token: TOKEN.into(),
+        bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        browser_assets: None,
+        browser_pairing_prompt: None,
+        max_message_bytes: 1_048_576,
+        profile_activation: None,
+        profile_file_actions: None,
+        profile_service: None,
+        service_probes: None,
+        settings_service: None,
+    }
+}
+
+async fn socket(
+    address: SocketAddr,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    let mut request = format!("ws://{address}/rpc").into_client_request().unwrap();
+    request
+        .headers_mut()
+        .insert("Origin", ORIGIN.parse().unwrap());
+    tokio_tungstenite::connect_async(request).await.unwrap().0
+}
+
+async fn authenticate(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) {
+    let response = rpc_request(
+        socket,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "rpc.authenticate",
+            "params": {"clientName": "real-core-test", "clientVersion": "1", "token": TOKEN}
+        }),
+    )
+    .await;
+    assert_eq!(response["result"]["authenticated"], true);
+}
+
+async fn rpc_request(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    request: Value,
+) -> Value {
+    socket
+        .send(Message::Text(request.to_string().into()))
+        .await
+        .unwrap();
+    loop {
+        let Message::Text(response) = socket.next().await.unwrap().unwrap() else {
+            continue;
+        };
+        let response: Value = serde_json::from_str(&response).unwrap();
+        if response.get("id").is_some() {
+            return response;
+        }
+    }
 }
 
 fn record() -> ProfileRecord {

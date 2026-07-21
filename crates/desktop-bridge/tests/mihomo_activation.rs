@@ -272,6 +272,11 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
             .await
             .unwrap();
         assert_eq!(changed["routingMode"], expected);
+        let native = host.status_snapshot(StatusAdapterKind::Native).await;
+        let current_events = host.events_snapshot(StatusAdapterKind::Native);
+        assert_eq!(native["routingMode"], expected);
+        assert_eq!(native["activeProfileId"], current_events["profileId"]);
+        assert_eq!(current_events["phase"], "ready");
     }
 
     let applied = host
@@ -2131,7 +2136,10 @@ impl P0Controller {
                 "/version",
                 get(|| async { Json(json!({"meta": true, "version": "v1.19.29"})) }),
             )
-            .route("/configs", get(p0_runtime_config).put(p0_set_routing_mode))
+            .route(
+                "/configs",
+                get(p0_runtime_config).patch(p0_set_routing_mode),
+            )
             .route("/proxies", get(|| async { Json(proxy_catalog()) }))
             .route("/rules", get(|| async { Json(rule_list()) }))
             .route("/connections", get(|| async { Json(connections()) }))

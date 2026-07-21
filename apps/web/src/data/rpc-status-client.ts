@@ -339,6 +339,11 @@ export function mapRpcError(error: unknown) {
     if (kind === "disconnected") {
       return new StatusClientError("disconnected", error.message, true);
     }
+    if (kind === "cancelled") return new StatusClientError("cancelled", error.message);
+    if (kind === "rejected") return new StatusClientError("rejected", error.message);
+    if (kind === "runtime-replaced") {
+      return new StatusClientError("runtime-replaced", error.message, true);
+    }
     if (kind === "stale-membership") {
       return new StatusClientError("stale-membership", error.message, true);
     }

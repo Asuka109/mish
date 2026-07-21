@@ -2055,7 +2055,8 @@ describe("Status fixture experience", () => {
     await user.click(globalMode);
     expect(globalMode).toBeDisabled();
     expect(globalMode).toHaveAttribute("aria-busy", "true");
-    expect(globalMode).toHaveAttribute("aria-pressed", "true");
+    expect(globalMode).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Rule" })).toHaveAttribute("aria-pressed", "true");
     expect(globalMode.querySelector(".ui-spinner")).toBeInTheDocument();
     await user.click(globalMode);
     expect(client.calls).toBe(1);

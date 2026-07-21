@@ -208,6 +208,9 @@ pub enum StatusCommandErrorKind {
     Conflict,
     Timeout,
     Disconnected,
+    Cancelled,
+    Rejected,
+    RuntimeReplaced,
     VersionDrift,
     InconsistentObservation,
     UnsupportedGroup,
@@ -229,6 +232,13 @@ impl StatusCommandError {
         Self::new(
             StatusCommandErrorKind::Unsupported,
             "This Status command is not available in the current runtime",
+        )
+    }
+
+    pub const fn runtime_replaced() -> Self {
+        Self::new(
+            StatusCommandErrorKind::RuntimeReplaced,
+            "The Status runtime was replaced before the command completed",
         )
     }
 }
