@@ -12,6 +12,7 @@ import { Translate } from "@phosphor-icons/react/Translate";
 import { WifiHigh } from "@phosphor-icons/react/WifiHigh";
 import { XCircle } from "@phosphor-icons/react/XCircle";
 import {
+  Button,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
@@ -178,7 +179,7 @@ function ProxyControlButton() {
   }
 
   return (
-    <button
+    <Button
       aria-busy={pending}
       aria-describedby={actionDescriptionId}
       aria-label={
@@ -196,6 +197,7 @@ function ProxyControlButton() {
       data-status={phase}
       disabled={!snapshot || pending || needsAttention || !commandSupported || !captureAvailable}
       onClick={handleToggle}
+      variant="ghost"
       title={
         needsAttention
           ? LL.proxyControl.needsAttention()
@@ -205,35 +207,43 @@ function ProxyControlButton() {
       }
       type="button"
     >
-      {phase === "healthy" ? <StatusShimmer active /> : null}
+      {phase === "healthy" ? (
+        <span
+          aria-hidden="true"
+          className="proxy-control-material"
+          data-slot="proxy-control-material"
+        >
+          <StatusShimmer active />
+        </span>
+      ) : null}
       {pending ? (
         <span className="proxy-control-state proxy-control-default">
-          <Spinner />
+          <Spinner data-icon="inline-start" />
           <span className="proxy-control-label">{LL.common.pending()}</span>
         </span>
       ) : needsAttention ? (
         <span className="proxy-control-state proxy-control-default">
-          <XCircle aria-hidden="true" />
+          <XCircle aria-hidden="true" data-icon="inline-start" />
           <span className="proxy-control-label">{LL.proxyControl.needsAttention()}</span>
         </span>
       ) : active ? (
         <>
           <span className="proxy-control-state proxy-control-default">
-            <WifiHigh aria-hidden="true" weight="bold" />
+            <WifiHigh aria-hidden="true" data-icon="inline-start" weight="bold" />
             <span className="proxy-control-label">{LL.proxyControl.running()}</span>
           </span>
           <span aria-hidden="true" className="proxy-control-state proxy-control-hover">
-            <XCircle />
+            <XCircle data-icon="inline-start" />
             <span className="proxy-control-label">{LL.proxyControl.disable()}</span>
           </span>
         </>
       ) : (
         <span className="proxy-control-state proxy-control-default">
-          <Power aria-hidden="true" />
+          <Power aria-hidden="true" data-icon="inline-start" />
           <span className="proxy-control-label">{LL.proxyControl.enable()}</span>
         </span>
       )}
-    </button>
+    </Button>
   );
 }
 

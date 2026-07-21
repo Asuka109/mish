@@ -132,11 +132,140 @@ interface StatusShimmerProps {
   active: boolean;
 }
 
+export const STATUS_SHIMMER_UNFOCUSED_FRAME_RATE = 24;
+
+type StatusShimmerAnimationMode = "focused" | "static" | "stopped" | "unfocused";
+
+export interface StatusShimmerAnimationPolicy {
+  frameRate: number;
+  mode: StatusShimmerAnimationMode;
+}
+
+export function getStatusShimmerAnimationPolicy(
+  reducedMotion: boolean,
+  targetDocument: Document = document,
+  focusedFrameRate = getTargetFrameRate(),
+): StatusShimmerAnimationPolicy {
+  if (targetDocument.hidden) return { frameRate: 0, mode: "stopped" };
+  if (reducedMotion) return { frameRate: 0, mode: "static" };
+  if (targetDocument.hasFocus()) {
+    return { frameRate: focusedFrameRate, mode: "focused" };
+  }
+  return {
+    frameRate: STATUS_SHIMMER_UNFOCUSED_FRAME_RATE,
+    mode: "unfocused",
+  };
+}
+
+export function advanceStatusShimmerAnimationTime(
+  currentTimeSeconds: number | null,
+  timestamp: number,
+  elapsedMilliseconds: number,
+) {
+  if (currentTimeSeconds === null) return timestamp / 1000;
+  return currentTimeSeconds + elapsedMilliseconds / 1000;
+}
+
 export function shouldAnimateStatusShimmer(
   reducedMotion: boolean,
   targetDocument: Document = document,
 ) {
-  return !reducedMotion && !targetDocument.hidden && targetDocument.hasFocus();
+  const { mode } = getStatusShimmerAnimationPolicy(reducedMotion, targetDocument);
+  return mode === "focused" || mode === "unfocused";
+}
+
+interface StatusShimmerAnimationLoopOptions {
+  cancelFrame: (handle: number) => void;
+  clearTimer: (handle: number) => void;
+  draw: (
+    timestamp: number,
+    elapsedMilliseconds: number,
+    policy: StatusShimmerAnimationPolicy,
+  ) => void;
+  getPolicy: () => StatusShimmerAnimationPolicy;
+  requestFrame: (callback: FrameRequestCallback) => number;
+  setTimer: (callback: () => void, delay: number) => number;
+}
+
+export function createStatusShimmerAnimationLoop({
+  cancelFrame,
+  clearTimer,
+  draw,
+  getPolicy,
+  requestFrame,
+  setTimer,
+}: StatusShimmerAnimationLoopOptions) {
+  let animationFrame: number | null = null;
+  let animationTimer: number | null = null;
+  let disposed = false;
+  let lastDrawTime: number | null = null;
+
+  function cancelScheduledWork() {
+    if (animationFrame !== null) cancelFrame(animationFrame);
+    if (animationTimer !== null) clearTimer(animationTimer);
+    animationFrame = null;
+    animationTimer = null;
+  }
+
+  function requestNextFrame(delay = 0) {
+    if (disposed || animationFrame !== null || animationTimer !== null) return;
+    if (delay > 0) {
+      animationTimer = setTimer(() => {
+        animationTimer = null;
+        if (!disposed) animationFrame = requestFrame(tick);
+      }, delay);
+      return;
+    }
+    animationFrame = requestFrame(tick);
+  }
+
+  function tick(timestamp: number) {
+    animationFrame = null;
+    const policy = getPolicy();
+    if (policy.mode === "stopped") {
+      lastDrawTime = null;
+      return;
+    }
+    if (policy.mode === "static") {
+      lastDrawTime = null;
+      draw(timestamp, 0, policy);
+      return;
+    }
+
+    const frameInterval = 1000 / policy.frameRate;
+    const elapsedMilliseconds = lastDrawTime === null ? Infinity : timestamp - lastDrawTime;
+    if (elapsedMilliseconds >= frameInterval) {
+      draw(timestamp, lastDrawTime === null ? 0 : elapsedMilliseconds, policy);
+      lastDrawTime = timestamp;
+    }
+
+    if (policy.mode === "focused") {
+      requestNextFrame();
+      return;
+    }
+    requestNextFrame(Math.max(0, frameInterval - (timestamp - (lastDrawTime ?? timestamp))));
+  }
+
+  function sync() {
+    if (disposed) return;
+    cancelScheduledWork();
+    const { mode } = getPolicy();
+    if (mode === "stopped") {
+      lastDrawTime = null;
+      return;
+    }
+    if (mode === "static") lastDrawTime = null;
+    requestNextFrame();
+  }
+
+  return {
+    dispose() {
+      disposed = true;
+      cancelScheduledWork();
+      lastDrawTime = null;
+    },
+    sync,
+  };
 }
 
 export function StatusShimmer({ active }: StatusShimmerProps) {
@@ -177,10 +306,10 @@ export function StatusShimmer({ active }: StatusShimmerProps) {
     context.enableVertexAttribArray(positionLocation);
     context.vertexAttribPointer(positionLocation, 2, context.FLOAT, false, 0, 0);
 
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const frameInterval = 1000 / getTargetFrameRate();
-    let animationFrame: number | null = null;
-    let lastDrawTime: number | null = null;
+    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const focusedFrameRate = getTargetFrameRate();
+    let reducedMotion = reducedMotionQuery.matches;
+    let animationTimeSeconds: number | null = null;
 
     function resize() {
       const bounds = canvasElement.getBoundingClientRect();
@@ -193,50 +322,55 @@ export function StatusShimmer({ active }: StatusShimmerProps) {
       context.viewport(0, 0, width, height);
     }
 
-    function draw(timestamp: number) {
+    function draw(
+      timestamp: number,
+      elapsedMilliseconds: number,
+      policy: StatusShimmerAnimationPolicy,
+    ) {
       resize();
       context.clear(context.COLOR_BUFFER_BIT);
       context.uniform2f(resolutionLocation, canvasElement.width, canvasElement.height);
-      context.uniform1f(timeLocation, reducedMotion ? 2.8 : timestamp / 1000);
+      let shaderTime = 2.8;
+      if (policy.mode !== "static") {
+        animationTimeSeconds = advanceStatusShimmerAnimationTime(
+          animationTimeSeconds,
+          timestamp,
+          elapsedMilliseconds,
+        );
+        shaderTime = animationTimeSeconds;
+      }
+      context.uniform1f(timeLocation, shaderTime);
       context.drawArrays(context.TRIANGLE_STRIP, 0, 4);
     }
 
-    function tick(timestamp: number) {
-      animationFrame = null;
-      if (lastDrawTime === null || timestamp - lastDrawTime >= frameInterval) {
-        lastDrawTime = timestamp;
-        draw(timestamp);
-      }
-      if (shouldAnimateStatusShimmer(reducedMotion)) {
-        animationFrame = window.requestAnimationFrame(tick);
-      }
-    }
+    const animationLoop = createStatusShimmerAnimationLoop({
+      cancelFrame: window.cancelAnimationFrame.bind(window),
+      clearTimer: window.clearTimeout.bind(window),
+      draw,
+      getPolicy: () => getStatusShimmerAnimationPolicy(reducedMotion, document, focusedFrameRate),
+      requestFrame: window.requestAnimationFrame.bind(window),
+      setTimer: window.setTimeout.bind(window),
+    });
 
-    function start() {
-      if (animationFrame === null) animationFrame = window.requestAnimationFrame(tick);
-    }
-
-    function handleActivityChange() {
-      if (!shouldAnimateStatusShimmer(reducedMotion) && animationFrame !== null) {
-        window.cancelAnimationFrame(animationFrame);
-        animationFrame = null;
-        return;
-      }
-      if (shouldAnimateStatusShimmer(reducedMotion)) start();
+    function handleReducedMotionChange(event: MediaQueryListEvent) {
+      reducedMotion = event.matches;
+      animationLoop.sync();
     }
 
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvasElement);
-    document.addEventListener("visibilitychange", handleActivityChange);
-    window.addEventListener("blur", handleActivityChange);
-    window.addEventListener("focus", handleActivityChange);
-    start();
+    document.addEventListener("visibilitychange", animationLoop.sync);
+    window.addEventListener("blur", animationLoop.sync);
+    window.addEventListener("focus", animationLoop.sync);
+    reducedMotionQuery.addEventListener("change", handleReducedMotionChange);
+    animationLoop.sync();
 
     return () => {
-      if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
-      document.removeEventListener("visibilitychange", handleActivityChange);
-      window.removeEventListener("blur", handleActivityChange);
-      window.removeEventListener("focus", handleActivityChange);
+      animationLoop.dispose();
+      document.removeEventListener("visibilitychange", animationLoop.sync);
+      window.removeEventListener("blur", animationLoop.sync);
+      window.removeEventListener("focus", animationLoop.sync);
+      reducedMotionQuery.removeEventListener("change", handleReducedMotionChange);
       resizeObserver.disconnect();
       context.deleteBuffer(positionBuffer);
       context.deleteProgram(program);
