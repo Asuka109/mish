@@ -184,11 +184,14 @@ and moving between active network services are transactions: persist the complet
 prior state, write manual values before their final enabled states, observe every
 recorded field, and only then publish success. Ordinary release, safe stop,
 shutdown, Core or activation failure, rollback, and restart recovery share this
-exact restoration contract. PAC and automatic-discovery fields are never written
-and must remain equal through confirmation. An unconfirmed outcome remains
-explicit drift with `repair` and `leave-as-is`; repair adopts the currently
-observed safe state as the new prior, while leave-as-is clears Mish ownership
-without changing the OS.
+exact restoration contract. A restart may restore an interrupted apply or
+restoration only when every observed field is exactly either its persisted prior
+value or the field's Mish transaction target. This admits only crash-created
+partial matrices; any third value remains typed external drift and is not
+written. PAC and automatic-discovery fields are never written and must remain
+equal through confirmation. An unconfirmed outcome remains explicit drift with
+`repair` and `leave-as-is`; repair adopts the currently observed safe state as
+the new prior, while leave-as-is clears Mish ownership without changing the OS.
 
 The desktop bridge audits capture ownership at restart, on core health changes,
 and periodically as a bounded fallback. The macOS shell also publishes typed,
@@ -202,10 +205,10 @@ and Events observations non-authoritative. Wake invalidates the old mapper,
 connection, event-session, group-delay, and guided-diagnostic authority before
 starting a fresh pinned-version and complete-initial-batch confirmation. A core
 exit performs the same hard invalidation and conservatively restores only an
-exact Mish-owned System Proxy endpoint. A later confirmed core restart creates
-new Traffic and Events sessions and reapplies a capture mode only when the
-stored user selection is still explicit and its System Proxy listener or signed
-TUN helper is confirmed ready.
+exact Mish-owned or transaction-owned partial System Proxy matrix. A later
+confirmed core restart creates new Traffic and Events sessions and reapplies a
+capture mode only when the stored user selection is still explicit and its
+System Proxy listener or signed TUN helper is confirmed ready.
 Network-service changes reuse the capture transaction: restore the prior service
 first, then apply the new active service only under that same explicit intent.
 Observation, listener, apply, rollback, and confirmation failures remain typed

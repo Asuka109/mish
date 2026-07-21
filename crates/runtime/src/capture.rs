@@ -88,6 +88,13 @@ impl ManualProxyState {
             && !self.host.chars().any(char::is_control)
             && (!self.enabled || (!self.host.trim().is_empty() && self.port > 0))
     }
+
+    fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
+        (self.authenticated == prior.authenticated || self.authenticated == target.authenticated)
+            && (self.enabled == prior.enabled || self.enabled == target.enabled)
+            && (self.host == prior.host || self.host == target.host)
+            && (self.port == prior.port || self.port == target.port)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -132,6 +139,23 @@ impl NetworkServiceProxyState {
             && !self.service_id.chars().any(char::is_control)
             && !self.pac_url.chars().any(char::is_control)
             && !self.has_unsafe_configuration()
+    }
+
+    fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
+        (self.auto_discovery_enabled == prior.auto_discovery_enabled
+            || self.auto_discovery_enabled == target.auto_discovery_enabled)
+            && self
+                .http
+                .is_transaction_owned_between(&prior.http, &target.http)
+            && self
+                .https
+                .is_transaction_owned_between(&prior.https, &target.https)
+            && (self.pac_enabled == prior.pac_enabled || self.pac_enabled == target.pac_enabled)
+            && (self.pac_url == prior.pac_url || self.pac_url == target.pac_url)
+            && (self.service_id == prior.service_id || self.service_id == target.service_id)
+            && self
+                .socks
+                .is_transaction_owned_between(&prior.socks, &target.socks)
     }
 
     fn manual_proxy_target(endpoint: &LoopbackProxyEndpoint) -> ManualProxyState {
@@ -762,12 +786,8 @@ impl SystemProxyReconciler {
             if let Some(journal) = journal
                 && journal.prior.service_id != observed.service_id
             {
-                if self.restore_exact_prior(&journal.prior).await.is_err() {
-                    return self.mark_drift(
-                        current,
-                        &observed,
-                        Some(CaptureFailureKind::RollbackFailed),
-                    );
+                if let Err(error) = self.restore_exact_prior(&journal.prior).await {
+                    return self.mark_drift(current, &observed, Some(error.kind));
                 }
                 if let Err(error) = self.journal.clear() {
                     self.mark_drift(current, &observed, Some(error.kind))?;
@@ -1055,13 +1075,9 @@ impl SystemProxyReconciler {
         prior: &NetworkServiceProxyState,
         original: CaptureTransitionError,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if self.restore_exact_prior(prior).await.is_err() {
+        if let Err(error) = self.restore_exact_prior(prior).await {
             return self
-                .record_rollback_drift(
-                    selection,
-                    prior,
-                    "System Proxy failed and its prior state could not be confirmed",
-                )
+                .record_rollback_drift(selection, prior, error.kind)
                 .await;
         }
         if let Err(error) = self.journal.clear() {
@@ -1091,7 +1107,7 @@ impl SystemProxyReconciler {
         &self,
         selection: &CaptureSelection,
         prior: &NetworkServiceProxyState,
-        message: &'static str,
+        failure: CaptureFailureKind,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
         let observed = self
             .platform
@@ -1102,7 +1118,7 @@ impl SystemProxyReconciler {
             capture_selection: selection.clone(),
             system_proxy: SystemProxyRuntimeStatus {
                 desired: true,
-                failure: Some(CaptureFailureKind::RollbackFailed),
+                failure: Some(failure),
                 observed: observed_state(&observed, &self.endpoint),
                 phase: SystemProxyPhase::Drift,
                 recovery_actions: vec![
@@ -1116,8 +1132,12 @@ impl SystemProxyReconciler {
         };
         *self.status.lock().unwrap() = status;
         Err(CaptureTransitionError::new(
-            CaptureFailureKind::RollbackFailed,
-            message,
+            failure,
+            if failure == CaptureFailureKind::ExternalDrift {
+                "System Proxy changed outside Mish and was left unchanged"
+            } else {
+                "System Proxy failed and its prior state could not be confirmed"
+            },
         ))
     }
 
@@ -1163,7 +1183,8 @@ impl SystemProxyReconciler {
                 return Err(error);
             }
         };
-        if owned != journal.prior.with_endpoint(&self.endpoint) {
+        let target = journal.prior.with_endpoint(&self.endpoint);
+        if !owned.is_transaction_owned_between(&journal.prior, &target) {
             let observed = self.platform.observe_active().await.unwrap_or(owned);
             let mut status = self.status();
             status.capture_selection = selection;
@@ -1176,15 +1197,17 @@ impl SystemProxyReconciler {
         }
         let restored = match self.restore_exact_prior(&journal.prior).await {
             Ok(restored) => restored,
-            Err(_) => {
+            Err(error) => {
+                let observed = self
+                    .platform
+                    .observe_service(&journal.prior.service_id)
+                    .await
+                    .unwrap_or(owned);
                 let mut status = self.status();
                 status.capture_selection = selection;
                 status.system_proxy.desired = false;
-                self.mark_drift(status, &owned, Some(CaptureFailureKind::RollbackFailed))?;
-                return Err(CaptureTransitionError::new(
-                    CaptureFailureKind::RollbackFailed,
-                    "The prior System Proxy state could not be restored and confirmed",
-                ));
+                self.mark_drift(status, &observed, Some(error.kind))?;
+                return Err(error);
             }
         };
         if let Err(error) = self.journal.clear() {
@@ -1219,6 +1242,23 @@ impl SystemProxyReconciler {
         &self,
         prior: &NetworkServiceProxyState,
     ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        let observed = self
+            .platform
+            .observe_service(&prior.service_id)
+            .await
+            .map_err(|_| {
+                CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "The current System Proxy state could not be observed before restoration",
+                )
+            })?;
+        let target = prior.with_endpoint(&self.endpoint);
+        if !observed.is_transaction_owned_between(prior, &target) {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::ExternalDrift,
+                "System Proxy changed outside Mish and was left unchanged",
+            ));
+        }
         self.platform
             .apply_service(prior.clone())
             .await
