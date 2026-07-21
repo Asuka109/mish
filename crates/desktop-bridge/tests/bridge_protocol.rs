@@ -276,6 +276,7 @@ fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
             http: mish_runtime::ManualProxyState::disabled(),
             https: mish_runtime::ManualProxyState::disabled(),
             pac_enabled: false,
+            pac_url: "(null)".into(),
             service_id: "rpc-fixture-service".into(),
             socks: mish_runtime::ManualProxyState::disabled(),
         },
@@ -1638,6 +1639,7 @@ async fn local_proxy_rpc_rejects_an_external_listener_not_owned_by_the_current_r
             http: mish_runtime::ManualProxyState::disabled(),
             https: mish_runtime::ManualProxyState::disabled(),
             pac_enabled: false,
+            pac_url: "(null)".into(),
             service_id: "external-listener-fixture-service".into(),
             socks: mish_runtime::ManualProxyState::disabled(),
         },
@@ -1714,8 +1716,8 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
         http: mish_runtime::ManualProxyState {
             authenticated: false,
             enabled: true,
-            host: Some("external.rpc-fixture.invalid".into()),
-            port: Some(3128),
+            host: "external.rpc-fixture.invalid".into(),
+            port: 3128,
         },
         ..platform.0.lock().unwrap().clone()
     };

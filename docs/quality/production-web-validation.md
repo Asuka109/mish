@@ -195,8 +195,10 @@ Automated tests cover:
   audit, conservative shutdown, unavailable capability, and repair or
   leave-as-is recovery;
 - macOS adapter coverage for structured fixed-program arguments, current-service
-  observation, HTTP/HTTPS/SOCKS application, permission failure typing,
-  private atomic journaling, and output redaction;
+  observation, exact blank and populated disabled HTTP/HTTPS/SOCKS fields, safe
+  value-before-state restoration, PAC URL and automatic-discovery preservation,
+  conservative missing-field rejection, permission failure typing, private
+  atomic journaling, and output redaction;
 - transport-neutral Rust runtime coverage using an injected embedded-core
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events;

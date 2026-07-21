@@ -602,6 +602,7 @@ fn disabled_service(service_id: &str) -> NetworkServiceProxyState {
         http: ManualProxyState::disabled(),
         https: ManualProxyState::disabled(),
         pac_enabled: false,
+        pac_url: "(null)".into(),
         service_id: service_id.into(),
         socks: ManualProxyState::disabled(),
     }

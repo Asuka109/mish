@@ -11,6 +11,7 @@ use mish_runtime::{
 
 struct FixtureRunner {
     commands: Mutex<Vec<MacOsCommand>>,
+    omit_pac_url: bool,
     permission_denied: bool,
 }
 
@@ -18,6 +19,15 @@ impl FixtureRunner {
     fn new() -> Self {
         Self {
             commands: Mutex::new(Vec::new()),
+            omit_pac_url: false,
+            permission_denied: false,
+        }
+    }
+
+    fn without_pac_url() -> Self {
+        Self {
+            commands: Mutex::new(Vec::new()),
+            omit_pac_url: true,
             permission_denied: false,
         }
     }
@@ -25,6 +35,7 @@ impl FixtureRunner {
     fn permission_denied() -> Self {
         Self {
             commands: Mutex::new(Vec::new()),
+            omit_pac_url: false,
             permission_denied: true,
         }
     }
@@ -54,6 +65,7 @@ impl MacOsCommandRunner for FixtureRunner {
             MacOsCommand::GetProxy { .. } => {
                 "Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n"
             }
+            MacOsCommand::GetAutoProxyUrl { .. } if self.omit_pac_url => "Enabled: No\n",
             MacOsCommand::GetAutoProxyUrl { .. } => "URL: (null)\nEnabled: No\n",
             MacOsCommand::GetProxyAutoDiscovery { .. } => "Auto Proxy Discovery: Off\n",
             MacOsCommand::SetProxy { .. } | MacOsCommand::SetProxyState { .. } => "",
@@ -74,8 +86,8 @@ async fn applies_only_structured_http_https_and_socks_commands() {
     let enabled = ManualProxyState {
         authenticated: false,
         enabled: true,
-        host: Some("127.0.0.1".into()),
-        port: Some(7890),
+        host: "127.0.0.1".into(),
+        port: 7890,
     };
 
     platform
@@ -84,6 +96,7 @@ async fn applies_only_structured_http_https_and_socks_commands() {
             http: enabled.clone(),
             https: ManualProxyState::disabled(),
             pac_enabled: false,
+            pac_url: "(null)".into(),
             service_id: "Fixture Service".into(),
             socks: enabled,
         })
@@ -100,6 +113,17 @@ async fn applies_only_structured_http_https_and_socks_commands() {
                 service: "Fixture Service".into(),
             },
             MacOsCommand::SetProxyState {
+                enabled: true,
+                kind: mish_platform_macos::MacOsProxyKind::Http,
+                service: "Fixture Service".into(),
+            },
+            MacOsCommand::SetProxy {
+                host: String::new(),
+                kind: mish_platform_macos::MacOsProxyKind::Https,
+                port: 0,
+                service: "Fixture Service".into(),
+            },
+            MacOsCommand::SetProxyState {
                 enabled: false,
                 kind: mish_platform_macos::MacOsProxyKind::Https,
                 service: "Fixture Service".into(),
@@ -110,8 +134,55 @@ async fn applies_only_structured_http_https_and_socks_commands() {
                 port: 7890,
                 service: "Fixture Service".into(),
             },
+            MacOsCommand::SetProxyState {
+                enabled: true,
+                kind: mish_platform_macos::MacOsProxyKind::Socks,
+                service: "Fixture Service".into(),
+            },
         ]
     );
+}
+
+#[tokio::test]
+async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
+    let runner = Arc::new(FixtureRunner::new());
+    let platform = MacOsSystemProxyPlatform::with_runner(runner.clone());
+    let populated_disabled = ManualProxyState {
+        authenticated: false,
+        enabled: false,
+        host: "prior.proxy.example".into(),
+        port: 3128,
+    };
+
+    platform
+        .apply_service(NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            http: populated_disabled.clone(),
+            https: populated_disabled.clone(),
+            pac_enabled: false,
+            pac_url: "http://pac.example/proxy.pac".into(),
+            service_id: "Fixture Service".into(),
+            socks: populated_disabled,
+        })
+        .await
+        .unwrap();
+
+    let commands = runner.commands.lock().unwrap();
+    assert_eq!(commands.len(), 6);
+    for pair in commands.chunks_exact(2) {
+        assert!(matches!(
+            &pair[0],
+            MacOsCommand::SetProxy { host, port: 3128, .. } if host == "prior.proxy.example"
+        ));
+        assert!(matches!(
+            pair[1],
+            MacOsCommand::SetProxyState { enabled: false, .. }
+        ));
+    }
+    assert!(!commands.iter().any(|command| matches!(
+        command,
+        MacOsCommand::GetAutoProxyUrl { .. } | MacOsCommand::GetProxyAutoDiscovery { .. }
+    )));
 }
 
 #[test]
@@ -150,11 +221,12 @@ async fn permission_failure_is_typed_without_reflecting_command_arguments() {
             http: ManualProxyState {
                 authenticated: false,
                 enabled: true,
-                host: Some(private_host.into()),
-                port: Some(3128),
+                host: private_host.into(),
+                port: 3128,
             },
             https: ManualProxyState::disabled(),
             pac_enabled: false,
+            pac_url: "(null)".into(),
             service_id: "Private Service".into(),
             socks: ManualProxyState::disabled(),
         })
@@ -181,8 +253,33 @@ async fn observes_only_the_active_service_manual_and_automatic_proxy_fields() {
     assert_eq!(observed.https, ManualProxyState::disabled());
     assert_eq!(observed.socks, ManualProxyState::disabled());
     assert!(!observed.pac_enabled);
+    assert_eq!(observed.pac_url, "(null)");
     assert!(!observed.auto_discovery_enabled);
     assert_eq!(runner.commands.lock().unwrap().len(), 7);
+}
+
+#[tokio::test]
+async fn observation_rejects_a_missing_pac_url_without_mutation() {
+    let runner = Arc::new(FixtureRunner::without_pac_url());
+    let platform = MacOsSystemProxyPlatform::with_runner(runner.clone());
+
+    let error = platform.observe_active().await.unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ObservationFailed
+    );
+    assert!(
+        !runner
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|command| matches!(
+                command,
+                MacOsCommand::SetProxy { .. } | MacOsCommand::SetProxyState { .. }
+            ))
+    );
 }
 
 #[tokio::test]
