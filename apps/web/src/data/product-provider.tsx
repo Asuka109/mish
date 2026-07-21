@@ -141,6 +141,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   const [localProxyTest, setLocalProxyTest] = useState<LocalProxyTestState>({ phase: "idle" });
   const pendingCommands = useRef(new Set<ProductCommand>());
   const commandControllers = useRef(new Map<string, AbortController>());
+  const snapshotRef = useRef<StatusSnapshotDto | null>(null);
   const localProxyAuthority = snapshot
     ? JSON.stringify([snapshot.activeProfileId, snapshot.runtime.phase])
     : null;
@@ -149,11 +150,13 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   useEffect(() => {
     const controller = new AbortController();
     localProxyAuthorityRef.current = null;
+    snapshotRef.current = null;
     setLocalProxyTest({ phase: "idle" });
     setServiceProbeStates({});
     setConnection(resolvedClient.getConnectionState());
     const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
     const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot) => {
+      snapshotRef.current = nextSnapshot;
       setSnapshot(nextSnapshot);
       setLoadFailed(false);
     });
@@ -161,6 +164,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     resolvedClient
       .getSnapshot({ signal: controller.signal })
       .then((nextSnapshot) => {
+        snapshotRef.current = nextSnapshot;
         setSnapshot(nextSnapshot);
         setLoadFailed(false);
       })
@@ -237,7 +241,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       setCommandFailed(false);
       setCommandStates((states) => ({ ...states, [command]: { phase: "pending" } }));
       try {
-        setSnapshot(await operation(controller.signal));
+        const nextSnapshot = await operation(controller.signal);
+        snapshotRef.current = nextSnapshot;
+        setSnapshot(nextSnapshot);
         setCommandStates((states) => ({ ...states, [command]: { phase: "success" } }));
         return { ok: true } satisfies ProductCommandResult;
       } catch (error) {
@@ -248,7 +254,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           [command]: { error: typedError, phase: "failure" },
         }));
         try {
-          setSnapshot(await resolvedClient.getSnapshot());
+          const nextSnapshot = await resolvedClient.getSnapshot();
+          snapshotRef.current = nextSnapshot;
+          setSnapshot(nextSnapshot);
         } catch {
           // Keep the last confirmed snapshot stale when refresh also fails.
         }
@@ -311,17 +319,28 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       commandControllers.current.set(key, controller);
       setServiceProbeStates((states) => ({ ...states, [monitorId]: { phase: "pending" } }));
       try {
-        setSnapshot(
-          await resolvedClient.testServiceMonitor(monitorId, { signal: controller.signal }),
-        );
+        const nextSnapshot = await resolvedClient.testServiceMonitor(monitorId, {
+          signal: controller.signal,
+        });
+        snapshotRef.current = nextSnapshot;
+        setSnapshot(nextSnapshot);
         setServiceProbeStates((states) => ({ ...states, [monitorId]: { phase: "success" } }));
         return { ok: true } satisfies ProductCommandResult;
       } catch (error) {
         const typedError = toStatusClientError(error);
-        setServiceProbeStates((states) => ({
-          ...states,
-          [monitorId]: { phase: "failure", previousObservedAt },
-        }));
+        setServiceProbeStates((states) => {
+          const hasNewConfirmedResult = snapshotRef.current?.probeResults.some(
+            (result) =>
+              result.monitorId === monitorId &&
+              result.status !== "pending" &&
+              result.observedAt !== previousObservedAt,
+          );
+          if (!hasNewConfirmedResult) {
+            return { ...states, [monitorId]: { phase: "failure", previousObservedAt } };
+          }
+          const { [monitorId]: _discarded, ...remainingStates } = states;
+          return remainingStates;
+        });
         return { error: typedError, ok: false } satisfies ProductCommandResult;
       } finally {
         if (commandControllers.current.get(key) === controller) {

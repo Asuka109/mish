@@ -156,7 +156,7 @@ impl ServiceProbeService {
             });
         }
         next.revision = next.revision.wrapping_add(1);
-        next.results = pending_results(&next.services);
+        next.results = retained_results(&state.services, &state.results, &next.services);
         persist_locked(self.inner.state_path.as_deref(), &next)?;
         *state = next;
         drop(state);
@@ -195,7 +195,7 @@ impl ServiceProbeService {
         let mut next = state.clone();
         next.services = default_service_monitors();
         next.revision = next.revision.wrapping_add(1);
-        next.results = pending_results(&next.services);
+        next.results = retained_results(&state.services, &state.results, &next.services);
         persist_locked(self.inner.state_path.as_deref(), &next)?;
         *state = next;
         drop(state);
@@ -492,6 +492,32 @@ fn pending_results(services: &[ServiceMonitor]) -> Vec<ServiceProbeResult> {
     services.iter().map(pending_result).collect()
 }
 
+// Probe observations remain valid when a monitor keeps its stable identity and target URL.
+// Labels and icons are presentation metadata, so editing either does not require a re-probe.
+fn retained_results(
+    previous_services: &[ServiceMonitor],
+    previous_results: &[ServiceProbeResult],
+    next_services: &[ServiceMonitor],
+) -> Vec<ServiceProbeResult> {
+    next_services
+        .iter()
+        .map(|monitor| {
+            let unchanged_target = previous_services
+                .iter()
+                .any(|previous| previous.id == monitor.id && previous.url == monitor.url);
+            if unchanged_target {
+                previous_results
+                    .iter()
+                    .find(|result| result.monitor_id == monitor.id)
+                    .cloned()
+                    .unwrap_or_else(|| pending_result(monitor))
+            } else {
+                pending_result(monitor)
+            }
+        })
+        .collect()
+}
+
 fn pending_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
     ServiceProbeResult {
         latency_milliseconds: None,
@@ -660,6 +686,82 @@ mod tests {
             version: 1,
         };
         assert!(valid_persisted_state(&state));
+    }
+
+    fn confirmed_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
+        ServiceProbeResult {
+            latency_milliseconds: Some(42),
+            monitor_id: monitor.id.clone(),
+            observed_at: "2026-07-21T12:00:00Z".into(),
+            route_target: "test".into(),
+            status: ProbeStatus::Healthy,
+        }
+    }
+
+    #[test]
+    fn disabled_mutations_retain_only_results_with_unchanged_probe_targets() {
+        let services = default_service_monitors();
+        let results: Vec<_> = services.iter().map(confirmed_result).collect();
+        let mut edited_services = services.clone();
+        edited_services[0].icon = "https://example.com/icon.svg".into();
+        edited_services[0].label = "Renamed Google".into();
+        edited_services[1].url = "https://example.com/changed-target".into();
+        edited_services.push(ServiceMonitor {
+            icon: "https://example.com/new-icon.svg".into(),
+            id: "new-monitor".into(),
+            label: "New monitor".into(),
+            url: "https://example.com/new-target".into(),
+        });
+
+        let next_results = retained_results(&services, &results, &edited_services);
+
+        assert_eq!(DISABLED_INTERVAL_SECONDS, 0);
+        assert_eq!(
+            next_results[0], results[0],
+            "icon and label edits keep the result"
+        );
+        assert_eq!(
+            next_results[1].status,
+            ProbeStatus::Pending,
+            "URL changes invalidate only that result"
+        );
+        assert_eq!(
+            next_results.last().unwrap().status,
+            ProbeStatus::Pending,
+            "new monitors start pending"
+        );
+        assert_eq!(
+            next_results[2], results[2],
+            "unrelated results remain confirmed"
+        );
+    }
+
+    #[test]
+    fn removal_and_default_restore_preserve_only_still_safe_results() {
+        let services = default_service_monitors();
+        let results: Vec<_> = services.iter().map(confirmed_result).collect();
+        let retained_after_removal = retained_results(&services, &results, &services[1..]);
+        assert_eq!(retained_after_removal.len(), services.len() - 1);
+        assert!(
+            retained_after_removal
+                .iter()
+                .all(|result| result.status == ProbeStatus::Healthy)
+        );
+        assert!(
+            retained_after_removal
+                .iter()
+                .all(|result| result.monitor_id != services[0].id)
+        );
+
+        let mut customized_services = services.clone();
+        customized_services[0].url = "https://example.com/changed-target".into();
+        let restored_results = retained_results(&customized_services, &results, &services);
+        assert_eq!(restored_results[0].status, ProbeStatus::Pending);
+        assert!(
+            restored_results[1..]
+                .iter()
+                .all(|result| result.status == ProbeStatus::Healthy)
+        );
     }
 
     #[test]
