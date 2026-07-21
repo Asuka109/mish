@@ -20,6 +20,7 @@ const systemProxyStatus = {
 const tunStatus = {
   desired: false,
   failure: null,
+  observation: null,
   observed: "disabled" as const,
   phase: "off" as const,
 };

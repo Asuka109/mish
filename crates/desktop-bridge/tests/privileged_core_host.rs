@@ -20,7 +20,7 @@ impl PrivilegedCoreHost for FakePrivilegedHost {
         &self,
         request: PrivilegedCoreLaunchRequest,
     ) -> BoxFuture<'_, Result<PrivilegedCoreProcess, PrivilegedCoreHostError>> {
-        let process = PrivilegedCoreProcess::new(4242, request.launch_token(), true);
+        let process = PrivilegedCoreProcess::new(4242, request.launch_token());
         *self.process.lock().unwrap() = Some(process.clone());
         Box::pin(async move { Ok(process) })
     }

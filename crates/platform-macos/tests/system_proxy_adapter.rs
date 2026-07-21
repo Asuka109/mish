@@ -58,6 +58,9 @@ impl MacOsCommandRunner for FixtureRunner {
             })));
         }
         let stdout = match command {
+            MacOsCommand::InterfaceConfiguration | MacOsCommand::RoutingTable => {
+                panic!("TUN observation commands are outside the System Proxy fixture")
+            }
             MacOsCommand::DefaultRoute => "route to: default\ninterface: en99\n",
             MacOsCommand::ListNetworkServiceOrder => {
                 "An asterisk (*) denotes a disabled service.\n(1) Fixture Service\n(Hardware Port: Fixture Port, Device: en99)\n"

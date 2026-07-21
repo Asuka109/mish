@@ -260,7 +260,13 @@ const initialSnapshot: StatusSnapshotDto = {
       recoveryActions: [],
     },
     systemProxyEnabled: false,
-    tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
+    tun: {
+      desired: false,
+      failure: null,
+      observation: null,
+      observed: "disabled",
+      phase: "off",
+    },
     tunEnabled: false,
   },
   serviceProbePolicy: { intervalSeconds: 60 },
@@ -385,6 +391,16 @@ export class FixtureStatusClient implements StatusClient {
       tun: {
         desired: tunEnabled,
         failure: null,
+        observation: tunEnabled
+          ? {
+              core: "confirmed",
+              dns: "confirmed",
+              interface: "confirmed",
+              observedAt: Date.now(),
+              routes: "confirmed",
+              schemaVersion: 1,
+            }
+          : null,
         observed: tunEnabled ? "enabled" : "disabled",
         phase: tunEnabled ? "applied" : "off",
       },

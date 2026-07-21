@@ -8,15 +8,17 @@ use mish_runtime::{
     CapabilityAvailability, CaptureAuditReason, CaptureJournal, CaptureJournalStore,
     CapturePlatform, CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
     CaptureTransitionError, LocalProxyTestPhase, LoopbackProxyEndpoint, ManualProxyState,
-    NetworkServiceProxyState, SystemProxyObservedState, SystemProxyPhase, TunHelperAvailability,
-    TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
-    TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform,
-    TunHelperSnapshot, TunPhase,
+    NetworkServiceProxyState, SystemProxyObservedState, SystemProxyPhase,
+    TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController, TunHelperError,
+    TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
+    TunHelperObservation, TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation,
+    TunObservationComponentState, TunObservedState, TunPhase, tun_observation_now,
 };
 
 struct FakeTunHelper {
     fail_enable: Mutex<bool>,
     enabled: Mutex<bool>,
+    observation: Mutex<Option<TunNetworkObservation>>,
 }
 
 impl FakeTunHelper {
@@ -24,11 +26,16 @@ impl FakeTunHelper {
         Self {
             fail_enable: Mutex::new(false),
             enabled: Mutex::new(false),
+            observation: Mutex::new(None),
         }
     }
 
     fn fail_next_enable(&self) {
         *self.fail_enable.lock().unwrap() = true;
+    }
+
+    fn set_observation(&self, observation: TunNetworkObservation) {
+        *self.observation.lock().unwrap() = Some(observation);
     }
 }
 
@@ -36,17 +43,17 @@ impl TunHelperPlatform for FakeTunHelper {
     fn initial_snapshot(&self) -> TunHelperSnapshot {
         TunHelperSnapshot {
             availability: TunHelperAvailability::Available,
-            expected_version: "2".to_owned(),
+            expected_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
             health: TunHelperHealth::Healthy,
             installation_id: None,
-            installed_version: Some("2".to_owned()),
+            installed_version: Some(TUN_HELPER_EXPECTED_VERSION.to_owned()),
             last_failure: None,
             phase: TunHelperLifecyclePhase::Idle,
         }
     }
 
     fn observe_helper(&self) -> BoxFuture<'_, Result<TunHelperObservation, TunHelperError>> {
-        Box::pin(async { Ok(TunHelperObservation::healthy("2")) })
+        Box::pin(async { Ok(TunHelperObservation::healthy(TUN_HELPER_EXPECTED_VERSION)) })
     }
 
     fn run_lifecycle(
@@ -56,9 +63,18 @@ impl TunHelperPlatform for FakeTunHelper {
         Box::pin(async { Ok(()) })
     }
 
-    fn observe_tun(&self) -> BoxFuture<'_, Result<bool, TunHelperError>> {
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
+        if let Some(observation) = self.observation.lock().unwrap().clone() {
+            return Box::pin(async move { Ok(observation) });
+        }
         let enabled = *self.enabled.lock().unwrap();
-        Box::pin(async move { Ok(enabled) })
+        Box::pin(async move {
+            Ok(if enabled {
+                TunNetworkObservation::enabled(tun_observation_now())
+            } else {
+                TunNetworkObservation::disabled(tun_observation_now())
+            })
+        })
     }
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
@@ -71,6 +87,9 @@ impl TunHelperPlatform for FakeTunHelper {
             });
         }
         *self.enabled.lock().unwrap() = enabled;
+        if !enabled {
+            *self.observation.lock().unwrap() = None;
+        }
         Box::pin(async { Ok(()) })
     }
 }
@@ -1822,4 +1841,79 @@ async fn system_proxy_and_tun_conversion_rolls_back_then_confirms_each_observed_
     assert!(restored.system_proxy_enabled);
     assert!(!restored.tun_enabled);
     assert_eq!(restored.tun.phase, TunPhase::Off);
+}
+
+#[tokio::test]
+async fn tun_never_applies_from_partial_foreign_or_stale_observations() {
+    let now = tun_observation_now();
+    let cases = [
+        (
+            TunNetworkObservation::new(
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Partial,
+                TunObservationComponentState::Confirmed,
+                now,
+            ),
+            mish_runtime::TunFailureKind::ObservationPartial,
+            mish_runtime::CaptureFailureKind::ConfirmationFailed,
+        ),
+        (
+            TunNetworkObservation::new(
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Foreign,
+                TunObservationComponentState::Confirmed,
+                TunObservationComponentState::Confirmed,
+                now,
+            ),
+            mish_runtime::TunFailureKind::ObservationForeign,
+            mish_runtime::CaptureFailureKind::ExternalDrift,
+        ),
+        (
+            TunNetworkObservation::enabled(0),
+            mish_runtime::TunFailureKind::ObservationStale,
+            mish_runtime::CaptureFailureKind::ObservationFailed,
+        ),
+    ];
+
+    for (observation, expected_failure, expected_capture_failure) in cases {
+        let platform = Arc::new(FakePlatform::new(disabled_service()));
+        let journal = Arc::new(MemoryJournalStore::default());
+        let helper_platform = Arc::new(FakeTunHelper::new());
+        helper_platform.set_observation(observation.clone());
+        let helper = Arc::new(TunHelperController::new(helper_platform));
+        let reconciler = CaptureReconciler::new_with_tun(
+            platform,
+            journal,
+            LoopbackProxyEndpoint::managed(),
+            Some(helper),
+        );
+
+        let error = reconciler
+            .reconcile(
+                CaptureRequest {
+                    active: true,
+                    selection: CaptureSelection {
+                        system_proxy: false,
+                        tun: true,
+                    },
+                },
+                true,
+            )
+            .await
+            .unwrap_err();
+        let status = reconciler.status();
+
+        assert_eq!(error.kind, expected_capture_failure);
+        assert!(!status.tun_enabled);
+        assert_eq!(status.tun.phase, TunPhase::Failed);
+        assert_eq!(status.tun.failure, Some(expected_failure));
+        assert_eq!(status.tun.observed, TunObservedState::Disabled);
+        assert!(
+            status
+                .tun
+                .observation
+                .is_some_and(|observation| observation.confirms_disabled_at(tun_observation_now()))
+        );
+    }
 }

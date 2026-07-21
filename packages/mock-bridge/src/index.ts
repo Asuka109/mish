@@ -95,7 +95,13 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
         recoveryActions: [],
       },
       systemProxyEnabled: false,
-      tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
+      tun: {
+        desired: false,
+        failure: null,
+        observation: null,
+        observed: "disabled",
+        phase: "off",
+      },
       tunEnabled: false,
     },
     serviceProbePolicy: { intervalSeconds: 60 },
@@ -252,7 +258,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 17,
+              protocolVersion: 18,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: { closeAllActive: false, closeConnection: false },
             };
@@ -305,6 +311,16 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               tun: {
                 desired: tunEnabled,
                 failure: null,
+                observation: tunEnabled
+                  ? {
+                      core: "confirmed",
+                      dns: "confirmed",
+                      interface: "confirmed",
+                      observedAt: Date.now(),
+                      routes: "confirmed",
+                      schemaVersion: 1,
+                    }
+                  : null,
                 observed: tunEnabled ? "enabled" : "disabled",
                 phase: tunEnabled ? "applied" : "off",
               },

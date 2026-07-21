@@ -138,6 +138,9 @@ It accepts no caller-supplied target and does not observe or mutate System Proxy
 Protocol version 15 adds persisted service-monitor mutations, a fixed global
 probe interval policy, and direct service-probe results without changing Status
 subscription ordering.
+Protocol version 18 adds the versioned privileged TUN network observation and
+requires complete observed Core, interface, route, and DNS state before TUN can
+be published as applied.
 
 Profile activation has an independent typed snapshot with idle, pending,
 success, and failure phases. The profile subscription uses the same snapshot
@@ -208,9 +211,15 @@ first, then apply the new active service only under that same explicit intent.
 Observation, listener, apply, rollback, and confirmation failures remain typed
 failed or drift state. If an external actor changed the settings, Mish leaves
 them untouched. TUN uses the same serialized transition authority and never
-derives success from selection alone. Unsupported, unsigned, unpackaged,
-permission-refused, version-drifted, or unconfirmed helper states remain typed
-unavailable or failed as defined by
+derives success from selection or generated configuration alone.
+`TunRuntimeStatusDto` carries the privileged observation schema version and
+timestamp plus closed Core, Mish-owned interface, managed-routes, and DNS
+component states. `tunEnabled` is true only when the phase is `applied` and a
+fresh observation confirms every component. Partial, stale, foreign, missing,
+and residual-cleanup observations remain typed failed or drift state, and the
+native status bar and Web UI project the same non-active runtime snapshot.
+Unsupported, unsigned, unpackaged, permission-refused, version-drifted, or
+unconfirmed helper states remain typed unavailable or failed as defined by
 [`macos-tun-helper.md`](macos-tun-helper.md).
 
 The shared desktop-bridge contract also defines `BridgeInfoDto` and

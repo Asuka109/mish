@@ -1,5 +1,6 @@
 use std::{
     fs,
+    net::IpAddr,
     os::{
         fd::AsRawFd,
         unix::fs::{FileTypeExt, MetadataExt, PermissionsExt},
@@ -18,7 +19,7 @@ use mish_runtime::{
     LoopbackProxyEndpoint, TUN_HELPER_EXPECTED_VERSION, TUN_HELPER_MAX_MESSAGE_BYTES,
     TUN_HELPER_PROTOCOL_VERSION, TunHelperAvailability, TunHelperError, TunHelperFailureKind,
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
-    TunHelperSnapshot,
+    TunHelperSnapshot, TunNetworkObservation, TunObservationComponentState, tun_observation_now,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -28,6 +29,8 @@ use tokio::{
     sync::Mutex,
     time::timeout,
 };
+
+use crate::{MacOsCommand, MacOsCommandRunner, MacOsSystemCommandRunner};
 
 pub const DEV_TUN_SERVICE_LABEL: &str = "com.asuka109.mish.tun-helper.dev";
 pub const DEV_TUN_SERVICE_CORE_PATH: &str =
@@ -40,6 +43,10 @@ pub const DEV_TUN_SERVICE_SOCKET_PREFIX: &str = "/var/run/com.asuka109.mish.tun-
 const CONFIG_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const STOP_TIMEOUT: Duration = Duration::from_secs(5);
+const TUN_INTERFACE_LIMIT: usize = 128;
+const TUN_ROUTE_LIMIT: usize = 512;
+const TUN_DNS_RESOLVER_LIMIT: usize = 64;
+const TUN_DNS_NAMESERVER_LIMIT: usize = 8;
 
 pub fn development_socket_path(uid: u32) -> PathBuf {
     PathBuf::from(format!("{DEV_TUN_SERVICE_SOCKET_PREFIX}.{uid}.sock"))
@@ -93,12 +100,13 @@ enum ServiceErrorCode {
     OperationFailed,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ServiceStatus {
     core: Option<ServiceCoreStatus>,
     helper_version: String,
     installation_id: String,
+    observation: TunNetworkObservation,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -106,12 +114,356 @@ struct ServiceStatus {
 struct ServiceCoreStatus {
     launch_token: String,
     pid: u32,
-    tun_enabled: bool,
 }
 
 impl From<ServiceCoreStatus> for PrivilegedCoreProcess {
     fn from(status: ServiceCoreStatus) -> Self {
-        Self::new(status.pid, status.launch_token, status.tun_enabled)
+        Self::new(status.pid, status.launch_token)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TunSystemInterface {
+    addresses: Vec<String>,
+    name: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TunSystemRoute {
+    destination: String,
+    interface: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TunSystemDnsResolver {
+    interface: Option<String>,
+    nameservers: Vec<IpAddr>,
+    port: u16,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TunSystemSnapshot {
+    dns_resolvers: Vec<TunSystemDnsResolver>,
+    interfaces: Vec<TunSystemInterface>,
+    routes: Vec<TunSystemRoute>,
+}
+
+trait TunSystemObserver: Send + Sync {
+    fn observe(&self) -> BoxFuture<'_, Result<TunSystemSnapshot, ()>>;
+}
+
+struct MacOsTunSystemObserver {
+    runner: Arc<dyn MacOsCommandRunner>,
+}
+
+impl MacOsTunSystemObserver {
+    fn new() -> Self {
+        Self {
+            runner: Arc::new(MacOsSystemCommandRunner),
+        }
+    }
+}
+
+impl TunSystemObserver for MacOsTunSystemObserver {
+    fn observe(&self) -> BoxFuture<'_, Result<TunSystemSnapshot, ()>> {
+        Box::pin(async move {
+            let (interfaces, routes, dns) = tokio::try_join!(
+                self.runner.run(MacOsCommand::InterfaceConfiguration),
+                self.runner.run(MacOsCommand::RoutingTable),
+                self.runner.run(MacOsCommand::DnsConfiguration),
+            )
+            .map_err(|_| ())?;
+            let dns_resolvers = parse_tun_dns_resolvers(&dns.stdout)?;
+            Ok(TunSystemSnapshot {
+                dns_resolvers,
+                interfaces: parse_tun_interfaces(&interfaces.stdout)?,
+                routes: parse_tun_routes(&routes.stdout)?,
+            })
+        })
+    }
+}
+
+fn parse_tun_interfaces(output: &str) -> Result<Vec<TunSystemInterface>, ()> {
+    let mut interfaces = Vec::<TunSystemInterface>::new();
+    for line in output.lines() {
+        if !line.starts_with([' ', '\t']) {
+            let Some((candidate, rest)) = line.split_once(':') else {
+                continue;
+            };
+            if !rest.trim_start().starts_with("flags=") || !valid_interface_name(candidate) {
+                return Err(());
+            }
+            if interfaces.len() >= TUN_INTERFACE_LIMIT {
+                return Err(());
+            }
+            interfaces.push(TunSystemInterface {
+                addresses: Vec::new(),
+                name: candidate.to_owned(),
+            });
+            continue;
+        }
+        let Some(interface) = interfaces.last_mut() else {
+            continue;
+        };
+        let mut fields = line.split_ascii_whitespace();
+        let Some(family) = fields.next() else {
+            continue;
+        };
+        if !matches!(family, "inet" | "inet6") {
+            continue;
+        }
+        let Some(address) = fields.next() else {
+            return Err(());
+        };
+        let address = address
+            .split('%')
+            .next()
+            .ok_or(())?
+            .parse::<IpAddr>()
+            .map_err(|_| ())?
+            .to_string();
+        if interface.addresses.len() >= 8 {
+            return Err(());
+        }
+        if !interface.addresses.contains(&address) {
+            interface.addresses.push(address);
+        }
+    }
+    if interfaces.is_empty() {
+        return Err(());
+    }
+    Ok(interfaces)
+}
+
+fn parse_tun_routes(output: &str) -> Result<Vec<TunSystemRoute>, ()> {
+    if !output.lines().any(|line| line.trim() == "Routing tables") {
+        return Err(());
+    }
+    let mut routes = Vec::new();
+    for line in output.lines() {
+        let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+        if fields.len() < 4
+            || matches!(
+                fields[0],
+                "Destination" | "Routing" | "Internet:" | "Internet6:"
+            )
+        {
+            continue;
+        }
+        let interface = fields[3];
+        if !valid_interface_name(interface) || fields[0].len() > 64 {
+            continue;
+        }
+        if routes.len() >= TUN_ROUTE_LIMIT {
+            return Err(());
+        }
+        routes.push(TunSystemRoute {
+            destination: fields[0].to_owned(),
+            interface: interface.to_owned(),
+        });
+    }
+    Ok(routes)
+}
+
+fn parse_tun_dns_resolvers(output: &str) -> Result<Vec<TunSystemDnsResolver>, ()> {
+    if matches!(
+        output.trim(),
+        "DNS configuration not available" | "No DNS configuration available"
+    ) {
+        return Ok(Vec::new());
+    }
+    if !output
+        .lines()
+        .any(|line| line.trim() == "DNS configuration")
+    {
+        return Err(());
+    }
+    let mut resolvers = Vec::new();
+    let mut current: Option<TunSystemDnsResolver> = None;
+    let finish_resolver = |resolvers: &mut Vec<TunSystemDnsResolver>,
+                           current: &mut Option<TunSystemDnsResolver>|
+     -> Result<(), ()> {
+        let Some(resolver) = current.take() else {
+            return Ok(());
+        };
+        if resolver.nameservers.is_empty() || resolvers.contains(&resolver) {
+            return Ok(());
+        }
+        if resolvers.len() >= TUN_DNS_RESOLVER_LIMIT {
+            return Err(());
+        }
+        resolvers.push(resolver);
+        Ok(())
+    };
+    for line in output.lines().map(str::trim) {
+        if line.starts_with("resolver #") {
+            finish_resolver(&mut resolvers, &mut current)?;
+            current = Some(TunSystemDnsResolver {
+                interface: None,
+                nameservers: Vec::new(),
+                port: 53,
+            });
+            continue;
+        }
+        if line.starts_with("nameserver[") {
+            let resolver = current.as_mut().ok_or(())?;
+            let value = line
+                .split_once(':')
+                .map(|(_, value)| value.trim())
+                .ok_or(())?;
+            let value = value.split('%').next().ok_or(())?;
+            let nameserver = value.parse::<IpAddr>().map_err(|_| ())?;
+            if !resolver.nameservers.contains(&nameserver) {
+                if resolver.nameservers.len() >= TUN_DNS_NAMESERVER_LIMIT {
+                    return Err(());
+                }
+                resolver.nameservers.push(nameserver);
+            }
+            continue;
+        }
+        if line.starts_with("if_index") {
+            let resolver = current.as_mut().ok_or(())?;
+            let candidate = line
+                .split_once('(')
+                .and_then(|(_, value)| value.strip_suffix(')'))
+                .map(str::trim)
+                .ok_or(())?;
+            if !valid_interface_name(candidate) {
+                return Err(());
+            }
+            resolver.interface = Some(candidate.to_owned());
+            continue;
+        }
+        if line.starts_with("port") {
+            let resolver = current.as_mut().ok_or(())?;
+            resolver.port = line
+                .split_once(':')
+                .map(|(_, value)| value.trim())
+                .ok_or(())?
+                .parse::<u16>()
+                .ok()
+                .filter(|port| *port != 0)
+                .ok_or(())?;
+        }
+    }
+    finish_resolver(&mut resolvers, &mut current)?;
+    Ok(resolvers)
+}
+
+fn valid_interface_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn dns_observation_state(
+    system: &TunSystemSnapshot,
+    owned_interface: &str,
+) -> TunObservationComponentState {
+    let mut captured = 0;
+    let mut bypassed = 0;
+    let mut unknown = 0;
+    for resolver in system
+        .dns_resolvers
+        .iter()
+        .filter(|resolver| resolver.port == 53)
+    {
+        for nameserver in &resolver.nameservers {
+            match resolver.interface.as_deref() {
+                Some(interface) if interface == owned_interface => captured += 1,
+                _ => match selected_route_interface(&system.routes, *nameserver) {
+                    Some(interface) if interface == owned_interface => captured += 1,
+                    Some(_) => bypassed += 1,
+                    None => unknown += 1,
+                },
+            }
+        }
+    }
+    match (captured, bypassed, unknown) {
+        (0, 0, 0) | (0, _, 0) => TunObservationComponentState::Absent,
+        (_, 0, 0) => TunObservationComponentState::Confirmed,
+        _ => TunObservationComponentState::Partial,
+    }
+}
+
+fn selected_route_interface(routes: &[TunSystemRoute], address: IpAddr) -> Option<&str> {
+    let mut selected: Option<(u8, &str)> = None;
+    let mut ambiguous = false;
+    for route in routes {
+        let Some((network, prefix_length)) = parse_route_prefix(&route.destination, address) else {
+            continue;
+        };
+        if !route_contains(network, prefix_length, address) {
+            continue;
+        }
+        match selected {
+            Some((selected_prefix, _)) if selected_prefix > prefix_length => {}
+            Some((selected_prefix, selected_interface)) if selected_prefix == prefix_length => {
+                ambiguous |= selected_interface != route.interface;
+            }
+            _ => {
+                selected = Some((prefix_length, &route.interface));
+                ambiguous = false;
+            }
+        }
+    }
+    (!ambiguous).then_some(selected?.1)
+}
+
+fn parse_route_prefix(value: &str, address: IpAddr) -> Option<(IpAddr, u8)> {
+    let (network, explicit_prefix) = match value.split_once('/') {
+        Some((network, prefix)) => (network, Some(prefix.parse::<u8>().ok()?)),
+        None => (value, None),
+    };
+    match address {
+        IpAddr::V4(_) => {
+            if network == "default" {
+                return Some(("0.0.0.0".parse().ok()?, 0));
+            }
+            let octets = network
+                .split('.')
+                .map(str::parse::<u8>)
+                .collect::<Result<Vec<_>, _>>()
+                .ok()?;
+            if octets.is_empty() || octets.len() > 4 {
+                return None;
+            }
+            let inferred_prefix = (octets.len() * 8) as u8;
+            let mut full = [0; 4];
+            full[..octets.len()].copy_from_slice(&octets);
+            let prefix_length = explicit_prefix.unwrap_or(inferred_prefix);
+            (prefix_length <= 32).then_some((IpAddr::from(full), prefix_length))
+        }
+        IpAddr::V6(_) => {
+            if network == "default" {
+                return Some(("::".parse().ok()?, 0));
+            }
+            let network = network.split('%').next()?.parse::<IpAddr>().ok()?;
+            let prefix_length = explicit_prefix.unwrap_or(128);
+            (network.is_ipv6() && prefix_length <= 128).then_some((network, prefix_length))
+        }
+    }
+}
+
+fn route_contains(network: IpAddr, prefix_length: u8, address: IpAddr) -> bool {
+    match (network, address) {
+        (IpAddr::V4(network), IpAddr::V4(address)) => {
+            if prefix_length == 0 {
+                return true;
+            }
+            let shift = 32 - u32::from(prefix_length);
+            (u32::from(network) >> shift) == (u32::from(address) >> shift)
+        }
+        (IpAddr::V6(network), IpAddr::V6(address)) => {
+            if prefix_length == 0 {
+                return true;
+            }
+            let shift = 128 - u32::from(prefix_length);
+            (u128::from(network) >> shift) == (u128::from(address) >> shift)
+        }
+        _ => false,
     }
 }
 
@@ -423,11 +775,11 @@ impl TunHelperPlatform for MacOsTunServiceClient {
         })
     }
 
-    fn observe_tun(&self) -> BoxFuture<'_, Result<bool, TunHelperError>> {
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
         Box::pin(async move {
             self.health()
                 .await
-                .map(|status| status.core.is_some_and(|core| core.tun_enabled))
+                .map(|status| status.observation)
                 .map_err(|_| {
                     TunHelperError::new(
                         TunHelperFailureKind::ConnectionFailed,
@@ -450,9 +802,13 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                     "The development TUN service operation failed",
                 )
             })?;
-            if enabled && !status.core.is_some_and(|core| core.tun_enabled) {
+            if enabled
+                && !status
+                    .observation
+                    .confirms_enabled_at(tun_observation_now())
+            {
                 return Err(TunHelperError::new(
-                    TunHelperFailureKind::ConfirmationFailed,
+                    status.observation.failure_kind_at(tun_observation_now()),
                     "The privileged Mihomo Core did not enable TUN",
                 ));
             }
@@ -498,6 +854,7 @@ pub struct TunServiceConfig {
     pub require_root: bool,
     pub runtime_root: PathBuf,
     pub socket_path: PathBuf,
+    observer: Arc<dyn TunSystemObserver>,
 }
 
 impl TunServiceConfig {
@@ -518,6 +875,7 @@ impl TunServiceConfig {
             require_root: true,
             runtime_root: required_path("MISH_TUN_SERVICE_RUNTIME_ROOT")?,
             socket_path: required_path("MISH_TUN_SERVICE_SOCKET")?,
+            observer: Arc::new(MacOsTunSystemObserver::new()),
         })
     }
 }
@@ -533,12 +891,23 @@ struct ServiceProcess {
     child: Child,
     launch_token: String,
     pid: u32,
-    tun_enabled: bool,
+}
+
+#[derive(Clone)]
+struct OwnedTunInterface {
+    addresses: Vec<String>,
+    name: String,
+}
+
+struct ServiceTunOwnership {
+    baseline_interfaces: Vec<String>,
+    interface: Option<OwnedTunInterface>,
 }
 
 #[derive(Default)]
 struct ServiceState {
     process: Option<ServiceProcess>,
+    tun: Option<ServiceTunOwnership>,
 }
 
 pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static str> {
@@ -571,6 +940,7 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         return Err("socket ownership failed");
     }
     let state = Arc::new(Mutex::new(ServiceState::default()));
+    let observer = config.observer;
     let installation_id: Arc<str> = config.installation_id.into();
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -594,6 +964,7 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         let allowed_binary = allowed_binary.clone();
         let runtime_root = runtime_root.clone();
         let installation_id = installation_id.clone();
+        let observer = observer.clone();
         let allowed_uid = config.allowed_uid;
         tokio::spawn(async move {
             let _ = handle_connection(
@@ -603,6 +974,7 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
                 &allowed_binary,
                 &runtime_root,
                 &installation_id,
+                observer,
             )
             .await;
         });
@@ -623,6 +995,7 @@ async fn handle_connection(
     allowed_binary: &Path,
     runtime_root: &Path,
     installation_id: &str,
+    observer: Arc<dyn TunSystemObserver>,
 ) -> Result<(), ()> {
     let length = stream.read_u32().await.map_err(|_| ())? as usize;
     if length > TUN_HELPER_MAX_MESSAGE_BYTES {
@@ -639,10 +1012,16 @@ async fn handle_connection(
                 allowed_binary,
                 runtime_root,
                 installation_id,
+                observer,
             )
             .await
         }
-        _ => ServiceResponse::error(ServiceErrorCode::InvalidRequest, None, installation_id),
+        _ => ServiceResponse::error(
+            ServiceErrorCode::InvalidRequest,
+            None,
+            TunNetworkObservation::unknown(tun_observation_now()),
+            installation_id,
+        ),
     };
     let bytes = serde_json::to_vec(&response).map_err(|_| ())?;
     if bytes.len() > TUN_HELPER_MAX_MESSAGE_BYTES {
@@ -659,11 +1038,12 @@ async fn execute_request(
     allowed_binary: &Path,
     runtime_root: &Path,
     installation_id: &str,
+    observer: Arc<dyn TunSystemObserver>,
 ) -> ServiceResponse {
     match command {
-        ServiceCommand::Health => status_response(&state, installation_id).await,
+        ServiceCommand::Health => status_response(&state, installation_id, &observer).await,
         ServiceCommand::Observe { launch_token } => {
-            let status = status_response(&state, installation_id).await;
+            let status = status_response(&state, installation_id, &observer).await;
             if status
                 .status
                 .core
@@ -672,7 +1052,7 @@ async fn execute_request(
             {
                 status
             } else {
-                ServiceResponse::ok(None, installation_id)
+                ServiceResponse::ok(None, status.status.observation, installation_id)
             }
         }
         ServiceCommand::OwnsListener {
@@ -680,7 +1060,7 @@ async fn execute_request(
             launch_token,
             port,
         } => {
-            let status = status_response(&state, installation_id).await;
+            let status = status_response(&state, installation_id, &observer).await;
             let owns = status.status.core.as_ref().is_some_and(|core| {
                 core.launch_token == launch_token
                     && owns_listener(core.pid, &host, port).unwrap_or(false)
@@ -688,7 +1068,7 @@ async fn execute_request(
             if owns {
                 status
             } else {
-                ServiceResponse::ok(None, installation_id)
+                ServiceResponse::ok(None, status.status.observation, installation_id)
             }
         }
         ServiceCommand::Start {
@@ -710,14 +1090,20 @@ async fn execute_request(
                 )
                 .is_err()
             {
-                return ServiceResponse::error(ServiceErrorCode::Rejected, None, installation_id);
+                return ServiceResponse::error(
+                    ServiceErrorCode::Rejected,
+                    None,
+                    unknown_tun_observation(),
+                    installation_id,
+                );
             }
-            let tun_enabled = match read_tun_enabled(&config_file) {
+            let tun_requested = match read_tun_enabled(&config_file) {
                 Ok(enabled) => enabled,
                 Err(_) => {
                     return ServiceResponse::error(
                         ServiceErrorCode::Rejected,
                         None,
+                        unknown_tun_observation(),
                         installation_id,
                     );
                 }
@@ -726,14 +1112,45 @@ async fn execute_request(
                 .await
                 .is_err()
             {
-                return ServiceResponse::error(ServiceErrorCode::Rejected, None, installation_id);
+                return ServiceResponse::error(
+                    ServiceErrorCode::Rejected,
+                    None,
+                    unknown_tun_observation(),
+                    installation_id,
+                );
             }
-            let mut state = state.lock().await;
-            reap_if_exited(&mut state);
-            if state.process.is_some() {
+            let baseline = observer.observe().await;
+            if tun_requested && baseline.is_err() {
                 return ServiceResponse::error(
                     ServiceErrorCode::OperationFailed,
-                    state.status(),
+                    None,
+                    unknown_tun_observation(),
+                    installation_id,
+                );
+            }
+            let mut service_state = state.lock().await;
+            reap_if_exited(&mut service_state);
+            if let Ok(system) = &baseline {
+                let observation = service_state.tun_observation(system);
+                if observation.confirms_disabled_at(tun_observation_now()) {
+                    service_state.tun = None;
+                } else if service_state.process.is_none() && service_state.tun.is_none() {
+                    return ServiceResponse::error(
+                        ServiceErrorCode::OperationFailed,
+                        None,
+                        observation,
+                        installation_id,
+                    );
+                }
+            }
+            if service_state.process.is_some() || service_state.tun.is_some() {
+                return ServiceResponse::error(
+                    ServiceErrorCode::OperationFailed,
+                    service_state.status(),
+                    baseline.as_ref().map_or_else(
+                        |_| unknown_tun_observation(),
+                        |system| service_state.tun_observation(system),
+                    ),
                     installation_id,
                 );
             }
@@ -753,6 +1170,7 @@ async fn execute_request(
                     return ServiceResponse::error(
                         ServiceErrorCode::OperationFailed,
                         None,
+                        unknown_tun_observation(),
                         installation_id,
                     );
                 }
@@ -762,6 +1180,7 @@ async fn execute_request(
                 return ServiceResponse::error(
                     ServiceErrorCode::OperationFailed,
                     None,
+                    unknown_tun_observation(),
                     installation_id,
                 );
             };
@@ -770,50 +1189,70 @@ async fn execute_request(
                 return ServiceResponse::error(
                     ServiceErrorCode::OperationFailed,
                     None,
+                    unknown_tun_observation(),
                     installation_id,
                 );
             }
-            state.process = Some(ServiceProcess {
+            service_state.process = Some(ServiceProcess {
                 child,
                 launch_token,
                 pid,
-                tun_enabled,
             });
-            ServiceResponse::ok(state.status(), installation_id)
+            if tun_requested {
+                let baseline_interfaces = baseline
+                    .as_ref()
+                    .expect("TUN launch requires a baseline observation")
+                    .interfaces
+                    .iter()
+                    .filter(|interface| is_utun(&interface.name))
+                    .map(|interface| interface.name.clone())
+                    .collect();
+                service_state.tun = Some(ServiceTunOwnership {
+                    baseline_interfaces,
+                    interface: None,
+                });
+            }
+            drop(service_state);
+            status_response(&state, installation_id, &observer).await
         }
         ServiceCommand::Stop { launch_token } => {
-            let mut state = state.lock().await;
-            reap_if_exited(&mut state);
-            if state
+            let mut service_state = state.lock().await;
+            reap_if_exited(&mut service_state);
+            if service_state
                 .process
                 .as_ref()
                 .is_some_and(|process| process.launch_token != launch_token)
             {
                 return ServiceResponse::error(
                     ServiceErrorCode::Rejected,
-                    state.status(),
+                    service_state.status(),
+                    unknown_tun_observation(),
                     installation_id,
                 );
             }
-            if stop_process(&mut state).await.is_err() {
+            if stop_process(&mut service_state).await.is_err() {
                 return ServiceResponse::error(
                     ServiceErrorCode::OperationFailed,
-                    state.status(),
+                    service_state.status(),
+                    unknown_tun_observation(),
                     installation_id,
                 );
             }
-            ServiceResponse::ok(None, installation_id)
+            drop(service_state);
+            status_response(&state, installation_id, &observer).await
         }
         ServiceCommand::StopAll => {
-            let mut state = state.lock().await;
-            if stop_process(&mut state).await.is_err() {
+            let mut service_state = state.lock().await;
+            if stop_process(&mut service_state).await.is_err() {
                 return ServiceResponse::error(
                     ServiceErrorCode::OperationFailed,
-                    state.status(),
+                    service_state.status(),
+                    unknown_tun_observation(),
                     installation_id,
                 );
             }
-            ServiceResponse::ok(None, installation_id)
+            drop(service_state);
+            status_response(&state, installation_id, &observer).await
         }
     }
 }
@@ -823,13 +1262,154 @@ impl ServiceState {
         self.process.as_ref().map(|process| ServiceCoreStatus {
             launch_token: process.launch_token.clone(),
             pid: process.pid,
-            tun_enabled: process.tun_enabled,
         })
+    }
+
+    fn tun_observation(&mut self, system: &TunSystemSnapshot) -> TunNetworkObservation {
+        let core = if self.process.is_some() && self.tun.is_some() {
+            TunObservationComponentState::Confirmed
+        } else {
+            TunObservationComponentState::Absent
+        };
+        let Some(ownership) = self.tun.as_mut() else {
+            let untracked = system
+                .interfaces
+                .iter()
+                .filter(|interface| {
+                    is_utun(&interface.name)
+                        && interface.addresses.iter().any(|address| {
+                            address
+                                .parse::<IpAddr>()
+                                .is_ok_and(|address| address.is_ipv4())
+                        })
+                })
+                .collect::<Vec<_>>();
+            if !untracked.is_empty() {
+                let routes = if untracked
+                    .iter()
+                    .any(|interface| required_route_count(system, &interface.name, false) > 0)
+                {
+                    TunObservationComponentState::Foreign
+                } else {
+                    TunObservationComponentState::Absent
+                };
+                let dns = if untracked.iter().any(|interface| {
+                    dns_observation_state(system, &interface.name)
+                        != TunObservationComponentState::Absent
+                }) {
+                    TunObservationComponentState::Foreign
+                } else {
+                    TunObservationComponentState::Absent
+                };
+                return TunNetworkObservation::new(
+                    core,
+                    TunObservationComponentState::Foreign,
+                    routes,
+                    dns,
+                    tun_observation_now(),
+                );
+            }
+            return TunNetworkObservation::new(
+                core,
+                TunObservationComponentState::Absent,
+                TunObservationComponentState::Absent,
+                TunObservationComponentState::Absent,
+                tun_observation_now(),
+            );
+        };
+        let candidates = system
+            .interfaces
+            .iter()
+            .filter(|interface| {
+                is_utun(&interface.name) && !ownership.baseline_interfaces.contains(&interface.name)
+            })
+            .collect::<Vec<_>>();
+        if ownership.interface.is_none() && candidates.len() == 1 {
+            ownership.interface = Some(OwnedTunInterface {
+                addresses: candidates[0].addresses.clone(),
+                name: candidates[0].name.clone(),
+            });
+        }
+        let Some(owned) = ownership.interface.as_ref() else {
+            let state = if candidates.len() > 1 {
+                TunObservationComponentState::Foreign
+            } else {
+                TunObservationComponentState::Absent
+            };
+            return TunNetworkObservation::new(core, state, state, state, tun_observation_now());
+        };
+        let current = system
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == owned.name);
+        let interface = match current {
+            Some(current) if current.addresses == owned.addresses => {
+                TunObservationComponentState::Confirmed
+            }
+            Some(_) => TunObservationComponentState::Foreign,
+            None => TunObservationComponentState::Absent,
+        };
+        let ipv6_required = owned
+            .addresses
+            .iter()
+            .any(|address| address.contains(':') && !address.starts_with("fe80:"));
+        let expected_routes = 8 + usize::from(ipv6_required) * 8;
+        let route_count = required_route_count(system, &owned.name, ipv6_required);
+        let routes = match route_count {
+            0 => TunObservationComponentState::Absent,
+            count if count == expected_routes => TunObservationComponentState::Confirmed,
+            _ => TunObservationComponentState::Partial,
+        };
+        let dns = dns_observation_state(system, &owned.name);
+        TunNetworkObservation::new(core, interface, routes, dns, tun_observation_now())
     }
 }
 
+const REQUIRED_IPV4_ROUTES: &[&[&str]] = &[
+    &["1", "1/8", "1.0.0.0/8"],
+    &["2/7", "2.0.0.0/7"],
+    &["4/6", "4.0.0.0/6"],
+    &["8/5", "8.0.0.0/5"],
+    &["16/4", "16.0.0.0/4"],
+    &["32/3", "32.0.0.0/3"],
+    &["64/2", "64.0.0.0/2"],
+    &["128/1", "128.0.0.0/1"],
+];
+const REQUIRED_IPV6_ROUTES: &[&[&str]] = &[
+    &["100::/8"],
+    &["200::/7"],
+    &["400::/6"],
+    &["800::/5"],
+    &["1000::/4"],
+    &["2000::/3"],
+    &["4000::/2"],
+    &["8000::/1"],
+];
+
+fn required_route_count(system: &TunSystemSnapshot, interface: &str, ipv6: bool) -> usize {
+    REQUIRED_IPV4_ROUTES
+        .iter()
+        .chain(ipv6.then_some(REQUIRED_IPV6_ROUTES).into_iter().flatten())
+        .filter(|destinations| {
+            system.routes.iter().any(|route| {
+                route.interface == interface && destinations.contains(&route.destination.as_str())
+            })
+        })
+        .count()
+}
+
+fn is_utun(value: &str) -> bool {
+    value.strip_prefix("utun").is_some_and(|suffix| {
+        !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+    })
+}
+
 impl ServiceResponse {
-    fn ok(core: Option<ServiceCoreStatus>, installation_id: &str) -> Self {
+    fn ok(
+        core: Option<ServiceCoreStatus>,
+        observation: TunNetworkObservation,
+        installation_id: &str,
+    ) -> Self {
         Self {
             error: None,
             ok: true,
@@ -837,6 +1417,7 @@ impl ServiceResponse {
                 core,
                 helper_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
                 installation_id: installation_id.to_owned(),
+                observation,
             },
         }
     }
@@ -844,6 +1425,7 @@ impl ServiceResponse {
     fn error(
         error: ServiceErrorCode,
         core: Option<ServiceCoreStatus>,
+        observation: TunNetworkObservation,
         installation_id: &str,
     ) -> Self {
         Self {
@@ -853,15 +1435,39 @@ impl ServiceResponse {
                 core,
                 helper_version: TUN_HELPER_EXPECTED_VERSION.to_owned(),
                 installation_id: installation_id.to_owned(),
+                observation,
             },
         }
     }
 }
 
-async fn status_response(state: &Mutex<ServiceState>, installation_id: &str) -> ServiceResponse {
+async fn status_response(
+    state: &Mutex<ServiceState>,
+    installation_id: &str,
+    observer: &Arc<dyn TunSystemObserver>,
+) -> ServiceResponse {
     let mut state = state.lock().await;
     reap_if_exited(&mut state);
-    ServiceResponse::ok(state.status(), installation_id)
+    let observation = match observer.observe().await {
+        Ok(system) => state.tun_observation(&system),
+        Err(()) => {
+            let mut observation = unknown_tun_observation();
+            observation.core = if state.process.is_some() && state.tun.is_some() {
+                TunObservationComponentState::Confirmed
+            } else {
+                TunObservationComponentState::Absent
+            };
+            observation
+        }
+    };
+    if observation.confirms_disabled_at(tun_observation_now()) && state.process.is_none() {
+        state.tun = None;
+    }
+    ServiceResponse::ok(state.status(), observation, installation_id)
+}
+
+fn unknown_tun_observation() -> TunNetworkObservation {
+    TunNetworkObservation::unknown(tun_observation_now())
 }
 
 fn reap_if_exited(state: &mut ServiceState) {
@@ -1075,7 +1681,256 @@ fn peer_uid(_stream: &UnixStream) -> Result<u32, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use std::{collections::VecDeque, os::unix::fs::PermissionsExt, sync::Mutex as StdMutex};
+
+    struct SequenceObserver {
+        snapshots: StdMutex<VecDeque<TunSystemSnapshot>>,
+    }
+
+    impl SequenceObserver {
+        fn new(snapshots: Vec<TunSystemSnapshot>) -> Self {
+            Self {
+                snapshots: StdMutex::new(snapshots.into()),
+            }
+        }
+    }
+
+    impl TunSystemObserver for SequenceObserver {
+        fn observe(&self) -> BoxFuture<'_, Result<TunSystemSnapshot, ()>> {
+            let mut snapshots = self.snapshots.lock().unwrap();
+            let snapshot = if snapshots.len() > 1 {
+                snapshots.pop_front()
+            } else {
+                snapshots.front().cloned()
+            };
+            Box::pin(async move { snapshot.ok_or(()) })
+        }
+    }
+
+    fn baseline_snapshot() -> TunSystemSnapshot {
+        TunSystemSnapshot {
+            dns_resolvers: vec![TunSystemDnsResolver {
+                interface: Some("en0".into()),
+                nameservers: vec!["8.8.8.8".parse().unwrap()],
+                port: 53,
+            }],
+            interfaces: vec![
+                TunSystemInterface {
+                    addresses: vec!["127.0.0.1".into()],
+                    name: "lo0".into(),
+                },
+                TunSystemInterface {
+                    addresses: vec!["fe80::1".into()],
+                    name: "utun0".into(),
+                },
+            ],
+            routes: vec![TunSystemRoute {
+                destination: "default".into(),
+                interface: "en0".into(),
+            }],
+        }
+    }
+
+    fn healthy_snapshot() -> TunSystemSnapshot {
+        let mut snapshot = baseline_snapshot();
+        snapshot.interfaces.push(TunSystemInterface {
+            addresses: vec!["198.18.0.1".into()],
+            name: "utun1".into(),
+        });
+        snapshot.routes.extend(
+            REQUIRED_IPV4_ROUTES
+                .iter()
+                .map(|destinations| TunSystemRoute {
+                    destination: destinations[0].into(),
+                    interface: "utun1".into(),
+                }),
+        );
+        snapshot
+    }
+
+    fn tracked_state() -> ServiceState {
+        ServiceState {
+            process: None,
+            tun: Some(ServiceTunOwnership {
+                baseline_interfaces: vec!["utun0".into()],
+                interface: Some(OwnedTunInterface {
+                    addresses: vec!["198.18.0.1".into()],
+                    name: "utun1".into(),
+                }),
+            }),
+        }
+    }
+
+    #[test]
+    fn parses_bounded_macos_tun_observation_fixtures() {
+        let interfaces = parse_tun_interfaces(
+            "lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384\n\tinet 127.0.0.1 netmask 0xff000000\nutun7: flags=8051<UP,POINTOPOINT,RUNNING,MULTICAST> mtu 9000\n\tinet 198.18.0.1 --> 198.18.0.1 netmask 0xffffffff\n",
+        )
+        .unwrap();
+        assert_eq!(interfaces[1].name, "utun7");
+        assert_eq!(interfaces[1].addresses, ["198.18.0.1"]);
+
+        let routes = parse_tun_routes(
+            "Routing tables\n\nInternet:\nDestination        Gateway            Flags               Netif Expire\n1                  198.18.0.1         UGSc                utun7\n2/7                198.18.0.1         UGSc                utun7\ndefault            192.168.1.1        UGScg                 en0\n",
+        )
+        .unwrap();
+        assert_eq!(routes.len(), 3);
+        assert_eq!(routes[0].interface, "utun7");
+
+        let dns = parse_tun_dns_resolvers(
+            "DNS configuration\n\nresolver #1\n  nameserver[0] : 198.18.0.2\n  if_index : 19 (utun7)\n\nresolver #2\n  nameserver[0] : 192.168.1.1\n  if_index : 4 (en0)\n",
+        )
+        .unwrap();
+        assert_eq!(dns[0].interface.as_deref(), Some("utun7"));
+        assert_eq!(dns[1].interface.as_deref(), Some("en0"));
+
+        let resolvers = parse_tun_dns_resolvers(
+            "DNS configuration\n\nresolver #1\n  nameserver[0] : 8.8.8.8\n  if_index : 4 (en0)\n\nresolver #2\n  nameserver[0] : 224.0.0.251\n  port : 5353\n  if_index : 4 (en0)\n",
+        )
+        .unwrap();
+        assert_eq!(resolvers.len(), 2);
+        assert_eq!(
+            resolvers[0].nameservers,
+            ["8.8.8.8".parse::<IpAddr>().unwrap()]
+        );
+        assert_eq!(resolvers[0].port, 53);
+        assert_eq!(resolvers[1].port, 5353);
+    }
+
+    #[test]
+    fn confirms_dns_hijack_when_system_nameserver_routes_through_owned_tun() {
+        let system = TunSystemSnapshot {
+            dns_resolvers: vec![TunSystemDnsResolver {
+                interface: Some("en0".into()),
+                nameservers: vec!["8.8.8.8".parse().unwrap()],
+                port: 53,
+            }],
+            interfaces: Vec::new(),
+            routes: vec![
+                TunSystemRoute {
+                    destination: "8/5".into(),
+                    interface: "utun7".into(),
+                },
+                TunSystemRoute {
+                    destination: "default".into(),
+                    interface: "en0".into(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            dns_observation_state(&system, "utun7"),
+            TunObservationComponentState::Confirmed
+        );
+    }
+
+    #[test]
+    fn rejects_dns_hijack_when_a_more_specific_route_bypasses_owned_tun() {
+        let system = TunSystemSnapshot {
+            dns_resolvers: vec![TunSystemDnsResolver {
+                interface: Some("en0".into()),
+                nameservers: vec!["192.168.1.1".parse().unwrap()],
+                port: 53,
+            }],
+            interfaces: Vec::new(),
+            routes: vec![
+                TunSystemRoute {
+                    destination: "128/1".into(),
+                    interface: "utun7".into(),
+                },
+                TunSystemRoute {
+                    destination: "192.168.1".into(),
+                    interface: "en0".into(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            dns_observation_state(&system, "utun7"),
+            TunObservationComponentState::Absent
+        );
+    }
+
+    #[test]
+    fn reports_partial_dns_hijack_when_only_some_nameservers_use_owned_tun() {
+        let system = TunSystemSnapshot {
+            dns_resolvers: vec![TunSystemDnsResolver {
+                interface: Some("en0".into()),
+                nameservers: vec!["8.8.8.8".parse().unwrap(), "192.168.1.1".parse().unwrap()],
+                port: 53,
+            }],
+            interfaces: Vec::new(),
+            routes: vec![
+                TunSystemRoute {
+                    destination: "8/5".into(),
+                    interface: "utun7".into(),
+                },
+                TunSystemRoute {
+                    destination: "192.168.1".into(),
+                    interface: "en0".into(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            dns_observation_state(&system, "utun7"),
+            TunObservationComponentState::Partial
+        );
+    }
+
+    #[test]
+    fn classifies_partial_and_foreign_tun_effects() {
+        let mut partial_state = tracked_state();
+        let mut partial = healthy_snapshot();
+        partial.routes.pop();
+        let partial_observation = partial_state.tun_observation(&partial);
+        assert_eq!(
+            partial_observation.routes,
+            TunObservationComponentState::Partial
+        );
+        assert!(!partial_observation.confirms_enabled_at(tun_observation_now()));
+
+        let mut foreign_state = ServiceState {
+            process: None,
+            tun: Some(ServiceTunOwnership {
+                baseline_interfaces: vec!["utun0".into()],
+                interface: None,
+            }),
+        };
+        let mut foreign = healthy_snapshot();
+        foreign.interfaces.push(TunSystemInterface {
+            addresses: vec!["198.19.0.1".into()],
+            name: "utun2".into(),
+        });
+        let foreign_observation = foreign_state.tun_observation(&foreign);
+        assert_eq!(
+            foreign_observation.interface,
+            TunObservationComponentState::Foreign
+        );
+
+        let mut untracked_state = ServiceState::default();
+        let untracked_observation = untracked_state.tun_observation(&healthy_snapshot());
+        assert_eq!(
+            untracked_observation.interface,
+            TunObservationComponentState::Foreign
+        );
+    }
+
+    #[test]
+    fn process_exit_with_residual_effects_is_neither_enabled_nor_cleaned_up() {
+        let mut exited_state = tracked_state();
+        let residual_observation = exited_state.tun_observation(&healthy_snapshot());
+        assert_eq!(
+            residual_observation.core,
+            TunObservationComponentState::Absent
+        );
+        assert_eq!(
+            residual_observation.interface,
+            TunObservationComponentState::Confirmed
+        );
+        assert!(!residual_observation.confirms_disabled_at(tun_observation_now()));
+        assert!(!residual_observation.confirms_enabled_at(tun_observation_now()));
+    }
 
     fn write_fixture_binary(root: &Path) -> PathBuf {
         let binary = root.join("mihomo-fixture");
@@ -1088,7 +1943,9 @@ mod tests {
         binary
     }
 
-    async fn fixture() -> (
+    async fn fixture(
+        snapshots: Vec<TunSystemSnapshot>,
+    ) -> (
         tempfile::TempDir,
         MacOsTunServiceClient,
         PathBuf,
@@ -1126,6 +1983,7 @@ mod tests {
             require_root: false,
             runtime_root,
             socket_path: socket_path.clone(),
+            observer: Arc::new(SequenceObserver::new(snapshots)),
         }));
         for _ in 0..100 {
             if socket_path.exists() {
@@ -1145,31 +2003,92 @@ mod tests {
 
     #[tokio::test]
     async fn development_service_hosts_and_observes_a_tun_core() {
-        let (_temporary, client, binary, home, config_file, server) = fixture().await;
-        assert_eq!(
-            client.health().await.unwrap().helper_version,
-            TUN_HELPER_EXPECTED_VERSION
-        );
-        assert_eq!(
-            client.health().await.unwrap().installation_id,
-            "a".repeat(64)
-        );
+        let baseline = baseline_snapshot();
+        let healthy = healthy_snapshot();
+        let cleanup = baseline.clone();
+        let (_temporary, client, binary, home, config_file, server) = fixture(vec![
+            baseline,
+            healthy.clone(),
+            healthy.clone(),
+            healthy.clone(),
+            healthy,
+            cleanup,
+        ])
+        .await;
         let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
         let process = client.start(request).await.unwrap();
-        assert!(process.tun_enabled());
+        let health = client.health().await.unwrap();
+        assert_eq!(health.helper_version, TUN_HELPER_EXPECTED_VERSION);
+        assert_eq!(health.installation_id, "a".repeat(64));
         assert_eq!(
             client.observe(process.clone()).await.unwrap(),
             Some(process.clone())
         );
-        assert!(client.observe_tun().await.unwrap());
+        assert!(
+            client
+                .observe_tun()
+                .await
+                .unwrap()
+                .confirms_enabled_at(tun_observation_now())
+        );
         client.stop(process).await.unwrap();
-        assert!(!client.observe_tun().await.unwrap());
+        assert!(
+            client
+                .observe_tun()
+                .await
+                .unwrap()
+                .confirms_disabled_at(tun_observation_now())
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn cleanup_failure_keeps_residual_network_effects_observable() {
+        let baseline = baseline_snapshot();
+        let healthy = healthy_snapshot();
+        let (_temporary, client, binary, home, config_file, server) =
+            fixture(vec![baseline, healthy.clone(), healthy.clone(), healthy]).await;
+        let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
+        let process = client.start(request).await.unwrap();
+
+        client.stop(process).await.unwrap();
+        let observation = client.observe_tun().await.unwrap();
+
+        assert_eq!(observation.core, TunObservationComponentState::Absent);
+        assert_eq!(
+            observation.interface,
+            TunObservationComponentState::Confirmed
+        );
+        assert!(!observation.confirms_disabled_at(tun_observation_now()));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn configuration_intent_without_network_effects_never_confirms_tun() {
+        let baseline = baseline_snapshot();
+        let (_temporary, client, binary, home, config_file, server) = fixture(vec![
+            baseline.clone(),
+            baseline.clone(),
+            baseline.clone(),
+            baseline,
+        ])
+        .await;
+        let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
+        let process = client.start(request).await.unwrap();
+        let observation = client.observe_tun().await.unwrap();
+
+        assert_eq!(observation.core, TunObservationComponentState::Confirmed);
+        assert_eq!(observation.interface, TunObservationComponentState::Absent);
+        assert!(!observation.confirms_enabled_at(tun_observation_now()));
+
+        client.stop(process).await.unwrap();
         server.abort();
     }
 
     #[tokio::test]
     async fn development_service_rejects_configuration_outside_the_runtime_root() {
-        let (temporary, client, binary, home, _config_file, server) = fixture().await;
+        let (temporary, client, binary, home, _config_file, server) =
+            fixture(vec![baseline_snapshot()]).await;
         let outside = temporary.path().join("outside.yaml");
         fs::write(&outside, "tun:\n  enable: true\n").unwrap();
         fs::set_permissions(&outside, fs::Permissions::from_mode(0o600)).unwrap();

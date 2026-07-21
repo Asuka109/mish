@@ -239,8 +239,36 @@ export interface SystemProxyRuntimeStatusDto extends z.infer<
 export const TunPhaseSchema = z.enum(["off", "pending", "applied", "failed", "drift"]);
 export type TunPhase = z.infer<typeof TunPhaseSchema>;
 
-export const TunObservedStateSchema = z.enum(["disabled", "enabled", "unknown"]);
+export const TunObservedStateSchema = z.enum([
+  "disabled",
+  "enabled",
+  "foreign",
+  "partial",
+  "stale",
+  "unknown",
+]);
 export type TunObservedState = z.infer<typeof TunObservedStateSchema>;
+
+export const TunObservationComponentStateSchema = z.enum([
+  "absent",
+  "confirmed",
+  "foreign",
+  "partial",
+  "unknown",
+]);
+export type TunObservationComponentState = z.infer<typeof TunObservationComponentStateSchema>;
+
+export const TunNetworkObservationSchema = z
+  .object({
+    core: TunObservationComponentStateSchema,
+    dns: TunObservationComponentStateSchema,
+    interface: TunObservationComponentStateSchema,
+    observedAt: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+    routes: TunObservationComponentStateSchema,
+    schemaVersion: z.literal(1),
+  })
+  .strict();
+export interface TunNetworkObservationDto extends z.infer<typeof TunNetworkObservationSchema> {}
 
 export const TunFailureKindSchema = z.enum([
   "capability-unavailable",
@@ -253,6 +281,9 @@ export const TunFailureKindSchema = z.enum([
   "helper-permission-denied",
   "helper-protocol-mismatch",
   "helper-version-mismatch",
+  "observation-foreign",
+  "observation-partial",
+  "observation-stale",
   "rollback-failed",
   "runtime-transition",
 ]);
@@ -262,6 +293,7 @@ export const TunRuntimeStatusSchema = z
   .object({
     desired: z.boolean(),
     failure: TunFailureKindSchema.nullable(),
+    observation: TunNetworkObservationSchema.nullable(),
     observed: TunObservedStateSchema,
     phase: TunPhaseSchema,
   })
@@ -269,6 +301,20 @@ export const TunRuntimeStatusSchema = z
   .superRefine((status, context) => {
     if (status.phase === "applied" && (!status.desired || status.observed !== "enabled")) {
       context.addIssue({ code: "custom", message: "Applied TUN state must be confirmed enabled" });
+    }
+    if (
+      status.phase === "applied" &&
+      (status.observation === null ||
+        status.observation.core !== "confirmed" ||
+        status.observation.interface !== "confirmed" ||
+        status.observation.routes !== "confirmed" ||
+        status.observation.dns !== "confirmed")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Applied TUN state requires a complete privileged observation",
+        path: ["observation"],
+      });
     }
     if (status.phase === "failed" && status.failure === null) {
       context.addIssue({ code: "custom", message: "Failed TUN state requires a typed failure" });
@@ -1248,6 +1294,9 @@ export const TunHelperFailureKindSchema = z.enum([
   "invalid-signature",
   "message-too-large",
   "operation-failed",
+  "observation-foreign",
+  "observation-partial",
+  "observation-stale",
   "permission-denied",
   "preparation-failed",
   "protocol-mismatch",
@@ -1592,7 +1641,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(17),
+    protocolVersion: z.literal(18),
     statusCommands: z
       .object({
         group: z.boolean(),
