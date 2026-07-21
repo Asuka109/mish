@@ -8,7 +8,8 @@ use mish_runtime::{
     EventsDataSource, EventsSnapshot, MishRuntime, ProviderAuthority,
     ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
     ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateState,
-    RuntimeProvider, StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
+    RoutingMode, RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusCommandErrorKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
     TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot, TrafficDataSource,
 };
 use mish_state_authority::StateMutationAuthority;
@@ -55,6 +56,8 @@ struct ProfileSource {
     provider_continue: Option<Arc<Notify>>,
     provider_started: Option<Arc<Notify>>,
     profile_id: &'static str,
+    status_command_continue: Option<Arc<Notify>>,
+    status_command_started: Option<Arc<Notify>>,
 }
 
 impl StatusDataSource for ProfileSource {
@@ -63,6 +66,25 @@ impl StatusDataSource for ProfileSource {
         snapshot.active_profile_id = self.profile_id.into();
         snapshot.profiles[0].id = self.profile_id.into();
         snapshot
+    }
+
+    fn supports_command(&self, command: StatusCommand) -> bool {
+        command == StatusCommand::Routing && self.status_command_started.is_some()
+    }
+
+    fn set_routing_mode(
+        &self,
+        _mode: RoutingMode,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(async move {
+            self.status_command_started.as_ref().unwrap().notify_one();
+            self.status_command_continue
+                .as_ref()
+                .unwrap()
+                .notified()
+                .await;
+            Ok(())
+        })
     }
 
     fn provider_snapshot(&self) -> ProviderSnapshot {
@@ -174,6 +196,8 @@ fn runtime(profile_id: &'static str) -> MishRuntime {
         provider_continue: None,
         provider_started: None,
         profile_id,
+        status_command_continue: None,
+        status_command_started: None,
     });
     MishRuntime::with_data_sources_and_events(
         Arc::new(RunningCore),
@@ -196,6 +220,8 @@ fn blocking_runtime(
         provider_continue: None,
         provider_started: None,
         profile_id,
+        status_command_continue: None,
+        status_command_started: None,
     });
     MishRuntime::with_data_sources_and_events(
         Arc::new(RunningCore),
@@ -218,6 +244,32 @@ fn blocking_provider_runtime(
         provider_continue: Some(provider_continue),
         provider_started: Some(provider_started),
         profile_id,
+        status_command_continue: None,
+        status_command_started: None,
+    });
+    MishRuntime::with_data_sources_and_events(
+        Arc::new(RunningCore),
+        source.clone(),
+        source.clone(),
+        source,
+    )
+}
+
+fn blocking_status_runtime(
+    profile_id: &'static str,
+    command_started: Arc<Notify>,
+    command_continue: Arc<Notify>,
+) -> MishRuntime {
+    let (event_updates, _) = broadcast::channel(1);
+    let source = Arc::new(ProfileSource {
+        command_continue: None,
+        command_started: None,
+        event_updates,
+        provider_continue: None,
+        provider_started: None,
+        profile_id,
+        status_command_continue: Some(command_continue),
+        status_command_started: Some(command_started),
     });
     MishRuntime::with_data_sources_and_events(
         Arc::new(RunningCore),
@@ -292,6 +344,34 @@ async fn replacing_the_runtime_during_a_traffic_command_returns_the_new_authorit
     assert_eq!(result["status"], "failure");
     assert_eq!(result["failure"], "runtime-replaced");
     assert_eq!(result["snapshot"]["profileId"], "profile-b");
+}
+
+#[tokio::test]
+async fn replacing_the_runtime_during_a_routing_command_returns_a_typed_failure() {
+    let command_started = Arc::new(Notify::new());
+    let command_continue = Arc::new(Notify::new());
+    let host = DesktopRuntimeHost::new(blocking_status_runtime(
+        "profile-a",
+        command_started.clone(),
+        command_continue.clone(),
+    ));
+    let command_host = host.clone();
+    let command = tokio::spawn(async move {
+        command_host
+            .set_routing_mode(RoutingMode::Global, StatusAdapterKind::Rpc)
+            .await
+    });
+
+    command_started.notified().await;
+    host.replace(runtime("profile-b"));
+    command_continue.notify_one();
+    let error = command.await.unwrap().unwrap_err();
+
+    assert_eq!(error.kind, StatusCommandErrorKind::RuntimeReplaced);
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["activeProfileId"],
+        "profile-b"
+    );
 }
 
 #[tokio::test]

@@ -205,7 +205,7 @@ export function StatusPage() {
                   if (nextMode) void changeRoutingMode(nextMode);
                 }}
                 spacing={0}
-                value={[optimisticRoutingMode ?? snapshot.routingMode]}
+                value={[snapshot.routingMode]}
                 variant="outline"
               >
                 {(Object.keys(modeLabels) as RoutingMode[]).map((mode) => (

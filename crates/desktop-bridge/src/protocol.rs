@@ -1487,6 +1487,9 @@ fn status_command_error_response(id: Value, error: StatusCommandError) -> Value 
         StatusCommandErrorKind::Conflict | StatusCommandErrorKind::StaleMembership => -32009,
         StatusCommandErrorKind::Timeout => -32050,
         StatusCommandErrorKind::Disconnected => -32051,
+        StatusCommandErrorKind::Cancelled => -32800,
+        StatusCommandErrorKind::Rejected => -32055,
+        StatusCommandErrorKind::RuntimeReplaced => -32054,
         StatusCommandErrorKind::VersionDrift => -32052,
         StatusCommandErrorKind::InconsistentObservation => -32053,
     };

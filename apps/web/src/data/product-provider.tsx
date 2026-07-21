@@ -100,6 +100,7 @@ function commandErrorMessage(
   if (!failure || failure.phase !== "failure") return LL.errors.command();
   switch (failure.error.code) {
     case "disconnected":
+    case "runtime-replaced":
       return LL.errors.commandDisconnected();
     case "inconsistent-observation":
     case "validation":

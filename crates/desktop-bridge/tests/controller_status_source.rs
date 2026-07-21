@@ -24,7 +24,7 @@ use mish_runtime::{
     CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, ProviderCommandOperation,
     ProviderCommandPhase, ProviderCommandResult, ProviderKind, ProviderUpdateFailure,
     ProviderUpdatePhase, RoutingMode, RuntimeObservationPauseReason, StatusAdapterKind,
-    StatusCommand, StatusDataSource,
+    StatusCommand, StatusCommandErrorKind, StatusDataSource,
 };
 use serde_json::{Value, json};
 use tokio::{
@@ -140,7 +140,10 @@ impl FakeController {
         });
         let app = Router::new()
             .route("/version", get(version_endpoint))
-            .route("/configs", get(configs_endpoint).put(set_configs_endpoint))
+            .route(
+                "/configs",
+                get(configs_endpoint).patch(set_configs_endpoint),
+            )
             .route("/proxies", get(proxies_endpoint))
             .route("/proxies/{proxy}/delay", get(proxy_delay_endpoint))
             .route(
@@ -265,7 +268,14 @@ async fn set_configs_endpoint(
     State(state): State<Arc<FakeControllerState>>,
     Json(body): Json<Value>,
 ) -> Response {
-    let Some(mode) = body.get("mode").and_then(Value::as_str) else {
+    let Some(object) = body.as_object().filter(|object| object.len() == 1) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let Some(mode) = object
+        .get("mode")
+        .and_then(Value::as_str)
+        .filter(|mode| matches!(*mode, "rule" | "global" | "direct"))
+    else {
         return StatusCode::BAD_REQUEST.into_response();
     };
     state.mutation_count.fetch_add(1, Ordering::AcqRel);
@@ -1193,21 +1203,19 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
         StatusCode::INTERNAL_SERVER_ERROR.as_u16().into(),
         Ordering::Release,
     );
-    let rejected_after_apply = rpc_request(
+    fake.state.apply_mutations.store(false, Ordering::Release);
+    let rejected = rpc_request(
         &mut websocket,
         json!({"jsonrpc":"2.0", "id":61, "method":"status.setRoutingMode", "params":{"mode":"rule"}}),
     )
     .await;
-    assert_eq!(
-        rejected_after_apply["error"]["data"]["kind"],
-        "disconnected"
-    );
+    assert_eq!(rejected["error"]["data"]["kind"], "rejected");
     let refreshed_after_rejection = rpc_request(
         &mut websocket,
         json!({"jsonrpc":"2.0", "id":62, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
-    assert_eq!(refreshed_after_rejection["result"]["routingMode"], "rule");
+    assert_eq!(refreshed_after_rejection["result"]["routingMode"], "global");
     fake.state
         .mutation_status
         .store(StatusCode::NO_CONTENT.as_u16().into(), Ordering::Release);
@@ -1230,7 +1238,6 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
         before_race
     );
 
-    fake.state.apply_mutations.store(false, Ordering::Release);
     let timeout_response = rpc_request(
         &mut websocket,
         json!({"jsonrpc":"2.0", "id":8, "method":"status.setRoutingMode", "params":{"mode":"direct"}}),
@@ -1242,7 +1249,35 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
         json!({"jsonrpc":"2.0", "id":9, "method":"status.getSnapshot", "params":{}}),
     )
     .await;
-    assert_eq!(refreshed["result"]["routingMode"], "rule");
+    assert_eq!(refreshed["result"]["routingMode"], "global");
+    assert_eq!(
+        refreshed["result"]["runtime"]["captureSelection"],
+        snapshot["runtime"]["captureSelection"]
+    );
+    let expected_other_selection = other["selectedChildId"].clone();
+    assert_eq!(
+        refreshed["result"]["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|group| group["label"] == "OTHER")
+            .unwrap()["selectedChildId"],
+        expected_other_selection
+    );
+
+    fake.state.apply_mutations.store(true, Ordering::Release);
+    *fake.state.configs.write().await = json!({"mode": 42});
+    let malformed = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":81, "method":"status.setRoutingMode", "params":{"mode":"global"}}),
+    )
+    .await;
+    assert_eq!(
+        malformed["error"]["data"]["kind"],
+        "inconsistent-observation"
+    );
+    assert!(!malformed.to_string().contains(CONTROLLER_SECRET));
+    *fake.state.configs.write().await = configs("global");
 
     *fake.state.version.write().await = "v1.20.0".into();
     let version_drift = rpc_request(
@@ -1263,6 +1298,44 @@ async fn controller_commands_revalidate_and_publish_only_confirmed_snapshots() {
 
     websocket.close(None).await.unwrap();
     bridge.shutdown().await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
+async fn closing_the_source_cancels_a_pending_routing_confirmation_with_a_typed_failure() {
+    let fake = FakeController::start().await;
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let mut config = source_config(&fake);
+    config.confirmation_timeout = Duration::from_secs(5);
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        source.supports_command(StatusCommand::Routing)
+    })
+    .await;
+    fake.state.apply_mutations.store(false, Ordering::Release);
+    let mutations_before = fake.state.mutation_count.load(Ordering::Acquire);
+    let command_source = source.clone();
+    let command =
+        tokio::spawn(async move { command_source.set_routing_mode(RoutingMode::Global).await });
+    wait_for(Duration::from_secs(1), || {
+        fake.state.mutation_count.load(Ordering::Acquire) > mutations_before
+    })
+    .await;
+
+    source.close().await;
+    let error = command.await.unwrap().unwrap_err();
+
+    assert_eq!(error.kind, StatusCommandErrorKind::Cancelled);
+    assert!(!error.to_string().contains(CONTROLLER_SECRET));
+    assert_eq!(
+        runtime.status_snapshot(StatusAdapterKind::Rpc).await["routingMode"],
+        "rule"
+    );
+    runtime.shutdown().await.unwrap();
     fake.shutdown().await;
 }
 

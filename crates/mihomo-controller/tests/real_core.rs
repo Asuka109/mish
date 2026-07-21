@@ -19,7 +19,7 @@ const GROUP_NAME: &str = "选择🧪组";
 const PROXY_NAME: &str = "合成🌌节点";
 
 #[tokio::test]
-async fn reads_all_supported_endpoints_from_the_pinned_core() {
+async fn reads_supported_endpoints_and_confirms_all_modes_from_the_pinned_core() {
     let Some(binary) = env::var_os("MIHOMO_BIN").map(PathBuf::from) else {
         eprintln!("skipped: set MIHOMO_BIN to opt in to the pinned real-core test");
         return;
@@ -75,6 +75,18 @@ async fn reads_all_supported_endpoints_from_the_pinned_core() {
     assert_eq!(group.selected, Some(PROXY_NAME));
     assert_eq!(group.children, &[PROXY_NAME, "DIRECT", "REJECT"]);
     assert_eq!(catalog.proxies[PROXY_NAME].name, PROXY_NAME);
+
+    for mode in [RoutingMode::Global, RoutingMode::Direct, RoutingMode::Rule] {
+        client.set_routing_mode(mode).await.unwrap();
+        assert_eq!(client.runtime_config().await.unwrap().mode, mode);
+        assert_eq!(
+            client.proxies().await.unwrap().proxies[GROUP_NAME]
+                .group()
+                .unwrap()
+                .selected,
+            Some(PROXY_NAME)
+        );
+    }
 
     let rules = client.rules().await.unwrap();
     assert_eq!(rules.rules.len(), 2);
