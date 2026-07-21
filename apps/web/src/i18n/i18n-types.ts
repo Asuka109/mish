@@ -1176,7 +1176,7 @@ type RootTranslation = {
 		 */
 		currentSessionAria: string
 		/**
-		 * L​i​v​e​ ​s​t​a​t​u​s​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 * L​i​v​e​ ​d​e​s​k​t​o​p​ ​t​r​a​f​f​i​c
 		 */
 		desktopActivity: string
 		/**
@@ -1184,7 +1184,7 @@ type RootTranslation = {
 		 */
 		desktopUnavailable: string
 		/**
-		 * L​i​v​e​ ​s​t​a​t​u​s​ ​f​r​o​m​ ​t​h​i​s​ ​d​e​v​i​c​e​.
+		 * L​i​v​e​ ​d​e​v​i​c​e​ ​t​r​a​f​f​i​c
 		 */
 		deviceActivity: string
 		/**
@@ -1192,7 +1192,7 @@ type RootTranslation = {
 		 */
 		downloaded: string
 		/**
-		 * F​i​x​t​u​r​e​ ​a​c​t​i​v​i​t​y​ ​a​t​ ​a​ ​g​l​a​n​c​e​.
+		 * L​i​v​e​ ​d​e​m​o​ ​t​r​a​f​f​i​c
 		 */
 		fixtureActivity: string
 		/**
@@ -1240,9 +1240,13 @@ type RootTranslation = {
 		 */
 		noSelection: string
 		/**
-		 * O​p​e​n​ ​l​i​v​e​ ​t​r​a​f​f​i​c
+		 * L​i​v​e​ ​t​r​a​f​f​i​c
 		 */
 		openLiveTraffic: string
+		/**
+		 * O​p​e​n​ ​l​i​v​e​ ​t​r​a​f​f​i​c​ ​d​e​t​a​i​l​s
+		 */
+		openLiveTrafficAria: string
 		/**
 		 * R​o​u​t​i​n​g​ ​m​o​d​e
 		 */
@@ -1283,6 +1287,10 @@ type RootTranslation = {
 		 * V​i​e​w​ ​a​l​l
 		 */
 		viewAll: string
+		/**
+		 * V​i​e​w​ ​a​l​l​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s
+		 */
+		viewAllGroupsAria: string
 		/**
 		 * {​c​o​u​n​t​}​ ​a​v​a​i​l​a​b​l​e​ ​c​h​i​l​d​r​e​n
 		 * @param {number} count
@@ -5431,7 +5439,7 @@ export type TranslationFunctions = {
 		 */
 		currentSessionAria: () => LocalizedString
 		/**
-		 * Live status from the desktop local service.
+		 * Live desktop traffic
 		 */
 		desktopActivity: () => LocalizedString
 		/**
@@ -5439,7 +5447,7 @@ export type TranslationFunctions = {
 		 */
 		desktopUnavailable: () => LocalizedString
 		/**
-		 * Live status from this device.
+		 * Live device traffic
 		 */
 		deviceActivity: () => LocalizedString
 		/**
@@ -5447,7 +5455,7 @@ export type TranslationFunctions = {
 		 */
 		downloaded: () => LocalizedString
 		/**
-		 * Fixture activity at a glance.
+		 * Live demo traffic
 		 */
 		fixtureActivity: () => LocalizedString
 		/**
@@ -5495,9 +5503,13 @@ export type TranslationFunctions = {
 		 */
 		noSelection: () => LocalizedString
 		/**
-		 * Open live traffic
+		 * Live traffic
 		 */
 		openLiveTraffic: () => LocalizedString
+		/**
+		 * Open live traffic details
+		 */
+		openLiveTrafficAria: () => LocalizedString
 		/**
 		 * Routing mode
 		 */
@@ -5538,6 +5550,10 @@ export type TranslationFunctions = {
 		 * View all
 		 */
 		viewAll: () => LocalizedString
+		/**
+		 * View all policy groups
+		 */
+		viewAllGroupsAria: () => LocalizedString
 		/**
 		 * {count} available children
 		 */

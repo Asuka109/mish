@@ -1193,7 +1193,7 @@ describe("production routes", () => {
 
   it("keeps compact toolbar menus and proxy control at their intended hierarchy", async () => {
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const theme = screen.getByRole("button", {
       name: "Change theme. Current theme: Follow system",
@@ -1249,7 +1249,7 @@ describe("production routes", () => {
     vi.stubGlobal("fetch", fetch);
 
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     expect(webSocket).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
@@ -1890,7 +1890,7 @@ describe("desktop RPC experience", () => {
     snapshot.probeResults = [];
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
     expect(screen.queryByRole("link", { name: "Open diagnostics" })).not.toBeInTheDocument();
 
     const services = screen.getByRole("region", { name: "Service latency monitors" });
@@ -1908,7 +1908,7 @@ describe("desktop RPC experience", () => {
     });
     renderRoute("/status", "en", client);
 
-    expect(await screen.findByText("Live status from the desktop local service.")).toBeVisible();
+    expect(await screen.findByText("Live desktop traffic")).toBeVisible();
     expect(screen.queryByText("Local service")).not.toBeInTheDocument();
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
@@ -1951,7 +1951,7 @@ describe("desktop RPC experience", () => {
     const setCapture = vi.spyOn(client, "setCapture");
     const setRoutingMode = vi.spyOn(client, "setRoutingMode");
     renderRoute("/status", "en", client);
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
 
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
     expect(systemProxy).toBeDisabled();
@@ -1980,7 +1980,7 @@ describe("desktop RPC experience", () => {
 describe("Status fixture experience", () => {
   it("labels fixture state and renders opaque Unicode labels verbatim", async () => {
     renderRoute("/status");
-    expect(await screen.findByText("Fixture activity at a glance.")).toBeInTheDocument();
+    expect(await screen.findByText("Live demo traffic")).toBeInTheDocument();
     expect(screen.getByText("Demo mode")).toBeInTheDocument();
     expect(screen.getByText("🌐 Proxy")).toBeInTheDocument();
     expect(screen.getByText("Messaging")).toBeInTheDocument();
@@ -2000,7 +2000,7 @@ describe("Status fixture experience", () => {
   it("changes routing and one group child through the typed fixture adapter", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const globalMode = screen.getByRole("button", { name: "Global" });
     await user.click(globalMode);
@@ -2263,7 +2263,7 @@ describe("Status fixture experience", () => {
 
     renderRoute("/status", "en", client);
 
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
@@ -2381,7 +2381,7 @@ describe("Status fixture experience", () => {
     };
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -2433,7 +2433,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const client = new DeferredRoutingClient();
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
     const globalMode = screen.getByRole("button", { name: "Global" });
 
     await user.click(globalMode);
@@ -2472,7 +2472,7 @@ describe("Status fixture experience", () => {
     const errorToast = vi.spyOn(toast, "error");
     const successToast = vi.spyOn(toast, "success");
     renderRoute("/status", "en", new FailingServicesClient());
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
@@ -2492,7 +2492,7 @@ describe("Status fixture experience", () => {
     const client = new FixtureStatusClient();
     const setInterval = vi.spyOn(client, "setServiceProbeInterval");
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     expect(await screen.findByRole("menuitemradio", { name: "Every 5 seconds" })).toHaveAttribute(
@@ -2514,7 +2514,7 @@ describe("Status fixture experience", () => {
     const client = new FixtureStatusClient();
     const testService = vi.spyOn(client, "testServiceMonitor");
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Test latency for Google" }));
     await waitFor(() => expect(testService).toHaveBeenCalledWith("google", expect.any(Object)));
@@ -2532,7 +2532,7 @@ describe("Status fixture experience", () => {
   it("lets users replace a service icon with a custom HTTPS image URL", async () => {
     const user = userEvent.setup();
     renderRoute("/status", "en", new FixtureStatusClient());
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
@@ -2554,7 +2554,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const client = new DeferredServiceProbeClient();
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: "Test latency for Google" });
@@ -2575,7 +2575,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const errorToast = vi.spyOn(toast, "error");
     renderRoute("/status", "en", new FailingServiceProbeClient());
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const google = screen.getByRole("button", { name: "Test latency for Google" });
     await user.click(google);
@@ -2604,7 +2604,7 @@ describe("Status fixture experience", () => {
   it("switches to Simplified Chinese and persists the locale", async () => {
     const user = userEvent.setup();
     const view = renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
     const authoredLabels = [...view.container.querySelectorAll(".user-authored-label")].map(
       (element) => element.textContent,
     );
@@ -2614,7 +2614,7 @@ describe("Status fixture experience", () => {
     );
     await user.click(await screen.findByRole("menuitemradio", { name: "简体中文" }));
 
-    expect(await screen.findByText("当前演示活动概览。")).toBeInTheDocument();
+    expect(await screen.findByText("当前演示的实时流量")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
@@ -2629,7 +2629,7 @@ describe("Status fixture experience", () => {
   it("switches appearance manually and persists the preference", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(
       screen.getByRole("button", { name: "Change theme. Current theme: Follow system" }),
@@ -2645,7 +2645,7 @@ describe("Status fixture experience", () => {
   it("defers service validation feedback until a field is edited", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
