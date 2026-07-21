@@ -178,6 +178,7 @@ impl CaptureJournalStore for InvalidJournalStore {
 struct FakePlatform {
     active_service_id: Mutex<String>,
     apply_count: Mutex<usize>,
+    drift_disabled_host_after_apply: Mutex<bool>,
     fail_applies_remaining: Mutex<usize>,
     listener_ready: Mutex<bool>,
     listener_test_count: Mutex<usize>,
@@ -191,6 +192,7 @@ impl FakePlatform {
         Self {
             active_service_id: Mutex::new(service.service_id.clone()),
             apply_count: Mutex::new(0),
+            drift_disabled_host_after_apply: Mutex::new(false),
             fail_applies_remaining: Mutex::new(0),
             listener_ready: Mutex::new(true),
             listener_test_count: Mutex::new(0),
@@ -210,6 +212,10 @@ impl FakePlatform {
 
     fn fail_next_observations(&self, count: usize) {
         *self.fail_observations_remaining.lock().unwrap() = count;
+    }
+
+    fn drift_disabled_host_after_next_apply(&self) {
+        *self.drift_disabled_host_after_apply.lock().unwrap() = true;
     }
 
     fn set_listener_ready(&self, ready: bool) {
@@ -297,7 +303,16 @@ impl CapturePlatform for FakePlatform {
         self.services
             .lock()
             .unwrap()
-            .insert(target.service_id.clone(), target);
+            .insert(target.service_id.clone(), target.clone());
+        if std::mem::take(&mut *self.drift_disabled_host_after_apply.lock().unwrap()) {
+            self.services
+                .lock()
+                .unwrap()
+                .get_mut(&target.service_id)
+                .unwrap()
+                .http
+                .host = "residual.mish.invalid".into();
+        }
         Box::pin(ready(Ok(())))
     }
 
@@ -654,8 +669,8 @@ async fn audit_does_not_adopt_a_matching_loopback_endpoint_without_a_prior_journ
     let proxy = ManualProxyState {
         authenticated: false,
         enabled: true,
-        host: Some("127.0.0.1".into()),
-        port: Some(7890),
+        host: "127.0.0.1".into(),
+        port: 7890,
     };
     let platform = Arc::new(FakePlatform::new(NetworkServiceProxyState {
         http: proxy.clone(),
@@ -739,6 +754,7 @@ async fn rollback_failure_is_persisted_as_explicit_recoverable_drift() {
 async fn automatic_proxy_configuration_is_left_unchanged_and_reported_as_failed() {
     let prior = NetworkServiceProxyState {
         pac_enabled: true,
+        pac_url: "http://pac.example/proxy.pac".into(),
         ..disabled_service()
     };
     let platform = Arc::new(FakePlatform::new(prior.clone()));
@@ -806,11 +822,12 @@ async fn audit_reports_external_modification_as_observed_drift() {
         http: ManualProxyState {
             authenticated: false,
             enabled: true,
-            host: Some("private.proxy.example".into()),
-            port: Some(8443),
+            host: "private.proxy.example".into(),
+            port: 8443,
         },
         https: ManualProxyState::disabled(),
         pac_enabled: false,
+        pac_url: "(null)".into(),
         service_id: "service-a".into(),
         socks: ManualProxyState::disabled(),
     });
@@ -965,8 +982,8 @@ async fn restart_audit_restores_a_confirmed_orphaned_mish_proxy() {
     let proxy = ManualProxyState {
         authenticated: false,
         enabled: true,
-        host: Some("127.0.0.1".into()),
-        port: Some(7890),
+        host: "127.0.0.1".into(),
+        port: 7890,
     };
     owned.http = proxy.clone();
     owned.https = proxy.clone();
@@ -1051,8 +1068,8 @@ async fn leave_as_is_clears_ownership_without_overwriting_external_proxy_state()
         http: ManualProxyState {
             authenticated: false,
             enabled: true,
-            host: Some("external.proxy.example".into()),
-            port: Some(3128),
+            host: "external.proxy.example".into(),
+            port: 3128,
         },
         ..disabled_service()
     };
@@ -1101,8 +1118,8 @@ async fn repair_adopts_the_observed_external_state_as_the_new_reversible_prior()
         socks: ManualProxyState {
             authenticated: false,
             enabled: true,
-            host: Some("external.proxy.example".into()),
-            port: Some(1080),
+            host: "external.proxy.example".into(),
+            port: 1080,
         },
         ..disabled_service()
     };
@@ -1209,9 +1226,211 @@ fn disabled_service() -> NetworkServiceProxyState {
         http: ManualProxyState::disabled(),
         https: ManualProxyState::disabled(),
         pac_enabled: false,
+        pac_url: "(null)".into(),
         service_id: "service-a".into(),
         socks: ManualProxyState::disabled(),
     }
+}
+
+#[tokio::test]
+async fn release_restores_blank_populated_and_enabled_manual_states_exactly() {
+    let cases = [
+        ManualProxyState::disabled(),
+        ManualProxyState {
+            authenticated: false,
+            enabled: false,
+            host: "cached.proxy.example".into(),
+            port: 8080,
+        },
+        ManualProxyState {
+            authenticated: false,
+            enabled: true,
+            host: "active.proxy.example".into(),
+            port: 3128,
+        },
+    ];
+
+    for manual in cases {
+        let prior = NetworkServiceProxyState {
+            http: manual.clone(),
+            https: manual.clone(),
+            pac_url: "http://pac.example/proxy.pac".into(),
+            socks: manual,
+            ..disabled_service()
+        };
+        let platform = Arc::new(FakePlatform::new(prior.clone()));
+        let journal = Arc::new(MemoryJournalStore::default());
+        let reconciler = CaptureReconciler::new(
+            platform.clone(),
+            journal.clone(),
+            LoopbackProxyEndpoint::managed(),
+        );
+        let selection = CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        };
+
+        reconciler
+            .reconcile(
+                CaptureRequest {
+                    active: true,
+                    selection: selection.clone(),
+                },
+                true,
+            )
+            .await
+            .unwrap();
+        assert_eq!(journal.load().unwrap().unwrap().prior, prior);
+        reconciler
+            .reconcile(
+                CaptureRequest {
+                    active: false,
+                    selection,
+                },
+                true,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(platform.service("service-a"), prior);
+        assert!(journal.load().unwrap().is_none());
+    }
+}
+
+#[tokio::test]
+async fn release_does_not_confirm_a_disabled_proxy_with_different_hidden_fields() {
+    let prior = NetworkServiceProxyState {
+        http: ManualProxyState {
+            authenticated: false,
+            enabled: false,
+            host: "cached.proxy.example".into(),
+            port: 8080,
+        },
+        ..disabled_service()
+    };
+    let platform = Arc::new(FakePlatform::new(prior));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+    let selection = CaptureSelection {
+        system_proxy: true,
+        tun: false,
+    };
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: selection.clone(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    platform.drift_disabled_host_after_next_apply();
+
+    let error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection,
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::RollbackFailed);
+    assert_eq!(
+        reconciler.status().system_proxy.phase,
+        SystemProxyPhase::Drift
+    );
+    assert!(journal.load().unwrap().is_some());
+}
+
+#[tokio::test]
+async fn automatic_configuration_drift_invalidates_otherwise_matching_mish_ownership() {
+    let prior = NetworkServiceProxyState {
+        pac_url: "http://pac.example/original.pac".into(),
+        ..disabled_service()
+    };
+    let platform = Arc::new(FakePlatform::new(prior));
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryJournalStore::default()),
+        LoopbackProxyEndpoint::managed(),
+    );
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let mut drifted = platform.service("service-a");
+    drifted.pac_url = "http://pac.example/changed.pac".into();
+    drifted.auto_discovery_enabled = true;
+    platform.replace_service(drifted.clone());
+
+    let status = reconciler
+        .audit(CaptureAuditReason::Periodic, true)
+        .await
+        .unwrap();
+
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Drift);
+    assert!(!status.system_proxy_enabled);
+    assert_eq!(platform.apply_count(), 1);
+    assert_eq!(platform.service("service-a"), drifted);
+}
+
+#[tokio::test]
+async fn authenticated_proxy_state_is_rejected_before_mutation() {
+    let prior = NetworkServiceProxyState {
+        http: ManualProxyState {
+            authenticated: true,
+            enabled: false,
+            host: "authenticated.proxy.example".into(),
+            port: 8080,
+        },
+        ..disabled_service()
+    };
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::UnsafeExistingConfiguration
+    );
+    assert_eq!(platform.service("service-a"), prior);
+    assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
 }
 
 #[tokio::test]
@@ -1502,8 +1721,8 @@ async fn explicit_enable_does_not_claim_a_matching_endpoint_without_a_prior_jour
     let proxy = ManualProxyState {
         authenticated: false,
         enabled: true,
-        host: Some("127.0.0.1".into()),
-        port: Some(7890),
+        host: "127.0.0.1".into(),
+        port: 7890,
     };
     let platform = Arc::new(FakePlatform::new(NetworkServiceProxyState {
         http: proxy.clone(),

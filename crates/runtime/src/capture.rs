@@ -56,12 +56,12 @@ impl fmt::Display for CaptureTransitionError {
 impl std::error::Error for CaptureTransitionError {}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ManualProxyState {
     pub authenticated: bool,
     pub enabled: bool,
-    pub host: Option<String>,
-    pub port: Option<u16>,
+    pub host: String,
+    pub port: u16,
 }
 
 impl ManualProxyState {
@@ -69,8 +69,8 @@ impl ManualProxyState {
         Self {
             authenticated: false,
             enabled: false,
-            host: None,
-            port: None,
+            host: String::new(),
+            port: 0,
         }
     }
 
@@ -78,26 +78,26 @@ impl ManualProxyState {
         Self {
             authenticated: false,
             enabled: true,
-            host: Some(endpoint.host.to_string()),
-            port: Some(endpoint.port),
+            host: endpoint.host.to_string(),
+            port: endpoint.port,
         }
     }
 
-    fn effectively_equals(&self, other: &Self) -> bool {
-        if !self.enabled && !other.enabled {
-            return true;
-        }
-        self == other
+    pub fn is_reversible(&self) -> bool {
+        !self.authenticated
+            && !self.host.chars().any(char::is_control)
+            && (!self.enabled || (!self.host.trim().is_empty() && self.port > 0))
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NetworkServiceProxyState {
     pub auto_discovery_enabled: bool,
     pub http: ManualProxyState,
     pub https: ManualProxyState,
     pub pac_enabled: bool,
+    pub pac_url: String,
     pub service_id: String,
     pub socks: ManualProxyState,
 }
@@ -108,7 +108,7 @@ impl NetworkServiceProxyState {
             || self.auto_discovery_enabled
             || [&self.http, &self.https, &self.socks]
                 .into_iter()
-                .any(|proxy| proxy.enabled && proxy.authenticated)
+                .any(|proxy| !proxy.is_reversible())
     }
     pub fn is_mish_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> bool {
         let expected = Self::manual_proxy_target(endpoint);
@@ -121,18 +121,17 @@ impl NetworkServiceProxyState {
             http: Self::manual_proxy_target(endpoint),
             https: Self::manual_proxy_target(endpoint),
             pac_enabled: self.pac_enabled,
+            pac_url: self.pac_url.clone(),
             service_id: self.service_id.clone(),
             socks: Self::manual_proxy_target(endpoint),
         }
     }
 
-    fn effectively_equals(&self, other: &Self) -> bool {
-        self.service_id == other.service_id
-            && self.auto_discovery_enabled == other.auto_discovery_enabled
-            && self.pac_enabled == other.pac_enabled
-            && self.http.effectively_equals(&other.http)
-            && self.https.effectively_equals(&other.https)
-            && self.socks.effectively_equals(&other.socks)
+    fn is_reversible(&self) -> bool {
+        !self.service_id.trim().is_empty()
+            && !self.service_id.chars().any(char::is_control)
+            && !self.pac_url.chars().any(char::is_control)
+            && !self.has_unsafe_configuration()
     }
 
     fn manual_proxy_target(endpoint: &LoopbackProxyEndpoint) -> ManualProxyState {
@@ -201,9 +200,15 @@ pub struct LocalProxyTestResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CaptureJournal {
     pub prior: NetworkServiceProxyState,
+}
+
+impl CaptureJournal {
+    pub fn is_valid_recovery_state(&self) -> bool {
+        self.prior.is_reversible()
+    }
 }
 
 pub trait CaptureJournalStore: Send + Sync {
@@ -481,7 +486,7 @@ impl SystemProxyReconciler {
         if !request.active || !request.selection.system_proxy {
             return self.restore(request.selection).await;
         }
-        let existing_journal = match self.journal.load() {
+        let existing_journal = match self.load_validated_journal() {
             Ok(journal) => journal,
             Err(error) => {
                 self.record_unknown_drift(self.status(), error.kind);
@@ -520,7 +525,7 @@ impl SystemProxyReconciler {
         };
         if let Some(journal) = existing_journal {
             if journal.prior.service_id == prior.service_id {
-                if prior.is_mish_endpoint(&self.endpoint) {
+                if prior == journal.prior.with_endpoint(&self.endpoint) {
                     let status = CaptureRuntimeStatus {
                         capture_selection: request.selection,
                         system_proxy: SystemProxyRuntimeStatus {
@@ -564,10 +569,10 @@ impl SystemProxyReconciler {
                 "A matching System Proxy endpoint exists without Mish ownership",
             ));
         }
-        if prior.has_unsafe_configuration() {
+        if !prior.is_reversible() {
             let error = CaptureTransitionError::new(
                 CaptureFailureKind::UnsafeExistingConfiguration,
-                "Automatic proxy configuration is active and was left unchanged",
+                "The existing proxy configuration cannot be restored safely and was left unchanged",
             );
             self.record_failure(request.selection, true, error.kind, Some(&prior));
             return Err(error);
@@ -592,7 +597,7 @@ impl SystemProxyReconciler {
                     .await;
             }
         };
-        if !observed.effectively_equals(&target) {
+        if observed != target {
             return self
                 .rollback_after_failure(
                     &request.selection,
@@ -678,7 +683,7 @@ impl SystemProxyReconciler {
             return Ok(self.status());
         }
         let current = self.status();
-        let journal = match self.journal.load() {
+        let journal = match self.load_validated_journal() {
             Ok(journal) => journal,
             Err(error) => {
                 self.record_unknown_drift(current, error.kind);
@@ -732,8 +737,9 @@ impl SystemProxyReconciler {
             return Ok(failed);
         }
         if current.system_proxy.desired
-            && journal.is_some()
-            && observed.is_mish_endpoint(&self.endpoint)
+            && journal
+                .as_ref()
+                .is_some_and(|journal| observed == journal.prior.with_endpoint(&self.endpoint))
         {
             let mut confirmed = current;
             confirmed.system_proxy.failure = None;
@@ -748,23 +754,7 @@ impl SystemProxyReconciler {
             if let Some(journal) = journal
                 && journal.prior.service_id != observed.service_id
             {
-                if self
-                    .platform
-                    .apply_service(journal.prior.clone())
-                    .await
-                    .is_err()
-                {
-                    return self.mark_drift(
-                        current,
-                        &observed,
-                        Some(CaptureFailureKind::RollbackFailed),
-                    );
-                }
-                let restored = self
-                    .platform
-                    .observe_service(&journal.prior.service_id)
-                    .await;
-                if !restored.is_ok_and(|state| state.effectively_equals(&journal.prior)) {
+                if self.restore_exact_prior(&journal.prior).await.is_err() {
                     return self.mark_drift(
                         current,
                         &observed,
@@ -775,10 +765,10 @@ impl SystemProxyReconciler {
                     self.mark_drift(current, &observed, Some(error.kind))?;
                     return Err(error);
                 }
-                if observed.has_unsafe_configuration() {
+                if !observed.is_reversible() {
                     let error = CaptureTransitionError::new(
                         CaptureFailureKind::UnsafeExistingConfiguration,
-                        "Automatic proxy configuration is active and was left unchanged",
+                        "The existing proxy configuration cannot be restored safely and was left unchanged",
                     );
                     self.record_failure(
                         current.capture_selection,
@@ -813,7 +803,7 @@ impl SystemProxyReconciler {
                             .await;
                     }
                 };
-                if !confirmed.effectively_equals(&target) {
+                if confirmed != target {
                     return self
                         .rollback_after_failure(
                             &current.capture_selection,
@@ -916,10 +906,10 @@ impl SystemProxyReconciler {
             }
         };
         if action == CaptureRecoveryAction::Repair {
-            if observed.has_unsafe_configuration() {
+            if !observed.is_reversible() {
                 let error = CaptureTransitionError::new(
                     CaptureFailureKind::UnsafeExistingConfiguration,
-                    "Automatic proxy configuration is active and was left unchanged",
+                    "The existing proxy configuration cannot be restored safely and was left unchanged",
                 );
                 self.mark_drift(current, &observed, Some(error.kind))?;
                 return Err(error);
@@ -944,7 +934,7 @@ impl SystemProxyReconciler {
                         .await;
                 }
             };
-            if !confirmed.effectively_equals(&target) {
+            if confirmed != target {
                 return self
                     .rollback_after_failure(
                         &current.capture_selection,
@@ -1057,17 +1047,7 @@ impl SystemProxyReconciler {
         prior: &NetworkServiceProxyState,
         original: CaptureTransitionError,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        if self.platform.apply_service(prior.clone()).await.is_err() {
-            return self
-                .record_rollback_drift(
-                    selection,
-                    prior,
-                    "System Proxy failed and its prior state could not be restored",
-                )
-                .await;
-        }
-        let restored = self.platform.observe_service(&prior.service_id).await;
-        if !restored.is_ok_and(|observed| observed.effectively_equals(prior)) {
+        if self.restore_exact_prior(prior).await.is_err() {
             return self
                 .record_rollback_drift(
                     selection,
@@ -1137,7 +1117,7 @@ impl SystemProxyReconciler {
         &self,
         selection: CaptureSelection,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        let journal = match self.journal.load() {
+        let journal = match self.load_validated_journal() {
             Ok(journal) => journal,
             Err(error) => {
                 let mut status = self.status();
@@ -1175,7 +1155,7 @@ impl SystemProxyReconciler {
                 return Err(error);
             }
         };
-        if !owned.is_mish_endpoint(&self.endpoint) {
+        if owned != journal.prior.with_endpoint(&self.endpoint) {
             let observed = self.platform.observe_active().await.unwrap_or(owned);
             let mut status = self.status();
             status.capture_selection = selection;
@@ -1186,45 +1166,19 @@ impl SystemProxyReconciler {
                 "System Proxy changed outside Mish and was left unchanged",
             ));
         }
-        if self
-            .platform
-            .apply_service(journal.prior.clone())
-            .await
-            .is_err()
-        {
-            let mut status = self.status();
-            status.capture_selection = selection;
-            status.system_proxy.desired = false;
-            self.mark_drift(status, &owned, Some(CaptureFailureKind::RollbackFailed))?;
-            return Err(CaptureTransitionError::new(
-                CaptureFailureKind::RollbackFailed,
-                "The prior System Proxy state could not be restored",
-            ));
-        }
-        let restored = match self
-            .platform
-            .observe_service(&journal.prior.service_id)
-            .await
-        {
+        let restored = match self.restore_exact_prior(&journal.prior).await {
             Ok(restored) => restored,
-            Err(error) => {
+            Err(_) => {
                 let mut status = self.status();
                 status.capture_selection = selection;
                 status.system_proxy.desired = false;
-                self.record_unknown_drift(status, error.kind);
-                return Err(error);
+                self.mark_drift(status, &owned, Some(CaptureFailureKind::RollbackFailed))?;
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "The prior System Proxy state could not be restored and confirmed",
+                ));
             }
         };
-        if !restored.effectively_equals(&journal.prior) {
-            let mut status = self.status();
-            status.capture_selection = selection;
-            status.system_proxy.desired = false;
-            self.mark_drift(status, &restored, Some(CaptureFailureKind::RollbackFailed))?;
-            return Err(CaptureTransitionError::new(
-                CaptureFailureKind::RollbackFailed,
-                "The prior System Proxy state could not be confirmed",
-            ));
-        }
         if let Err(error) = self.journal.clear() {
             let mut status = self.status();
             status.capture_selection = selection;
@@ -1237,6 +1191,52 @@ impl SystemProxyReconciler {
         status.system_proxy.observed = observed_state(&restored, &self.endpoint);
         *self.status.lock().unwrap() = status.clone();
         Ok(status)
+    }
+
+    fn load_validated_journal(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        let journal = self.journal.load()?;
+        if journal
+            .as_ref()
+            .is_some_and(|journal| !journal.is_valid_recovery_state())
+        {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::InvalidRecovery,
+                "The System Proxy recovery journal is invalid",
+            ));
+        }
+        Ok(journal)
+    }
+
+    async fn restore_exact_prior(
+        &self,
+        prior: &NetworkServiceProxyState,
+    ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        self.platform
+            .apply_service(prior.clone())
+            .await
+            .map_err(|_| {
+                CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "The prior System Proxy state could not be restored",
+                )
+            })?;
+        let observed = self
+            .platform
+            .observe_service(&prior.service_id)
+            .await
+            .map_err(|_| {
+                CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "The prior System Proxy state could not be confirmed",
+                )
+            })?;
+        if observed != *prior {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::RollbackFailed,
+                "The prior System Proxy state could not be confirmed",
+            ));
+        }
+        Ok(observed)
     }
 }
 

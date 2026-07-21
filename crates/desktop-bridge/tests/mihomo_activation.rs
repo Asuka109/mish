@@ -2028,6 +2028,7 @@ fn disabled_capture_service() -> NetworkServiceProxyState {
         http: ManualProxyState::disabled(),
         https: ManualProxyState::disabled(),
         pac_enabled: false,
+        pac_url: "(null)".into(),
         service_id: "capture-fixture-service".into(),
         socks: ManualProxyState::disabled(),
     }

@@ -164,15 +164,21 @@ state. Neither DTO exposes service names, prior proxy hosts, credentials, or the
 private journal.
 
 The transport-neutral Rust capture reconciler serializes mutations and records
-only the prior HTTP, HTTPS, SOCKS, PAC, automatic-discovery, authentication, and
-service identity fields required to decide whether a write is safe and
-reversible. It will not overwrite enabled PAC, automatic discovery, or
-authenticated proxy configuration. Applying, restoring, and moving between
-active network services are transactions: persist prior state, apply, observe,
-and only then publish success. Partial failure rolls back and confirms the
-rollback. An unconfirmed outcome remains explicit drift with `repair` and
-`leave-as-is`; repair adopts the currently observed safe state as the new prior,
-while leave-as-is clears Mish ownership without changing the OS.
+the exact prior enabled, host, port, and authentication fields for HTTP, HTTPS,
+and SOCKS, plus the PAC enabled state and URL, automatic-discovery state, and
+network-service identity required to decide whether a write is safe and
+reversible. Disabled manual proxies retain blank or populated fields instead of
+being normalized to one equivalent value. It will not overwrite enabled PAC,
+automatic discovery, or authenticated proxy configuration. Applying, restoring,
+and moving between active network services are transactions: persist the complete
+prior state, write manual values before their final enabled states, observe every
+recorded field, and only then publish success. Ordinary release, safe stop,
+shutdown, Core or activation failure, rollback, and restart recovery share this
+exact restoration contract. PAC and automatic-discovery fields are never written
+and must remain equal through confirmation. An unconfirmed outcome remains
+explicit drift with `repair` and `leave-as-is`; repair adopts the currently
+observed safe state as the new prior, while leave-as-is clears Mish ownership
+without changing the OS.
 
 The desktop bridge audits capture ownership at restart, on core health changes,
 and periodically as a bounded fallback. The macOS shell also publishes typed,

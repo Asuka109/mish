@@ -19,11 +19,12 @@ fn journal_is_private_bounded_and_contains_only_reversible_prior_state() {
             http: ManualProxyState {
                 authenticated: false,
                 enabled: true,
-                host: Some("prior.proxy.example".into()),
-                port: Some(3128),
+                host: "prior.proxy.example".into(),
+                port: 3128,
             },
             https: ManualProxyState::disabled(),
             pac_enabled: false,
+            pac_url: "(null)".into(),
             service_id: "Fixture Service".into(),
             socks: ManualProxyState::disabled(),
         },
@@ -64,6 +65,7 @@ fn journal_rejects_stale_or_foreign_envelopes_and_non_private_files() {
             http: ManualProxyState::disabled(),
             https: ManualProxyState::disabled(),
             pac_enabled: false,
+            pac_url: "(null)".into(),
             service_id: "Fixture Service".into(),
             socks: ManualProxyState::disabled(),
         },
@@ -105,6 +107,62 @@ fn corrupt_and_oversized_private_journals_fail_closed_but_can_be_discarded() {
         assert!(store.load().is_err());
         store.clear().unwrap();
         assert!(!path.exists());
+    }
+}
+
+#[test]
+fn journal_rejects_incomplete_or_unsafe_recovery_state() {
+    for mutate in [
+        |value: &mut serde_json::Value| {
+            value["journal"]["prior"]
+                .as_object_mut()
+                .unwrap()
+                .remove("pacUrl");
+        },
+        |value: &mut serde_json::Value| {
+            value["journal"]["prior"]["http"]
+                .as_object_mut()
+                .unwrap()
+                .remove("host");
+        },
+        |value: &mut serde_json::Value| {
+            value["journal"]["prior"]["http"]["authenticated"] = true.into();
+        },
+        |value: &mut serde_json::Value| {
+            value["journal"]["prior"]["http"]["enabled"] = true.into();
+        },
+        |value: &mut serde_json::Value| {
+            value["journal"]["prior"]["pacEnabled"] = true.into();
+        },
+        |value: &mut serde_json::Value| {
+            value["journal"]["prior"]["autoDiscoveryEnabled"] = true.into();
+        },
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("system-proxy-journal.json");
+        let store = FileCaptureJournalStore::new(path.clone());
+        let journal = CaptureJournal {
+            prior: NetworkServiceProxyState {
+                auto_discovery_enabled: false,
+                http: ManualProxyState::disabled(),
+                https: ManualProxyState::disabled(),
+                pac_enabled: false,
+                pac_url: "http://pac.example/proxy.pac".into(),
+                service_id: "Fixture Service".into(),
+                socks: ManualProxyState::disabled(),
+            },
+        };
+        store.save(&journal).unwrap();
+        let mut stored: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        mutate(&mut stored);
+        fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+
+        assert_eq!(
+            store.load().unwrap_err().kind,
+            mish_runtime::CaptureFailureKind::InvalidRecovery
+        );
     }
 }
 

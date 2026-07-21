@@ -48,7 +48,7 @@ use tokio::{
 
 const JOURNAL_MAX_BYTES: u64 = 65_536;
 const JOURNAL_OWNER: &str = "com.asuka109.mish";
-const JOURNAL_VERSION: u32 = 1;
+const JOURNAL_VERSION: u32 = 2;
 const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
@@ -478,13 +478,19 @@ impl CaptureJournalStore for FileCaptureJournalStore {
         let bytes = fs::read(&self.path).map_err(|_| persistence_error())?;
         let stored: StoredCaptureJournal =
             serde_json::from_slice(&bytes).map_err(|_| invalid_recovery_error())?;
-        if stored.version != JOURNAL_VERSION || stored.owner != JOURNAL_OWNER {
+        if stored.version != JOURNAL_VERSION
+            || stored.owner != JOURNAL_OWNER
+            || !stored.journal.is_valid_recovery_state()
+        {
             return Err(invalid_recovery_error());
         }
         Ok(Some(stored.journal))
     }
 
     fn save(&self, journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
+        if !journal.is_valid_recovery_state() {
+            return Err(invalid_recovery_error());
+        }
         match fs::symlink_metadata(&self.path) {
             Ok(_) => {
                 self.load()?;
@@ -874,6 +880,7 @@ impl MacOsSystemProxyPlatform {
             http,
             https,
             pac_enabled: parse_enabled_value(&pac_output, "Enabled")?,
+            pac_url: parse_required_key(&pac_output, "URL")?,
             service_id: service,
             socks,
         })
@@ -907,43 +914,29 @@ impl MacOsSystemProxyPlatform {
         kind: MacOsProxyKind,
         proxy: &ManualProxyState,
     ) -> Result<(), CaptureTransitionError> {
-        let command = if proxy.enabled {
-            if proxy.authenticated {
-                return Err(CaptureTransitionError::new(
-                    CaptureFailureKind::UnsafeExistingConfiguration,
-                    "Authenticated proxy settings were left unchanged",
-                ));
-            }
-            let host = proxy
-                .host
-                .clone()
-                .filter(|host| !host.is_empty())
-                .ok_or_else(|| {
-                    CaptureTransitionError::new(
-                        CaptureFailureKind::ApplyFailed,
-                        "A proxy host is required when enabling System Proxy",
-                    )
-                })?;
-            let port = proxy.port.filter(|port| *port > 0).ok_or_else(|| {
-                CaptureTransitionError::new(
-                    CaptureFailureKind::ApplyFailed,
-                    "A proxy port is required when enabling System Proxy",
-                )
-            })?;
-            MacOsCommand::SetProxy {
-                host,
+        if !proxy.is_reversible() {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::UnsafeExistingConfiguration,
+                "The proxy settings cannot be restored safely",
+            ));
+        }
+        self.runner
+            .run(MacOsCommand::SetProxy {
+                host: proxy.host.clone(),
                 kind,
-                port,
+                port: proxy.port,
                 service: service.to_owned(),
-            }
-        } else {
-            MacOsCommand::SetProxyState {
-                enabled: false,
+            })
+            .await
+            .map_err(apply_error)?;
+        self.runner
+            .run(MacOsCommand::SetProxyState {
+                enabled: proxy.enabled,
                 kind,
                 service: service.to_owned(),
-            }
-        };
-        self.runner.run(command).await.map_err(apply_error)?;
+            })
+            .await
+            .map_err(apply_error)?;
         Ok(())
     }
 }
@@ -1313,12 +1306,11 @@ fn parse_service_for_device(output: &str, device: &str) -> Result<String, Captur
 fn parse_proxy_state(output: &str) -> Result<ManualProxyState, CaptureTransitionError> {
     let enabled = parse_enabled_value(output, "Enabled")?;
     let authenticated = parse_enabled_value(output, "Authenticated Proxy Enabled")?;
-    if !enabled {
-        return Ok(ManualProxyState::disabled());
-    }
-    let host = parse_key(output, "Server").filter(|value| !value.is_empty());
-    let port = parse_key(output, "Port").and_then(|value| value.parse::<u16>().ok());
-    if host.is_none() || port.is_none_or(|value| value == 0) {
+    let host = parse_required_key(output, "Server")?;
+    let port = parse_required_key(output, "Port")?
+        .parse::<u16>()
+        .map_err(|_| observation_error())?;
+    if enabled && (host.is_empty() || port == 0) {
         return Err(observation_error());
     }
     Ok(ManualProxyState {
@@ -1330,14 +1322,16 @@ fn parse_proxy_state(output: &str) -> Result<ManualProxyState, CaptureTransition
 }
 
 fn parse_enabled_value(output: &str, key: &str) -> Result<bool, CaptureTransitionError> {
-    let Some(value) = parse_key(output, key) else {
-        return Err(observation_error());
-    };
+    let value = parse_required_key(output, key)?;
     match value.to_ascii_lowercase().as_str() {
         "1" | "on" | "yes" => Ok(true),
         "0" | "off" | "no" => Ok(false),
         _ => Err(observation_error()),
     }
+}
+
+fn parse_required_key(output: &str, key: &str) -> Result<String, CaptureTransitionError> {
+    parse_key(output, key).ok_or_else(observation_error)
 }
 
 fn parse_key(output: &str, key: &str) -> Option<String> {
@@ -1382,6 +1376,58 @@ fn invalid_recovery_error() -> CaptureTransitionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_proxy_fixtures_preserve_exact_disabled_and_enabled_fields() {
+        let blank =
+            parse_proxy_state("Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n")
+                .unwrap();
+        assert_eq!(blank, ManualProxyState::disabled());
+
+        let populated = parse_proxy_state(
+            "Enabled: No\nServer: cached.proxy.example\nPort: 8080\nAuthenticated Proxy Enabled: 0\n",
+        )
+        .unwrap();
+        assert_eq!(
+            populated,
+            ManualProxyState {
+                authenticated: false,
+                enabled: false,
+                host: "cached.proxy.example".into(),
+                port: 8080,
+            }
+        );
+
+        let enabled = parse_proxy_state(
+            "Enabled: Yes\nServer: active.proxy.example\nPort: 3128\nAuthenticated Proxy Enabled: 0\n",
+        )
+        .unwrap();
+        assert_eq!(
+            enabled,
+            ManualProxyState {
+                authenticated: false,
+                enabled: true,
+                host: "active.proxy.example".into(),
+                port: 3128,
+            }
+        );
+    }
+
+    #[test]
+    fn manual_proxy_fixtures_reject_absent_or_incomplete_fields() {
+        for output in [
+            "Server: \nPort: 0\nAuthenticated Proxy Enabled: 0\n",
+            "Enabled: No\nPort: 0\nAuthenticated Proxy Enabled: 0\n",
+            "Enabled: No\nServer: \nAuthenticated Proxy Enabled: 0\n",
+            "Enabled: No\nServer: \nPort: 0\n",
+            "Enabled: Yes\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n",
+        ] {
+            assert_eq!(
+                parse_proxy_state(output).unwrap_err().kind,
+                CaptureFailureKind::ObservationFailed
+            );
+        }
+    }
 
     const NETWORK_FIXTURE: &str = r#"Network information
 
