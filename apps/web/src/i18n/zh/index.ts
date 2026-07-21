@@ -275,7 +275,7 @@ const zh = {
     description: "最近的消息、警告与恢复操作。",
     emptyDescription: "新的产品与运行状态消息会显示在这里。",
     emptyTitle: "暂无通知",
-    markAllRead: "全部已读",
+    remove: "移除通知：{message}",
     title: "通知",
     trigger: "通知，{count} 条未读",
     viewAllEvents: "查看全部事件",

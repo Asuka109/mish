@@ -965,9 +965,10 @@ type RootTranslation = {
 		 */
 		emptyTitle: string
 		/**
-		 * M​a​r​k​ ​a​l​l​ ​r​e​a​d
+		 * R​e​m​o​v​e​ ​n​o​t​i​f​i​c​a​t​i​o​n​:​ ​{​m​e​s​s​a​g​e​}
+		 * @param {string} message
 		 */
-		markAllRead: string
+		remove: RequiredParams<'message'>
 		/**
 		 * N​o​t​i​f​i​c​a​t​i​o​n​s
 		 */
@@ -5224,9 +5225,9 @@ export type TranslationFunctions = {
 		 */
 		emptyTitle: () => LocalizedString
 		/**
-		 * Mark all read
+		 * Remove notification: {message}
 		 */
-		markAllRead: () => LocalizedString
+		remove: (arg: { message: string }) => LocalizedString
 		/**
 		 * Notifications
 		 */
