@@ -125,24 +125,34 @@ process lifetime. Paths outside that shape, symlinks, loose permissions,
 foreign ownership, oversized files, malformed tokens, and unknown messages are
 rejected.
 
-The development service takes a pre-launch `utun` baseline and attributes a
-single newly created interface to the exact child it started. It fingerprints
-that interface by name and assigned addresses; a changed fingerprint or more
-than one candidate is foreign state. Fixed, bounded `/sbin/ifconfig`,
-`/usr/sbin/netstat -rn`, and `/usr/sbin/scutil --dns` observations then confirm
-the interface and the managed Darwin IPv4 route partition (plus the IPv6
-partition when the interface has a non-link-local IPv6 address). DNS is
-confirmed from the fixed `any:53` policy only when every observed port-53 system
-nameserver is either scoped directly to the owned interface or its
-longest-prefix route uses that interface. Non-port-53 resolvers do not prove or
-disprove this packet-path effect. A missing route remains partial, a mixture of
-captured and bypassing nameservers is partial, and nameservers whose more
-specific routes use another interface leave DNS absent. This observes Mihomo's
-actual Darwin DNS hijack path without changing system DNS settings. Command
-execution is capped at five seconds and 64 KiB; parsers cap interfaces, routes,
-resolvers, nameservers, names, and addresses. Configuration `tun.enable` is used
-only to decide whether to begin ownership tracking and is never returned as
-observed runtime truth.
+The development service takes a pre-launch `utun` baseline, then uses the
+public macOS `libproc` descriptor APIs to enumerate kernel-control sockets held
+by the exact, unreaped child PID it started. A socket named
+`com.apple.net.utun_control` provides the kernel unit that maps directly to its
+`utunN` interface. The service brackets the system snapshot with two descriptor
+scans and attributes an interface only when the same child-owned kernel socket
+is present before and after that snapshot. It then fingerprints the interface
+by name and assigned addresses. A sole new interface with no matching child
+descriptor is foreign, multiple child-owned interfaces are partial, and an
+unavailable, changing, or malformed correlation is unknown. A changed
+fingerprint, ownership transfer, or replacement is never retargeted. These
+states cannot confirm enabled.
+
+Fixed, bounded `/sbin/ifconfig`, `/usr/sbin/netstat -rn`, and
+`/usr/sbin/scutil --dns` observations then confirm the correlated interface and
+the managed Darwin IPv4 route partition (plus the IPv6 partition when the
+interface has a non-link-local IPv6 address). DNS is confirmed from the fixed
+`any:53` policy only when every observed port-53 system nameserver is either
+scoped directly to the owned interface or its longest-prefix route uses that
+interface. Non-port-53 resolvers do not prove or disprove this packet-path
+effect. A missing route remains partial, a mixture of captured and bypassing
+nameservers is partial, and nameservers whose more specific routes use another
+interface leave DNS absent. This observes Mihomo's actual Darwin DNS hijack
+path without changing system DNS settings. Command execution is capped at five
+seconds and 64 KiB; parsers cap interfaces, routes, resolvers, nameservers,
+names, addresses, process descriptors, and child-owned interfaces.
+Configuration `tun.enable` is used only to decide whether to begin ownership
+tracking and is never returned as observed runtime truth.
 
 An untracked `utun` carrying an IPv4 address is foreign rather than absent.
 This conservative rule prevents a helper restart, orphaned Core, or another

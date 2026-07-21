@@ -47,6 +47,9 @@ const TUN_INTERFACE_LIMIT: usize = 128;
 const TUN_ROUTE_LIMIT: usize = 512;
 const TUN_DNS_RESOLVER_LIMIT: usize = 64;
 const TUN_DNS_NAMESERVER_LIMIT: usize = 8;
+const TUN_OWNED_INTERFACE_LIMIT: usize = 4;
+#[cfg(target_os = "macos")]
+const PROCESS_FD_LIMIT: usize = 4_096;
 
 pub fn development_socket_path(uid: u32) -> PathBuf {
     PathBuf::from(format!("{DEV_TUN_SERVICE_SOCKET_PREFIX}.{uid}.sock"))
@@ -148,8 +151,16 @@ struct TunSystemSnapshot {
     routes: Vec<TunSystemRoute>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OwnedTunSocket {
+    interface: String,
+    socket: u64,
+}
+
 trait TunSystemObserver: Send + Sync {
     fn observe(&self) -> BoxFuture<'_, Result<TunSystemSnapshot, ()>>;
+
+    fn owned_utun_sockets(&self, pid: u32) -> Result<Vec<OwnedTunSocket>, ()>;
 }
 
 struct MacOsTunSystemObserver {
@@ -181,6 +192,177 @@ impl TunSystemObserver for MacOsTunSystemObserver {
             })
         })
     }
+
+    fn owned_utun_sockets(&self, pid: u32) -> Result<Vec<OwnedTunSocket>, ()> {
+        process_owned_utun_sockets(pid)
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ProcessFdInfo {
+    fd: i32,
+    fd_type: u32,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct ProcessFileInfo {
+    open_flags: u32,
+    status: u32,
+    offset: i64,
+    file_type: i32,
+    guard_flags: u32,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct SocketBufferInfo {
+    byte_count: u32,
+    high_watermark: u32,
+    memory_byte_count: u32,
+    max_memory_byte_count: u32,
+    low_watermark: u32,
+    flags: i16,
+    timeout: i16,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct SocketInfoHeader {
+    stat: libc::vinfo_stat,
+    socket: u64,
+    protocol_control_block: u64,
+    socket_type: i32,
+    protocol: i32,
+    family: i32,
+    options: i16,
+    linger: i16,
+    state: i16,
+    queue_length: i16,
+    incomplete_queue_length: i16,
+    queue_limit: i16,
+    timeout: i16,
+    error: u16,
+    out_of_band_mark: u32,
+    receive: SocketBufferInfo,
+    send: SocketBufferInfo,
+    kind: i32,
+    reserved: u32,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct KernelControlInfo {
+    id: u32,
+    registered_unit: u32,
+    flags: u32,
+    receive_buffer_size: u32,
+    send_buffer_size: u32,
+    unit: u32,
+    name: [libc::c_char; libc::MAX_KCTL_NAME],
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct SocketFdInfoBuffer {
+    file: ProcessFileInfo,
+    socket: SocketInfoHeader,
+    kernel_control: KernelControlInfo,
+    protocol_storage: [u64; 128],
+}
+
+#[cfg(target_os = "macos")]
+fn process_owned_utun_sockets(pid: u32) -> Result<Vec<OwnedTunSocket>, ()> {
+    const SOCKET_FD_TYPE: u32 = 2;
+    const KERNEL_CONTROL_SOCKET_KIND: i32 = 6;
+    const SYSTEM_SOCKET_FAMILY: i32 = 32;
+    const KERNEL_CONTROL_PROTOCOL: i32 = 2;
+    const PID_LIST_FDS: i32 = 1;
+    const PID_FD_SOCKET_INFO: i32 = 3;
+    const UTUN_CONTROL_NAME: &[u8] = b"com.apple.net.utun_control";
+
+    let mut fds = vec![ProcessFdInfo { fd: -1, fd_type: 0 }; PROCESS_FD_LIMIT];
+    // SAFETY: the buffer is writable for the supplied size and the PID belongs to the
+    // unreaped child held by the service while this bounded inspection runs.
+    let bytes = unsafe {
+        libc::proc_pidinfo(
+            pid as i32,
+            PID_LIST_FDS,
+            0,
+            fds.as_mut_ptr().cast(),
+            std::mem::size_of_val(fds.as_slice()) as i32,
+        )
+    };
+    if bytes < 0
+        || !(bytes as usize).is_multiple_of(std::mem::size_of::<ProcessFdInfo>())
+        || bytes as usize == std::mem::size_of_val(fds.as_slice())
+    {
+        return Err(());
+    }
+    fds.truncate(bytes as usize / std::mem::size_of::<ProcessFdInfo>());
+
+    let mut sockets = Vec::new();
+    for fd in fds.into_iter().filter(|fd| fd.fd_type == SOCKET_FD_TYPE) {
+        // SAFETY: all-zero is a valid byte representation for these C observation
+        // structures, which contain only integer fields and fixed-size arrays.
+        let mut info = unsafe { std::mem::zeroed::<SocketFdInfoBuffer>() };
+        // SAFETY: info is writable for the supplied size. A descriptor that closes
+        // concurrently is ignored because only a successfully returned live utun
+        // socket can establish ownership.
+        let returned = unsafe {
+            libc::proc_pidfdinfo(
+                pid as i32,
+                fd.fd,
+                PID_FD_SOCKET_INFO,
+                (&mut info as *mut SocketFdInfoBuffer).cast(),
+                std::mem::size_of::<SocketFdInfoBuffer>() as i32,
+            )
+        };
+        let required = std::mem::offset_of!(SocketFdInfoBuffer, protocol_storage);
+        if returned < required as i32
+            || info.socket.kind != KERNEL_CONTROL_SOCKET_KIND
+            || info.socket.family != SYSTEM_SOCKET_FAMILY
+            || info.socket.protocol != KERNEL_CONTROL_PROTOCOL
+            || info.socket.socket == 0
+        {
+            continue;
+        }
+        let name = info
+            .kernel_control
+            .name
+            .iter()
+            .map(|byte| *byte as u8)
+            .take_while(|byte| *byte != 0)
+            .collect::<Vec<_>>();
+        if name != UTUN_CONTROL_NAME || info.kernel_control.unit == 0 {
+            continue;
+        }
+        if !sockets
+            .iter()
+            .any(|socket: &OwnedTunSocket| socket.socket == info.socket.socket)
+        {
+            if sockets.len() >= TUN_OWNED_INTERFACE_LIMIT {
+                return Err(());
+            }
+            sockets.push(OwnedTunSocket {
+                interface: format!("utun{}", info.kernel_control.unit - 1),
+                socket: info.socket.socket,
+            });
+        }
+    }
+    sockets.sort_by(|left, right| {
+        left.interface
+            .cmp(&right.interface)
+            .then(left.socket.cmp(&right.socket))
+    });
+    Ok(sockets)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn process_owned_utun_sockets(_pid: u32) -> Result<Vec<OwnedTunSocket>, ()> {
+    Err(())
 }
 
 fn parse_tun_interfaces(output: &str) -> Result<Vec<TunSystemInterface>, ()> {
@@ -1130,8 +1312,10 @@ async fn execute_request(
             }
             let mut service_state = state.lock().await;
             reap_if_exited(&mut service_state);
+            let correlation = current_tun_correlation(&service_state, observer.as_ref());
             if let Ok(system) = &baseline {
-                let observation = service_state.tun_observation(system);
+                let observation =
+                    service_state.tun_observation(system, correlation_result(&correlation));
                 if observation.confirms_disabled_at(tun_observation_now()) {
                     service_state.tun = None;
                 } else if service_state.process.is_none() && service_state.tun.is_none() {
@@ -1149,7 +1333,9 @@ async fn execute_request(
                     service_state.status(),
                     baseline.as_ref().map_or_else(
                         |_| unknown_tun_observation(),
-                        |system| service_state.tun_observation(system),
+                        |system| {
+                            service_state.tun_observation(system, correlation_result(&correlation))
+                        },
                     ),
                     installation_id,
                 );
@@ -1265,7 +1451,11 @@ impl ServiceState {
         })
     }
 
-    fn tun_observation(&mut self, system: &TunSystemSnapshot) -> TunNetworkObservation {
+    fn tun_observation(
+        &mut self,
+        system: &TunSystemSnapshot,
+        correlated_sockets: Option<Result<&[OwnedTunSocket], ()>>,
+    ) -> TunNetworkObservation {
         let core = if self.process.is_some() && self.tun.is_some() {
             TunObservationComponentState::Confirmed
         } else {
@@ -1324,17 +1514,135 @@ impl ServiceState {
                 is_utun(&interface.name) && !ownership.baseline_interfaces.contains(&interface.name)
             })
             .collect::<Vec<_>>();
-        if ownership.interface.is_none() && candidates.len() == 1 {
-            ownership.interface = Some(OwnedTunInterface {
-                addresses: candidates[0].addresses.clone(),
-                name: candidates[0].name.clone(),
-            });
+        if self.process.is_some() {
+            let correlated = match correlated_sockets {
+                Some(Ok(sockets))
+                    if sockets.len() <= TUN_OWNED_INTERFACE_LIMIT
+                        && sockets.iter().all(|socket| is_utun(&socket.interface))
+                        && !sockets.iter().enumerate().any(|(index, socket)| {
+                            sockets[index + 1..]
+                                .iter()
+                                .any(|candidate| candidate.interface == socket.interface)
+                        }) =>
+                {
+                    sockets
+                }
+                Some(Ok(_)) | Some(Err(())) | None => {
+                    return TunNetworkObservation::new(
+                        core,
+                        TunObservationComponentState::Unknown,
+                        TunObservationComponentState::Unknown,
+                        TunObservationComponentState::Unknown,
+                        tun_observation_now(),
+                    );
+                }
+            };
+            if correlated.len() > 1 {
+                return TunNetworkObservation::new(
+                    core,
+                    TunObservationComponentState::Partial,
+                    TunObservationComponentState::Partial,
+                    TunObservationComponentState::Partial,
+                    tun_observation_now(),
+                );
+            }
+            if let Some(owned) = ownership.interface.as_ref() {
+                if correlated
+                    .first()
+                    .is_none_or(|socket| socket.interface != owned.name)
+                {
+                    let ipv6_required = owned
+                        .addresses
+                        .iter()
+                        .any(|address| address.contains(':') && !address.starts_with("fe80:"));
+                    let current = system
+                        .interfaces
+                        .iter()
+                        .find(|interface| interface.name == owned.name);
+                    let interface = if current.is_some() {
+                        TunObservationComponentState::Foreign
+                    } else {
+                        TunObservationComponentState::Absent
+                    };
+                    let routes = if required_route_count(system, &owned.name, ipv6_required) > 0 {
+                        TunObservationComponentState::Foreign
+                    } else {
+                        TunObservationComponentState::Absent
+                    };
+                    let dns = if dns_observation_state(system, &owned.name)
+                        != TunObservationComponentState::Absent
+                    {
+                        TunObservationComponentState::Foreign
+                    } else {
+                        TunObservationComponentState::Absent
+                    };
+                    return TunNetworkObservation::new(
+                        core,
+                        interface,
+                        routes,
+                        dns,
+                        tun_observation_now(),
+                    );
+                }
+            } else {
+                let Some(correlated) = correlated.first() else {
+                    let state = if candidates.is_empty() {
+                        TunObservationComponentState::Absent
+                    } else {
+                        TunObservationComponentState::Foreign
+                    };
+                    return TunNetworkObservation::new(
+                        core,
+                        state,
+                        state,
+                        state,
+                        tun_observation_now(),
+                    );
+                };
+                if ownership
+                    .baseline_interfaces
+                    .contains(&correlated.interface)
+                {
+                    return TunNetworkObservation::new(
+                        core,
+                        TunObservationComponentState::Foreign,
+                        TunObservationComponentState::Foreign,
+                        TunObservationComponentState::Foreign,
+                        tun_observation_now(),
+                    );
+                }
+                let Some(current) = candidates
+                    .iter()
+                    .find(|interface| interface.name == correlated.interface)
+                else {
+                    return TunNetworkObservation::new(
+                        core,
+                        TunObservationComponentState::Partial,
+                        TunObservationComponentState::Partial,
+                        TunObservationComponentState::Partial,
+                        tun_observation_now(),
+                    );
+                };
+                if current.addresses.is_empty() {
+                    return TunNetworkObservation::new(
+                        core,
+                        TunObservationComponentState::Partial,
+                        TunObservationComponentState::Partial,
+                        TunObservationComponentState::Partial,
+                        tun_observation_now(),
+                    );
+                }
+                ownership.interface = Some(OwnedTunInterface {
+                    addresses: current.addresses.clone(),
+                    name: current.name.clone(),
+                });
+            }
         }
         let Some(owned) = ownership.interface.as_ref() else {
-            let state = if candidates.len() > 1 {
-                TunObservationComponentState::Foreign
-            } else {
+            let state = if candidates.is_empty() {
                 TunObservationComponentState::Absent
+            } else {
+                TunObservationComponentState::Foreign
             };
             return TunNetworkObservation::new(core, state, state, state, tun_observation_now());
         };
@@ -1448,8 +1756,12 @@ async fn status_response(
 ) -> ServiceResponse {
     let mut state = state.lock().await;
     reap_if_exited(&mut state);
-    let observation = match observer.observe().await {
-        Ok(system) => state.tun_observation(&system),
+    let correlation_before = current_tun_correlation(&state, observer.as_ref());
+    let system = observer.observe().await;
+    let correlation_after = current_tun_correlation(&state, observer.as_ref());
+    let correlation = stable_tun_correlation(correlation_before, correlation_after);
+    let observation = match system {
+        Ok(system) => state.tun_observation(&system, correlation_result(&correlation)),
         Err(()) => {
             let mut observation = unknown_tun_observation();
             observation.core = if state.process.is_some() && state.tun.is_some() {
@@ -1464,6 +1776,36 @@ async fn status_response(
         state.tun = None;
     }
     ServiceResponse::ok(state.status(), observation, installation_id)
+}
+
+fn current_tun_correlation(
+    state: &ServiceState,
+    observer: &dyn TunSystemObserver,
+) -> Option<Result<Vec<OwnedTunSocket>, ()>> {
+    state
+        .process
+        .as_ref()
+        .filter(|_| state.tun.is_some())
+        .map(|process| observer.owned_utun_sockets(process.pid))
+}
+
+fn correlation_result(
+    correlation: &Option<Result<Vec<OwnedTunSocket>, ()>>,
+) -> Option<Result<&[OwnedTunSocket], ()>> {
+    correlation
+        .as_ref()
+        .map(|result| result.as_deref().map_err(|_| ()))
+}
+
+fn stable_tun_correlation(
+    before: Option<Result<Vec<OwnedTunSocket>, ()>>,
+    after: Option<Result<Vec<OwnedTunSocket>, ()>>,
+) -> Option<Result<Vec<OwnedTunSocket>, ()>> {
+    match (before, after) {
+        (None, None) => None,
+        (Some(Ok(before)), Some(Ok(after))) if before == after => Some(Ok(before)),
+        _ => Some(Err(())),
+    }
 }
 
 fn unknown_tun_observation() -> TunNetworkObservation {
@@ -1684,12 +2026,17 @@ mod tests {
     use std::{collections::VecDeque, os::unix::fs::PermissionsExt, sync::Mutex as StdMutex};
 
     struct SequenceObserver {
+        owned_interfaces: Result<Vec<String>, ()>,
         snapshots: StdMutex<VecDeque<TunSystemSnapshot>>,
     }
 
     impl SequenceObserver {
-        fn new(snapshots: Vec<TunSystemSnapshot>) -> Self {
+        fn new(
+            snapshots: Vec<TunSystemSnapshot>,
+            owned_interfaces: Result<Vec<String>, ()>,
+        ) -> Self {
             Self {
+                owned_interfaces,
                 snapshots: StdMutex::new(snapshots.into()),
             }
         }
@@ -1704,6 +2051,19 @@ mod tests {
                 snapshots.front().cloned()
             };
             Box::pin(async move { snapshot.ok_or(()) })
+        }
+
+        fn owned_utun_sockets(&self, _pid: u32) -> Result<Vec<OwnedTunSocket>, ()> {
+            self.owned_interfaces.clone().map(|interfaces| {
+                interfaces
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, interface)| OwnedTunSocket {
+                        interface,
+                        socket: index as u64 + 1,
+                    })
+                    .collect()
+            })
         }
     }
 
@@ -1745,6 +2105,15 @@ mod tests {
                     interface: "utun1".into(),
                 }),
         );
+        snapshot
+    }
+
+    fn multiple_new_utuns_snapshot() -> TunSystemSnapshot {
+        let mut snapshot = healthy_snapshot();
+        snapshot.interfaces.push(TunSystemInterface {
+            addresses: vec!["198.19.0.1".into()],
+            name: "utun2".into(),
+        });
         snapshot
     }
 
@@ -1795,6 +2164,47 @@ mod tests {
         );
         assert_eq!(resolvers[0].port, 53);
         assert_eq!(resolvers[1].port, 5353);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn process_descriptor_observer_does_not_invent_utun_ownership() {
+        assert!(
+            process_owned_utun_sockets(std::process::id())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn process_descriptor_layout_matches_the_public_libproc_abi() {
+        assert_eq!(std::mem::size_of::<ProcessFileInfo>(), 24);
+        assert_eq!(
+            std::mem::offset_of!(SocketFdInfoBuffer, kernel_control),
+            264
+        );
+        assert_eq!(
+            std::mem::offset_of!(SocketFdInfoBuffer, protocol_storage),
+            384
+        );
+    }
+
+    #[test]
+    fn changing_socket_identity_cannot_correlate_an_observation() {
+        let before = OwnedTunSocket {
+            interface: "utun1".into(),
+            socket: 1,
+        };
+        let after = OwnedTunSocket {
+            interface: "utun1".into(),
+            socket: 2,
+        };
+
+        assert_eq!(
+            stable_tun_correlation(Some(Ok(vec![before])), Some(Ok(vec![after]))),
+            Some(Err(()))
+        );
     }
 
     #[test]
@@ -1883,7 +2293,7 @@ mod tests {
         let mut partial_state = tracked_state();
         let mut partial = healthy_snapshot();
         partial.routes.pop();
-        let partial_observation = partial_state.tun_observation(&partial);
+        let partial_observation = partial_state.tun_observation(&partial, None);
         assert_eq!(
             partial_observation.routes,
             TunObservationComponentState::Partial
@@ -1902,14 +2312,14 @@ mod tests {
             addresses: vec!["198.19.0.1".into()],
             name: "utun2".into(),
         });
-        let foreign_observation = foreign_state.tun_observation(&foreign);
+        let foreign_observation = foreign_state.tun_observation(&foreign, None);
         assert_eq!(
             foreign_observation.interface,
             TunObservationComponentState::Foreign
         );
 
         let mut untracked_state = ServiceState::default();
-        let untracked_observation = untracked_state.tun_observation(&healthy_snapshot());
+        let untracked_observation = untracked_state.tun_observation(&healthy_snapshot(), None);
         assert_eq!(
             untracked_observation.interface,
             TunObservationComponentState::Foreign
@@ -1917,9 +2327,25 @@ mod tests {
     }
 
     #[test]
+    fn sole_foreign_utun_racing_launch_is_never_claimed() {
+        let mut state = ServiceState {
+            process: None,
+            tun: Some(ServiceTunOwnership {
+                baseline_interfaces: vec!["utun0".into()],
+                interface: None,
+            }),
+        };
+
+        let observation = state.tun_observation(&healthy_snapshot(), None);
+
+        assert_eq!(observation.interface, TunObservationComponentState::Foreign);
+        assert!(!observation.confirms_enabled_at(tun_observation_now()));
+    }
+
+    #[test]
     fn process_exit_with_residual_effects_is_neither_enabled_nor_cleaned_up() {
         let mut exited_state = tracked_state();
-        let residual_observation = exited_state.tun_observation(&healthy_snapshot());
+        let residual_observation = exited_state.tun_observation(&healthy_snapshot(), None);
         assert_eq!(
             residual_observation.core,
             TunObservationComponentState::Absent
@@ -1930,6 +2356,32 @@ mod tests {
         );
         assert!(!residual_observation.confirms_disabled_at(tun_observation_now()));
         assert!(!residual_observation.confirms_enabled_at(tun_observation_now()));
+    }
+
+    #[test]
+    fn owned_interface_disappearance_and_replacement_never_retarget_ownership() {
+        let mut state = tracked_state();
+        let mut replacement = healthy_snapshot();
+        replacement
+            .interfaces
+            .iter_mut()
+            .find(|interface| interface.name == "utun1")
+            .unwrap()
+            .addresses = vec!["198.19.0.1".into()];
+
+        let replacement_observation = state.tun_observation(&replacement, None);
+        assert_eq!(
+            replacement_observation.interface,
+            TunObservationComponentState::Foreign
+        );
+        assert!(!replacement_observation.confirms_enabled_at(tun_observation_now()));
+
+        let disappearance_observation = state.tun_observation(&baseline_snapshot(), None);
+        assert_eq!(
+            disappearance_observation.interface,
+            TunObservationComponentState::Absent
+        );
+        assert!(disappearance_observation.confirms_disabled_at(tun_observation_now()));
     }
 
     fn write_fixture_binary(root: &Path) -> PathBuf {
@@ -1945,6 +2397,7 @@ mod tests {
 
     async fn fixture(
         snapshots: Vec<TunSystemSnapshot>,
+        owned_interfaces: Result<Vec<String>, ()>,
     ) -> (
         tempfile::TempDir,
         MacOsTunServiceClient,
@@ -1983,7 +2436,7 @@ mod tests {
             require_root: false,
             runtime_root,
             socket_path: socket_path.clone(),
-            observer: Arc::new(SequenceObserver::new(snapshots)),
+            observer: Arc::new(SequenceObserver::new(snapshots, owned_interfaces)),
         }));
         for _ in 0..100 {
             if socket_path.exists() {
@@ -2006,14 +2459,17 @@ mod tests {
         let baseline = baseline_snapshot();
         let healthy = healthy_snapshot();
         let cleanup = baseline.clone();
-        let (_temporary, client, binary, home, config_file, server) = fixture(vec![
-            baseline,
-            healthy.clone(),
-            healthy.clone(),
-            healthy.clone(),
-            healthy,
-            cleanup,
-        ])
+        let (_temporary, client, binary, home, config_file, server) = fixture(
+            vec![
+                baseline,
+                healthy.clone(),
+                healthy.clone(),
+                healthy.clone(),
+                healthy,
+                cleanup,
+            ],
+            Ok(vec!["utun1".into()]),
+        )
         .await;
         let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
         let process = client.start(request).await.unwrap();
@@ -2043,11 +2499,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sole_foreign_utun_during_launch_never_confirms_applied() {
+        let baseline = baseline_snapshot();
+        let foreign = healthy_snapshot();
+        let (_temporary, client, binary, home, config_file, server) =
+            fixture(vec![baseline, foreign.clone(), foreign], Ok(Vec::new())).await;
+        let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
+        let process = client.start(request).await.unwrap();
+
+        let observation = client.observe_tun().await.unwrap();
+
+        assert_eq!(observation.core, TunObservationComponentState::Confirmed);
+        assert_eq!(observation.interface, TunObservationComponentState::Foreign);
+        assert!(!observation.confirms_enabled_at(tun_observation_now()));
+        client.stop(process).await.unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn multiple_new_utuns_claim_only_the_exact_core_owned_interface() {
+        let baseline = baseline_snapshot();
+        let multiple = multiple_new_utuns_snapshot();
+        let (_temporary, client, binary, home, config_file, server) = fixture(
+            vec![baseline, multiple.clone(), multiple],
+            Ok(vec!["utun1".into()]),
+        )
+        .await;
+        let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
+        let process = client.start(request).await.unwrap();
+
+        let observation = client.observe_tun().await.unwrap();
+
+        assert!(observation.confirms_enabled_at(tun_observation_now()));
+        client.stop(process).await.unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn unavailable_or_ambiguous_process_correlation_fails_closed() {
+        for owned_interfaces in [Err(()), Ok(vec!["utun1".into(), "utun2".into()])] {
+            let baseline = baseline_snapshot();
+            let multiple = multiple_new_utuns_snapshot();
+            let (_temporary, client, binary, home, config_file, server) =
+                fixture(vec![baseline, multiple.clone(), multiple], owned_interfaces).await;
+            let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
+            let process = client.start(request).await.unwrap();
+
+            let observation = client.observe_tun().await.unwrap();
+
+            assert!(matches!(
+                observation.interface,
+                TunObservationComponentState::Partial | TunObservationComponentState::Unknown
+            ));
+            assert!(!observation.confirms_enabled_at(tun_observation_now()));
+            client.stop(process).await.unwrap();
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
     async fn cleanup_failure_keeps_residual_network_effects_observable() {
         let baseline = baseline_snapshot();
         let healthy = healthy_snapshot();
-        let (_temporary, client, binary, home, config_file, server) =
-            fixture(vec![baseline, healthy.clone(), healthy.clone(), healthy]).await;
+        let (_temporary, client, binary, home, config_file, server) = fixture(
+            vec![baseline, healthy.clone(), healthy.clone(), healthy],
+            Ok(vec!["utun1".into()]),
+        )
+        .await;
         let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
         let process = client.start(request).await.unwrap();
 
@@ -2066,12 +2584,15 @@ mod tests {
     #[tokio::test]
     async fn configuration_intent_without_network_effects_never_confirms_tun() {
         let baseline = baseline_snapshot();
-        let (_temporary, client, binary, home, config_file, server) = fixture(vec![
-            baseline.clone(),
-            baseline.clone(),
-            baseline.clone(),
-            baseline,
-        ])
+        let (_temporary, client, binary, home, config_file, server) = fixture(
+            vec![
+                baseline.clone(),
+                baseline.clone(),
+                baseline.clone(),
+                baseline,
+            ],
+            Ok(Vec::new()),
+        )
         .await;
         let request = PrivilegedCoreLaunchRequest::new(binary, home, config_file, "v1.19.29");
         let process = client.start(request).await.unwrap();
@@ -2088,7 +2609,7 @@ mod tests {
     #[tokio::test]
     async fn development_service_rejects_configuration_outside_the_runtime_root() {
         let (temporary, client, binary, home, _config_file, server) =
-            fixture(vec![baseline_snapshot()]).await;
+            fixture(vec![baseline_snapshot()], Ok(Vec::new())).await;
         let outside = temporary.path().join("outside.yaml");
         fs::write(&outside, "tun:\n  enable: true\n").unwrap();
         fs::set_permissions(&outside, fs::Permissions::from_mode(0o600)).unwrap();
