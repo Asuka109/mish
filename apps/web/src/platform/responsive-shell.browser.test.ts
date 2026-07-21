@@ -155,14 +155,14 @@ describe("responsive application shell", () => {
 
     const trigger = page.getByRole("button", { exact: true, name: "Manage" });
     await trigger.click();
-    await expect.element(page.getByRole("menuitem", { name: "Add service" })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "Edit services…" })).toBeVisible();
     await expect.element(trigger).toHaveAttribute("aria-expanded", "true");
 
     await userEvent.keyboard("{Escape}");
     await expect.element(trigger).not.toHaveAttribute("aria-expanded", "true");
 
     await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByRole("menuitem", { name: "Restore defaults" })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "Edit services…" })).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await expect.element(trigger).not.toHaveAttribute("aria-expanded", "true");
   });

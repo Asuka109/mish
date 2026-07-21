@@ -16,6 +16,7 @@ import {
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
@@ -47,6 +48,7 @@ import {
   SERVICE_ICON_URLS,
   type ServiceMonitorDraft,
   type ServiceMonitorDto,
+  type ServiceProbeResultDto,
 } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
@@ -57,6 +59,17 @@ const defaultServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS))
 function formatLatency(latencyMilliseconds: number) {
   if (latencyMilliseconds > maximumDisplayedLatency) return ">9999ms";
   return `${latencyMilliseconds} ms`;
+}
+
+export type ServiceLatencyStatus = "error" | "pending" | "success" | "warning";
+
+export function classifyServiceLatency(
+  result: ServiceProbeResultDto | undefined,
+  probeFailed: boolean,
+): ServiceLatencyStatus {
+  if (probeFailed || result?.status === "error") return "error";
+  if (result?.status !== "healthy" || result.latencyMilliseconds === null) return "pending";
+  return result.latencyMilliseconds > 1000 ? "warning" : "success";
 }
 
 function isValidProbeUrl(value: string) {
@@ -108,13 +121,24 @@ interface ServiceEditorDialogProps {
 }
 
 interface ServiceManagerDialogProps {
+  onAdd(): void;
   onClose(): void;
   onEdit(service: ServiceMonitorDto): void;
+  onRestore(): void;
   open: boolean;
+  restorePending: boolean;
   services: ServiceMonitorDto[];
 }
 
-function ServiceManagerDialog({ onClose, onEdit, open, services }: ServiceManagerDialogProps) {
+function ServiceManagerDialog({
+  onAdd,
+  onClose,
+  onEdit,
+  onRestore,
+  open,
+  restorePending,
+  services,
+}: ServiceManagerDialogProps) {
   const { LL } = useI18nContext();
 
   return (
@@ -127,6 +151,10 @@ function ServiceManagerDialog({ onClose, onEdit, open, services }: ServiceManage
               {LL.services.editServicesDescription()}
             </DialogDescription>
           </div>
+          <Button onClick={onAdd} type="button" variant="outline">
+            <Plus aria-hidden="true" data-icon="inline-start" />
+            {LL.services.add()}
+          </Button>
         </div>
         <div className="service-manager-list">
           {services.map((service) => {
@@ -147,6 +175,22 @@ function ServiceManagerDialog({ onClose, onEdit, open, services }: ServiceManage
             );
           })}
         </div>
+        <DialogFooter className="service-manager-footer">
+          <Button
+            aria-busy={restorePending}
+            disabled={restorePending}
+            onClick={onRestore}
+            type="button"
+            variant="outline"
+          >
+            {restorePending ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <ArrowCounterClockwise aria-hidden="true" data-icon="inline-start" />
+            )}
+            {LL.services.restoreDefaults()}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -391,30 +435,13 @@ export function ServiceMonitorSection() {
             <CaretDown aria-hidden="true" weight="bold" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="service-manage-menu" sideOffset={7}>
-            <DropdownMenuGroup>
-              {!commandSupported ? (
+            {!commandSupported ? (
+              <DropdownMenuGroup>
                 <DropdownMenuLabel className="service-manage-unavailable">
                   {LL.capabilities.localActionUnavailable()}
                 </DropdownMenuLabel>
-              ) : null}
-              <DropdownMenuItem
-                disabled={!commandSupported}
-                onClick={() =>
-                  setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" })
-                }
-              >
-                <Plus aria-hidden="true" data-icon="inline-start" />
-                {LL.services.add()}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!commandSupported || snapshot.services.length === 0}
-                onClick={() => setManagerOpen(true)}
-              >
-                <PencilSimple aria-hidden="true" data-icon="inline-start" />
-                {LL.services.editServices()}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
+              </DropdownMenuGroup>
+            ) : null}
             <DropdownMenuRadioGroup
               onValueChange={(value) => {
                 const interval = Number(value);
@@ -442,16 +469,11 @@ export function ServiceMonitorSection() {
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem
-                aria-busy={restorePending}
-                disabled={commandPending || !commandSupported}
-                onClick={() => void restoreServices()}
+                disabled={!commandSupported || snapshot.services.length === 0}
+                onClick={() => setManagerOpen(true)}
               >
-                {restorePending ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <ArrowCounterClockwise aria-hidden="true" data-icon="inline-start" />
-                )}
-                {LL.services.restoreDefaults()}
+                <PencilSimple aria-hidden="true" data-icon="inline-start" />
+                {LL.services.editServices()}
               </DropdownMenuItem>
             </DropdownMenuGroup>
           </DropdownMenuContent>
@@ -466,7 +488,7 @@ export function ServiceMonitorSection() {
             const result = snapshot.probeResults.find(
               (candidate) => candidate.monitorId === service.id,
             );
-            const resultFailed = probeFailed || result?.status === "error";
+            const latencyStatus = classifyServiceLatency(result, probeFailed);
             return (
               <Button
                 aria-busy={probePending}
@@ -490,15 +512,13 @@ export function ServiceMonitorSection() {
                 <span
                   aria-live="polite"
                   className="service-monitor-latency tabular"
-                  data-status={resultFailed ? "error" : undefined}
+                  data-status={latencyStatus === "success" ? undefined : latencyStatus}
                 >
-                  {probeFailed ||
-                  result?.latencyMilliseconds === null ||
-                  result?.latencyMilliseconds === undefined
-                    ? resultFailed
+                  {latencyStatus === "pending" || latencyStatus === "error"
+                    ? latencyStatus === "error"
                       ? LL.services.unavailable()
                       : LL.common.pending()
-                    : formatLatency(result.latencyMilliseconds)}
+                    : formatLatency(result?.latencyMilliseconds ?? 0)}
                 </span>
               </Button>
             );
@@ -534,12 +554,18 @@ export function ServiceMonitorSection() {
         setDraft={setDraft}
       />
       <ServiceManagerDialog
+        onAdd={() => {
+          setManagerOpen(false);
+          setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" });
+        }}
         onClose={() => setManagerOpen(false)}
         onEdit={(service) => {
           setManagerOpen(false);
           setDraft({ ...service });
         }}
+        onRestore={() => void restoreServices()}
         open={managerOpen}
+        restorePending={restorePending}
         services={snapshot.services}
       />
     </section>

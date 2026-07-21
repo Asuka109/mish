@@ -3028,7 +3028,7 @@ type RootTranslation = {
 		 */
 		manage: string
 		/**
-		 * D​i​s​a​b​l​e​ ​a​u​t​o​m​a​t​i​c​ ​t​e​s​t​s
+		 * N​e​v​e​r
 		 */
 		intervalDisabled: string
 		/**
@@ -3072,7 +3072,7 @@ type RootTranslation = {
 		 */
 		title: string
 		/**
-		 * A​u​t​o​m​a​t​i​c​ ​r​e​t​e​s​t
+		 * T​e​s​t​ ​i​n​t​e​r​v​a​l
 		 */
 		testInterval: string
 		/**
@@ -7229,7 +7229,7 @@ export type TranslationFunctions = {
 		 */
 		manage: () => LocalizedString
 		/**
-		 * Disable automatic tests
+		 * Never
 		 */
 		intervalDisabled: () => LocalizedString
 		/**
@@ -7273,7 +7273,7 @@ export type TranslationFunctions = {
 		 */
 		title: () => LocalizedString
 		/**
-		 * Automatic retest
+		 * Test interval
 		 */
 		testInterval: () => LocalizedString
 		/**

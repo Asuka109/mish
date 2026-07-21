@@ -18,12 +18,16 @@ use tokio::sync::{Notify, Semaphore, broadcast};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-const DEFAULT_INTERVAL_SECONDS: u16 = 60;
+const DEFAULT_INTERVAL_SECONDS: u16 = 5;
 const DISABLED_INTERVAL_SECONDS: u16 = 0;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_MONITORS: usize = 24;
 const ALLOWED_INTERVALS: [u16; 5] = [0, 5, 10, 30, 60];
 const SERVICE_ICON_CDN_BASE: &str = "https://registry.npmmirror.com/remixicon/4.9.1/files/icons";
+const LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL: &str =
+    "https://www.msftconnecttest.com/connecttest.txt";
+const MICROSOFT_CONNECTIVITY_TEST_URL: &str = "http://www.msftconnecttest.com/connecttest.txt";
+const MICROSOFT_DEFAULT_ICON_PATH: &str = "Logos/microsoft-fill.svg";
 
 #[derive(Clone, Debug)]
 pub struct ServiceProbeConfig {
@@ -86,6 +90,7 @@ impl ServiceProbeService {
             .unwrap_or_else(default_service_monitors)
             .into_iter()
             .map(upgrade_default_icon)
+            .map(upgrade_legacy_default_microsoft_url)
             .collect();
         let (updates, _) = broadcast::channel(32);
         Self {
@@ -415,6 +420,17 @@ fn upgrade_default_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
     monitor
 }
 
+fn upgrade_legacy_default_microsoft_url(mut monitor: ServiceMonitor) -> ServiceMonitor {
+    if monitor.id == "microsoft"
+        && monitor.label == "Microsoft"
+        && monitor.icon == format!("{SERVICE_ICON_CDN_BASE}/{MICROSOFT_DEFAULT_ICON_PATH}")
+        && monitor.url == LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL
+    {
+        monitor.url = MICROSOFT_CONNECTIVITY_TEST_URL.into();
+    }
+    monitor
+}
+
 fn current_default_icon_url(value: &str) -> Option<String> {
     let path = match value {
         "apple"
@@ -688,6 +704,13 @@ mod tests {
         assert!(valid_persisted_state(&state));
     }
 
+    #[test]
+    fn service_probes_default_to_five_seconds() {
+        let service = ServiceProbeService::new(ServiceProbeConfig { state_path: None });
+
+        assert_eq!(service.interval_seconds(), 5);
+    }
+
     fn confirmed_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
         ServiceProbeResult {
             latency_milliseconds: Some(42),
@@ -871,6 +894,103 @@ mod tests {
                 "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg",
             ]
         );
+    }
+
+    #[test]
+    fn exact_legacy_default_microsoft_monitor_is_upgraded_to_http() {
+        let directory = tempfile::tempdir().unwrap();
+        let state_path = directory.path().join("service-monitors.json");
+        let mut services = default_service_monitors();
+        let microsoft = services
+            .iter_mut()
+            .find(|monitor| monitor.id == "microsoft")
+            .expect("Microsoft default monitor");
+        microsoft.url = LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL.into();
+        let state = PersistedState {
+            interval_seconds: 60,
+            services,
+            version: 1,
+        };
+        fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+        let restored = ServiceProbeService::new(ServiceProbeConfig {
+            state_path: Some(state_path),
+        });
+        let state = restored
+            .inner
+            .state
+            .lock()
+            .expect("service probe state poisoned");
+        let microsoft = state
+            .services
+            .iter()
+            .find(|monitor| monitor.id == "microsoft")
+            .expect("Microsoft monitor");
+
+        assert_eq!(microsoft.url, MICROSOFT_CONNECTIVITY_TEST_URL);
+    }
+
+    #[test]
+    fn legacy_microsoft_url_upgrade_preserves_customized_and_non_default_monitors() {
+        let default_microsoft = default_service_monitors()
+            .into_iter()
+            .find(|monitor| monitor.id == "microsoft")
+            .expect("Microsoft default monitor");
+        let mut cases = [
+            ("custom URL", default_microsoft.clone()),
+            ("custom label", default_microsoft.clone()),
+            ("custom icon", default_microsoft.clone()),
+            ("non-default monitor", default_microsoft),
+        ];
+
+        for (kind, monitor) in &mut cases {
+            monitor.url = LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL.into();
+            match *kind {
+                "custom URL" => monitor.url = "https://example.com/custom-target".into(),
+                "custom label" => monitor.label = "Work Microsoft".into(),
+                "custom icon" => monitor.icon = "https://example.com/microsoft.svg".into(),
+                "non-default monitor" => monitor.id = "custom-microsoft".into(),
+                _ => unreachable!(),
+            }
+
+            assert_eq!(
+                upgrade_legacy_default_microsoft_url(monitor.clone()),
+                *monitor,
+                "{kind} must not be rewritten"
+            );
+        }
+    }
+
+    #[test]
+    fn restoring_defaults_returns_the_http_microsoft_connectivity_test_endpoint() {
+        let service = ServiceProbeService::new(ServiceProbeConfig { state_path: None });
+        {
+            let mut state = service
+                .inner
+                .state
+                .lock()
+                .expect("service probe state poisoned");
+            state
+                .services
+                .iter_mut()
+                .find(|monitor| monitor.id == "microsoft")
+                .expect("Microsoft default monitor")
+                .url = "https://example.com/custom-target".into();
+        }
+        service.restore_defaults().unwrap();
+
+        let state = service
+            .inner
+            .state
+            .lock()
+            .expect("service probe state poisoned");
+        let microsoft = state
+            .services
+            .iter()
+            .find(|monitor| monitor.id == "microsoft")
+            .expect("Microsoft default monitor");
+
+        assert_eq!(microsoft.url, MICROSOFT_CONNECTIVITY_TEST_URL);
     }
 
     #[test]

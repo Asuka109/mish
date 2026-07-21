@@ -371,7 +371,7 @@ pub fn default_service_monitors() -> Vec<ServiceMonitor> {
             "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/microsoft-fill.svg",
             "microsoft",
             "Microsoft",
-            "https://www.msftconnecttest.com/connecttest.txt",
+            "http://www.msftconnecttest.com/connecttest.txt",
         ),
     ]
     .into_iter()
@@ -382,4 +382,22 @@ pub fn default_service_monitors() -> Vec<ServiceMonitor> {
         url: url.into(),
     })
     .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn microsoft_default_monitor_uses_the_http_connectivity_test_endpoint() {
+        let microsoft = default_service_monitors()
+            .into_iter()
+            .find(|monitor| monitor.id == "microsoft")
+            .expect("Microsoft default monitor");
+
+        assert_eq!(
+            microsoft.url,
+            "http://www.msftconnecttest.com/connecttest.txt"
+        );
+    }
 }
