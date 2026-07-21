@@ -78,6 +78,13 @@ save. Because Base UI input change callbacks expose the value directly, bind
 controlled inputs with `onValueChange(value)` instead of assuming a native DOM
 change event.
 
+Do not place a bordered, rounded collection flush against a dialog boundary.
+Nested borders and coincident radii create doubled hairlines and expose the
+child corners against the dialog outline. Either inset the complete child by at
+least the medium spacing token so both outlines remain visually distinct, or
+remove the child's outer border and radius and use separators between its rows.
+Full-width dialog lists should use the borderless treatment.
+
 Pressed fills stay close to white. Selection should be clear through border,
 icon, and text changes without becoming a dark gray trough.
 
@@ -123,7 +130,10 @@ is not otherwise available.
 ## Icons
 
 - Use Phosphor for general interface icons.
-- Use solid, semantically colored service icons without framed icon tiles.
+- Render service brands from their configured HTTPS image URLs without framed
+  icon tiles. Defaults use version-pinned Remix Icon assets through npmmirror;
+  use a neutral cloud symbol for Cloudflare and do not replace a
+  user-configured URL with a bundled component.
 - Do not substitute a browser logo for a service brand.
 - Keep ordinary navigation and metadata icons neutral; reserve color for
   traffic direction, service identity, and state.

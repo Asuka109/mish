@@ -394,7 +394,7 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     assert_eq!(
         root.headers()["content-security-policy"],
         format!(
-            "default-src 'self'; connect-src 'self' ws://{}/rpc; font-src 'self'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+            "default-src 'self'; connect-src 'self' ws://{}/rpc; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
             bridge.address
         )
     );
@@ -1119,13 +1119,13 @@ async fn service_probes_remain_available_while_core_is_stopped() {
             "jsonrpc":"2.0",
             "id":4,
             "method":"status.setServiceProbeInterval",
-            "params":{"intervalSeconds":300}
+            "params":{"intervalSeconds":10}
         }),
     )
     .await;
     assert_eq!(
         updated["result"]["serviceProbePolicy"]["intervalSeconds"],
-        300
+        10
     );
 
     let rejected = request(
@@ -1135,7 +1135,7 @@ async fn service_probes_remain_available_while_core_is_stopped() {
             "id":5,
             "method":"status.upsertServiceMonitor",
             "params":{"draft":{
-                "icon":"globe",
+                "icon":"https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg",
                 "label":"Local metadata",
                 "url":"http://169.254.169.254/latest/meta-data"
             }}

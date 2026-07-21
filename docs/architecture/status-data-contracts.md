@@ -35,7 +35,7 @@ non-fixture adapter.
 | `GroupDelayPolicyDto`     | Visible application policy ID and bounded timeout                                            | Local bridge application policy              |
 | `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results |
 | `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                      |
-| `ServiceMonitorDto`       | ID, opaque title, URL, icon key, probe policy                                                | Local bridge persistence                     |
+| `ServiceMonitorDto`       | ID, opaque title, probe URL, HTTPS icon URL, probe policy                                    | Local bridge persistence                     |
 | `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                 |
 | `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                             |
 
@@ -43,6 +43,13 @@ User-authored Mihomo labels are opaque Unicode strings. Production code must
 not split, normalize, reorder, or infer structured emoji and text fields. The
 current sketch keeps separate fixture properties only for convenient mock
 construction; that shape is not a production contract.
+
+Service icon URLs are also user-authored metadata. Defaults use version-pinned
+Remix Icon SVG assets through the npmmirror CDN; Cloudflare intentionally uses
+the neutral Remix cloud symbol. Custom values must be credential-free HTTPS
+URLs and are rendered only as image resources; the bridge never fetches icon
+contents. The web and native shells allow HTTPS only in `img-src`, and icon
+image requests omit referrer information.
 
 `PolicyGroupDto` is a discriminated union for `selector`, `url-test`,
 `fallback`, `load-balance`, `relay`, `direct`, `reject`, and `unsupported`.
@@ -338,19 +345,20 @@ Each probe policy should define:
 - explicit direct, proxy, or group-scoped route target; and
 - interval, backoff, and concurrency limits.
 
-The desktop bridge starts one direct probe cycle immediately and then schedules
-cycles at the user-selected fixed interval (30 seconds, 1 minute, 5 minutes, or
-15 minutes; 1 minute by default). This scheduler is owned by the bridge rather
-than the Mihomo runtime, so stopping or replacing Core does not stop probes or
-discard their latest results. Monitor definitions and the selected interval are
-stored in the application-data directory and overlaid onto every Status
-snapshot, including lifecycle-only snapshots. Probe updates publish through the
-existing Status subscription.
+When periodic testing is enabled, the desktop bridge starts one direct probe
+cycle immediately and then schedules cycles at the user-selected fixed interval
+(5 seconds, 10 seconds, 30 seconds, or 1 minute; 1 minute by default). The user
+may disable periodic cycles. In that mode, the bridge runs one full cycle
+whenever Core starts and otherwise retains the latest results. The scheduler
+remains bridge-owned, so replacing Core does not discard those results. Monitor
+definitions and the selected interval are stored in the application-data
+directory and overlaid onto every Status snapshot, including lifecycle-only
+snapshots. Probe updates publish through the existing Status subscription.
 
 The immediate test command accepts only an existing monitor identifier. The
-bridge resolves the stored, previously validated URL, publishes a pending result,
-executes that single direct probe, and then publishes its outcome. The RPC does
-not accept a caller-supplied URL or route target.
+bridge resolves the stored, previously validated URL, retains the last result
+while the request is running, and publishes the new outcome after completion.
+The RPC does not accept a caller-supplied URL or route target.
 
 Validate URLs as HTTP or HTTPS and protect the local machine from unintended
 access to loopback, link-local, metadata, or private-network targets unless the

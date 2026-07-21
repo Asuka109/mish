@@ -187,6 +187,7 @@ pub(crate) fn spawn_lifecycle_coordination(
     host: DesktopRuntimeHost,
     source: Option<Arc<dyn PlatformLifecycleEventSource>>,
     settings: Option<Arc<mish_settings::SettingsService>>,
+    service_probes: Option<crate::service_probes::ServiceProbeService>,
     mut shutdown: oneshot::Receiver<()>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -199,6 +200,11 @@ pub(crate) fn spawn_lifecycle_coordination(
             initial_runtime.core_status().await.phase,
             CorePhase::Running
         );
+        if was_running {
+            if let Some(service_probes) = &service_probes {
+                service_probes.test_after_core_start();
+            }
+        }
         let _ = host.audit_capture(CaptureAuditReason::Restart).await;
         let mut periodic = tokio::time::interval(std::time::Duration::from_secs(5));
         periodic.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -216,6 +222,11 @@ pub(crate) fn spawn_lifecycle_coordination(
                     status_updates = runtime.subscribe_status();
                     let running = matches!(runtime.core_status().await.phase, CorePhase::Running);
                     was_running = running;
+                    if running {
+                        if let Some(service_probes) = &service_probes {
+                            service_probes.test_after_core_start();
+                        }
+                    }
                     let _ = coordinator.handle_core_availability(running).await;
                 }
                 event = receive_platform_event(&mut platform_events), if platform_events.is_some() => {
@@ -238,6 +249,11 @@ pub(crate) fn spawn_lifecycle_coordination(
                     let running = matches!(status.phase, CorePhase::Running);
                     if running != was_running {
                         was_running = running;
+                        if running {
+                            if let Some(service_probes) = &service_probes {
+                                service_probes.test_after_core_start();
+                            }
+                        }
                         let _ = coordinator.handle_core_availability(running).await;
                     }
                 }

@@ -1031,19 +1031,33 @@ export const GroupUsageSchema = z
   .strict();
 export interface GroupUsageDto extends z.infer<typeof GroupUsageSchema> {}
 
-export const ServiceIconSchema = z.enum([
-  "apple",
-  "baidu",
-  "cloudflare",
-  "github",
-  "globe",
-  "google",
-  "microsoft",
-]);
+const SERVICE_ICON_CDN_BASE = "https://registry.npmmirror.com/remixicon/4.9.1/files/icons";
+
+export const SERVICE_ICON_URLS = {
+  apple: `${SERVICE_ICON_CDN_BASE}/Logos/apple-fill.svg`,
+  baidu: `${SERVICE_ICON_CDN_BASE}/Logos/baidu-fill.svg`,
+  cloudflare: `${SERVICE_ICON_CDN_BASE}/Business/cloud-fill.svg`,
+  github: `${SERVICE_ICON_CDN_BASE}/Logos/github-fill.svg`,
+  globe: `${SERVICE_ICON_CDN_BASE}/Map/globe-fill.svg`,
+  google: `${SERVICE_ICON_CDN_BASE}/Logos/google-fill.svg`,
+  microsoft: `${SERVICE_ICON_CDN_BASE}/Logos/microsoft-fill.svg`,
+} as const;
+
+export const ServiceIconUrlSchema = z
+  .string()
+  .max(2_048)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.username === "" && url.password === "";
+    } catch {
+      return false;
+    }
+  });
 
 export const ServiceMonitorSchema = z
   .object({
-    icon: ServiceIconSchema,
+    icon: ServiceIconUrlSchema,
     id: IdentifierSchema,
     label: z.string(),
     url: z.string(),
@@ -1052,10 +1066,11 @@ export const ServiceMonitorSchema = z
 export interface ServiceMonitorDto extends z.infer<typeof ServiceMonitorSchema> {}
 
 export const ServiceProbeIntervalSecondsSchema = z.union([
+  z.literal(0),
+  z.literal(5),
+  z.literal(10),
   z.literal(30),
   z.literal(60),
-  z.literal(300),
-  z.literal(900),
 ]);
 export type ServiceProbeIntervalSeconds = z.infer<typeof ServiceProbeIntervalSecondsSchema>;
 

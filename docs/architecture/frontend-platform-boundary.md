@@ -259,6 +259,9 @@ target. Its product and WebView security boundary is defined in
 
 Protocol version 15 adds desktop-owned service probes and the fixed service
 probe interval command without coupling those probes to Core lifecycle state.
+The disabled periodic interval is a later scheduling policy: lifecycle
+coordination asks the bridge-owned probe service for one cycle whenever Core
+starts, without transferring probe ownership to Core.
 
 Protocol version 17 adds an immediate, monitor-scoped service probe command.
 The command accepts only the identifier of an already validated monitor; callers

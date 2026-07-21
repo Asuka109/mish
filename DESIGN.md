@@ -450,15 +450,18 @@ to [`docs/architecture/status-data-contracts.md`](docs/architecture/status-data-
 Place configurable service-latency monitors in one full-width grouped list
 below the policy-group and session columns. Use three columns at comfortable
 desktop widths and one column when constrained. Each row contains a borderless,
-semantically colored service icon, title, and measured latency; the probe URL
-is shown only in the reusable editor dialog. Ship Google, GitHub, Cloudflare,
-Baidu, Apple, and Microsoft as defaults, while
-allowing add, edit, delete, and Restore defaults. Treat these values as endpoint
-probe results, not proof of a globally active proxy route. Probe semantics and
-security belong to
+URL-backed service icon, title, and measured latency; the probe URL and icon
+URL are shown only in the reusable editor dialog. Default icons use
+version-pinned Remix Icon assets through npmmirror, with a neutral cloud symbol
+for Cloudflare. Ship Google, GitHub, Cloudflare, Baidu, Apple, and Microsoft as
+defaults, while allowing add, edit, delete, and Restore defaults. Treat these
+values as endpoint probe results, not proof of a globally active proxy route.
+Probe semantics and security belong to
 [`docs/architecture/status-data-contracts.md`](docs/architecture/status-data-contracts.md).
 Keep the fixed service-test interval in the Manage dropdown as a radio group;
-service probes continue through the local bridge when Mihomo is stopped.
+offer 5-second, 10-second, 30-second, and 1-minute cycles plus a disabled state.
+When disabled, retain the latest values and test once whenever Mihomo starts.
+Periodic probes continue through the local bridge when Mihomo is stopped.
 
 The toolbar profile selector is an infrequent configuration control. Keep its
 icon, label, and caret muted until hover or focus so it does not compete with
