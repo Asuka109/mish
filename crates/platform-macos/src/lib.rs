@@ -100,6 +100,27 @@ pub fn show_browser_open_error() {
 #[cfg(not(target_os = "macos"))]
 pub fn show_browser_open_error() {}
 
+#[cfg(target_os = "macos")]
+pub fn show_browser_pairing_pin(pin: &str) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSAlertStyle};
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let alert = NSAlert::new(mtm);
+    alert.setAlertStyle(NSAlertStyle::Informational);
+    alert.setMessageText(&NSString::from_str("Connect this browser to Mish"));
+    alert.setInformativeText(&NSString::from_str(&format!(
+        "Enter PIN {pin} in the browser. This PIN expires in two minutes and can be used only once."
+    )));
+    alert.runModal();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_browser_pairing_pin(_pin: &str) {}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MacOsTunHelperBoundary {
     Unpackaged,

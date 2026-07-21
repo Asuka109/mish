@@ -37,15 +37,17 @@ interface RuntimeBootstrapPayload {
 }
 
 interface BrowserBootstrapDependencies {
-  clearNonce(): void;
-  clearSession(): void;
-  fetch(nonce: string | null): Promise<unknown>;
-  hasSession(): boolean;
-  markSession(): void;
-  nonce(): string | null;
+  clearLaunchPin(): void;
+  clearProof(): void;
+  createProof(): string;
+  fetch(pin: string | null, proof: string | null): Promise<unknown>;
+  launchPin(): string | null;
+  loadProof(): string | null;
+  saveProof(proof: string): void;
 }
 
 interface BootstrapDependencies {
+  allowBrowserFixture?: boolean;
   browserBootstrap?: BrowserBootstrapDependencies;
   invokeCommitLocalRestore(
     previewId: string,
@@ -81,13 +83,15 @@ export interface StartupStatusClient {
 
 const defaultDependencies: BootstrapDependencies = {
   browserBootstrap: {
-    clearNonce: clearBrowserBootstrapNonce,
-    clearSession: clearBrowserBootstrapSession,
+    clearLaunchPin: clearBrowserLaunchPin,
+    clearProof: clearBrowserProof,
+    createProof: createBrowserProof,
     fetch: fetchBrowserBootstrap,
-    hasSession: hasBrowserBootstrapSession,
-    markSession: markBrowserBootstrapSession,
-    nonce: readBrowserBootstrapNonce,
+    launchPin: readBrowserLaunchPin,
+    loadProof: readBrowserProof,
+    saveProof: saveBrowserProof,
   },
+  allowBrowserFixture: import.meta.env.MODE === "test",
   invokeCommitLocalRestore: (previewId, resolution) =>
     invoke("local_backup_restore_commit", { previewId, resolution }),
   invokeBootstrap: () => invoke("runtime_bootstrap"),
@@ -105,33 +109,43 @@ export async function resolveStartupStatusClient(
   dependencies: BootstrapDependencies = defaultDependencies,
 ): Promise<StartupStatusClient> {
   if (!dependencies.isDesktop()) {
-    const nonce = dependencies.browserBootstrap?.nonce() ?? null;
-    const hasSession = dependencies.browserBootstrap?.hasSession() ?? false;
-    if (nonce || hasSession) {
-      try {
-        const bootstrap = parseRuntimeBootstrap(await dependencies.browserBootstrap?.fetch(nonce));
-        dependencies.browserBootstrap?.markSession();
-        return createRpcStartup(bootstrap, dependencies, "browser", "mish-browser-client");
-      } catch (error) {
-        dependencies.browserBootstrap?.clearSession();
-        if (nonce) throw error;
-      } finally {
-        if (nonce) dependencies.browserBootstrap?.clearNonce();
-      }
+    const browser = dependencies.browserBootstrap;
+    if (!browser) {
+      if (dependencies.allowBrowserFixture) return createBrowserFixtureStartup();
+      throw new BrowserAuthenticationRequired();
     }
-    const settingsClient = new FixtureSettingsClient();
-    return {
-      dispose: () => undefined,
-      runtime: "browser",
-      localBackupClient: new UnavailableLocalBackupClient(),
-      settingsClient,
-      settingsSnapshot: await settingsClient.getSnapshot(),
-      supportBundleClient: new UnavailableSupportBundleClient(),
-    };
+    const pin = browser.launchPin();
+    const proof = pin ? browser.createProof() : browser.loadProof();
+    try {
+      const bootstrap = parseRuntimeBootstrap(await browser.fetch(pin, proof));
+      if (pin && proof) browser.saveProof(proof);
+      return createRpcStartup(bootstrap, dependencies, "browser", "mish-browser-client");
+    } catch (error) {
+      browser.clearProof();
+      if (dependencies.allowBrowserFixture) return createBrowserFixtureStartup();
+      if (error instanceof BrowserBootstrapUnavailable) {
+        throw new BrowserAuthenticationRequired();
+      }
+      throw error;
+    } finally {
+      if (pin) browser.clearLaunchPin();
+    }
   }
 
   const bootstrap = parseRuntimeBootstrap(await dependencies.invokeBootstrap());
   return createRpcStartup(bootstrap, dependencies, "desktop", "mish-desktop-webview");
+}
+
+async function createBrowserFixtureStartup(): Promise<StartupStatusClient> {
+  const settingsClient = new FixtureSettingsClient();
+  return {
+    dispose: () => undefined,
+    runtime: "browser",
+    localBackupClient: new UnavailableLocalBackupClient(),
+    settingsClient,
+    settingsSnapshot: await settingsClient.getSnapshot(),
+    supportBundleClient: new UnavailableSupportBundleClient(),
+  };
 }
 
 function createRpcStartup(
@@ -192,55 +206,141 @@ function createRpcStartup(
   };
 }
 
-function readBrowserBootstrapNonce() {
-  const nonce = new URLSearchParams(window.location.hash.slice(1)).get("mish-browser-bootstrap");
-  return nonce && /^[a-f0-9]{64}$/.test(nonce) ? nonce : null;
+export class BrowserAuthenticationRequired extends Error {
+  constructor() {
+    super("Browser authentication required");
+    this.name = "BrowserAuthenticationRequired";
+  }
 }
 
-function clearBrowserBootstrapNonce() {
+class BrowserBootstrapUnavailable extends Error {
+  constructor(readonly status: number | null) {
+    super("Browser bootstrap unavailable");
+    this.name = "BrowserBootstrapUnavailable";
+  }
+}
+
+function readBrowserLaunchPin() {
+  const pin = new URLSearchParams(window.location.hash.slice(1)).get("mish-browser-pin");
+  return pin && /^[a-f0-9]{64}$/.test(pin) ? pin : null;
+}
+
+function clearBrowserLaunchPin() {
   const url = new URL(window.location.href);
   url.hash = "";
   window.history.replaceState(null, "", `${url.pathname}${url.search}`);
 }
 
-const browserBootstrapSessionKey = "mish-browser-client-session";
+const browserProofKey = "mish-browser-client-proof";
 
-function hasBrowserBootstrapSession() {
+function readBrowserProof() {
   try {
-    return window.sessionStorage.getItem(browserBootstrapSessionKey) === "active";
+    const proof = window.localStorage.getItem(browserProofKey);
+    return proof && /^[a-f0-9]{64}$/.test(proof) ? proof : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function markBrowserBootstrapSession() {
+function saveBrowserProof(proof: string) {
   try {
-    window.sessionStorage.setItem(browserBootstrapSessionKey, "active");
+    window.localStorage.setItem(browserProofKey, proof);
   } catch {
-    // The HttpOnly bridge session still protects the current in-memory bootstrap.
+    // Authentication can still complete, but a later navigation will require a new PIN.
   }
 }
 
-function clearBrowserBootstrapSession() {
+function clearBrowserProof() {
   try {
-    window.sessionStorage.removeItem(browserBootstrapSessionKey);
+    window.localStorage.removeItem(browserProofKey);
   } catch {
     // Storage can be unavailable under strict browser privacy policies.
   }
 }
 
-async function fetchBrowserBootstrap(nonce: string | null) {
+function createBrowserProof() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function fetchBrowserBootstrap(pin: string | null, proof: string | null) {
   const response = await fetch("/browser-bootstrap", {
     cache: "no-store",
     credentials: "same-origin",
     headers: {
       Accept: "application/json",
-      ...(nonce ? { Authorization: `Mish-Browser ${nonce}` } : {}),
+      ...(pin ? { Authorization: `Mish-Browser-Pin ${pin}` } : {}),
+      ...(proof ? { "X-Mish-Browser-Proof": proof } : {}),
     },
     method: "POST",
   });
-  if (!response.ok) throw new Error("Browser bootstrap unavailable");
+  if (!response.ok) throw new BrowserBootstrapUnavailable(response.status);
   return response.json();
+}
+
+export interface BrowserPairingChallenge {
+  challengeId: string;
+  expiresInSeconds: number;
+}
+
+export class BrowserPairingError extends Error {
+  constructor(readonly kind: "expired" | "invalid" | "locked" | "unavailable") {
+    super(`Browser pairing ${kind}`);
+    this.name = "BrowserPairingError";
+  }
+}
+
+export async function requestBrowserPairing(): Promise<BrowserPairingChallenge> {
+  const response = await fetch("/browser-pairing", {
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new BrowserPairingError(response.status === 429 ? "locked" : "unavailable");
+  }
+  const value = (await response.json()) as Record<string, unknown>;
+  if (
+    typeof value.challengeId !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.challengeId) ||
+    typeof value.expiresInSeconds !== "number" ||
+    value.expiresInSeconds <= 0
+  ) {
+    throw new BrowserPairingError("unavailable");
+  }
+  return {
+    challengeId: value.challengeId,
+    expiresInSeconds: value.expiresInSeconds,
+  };
+}
+
+export async function completeBrowserPairing(challengeId: string, pin: string): Promise<void> {
+  const proof = createBrowserProof();
+  const response = await fetch("/browser-pairing/complete", {
+    body: JSON.stringify({ challengeId, pin }),
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "X-Mish-Browser-Proof": proof,
+    },
+    method: "POST",
+  });
+  if (!response.ok) {
+    const kind =
+      response.status === 401
+        ? "invalid"
+        : response.status === 410
+          ? "expired"
+          : response.status === 429
+            ? "locked"
+            : "unavailable";
+    throw new BrowserPairingError(kind);
+  }
+  parseRuntimeBootstrap(await response.json());
+  saveBrowserProof(proof);
 }
 
 export function parseRuntimeBootstrap(value: unknown): RuntimeBootstrapPayload {

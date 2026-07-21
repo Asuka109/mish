@@ -22,9 +22,10 @@ The shell composes, but does not reimplement:
 - the macOS System Proxy adapter and explicit development TUN service;
 - offline assets, profile/runtime startup, and ordered shutdown.
 
-Standalone Vite remains fixture-backed. The desktop process generates its own
-256-bit token, keeps it out of URLs and storage, and gives it only to authorized
-clients. Mihomo never starts merely because the Web UI opens. Development
+Browser startup requires either PIN pairing or a valid process-local browser
+session; it never falls through to demo state. The desktop process generates its
+own 256-bit token, keeps it out of URLs and storage, and gives it only to
+authorized clients. Mihomo never starts merely because the Web UI opens. Development
 requires explicit `MISH_MIHOMO_BIN`; production accepts only the packaged pinned
 resource. When `MISH_MIHOMO_BIN` is missing, desktop setup fails immediately with
 the preparation and restart commands instead of opening an unusable window.

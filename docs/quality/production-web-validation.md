@@ -7,22 +7,20 @@ desktop WebView. It consumes shared components from `packages/ui/` and CSS
 tokens from `packages/design-tokens/`. It does not import source, fixtures, or
 runtime assets from `sketch/`.
 
-Standalone Vite browser startup uses `FixtureStatusClient`, `FixtureProfileClient`, and
-`FixtureTrafficClient`, implementations of the independent typed product
-boundaries. Status commands update detached in-memory DTO snapshots only;
-Traffic is read-only and derives Closed rows locally. Profile mutations,
-including local-file preflight, report unsupported instead of simulating
-success. The UI identifies this as demo data; no System Proxy, TUN, Mihomo core
-operation, probe, capture, WebSocket, filesystem access, or network request is
-executed.
+Browser startup always attempts the same-origin desktop bootstrap. A valid
+HttpOnly session and origin-scoped proof compose the RPC adapters immediately;
+an unauthenticated browser renders the PIN pairing page and never mounts product
+providers or fixture data. Fixture adapters remain available to unit, browser,
+and acceptance harnesses, but production startup cannot select them.
 
 `RpcStatusClient`, `RpcProfileClient`, and `RpcTrafficClient` are available only
 for explicit composition with an injected `RpcClient`. Runtime schemas reject
 malformed results and notifications before they enter product state. The Tauri
 WebView composes them from the validated process-only desktop bootstrap. A
 browser explicitly launched by the desktop status-bar menu composes the same
-clients after exchanging a one-time same-origin nonce; a standalone browser has
-no launch nonce and remains fixture-backed.
+clients after exchanging a high-entropy one-time same-origin launch PIN from the
+URL fragment. A direct bridge URL instead requests a six-digit PIN from the
+desktop app and exchanges it for a random browser session.
 
 English and Simplified Chinese UI dictionaries are bundled with the production
 artifact and exposed through generated `typesafe-i18n` functions. Locale changes
@@ -35,12 +33,12 @@ The six stable destinations are:
 
 | URL         | Current Part 1 state                                                    |
 | ----------- | ----------------------------------------------------------------------- |
-| `/status`   | Complete fixture-backed reference surface                               |
-| `/routes`   | Nested fixture policy graph; RPC selection remains read-only            |
+| `/status`   | Authenticated desktop runtime status                                    |
+| `/routes`   | Authenticated policy graph and RPC selection                            |
 | `/profiles` | Desktop profile lifecycle and transactional managed activation          |
 | `/traffic`  | Read-only Active, bounded local Closed, and ordered Rules investigation |
 | `/events`   | Structured event/diagnostic ownership and missing-buffer state          |
-| `/settings` | Structured capability/settings ownership and fixture-only state         |
+| `/settings` | Structured authenticated capability and settings ownership              |
 
 React Router owns these client routes. Development and Vite preview use SPA
 fallback behavior. Tauri's embedded-asset resolver also returns the bundled
@@ -203,9 +201,10 @@ Automated tests cover:
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events;
 - standalone browser isolation from desktop IPC, explicit bridge-launched
-  browser composition, one-time nonce consumption, strict Host/Origin and
-  loopback endpoint validation, HttpOnly refresh-session recovery, and separation
-  of both the launch nonce and RPC authentication token from the WebSocket URL;
+  browser composition, one-time launch-PIN consumption, bounded manual PIN
+  exchange, strict Host/Origin and loopback endpoint validation, HttpOnly
+  refresh-session plus origin-proof recovery, and separation of both launch
+  material and the RPC authentication token from the WebSocket URL;
 - desktop token generation plus development/production Origin allowlists; and
 - the complete macOS P0 fixture journey across local and HTTPS import,
   validation, activation, Rule/Global/Direct confirmation, System Proxy,
@@ -237,8 +236,9 @@ For a real-client check, launch the desktop shell, choose `Open Browser Client`
 from the status-bar menu, and confirm that Status reports RPC-backed state, a
 refresh of every deep route remains authenticated, and native-only actions such
 as local-file import, backup/restore, support-bundle export, and Sidebar material
-remain unavailable. A direct standalone Vite launch must continue to show demo
-state and make no bootstrap request.
+remain unavailable. Then open the bridge root directly, confirm that no product
+or demo state appears before authentication, enter the six-digit PIN shown by
+the desktop app, and confirm that the browser session survives a refresh.
 
 ## Desktop-bridge replacement gate
 

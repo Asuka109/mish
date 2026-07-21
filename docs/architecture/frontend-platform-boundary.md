@@ -98,9 +98,9 @@ snapshot. Cancellation removes local correlation state and emits
 `apps/web/src/data/rpc-status-client.ts`, `rpc-traffic-client.ts`,
 `rpc-events-client.ts`, and `rpc-diagnostics-client.ts` map this generic
 transport to independent Status, Traffic, Events, and Guided Diagnostics view
-boundaries. Ordinary
-browser startup constructs fixture clients without network or IPC access. The
-Tauri WebView obtains a validated private endpoint and in-memory token through
+boundaries. Ordinary browser startup first attempts a same-origin authenticated
+bootstrap and renders the browser-pairing module when no valid session exists;
+it never falls through to fixture clients. The Tauri WebView obtains a validated private endpoint and in-memory token through
 its narrow bootstrap IPC surface, then composes the adapters over one
 authenticated RPC client.
 
@@ -240,9 +240,9 @@ patch but do not claim validation, persistence, or activation.
 Profile file actions follow the same boundary. Authenticated
 `profiles.openDirectory` opens the single application-managed YAML directory.
 The page header and each Profile card call that same command; cards do not
-expose private revision paths. The Tauri WebView and a browser client launched
-by Mish therefore use the same desktop adapter; standalone browser fixtures
-do not expose the action and never claim a filesystem side effect.
+expose private revision paths. The Tauri WebView and an authenticated browser
+client therefore use the same desktop adapter; test fixture adapters do not
+expose the action and never claim a filesystem side effect.
 
 Protocol version 13 adds the empty-parameter
 `settings.refreshNetworkDns` observation. The result carries explicit source,
@@ -290,9 +290,11 @@ but it is not required merely to optimize a hosted-web cold start.
 uses its application-protocol `index.html` fallback for React Router paths, and
 starts the existing loopback desktop bridge on an ephemeral port. One
 permission-scoped IPC command passes a process-only token and validated endpoint
-to the main WebView. A standalone Vite browser remains fixture-backed; a browser
-explicitly opened from the status-bar menu receives the same RPC composition
-through the bridge's one-time same-origin bootstrap and bundled-asset host. The
+to the main WebView. The bridge-hosted browser origin requires a PIN pairing or
+a valid browser session. A browser explicitly opened from the status-bar menu
+receives the same RPC composition through a high-entropy one-time same-origin
+bootstrap and bundled-asset host. Fixture adapters remain available only to
+tests and explicit development harnesses. The
 detailed resource flow and threat model are documented in
 [`desktop-bootstrap.md`](desktop-bootstrap.md).
 

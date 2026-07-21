@@ -10,7 +10,7 @@ use futures_util::{
     future::{BoxFuture, ready},
 };
 use mish_bridge::{
-    ActivationTiming, BrowserAsset, BrowserAssetSource, DesktopMihomoProcess,
+    ActivationTiming, BrowserAsset, BrowserAssetSource, BrowserPairingPrompt, DesktopMihomoProcess,
     DesktopMihomoProcessConfig, DesktopRuntimeHost, LoopbackServerConfig, ManagedMihomoResolver,
     ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
     ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
@@ -37,6 +37,16 @@ const TOKEN: &str = "test-token-123456789";
 const ORIGIN: &str = "http://mish.test";
 
 struct BrowserAssets;
+
+#[derive(Default)]
+struct RecordingPairingPrompt(Mutex<Vec<String>>);
+
+impl BrowserPairingPrompt for RecordingPairingPrompt {
+    fn show_pin(&self, pin: &str) -> Result<(), String> {
+        self.0.lock().unwrap().push(pin.to_owned());
+        Ok(())
+    }
+}
 
 #[derive(Default)]
 struct RecordingProfileFilePlatform {
@@ -287,6 +297,7 @@ fn config() -> LoopbackServerConfig {
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
         browser_assets: None,
+        browser_pairing_prompt: None,
         max_message_bytes: 1_048_576,
         profile_activation: None,
         profile_file_actions: None,
@@ -354,6 +365,7 @@ async fn authenticate(
 async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let mut bridge_config = config();
     bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
+    bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
     bridge_config.settings_service = Some(settings_service());
     let bridge = start_loopback_server(bridge_config, runtime(no_core()))
         .await
@@ -363,9 +375,14 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let launch_url = browser.issue_launch_url(nonce.clone()).unwrap();
     assert_eq!(
         launch_url,
-        format!("http://{}/#mish-browser-bootstrap={nonce}", bridge.address)
+        format!("http://{}/#mish-browser-pin={nonce}", bridge.address)
     );
     assert!(!launch_url.contains(TOKEN));
+    let second_nonce = "b".repeat(64);
+    assert_eq!(
+        browser.issue_launch_url(second_nonce.clone()).unwrap(),
+        format!("http://{}/#mish-browser-pin={second_nonce}", bridge.address)
+    );
 
     let client = reqwest::Client::new();
     let root = client
@@ -407,7 +424,8 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let bootstrap_url = format!("http://{}/browser-bootstrap", bridge.address);
     let rejected_origin = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser {nonce}"))
+        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", "https://attacker.example")
         .send()
         .await
@@ -416,7 +434,8 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
 
     let accepted = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser {nonce}"))
+        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
         .await
@@ -455,7 +474,8 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
 
     let replay = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser {nonce}"))
+        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
         .await
@@ -466,12 +486,150 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
         .post(&bootstrap_url)
         .header("Cookie", session_cookie)
         .header("Origin", format!("http://{}", bridge.address))
+        .header("X-Mish-Browser-Proof", "b".repeat(64))
         .send()
         .await
         .unwrap();
     assert_eq!(refreshed.status(), reqwest::StatusCode::OK);
     let refreshed_payload: Value = serde_json::from_str(&refreshed.text().await.unwrap()).unwrap();
     assert_eq!(refreshed_payload["authToken"], TOKEN);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_client_pairs_with_a_short_lived_pin_and_port_scoped_proof() {
+    let prompt = Arc::new(RecordingPairingPrompt::default());
+    let mut bridge_config = config();
+    bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
+    bridge_config.browser_pairing_prompt = Some(prompt.clone());
+    bridge_config.settings_service = Some(settings_service());
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let origin = format!("http://{}", bridge.address);
+    let client = reqwest::Client::new();
+
+    let started = client
+        .post(format!("{origin}/browser-pairing"))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(started.status(), reqwest::StatusCode::OK);
+    let challenge: Value = serde_json::from_str(&started.text().await.unwrap()).unwrap();
+    let challenge_id = challenge["challengeId"].as_str().unwrap();
+    assert_eq!(challenge_id.len(), 64);
+    assert_eq!(challenge["expiresInSeconds"], 120);
+    let pin = prompt.0.lock().unwrap().first().unwrap().clone();
+    assert_eq!(pin.len(), 6);
+    assert!(pin.bytes().all(|byte| byte.is_ascii_digit()));
+
+    let proof = "c".repeat(64);
+    let wrong_pin = if pin == "999999" { "000000" } else { "999999" };
+    let wrong = client
+        .post(format!("{origin}/browser-pairing/complete"))
+        .header("Content-Type", "application/json")
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", &proof)
+        .body(json!({"challengeId": challenge_id, "pin": wrong_pin}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let accepted = client
+        .post(format!("{origin}/browser-pairing/complete"))
+        .header("Content-Type", "application/json")
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", &proof)
+        .body(json!({"challengeId": challenge_id, "pin": pin}).to_string())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), reqwest::StatusCode::OK);
+    let session_cookie = accepted.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    assert!(!session_cookie.contains(TOKEN));
+    assert!(!session_cookie.contains(challenge_id));
+    assert!(!session_cookie.contains(&pin));
+
+    let missing_proof = client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header("Cookie", &session_cookie)
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing_proof.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let refreshed = client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header("Cookie", session_cookie)
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", proof)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed.status(), reqwest::StatusCode::OK);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_pairing_locks_after_five_failed_pin_attempts() {
+    let prompt = Arc::new(RecordingPairingPrompt::default());
+    let mut bridge_config = config();
+    bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
+    bridge_config.browser_pairing_prompt = Some(prompt.clone());
+    bridge_config.settings_service = Some(settings_service());
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let origin = format!("http://{}", bridge.address);
+    let client = reqwest::Client::new();
+    let started = client
+        .post(format!("{origin}/browser-pairing"))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    let challenge: Value = serde_json::from_str(&started.text().await.unwrap()).unwrap();
+    let challenge_id = challenge["challengeId"].as_str().unwrap();
+    let pin = prompt.0.lock().unwrap().first().unwrap().clone();
+    let wrong_pin = if pin == "999999" { "000000" } else { "999999" };
+
+    for attempt in 1..=5 {
+        let response = client
+            .post(format!("{origin}/browser-pairing/complete"))
+            .header("Content-Type", "application/json")
+            .header("Origin", &origin)
+            .header("X-Mish-Browser-Proof", "d".repeat(64))
+            .body(json!({"challengeId": challenge_id, "pin": wrong_pin}).to_string())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if attempt == 5 {
+                reqwest::StatusCode::TOO_MANY_REQUESTS
+            } else {
+                reqwest::StatusCode::UNAUTHORIZED
+            }
+        );
+    }
+
+    let locked = client
+        .post(format!("{origin}/browser-pairing"))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(locked.status(), reqwest::StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(prompt.0.lock().unwrap().len(), 1);
     bridge.shutdown().await;
 }
 

@@ -44,6 +44,7 @@ async fn main() -> Result<(), String> {
             auth_token,
             bind: arguments.bind,
             browser_assets: None,
+            browser_pairing_prompt: None,
             max_message_bytes: arguments.max_message_bytes,
             profile_activation: None,
             profile_file_actions: None,

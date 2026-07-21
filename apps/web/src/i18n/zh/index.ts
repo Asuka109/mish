@@ -1092,6 +1092,23 @@ const zh = {
     eyebrow: "Mish 桌面版",
     title: "本地服务不可用",
   },
+  browserAuthentication: {
+    connect: "连接",
+    connecting: "正在连接…",
+    description: "此浏览器需要先获得 Mish 桌面端授权，才能访问本机代理状态。",
+    errors: {
+      expired: "PIN 码已过期，请重新获取后继续。",
+      invalid: "PIN 码不匹配，请查看 Mish 弹窗后重试。",
+      locked: "尝试次数过多，请重新获取 PIN 码。",
+      unavailable: "Mish 无法显示 PIN 码，请确认桌面应用仍在运行。",
+    },
+    eyebrow: "本机私密连接",
+    pinHint: "PIN 码会显示在这台 Mac 的 Mish 弹窗中，并在 {seconds} 秒后过期。",
+    pinLabel: "六位 PIN 码",
+    requestAgain: "重新获取 PIN 码",
+    requesting: "正在请求 Mish 显示 PIN 码…",
+    title: "连接此浏览器",
+  },
   errors: {
     command: "操作失败。",
     commandDisconnected: "操作完成前，Mish 已断开连接。请重新连接后再试。",

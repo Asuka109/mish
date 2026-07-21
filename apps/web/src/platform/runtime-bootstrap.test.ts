@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseRuntimeBootstrap, resolveStartupStatusClient } from "./runtime-bootstrap";
+import {
+  BrowserAuthenticationRequired,
+  parseRuntimeBootstrap,
+  resolveStartupStatusClient,
+} from "./runtime-bootstrap";
 
 const token = "0123456789abcdef".repeat(4);
 const settingsSnapshot = {
@@ -59,30 +63,25 @@ const supportBundleDependencies = {
 };
 
 describe("desktop runtime bootstrap", () => {
-  it("leaves ordinary browser startup fixture-backed and does not invoke IPC", async () => {
+  it("requires authentication for an ordinary browser instead of exposing fixtures", async () => {
     const invokeBootstrap = vi.fn();
     const invokeLocalProfilePreflight = vi.fn();
-    const startup = await resolveStartupStatusClient({
-      invokeBootstrap,
-      invokeLocalProfilePreflight,
-      ...supportBundleDependencies,
-      isDesktop: () => false,
-      openWebSocket: vi.fn(),
-    });
-
-    expect(startup.client).toBeUndefined();
-    expect(startup.profileClient).toBeUndefined();
-    expect(startup.runtime).toBe("browser");
-    expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
-    expect(startup.settingsSnapshot.capabilities.launchAtLogin).toBe("unavailable");
-    expect(startup.supportBundleClient.availability).toBe("unavailable");
-    expect(startup.localBackupClient.availability).toBe("unavailable");
+    await expect(
+      resolveStartupStatusClient({
+        invokeBootstrap,
+        invokeLocalProfilePreflight,
+        ...supportBundleDependencies,
+        isDesktop: () => false,
+        openWebSocket: vi.fn(),
+      }),
+    ).rejects.toBeInstanceOf(BrowserAuthenticationRequired);
     expect(invokeBootstrap).not.toHaveBeenCalled();
     expect(invokeLocalProfilePreflight).not.toHaveBeenCalled();
   });
 
   it("connects an explicitly launched browser client to the authenticated desktop RPC", async () => {
-    const clearNonce = vi.fn();
+    const clearLaunchPin = vi.fn();
+    const saveProof = vi.fn();
     const fetchBootstrap = vi.fn(async () => ({
       authToken: token,
       localBackup: false,
@@ -101,12 +100,13 @@ describe("desktop runtime bootstrap", () => {
 
     const startup = await resolveStartupStatusClient({
       browserBootstrap: {
-        clearNonce,
-        clearSession: vi.fn(),
+        clearLaunchPin,
+        clearProof: vi.fn(),
+        createProof: () => "d".repeat(64),
         fetch: fetchBootstrap,
-        hasSession: () => false,
-        markSession: vi.fn(),
-        nonce: () => "a".repeat(64),
+        launchPin: () => "a".repeat(64),
+        loadProof: () => null,
+        saveProof,
       },
       invokeBootstrap: vi.fn(),
       invokeLocalProfilePreflight: vi.fn(),
@@ -115,8 +115,9 @@ describe("desktop runtime bootstrap", () => {
       openWebSocket,
     });
 
-    expect(fetchBootstrap).toHaveBeenCalledWith("a".repeat(64));
-    expect(clearNonce).toHaveBeenCalledOnce();
+    expect(fetchBootstrap).toHaveBeenCalledWith("a".repeat(64), "d".repeat(64));
+    expect(clearLaunchPin).toHaveBeenCalledOnce();
+    expect(saveProof).toHaveBeenCalledWith("d".repeat(64));
     expect(startup.runtime).toBe("browser");
     expect(startup.settingsSnapshot.adapterKind).toBe("rpc");
     const request = startup.client?.getSnapshot();
@@ -126,7 +127,6 @@ describe("desktop runtime bootstrap", () => {
   });
 
   it("restores an explicitly launched browser client after a page refresh", async () => {
-    const markSession = vi.fn();
     const fetchBootstrap = vi.fn(async () => ({
       authToken: token,
       localBackup: false,
@@ -136,12 +136,13 @@ describe("desktop runtime bootstrap", () => {
     }));
     const startup = await resolveStartupStatusClient({
       browserBootstrap: {
-        clearNonce: vi.fn(),
-        clearSession: vi.fn(),
+        clearLaunchPin: vi.fn(),
+        clearProof: vi.fn(),
+        createProof: () => "d".repeat(64),
         fetch: fetchBootstrap,
-        hasSession: () => true,
-        markSession,
-        nonce: () => null,
+        launchPin: () => null,
+        loadProof: () => "e".repeat(64),
+        saveProof: vi.fn(),
       },
       invokeBootstrap: vi.fn(),
       invokeLocalProfilePreflight: vi.fn(),
@@ -150,8 +151,7 @@ describe("desktop runtime bootstrap", () => {
       openWebSocket: vi.fn(),
     });
 
-    expect(fetchBootstrap).toHaveBeenCalledWith(null);
-    expect(markSession).toHaveBeenCalledOnce();
+    expect(fetchBootstrap).toHaveBeenCalledWith(null, "e".repeat(64));
     expect(startup.settingsSnapshot.adapterKind).toBe("rpc");
     startup.dispose();
   });

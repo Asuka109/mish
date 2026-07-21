@@ -17,10 +17,14 @@ import { TrafficProvider } from "./data/traffic-provider";
 import { EventsProvider } from "./data/events-provider";
 import { SettingsProvider, useSettings } from "./data/settings-provider";
 import { StartupFailure } from "./components/startup-failure";
+import { BrowserAuthentication } from "./components/browser-authentication";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
 import { persistLocale, resolveInitialLocale } from "./i18n/locale";
-import { resolveStartupStatusClient } from "./platform/runtime-bootstrap";
+import {
+  BrowserAuthenticationRequired,
+  resolveStartupStatusClient,
+} from "./platform/runtime-bootstrap";
 import { resolveMobileStartup } from "./platform/mobile-runtime-bootstrap";
 import { resolveRuntimeKind } from "./platform/runtime-kind";
 import { installDesktopNativeFeel } from "./platform/desktop-native-feel";
@@ -130,14 +134,18 @@ async function startApplication() {
         </SettingsProvider>
       </StrictMode>,
     );
-  } catch {
+  } catch (error) {
     const initialLocale = resolveInitialLocale();
     persistLocale(initialLocale);
     renderInitialApplication(
       <StrictMode>
         <AppearanceProvider>
           <TypesafeI18n locale={initialLocale}>
-            <StartupFailure />
+            {error instanceof BrowserAuthenticationRequired ? (
+              <BrowserAuthentication />
+            ) : (
+              <StartupFailure />
+            )}
           </TypesafeI18n>
         </AppearanceProvider>
       </StrictMode>,

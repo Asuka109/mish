@@ -31,11 +31,12 @@ The implemented compact surface contains:
   profile; and
 - quit.
 
-`Open Browser Client` creates a fresh one-time launch nonce and opens the
-desktop bridge's bundled-asset origin in the default browser. The nonce is not
+`Open Browser Client` creates a fresh high-entropy one-time launch PIN and opens
+the desktop bridge's bundled-asset origin in the default browser. The PIN is not
 the RPC credential, is consumed by an Origin-validated bootstrap request, and
-is removed from the address bar immediately. A scoped HttpOnly session permits
-refresh without persisting the RPC credential. Full policy-group child selection
+is carried in the URL fragment and removed from the address bar immediately. A
+scoped HttpOnly session plus an origin-scoped browser proof permits refresh
+without persisting the RPC credential. Full policy-group child selection
 is not duplicated in the native menu in this slice. `Open Routes` remains the
 native progressive-disclosure path.
 

@@ -10,7 +10,7 @@ use std::{
 };
 
 use mish_bridge::{
-    ActivationTiming, BrowserAsset, BrowserAssetSource, DesktopMihomoProcess,
+    ActivationTiming, BrowserAsset, BrowserAssetSource, BrowserPairingPrompt, DesktopMihomoProcess,
     DesktopMihomoProcessConfig, DesktopProfileService, DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES,
     LocalBackupError, LocalBackupPreview, LocalBackupScope, LocalBackupService,
     LocalRestoreConflictResolution, LocalRestorePreview, LocalRestoreResult, LoopbackServerConfig,
@@ -24,7 +24,7 @@ use mish_bridge::{
 use mish_platform_macos::{
     DEV_TUN_SERVICE_CORE_PATH, FileCaptureJournalStore, MacOsLifecycleEventSource,
     MacOsNetworkDnsPlatform, MacOsSystemProxyPlatform, MacOsTunHelperBoundary,
-    MacOsTunHelperPlatform, MacOsTunServiceClient,
+    MacOsTunHelperPlatform, MacOsTunServiceClient, show_browser_pairing_pin,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -79,6 +79,17 @@ impl BrowserAssetSource for TauriBrowserAssetSource {
                 bytes: asset.bytes,
                 content_type: asset.mime_type,
             })
+    }
+}
+
+struct TauriBrowserPairingPrompt(tauri::AppHandle);
+
+impl BrowserPairingPrompt for TauriBrowserPairingPrompt {
+    fn show_pin(&self, pin: &str) -> Result<(), String> {
+        let pin = pin.to_owned();
+        self.0
+            .run_on_main_thread(move || show_browser_pairing_pin(&pin))
+            .map_err(|_| "browser pairing prompt is unavailable".into())
     }
 }
 
@@ -730,6 +741,9 @@ fn initialize(
                 auth_token: auth_token.clone(),
                 bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
                 browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
+                browser_pairing_prompt: Some(Arc::new(TauriBrowserPairingPrompt(
+                    app.handle().clone(),
+                ))),
                 max_message_bytes: 1_048_576,
                 profile_activation: Some(activation.clone()),
                 profile_file_actions: Some(Arc::new(ProfileFileActions::system(

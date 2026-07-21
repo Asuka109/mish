@@ -13,13 +13,15 @@ execution. It composes narrow macOS adapters into the shared runtime. The TUN
 adapter currently exposes only the truthful unsigned/unpackaged non-production
 boundary defined by [`macos-tun-helper.md`](macos-tun-helper.md).
 
-An ordinary browser has no Tauri IPC surface. Standalone Vite startup constructs
-fixture clients, performs no startup request, and labels all fixture values and
-actions as demo state. A browser explicitly launched from the macOS status-bar
-menu instead loads the same offline bundle from the desktop bridge and constructs
-the Status, Profile, Traffic, Events, Diagnostics, and Settings RPC adapters after
-an authenticated same-origin bootstrap. The Tauri WebView uses a separate private
-IPC bootstrap for those adapters.
+An ordinary browser has no Tauri IPC surface. Browser startup always attempts an
+authenticated same-origin bootstrap and renders a dedicated pairing page when
+no valid browser session exists; production startup never constructs fixture
+clients. A browser explicitly launched from the macOS status-bar menu loads the
+same offline bundle from the desktop bridge and exchanges a one-time fragment
+PIN automatically. A direct bridge URL requests a human-entered PIN from the
+desktop app. Both paths construct the Status, Profile, Traffic, Events,
+Diagnostics, and Settings RPC adapters only after authentication. The Tauri
+WebView uses a separate private IPC bootstrap for those adapters.
 
 ## Local resource flow
 
@@ -74,9 +76,11 @@ IPC bootstrap for those adapters.
     Sidebar material. The WebView uses this capability only to expose the matching
     sidebar/window-base pixels; product components do not branch on Tauri or the
     operating system.
-12. The token remains in process memory for reconnect authentication. Neither
-    side writes it to a file, URL, log, query string, fragment, cookie,
-    `localStorage`, or `sessionStorage`.
+12. The RPC token remains in process memory for reconnect authentication.
+    Neither side writes it to a file, URL, log, query string, fragment, cookie,
+    `localStorage`, or `sessionStorage`. Browser storage contains only an
+    independently random origin proof; the HttpOnly cookie contains only an
+    independently random, process-local browser-session token.
 13. Profile activation reloads a repository-owned valid artifact, resolves only
     the managed pinned binary, and commits the new runtime after Controller,
     Status and Traffic readiness plus an open redacted Events stream.
@@ -99,20 +103,32 @@ features, restrict scripts, styles, fonts, images, and WebSocket connections to
 the local application origin, and never depend on a CDN.
 
 Each `Open Browser Client` action creates a fresh 256-bit lowercase hexadecimal
-launch nonce, stores only the latest nonce in process memory, and places it in the
-URL fragment. The actual RPC token and endpoint never appear in the URL. Browser
-startup posts the nonce to `/browser-bootstrap` from the same origin, and the
-bridge validates the loopback peer, exact Host, exact Origin, and nonce in
-constant time before consuming it. A successful nonce cannot be replayed. The
-response is non-cacheable and contains the RPC bootstrap in its body; the Web
-client clears the fragment immediately and retains the RPC token only in memory.
-A successful exchange also establishes a scoped HttpOnly, SameSite session
-cookie whose value is the launch nonce, not the RPC token. A non-secret
-`sessionStorage` marker tells the same browser tab to request a fresh in-memory
-bootstrap after navigation or refresh. The bridge accepts only a bounded set of
-process-local browser sessions and applies the same loopback, Host, and Origin
-checks to every refresh. If that process session is gone, the marker is cleared
-and the page cannot claim an authenticated RPC runtime.
+launch PIN, stores it in a bounded two-minute process-memory queue, and places it in the URL
+fragment. The actual RPC token and endpoint never appear in the URL. Browser
+startup posts the PIN plus a fresh origin proof to `/browser-bootstrap` from the
+same origin, and the bridge validates the loopback peer, exact Host, exact
+Origin, and PIN in constant time before consuming it. A successful PIN cannot be
+replayed. The response is non-cacheable and contains the RPC bootstrap in its
+body; the Web client clears the fragment immediately and retains the RPC token
+only in memory.
+
+A direct browser visit first attempts `/browser-bootstrap`. Without a valid
+session it renders the pairing page and posts to `/browser-pairing`. The bridge
+keeps at most one pending challenge, obtains a six-digit PIN from the operating
+system CSPRNG, gives it a two-minute lifetime and five attempts followed by a
+one-minute process lockout, and asks the
+injected native prompt adapter to display it. `/browser-pairing/complete`
+validates the opaque challenge ID and PIN in constant time and consumes the
+challenge before returning the bootstrap.
+
+Both exchanges establish a fresh scoped HttpOnly, SameSite session cookie whose
+value is independently random rather than a launch PIN, manual PIN, or RPC
+token. The session is accepted only together with a second random proof in
+origin-scoped `localStorage`. This split is required because cookies do not
+isolate ports while browser origins do. The bridge accepts only a bounded set of
+process-local browser sessions and applies the same loopback, Host, Origin,
+cookie, and proof checks to every refresh. If either half is gone, the page
+returns to pairing and cannot claim an authenticated RPC runtime.
 
 The browser client shares the desktop runtime but cannot acquire Tauri-only
 capabilities. Native local-file import, support-bundle export, local backup and

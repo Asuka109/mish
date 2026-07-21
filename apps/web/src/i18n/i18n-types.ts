@@ -4035,6 +4035,63 @@ type RootTranslation = {
 		 */
 		title: string
 	}
+	browserAuthentication: {
+		/**
+		 * C​o​n​n​e​c​t
+		 */
+		connect: string
+		/**
+		 * C​o​n​n​e​c​t​i​n​g​…
+		 */
+		connecting: string
+		/**
+		 * M​i​s​h​ ​n​e​e​d​s​ ​a​p​p​r​o​v​a​l​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​a​p​p​ ​b​e​f​o​r​e​ ​t​h​i​s​ ​b​r​o​w​s​e​r​ ​c​a​n​ ​a​c​c​e​s​s​ ​l​o​c​a​l​ ​p​r​o​x​y​ ​s​t​a​t​e​.
+		 */
+		description: string
+		errors: {
+			/**
+			 * T​h​i​s​ ​P​I​N​ ​e​x​p​i​r​e​d​.​ ​R​e​q​u​e​s​t​ ​a​ ​n​e​w​ ​o​n​e​ ​t​o​ ​c​o​n​t​i​n​u​e​.
+			 */
+			expired: string
+			/**
+			 * T​h​a​t​ ​P​I​N​ ​d​o​e​s​ ​n​o​t​ ​m​a​t​c​h​.​ ​C​h​e​c​k​ ​t​h​e​ ​M​i​s​h​ ​d​i​a​l​o​g​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
+			 */
+			invalid: string
+			/**
+			 * T​o​o​ ​m​a​n​y​ ​a​t​t​e​m​p​t​s​ ​w​e​r​e​ ​m​a​d​e​.​ ​R​e​q​u​e​s​t​ ​a​ ​n​e​w​ ​P​I​N​.
+			 */
+			locked: string
+			/**
+			 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​h​o​w​ ​a​ ​P​I​N​.​ ​M​a​k​e​ ​s​u​r​e​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​a​p​p​ ​i​s​ ​s​t​i​l​l​ ​r​u​n​n​i​n​g​.
+			 */
+			unavailable: string
+		}
+		/**
+		 * P​r​i​v​a​t​e​ ​l​o​c​a​l​ ​c​o​n​n​e​c​t​i​o​n
+		 */
+		eyebrow: string
+		/**
+		 * T​h​e​ ​P​I​N​ ​i​s​ ​s​h​o​w​n​ ​b​y​ ​M​i​s​h​ ​o​n​ ​t​h​i​s​ ​M​a​c​ ​a​n​d​ ​e​x​p​i​r​e​s​ ​i​n​ ​{​s​e​c​o​n​d​s​}​ ​s​e​c​o​n​d​s​.
+		 * @param {number} seconds
+		 */
+		pinHint: RequiredParams<'seconds'>
+		/**
+		 * S​i​x​-​d​i​g​i​t​ ​P​I​N
+		 */
+		pinLabel: string
+		/**
+		 * R​e​q​u​e​s​t​ ​a​ ​n​e​w​ ​P​I​N
+		 */
+		requestAgain: string
+		/**
+		 * A​s​k​i​n​g​ ​M​i​s​h​ ​t​o​ ​s​h​o​w​ ​a​ ​P​I​N​…
+		 */
+		requesting: string
+		/**
+		 * C​o​n​n​e​c​t​ ​t​h​i​s​ ​b​r​o​w​s​e​r
+		 */
+		title: string
+	}
 	errors: {
 		/**
 		 * T​h​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.
@@ -8006,6 +8063,62 @@ export type TranslationFunctions = {
 		eyebrow: () => LocalizedString
 		/**
 		 * Local service unavailable
+		 */
+		title: () => LocalizedString
+	}
+	browserAuthentication: {
+		/**
+		 * Connect
+		 */
+		connect: () => LocalizedString
+		/**
+		 * Connecting…
+		 */
+		connecting: () => LocalizedString
+		/**
+		 * Mish needs approval from the desktop app before this browser can access local proxy state.
+		 */
+		description: () => LocalizedString
+		errors: {
+			/**
+			 * This PIN expired. Request a new one to continue.
+			 */
+			expired: () => LocalizedString
+			/**
+			 * That PIN does not match. Check the Mish dialog and try again.
+			 */
+			invalid: () => LocalizedString
+			/**
+			 * Too many attempts were made. Request a new PIN.
+			 */
+			locked: () => LocalizedString
+			/**
+			 * Mish could not show a PIN. Make sure the desktop app is still running.
+			 */
+			unavailable: () => LocalizedString
+		}
+		/**
+		 * Private local connection
+		 */
+		eyebrow: () => LocalizedString
+		/**
+		 * The PIN is shown by Mish on this Mac and expires in {seconds} seconds.
+		 */
+		pinHint: (arg: { seconds: number }) => LocalizedString
+		/**
+		 * Six-digit PIN
+		 */
+		pinLabel: () => LocalizedString
+		/**
+		 * Request a new PIN
+		 */
+		requestAgain: () => LocalizedString
+		/**
+		 * Asking Mish to show a PIN…
+		 */
+		requesting: () => LocalizedString
+		/**
+		 * Connect this browser
 		 */
 		title: () => LocalizedString
 	}

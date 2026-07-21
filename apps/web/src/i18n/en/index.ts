@@ -1203,6 +1203,24 @@ const en = {
     eyebrow: "Mish desktop",
     title: "Local service unavailable",
   },
+  browserAuthentication: {
+    connect: "Connect",
+    connecting: "Connecting…",
+    description:
+      "Mish needs approval from the desktop app before this browser can access local proxy state.",
+    errors: {
+      expired: "This PIN expired. Request a new one to continue.",
+      invalid: "That PIN does not match. Check the Mish dialog and try again.",
+      locked: "Too many attempts were made. Request a new PIN.",
+      unavailable: "Mish could not show a PIN. Make sure the desktop app is still running.",
+    },
+    eyebrow: "Private local connection",
+    pinHint: "The PIN is shown by Mish on this Mac and expires in {seconds:number} seconds.",
+    pinLabel: "Six-digit PIN",
+    requestAgain: "Request a new PIN",
+    requesting: "Asking Mish to show a PIN…",
+    title: "Connect this browser",
+  },
   errors: {
     command: "The command failed.",
     commandDisconnected: "The local service disconnected before the command could be confirmed.",
