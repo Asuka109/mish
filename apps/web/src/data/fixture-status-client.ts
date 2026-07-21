@@ -38,7 +38,7 @@ const defaultServices: ServiceMonitorDto[] = [
     icon: SERVICE_ICON_URLS.microsoft,
     id: "microsoft",
     label: "Microsoft",
-    url: "https://www.msftconnecttest.com/connecttest.txt",
+    url: "http://www.msftconnecttest.com/connecttest.txt",
   },
 ];
 
@@ -269,7 +269,7 @@ const initialSnapshot: StatusSnapshotDto = {
     },
     tunEnabled: false,
   },
-  serviceProbePolicy: { intervalSeconds: 60 },
+  serviceProbePolicy: { intervalSeconds: 5 },
   services: defaultServices,
   traffic: {
     downloadBytesPerSecond: 2_568_192,

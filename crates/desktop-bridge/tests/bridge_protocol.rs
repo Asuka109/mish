@@ -1181,7 +1181,7 @@ async fn service_probes_remain_available_while_core_is_stopped() {
     assert_eq!(snapshot["result"]["runtime"]["phase"], "inactive");
     assert_eq!(
         snapshot["result"]["serviceProbePolicy"]["intervalSeconds"],
-        60
+        5
     );
     assert_eq!(snapshot["result"]["services"].as_array().unwrap().len(), 6);
     assert_eq!(

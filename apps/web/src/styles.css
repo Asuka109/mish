@@ -1233,6 +1233,10 @@ h2 {
   color: var(--color-error);
 }
 
+.service-monitor-latency[data-status="warning"] {
+  color: var(--color-warning);
+}
+
 .service-monitor-latency .ui-spinner {
   width: 13px;
   height: 13px;
@@ -1242,10 +1246,23 @@ h2 {
   width: min(420px, calc(100vw - 32px));
 }
 
+.service-manager-dialog .dialog-header {
+  justify-content: space-between;
+  gap: var(--mish-spacing-md);
+}
+
+.service-manager-dialog .dialog-header > div {
+  min-width: 0;
+}
+
 .service-manager-list {
   max-height: min(360px, calc(100vh - 180px));
   overflow: auto;
   padding: 4px 0 6px;
+}
+
+.service-manager-footer {
+  justify-content: flex-start;
 }
 
 .ui-button.service-manager-row {

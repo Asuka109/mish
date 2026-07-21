@@ -15,6 +15,20 @@ describe("FixtureStatusClient", () => {
     expect(second.runtime.captureSelection.systemProxy).toBe(false);
   });
 
+  it("uses the HTTP Microsoft connectivity-test endpoint by default", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+
+    expect(snapshot.services.find((service) => service.id === "microsoft")?.url).toBe(
+      "http://www.msftconnecttest.com/connecttest.txt",
+    );
+  });
+
+  it("defaults service probes to a five-second interval", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+
+    expect(snapshot.serviceProbePolicy.intervalSeconds).toBe(5);
+  });
+
   it("keeps group selections scoped to group membership", async () => {
     const client = new FixtureStatusClient();
     await expect(client.selectGroupChild("streaming", "hkg-01")).rejects.toThrow(

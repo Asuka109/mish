@@ -1935,10 +1935,7 @@ describe("desktop RPC experience", () => {
     expect(
       within(menu).getByText("This action is not supported by the current local service."),
     ).toBeVisible();
-    expect(within(menu).getByText("Add service").closest("[role='menuitem']")).toHaveAttribute(
-      "data-disabled",
-    );
-    expect(within(menu).getByText("Restore defaults").closest("[role='menuitem']")).toHaveAttribute(
+    expect(within(menu).getByText("Edit services…").closest("[role='menuitem']")).toHaveAttribute(
       "data-disabled",
     );
     expect(
@@ -2478,10 +2475,13 @@ describe("Status fixture experience", () => {
     await screen.findByText("Fixture activity at a glance.");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Restore defaults" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
+    await user.click(within(manager).getByRole("button", { name: "Restore defaults" }));
 
     await waitFor(() => expect(errorToast).toHaveBeenCalledWith("The command failed."));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(within(manager).getByRole("button", { name: "Close" }));
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
     expect(successToast).not.toHaveBeenCalled();
@@ -2495,12 +2495,17 @@ describe("Status fixture experience", () => {
     await screen.findByText("Fixture activity at a glance.");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
+    expect(await screen.findByRole("menuitemradio", { name: "Every 5 seconds" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    expect(screen.getByRole("menuitemradio", { name: "Never" })).toBeVisible();
     await user.click(await screen.findByRole("menuitemradio", { name: "Every 10 seconds" }));
 
     await waitFor(() => expect(setInterval).toHaveBeenCalledWith(10, expect.any(Object)));
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitemradio", { name: "Disable automatic tests" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Never" }));
     await waitFor(() => expect(setInterval).toHaveBeenCalledWith(0, expect.any(Object)));
   });
 
@@ -2643,7 +2648,9 @@ describe("Status fixture experience", () => {
     await screen.findByText("Fixture activity at a glance.");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Add service" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
+    await user.click(within(manager).getByRole("button", { name: "Add service" }));
 
     const title = await screen.findByRole("textbox", { name: "Title" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
