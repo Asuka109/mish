@@ -149,7 +149,7 @@ export function TrafficPage() {
   }
 
   return (
-    <div className="traffic-page page-scroll">
+    <div className="traffic-page">
       <header className="traffic-header">
         <div>
           <h1>{LL.traffic.title()}</h1>

@@ -1175,7 +1175,7 @@ describe("production routes", () => {
     const statusHeading = await screen.findByRole("heading", { name: "Status" });
     await waitFor(() => expect(document.title).toBe("Status — Mish"));
     expect(statusHeading).not.toHaveFocus();
-    const statusScroller = statusHeading.closest<HTMLElement>(".page-scroll");
+    const statusScroller = document.querySelector<HTMLElement>(".workspace-page-scroll");
     expect(statusScroller).not.toBeNull();
     statusScroller!.scrollTop = 180;
     fireEvent.scroll(statusScroller!);
@@ -1185,9 +1185,9 @@ describe("production routes", () => {
     await waitFor(() => expect(routesHeading).toHaveFocus());
     await user.click(screen.getByRole("link", { name: "Status" }));
 
-    const restoredHeading = await screen.findByRole("heading", { name: "Status" });
+    await screen.findByRole("heading", { name: "Status" });
     await waitFor(() =>
-      expect(restoredHeading.closest<HTMLElement>(".page-scroll")?.scrollTop).toBe(180),
+      expect(document.querySelector<HTMLElement>(".workspace-page-scroll")?.scrollTop).toBe(180),
     );
   });
 

@@ -25,6 +25,13 @@ interface LayoutMeasurement {
   tableHasLocalScroll: boolean | null;
 }
 
+interface SidebarRowGeometry {
+  height: number;
+  iconCenter: number;
+  labelLeft: number;
+  left: number;
+}
+
 function hasLocalHorizontalScroller(element: Element): boolean {
   let ancestor = element.parentElement;
 
@@ -43,7 +50,7 @@ function hasLocalHorizontalScroller(element: Element): boolean {
 }
 
 function measureLayout(): LayoutMeasurement {
-  const pageScroll = document.querySelector<HTMLElement>(".page-scroll");
+  const pageScroll = document.querySelector<HTMLElement>(".workspace-page-scroll");
   const sidebar = document.querySelector<HTMLElement>(".sidebar");
   const navigationItems = [...document.querySelectorAll<HTMLElement>(".nav-item")];
   const controls = [
@@ -104,13 +111,56 @@ function measureLayout(): LayoutMeasurement {
   };
 }
 
+function measureSidebarRow(
+  row: HTMLElement,
+  label: HTMLElement,
+  icon: HTMLElement,
+): SidebarRowGeometry {
+  const rowRect = row.getBoundingClientRect();
+  const iconRect = icon.getBoundingClientRect();
+  const labelRect = label.getBoundingClientRect();
+
+  return {
+    height: Math.round(rowRect.height * 100) / 100,
+    iconCenter: Math.round((iconRect.left + iconRect.width / 2) * 100) / 100,
+    labelLeft: Math.round(labelRect.left * 100) / 100,
+    left: Math.round(rowRect.left * 100) / 100,
+  };
+}
+
+function appendProxyControlFixture(
+  status: "inactive" | "connecting" | "error" | "healthy",
+  label: string,
+) {
+  const button = document.createElement("button");
+  button.className = "ui-button ui-button--ghost ui-button--default proxy-control-button";
+  button.dataset.status = status;
+  button.type = "button";
+  button.innerHTML = `
+    <span class="proxy-control-state proxy-control-default">
+      <svg aria-hidden="true" viewBox="0 0 18 18"></svg>
+      <span class="proxy-control-label">${label}</span>
+    </span>
+    ${
+      status === "healthy"
+        ? `<span aria-hidden="true" class="proxy-control-state proxy-control-hover">
+            <svg viewBox="0 0 18 18"></svg>
+            <span class="proxy-control-label">Stop proxy</span>
+          </span>`
+        : ""
+    }
+  `;
+  document.querySelector(".sidebar-bottom-items")?.append(button);
+  return button;
+}
+
 async function navigate(path: string): Promise<void> {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
 
   await vi.waitFor(() => {
     expect(window.location.pathname).toBe(path);
-    expect(document.querySelector("main .page-scroll")).not.toBeNull();
+    expect(document.querySelector("main .workspace-page-scroll")).not.toBeNull();
     expect(document.querySelector("main .route-loading")).toBeNull();
     expect(document.querySelector(".nav-item.is-active")?.getAttribute("href")).toBe(path);
 
@@ -148,6 +198,124 @@ beforeAll(async () => {
 });
 
 describe("responsive application shell", () => {
+  test("uses one desktop grid for destination, Settings, and every proxy-control state", async () => {
+    await page.viewport(800, 600);
+    const root = document.documentElement;
+    const initialTheme = root.dataset.theme;
+    const initialWindowSurface = root.dataset.windowSurface;
+
+    try {
+      for (const variant of [
+        {
+          label: "English light opaque",
+          locale: "English",
+          proxyLabel: "Launch proxy",
+          theme: "light",
+          windowSurface: "opaque",
+        },
+        {
+          label: "简体中文 dark material",
+          locale: "简体中文",
+          proxyLabel: "启动代理",
+          theme: "dark",
+          windowSurface: "material",
+        },
+      ] as const) {
+        root.dataset.theme = variant.theme;
+        root.dataset.windowSurface = variant.windowSurface;
+        await selectLocale(variant.locale);
+        await navigate("/status");
+
+        const rows = [...document.querySelectorAll<HTMLElement>(".nav-item")];
+        const settings = document.querySelector<HTMLElement>(".settings-link");
+        if (!settings) throw new Error("Missing Settings navigation row");
+
+        const reference = measureSidebarRow(
+          settings,
+          settings.querySelector<HTMLElement>(":scope > span") as HTMLElement,
+          settings.querySelector<HTMLElement>("svg") as HTMLElement,
+        );
+        const fixtures = [
+          appendProxyControlFixture("inactive", variant.proxyLabel),
+          appendProxyControlFixture("connecting", "Pending"),
+          appendProxyControlFixture("error", "Needs attention"),
+          appendProxyControlFixture("healthy", "Proxy running"),
+        ];
+
+        try {
+          for (const row of rows) {
+            const geometry = measureSidebarRow(
+              row,
+              row.querySelector<HTMLElement>(":scope > span") as HTMLElement,
+              row.querySelector<HTMLElement>("svg") as HTMLElement,
+            );
+            expect(geometry, `${variant.label}: destination`).toEqual(reference);
+          }
+
+          for (const fixture of fixtures) {
+            const defaultState = fixture.querySelector<HTMLElement>(".proxy-control-default");
+            const label = defaultState?.querySelector<HTMLElement>(".proxy-control-label");
+            const icon = defaultState?.querySelector<HTMLElement>("svg");
+            if (!defaultState || !label || !icon)
+              throw new Error("Missing proxy state fixture content");
+            expect(
+              measureSidebarRow(fixture, label, icon),
+              `${variant.label}: proxy state`,
+            ).toEqual(reference);
+          }
+
+          const running = fixtures.at(-1) as HTMLButtonElement;
+          const hoverState = running.querySelector<HTMLElement>(".proxy-control-hover");
+          const hoverLabel = hoverState?.querySelector<HTMLElement>(".proxy-control-label");
+          const hoverIcon = hoverState?.querySelector<HTMLElement>("svg");
+          if (!hoverState || !hoverLabel || !hoverIcon)
+            throw new Error("Missing running hover state");
+          expect(measureSidebarRow(running, hoverLabel, hoverIcon)).toEqual(reference);
+
+          await page.elementLocator(running).hover();
+          await vi.waitFor(() => expect(getComputedStyle(hoverState).opacity).toBe("1"));
+          expect(getComputedStyle(running).height).toBe("36px");
+        } finally {
+          for (const fixture of fixtures) fixture.remove();
+        }
+      }
+    } finally {
+      if (initialTheme === undefined) delete root.dataset.theme;
+      else root.dataset.theme = initialTheme;
+      if (initialWindowSurface === undefined) delete root.dataset.windowSurface;
+      else root.dataset.windowSurface = initialWindowSurface;
+    }
+  });
+
+  test("scrolls the full workspace viewport while preserving the centered Settings column", async () => {
+    await page.viewport(1440, 900);
+    await selectLocale("English");
+    await navigate("/settings");
+
+    const workspace = document.querySelector<HTMLElement>("main.workspace");
+    const scroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
+    const settings = document.querySelector<HTMLElement>(".settings-page");
+    if (!workspace || !scroller || !settings) throw new Error("Missing workspace scroll layout");
+
+    const workspaceRect = workspace.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    const settingsRect = settings.getBoundingClientRect();
+    expect(scrollerRect.left).toBeCloseTo(workspaceRect.left + 1, 0);
+    expect(scrollerRect.right).toBeCloseTo(workspaceRect.right - 1, 0);
+    expect(scrollerRect.top).toBeCloseTo(workspaceRect.top + 57, 0);
+    expect(settingsRect.width).toBeLessThan(scroller.clientWidth);
+    expect(settingsRect.left).toBeGreaterThan(scrollerRect.left + 1);
+    expect(settingsRect.right).toBeLessThan(scrollerRect.right - 1);
+    expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight);
+    expect(document.querySelectorAll("main .workspace-page-scroll")).toHaveLength(1);
+    expect(document.querySelectorAll("main .page-scroll")).toHaveLength(0);
+    expect(getComputedStyle(settings).overflowY).not.toMatch(/auto|scroll/);
+
+    const initialScrollTop = scroller.scrollTop;
+    await page.elementLocator(scroller).wheel({ delta: { y: 240 } });
+    await vi.waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(initialScrollTop));
+  });
+
   test("opens the service Manage menu with pointer and keyboard input", async () => {
     await page.viewport(800, 600);
     await selectLocale("English");
@@ -183,6 +351,14 @@ describe("responsive application shell", () => {
             1,
           );
           expect(measurement.pageOverflow, `${context}: page overflow`).toBeLessThanOrEqual(1);
+          expect(
+            document.querySelectorAll("main .workspace-page-scroll"),
+            `${context}: one primary page scroller`,
+          ).toHaveLength(1);
+          expect(
+            document.querySelectorAll("main .page-scroll"),
+            `${context}: no nested route page scroller`,
+          ).toHaveLength(0);
           expect(measurement.navigationCount, `${context}: primary navigation items`).toBe(6);
           expect(
             measurement.navigationLabelsClipped,

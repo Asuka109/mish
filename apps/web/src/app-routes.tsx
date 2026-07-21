@@ -31,7 +31,7 @@ export function RoutePending() {
   }, []);
 
   return (
-    <div aria-busy="true" className="page-scroll route-loading">
+    <div aria-busy="true" className="route-loading">
       {visible ? (
         <div className="route-loading-indicator" role="status">
           <Spinner />
