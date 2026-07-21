@@ -25,6 +25,7 @@ use mish_settings::{
     WindowSurfacePreference,
 };
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -57,6 +58,7 @@ pub(crate) struct ProtocolState {
     pub runtime: crate::DesktopRuntimeHost,
     pub service_probes: Option<crate::service_probes::ServiceProbeService>,
     pub settings_service: Option<std::sync::Arc<SettingsService>>,
+    pub socket_shutdown: CancellationToken,
 }
 
 impl ProtocolState {
@@ -312,6 +314,10 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     loop {
         tokio::select! {
             biased;
+            _ = state.socket_shutdown.cancelled() => {
+                let _ = sender.send(Message::Close(None)).await;
+                break;
+            }
             changed = runtime_changes.changed() => {
                 if changed.is_err() { break; }
                 let runtime = runtime_changes.borrow_and_update().clone();

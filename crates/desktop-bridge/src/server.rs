@@ -14,12 +14,13 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use mish_runtime::{MishRuntime, PlatformLifecycleEventSource};
+use mish_runtime::{MishRuntime, PlatformLifecycleEventSource, RuntimeShutdownFailure};
 use mish_settings::{SettingsAdapterKind, SettingsAvailability, SettingsService};
 use serde::Deserialize;
 use serde_json::json;
 use subtle::ConstantTimeEq;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 use crate::lifecycle::spawn_lifecycle_coordination;
 use crate::protocol::{ProtocolState, serve_socket};
@@ -60,6 +61,7 @@ const BROWSER_PAIRING_ATTEMPTS: u8 = 5;
 const BROWSER_PAIRING_LIFETIME: Duration = Duration::from_secs(120);
 const BROWSER_PAIRING_LOCKOUT: Duration = Duration::from_secs(60);
 const BROWSER_SESSION_LIMIT: usize = 8;
+const RPC_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct BrowserPairing {
     attempts_remaining: u8,
@@ -128,14 +130,59 @@ struct HttpState {
 
 pub struct LoopbackServerHandle {
     pub address: SocketAddr,
-    audit_join: JoinHandle<()>,
+    audit_join: Option<JoinHandle<()>>,
     audit_shutdown: Option<oneshot::Sender<()>>,
-    join: JoinHandle<()>,
+    join: Option<JoinHandle<std::io::Result<()>>>,
     profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     shutdown: Option<oneshot::Sender<()>>,
     runtime: DesktopRuntimeHost,
     service_probes: Option<crate::service_probes::ServiceProbeService>,
+    socket_shutdown: CancellationToken,
     browser_client: Option<BrowserClientHandle>,
+    terminal_failure: Option<BridgeShutdownFailure>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BridgeShutdownFailure {
+    AuditJoin,
+    ProfileBackgroundTask,
+    ProfileMutationBusy,
+    CaptureRestoration,
+    CoreStop,
+    StateCommit,
+    RuntimeCaptureRestoration,
+    RuntimeCoreStop,
+    RpcServe,
+    RpcJoin,
+    RpcJoinTimeout,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BridgeShutdownReport {
+    pub audit_stopped: bool,
+    pub profile_activation_stopped: bool,
+    pub capture_restored: bool,
+    pub core_stopped: bool,
+    pub rpc_closed: bool,
+}
+
+impl BridgeShutdownReport {
+    pub fn permits_exit(self) -> bool {
+        self.audit_stopped
+            && self.profile_activation_stopped
+            && self.capture_restored
+            && self.core_stopped
+            && self.rpc_closed
+    }
+}
+
+pub enum BridgeShutdownOutcome {
+    Confirmed(BridgeShutdownReport),
+    Failed {
+        failure: BridgeShutdownFailure,
+        handle: Box<LoopbackServerHandle>,
+        report: BridgeShutdownReport,
+    },
 }
 
 impl LoopbackServerHandle {
@@ -143,22 +190,111 @@ impl LoopbackServerHandle {
         self.browser_client.clone()
     }
 
-    pub async fn shutdown(mut self) {
+    pub async fn shutdown(mut self) -> BridgeShutdownOutcome {
+        let mut report = BridgeShutdownReport::default();
+        if let Some(failure) = self.terminal_failure {
+            return BridgeShutdownOutcome::Failed {
+                failure,
+                handle: Box::new(self),
+                report,
+            };
+        }
         if let Some(shutdown) = self.audit_shutdown.take() {
             let _ = shutdown.send(());
         }
-        let _ = self.audit_join.await;
-        if let Some(profile_activation) = &self.profile_activation {
-            let _ = profile_activation.shutdown().await;
+        if let Some(join) = self.audit_join.take()
+            && join.await.is_err()
+        {
+            return BridgeShutdownOutcome::Failed {
+                failure: BridgeShutdownFailure::AuditJoin,
+                handle: Box::new(self),
+                report,
+            };
         }
+        report.audit_stopped = true;
+        if let Some(profile_activation) = &self.profile_activation
+            && let Err(failure) = profile_activation.shutdown_for_exit().await
+        {
+            let failure = match failure {
+                crate::ProfileActivationShutdownFailure::BackgroundTask => {
+                    BridgeShutdownFailure::ProfileBackgroundTask
+                }
+                crate::ProfileActivationShutdownFailure::MutationBusy => {
+                    BridgeShutdownFailure::ProfileMutationBusy
+                }
+                crate::ProfileActivationShutdownFailure::CaptureRestoration => {
+                    BridgeShutdownFailure::CaptureRestoration
+                }
+                crate::ProfileActivationShutdownFailure::CoreStop => {
+                    BridgeShutdownFailure::CoreStop
+                }
+                crate::ProfileActivationShutdownFailure::StateCommit => {
+                    BridgeShutdownFailure::StateCommit
+                }
+            };
+            return BridgeShutdownOutcome::Failed {
+                failure,
+                handle: Box::new(self),
+                report,
+            };
+        }
+        if self.profile_activation.is_some() {
+            report.capture_restored = true;
+            report.core_stopped = true;
+        }
+        report.profile_activation_stopped = true;
         if let Some(service_probes) = &self.service_probes {
             service_probes.shutdown();
         }
-        let _ = self.runtime.current().shutdown().await;
+        if let Err(failure) = self.runtime.current().shutdown().await {
+            return BridgeShutdownOutcome::Failed {
+                failure: match failure {
+                    RuntimeShutdownFailure::CaptureRestoration => {
+                        BridgeShutdownFailure::RuntimeCaptureRestoration
+                    }
+                    RuntimeShutdownFailure::CoreStop => BridgeShutdownFailure::RuntimeCoreStop,
+                },
+                handle: Box::new(self),
+                report,
+            };
+        }
+        report.capture_restored = true;
+        report.core_stopped = true;
         if let Some(shutdown) = self.shutdown.take() {
+            self.socket_shutdown.cancel();
             let _ = shutdown.send(());
         }
-        let _ = self.join.await;
+        if let Some(mut join) = self.join.take() {
+            match tokio::time::timeout(RPC_SHUTDOWN_TIMEOUT, &mut join).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(_))) => {
+                    self.terminal_failure = Some(BridgeShutdownFailure::RpcServe);
+                    return BridgeShutdownOutcome::Failed {
+                        failure: BridgeShutdownFailure::RpcServe,
+                        handle: Box::new(self),
+                        report,
+                    };
+                }
+                Ok(Err(_)) => {
+                    self.terminal_failure = Some(BridgeShutdownFailure::RpcJoin);
+                    return BridgeShutdownOutcome::Failed {
+                        failure: BridgeShutdownFailure::RpcJoin,
+                        handle: Box::new(self),
+                        report,
+                    };
+                }
+                Err(_) => {
+                    self.join = Some(join);
+                    return BridgeShutdownOutcome::Failed {
+                        failure: BridgeShutdownFailure::RpcJoinTimeout,
+                        handle: Box::new(self),
+                        report,
+                    };
+                }
+            }
+        }
+        report.rpc_closed = true;
+        BridgeShutdownOutcome::Confirmed(report)
     }
 }
 
@@ -251,6 +387,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         address,
         pending_launch_pins,
     });
+    let socket_shutdown = CancellationToken::new();
     let state = Arc::new(HttpState {
         allowed_hosts,
         allowed_origins,
@@ -263,6 +400,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             runtime: runtime.clone(),
             service_probes: service_probes.clone(),
             settings_service: config.settings_service,
+            socket_shutdown: socket_shutdown.clone(),
         },
         max_message_bytes: config.max_message_bytes,
     });
@@ -284,25 +422,27 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         audit_shutdown_rx,
     );
     let join = tokio::spawn(async move {
-        let _ = axum::serve(
+        axum::serve(
             listener,
             app.into_make_service_with_connect_info::<SocketAddr>(),
         )
         .with_graceful_shutdown(async {
             let _ = shutdown_rx.await;
         })
-        .await;
+        .await
     });
     Ok(LoopbackServerHandle {
         address,
-        audit_join,
+        audit_join: Some(audit_join),
         audit_shutdown: Some(audit_shutdown_tx),
-        join,
+        join: Some(join),
         profile_activation,
         shutdown: Some(shutdown_tx),
         runtime,
         service_probes,
+        socket_shutdown,
         browser_client,
+        terminal_failure: None,
     })
 }
 
@@ -731,4 +871,46 @@ fn valid_origin(state: &HttpState, headers: &HeaderMap) -> bool {
         .get("origin")
         .and_then(|value| value.to_str().ok())
         .is_some_and(|origin| state.allowed_origins.contains(origin))
+}
+
+#[cfg(test)]
+mod shutdown_report_tests {
+    use super::BridgeShutdownReport;
+
+    #[test]
+    fn exit_requires_every_ordered_shutdown_confirmation() {
+        let confirmed = BridgeShutdownReport {
+            audit_stopped: true,
+            profile_activation_stopped: true,
+            capture_restored: true,
+            core_stopped: true,
+            rpc_closed: true,
+        };
+        assert!(confirmed.permits_exit());
+
+        for incomplete in [
+            BridgeShutdownReport {
+                audit_stopped: false,
+                ..confirmed
+            },
+            BridgeShutdownReport {
+                profile_activation_stopped: false,
+                ..confirmed
+            },
+            BridgeShutdownReport {
+                capture_restored: false,
+                ..confirmed
+            },
+            BridgeShutdownReport {
+                core_stopped: false,
+                ..confirmed
+            },
+            BridgeShutdownReport {
+                rpc_closed: false,
+                ..confirmed
+            },
+        ] {
+            assert!(!incomplete.permits_exit());
+        }
+    }
 }

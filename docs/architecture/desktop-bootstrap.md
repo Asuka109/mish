@@ -99,11 +99,16 @@ still fails closed and never selects fixtures.
     Development accepts only an explicit
     `MISH_MIHOMO_BIN`; production resolves a packaged resource. Neither mode
     downloads a binary at runtime.
-14. When the Tauri event loop exits, the shell shuts down the in-process bridge.
-    The runtime invalidates any active diagnostic run, stops its capture audit
-    loop, restores a still-confirmed
-    Mish-owned System Proxy state, then the coordinator closes the active Status,
-    Traffic, and Events sources, stops the core, and finally closes the RPC server.
+14. Every supported normal quit request first enters one shell-owned,
+    one-shot graceful-exit coordinator. It prevents Tauri exit while cleanup is
+    pending, stops accepting new state mutations, invalidates active diagnostic
+    work, stops capture auditing, restores and confirms a still-owned System
+    Proxy state, stops and reaps Core, and finally closes the RPC server. The
+    bridge returns a bounded typed report instead of swallowing activation,
+    capture, Core, server, or task-join failures. Only a fully confirmed report
+    authorizes the final Tauri exit request. A failure keeps Mish alive with a
+    native actionable recovery alert. Cleanup after `run_return` remains an
+    idempotent abnormal-boundary fallback rather than the normal quit path.
 
 ## Browser-client launch flow
 

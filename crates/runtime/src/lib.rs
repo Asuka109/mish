@@ -59,6 +59,12 @@ pub struct CoreError {
     message: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeShutdownFailure {
+    CaptureRestoration,
+    CoreStop,
+}
+
 struct RuntimeStatusEvents {
     updates: broadcast::Sender<CoreStatus>,
 }
@@ -776,10 +782,10 @@ impl MishRuntime {
         self.events.updates.subscribe()
     }
 
-    pub async fn shutdown(&self) -> Result<CoreStatus, CoreError> {
+    pub async fn shutdown(&self) -> Result<CoreStatus, RuntimeShutdownFailure> {
         if let Some(capture) = &self.capture {
             let selection = capture.status().capture_selection;
-            let _ = capture
+            capture
                 .reconcile(
                     CaptureRequest {
                         active: false,
@@ -787,10 +793,13 @@ impl MishRuntime {
                     },
                     false,
                 )
-                .await;
+                .await
+                .map_err(|_| RuntimeShutdownFailure::CaptureRestoration)?;
         }
         self.status_source.shutdown().await;
-        self.stop_core().await
+        self.stop_core()
+            .await
+            .map_err(|_| RuntimeShutdownFailure::CoreStop)
     }
 
     fn publish_status(&self, status: &CoreStatus) {

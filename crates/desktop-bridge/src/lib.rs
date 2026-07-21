@@ -55,7 +55,8 @@ pub use managed_process::{
 pub use profile_activation::{
     ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,
     ProfileActivationCoordinatorError, ProfileActivationFailure, ProfileActivationOperation,
-    ProfileActivationPhase, ProfileActivationSnapshot, ProfileStartupPolicy,
+    ProfileActivationPhase, ProfileActivationShutdownFailure, ProfileActivationSnapshot,
+    ProfileStartupPolicy,
 };
 pub use profile_file_actions::{
     ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
@@ -63,9 +64,10 @@ pub use profile_file_actions::{
 pub use profiles::{DesktopProfileService, ReqwestHttpsSourceReader};
 pub use runtime_host::DesktopRuntimeHost;
 pub use server::{
-    BrowserAsset, BrowserAssetSource, BrowserClientHandle, BrowserPairingPrompt,
-    LoopbackServerConfig, LoopbackServerHandle, start_loopback_server,
-    start_loopback_server_with_runtime_host, start_loopback_server_with_runtime_host_and_lifecycle,
+    BridgeShutdownFailure, BridgeShutdownOutcome, BridgeShutdownReport, BrowserAsset,
+    BrowserAssetSource, BrowserClientHandle, BrowserPairingPrompt, LoopbackServerConfig,
+    LoopbackServerHandle, start_loopback_server, start_loopback_server_with_runtime_host,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
 pub use service_probes::ServiceProbeConfig;
 pub use support_bundle::{

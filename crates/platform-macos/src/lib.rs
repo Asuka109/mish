@@ -104,6 +104,27 @@ pub fn show_browser_open_error() {
 pub fn show_browser_open_error() {}
 
 #[cfg(target_os = "macos")]
+pub fn show_graceful_exit_error() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSAlertStyle};
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let alert = NSAlert::new(mtm);
+    alert.setAlertStyle(NSAlertStyle::Critical);
+    alert.setMessageText(&NSString::from_str("Mish couldn't quit safely"));
+    alert.setInformativeText(&NSString::from_str(
+        "Mish is still running because System Proxy, Core, or the local bridge could not be confirmed safe. Resolve the Needs Recovery state in Mish, then choose Quit Mish again.",
+    ));
+    alert.runModal();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_graceful_exit_error() {}
+
+#[cfg(target_os = "macos")]
 pub fn show_browser_pairing_pin(pin: &str) {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSAlert, NSAlertStyle};
