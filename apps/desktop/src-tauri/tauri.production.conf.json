@@ -1,0 +1,10 @@
+{
+  "bundle": {
+    "macOS": {
+      "files": {
+        "Library/LaunchDaemons/com.asuka109.mish.tun-helper.plist": "../../../.scratch/macos-production/com.asuka109.mish.tun-helper.plist",
+        "Resources/mish-tun-helper": "../../../.scratch/macos-production/mish-tun-helper"
+      }
+    }
+  }
+}

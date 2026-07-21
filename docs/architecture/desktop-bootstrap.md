@@ -282,9 +282,13 @@ claim that process memory is a secure enclave.
 - The Apple Silicon bundle includes exact copies of the repository GPL-3.0-only
   license and Mihomo attribution/source notice. Packaging verification fails if
   either resource is absent or altered.
-- A production TUN helper is not yet embedded. The reserved signing identifier
-  is `com.asuka109.mish.tun-helper`; ad-hoc test packages continue to report the
-  helper as unpackaged and cannot enable TUN.
+- Developer ID packaging embeds the production-only
+  `com.asuka109.mish.tun-helper` executable and its exact `SMAppService`
+  LaunchDaemon plist. The app advertises TUN only after exact Developer ID
+  identity/team, registration, helper version, protocol, health, and freshly
+  confirmed disabled-state checks. The missing production XPC health transport
+  therefore remains recovery-required. Ad-hoc packages omit the privileged
+  artifacts, report the helper as unpackaged, and cannot enable TUN.
 - Apple Silicon source development can explicitly install
   `com.asuka109.mish.tun-helper.dev` as a root LaunchDaemon. When its bounded
   per-user socket and exact version are healthy, the development composition

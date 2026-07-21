@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+
+import {
+  productionHelperRelativePath,
+  verifyMacOsPrivilegedBundle,
+} from "./macos-privileged-bundle.ts";
 
 const application = path.resolve(
   process.env.MISH_MACOS_APP_PATH ?? "target/release/bundle/macos/Mish.app",
@@ -13,6 +18,9 @@ const preparedMihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm6
 const bundledWeb = path.join(resources, "web-dist");
 const sourceWeb = path.resolve("apps/web/dist");
 const legalResources = ["LICENSE", "THIRD_PARTY_NOTICES.md"] as const;
+const production = process.env.MISH_MACOS_PACKAGE_MODE === "production";
+const productionFixture = process.env.MISH_MACOS_PACKAGE_MODE === "production-fixture";
+const productionLayout = production || productionFixture;
 
 function command(program: string, arguments_: string[]) {
   return execFileSync(program, arguments_, { encoding: "utf8" }).trim();
@@ -62,7 +70,9 @@ const executableName = command("plutil", [
   path.join(contents, "Info.plist"),
 ]);
 const executable = path.join(contents, "MacOS", executableName);
-for (const binary of [executable, bundledMihomo]) {
+const productionHelper = path.join(application, productionHelperRelativePath);
+await verifyMacOsPrivilegedBundle(application, productionLayout ? "production" : "ad-hoc");
+for (const binary of [executable, bundledMihomo, ...(productionLayout ? [productionHelper] : [])]) {
   const description = command("file", [binary]);
   if (!description.includes("Mach-O 64-bit executable arm64")) {
     throw new Error(`Bundle contains a non-ARM64 executable: ${description}`);
@@ -128,18 +138,30 @@ for (const requiredNotice of [
   }
 }
 
-const forbiddenHelperLocations = [
-  path.join(contents, "Library", "LaunchDaemons"),
-  path.join(contents, "MacOS", "mish-tun-helper"),
-];
-for (const forbidden of forbiddenHelperLocations) {
-  try {
-    await stat(forbidden);
-    throw new Error(`Unverified TUN helper content was packaged: ${forbidden}`);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-      throw error;
+if (productionLayout) {
+  const teamIdentifier = process.env.MISH_EXPECTED_APPLE_TEAM_IDENTIFIER;
+  if (!teamIdentifier || !/^[A-Z0-9]{10}$/u.test(teamIdentifier)) {
+    throw new Error("Production bundle verification requires the exact Apple team identifier");
+  }
+  const requirement = (identifier: string) =>
+    `anchor apple generic and identifier \"${identifier}\" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"${teamIdentifier}\"`;
+  const signedArtifacts = [
+    [identifier, application],
+    ["com.asuka109.mish.tun-helper", productionHelper],
+  ] as const;
+  for (const [signingIdentifier, artifact] of signedArtifacts) {
+    const arguments_ = ["--verify", "--strict", "-R", requirement(signingIdentifier), artifact];
+    if (production) {
+      execFileSync("codesign", arguments_, { stdio: "inherit" });
+    } else if (spawnSync("codesign", arguments_, { stdio: "ignore" }).status === 0) {
+      throw new Error(`Credential-free fixture unexpectedly satisfied Developer ID: ${artifact}`);
     }
+  }
+  if (command(productionHelper, ["--version"]) !== "3") {
+    throw new Error("The production TUN helper reports an unexpected version");
+  }
+  if (command(productionHelper, ["--protocol-version"]) !== "3") {
+    throw new Error("The production TUN helper reports an unexpected protocol version");
   }
 }
 
@@ -151,5 +173,5 @@ execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
 });
 
 console.log(
-  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${sourceWebFiles.length} offline Web files, GPL notices, no TUN helper`,
+  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : "no TUN helper"}`,
 );

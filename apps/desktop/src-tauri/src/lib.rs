@@ -23,9 +23,9 @@ use mish_bridge::{
 };
 use mish_platform_macos::{
     DEV_TUN_SERVICE_CORE_PATH, DevelopmentTunStartup, FileCaptureJournalStore,
-    MacOsLifecycleEventSource, MacOsNetworkDnsPlatform, MacOsSystemProxyPlatform,
-    MacOsTunHelperBoundary, MacOsTunHelperPlatform, MacOsTunServiceClient,
-    show_browser_pairing_pin,
+    MacOsLifecycleEventSource, MacOsNetworkDnsPlatform, MacOsProductionTunHelperPlatform,
+    MacOsSystemProxyPlatform, MacOsTunHelperBoundary, MacOsTunHelperPlatform,
+    MacOsTunServiceClient, show_browser_pairing_pin,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -612,11 +612,16 @@ fn initialize(
     });
     let tun_helper = Arc::new(TunHelperController::new(match &development_tun_service {
         Some(service) => service.clone(),
-        None => Arc::new(MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
-            MacOsTunHelperBoundary::UnsupportedSystem
-        } else {
-            MacOsTunHelperBoundary::Unpackaged
-        })),
+        None => match production_team_identifier() {
+            Some(team_identifier) if cfg!(target_os = "macos") => {
+                Arc::new(MacOsProductionTunHelperPlatform::system(team_identifier))
+            }
+            _ => Arc::new(MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
+                MacOsTunHelperBoundary::UnsupportedSystem
+            } else {
+                MacOsTunHelperBoundary::Unpackaged
+            })),
+        },
     }));
     let settings_service = Arc::new(
         SettingsService::load_with_platforms_and_authority(
@@ -815,6 +820,10 @@ fn initialize(
         status_bar::initialize(app, status_bar_state)?;
     }
     Ok(())
+}
+
+fn production_team_identifier() -> Option<&'static str> {
+    option_env!("MISH_EXPECTED_APPLE_TEAM_IDENTIFIER").filter(|team| !team.is_empty())
 }
 
 fn platform_lifecycle_event_source()

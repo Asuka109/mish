@@ -1,6 +1,9 @@
 //! Narrow macOS System Proxy adapter.
 
+mod production_tun;
 mod tun_service;
+
+pub use production_tun::*;
 
 pub use tun_service::{
     DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL,
@@ -197,6 +200,7 @@ impl TunHelperPlatform for MacOsTunHelperPlatform {
                 health,
                 installation_id: None,
                 installed_version: None,
+                last_failure: Some(self.failure()),
             })
         })
     }

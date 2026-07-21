@@ -80,8 +80,21 @@ under Mish's runtime root, the pinned version, and bounded launch tokens. It
 does not make an ad-hoc app bundle production-capable. Ad-hoc packages still
 report the production helper as `unpackaged`.
 
-Production availability requires all of the following to exist in a later
-signed packaging slice:
+Production packaging reserves exactly two privileged artifacts:
+
+- `Contents/Resources/mish-tun-helper`, a production-only executable with the
+  signing identifier `com.asuka109.mish.tun-helper`; and
+- `Contents/Library/LaunchDaemons/com.asuka109.mish.tun-helper.plist`, whose
+  `BundleProgram` is the exact bundle-relative executable path and whose sole
+  Mach service is `com.asuka109.mish.tun-helper`.
+
+These files are included only when the package command receives a Developer ID
+identity with an explicit ten-character team identifier. Ad-hoc packages and
+source development omit both files. The production executable contains no
+development installer, Unix-socket listener, path trust, or per-user receipt
+behavior.
+
+Production availability requires all of the following:
 
 - a Developer ID signed and notarized app and helper with the expected team and
   signing identifiers;
@@ -95,6 +108,15 @@ not change helper availability: the platform adapter must independently verify
 the embedded LaunchDaemon, exact helper version, mutual code-signing identity,
 team identity, registration status, XPC health, and disabled TUN observation
 before production availability may be reported.
+
+The credential-free production adapter implements that complete negative gate
+but not the signed XPC command transport. The system observer checks the exact
+Developer ID requirements and read-only `SMAppService.status`; an enabled
+registration without an exact-version protocol response, healthy XPC probe,
+and fresh disabled TUN observation remains recovery-required. It never falls
+back to the development service. Registration, administrator approval,
+production XPC activation, signing, notarization, and live TUN acceptance remain
+outside this slice.
 
 ## Closed helper protocol
 

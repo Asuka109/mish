@@ -1,4 +1,5 @@
 fn main() {
+    println!("cargo:rerun-if-env-changed=MISH_EXPECTED_APPLE_TEAM_IDENTIFIER");
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "runtime_bootstrap",

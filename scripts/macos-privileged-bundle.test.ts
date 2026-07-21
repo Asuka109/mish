@@ -1,0 +1,133 @@
+import assert from "node:assert/strict";
+import {
+  chmodSync,
+  copyFileSync,
+  linkSync,
+  mkdirSync,
+  mkdtempDisposableSync,
+  renameSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import {
+  productionHelperRelativePath,
+  productionPlistRelativePath,
+  verifyMacOsPrivilegedBundle,
+} from "./macos-privileged-bundle.ts";
+
+function fixture(production = true) {
+  const temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-bundle-gate-"));
+  const application = path.join(temporary.path, "Mish.app");
+  mkdirSync(path.join(application, "Contents", "Resources"), { recursive: true });
+  if (production) {
+    const helper = path.join(application, productionHelperRelativePath);
+    const plist = path.join(application, productionPlistRelativePath);
+    mkdirSync(path.dirname(plist), { recursive: true });
+    writeFileSync(helper, "fixture-helper");
+    copyFileSync(
+      path.resolve("apps/desktop/src-tauri/macos/LaunchDaemons/com.asuka109.mish.tun-helper.plist"),
+      plist,
+    );
+    chmodSync(helper, 0o555);
+    chmodSync(plist, 0o444);
+  }
+  return { application, temporary };
+}
+
+test("accepts the exact production layout and an empty ad-hoc layout", async () => {
+  using production = fixture().temporary;
+  const productionApplication = path.join(production.path, "Mish.app");
+  await verifyMacOsPrivilegedBundle(productionApplication, "production");
+
+  const adHocFixture = fixture(false);
+  using adHoc = adHocFixture.temporary;
+  await verifyMacOsPrivilegedBundle(adHocFixture.application, "ad-hoc");
+});
+
+test("rejects missing and misplaced privileged artifacts", async () => {
+  const missingFixture = fixture(false);
+  using missing = missingFixture.temporary;
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(missingFixture.application, "production"),
+    /missing privileged artifact/u,
+  );
+
+  const misplacedFixture = fixture(false);
+  using misplaced = misplacedFixture.temporary;
+  const misplacedHelper = path.join(misplacedFixture.application, "Contents/MacOS/mish-tun-helper");
+  mkdirSync(path.dirname(misplacedHelper), { recursive: true });
+  writeFileSync(misplacedHelper, "fixture-helper");
+  chmodSync(misplacedHelper, 0o555);
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(misplacedFixture.application, "ad-hoc"),
+    /contains privileged artifacts/u,
+  );
+});
+
+test("rejects mutable, linked, duplicate, and unexpected privileged artifacts", async () => {
+  const mutableFixture = fixture();
+  using mutable = mutableFixture.temporary;
+  chmodSync(path.join(mutableFixture.application, productionHelperRelativePath), 0o777);
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(mutableFixture.application, "production"),
+    /group- or world-writable/u,
+  );
+
+  const symlinkFixture = fixture();
+  using symlink = symlinkFixture.temporary;
+  const helper = path.join(symlinkFixture.application, productionHelperRelativePath);
+  const movedHelper = path.join(symlink.path, "real-helper");
+  renameSync(helper, movedHelper);
+  symlinkSync(movedHelper, helper);
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(symlinkFixture.application, "production"),
+    /not a regular file/u,
+  );
+
+  const hardLinkFixture = fixture();
+  using hardLink = hardLinkFixture.temporary;
+  const linkedHelper = path.join(hardLinkFixture.application, productionHelperRelativePath);
+  linkSync(linkedHelper, path.join(hardLink.path, "helper-hard-link"));
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(hardLinkFixture.application, "production"),
+    /duplicate hard links/u,
+  );
+
+  const extraFixture = fixture();
+  using extra = extraFixture.temporary;
+  writeFileSync(
+    path.join(
+      extraFixture.application,
+      "Contents/Library/LaunchDaemons/com.example.unexpected.plist",
+    ),
+    "unexpected",
+  );
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(extraFixture.application, "production"),
+    /unexpected privileged artifacts/u,
+  );
+
+  const changedPlistFixture = fixture();
+  using changedPlist = changedPlistFixture.temporary;
+  const changedPlistPath = path.join(changedPlistFixture.application, productionPlistRelativePath);
+  chmodSync(changedPlistPath, 0o644);
+  writeFileSync(changedPlistPath, "changed");
+  chmodSync(changedPlistPath, 0o444);
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(changedPlistFixture.application, "production"),
+    /does not match the repository contract/u,
+  );
+});
+
+test("rejects any privileged artifact in ad-hoc packages", async () => {
+  const bundledFixture = fixture();
+  using bundled = bundledFixture.temporary;
+  await assert.rejects(
+    verifyMacOsPrivilegedBundle(bundledFixture.application, "ad-hoc"),
+    /contains privileged artifacts/u,
+  );
+});
