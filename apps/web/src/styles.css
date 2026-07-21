@@ -368,7 +368,7 @@ h2 {
   margin-top: auto;
 }
 
-.proxy-control-button {
+.ui-button.proxy-control-button {
   position: relative;
   display: flex;
   width: 100%;
@@ -386,24 +386,29 @@ h2 {
   text-align: left;
 }
 
-.proxy-control-button[data-status="healthy"] {
+.ui-button.proxy-control-button[data-status="healthy"] {
   border-color: color-mix(in srgb, var(--color-status-water-base) 76%, var(--color-ink));
   background: var(--color-status-water-base);
   color: var(--color-brand-foreground);
   box-shadow: var(--shadow-status);
 }
 
-.proxy-control-button:not([data-status="healthy"]):hover {
+.ui-button.proxy-control-button:not([data-status="healthy"]):hover {
   background: var(--mish-sidebar-item-hover-background);
   color: var(--color-body);
 }
 
-.proxy-control-button[data-status="healthy"]::before {
+.ui-button.proxy-control-button:disabled {
+  opacity: 1;
+}
+
+.proxy-control-material {
   position: absolute;
   z-index: 0;
   inset: 0;
-  border-radius: inherit;
-  background:
+  border-radius: calc(var(--radius-md) - 1px);
+  background-color: var(--color-status-water-base);
+  background-image:
     radial-gradient(
       ellipse 64% 118% at 48% 48%,
       rgb(137 224 250 / 62%) 0%,
@@ -422,7 +427,6 @@ h2 {
       rgb(39 139 218 / 18%) 46%,
       rgb(8 43 126 / 78%) 100%
     );
-  content: "";
   pointer-events: none;
 }
 
@@ -449,7 +453,7 @@ h2 {
   transition: opacity 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.proxy-control-state svg {
+.proxy-control-button .proxy-control-state svg {
   width: 17px;
   height: 17px;
   flex: 0 0 auto;

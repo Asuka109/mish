@@ -161,7 +161,7 @@ describe("desktop focus and idle behavior", () => {
     expect(focusCurrentRoute()).toBe(false);
   });
 
-  it("animates decorative material only while the window is visible and focused", () => {
+  it("animates decorative material whenever the window is visible", () => {
     const hasFocus = vi.fn(() => true);
     const targetDocument = {
       hasFocus,
@@ -172,7 +172,7 @@ describe("desktop focus and idle behavior", () => {
     expect(shouldAnimateStatusShimmer(true, targetDocument)).toBe(false);
 
     hasFocus.mockReturnValue(false);
-    expect(shouldAnimateStatusShimmer(false, targetDocument)).toBe(false);
+    expect(shouldAnimateStatusShimmer(false, targetDocument)).toBe(true);
 
     Object.defineProperty(targetDocument, "hidden", { value: true });
     expect(shouldAnimateStatusShimmer(false, targetDocument)).toBe(false);
