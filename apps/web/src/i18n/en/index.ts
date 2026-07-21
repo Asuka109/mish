@@ -645,6 +645,7 @@ const en = {
       "Profile files stay on this device. Subscription imports and manual refreshes are handled by Mish's authenticated local service.",
     editRulesAndGroups: "Edit rules and groups",
     emptyDescription: "Import a subscription link or choose a local YAML file to begin.",
+    emptyLabel: "<No profile>",
     emptyTitle: "No saved profiles",
     error: "Latest attempt failed",
     fixtureDescription:

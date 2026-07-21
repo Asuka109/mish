@@ -2146,6 +2146,10 @@ type RootTranslation = {
 		 */
 		emptyDescription: string
 		/**
+		 * <​N​o​ ​p​r​o​f​i​l​e​>
+		 */
+		emptyLabel: string
+		/**
 		 * N​o​ ​s​a​v​e​d​ ​p​r​o​f​i​l​e​s
 		 */
 		emptyTitle: string
@@ -6075,6 +6079,10 @@ export type TranslationFunctions = {
 		 * Import a subscription link or choose a local YAML file to begin.
 		 */
 		emptyDescription: () => LocalizedString
+		/**
+		 * <No profile>
+		 */
+		emptyLabel: () => LocalizedString
 		/**
 		 * No saved profiles
 		 */

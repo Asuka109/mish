@@ -1370,6 +1370,26 @@ describe("desktop RPC experience", () => {
     );
   });
 
+  it("shows an explicit empty label instead of the status placeholder when no Profile exists", async () => {
+    const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
+    const profileClient = createActivationProfileClient();
+    profileClient.getSnapshot = async () => {
+      const snapshot = await managedProfileSnapshot();
+      snapshot.activation.activeProfileId = null;
+      snapshot.activation.targetProfileId = null;
+      snapshot.profiles = [];
+      return snapshot;
+    };
+    renderRoute("/profiles", "zh", statusClient, profileClient);
+
+    const trigger = await screen.findByRole("combobox", {
+      name: "切换配置。当前配置：<无配置文件>",
+    });
+    expect(trigger).toBeDisabled();
+    expect(trigger).toHaveTextContent("<无配置文件>");
+    expect(screen.queryByText("Local Mihomo")).not.toBeInTheDocument();
+  });
+
   it("switches the running Core when the current Profile selection changes", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();

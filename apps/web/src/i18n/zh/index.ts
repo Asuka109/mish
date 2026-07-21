@@ -583,6 +583,7 @@ const zh = {
     desktopDescription: "配置文件仅保存在本机。导入订阅链接和手动刷新由 Mish 本地服务安全完成。",
     editRulesAndGroups: "编辑规则与策略组",
     emptyDescription: "导入订阅链接或选择本地 YAML 文件即可开始。",
+    emptyLabel: "<无配置文件>",
     emptyTitle: "没有已保存的配置",
     error: "最近一次尝试失败",
     fixtureDescription: "这是浏览器演示。无法导入、刷新、保存或删除配置，也不会读取本地文件。",

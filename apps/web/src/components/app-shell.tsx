@@ -327,9 +327,9 @@ function ProfileMenu() {
   const savedProfiles = profiles?.snapshot?.profiles ?? [];
   const useSavedProfiles =
     snapshot.adapterKind === "rpc" &&
+    profiles?.snapshot?.adapterKind === "rpc" &&
     profiles?.connection.phase === "connected" &&
-    !profiles.connection.stale &&
-    savedProfiles.length > 0;
+    !profiles.connection.stale;
   const managedProfiles = useSavedProfiles ? savedProfiles : snapshot.profiles;
   const selectedProfileId = useSavedProfiles
     ? profiles?.selectedProfileId
@@ -338,12 +338,14 @@ function ProfileMenu() {
   const statusProfile = snapshot.profiles.find(
     (profile) => profile.id === snapshot.activeProfileId,
   );
-  const displayedProfile =
-    selectedProfile ??
-    (snapshot.adapterKind === "rpc" && savedProfiles.length === 1
-      ? savedProfiles[0]
-      : statusProfile);
-  const activeLabel = displayedProfile?.label ?? LL.profiles.safeStopped();
+  const displayedProfile = useSavedProfiles
+    ? (selectedProfile ?? (savedProfiles.length === 1 ? savedProfiles[0] : undefined))
+    : (selectedProfile ?? statusProfile);
+  const activeLabel =
+    displayedProfile?.label ??
+    (useSavedProfiles && managedProfiles.length === 0
+      ? LL.profiles.emptyLabel()
+      : LL.profiles.safeStopped());
 
   const profilePending = useSavedProfiles ? currentProfilePending : isCommandPending("profile");
   const profileSupported = useSavedProfiles || fixtureSelectionSupported;
