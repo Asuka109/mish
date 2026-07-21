@@ -7,6 +7,7 @@ import {
   type LocalProxyTestResultDto,
   type RoutingMode,
   type ServiceMonitorDraft,
+  type ServiceProbeIntervalSeconds,
   type StatusClient,
   type StatusConnectionState,
   type StatusCommand,
@@ -111,6 +112,13 @@ export class RpcStatusClient implements StatusClient {
 
   setRoutingMode(mode: RoutingMode, options?: RpcRequestOptions) {
     return this.requestSnapshot("status.setRoutingMode", { mode }, options);
+  }
+
+  setServiceProbeInterval(
+    intervalSeconds: ServiceProbeIntervalSeconds,
+    options?: RpcRequestOptions,
+  ) {
+    return this.requestSnapshot("status.setServiceProbeInterval", { intervalSeconds }, options);
   }
 
   async testLocalProxy(options?: RpcRequestOptions): Promise<LocalProxyTestResultDto> {
@@ -238,6 +246,7 @@ export class RpcStatusClient implements StatusClient {
         if (info.statusCommands.group) this.supportedCommands.add("group");
         if (info.statusCommands.groupDelay) this.supportedCommands.add("group-delay");
         if (info.statusCommands.routing) this.supportedCommands.add("routing");
+        if (info.statusCommands.services) this.supportedCommands.add("services");
         this.emitConnectionState(this.getConnectionState());
       })
       .catch(() => undefined)
@@ -266,6 +275,7 @@ export class RpcStatusClient implements StatusClient {
       | "status.setActiveProfile"
       | "status.setCapture"
       | "status.setRoutingMode"
+      | "status.setServiceProbeInterval"
       | "status.upsertServiceMonitor",
   >(
     method: Method,

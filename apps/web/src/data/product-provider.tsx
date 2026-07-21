@@ -59,6 +59,9 @@ interface ProductContextValue {
   setActiveProfile(profileId: string): Promise<ProductCommandResult>;
   setCapture(selection: CaptureSelectionDto, active: boolean): Promise<ProductCommandResult>;
   setRoutingMode(mode: RoutingMode): Promise<ProductCommandResult>;
+  setServiceProbeInterval(
+    intervalSeconds: StatusSnapshotDto["serviceProbePolicy"]["intervalSeconds"],
+  ): Promise<ProductCommandResult>;
   snapshot: StatusSnapshotDto | null;
   upsertServiceMonitor(draft: ServiceMonitorDraft): Promise<ProductCommandResult>;
 }
@@ -302,6 +305,10 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         runCommand("capture", (signal) => resolvedClient.setCapture(selection, active, { signal })),
       setRoutingMode: (mode) =>
         runCommand("routing", (signal) => resolvedClient.setRoutingMode(mode, { signal })),
+      setServiceProbeInterval: (intervalSeconds) =>
+        runCommand("services", (signal) =>
+          resolvedClient.setServiceProbeInterval(intervalSeconds, { signal }),
+        ),
       snapshot,
       upsertServiceMonitor: (draft) =>
         runCommand("services", (signal) => resolvedClient.upsertServiceMonitor(draft, { signal })),

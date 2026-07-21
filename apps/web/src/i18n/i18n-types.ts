@@ -2806,15 +2806,15 @@ type RootTranslation = {
 		 */
 		add: string
 		/**
-		 * D​e​m​o​ ​s​e​r​v​i​c​e​ ​a​d​d​e​d
+		 * S​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​ ​a​d​d​e​d
 		 */
 		addedToast: string
 		/**
-		 * D​e​f​a​u​l​t​ ​d​e​m​o​ ​s​e​r​v​i​c​e​s​ ​r​e​s​t​o​r​e​d
+		 * D​e​f​a​u​l​t​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​ ​r​e​s​t​o​r​e​d
 		 */
 		defaultRestoredToast: string
 		/**
-		 * T​h​i​s​ ​r​e​m​o​v​e​s​ ​o​n​l​y​ ​t​h​e​ ​l​o​c​a​l​ ​f​i​x​t​u​r​e​ ​m​o​n​i​t​o​r​.
+		 * T​h​i​s​ ​r​e​m​o​v​e​s​ ​t​h​e​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​ ​f​r​o​m​ ​t​h​i​s​ ​d​e​v​i​c​e​.
 		 */
 		deleteDescription: string
 		/**
@@ -2851,6 +2851,14 @@ type RootTranslation = {
 		 */
 		fixtureEndpointDescription: string
 		/**
+		 * D​e​m​o​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​N​o​ ​r​e​q​u​e​s​t​ ​w​i​l​l​ ​b​e​ ​s​e​n​t​.
+		 */
+		fixtureMetadataDescription: string
+		/**
+		 * O​n​l​y​ ​H​T​T​P​ ​a​n​d​ ​H​T​T​P​S​ ​m​e​t​a​d​a​t​a​ ​i​s​ ​a​c​c​e​p​t​e​d​ ​i​n​ ​d​e​m​o​ ​m​o​d​e​.
+		 */
+		fixtureUrlDescription: string
+		/**
 		 * E​n​t​e​r​ ​a​ ​t​i​t​l​e​.
 		 */
 		labelError: string
@@ -2859,19 +2867,31 @@ type RootTranslation = {
 		 */
 		manage: string
 		/**
-		 * F​i​x​t​u​r​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​P​a​r​t​ ​1​ ​n​e​v​e​r​ ​r​e​q​u​e​s​t​s​ ​t​h​i​s​ ​e​n​d​p​o​i​n​t​.
+		 * E​v​e​r​y​ ​1​5​ ​m​i​n​u​t​e​s
+		 */
+		interval15Minutes: string
+		/**
+		 * E​v​e​r​y​ ​m​i​n​u​t​e
+		 */
+		interval1Minute: string
+		/**
+		 * E​v​e​r​y​ ​3​0​ ​s​e​c​o​n​d​s
+		 */
+		interval30Seconds: string
+		/**
+		 * E​v​e​r​y​ ​5​ ​m​i​n​u​t​e​s
+		 */
+		interval5Minutes: string
+		/**
+		 * M​i​s​h​ ​t​e​s​t​s​ ​t​h​i​s​ ​e​n​d​p​o​i​n​t​ ​d​i​r​e​c​t​l​y​,​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​ ​o​f​ ​M​i​h​o​m​o​.
 		 */
 		metadataDescription: string
-		/**
-		 * n​o​t​ ​r​u​n​n​i​n​g
-		 */
-		notRunning: string
 		/**
 		 * P​r​o​b​e​ ​U​R​L
 		 */
 		probeUrl: string
 		/**
-		 * D​e​m​o​ ​s​e​r​v​i​c​e​ ​r​e​m​o​v​e​d
+		 * S​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​ ​r​e​m​o​v​e​d
 		 */
 		removedToast: string
 		/**
@@ -2887,11 +2907,19 @@ type RootTranslation = {
 		 */
 		title: string
 		/**
-		 * D​e​m​o​ ​s​e​r​v​i​c​e​ ​u​p​d​a​t​e​d
+		 * T​e​s​t​ ​i​n​t​e​r​v​a​l
+		 */
+		testInterval: string
+		/**
+		 * U​n​a​v​a​i​l​a​b​l​e
+		 */
+		unavailable: string
+		/**
+		 * S​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​ ​u​p​d​a​t​e​d
 		 */
 		updatedToast: string
 		/**
-		 * O​n​l​y​ ​H​T​T​P​ ​a​n​d​ ​H​T​T​P​S​ ​m​e​t​a​d​a​t​a​ ​i​s​ ​a​c​c​e​p​t​e​d​ ​b​y​ ​t​h​e​ ​f​i​x​t​u​r​e​ ​a​d​a​p​t​e​r​.
+		 * U​s​e​ ​a​ ​p​u​b​l​i​c​ ​H​T​T​P​ ​o​r​ ​H​T​T​P​S​ ​e​n​d​p​o​i​n​t​.​ ​L​o​c​a​l​ ​a​n​d​ ​p​r​i​v​a​t​e​-​n​e​t​w​o​r​k​ ​a​d​d​r​e​s​s​e​s​ ​a​r​e​ ​b​l​o​c​k​e​d​.
 		 */
 		urlDescription: string
 		/**
@@ -6756,15 +6784,15 @@ export type TranslationFunctions = {
 		 */
 		add: () => LocalizedString
 		/**
-		 * Demo service added
+		 * Service monitor added
 		 */
 		addedToast: () => LocalizedString
 		/**
-		 * Default demo services restored
+		 * Default service monitors restored
 		 */
 		defaultRestoredToast: () => LocalizedString
 		/**
-		 * This removes only the local fixture monitor.
+		 * This removes the service monitor from this device.
 		 */
 		deleteDescription: () => LocalizedString
 		/**
@@ -6800,6 +6828,14 @@ export type TranslationFunctions = {
 		 */
 		fixtureEndpointDescription: () => LocalizedString
 		/**
+		 * Demo metadata only. No request will be sent.
+		 */
+		fixtureMetadataDescription: () => LocalizedString
+		/**
+		 * Only HTTP and HTTPS metadata is accepted in demo mode.
+		 */
+		fixtureUrlDescription: () => LocalizedString
+		/**
 		 * Enter a title.
 		 */
 		labelError: () => LocalizedString
@@ -6808,19 +6844,31 @@ export type TranslationFunctions = {
 		 */
 		manage: () => LocalizedString
 		/**
-		 * Fixture metadata only. Part 1 never requests this endpoint.
+		 * Every 15 minutes
+		 */
+		interval15Minutes: () => LocalizedString
+		/**
+		 * Every minute
+		 */
+		interval1Minute: () => LocalizedString
+		/**
+		 * Every 30 seconds
+		 */
+		interval30Seconds: () => LocalizedString
+		/**
+		 * Every 5 minutes
+		 */
+		interval5Minutes: () => LocalizedString
+		/**
+		 * Mish tests this endpoint directly, independently of Mihomo.
 		 */
 		metadataDescription: () => LocalizedString
-		/**
-		 * not running
-		 */
-		notRunning: () => LocalizedString
 		/**
 		 * Probe URL
 		 */
 		probeUrl: () => LocalizedString
 		/**
-		 * Demo service removed
+		 * Service monitor removed
 		 */
 		removedToast: () => LocalizedString
 		/**
@@ -6836,11 +6884,19 @@ export type TranslationFunctions = {
 		 */
 		title: () => LocalizedString
 		/**
-		 * Demo service updated
+		 * Test interval
+		 */
+		testInterval: () => LocalizedString
+		/**
+		 * Unavailable
+		 */
+		unavailable: () => LocalizedString
+		/**
+		 * Service monitor updated
 		 */
 		updatedToast: () => LocalizedString
 		/**
-		 * Only HTTP and HTTPS metadata is accepted by the fixture adapter.
+		 * Use a public HTTP or HTTPS endpoint. Local and private-network addresses are blocked.
 		 */
 		urlDescription: () => LocalizedString
 		/**

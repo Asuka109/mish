@@ -2,7 +2,7 @@ use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, ServiceProbeConfig,
     compose_desktop_runtime, start_loopback_server,
 };
 
@@ -48,6 +48,7 @@ async fn main() -> Result<(), String> {
             profile_activation: None,
             profile_file_actions: None,
             profile_service: None,
+            service_probes: Some(ServiceProbeConfig { state_path: None }),
             settings_service: None,
         },
         runtime,

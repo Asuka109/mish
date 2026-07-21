@@ -23,6 +23,7 @@ use crate::lifecycle::spawn_lifecycle_coordination;
 use crate::protocol::{ProtocolState, serve_socket};
 use crate::{
     DesktopProfileService, DesktopRuntimeHost, ProfileActivationCoordinator, ProfileFileActions,
+    ServiceProbeConfig,
 };
 
 #[derive(Clone)]
@@ -35,6 +36,7 @@ pub struct LoopbackServerConfig {
     pub profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     pub profile_file_actions: Option<Arc<ProfileFileActions>>,
     pub profile_service: Option<Arc<DesktopProfileService>>,
+    pub service_probes: Option<ServiceProbeConfig>,
     pub settings_service: Option<Arc<SettingsService>>,
 }
 
@@ -98,6 +100,7 @@ pub struct LoopbackServerHandle {
     profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     shutdown: Option<oneshot::Sender<()>>,
     runtime: DesktopRuntimeHost,
+    service_probes: Option<crate::service_probes::ServiceProbeService>,
     browser_client: Option<BrowserClientHandle>,
 }
 
@@ -113,6 +116,9 @@ impl LoopbackServerHandle {
         let _ = self.audit_join.await;
         if let Some(profile_activation) = &self.profile_activation {
             let _ = profile_activation.shutdown().await;
+        }
+        if let Some(service_probes) = &self.service_probes {
+            service_probes.shutdown();
         }
         let _ = self.runtime.current().shutdown().await;
         if let Some(shutdown) = self.shutdown.take() {
@@ -182,6 +188,12 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     allowed_origins.extend(config.allowed_origins);
     let profile_activation = config.profile_activation.clone();
     let settings_service = config.settings_service.clone();
+    let service_probes = config
+        .service_probes
+        .map(crate::service_probes::ServiceProbeService::new);
+    if let Some(service_probes) = &service_probes {
+        service_probes.start();
+    }
     let pending_browser_nonce = Arc::new(Mutex::new(None));
     let browser = config.browser_assets.map(|assets| BrowserHttpState {
         assets,
@@ -207,6 +219,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             profile_file_actions: config.profile_file_actions,
             profile_service: config.profile_service,
             runtime: runtime.clone(),
+            service_probes: service_probes.clone(),
             settings_service: config.settings_service,
         },
         max_message_bytes: config.max_message_bytes,
@@ -243,6 +256,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         profile_activation,
         shutdown: Some(shutdown_tx),
         runtime,
+        service_probes,
         browser_client,
     })
 }

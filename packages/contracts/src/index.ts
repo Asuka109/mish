@@ -1051,6 +1051,19 @@ export const ServiceMonitorSchema = z
   .strict();
 export interface ServiceMonitorDto extends z.infer<typeof ServiceMonitorSchema> {}
 
+export const ServiceProbeIntervalSecondsSchema = z.union([
+  z.literal(30),
+  z.literal(60),
+  z.literal(300),
+  z.literal(900),
+]);
+export type ServiceProbeIntervalSeconds = z.infer<typeof ServiceProbeIntervalSecondsSchema>;
+
+export const ServiceProbePolicySchema = z
+  .object({ intervalSeconds: ServiceProbeIntervalSecondsSchema })
+  .strict();
+export interface ServiceProbePolicyDto extends z.infer<typeof ServiceProbePolicySchema> {}
+
 export const ProbeRouteTargetSchema = z.union([
   z.literal("fixture-only"),
   z.literal("direct"),
@@ -1458,6 +1471,7 @@ export const StatusSnapshotSchema = z
     profiles: z.array(ProfileSummarySchema),
     routingMode: RoutingModeSchema,
     runtime: RuntimeStatusSchema,
+    serviceProbePolicy: ServiceProbePolicySchema,
     services: z.array(ServiceMonitorSchema),
     traffic: TrafficSnapshotSchema,
   })
@@ -1524,6 +1538,13 @@ export interface RemoveServiceMonitorCommand extends z.infer<
   typeof RemoveServiceMonitorCommandSchema
 > {}
 
+export const SetServiceProbeIntervalCommandSchema = z
+  .object({ intervalSeconds: ServiceProbeIntervalSecondsSchema })
+  .strict();
+export interface SetServiceProbeIntervalCommand extends z.infer<
+  typeof SetServiceProbeIntervalCommandSchema
+> {}
+
 export const EmptyCommandSchema = z.object({}).strict();
 
 export const CorePhaseSchema = z.enum(["stopped", "starting", "running", "stopping", "failed"]);
@@ -1553,7 +1574,12 @@ export const BridgeInfoSchema = z
     coreConfigured: z.boolean(),
     protocolVersion: z.literal(15),
     statusCommands: z
-      .object({ group: z.boolean(), groupDelay: z.boolean(), routing: z.boolean() })
+      .object({
+        group: z.boolean(),
+        groupDelay: z.boolean(),
+        routing: z.boolean(),
+        services: z.boolean(),
+      })
       .strict(),
     trafficCommands: z
       .object({ closeAllActive: z.boolean(), closeConnection: z.boolean() })
@@ -2190,6 +2216,10 @@ export const statusRpcMethods = {
   },
   "status.setCapture": { params: SetCaptureCommandSchema, result: RpcStatusSnapshotSchema },
   "status.setRoutingMode": { params: SetRoutingModeCommandSchema, result: RpcStatusSnapshotSchema },
+  "status.setServiceProbeInterval": {
+    params: SetServiceProbeIntervalCommandSchema,
+    result: RpcStatusSnapshotSchema,
+  },
   "status.subscribe": { params: EmptyCommandSchema, result: StatusSubscriptionSchema },
   "status.unsubscribe": { params: StatusSubscriptionIdSchema, result: z.boolean() },
   "status.upsertServiceMonitor": {
@@ -2505,6 +2535,10 @@ export interface StatusClient {
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   setRoutingMode(mode: RoutingMode, options?: { signal?: AbortSignal }): Promise<StatusSnapshotDto>;
+  setServiceProbeInterval(
+    intervalSeconds: ServiceProbeIntervalSeconds,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto>;
   subscribeConnection(listener: (state: StatusConnectionState) => void): () => void;
   subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void): () => void;
   upsertServiceMonitor(

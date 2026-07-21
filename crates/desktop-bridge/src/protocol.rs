@@ -54,7 +54,21 @@ pub(crate) struct ProtocolState {
     pub profile_file_actions: Option<std::sync::Arc<crate::ProfileFileActions>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
     pub runtime: crate::DesktopRuntimeHost,
+    pub service_probes: Option<crate::service_probes::ServiceProbeService>,
     pub settings_service: Option<std::sync::Arc<SettingsService>>,
+}
+
+impl ProtocolState {
+    async fn status_snapshot(&self) -> Value {
+        let mut snapshot = self
+            .runtime
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await;
+        if let Some(service_probes) = &self.service_probes {
+            service_probes.overlay(&mut snapshot);
+        }
+        serde_json::to_value(snapshot).expect("Status state must serialize")
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -131,6 +145,24 @@ struct ProfileActivationParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetRoutingModeParams {
     mode: RoutingMode,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpsertServiceMonitorParams {
+    draft: crate::service_probes::ServiceMonitorDraft,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RemoveServiceMonitorParams {
+    monitor_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetServiceProbeIntervalParams {
+    interval_seconds: u16,
 }
 
 #[derive(Debug, Deserialize)]
@@ -245,6 +277,13 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         .as_ref()
         .map(|activation| activation.subscribe())
         .unwrap_or(inactive_profile_receiver);
+    let (inactive_service_updates, inactive_service_receiver) = broadcast::channel(1);
+    let _inactive_service_updates = inactive_service_updates;
+    let mut service_updates = state
+        .service_probes
+        .as_ref()
+        .map(crate::service_probes::ServiceProbeService::subscribe)
+        .unwrap_or(inactive_service_receiver);
     let mut authenticated = false;
     let mut subscriptions = SocketSubscriptions {
         event_ids: HashSet::new(),
@@ -267,7 +306,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 subscriptions.traffic_updates = runtime.subscribe_status();
                 subscriptions.event_updates = runtime.subscribe_events();
                 if authenticated && !subscriptions.status_ids.is_empty() {
-                    let snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+                    let snapshot = state.status_snapshot().await;
                     for subscription_id in &subscriptions.status_ids {
                         let notification = json!({
                             "jsonrpc": "2.0",
@@ -326,12 +365,29 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
             }
             update = subscriptions.status_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
                 let Ok(_) = update else { continue };
-                let status_snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+                let status_snapshot = state.status_snapshot().await;
                 for subscription_id in &subscriptions.status_ids {
                     let notification = json!({
                         "jsonrpc": "2.0",
                         "method": "status.snapshot",
                         "params": { "snapshot": status_snapshot, "subscriptionId": subscription_id },
+                    });
+                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            update = service_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
+                match update {
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
+                }
+                let snapshot = state.status_snapshot().await;
+                for subscription_id in &subscriptions.status_ids {
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "status.snapshot",
+                        "params": { "snapshot": snapshot, "subscriptionId": subscription_id },
                     });
                     if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
                         return;
@@ -479,6 +535,7 @@ async fn handle_message(
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
                 "routing": state.runtime.supports_status_command(StatusCommand::Routing),
+                "services": state.service_probes.is_some(),
             },
             "trafficCommands": {
                 "closeAllActive": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseAllActive),
@@ -496,7 +553,7 @@ async fn handle_message(
             Ok(status) => serde_json::to_value(status).expect("serializable status"),
             Err(error) => return Some(core_error_response(id, error)),
         },
-        "status.getSnapshot" => state.runtime.status_snapshot(StatusAdapterKind::Rpc).await,
+        "status.getSnapshot" => state.status_snapshot().await,
         "status.setRoutingMode" => {
             let params: SetRoutingModeParams = match serde_json::from_value(request.params) {
                 Ok(params) => params,
@@ -507,7 +564,7 @@ async fn handle_message(
                 .set_routing_mode(params.mode, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
+                Ok(_) => state.status_snapshot().await,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
         }
@@ -527,7 +584,7 @@ async fn handle_message(
                 .select_group_child(params.group_id, params.child_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
+                Ok(_) => state.status_snapshot().await,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
         }
@@ -542,7 +599,7 @@ async fn handle_message(
                 .start_group_delay_test(params.group_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
+                Ok(_) => state.status_snapshot().await,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
         }
@@ -557,9 +614,80 @@ async fn handle_message(
                 .cancel_group_delay_test(params.test_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
+                Ok(_) => state.status_snapshot().await,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
+        }
+        "status.upsertServiceMonitor" => {
+            let params = match serde_json::from_value::<UpsertServiceMonitorParams>(request.params)
+            {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            let Some(service_probes) = &state.service_probes else {
+                return Some(error_response(
+                    id,
+                    -32601,
+                    "Service probes are unavailable",
+                    None,
+                ));
+            };
+            if let Err(error) = service_probes.upsert(params.draft).await {
+                return Some(error_response(id, -32602, error.message(), None));
+            }
+            state.status_snapshot().await
+        }
+        "status.removeServiceMonitor" => {
+            let params = match serde_json::from_value::<RemoveServiceMonitorParams>(request.params)
+            {
+                Ok(params) if valid_identifier(&params.monitor_id) => params,
+                _ => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            let Some(service_probes) = &state.service_probes else {
+                return Some(error_response(
+                    id,
+                    -32601,
+                    "Service probes are unavailable",
+                    None,
+                ));
+            };
+            if let Err(error) = service_probes.remove(&params.monitor_id) {
+                return Some(error_response(id, -32602, error.message(), None));
+            }
+            state.status_snapshot().await
+        }
+        "status.restoreDefaultServices" => {
+            let Some(service_probes) = &state.service_probes else {
+                return Some(error_response(
+                    id,
+                    -32601,
+                    "Service probes are unavailable",
+                    None,
+                ));
+            };
+            if let Err(error) = service_probes.restore_defaults() {
+                return Some(error_response(id, -32000, error.message(), None));
+            }
+            state.status_snapshot().await
+        }
+        "status.setServiceProbeInterval" => {
+            let params =
+                match serde_json::from_value::<SetServiceProbeIntervalParams>(request.params) {
+                    Ok(params) => params,
+                    Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            let Some(service_probes) = &state.service_probes else {
+                return Some(error_response(
+                    id,
+                    -32601,
+                    "Service probes are unavailable",
+                    None,
+                ));
+            };
+            if let Err(error) = service_probes.set_interval(params.interval_seconds) {
+                return Some(error_response(id, -32602, error.message(), None));
+            }
+            state.status_snapshot().await
         }
         "status.subscribe" => {
             if subscription_count(
@@ -582,7 +710,7 @@ async fn handle_message(
                 NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
             );
             subscriptions.status_ids.insert(subscription_id.clone());
-            let snapshot = state.runtime.status_snapshot(StatusAdapterKind::Rpc).await;
+            let snapshot = state.status_snapshot().await;
             json!({"snapshot": snapshot, "subscriptionId": subscription_id})
         }
         "status.unsubscribe" => {
@@ -1090,7 +1218,7 @@ async fn handle_message(
             )
             .await
             {
-                Ok(snapshot) => snapshot,
+                Ok(_) => state.status_snapshot().await,
                 Err(error) => return Some(capture_error_response(id, error)),
             }
         }
@@ -1104,7 +1232,7 @@ async fn handle_message(
                 .recover_system_proxy(params.action, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => snapshot,
+                Ok(_) => state.status_snapshot().await,
                 Err(error) => return Some(capture_error_response(id, error)),
             }
         }

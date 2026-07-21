@@ -13,6 +13,7 @@ mod profiles;
 mod protocol;
 mod runtime_host;
 mod server;
+mod service_probes;
 mod support_bundle;
 
 pub use activation::{
@@ -66,6 +67,7 @@ pub use server::{
     LoopbackServerHandle, start_loopback_server, start_loopback_server_with_runtime_host,
     start_loopback_server_with_runtime_host_and_lifecycle,
 };
+pub use service_probes::ServiceProbeConfig;
 pub use support_bundle::{
     PreparedSupportBundle, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,
     SupportBundlePreview, SupportBundleService,

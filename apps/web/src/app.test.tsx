@@ -1504,7 +1504,7 @@ describe("desktop RPC experience", () => {
     expect(await screen.findByRole("option", { name: "Studio route set" })).toBeEnabled();
   });
 
-  it("presents a safely stopped runtime without a diagnostic shortcut or pending probes", async () => {
+  it("keeps service probes pending while the proxy runtime is safely stopped", async () => {
     const snapshot = await createRpcSnapshot();
     snapshot.probeResults = [];
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
@@ -1514,8 +1514,7 @@ describe("desktop RPC experience", () => {
 
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: /Google/ });
-    expect(within(google).getByText("not running")).toBeVisible();
-    expect(within(services).queryByText("Pending")).not.toBeInTheDocument();
+    expect(within(google).getByText("Pending")).toBeVisible();
   });
 
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
@@ -2045,6 +2044,19 @@ describe("Status fixture experience", () => {
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
     expect(successToast).not.toHaveBeenCalled();
+  });
+
+  it("changes the service test interval from the Manage menu", async () => {
+    const user = userEvent.setup();
+    const client = new FixtureStatusClient();
+    const setInterval = vi.spyOn(client, "setServiceProbeInterval");
+    renderRoute("/status", "en", client);
+    await screen.findByText("Fixture activity at a glance.");
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Every 5 minutes" }));
+
+    await waitFor(() => expect(setInterval).toHaveBeenCalledWith(300, expect.any(Object)));
   });
 
   it("switches to Simplified Chinese and persists the locale", async () => {

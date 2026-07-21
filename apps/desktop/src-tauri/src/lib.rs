@@ -733,6 +733,9 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     profile_root.join("profiles"),
                 ))),
                 profile_service: Some(profile_service.clone()),
+                service_probes: Some(mish_bridge::ServiceProbeConfig {
+                    state_path: Some(profile_root.join("service-monitors.json")),
+                }),
                 settings_service: Some(settings_service.clone()),
             },
             runtime_host.clone(),

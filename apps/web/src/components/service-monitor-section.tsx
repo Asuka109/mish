@@ -29,6 +29,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Empty,
@@ -61,6 +63,8 @@ const serviceIcons: Record<ServiceMonitorDto["icon"], Icon> = {
   microsoft: WindowsLogo,
 };
 
+const serviceProbeIntervals = [30, 60, 300, 900] as const;
+
 function isValidProbeUrl(value: string) {
   try {
     const url = new URL(value);
@@ -72,11 +76,12 @@ function isValidProbeUrl(value: string) {
 
 interface ServiceEditorDialogProps {
   draft: ServiceMonitorDraft | null;
+  fixture: boolean;
   onClose(): void;
   setDraft(draft: ServiceMonitorDraft): void;
 }
 
-function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogProps) {
+function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEditorDialogProps) {
   const { isCommandPending, removeServiceMonitor, upsertServiceMonitor } = useProduct();
   const { LL } = useI18nContext();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -125,7 +130,9 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
               {existingService ? LL.services.edit() : LL.services.add()}
             </DialogTitle>
             <DialogDescription className="dialog-description">
-              {LL.services.metadataDescription()}
+              {fixture
+                ? LL.services.fixtureMetadataDescription()
+                : LL.services.metadataDescription()}
             </DialogDescription>
           </div>
         </div>
@@ -166,7 +173,9 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
                 type="url"
                 value={draft.url}
               />
-              <FieldDescription>{LL.services.urlDescription()}</FieldDescription>
+              <FieldDescription>
+                {fixture ? LL.services.fixtureUrlDescription() : LL.services.urlDescription()}
+              </FieldDescription>
               {showUrlError ? <FieldError>{LL.services.urlError()}</FieldError> : null}
             </Field>
           </FieldGroup>
@@ -230,7 +239,13 @@ function ServiceEditorDialog({ draft, onClose, setDraft }: ServiceEditorDialogPr
 }
 
 export function ServiceMonitorSection() {
-  const { isCommandPending, isCommandSupported, restoreDefaultServices, snapshot } = useProduct();
+  const {
+    isCommandPending,
+    isCommandSupported,
+    restoreDefaultServices,
+    setServiceProbeInterval,
+    snapshot,
+  } = useProduct();
   const { LL } = useI18nContext();
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
   const [restorePending, setRestorePending] = useState(false);
@@ -238,8 +253,19 @@ export function ServiceMonitorSection() {
   const commandPending = isCommandPending("services");
   const commandSupported = isCommandSupported("services");
   const actionDescriptionId = getCommandDescriptionId(snapshot.adapterKind, commandSupported);
-  const runtimeInactive =
-    snapshot.adapterKind !== "fixture" && snapshot.runtime.phase === "inactive";
+
+  function intervalLabel(intervalSeconds: (typeof serviceProbeIntervals)[number]) {
+    switch (intervalSeconds) {
+      case 30:
+        return LL.services.interval30Seconds();
+      case 60:
+        return LL.services.interval1Minute();
+      case 300:
+        return LL.services.interval5Minutes();
+      case 900:
+        return LL.services.interval15Minutes();
+    }
+  }
 
   async function restoreServices() {
     setRestorePending(true);
@@ -289,6 +315,29 @@ export function ServiceMonitorSection() {
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
+            <DropdownMenuRadioGroup
+              onValueChange={(value) => {
+                const interval = Number(value);
+                if (
+                  serviceProbeIntervals.includes(interval as (typeof serviceProbeIntervals)[number])
+                ) {
+                  void setServiceProbeInterval(interval as (typeof serviceProbeIntervals)[number]);
+                }
+              }}
+              value={String(snapshot.serviceProbePolicy.intervalSeconds)}
+            >
+              <DropdownMenuLabel>{LL.services.testInterval()}</DropdownMenuLabel>
+              {serviceProbeIntervals.map((interval) => (
+                <DropdownMenuRadioItem
+                  disabled={commandPending || !commandSupported}
+                  key={interval}
+                  value={String(interval)}
+                >
+                  {intervalLabel(interval)}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem
                 aria-busy={restorePending}
@@ -332,8 +381,8 @@ export function ServiceMonitorSection() {
                 <strong className="user-authored-label">{service.label}</strong>
                 <span className="service-monitor-latency tabular">
                   {result?.latencyMilliseconds === null || result?.latencyMilliseconds === undefined
-                    ? runtimeInactive
-                      ? LL.services.notRunning()
+                    ? result?.status === "error"
+                      ? LL.services.unavailable()
                       : LL.common.pending()
                     : `${result.latencyMilliseconds} ms`}
                 </span>
@@ -365,6 +414,7 @@ export function ServiceMonitorSection() {
 
       <ServiceEditorDialog
         draft={draft}
+        fixture={snapshot.adapterKind === "fixture"}
         key={draft ? (draft.id ?? "new") : "closed"}
         onClose={() => setDraft(null)}
         setDraft={setDraft}

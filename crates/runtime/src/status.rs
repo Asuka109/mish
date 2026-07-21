@@ -125,7 +125,7 @@ pub struct GroupDelayPolicy {
     pub timeout_milliseconds: u16,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceIcon {
     Apple,
@@ -249,7 +249,7 @@ pub struct GroupUsage {
     pub observed_connection_count: u64,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ServiceMonitor {
     pub icon: ServiceIcon,
     pub id: String,
@@ -265,6 +265,12 @@ pub struct ServiceProbeResult {
     pub observed_at: String,
     pub route_target: String,
     pub status: ProbeStatus,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceProbePolicy {
+    pub interval_seconds: u16,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -299,6 +305,7 @@ pub struct StatusSnapshot {
     pub profiles: Vec<ProfileSummary>,
     pub routing_mode: RoutingMode,
     pub runtime: RuntimeStatus,
+    pub service_probe_policy: ServiceProbePolicy,
     pub services: Vec<ServiceMonitor>,
     pub traffic: TrafficSnapshot,
 }
@@ -331,13 +338,16 @@ impl StatusSnapshot {
                     tun: false,
                 },
             ),
-            services: default_services(),
+            service_probe_policy: ServiceProbePolicy {
+                interval_seconds: 60,
+            },
+            services: default_service_monitors(),
             traffic: TrafficSnapshot::default(),
         }
     }
 }
 
-fn default_services() -> Vec<ServiceMonitor> {
+pub fn default_service_monitors() -> Vec<ServiceMonitor> {
     [
         (
             ServiceIcon::Google,

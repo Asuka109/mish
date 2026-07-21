@@ -97,6 +97,7 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
       tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
       tunEnabled: false,
     },
+    serviceProbePolicy: { intervalSeconds: 60 },
     services: [structuredClone(defaultService)],
     traffic: {
       downloadBytesPerSecond: 1024,
@@ -251,7 +252,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               bridgeVersion: "mock",
               coreConfigured: true,
               protocolVersion: 15,
-              statusCommands: { group: true, groupDelay: false, routing: true },
+              statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: { closeAllActive: false, closeConnection: false },
             };
           case "core.getStatus":
@@ -266,6 +267,11 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return structuredClone(snapshot);
           case "status.setRoutingMode":
             snapshot.routingMode = values.mode as RpcStatusSnapshotDto["routingMode"];
+            return structuredClone(snapshot);
+          case "status.setServiceProbeInterval":
+            snapshot.serviceProbePolicy.intervalSeconds = Number(
+              values.intervalSeconds,
+            ) as RpcStatusSnapshotDto["serviceProbePolicy"]["intervalSeconds"];
             return structuredClone(snapshot);
           case "status.setCapture": {
             const active = Boolean(values.active);

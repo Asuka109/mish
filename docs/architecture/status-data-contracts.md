@@ -77,7 +77,8 @@ and advertises routing and group commands only when a Controller source owns
 their reconciliation; lifecycle-only or missing-core composition keeps those
 Controller commands disabled. Persisted profile activation uses the separate
 authenticated Profiles command seam from both Profiles and the Status profile
-selector. Service actions remain unsupported. Capture controls also respect
+selector. Desktop service-monitor commands and direct probes remain available
+independently of the Core lifecycle. Capture controls also respect
 the snapshot's `supported`, `unavailable`, `permission-required`, and
 `repair-required` platform capabilities.
 
@@ -126,6 +127,9 @@ commands and the User patches provenance layer without changing Status
 subscriptions. Protocol version 14 adds the independent fixed-endpoint local
 proxy readiness test without changing Status subscriptions or capture selection.
 It accepts no caller-supplied target and does not observe or mutate System Proxy.
+Protocol version 15 adds persisted service-monitor mutations, a fixed global
+probe interval policy, and direct service-probe results without changing Status
+subscription ordering.
 
 Profile activation has an independent typed snapshot with idle, pending,
 success, and failure phases. The profile subscription uses the same snapshot
@@ -333,6 +337,15 @@ Each probe policy should define:
 - maximum response bytes read before cancellation;
 - explicit direct, proxy, or group-scoped route target; and
 - interval, backoff, and concurrency limits.
+
+The desktop bridge starts one direct probe cycle immediately and then schedules
+cycles at the user-selected fixed interval (30 seconds, 1 minute, 5 minutes, or
+15 minutes; 1 minute by default). This scheduler is owned by the bridge rather
+than the Mihomo runtime, so stopping or replacing Core does not stop probes or
+discard their latest results. Monitor definitions and the selected interval are
+stored in the application-data directory and overlaid onto every Status
+snapshot, including lifecycle-only snapshots. Probe updates publish through the
+existing Status subscription.
 
 Validate URLs as HTTP or HTTPS and protect the local machine from unintended
 access to loopback, link-local, metadata, or private-network targets unless the

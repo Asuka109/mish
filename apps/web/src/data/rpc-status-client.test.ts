@@ -111,7 +111,7 @@ describe("RpcStatusClient", () => {
         bridgeVersion: "test",
         coreConfigured: true,
         protocolVersion: 15,
-        statusCommands: { group: true, groupDelay: true, routing: true },
+        statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: { closeAllActive: true, closeConnection: true },
       },
     });
@@ -145,7 +145,7 @@ describe("RpcStatusClient", () => {
         bridgeVersion: "test",
         coreConfigured: true,
         protocolVersion: 15,
-        statusCommands: { group: true, groupDelay: true, routing: true },
+        statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: { closeAllActive: true, closeConnection: true },
       },
     });
@@ -168,7 +168,7 @@ describe("RpcStatusClient", () => {
         bridgeVersion: "test",
         coreConfigured: false,
         protocolVersion: 15,
-        statusCommands: { group: false, groupDelay: false, routing: false },
+        statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: { closeAllActive: false, closeConnection: false },
       },
     });

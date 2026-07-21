@@ -4,6 +4,7 @@ import type {
   LocalProxyTestResultDto,
   ServiceMonitorDto,
   ServiceMonitorDraft,
+  ServiceProbeIntervalSeconds,
   StatusClient,
   StatusConnectionState,
   StatusCommand,
@@ -262,6 +263,7 @@ const initialSnapshot: StatusSnapshotDto = {
     tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
     tunEnabled: false,
   },
+  serviceProbePolicy: { intervalSeconds: 60 },
   services: defaultServices,
   traffic: {
     downloadBytesPerSecond: 2_568_192,
@@ -328,6 +330,17 @@ export class FixtureStatusClient implements StatusClient {
       throw new StatusClientError("cancelled", "The fixture command was cancelled");
     }
     this.snapshot.routingMode = mode;
+    return this.snapshotAfterCommand();
+  }
+
+  async setServiceProbeInterval(
+    intervalSeconds: ServiceProbeIntervalSeconds,
+    options?: { signal?: AbortSignal },
+  ) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
+    this.snapshot.serviceProbePolicy.intervalSeconds = intervalSeconds;
     return this.snapshotAfterCommand();
   }
 

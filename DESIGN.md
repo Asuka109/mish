@@ -457,6 +457,8 @@ allowing add, edit, delete, and Restore defaults. Treat these values as endpoint
 probe results, not proof of a globally active proxy route. Probe semantics and
 security belong to
 [`docs/architecture/status-data-contracts.md`](docs/architecture/status-data-contracts.md).
+Keep the fixed service-test interval in the Manage dropdown as a radio group;
+service probes continue through the local bridge when Mihomo is stopped.
 
 The toolbar profile selector is an infrequent configuration control. Keep its
 icon, label, and caret muted until hover or focus so it does not compete with

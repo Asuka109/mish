@@ -101,6 +101,7 @@ function createSnapshot() {
       tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
       tunEnabled: false,
     },
+    serviceProbePolicy: { intervalSeconds: 60 },
     services: [],
     traffic: {
       downloadBytesPerSecond: 0,

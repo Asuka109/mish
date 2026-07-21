@@ -257,6 +257,9 @@ does not observe or apply System Proxy and accepts no caller-selected network
 target. Its product and WebView security boundary is defined in
 [`local-proxy-debugging.md`](local-proxy-debugging.md).
 
+Protocol version 15 adds desktop-owned service probes and the fixed service
+probe interval command without coupling those probes to Core lifecycle state.
+
 The approved Android direction pairs Kotlin `VpnService` with a reproducibly
 built embedded Go Core library. The approved iOS direction pairs Swift
 `NEPacketTunnelProvider` with the matching embedded Core framework. Both use a

@@ -14,7 +14,8 @@ use mish_bridge::{
     DesktopMihomoProcessConfig, DesktopRuntimeHost, LoopbackServerConfig, ManagedMihomoResolver,
     ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
     ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
-    ReqwestHttpsSourceReader, start_loopback_server, start_loopback_server_with_runtime_host,
+    ReqwestHttpsSourceReader, ServiceProbeConfig, start_loopback_server,
+    start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -290,6 +291,7 @@ fn config() -> LoopbackServerConfig {
         profile_activation: None,
         profile_file_actions: None,
         profile_service: None,
+        service_probes: None,
         settings_service: None,
     }
 }
@@ -763,7 +765,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
     assert_eq!(info["result"]["protocolVersion"], 15);
     assert_eq!(
         info["result"]["statusCommands"],
-        json!({"group": false, "groupDelay": false, "routing": false})
+        json!({"group": false, "groupDelay": false, "routing": false, "services": false})
     );
     assert_eq!(
         info["result"]["trafficCommands"],
@@ -910,6 +912,80 @@ async fn authenticates_and_serves_contract_compatible_status() {
     )
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn service_probes_remain_available_while_core_is_stopped() {
+    let mut bridge_config = config();
+    bridge_config.service_probes = Some(ServiceProbeConfig { state_path: None });
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+    authenticate(&mut ws).await;
+
+    let info = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
+    )
+    .await;
+    assert_eq!(info["result"]["statusCommands"]["services"], true);
+
+    let snapshot = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":3, "method":"status.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(snapshot["result"]["runtime"]["phase"], "inactive");
+    assert_eq!(
+        snapshot["result"]["serviceProbePolicy"]["intervalSeconds"],
+        60
+    );
+    assert_eq!(snapshot["result"]["services"].as_array().unwrap().len(), 6);
+    assert_eq!(
+        snapshot["result"]["probeResults"].as_array().unwrap().len(),
+        6
+    );
+    assert!(
+        snapshot["result"]["probeResults"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|result| result["routeTarget"] == "direct")
+    );
+
+    let updated = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"status.setServiceProbeInterval",
+            "params":{"intervalSeconds":300}
+        }),
+    )
+    .await;
+    assert_eq!(
+        updated["result"]["serviceProbePolicy"]["intervalSeconds"],
+        300
+    );
+
+    let rejected = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":5,
+            "method":"status.upsertServiceMonitor",
+            "params":{"draft":{
+                "icon":"globe",
+                "label":"Local metadata",
+                "url":"http://169.254.169.254/latest/meta-data"
+            }}
+        }),
+    )
+    .await;
+    assert_eq!(rejected["error"]["code"], -32602);
+
     bridge.shutdown().await;
 }
 
