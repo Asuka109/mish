@@ -123,11 +123,16 @@ derivation and persistence are specified in
 
 Service latency monitors a user-managed set of endpoint probes. The default fixture
 contains Google, GitHub, Cloudflare, Baidu, Apple, and Microsoft. Normal display
-shows a solid service icon, title, and latency; activating a service runs that
-probe immediately and updates its latency in place. The URL appears only in the
-editor. Manage supports add, an Edit services dialog, probe interval, delete,
-and Restore defaults. Keeping edit behind Manage preserves the service row as a
-single, unambiguous test action without adding a competing icon button to every row.
+shows a URL-backed service icon, title, and latency; activating a service runs
+that probe immediately and updates its latency in place. The probe URL and icon
+URL appear only in the editor. Default icons use version-pinned Remix Icon
+assets from the npmmirror CDN, with a neutral cloud symbol for Cloudflare, while
+each service may supply its own HTTPS image URL. Manage supports add, an Edit
+services dialog, automatic retest interval, delete, and Restore defaults.
+Automatic retesting offers 5-second, 10-second, 30-second, and 1-minute cycles.
+Disabling it retains the latest results and runs one cycle each time the proxy
+starts. Keeping edit behind Manage preserves the service row as a single,
+unambiguous test action without adding a competing icon button to every row.
 
 Manage remains openable when service mutation is unavailable so the menu can
 explain the capability boundary; unsupported commands remain disabled.

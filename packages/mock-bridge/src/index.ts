@@ -1,4 +1,5 @@
 import {
+  SERVICE_ICON_URLS,
   type CoreStatusDto,
   type RpcStatusSnapshotDto,
   type ServiceMonitorDto,
@@ -27,7 +28,7 @@ type MethodDefinition = { params: z.ZodType; result: z.ZodType };
 const methods: Record<string, MethodDefinition> = mishRpcMethods;
 
 const defaultService: ServiceMonitorDto = {
-  icon: "cloudflare",
+  icon: SERVICE_ICON_URLS.cloudflare,
   id: "connectivity",
   label: "Connectivity",
   url: "https://cp.cloudflare.com/generate_204",

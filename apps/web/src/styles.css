@@ -1154,9 +1154,9 @@ h2 {
   line-height: 17px;
 }
 
-.service-monitor-row {
+.ui-button.service-monitor-row {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(74px, 144px) 76px minmax(0, 1fr);
   min-height: 52px;
   align-items: center;
   gap: 10px;
@@ -1173,10 +1173,20 @@ h2 {
   color: var(--color-ink);
 }
 
-.service-monitor-row strong {
+.service-monitor-identity {
+  display: grid;
+  min-width: 0;
+  grid-column: 2;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.service-monitor-identity strong {
   overflow: hidden;
   font-size: var(--text-body);
   font-weight: var(--font-weight-control);
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1189,38 +1199,16 @@ h2 {
   color: var(--color-text-muted);
 }
 
-.service-monitor-icon svg {
+.service-monitor-icon img {
+  display: block;
   width: 18px;
   height: 18px;
+  opacity: 0.75;
+  object-fit: contain;
 }
 
-.service-monitor-row[data-service-icon="google"] .service-monitor-icon {
-  color: oklch(0.62 0.19 255);
-}
-
-.service-monitor-row[data-service-icon="github"] .service-monitor-icon {
-  color: oklch(0.3 0.02 260);
-}
-
-.service-monitor-row[data-service-icon="cloudflare"] .service-monitor-icon {
-  color: oklch(0.7 0.18 55);
-}
-
-.service-monitor-row[data-service-icon="baidu"] .service-monitor-icon {
-  color: oklch(0.55 0.23 275);
-}
-
-.service-monitor-row[data-service-icon="apple"] .service-monitor-icon {
-  color: oklch(0.34 0.02 260);
-}
-
-.service-monitor-row[data-service-icon="microsoft"] .service-monitor-icon {
-  color: oklch(0.61 0.2 245);
-}
-
-:root[data-theme="dark"] .service-monitor-row[data-service-icon="github"] .service-monitor-icon,
-:root[data-theme="dark"] .service-monitor-row[data-service-icon="apple"] .service-monitor-icon {
-  color: oklch(0.82 0.02 260);
+:root[data-theme="dark"] .service-monitor-icon img[data-monochrome="true"] {
+  filter: invert(1);
 }
 
 .service-monitor-latency,
@@ -1230,10 +1218,15 @@ h2 {
 }
 
 .service-monitor-latency {
-  display: flex;
-  min-width: 44px;
-  align-items: center;
-  justify-content: flex-end;
+  display: block;
+  grid-column: 3;
+  justify-self: stretch;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.service-monitor-latency[data-status="error"] {
+  color: var(--color-error);
 }
 
 .service-monitor-latency .ui-spinner {
@@ -1248,11 +1241,10 @@ h2 {
 .service-manager-list {
   max-height: min(360px, calc(100vh - 180px));
   overflow: auto;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
+  padding: 4px 0 6px;
 }
 
-.service-manager-row {
+.ui-button.service-manager-row {
   display: grid;
   width: 100%;
   min-height: 46px;
@@ -1260,6 +1252,7 @@ h2 {
   align-items: center;
   gap: 10px;
   justify-content: stretch;
+  padding: 0 16px;
   border: 0;
   border-radius: 0;
   text-align: left;
@@ -1278,6 +1271,7 @@ h2 {
 }
 
 .service-manager-row > svg {
+  justify-self: end;
   color: var(--color-text-muted);
 }
 

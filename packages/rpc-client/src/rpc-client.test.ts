@@ -367,7 +367,11 @@ describe("RpcClient", () => {
 
     await expect(
       client.request("status.upsertServiceMonitor", {
-        draft: { icon: "globe", label: "x".repeat(512), url: "https://example.com" },
+        draft: {
+          icon: "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg",
+          label: "x".repeat(512),
+          url: "https://example.com",
+        },
       }),
     ).rejects.toBeInstanceOf(RpcMessageTooLargeError);
 

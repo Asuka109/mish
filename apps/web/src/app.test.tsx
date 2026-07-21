@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
 import {
+  SERVICE_ICON_URLS,
   StatusClientError,
   type AppearancePreference,
   type CaptureSelectionDto,
@@ -136,6 +137,31 @@ class CancellableRoutingClient extends FixtureStatusClient {
 class FailingServicesClient extends FixtureStatusClient {
   override restoreDefaultServices(): Promise<StatusSnapshotDto> {
     return Promise.reject(new StatusClientError("remote", "Restore failed"));
+  }
+}
+
+class DeferredServiceProbeClient extends FixtureStatusClient {
+  private resolveProbe: ((snapshot: StatusSnapshotDto) => void) | null = null;
+
+  override testServiceMonitor(): Promise<StatusSnapshotDto> {
+    return new Promise((resolve) => {
+      this.resolveProbe = resolve;
+    });
+  }
+
+  async completeProbe(monitorId: string, latencyMilliseconds: number) {
+    const snapshot = await this.getSnapshot();
+    const result = snapshot.probeResults.find((candidate) => candidate.monitorId === monitorId);
+    if (!result) throw new Error(`Missing probe result for ${monitorId}`);
+    result.latencyMilliseconds = latencyMilliseconds;
+    result.status = "healthy";
+    this.resolveProbe?.(snapshot);
+  }
+}
+
+class FailingServiceProbeClient extends FixtureStatusClient {
+  override testServiceMonitor(): Promise<StatusSnapshotDto> {
+    return Promise.reject(new StatusClientError("remote", "Probe transport failed"));
   }
 }
 
@@ -2108,9 +2134,13 @@ describe("Status fixture experience", () => {
     await screen.findByText("Fixture activity at a glance.");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitemradio", { name: "Every 5 minutes" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Every 10 seconds" }));
 
-    await waitFor(() => expect(setInterval).toHaveBeenCalledWith(300, expect.any(Object)));
+    await waitFor(() => expect(setInterval).toHaveBeenCalledWith(10, expect.any(Object)));
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Disable automatic tests" }));
+    await waitFor(() => expect(setInterval).toHaveBeenCalledWith(0, expect.any(Object)));
   });
 
   it("tests a service from its status row and edits it through Manage", async () => {
@@ -2130,6 +2160,79 @@ describe("Status fixture experience", () => {
 
     expect(await screen.findByRole("dialog", { name: "Edit service" })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Google");
+    expect(screen.getByRole("textbox", { name: "Icon URL" })).toHaveValue(SERVICE_ICON_URLS.google);
+  });
+
+  it("lets users replace a service icon with a custom HTTPS image URL", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status", "en", new FixtureStatusClient());
+    await screen.findByText("Fixture activity at a glance.");
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
+    await user.click(within(manager).getByRole("button", { name: "Google" }));
+
+    const customIconUrl = "https://example.com/custom-service.svg";
+    const iconUrl = await screen.findByRole("textbox", { name: "Icon URL" });
+    await user.clear(iconUrl);
+    await user.type(iconUrl, customIconUrl);
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit service" })).toBeNull());
+    const google = screen.getByRole("button", { name: "Test latency for Google" });
+    expect(google.querySelector("img")).toHaveAttribute("src", customIconUrl);
+  });
+
+  it("dims only the service being tested while preserving its previous latency", async () => {
+    const user = userEvent.setup();
+    const client = new DeferredServiceProbeClient();
+    renderRoute("/status", "en", client);
+    await screen.findByText("Fixture activity at a glance.");
+
+    const services = screen.getByRole("region", { name: "Service latency monitors" });
+    const google = within(services).getByRole("button", { name: "Test latency for Google" });
+    const github = within(services).getByRole("button", { name: "Test latency for GitHub" });
+    await user.click(google);
+
+    expect(google.querySelector(".ui-spinner")).not.toBeInTheDocument();
+    expect(within(google).getByText("48 ms")).toBeVisible();
+    expect(google).toBeDisabled();
+    expect(github.querySelector(".ui-spinner")).not.toBeInTheDocument();
+    expect(github).toBeEnabled();
+
+    await client.completeProbe("google", 73);
+    await waitFor(() => expect(within(google).getByText("73 ms")).toBeVisible());
+  });
+
+  it("renders service probe failures inline without an error toast", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    renderRoute("/status", "en", new FailingServiceProbeClient());
+    await screen.findByText("Fixture activity at a glance.");
+
+    const google = screen.getByRole("button", { name: "Test latency for Google" });
+    await user.click(google);
+
+    const failure = await within(google).findByText("Unreachable");
+    expect(failure).toHaveAttribute("data-status", "error");
+    expect(errorToast).not.toHaveBeenCalled();
+  });
+
+  it("caps displayed service latency and preserves the full label as a title", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+    const google = snapshot.services.find((service) => service.id === "google");
+    const result = snapshot.probeResults.find((candidate) => candidate.monitorId === "google");
+    if (!google || !result) throw new Error("Google fixture is missing");
+    google.label = "A very long custom service monitor name";
+    result.latencyMilliseconds = 10_000;
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    const service = await screen.findByRole("button", {
+      name: "Test latency for A very long custom service monitor name",
+    });
+    expect(within(service).getByText(">9999ms")).toBeVisible();
+    expect(within(service).getByText(google.label)).toHaveAttribute("title", google.label);
   });
 
   it("switches to Simplified Chinese and persists the locale", async () => {

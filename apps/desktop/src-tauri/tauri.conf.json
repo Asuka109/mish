@@ -31,7 +31,7 @@
     ],
     "security": {
       "capabilities": ["main"],
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:*; font-src 'self'; frame-src 'none'; img-src 'self' data:; object-src 'none'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:*; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
       "headers": {
         "Cross-Origin-Resource-Policy": "same-origin",
         "Permissions-Policy": "camera=(), microphone=(), geolocation=()"

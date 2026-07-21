@@ -9,8 +9,8 @@ use std::{
 use chrono::Utc;
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use mish_runtime::{
-    ProbeStatus, ServiceIcon, ServiceMonitor, ServiceProbePolicy, ServiceProbeResult,
-    StatusSnapshot, default_service_monitors,
+    ProbeStatus, ServiceMonitor, ServiceProbePolicy, ServiceProbeResult, StatusSnapshot,
+    default_service_monitors,
 };
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
@@ -19,9 +19,11 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 const DEFAULT_INTERVAL_SECONDS: u16 = 60;
+const DISABLED_INTERVAL_SECONDS: u16 = 0;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_MONITORS: usize = 24;
-const ALLOWED_INTERVALS: [u16; 4] = [30, 60, 300, 900];
+const ALLOWED_INTERVALS: [u16; 5] = [0, 5, 10, 30, 60];
+const SERVICE_ICON_CDN_BASE: &str = "https://registry.npmmirror.com/remixicon/4.9.1/files/icons";
 
 #[derive(Clone, Debug)]
 pub struct ServiceProbeConfig {
@@ -31,7 +33,7 @@ pub struct ServiceProbeConfig {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ServiceMonitorDraft {
-    pub icon: ServiceIcon,
+    pub icon: String,
     pub id: Option<String>,
     pub label: String,
     pub url: String,
@@ -55,6 +57,7 @@ struct ProbeState {
 
 struct Inner {
     cancel: CancellationToken,
+    core_started: Notify,
     state: Mutex<ProbeState>,
     state_path: Option<PathBuf>,
     updates: broadcast::Sender<()>,
@@ -75,14 +78,20 @@ impl ServiceProbeService {
             .filter(valid_persisted_state);
         let interval_seconds = persisted
             .as_ref()
-            .map_or(DEFAULT_INTERVAL_SECONDS, |state| state.interval_seconds);
-        let services = persisted
+            .map_or(DEFAULT_INTERVAL_SECONDS, |state| {
+                normalize_persisted_interval(state.interval_seconds)
+            });
+        let services: Vec<ServiceMonitor> = persisted
             .map(|state| state.services)
-            .unwrap_or_else(default_service_monitors);
+            .unwrap_or_else(default_service_monitors)
+            .into_iter()
+            .map(upgrade_default_icon)
+            .collect();
         let (updates, _) = broadcast::channel(32);
         Self {
             inner: Arc::new(Inner {
                 cancel: CancellationToken::new(),
+                core_started: Notify::new(),
                 state: Mutex::new(ProbeState {
                     interval_seconds,
                     revision: 0,
@@ -119,6 +128,7 @@ impl ServiceProbeService {
     }
 
     pub async fn upsert(&self, draft: ServiceMonitorDraft) -> Result<(), ServiceProbeError> {
+        validate_icon_url(&draft.icon)?;
         validate_label(&draft.label)?;
         validate_probe_url(&draft.url).await?;
         let mut state = self
@@ -216,7 +226,7 @@ impl ServiceProbeService {
 
     pub async fn test(&self, monitor_id: &str) -> Result<(), ServiceProbeError> {
         let (revision, monitor) = {
-            let mut state = self
+            let state = self
                 .inner
                 .state
                 .lock()
@@ -227,17 +237,6 @@ impl ServiceProbeService {
                 .find(|monitor| monitor.id == monitor_id)
                 .cloned()
                 .ok_or(ServiceProbeError::NotFound)?;
-            let pending = pending_result(&monitor);
-            if let Some(existing) = state
-                .results
-                .iter_mut()
-                .find(|candidate| candidate.monitor_id == monitor_id)
-            {
-                *existing = pending;
-            } else {
-                state.results.push(pending);
-            }
-            let _ = self.inner.updates.send(());
             (state.revision, monitor)
         };
 
@@ -267,6 +266,17 @@ impl ServiceProbeService {
         self.inner.cancel.cancel();
     }
 
+    pub fn test_after_core_start(&self) {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .expect("service probe state poisoned");
+        if state.interval_seconds == DISABLED_INTERVAL_SECONDS {
+            self.inner.core_started.notify_one();
+        }
+    }
+
     fn changed(&self) {
         let _ = self.inner.updates.send(());
         self.inner.wake.notify_one();
@@ -274,18 +284,25 @@ impl ServiceProbeService {
 
     async fn run(&self) {
         loop {
+            let interval_seconds = self.interval_seconds();
+            if interval_seconds == DISABLED_INTERVAL_SECONDS {
+                tokio::select! {
+                    () = self.inner.cancel.cancelled() => break,
+                    () = self.inner.wake.notified() => {},
+                    () = self.inner.core_started.notified() => self.run_cycle().await,
+                }
+                continue;
+            }
+
             tokio::select! {
                 () = self.inner.cancel.cancelled() => break,
                 () = self.run_cycle() => {},
             }
-            let interval = {
-                let state = self
-                    .inner
-                    .state
-                    .lock()
-                    .expect("service probe state poisoned");
-                Duration::from_secs(u64::from(state.interval_seconds))
-            };
+            let interval_seconds = self.interval_seconds();
+            if interval_seconds == DISABLED_INTERVAL_SECONDS {
+                continue;
+            }
+            let interval = Duration::from_secs(u64::from(interval_seconds));
             tokio::select! {
                 () = self.inner.cancel.cancelled() => break,
                 () = self.inner.wake.notified() => {},
@@ -294,16 +311,22 @@ impl ServiceProbeService {
         }
     }
 
+    fn interval_seconds(&self) -> u16 {
+        self.inner
+            .state
+            .lock()
+            .expect("service probe state poisoned")
+            .interval_seconds
+    }
+
     async fn run_cycle(&self) {
         let (revision, services) = {
-            let mut state = self
+            let state = self
                 .inner
                 .state
                 .lock()
                 .expect("service probe state poisoned");
-            state.results = pending_results(&state.services);
             let services = state.services.clone();
-            let _ = self.inner.updates.send(());
             (state.revision, services)
         };
         let semaphore = Arc::new(Semaphore::new(4));
@@ -364,13 +387,90 @@ fn load_state(path: &Path) -> Result<PersistedState, io::Error> {
 
 fn valid_persisted_state(state: &PersistedState) -> bool {
     state.version == 1
-        && ALLOWED_INTERVALS.contains(&state.interval_seconds)
+        && valid_persisted_interval(state.interval_seconds)
         && state.services.len() <= MAX_MONITORS
         && state.services.iter().all(|monitor| {
             valid_identifier(&monitor.id)
+                && valid_persisted_icon(&monitor.icon)
                 && validate_label(&monitor.label).is_ok()
                 && syntactically_safe_url(&monitor.url)
         })
+}
+
+fn valid_persisted_interval(interval_seconds: u16) -> bool {
+    ALLOWED_INTERVALS.contains(&interval_seconds) || matches!(interval_seconds, 300 | 900)
+}
+
+fn normalize_persisted_interval(interval_seconds: u16) -> u16 {
+    match interval_seconds {
+        300 | 900 => DEFAULT_INTERVAL_SECONDS,
+        interval_seconds => interval_seconds,
+    }
+}
+
+fn upgrade_default_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
+    if let Some(icon) = current_default_icon_url(&monitor.icon) {
+        monitor.icon = icon;
+    }
+    monitor
+}
+
+fn current_default_icon_url(value: &str) -> Option<String> {
+    let path = match value {
+        "apple"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/apple.svg" => {
+            "Logos/apple-fill.svg"
+        }
+        "baidu"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/baidu-color.svg" => {
+            "Logos/baidu-fill.svg"
+        }
+        "cloudflare"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg" => {
+            "Business/cloud-fill.svg"
+        }
+        "github"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/github.svg" => {
+            "Logos/github-fill.svg"
+        }
+        "globe" | "https://registry.npmmirror.com/bootstrap-icons/1.13.1/files/icons/globe.svg" => {
+            "Map/globe-fill.svg"
+        }
+        "google"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/google-color.svg" => {
+            "Logos/google-fill.svg"
+        }
+        "microsoft"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/microsoft-color.svg" => {
+            "Logos/microsoft-fill.svg"
+        }
+        _ => return None,
+    };
+    Some(format!("{SERVICE_ICON_CDN_BASE}/{path}"))
+}
+
+fn valid_persisted_icon(value: &str) -> bool {
+    current_default_icon_url(value).is_some() || valid_icon_url(value)
+}
+
+fn validate_icon_url(value: &str) -> Result<(), ServiceProbeError> {
+    if valid_icon_url(value) {
+        return Ok(());
+    }
+    Err(ServiceProbeError::Invalid("Invalid service icon URL"))
+}
+
+fn valid_icon_url(value: &str) -> bool {
+    if value.len() > 2_048 {
+        return false;
+    }
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 
 fn persist_locked(path: Option<&Path>, state: &ProbeState) -> Result<(), ServiceProbeError> {
@@ -569,7 +669,7 @@ mod tests {
         let service = ServiceProbeService::new(ServiceProbeConfig {
             state_path: Some(state_path.clone()),
         });
-        service.set_interval(300).unwrap();
+        service.set_interval(10).unwrap();
 
         let restored = ServiceProbeService::new(ServiceProbeConfig {
             state_path: Some(state_path),
@@ -581,8 +681,103 @@ mod tests {
                 .lock()
                 .expect("service probe state poisoned")
                 .interval_seconds,
-            300
+            10
         );
+    }
+
+    #[test]
+    fn removed_long_intervals_are_migrated_to_one_minute() {
+        let directory = tempfile::tempdir().unwrap();
+        let state_path = directory.path().join("service-monitors.json");
+        let state = PersistedState {
+            interval_seconds: 300,
+            services: default_service_monitors(),
+            version: 1,
+        };
+        fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+        let restored = ServiceProbeService::new(ServiceProbeConfig {
+            state_path: Some(state_path),
+        });
+        assert_eq!(restored.interval_seconds(), DEFAULT_INTERVAL_SECONDS);
+    }
+
+    #[tokio::test]
+    async fn core_start_only_requests_a_probe_when_periodic_testing_is_disabled() {
+        let service = ServiceProbeService::new(ServiceProbeConfig { state_path: None });
+        service.test_after_core_start();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(10),
+                service.inner.core_started.notified()
+            )
+            .await
+            .is_err()
+        );
+
+        service.set_interval(DISABLED_INTERVAL_SECONDS).unwrap();
+        service.test_after_core_start();
+        tokio::time::timeout(
+            Duration::from_millis(10),
+            service.inner.core_started.notified(),
+        )
+        .await
+        .expect("disabled interval should retain the core-start probe request");
+    }
+
+    #[test]
+    fn previous_default_icons_are_upgraded_to_remix_cdn_urls() {
+        let directory = tempfile::tempdir().unwrap();
+        let state_path = directory.path().join("service-monitors.json");
+        let state = PersistedState {
+            interval_seconds: 60,
+            services: vec![
+                ServiceMonitor {
+                    icon: "google".into(),
+                    id: "legacy-google".into(),
+                    label: "Legacy Google".into(),
+                    url: "https://www.google.com/generate_204".into(),
+                },
+                ServiceMonitor {
+                    icon: "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg".into(),
+                    id: "legacy-cloudflare".into(),
+                    label: "Legacy Cloudflare".into(),
+                    url: "https://cp.cloudflare.com/generate_204".into(),
+                },
+            ],
+            version: 1,
+        };
+        fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+        let restored = ServiceProbeService::new(ServiceProbeConfig {
+            state_path: Some(state_path),
+        });
+        let restored_icons: Vec<String> = restored
+            .inner
+            .state
+            .lock()
+            .expect("service probe state poisoned")
+            .services
+            .iter()
+            .map(|service| service.icon.clone())
+            .collect();
+
+        assert_eq!(
+            restored_icons,
+            vec![
+                "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
+                "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg",
+            ]
+        );
+    }
+
+    #[test]
+    fn service_icon_urls_require_credential_free_https() {
+        assert!(valid_icon_url(
+            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg"
+        ));
+        assert!(!valid_icon_url("http://example.com/icon.svg"));
+        assert!(!valid_icon_url("https://user:secret@example.com/icon.svg"));
     }
 
     #[test]
@@ -595,7 +790,7 @@ mod tests {
         });
 
         assert!(matches!(
-            service.set_interval(300),
+            service.set_interval(10),
             Err(ServiceProbeError::Io)
         ));
         assert_eq!(

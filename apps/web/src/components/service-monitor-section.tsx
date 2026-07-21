@@ -1,15 +1,7 @@
-import { AppleLogo } from "@phosphor-icons/react/AppleLogo";
 import { ArrowCounterClockwise } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { CaretDown } from "@phosphor-icons/react/CaretDown";
-import { Cloud } from "@phosphor-icons/react/Cloud";
-import { GithubLogo } from "@phosphor-icons/react/GithubLogo";
-import { GlobeSimple } from "@phosphor-icons/react/GlobeSimple";
-import { GoogleLogo } from "@phosphor-icons/react/GoogleLogo";
-import { PawPrint } from "@phosphor-icons/react/PawPrint";
 import { PencilSimple } from "@phosphor-icons/react/PencilSimple";
 import { Plus } from "@phosphor-icons/react/Plus";
-import { WindowsLogo } from "@phosphor-icons/react/WindowsLogo";
-import type { Icon } from "@phosphor-icons/react/lib";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,20 +43,21 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
-import type { ServiceMonitorDraft, ServiceMonitorDto } from "@mish/contracts";
+import {
+  SERVICE_ICON_URLS,
+  type ServiceMonitorDraft,
+  type ServiceMonitorDto,
+} from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
-const serviceIcons: Record<ServiceMonitorDto["icon"], Icon> = {
-  apple: AppleLogo,
-  baidu: PawPrint,
-  cloudflare: Cloud,
-  github: GithubLogo,
-  globe: GlobeSimple,
-  google: GoogleLogo,
-  microsoft: WindowsLogo,
-};
+const serviceProbeIntervals = [0, 5, 10, 30, 60] as const;
+const maximumDisplayedLatency = 9999;
+const defaultServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
 
-const serviceProbeIntervals = [30, 60, 300, 900] as const;
+function formatLatency(latencyMilliseconds: number) {
+  if (latencyMilliseconds > maximumDisplayedLatency) return ">9999ms";
+  return `${latencyMilliseconds} ms`;
+}
 
 function isValidProbeUrl(value: string) {
   try {
@@ -73,6 +66,38 @@ function isValidProbeUrl(value: string) {
   } catch {
     return false;
   }
+}
+
+function isValidIconUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.username === "" && url.password === "";
+  } catch {
+    return false;
+  }
+}
+
+interface ServiceIconImageProps {
+  src: string;
+}
+
+function ServiceIconImage({ src }: ServiceIconImageProps) {
+  return (
+    <img
+      alt=""
+      aria-hidden="true"
+      data-monochrome={defaultServiceIconUrls.has(src) || undefined}
+      decoding="async"
+      onError={(event) => {
+        event.currentTarget.hidden = true;
+      }}
+      onLoad={(event) => {
+        event.currentTarget.hidden = false;
+      }}
+      referrerPolicy="no-referrer"
+      src={src}
+    />
+  );
 }
 
 interface ServiceEditorDialogProps {
@@ -105,7 +130,6 @@ function ServiceManagerDialog({ onClose, onEdit, open, services }: ServiceManage
         </div>
         <div className="service-manager-list">
           {services.map((service) => {
-            const ServiceIcon = serviceIcons[service.icon];
             return (
               <Button
                 className="service-manager-row"
@@ -114,8 +138,8 @@ function ServiceManagerDialog({ onClose, onEdit, open, services }: ServiceManage
                 type="button"
                 variant="ghost"
               >
-                <span className="service-monitor-icon" data-service-icon={service.icon}>
-                  <ServiceIcon aria-hidden="true" weight="fill" />
+                <span className="service-monitor-icon">
+                  <ServiceIconImage src={service.icon} />
                 </span>
                 <strong className="user-authored-label">{service.label}</strong>
                 <PencilSimple aria-hidden="true" />
@@ -132,18 +156,20 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
   const { isCommandPending, removeServiceMonitor, upsertServiceMonitor } = useProduct();
   const { LL } = useI18nContext();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [editedFields, setEditedFields] = useState({ label: false, url: false });
+  const [editedFields, setEditedFields] = useState({ icon: false, label: false, url: false });
   const [pendingAction, setPendingAction] = useState<{
     kind: "delete" | "save";
     promise: Promise<void>;
   } | null>(null);
   if (!draft) return null;
 
+  const iconInvalid = !isValidIconUrl(draft.icon);
   const labelInvalid = draft.label.trim().length === 0;
   const urlInvalid = !isValidProbeUrl(draft.url);
+  const showIconError = iconInvalid && editedFields.icon;
   const showLabelError = labelInvalid && editedFields.label;
   const showUrlError = urlInvalid && editedFields.url;
-  const canSave = !labelInvalid && !urlInvalid;
+  const canSave = !iconInvalid && !labelInvalid && !urlInvalid;
   const existingService = Boolean(draft.id);
   const commandPending = isCommandPending("services");
 
@@ -205,6 +231,23 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
                 value={draft.label}
               />
               {showLabelError ? <FieldError>{LL.services.labelError()}</FieldError> : null}
+            </Field>
+            <Field data-invalid={showIconError || undefined}>
+              <FieldLabel htmlFor="service-icon-url">{LL.services.iconUrl()}</FieldLabel>
+              <Input
+                aria-invalid={showIconError || undefined}
+                id="service-icon-url"
+                onValueChange={(value) => {
+                  setEditedFields((fields) => ({ ...fields, icon: true }));
+                  setDraft({ ...draft, icon: value });
+                }}
+                placeholder={SERVICE_ICON_URLS.globe}
+                spellCheck={false}
+                type="url"
+                value={draft.icon}
+              />
+              <FieldDescription>{LL.services.iconUrlDescription()}</FieldDescription>
+              {showIconError ? <FieldError>{LL.services.iconUrlError()}</FieldError> : null}
             </Field>
             <Field data-invalid={showUrlError || undefined}>
               <FieldLabel htmlFor="service-probe-url">{LL.services.probeUrl()}</FieldLabel>
@@ -287,6 +330,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
 
 export function ServiceMonitorSection() {
   const {
+    hasServiceProbeFailed,
     isCommandPending,
     isCommandSupported,
     isServiceProbePending,
@@ -306,14 +350,16 @@ export function ServiceMonitorSection() {
 
   function intervalLabel(intervalSeconds: (typeof serviceProbeIntervals)[number]) {
     switch (intervalSeconds) {
+      case 0:
+        return LL.services.intervalDisabled();
+      case 5:
+        return LL.services.interval5Seconds();
+      case 10:
+        return LL.services.interval10Seconds();
       case 30:
         return LL.services.interval30Seconds();
       case 60:
         return LL.services.interval1Minute();
-      case 300:
-        return LL.services.interval5Minutes();
-      case 900:
-        return LL.services.interval15Minutes();
     }
   }
 
@@ -353,7 +399,9 @@ export function ServiceMonitorSection() {
               ) : null}
               <DropdownMenuItem
                 disabled={!commandSupported}
-                onClick={() => setDraft({ icon: "globe", label: "", url: "https://" })}
+                onClick={() =>
+                  setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" })
+                }
               >
                 <Plus aria-hidden="true" data-icon="inline-start" />
                 {LL.services.add()}
@@ -413,41 +461,44 @@ export function ServiceMonitorSection() {
       {snapshot.services.length > 0 ? (
         <SectionGrid className="service-monitor-list" columns={3}>
           {snapshot.services.map((service) => {
-            const ServiceIcon = serviceIcons[service.icon];
             const probePending = isServiceProbePending(service.id);
+            const probeFailed = hasServiceProbeFailed(service.id);
             const result = snapshot.probeResults.find(
               (candidate) => candidate.monitorId === service.id,
             );
+            const resultFailed = probeFailed || result?.status === "error";
             return (
               <Button
                 aria-busy={probePending}
                 aria-label={LL.services.testAria({ service: service.label })}
                 aria-describedby={actionDescriptionId}
                 className="section-grid-item service-monitor-row"
-                data-service-icon={service.icon}
-                disabled={commandPending || !commandSupported}
+                disabled={probePending || commandPending || !commandSupported}
                 key={service.id}
                 onClick={() => void testServiceMonitor(service.id)}
                 type="button"
                 variant="ghost"
               >
-                <span className="service-monitor-icon">
-                  <ServiceIcon aria-hidden="true" weight="fill" />
+                <span className="service-monitor-identity">
+                  <span className="service-monitor-icon">
+                    <ServiceIconImage src={service.icon} />
+                  </span>
+                  <strong className="user-authored-label" title={service.label}>
+                    {service.label}
+                  </strong>
                 </span>
-                <strong className="user-authored-label">{service.label}</strong>
-                <span aria-live="polite" className="service-monitor-latency tabular">
-                  {probePending ? (
-                    <Spinner />
-                  ) : result?.latencyMilliseconds === null ||
-                    result?.latencyMilliseconds === undefined ? (
-                    result?.status === "error" ? (
-                      LL.services.unavailable()
-                    ) : (
-                      LL.common.pending()
-                    )
-                  ) : (
-                    `${result.latencyMilliseconds} ms`
-                  )}
+                <span
+                  aria-live="polite"
+                  className="service-monitor-latency tabular"
+                  data-status={resultFailed ? "error" : undefined}
+                >
+                  {probeFailed ||
+                  result?.latencyMilliseconds === null ||
+                  result?.latencyMilliseconds === undefined
+                    ? resultFailed
+                      ? LL.services.unavailable()
+                      : LL.common.pending()
+                    : formatLatency(result.latencyMilliseconds)}
                 </span>
               </Button>
             );
@@ -466,7 +517,7 @@ export function ServiceMonitorSection() {
           <Button
             aria-describedby={actionDescriptionId}
             disabled={!commandSupported}
-            onClick={() => setDraft({ icon: "globe", label: "", url: "https://" })}
+            onClick={() => setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" })}
             variant="outline"
           >
             <Plus data-icon="inline-start" />

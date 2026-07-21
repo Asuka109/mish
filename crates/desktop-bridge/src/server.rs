@@ -280,6 +280,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         runtime.clone(),
         lifecycle_source,
         settings_service,
+        service_probes.clone(),
         audit_shutdown_rx,
     );
     let join = tokio::spawn(async move {
@@ -688,7 +689,7 @@ fn secure_json_response(value: serde_json::Value, browser_session: Option<&str>)
 
 fn browser_content_security_policy(rpc_url: &str) -> String {
     format!(
-        "default-src 'self'; connect-src 'self' {rpc_url}; font-src 'self'; frame-src 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+        "default-src 'self'; connect-src 'self' {rpc_url}; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'"
     )
 }
 

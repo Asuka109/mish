@@ -125,18 +125,6 @@ pub struct GroupDelayPolicy {
     pub timeout_milliseconds: u16,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ServiceIcon {
-    Apple,
-    Baidu,
-    Cloudflare,
-    Github,
-    Globe,
-    Google,
-    Microsoft,
-}
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureSelection {
@@ -251,7 +239,7 @@ pub struct GroupUsage {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ServiceMonitor {
-    pub icon: ServiceIcon,
+    pub icon: String,
     pub id: String,
     pub label: String,
     pub url: String,
@@ -350,37 +338,37 @@ impl StatusSnapshot {
 pub fn default_service_monitors() -> Vec<ServiceMonitor> {
     [
         (
-            ServiceIcon::Google,
+            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
             "google",
             "Google",
             "https://www.google.com/generate_204",
         ),
         (
-            ServiceIcon::Github,
+            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/github-fill.svg",
             "github",
             "GitHub",
             "https://github.com",
         ),
         (
-            ServiceIcon::Cloudflare,
+            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg",
             "cloudflare",
             "Cloudflare",
             "https://cp.cloudflare.com/generate_204",
         ),
         (
-            ServiceIcon::Baidu,
+            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/baidu-fill.svg",
             "baidu",
             "Baidu",
             "https://www.baidu.com",
         ),
         (
-            ServiceIcon::Apple,
+            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/apple-fill.svg",
             "apple",
             "Apple",
             "https://www.apple.com/library/test/success.html",
         ),
         (
-            ServiceIcon::Microsoft,
+            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/microsoft-fill.svg",
             "microsoft",
             "Microsoft",
             "https://www.msftconnecttest.com/connecttest.txt",
@@ -388,7 +376,7 @@ pub fn default_service_monitors() -> Vec<ServiceMonitor> {
     ]
     .into_iter()
     .map(|(icon, id, label, url)| ServiceMonitor {
-        icon,
+        icon: icon.into(),
         id: id.into(),
         label: label.into(),
         url: url.into(),

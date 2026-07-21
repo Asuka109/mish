@@ -40,12 +40,17 @@ export type LocalProxyTestState =
   | { phase: "success"; result: LocalProxyTestResultDto }
   | { error: StatusClientError; phase: "failure" };
 
+type ServiceProbeCommandState =
+  | { phase: "pending" | "success" }
+  | { phase: "failure"; previousObservedAt: string | null };
+
 interface ProductContextValue {
   commandStates: Record<ProductCommand, ProductCommandState>;
   connection: StatusConnectionState;
   error: string | null;
   isCommandPending(command: ProductCommand): boolean;
   isGroupCommandPending(groupId: string): boolean;
+  hasServiceProbeFailed(monitorId: string): boolean;
   isServiceProbePending(monitorId: string): boolean;
   isCommandSupported(command: ProductCommand): boolean;
   isLoading: boolean;
@@ -130,6 +135,9 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [commandFailed, setCommandFailed] = useState(false);
   const [commandStates, setCommandStates] = useState(createInitialCommandStates);
+  const [serviceProbeStates, setServiceProbeStates] = useState<
+    Record<string, ServiceProbeCommandState>
+  >({});
   const [localProxyTest, setLocalProxyTest] = useState<LocalProxyTestState>({ phase: "idle" });
   const pendingCommands = useRef(new Set<ProductCommand>());
   const commandControllers = useRef(new Map<string, AbortController>());
@@ -142,6 +150,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     const controller = new AbortController();
     localProxyAuthorityRef.current = null;
     setLocalProxyTest({ phase: "idle" });
+    setServiceProbeStates({});
     setConnection(resolvedClient.getConnectionState());
     const unsubscribeConnection = resolvedClient.subscribeConnection(setConnection);
     const unsubscribeSnapshots = resolvedClient.subscribeSnapshots((nextSnapshot) => {
@@ -181,6 +190,23 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     if (controller) commandControllers.current.delete("local-proxy");
     setLocalProxyTest({ phase: "idle" });
   }, [localProxyAuthority]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    setServiceProbeStates((states) => {
+      const recoveredMonitorIds = Object.entries(states).flatMap(([monitorId, state]) => {
+        if (state.phase !== "failure") return [];
+        const result = snapshot.probeResults.find(
+          (candidate) => candidate.monitorId === monitorId && candidate.status !== "pending",
+        );
+        return result && result.observedAt !== state.previousObservedAt ? [monitorId] : [];
+      });
+      if (recoveredMonitorIds.length === 0) return states;
+      const nextStates = { ...states };
+      for (const monitorId of recoveredMonitorIds) delete nextStates[monitorId];
+      return nextStates;
+    });
+  }, [snapshot]);
 
   const runCommand = useCallback(
     async (
@@ -259,6 +285,53 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
     }
   }, [resolvedClient]);
 
+  const testServiceMonitor = useCallback(
+    async (monitorId: string) => {
+      if (!resolvedClient.supportsCommand("services")) {
+        return {
+          error: new StatusClientError(
+            "invalid-request",
+            "Service probes are not supported by the current Status client",
+          ),
+          ok: false,
+        } satisfies ProductCommandResult;
+      }
+
+      const key = `services:probe:${monitorId}`;
+      if (commandControllers.current.has(key)) {
+        return {
+          error: new StatusClientError("conflict", "This service probe is already pending", true),
+          ok: false,
+        } satisfies ProductCommandResult;
+      }
+
+      const controller = new AbortController();
+      const previousObservedAt =
+        snapshot?.probeResults.find((result) => result.monitorId === monitorId)?.observedAt ?? null;
+      commandControllers.current.set(key, controller);
+      setServiceProbeStates((states) => ({ ...states, [monitorId]: { phase: "pending" } }));
+      try {
+        setSnapshot(
+          await resolvedClient.testServiceMonitor(monitorId, { signal: controller.signal }),
+        );
+        setServiceProbeStates((states) => ({ ...states, [monitorId]: { phase: "success" } }));
+        return { ok: true } satisfies ProductCommandResult;
+      } catch (error) {
+        const typedError = toStatusClientError(error);
+        setServiceProbeStates((states) => ({
+          ...states,
+          [monitorId]: { phase: "failure", previousObservedAt },
+        }));
+        return { error: typedError, ok: false } satisfies ProductCommandResult;
+      } finally {
+        if (commandControllers.current.get(key) === controller) {
+          commandControllers.current.delete(key);
+        }
+      }
+    },
+    [resolvedClient, snapshot],
+  );
+
   const value = useMemo<ProductContextValue>(
     () => ({
       commandStates,
@@ -273,8 +346,8 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         resolvedClient.supportsCommand(command) &&
         (connection.phase === "fixture" || !connection.stale),
       isGroupCommandPending: (groupId) => commandControllers.current.has(`group:${groupId}`),
-      isServiceProbePending: (monitorId) =>
-        commandControllers.current.has(`services:probe:${monitorId}`),
+      hasServiceProbeFailed: (monitorId) => serviceProbeStates[monitorId]?.phase === "failure",
+      isServiceProbePending: (monitorId) => serviceProbeStates[monitorId]?.phase === "pending",
       isLoading: snapshot === null && !loadFailed,
       localProxyTest,
       cancelGroupDelayTest: (testId) =>
@@ -303,12 +376,7 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           (signal) => resolvedClient.startGroupDelayTest(groupId, { signal }),
           "group-delay:start",
         ),
-      testServiceMonitor: (monitorId) =>
-        runCommand(
-          "services",
-          (signal) => resolvedClient.testServiceMonitor(monitorId, { signal }),
-          `services:probe:${monitorId}`,
-        ),
+      testServiceMonitor,
       testLocalProxy,
       setActiveProfile: (profileId) =>
         runCommand("profile", (signal) => resolvedClient.setActiveProfile(profileId, { signal })),
@@ -333,8 +401,10 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       localProxyTest,
       resolvedClient,
       runCommand,
+      serviceProbeStates,
       snapshot,
       testLocalProxy,
+      testServiceMonitor,
     ],
   );
 
