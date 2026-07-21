@@ -46,6 +46,7 @@ interface ProductContextValue {
   error: string | null;
   isCommandPending(command: ProductCommand): boolean;
   isGroupCommandPending(groupId: string): boolean;
+  isServiceProbePending(monitorId: string): boolean;
   isCommandSupported(command: ProductCommand): boolean;
   isLoading: boolean;
   localProxyTest: LocalProxyTestState;
@@ -55,6 +56,7 @@ interface ProductContextValue {
   restoreDefaultServices(): Promise<ProductCommandResult>;
   selectGroupChild(groupId: string, childId: string): Promise<ProductCommandResult>;
   startGroupDelayTest(groupId: string): Promise<ProductCommandResult>;
+  testServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
   testLocalProxy(): Promise<LocalProxyTestResultDto | null>;
   setActiveProfile(profileId: string): Promise<ProductCommandResult>;
   setCapture(selection: CaptureSelectionDto, active: boolean): Promise<ProductCommandResult>;
@@ -270,6 +272,8 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
         resolvedClient.supportsCommand(command) &&
         (connection.phase === "fixture" || !connection.stale),
       isGroupCommandPending: (groupId) => commandControllers.current.has(`group:${groupId}`),
+      isServiceProbePending: (monitorId) =>
+        commandControllers.current.has(`services:probe:${monitorId}`),
       isLoading: snapshot === null && !loadFailed,
       localProxyTest,
       cancelGroupDelayTest: (testId) =>
@@ -297,6 +301,12 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           "group-delay",
           (signal) => resolvedClient.startGroupDelayTest(groupId, { signal }),
           "group-delay:start",
+        ),
+      testServiceMonitor: (monitorId) =>
+        runCommand(
+          "services",
+          (signal) => resolvedClient.testServiceMonitor(monitorId, { signal }),
+          `services:probe:${monitorId}`,
         ),
       testLocalProxy,
       setActiveProfile: (profileId) =>

@@ -347,6 +347,11 @@ stored in the application-data directory and overlaid onto every Status
 snapshot, including lifecycle-only snapshots. Probe updates publish through the
 existing Status subscription.
 
+The immediate test command accepts only an existing monitor identifier. The
+bridge resolves the stored, previously validated URL, publishes a pending result,
+executes that single direct probe, and then publishes its outcome. The RPC does
+not accept a caller-supplied URL or route target.
+
 Validate URLs as HTTP or HTTPS and protect the local machine from unintended
 access to loopback, link-local, metadata, or private-network targets unless the
 user has explicitly enabled a trusted local-monitor use case. Store errors as

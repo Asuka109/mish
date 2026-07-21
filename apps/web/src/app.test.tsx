@@ -2112,6 +2112,25 @@ describe("Status fixture experience", () => {
     await waitFor(() => expect(setInterval).toHaveBeenCalledWith(300, expect.any(Object)));
   });
 
+  it("tests a service from its status row and edits it through Manage", async () => {
+    const user = userEvent.setup();
+    const client = new FixtureStatusClient();
+    const testService = vi.spyOn(client, "testServiceMonitor");
+    renderRoute("/status", "en", client);
+    await screen.findByText("Fixture activity at a glance.");
+
+    await user.click(screen.getByRole("button", { name: "Test latency for Google" }));
+    await waitFor(() => expect(testService).toHaveBeenCalledWith("google", expect.any(Object)));
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
+    await user.click(within(manager).getByRole("button", { name: "Google" }));
+
+    expect(await screen.findByRole("dialog", { name: "Edit service" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Google");
+  });
+
   it("switches to Simplified Chinese and persists the locale", async () => {
     const user = userEvent.setup();
     const view = renderRoute("/status");

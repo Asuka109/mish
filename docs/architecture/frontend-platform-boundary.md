@@ -260,6 +260,10 @@ target. Its product and WebView security boundary is defined in
 Protocol version 15 adds desktop-owned service probes and the fixed service
 probe interval command without coupling those probes to Core lifecycle state.
 
+Protocol version 17 adds an immediate, monitor-scoped service probe command.
+The command accepts only the identifier of an already validated monitor; callers
+cannot supply an arbitrary network target.
+
 The approved Android direction pairs Kotlin `VpnService` with a reproducibly
 built embedded Go Core library. The approved iOS direction pairs Swift
 `NEPacketTunnelProvider` with the matching embedded Core framework. Both use a

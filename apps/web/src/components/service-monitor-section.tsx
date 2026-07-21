@@ -6,6 +6,7 @@ import { GithubLogo } from "@phosphor-icons/react/GithubLogo";
 import { GlobeSimple } from "@phosphor-icons/react/GlobeSimple";
 import { GoogleLogo } from "@phosphor-icons/react/GoogleLogo";
 import { PawPrint } from "@phosphor-icons/react/PawPrint";
+import { PencilSimple } from "@phosphor-icons/react/PencilSimple";
 import { Plus } from "@phosphor-icons/react/Plus";
 import { WindowsLogo } from "@phosphor-icons/react/WindowsLogo";
 import type { Icon } from "@phosphor-icons/react/lib";
@@ -79,6 +80,52 @@ interface ServiceEditorDialogProps {
   fixture: boolean;
   onClose(): void;
   setDraft(draft: ServiceMonitorDraft): void;
+}
+
+interface ServiceManagerDialogProps {
+  onClose(): void;
+  onEdit(service: ServiceMonitorDto): void;
+  open: boolean;
+  services: ServiceMonitorDto[];
+}
+
+function ServiceManagerDialog({ onClose, onEdit, open, services }: ServiceManagerDialogProps) {
+  const { LL } = useI18nContext();
+
+  return (
+    <Dialog onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
+      <DialogContent className="service-manager-dialog" closeLabel={LL.common.close()}>
+        <div className="dialog-header">
+          <div>
+            <DialogTitle className="dialog-title">{LL.services.editServices()}</DialogTitle>
+            <DialogDescription className="dialog-description">
+              {LL.services.editServicesDescription()}
+            </DialogDescription>
+          </div>
+        </div>
+        <div className="service-manager-list">
+          {services.map((service) => {
+            const ServiceIcon = serviceIcons[service.icon];
+            return (
+              <Button
+                className="service-manager-row"
+                key={service.id}
+                onClick={() => onEdit(service)}
+                type="button"
+                variant="ghost"
+              >
+                <span className="service-monitor-icon" data-service-icon={service.icon}>
+                  <ServiceIcon aria-hidden="true" weight="fill" />
+                </span>
+                <strong className="user-authored-label">{service.label}</strong>
+                <PencilSimple aria-hidden="true" />
+              </Button>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEditorDialogProps) {
@@ -242,12 +289,15 @@ export function ServiceMonitorSection() {
   const {
     isCommandPending,
     isCommandSupported,
+    isServiceProbePending,
     restoreDefaultServices,
     setServiceProbeInterval,
     snapshot,
+    testServiceMonitor,
   } = useProduct();
   const { LL } = useI18nContext();
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
+  const [managerOpen, setManagerOpen] = useState(false);
   const [restorePending, setRestorePending] = useState(false);
   if (!snapshot) return null;
   const commandPending = isCommandPending("services");
@@ -282,11 +332,6 @@ export function ServiceMonitorSection() {
       <div className="section-heading service-monitor-heading">
         <div className="section-heading-copy">
           <h2>{LL.status.services()}</h2>
-          <p>
-            {snapshot.adapterKind === "fixture"
-              ? LL.services.fixtureEndpointDescription()
-              : LL.services.desktopEndpointDescription()}
-          </p>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -313,6 +358,13 @@ export function ServiceMonitorSection() {
                 <Plus aria-hidden="true" data-icon="inline-start" />
                 {LL.services.add()}
               </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!commandSupported || snapshot.services.length === 0}
+                onClick={() => setManagerOpen(true)}
+              >
+                <PencilSimple aria-hidden="true" data-icon="inline-start" />
+                {LL.services.editServices()}
+              </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup
@@ -326,7 +378,9 @@ export function ServiceMonitorSection() {
               }}
               value={String(snapshot.serviceProbePolicy.intervalSeconds)}
             >
-              <DropdownMenuLabel>{LL.services.testInterval()}</DropdownMenuLabel>
+              <DropdownMenuLabel className="service-interval-label">
+                {LL.services.testInterval()}
+              </DropdownMenuLabel>
               {serviceProbeIntervals.map((interval) => (
                 <DropdownMenuRadioItem
                   disabled={commandPending || !commandSupported}
@@ -360,31 +414,40 @@ export function ServiceMonitorSection() {
         <SectionGrid className="service-monitor-list" columns={3}>
           {snapshot.services.map((service) => {
             const ServiceIcon = serviceIcons[service.icon];
+            const probePending = isServiceProbePending(service.id);
             const result = snapshot.probeResults.find(
               (candidate) => candidate.monitorId === service.id,
             );
             return (
               <Button
+                aria-busy={probePending}
+                aria-label={LL.services.testAria({ service: service.label })}
                 aria-describedby={actionDescriptionId}
                 className="section-grid-item service-monitor-row"
                 data-service-icon={service.icon}
                 disabled={commandPending || !commandSupported}
                 key={service.id}
-                onClick={() => setDraft({ ...service })}
+                onClick={() => void testServiceMonitor(service.id)}
                 type="button"
                 variant="ghost"
               >
-                <span className="sr-only">{LL.services.editAria()} </span>
                 <span className="service-monitor-icon">
                   <ServiceIcon aria-hidden="true" weight="fill" />
                 </span>
                 <strong className="user-authored-label">{service.label}</strong>
-                <span className="service-monitor-latency tabular">
-                  {result?.latencyMilliseconds === null || result?.latencyMilliseconds === undefined
-                    ? result?.status === "error"
-                      ? LL.services.unavailable()
-                      : LL.common.pending()
-                    : `${result.latencyMilliseconds} ms`}
+                <span aria-live="polite" className="service-monitor-latency tabular">
+                  {probePending ? (
+                    <Spinner />
+                  ) : result?.latencyMilliseconds === null ||
+                    result?.latencyMilliseconds === undefined ? (
+                    result?.status === "error" ? (
+                      LL.services.unavailable()
+                    ) : (
+                      LL.common.pending()
+                    )
+                  ) : (
+                    `${result.latencyMilliseconds} ms`
+                  )}
                 </span>
               </Button>
             );
@@ -418,6 +481,15 @@ export function ServiceMonitorSection() {
         key={draft ? (draft.id ?? "new") : "closed"}
         onClose={() => setDraft(null)}
         setDraft={setDraft}
+      />
+      <ServiceManagerDialog
+        onClose={() => setManagerOpen(false)}
+        onEdit={(service) => {
+          setManagerOpen(false);
+          setDraft({ ...service });
+        }}
+        open={managerOpen}
+        services={snapshot.services}
       />
     </section>
   );

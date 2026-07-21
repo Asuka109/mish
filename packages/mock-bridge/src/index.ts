@@ -251,7 +251,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 15,
+              protocolVersion: 17,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: { closeAllActive: false, closeConnection: false },
             };
@@ -273,6 +273,15 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               values.intervalSeconds,
             ) as RpcStatusSnapshotDto["serviceProbePolicy"]["intervalSeconds"];
             return structuredClone(snapshot);
+          case "status.testServiceMonitor": {
+            const monitorId = String(values.monitorId);
+            const result = snapshot.probeResults.find(
+              (candidate) => candidate.monitorId === monitorId,
+            );
+            if (!result) throw new MockRpcError(-32004, "Service monitor not found");
+            result.observedAt = new Date().toISOString();
+            return structuredClone(snapshot);
+          }
           case "status.setCapture": {
             const active = Boolean(values.active);
             const selection =

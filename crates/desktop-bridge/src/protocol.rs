@@ -161,6 +161,12 @@ struct RemoveServiceMonitorParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TestServiceMonitorParams {
+    monitor_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetServiceProbeIntervalParams {
     interval_seconds: u16,
 }
@@ -530,7 +536,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 15,
+            "protocolVersion": 17,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -653,6 +659,28 @@ async fn handle_message(
             };
             if let Err(error) = service_probes.remove(&params.monitor_id) {
                 return Some(error_response(id, -32602, error.message(), None));
+            }
+            state.status_snapshot().await
+        }
+        "status.testServiceMonitor" => {
+            let params = match serde_json::from_value::<TestServiceMonitorParams>(request.params) {
+                Ok(params) if valid_identifier(&params.monitor_id) => params,
+                _ => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            let Some(service_probes) = &state.service_probes else {
+                return Some(error_response(
+                    id,
+                    -32601,
+                    "Service probes are unavailable",
+                    None,
+                ));
+            };
+            if let Err(error) = service_probes.test(&params.monitor_id).await {
+                let code = match error {
+                    crate::service_probes::ServiceProbeError::NotFound => -32004,
+                    _ => -32000,
+                };
+                return Some(error_response(id, code, error.message(), None));
             }
             state.status_snapshot().await
         }

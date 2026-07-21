@@ -344,6 +344,20 @@ export class FixtureStatusClient implements StatusClient {
     return this.snapshotAfterCommand();
   }
 
+  async testServiceMonitor(monitorId: string, options?: { signal?: AbortSignal }) {
+    if (options?.signal?.aborted) {
+      throw new StatusClientError("cancelled", "The fixture command was cancelled");
+    }
+    const result = this.snapshot.probeResults.find(
+      (candidate) => candidate.monitorId === monitorId,
+    );
+    if (!result) {
+      throw new StatusClientError("not-found", "Service monitor not found");
+    }
+    result.observedAt = new Date().toISOString();
+    return this.snapshotAfterCommand();
+  }
+
   async setCapture(
     selection: CaptureSelectionDto,
     active: boolean,

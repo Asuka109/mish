@@ -121,10 +121,13 @@ derivation and persistence are specified in
 
 ## Services
 
-Services monitors a user-managed set of endpoint probes. The default fixture
+Service latency monitors a user-managed set of endpoint probes. The default fixture
 contains Google, GitHub, Cloudflare, Baidu, Apple, and Microsoft. Normal display
-shows a solid service icon, title, and latency; the URL appears only in the
-editor. Manage supports add, edit, delete, and Restore defaults.
+shows a solid service icon, title, and latency; activating a service runs that
+probe immediately and updates its latency in place. The URL appears only in the
+editor. Manage supports add, an Edit services dialog, probe interval, delete,
+and Restore defaults. Keeping edit behind Manage preserves the service row as a
+single, unambiguous test action without adding a competing icon button to every row.
 
 Manage remains openable when service mutation is unavailable so the menu can
 explain the capability boundary; unsupported commands remain disabled.

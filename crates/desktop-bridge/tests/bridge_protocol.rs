@@ -762,7 +762,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 15);
+    assert_eq!(info["result"]["protocolVersion"], 17);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
@@ -985,6 +985,18 @@ async fn service_probes_remain_available_while_core_is_stopped() {
     )
     .await;
     assert_eq!(rejected["error"]["code"], -32602);
+
+    let missing_probe = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":6,
+            "method":"status.testServiceMonitor",
+            "params":{"monitorId":"missing-service"}
+        }),
+    )
+    .await;
+    assert_eq!(missing_probe["error"]["code"], -32004);
 
     bridge.shutdown().await;
 }

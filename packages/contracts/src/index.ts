@@ -1538,6 +1538,11 @@ export interface RemoveServiceMonitorCommand extends z.infer<
   typeof RemoveServiceMonitorCommandSchema
 > {}
 
+export const TestServiceMonitorCommandSchema = z.object({ monitorId: IdentifierSchema }).strict();
+export interface TestServiceMonitorCommand extends z.infer<
+  typeof TestServiceMonitorCommandSchema
+> {}
+
 export const SetServiceProbeIntervalCommandSchema = z
   .object({ intervalSeconds: ServiceProbeIntervalSecondsSchema })
   .strict();
@@ -1572,7 +1577,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(15),
+    protocolVersion: z.literal(17),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -2206,6 +2211,10 @@ export const statusRpcMethods = {
     params: StartGroupDelayTestCommandSchema,
     result: RpcStatusSnapshotSchema,
   },
+  "status.testServiceMonitor": {
+    params: TestServiceMonitorCommandSchema,
+    result: RpcStatusSnapshotSchema,
+  },
   "status.testLocalProxy": {
     params: EmptyCommandSchema,
     result: LocalProxyTestResultSchema,
@@ -2518,6 +2527,10 @@ export interface StatusClient {
   ): Promise<StatusSnapshotDto>;
   startGroupDelayTest(
     groupId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<StatusSnapshotDto>;
+  testServiceMonitor(
+    monitorId: string,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   testLocalProxy(options?: { signal?: AbortSignal }): Promise<LocalProxyTestResultDto>;

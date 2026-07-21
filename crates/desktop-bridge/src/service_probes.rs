@@ -214,6 +214,55 @@ impl ServiceProbeService {
         Ok(())
     }
 
+    pub async fn test(&self, monitor_id: &str) -> Result<(), ServiceProbeError> {
+        let (revision, monitor) = {
+            let mut state = self
+                .inner
+                .state
+                .lock()
+                .expect("service probe state poisoned");
+            let monitor = state
+                .services
+                .iter()
+                .find(|monitor| monitor.id == monitor_id)
+                .cloned()
+                .ok_or(ServiceProbeError::NotFound)?;
+            let pending = pending_result(&monitor);
+            if let Some(existing) = state
+                .results
+                .iter_mut()
+                .find(|candidate| candidate.monitor_id == monitor_id)
+            {
+                *existing = pending;
+            } else {
+                state.results.push(pending);
+            }
+            let _ = self.inner.updates.send(());
+            (state.revision, monitor)
+        };
+
+        let result = probe(monitor).await;
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("service probe state poisoned");
+        if state.revision != revision {
+            return Ok(());
+        }
+        let Some(existing) = state
+            .results
+            .iter_mut()
+            .find(|candidate| candidate.monitor_id == monitor_id)
+        else {
+            return Ok(());
+        };
+        *existing = result;
+        drop(state);
+        let _ = self.inner.updates.send(());
+        Ok(())
+    }
+
     pub fn shutdown(&self) {
         self.inner.cancel.cancel();
     }
@@ -340,16 +389,17 @@ fn persist_locked(path: Option<&Path>, state: &ProbeState) -> Result<(), Service
 }
 
 fn pending_results(services: &[ServiceMonitor]) -> Vec<ServiceProbeResult> {
-    services
-        .iter()
-        .map(|monitor| ServiceProbeResult {
-            latency_milliseconds: None,
-            monitor_id: monitor.id.clone(),
-            observed_at: Utc::now().to_rfc3339(),
-            route_target: "direct".into(),
-            status: ProbeStatus::Pending,
-        })
-        .collect()
+    services.iter().map(pending_result).collect()
+}
+
+fn pending_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
+    ServiceProbeResult {
+        latency_milliseconds: None,
+        monitor_id: monitor.id.clone(),
+        observed_at: Utc::now().to_rfc3339(),
+        route_target: "direct".into(),
+        status: ProbeStatus::Pending,
+    }
 }
 
 async fn probe(monitor: ServiceMonitor) -> ServiceProbeResult {

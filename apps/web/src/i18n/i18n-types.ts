@@ -1115,7 +1115,7 @@ type RootTranslation = {
 		 */
 		session: string
 		/**
-		 * S​e​r​v​i​c​e​s
+		 * S​e​r​v​i​c​e​ ​l​a​t​e​n​c​y
 		 */
 		services: string
 		/**
@@ -2831,6 +2831,14 @@ type RootTranslation = {
 		 */
 		editAria: string
 		/**
+		 * E​d​i​t​ ​s​e​r​v​i​c​e​s​…
+		 */
+		editServices: string
+		/**
+		 * C​h​o​o​s​e​ ​a​ ​s​e​r​v​i​c​e​ ​t​o​ ​u​p​d​a​t​e​ ​o​r​ ​r​e​m​o​v​e​.
+		 */
+		editServicesDescription: string
+		/**
 		 * T​h​e​ ​l​o​c​a​l​ ​d​e​s​k​t​o​p​ ​s​e​r​v​i​c​e​ ​r​e​p​o​r​t​s​ ​n​o​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​.
 		 */
 		desktopEmptyDescription: string
@@ -2910,6 +2918,11 @@ type RootTranslation = {
 		 * T​e​s​t​ ​i​n​t​e​r​v​a​l
 		 */
 		testInterval: string
+		/**
+		 * T​e​s​t​ ​l​a​t​e​n​c​y​ ​f​o​r​ ​{​s​e​r​v​i​c​e​}
+		 * @param {string} service
+		 */
+		testAria: RequiredParams<'service'>
 		/**
 		 * U​n​a​v​a​i​l​a​b​l​e
 		 */
@@ -5146,7 +5159,7 @@ export type TranslationFunctions = {
 		 */
 		session: () => LocalizedString
 		/**
-		 * Services
+		 * Service latency
 		 */
 		services: () => LocalizedString
 		/**
@@ -6808,6 +6821,14 @@ export type TranslationFunctions = {
 		 */
 		editAria: () => LocalizedString
 		/**
+		 * Edit services…
+		 */
+		editServices: () => LocalizedString
+		/**
+		 * Choose a service to update or remove.
+		 */
+		editServicesDescription: () => LocalizedString
+		/**
 		 * The local desktop service reports no service monitors.
 		 */
 		desktopEmptyDescription: () => LocalizedString
@@ -6887,6 +6908,10 @@ export type TranslationFunctions = {
 		 * Test interval
 		 */
 		testInterval: () => LocalizedString
+		/**
+		 * Test latency for {service}
+		 */
+		testAria: (arg: { service: string }) => LocalizedString
 		/**
 		 * Unavailable
 		 */

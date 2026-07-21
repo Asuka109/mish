@@ -1078,6 +1078,15 @@ h2 {
   white-space: normal;
 }
 
+.service-interval-label {
+  display: block;
+  padding: 6px 9px 3px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: var(--font-weight-control);
+  line-height: 17px;
+}
+
 .service-monitor-row {
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
@@ -1151,6 +1160,58 @@ h2 {
 .proxy-picker-latency {
   color: var(--color-success-text);
   font-size: var(--text-metadata);
+}
+
+.service-monitor-latency {
+  display: flex;
+  min-width: 44px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.service-monitor-latency .ui-spinner {
+  width: 13px;
+  height: 13px;
+}
+
+.service-manager-dialog {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.service-manager-list {
+  max-height: min(360px, calc(100vh - 180px));
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+}
+
+.service-manager-row {
+  display: grid;
+  width: 100%;
+  min-height: 46px;
+  grid-template-columns: 22px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 10px;
+  justify-content: stretch;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+}
+
+.service-manager-row + .service-manager-row {
+  border-top: 1px solid var(--color-hairline-soft);
+}
+
+.service-manager-row strong {
+  overflow: hidden;
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-control);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.service-manager-row > svg {
+  color: var(--color-text-muted);
 }
 
 .service-monitor-list > :not(:nth-child(3n)) {

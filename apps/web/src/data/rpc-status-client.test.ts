@@ -110,7 +110,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 15,
+        protocolVersion: 17,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: { closeAllActive: true, closeConnection: true },
       },
@@ -144,7 +144,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 15,
+        protocolVersion: 17,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: { closeAllActive: true, closeConnection: true },
       },
@@ -167,7 +167,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 15,
+        protocolVersion: 17,
         statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: { closeAllActive: false, closeConnection: false },
       },
@@ -219,6 +219,29 @@ describe("RpcStatusClient", () => {
     await expect(command).resolves.toMatchObject({
       runtime: { captureSelection: selection, phase: "inactive" },
     });
+    client.dispose();
+  });
+
+  it("sends only a stored monitor identifier for an immediate service test", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+    const command = client.testServiceMonitor("google");
+    await authenticate(transport);
+    const request = await waitForRequest(transport, 1);
+
+    expect(request).toMatchObject({
+      method: "status.testServiceMonitor",
+      params: { monitorId: "google" },
+    });
+    const snapshot = await createRpcSnapshot();
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: snapshot });
+
+    await expect(command).resolves.toMatchObject({ services: expect.any(Array) });
     client.dispose();
   });
 

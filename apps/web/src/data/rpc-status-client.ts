@@ -98,6 +98,10 @@ export class RpcStatusClient implements StatusClient {
     return this.requestSnapshot("status.startGroupDelayTest", { groupId }, options);
   }
 
+  testServiceMonitor(monitorId: string, options?: RpcRequestOptions) {
+    return this.requestSnapshot("status.testServiceMonitor", { monitorId }, options);
+  }
+
   cancelGroupDelayTest(testId: string, options?: RpcRequestOptions) {
     return this.requestSnapshot("status.cancelGroupDelayTest", { testId }, options);
   }
@@ -272,6 +276,7 @@ export class RpcStatusClient implements StatusClient {
       | "status.restoreDefaultServices"
       | "status.selectGroupChild"
       | "status.startGroupDelayTest"
+      | "status.testServiceMonitor"
       | "status.setActiveProfile"
       | "status.setCapture"
       | "status.setRoutingMode"
