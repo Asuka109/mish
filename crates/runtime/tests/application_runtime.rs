@@ -2,9 +2,11 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CoreError, CoreErrorKind, CorePhase, CoreRuntime, CoreStatus,
-    CoreStatusEventSink, EventLevel, MishRuntime, ProfileSummary, StatusAdapterKind,
-    StatusDataSource, StatusSnapshot,
+    ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
+    CaptureReconciler, CaptureTransitionError, CoreError, CoreErrorKind, CorePhase, CoreRuntime,
+    CoreStatus, CoreStatusEventSink, EventLevel, LoopbackProxyEndpoint, ManualProxyState,
+    MishRuntime, NetworkServiceProxyState, ProfileSummary, RuntimeShutdownFailure,
+    StatusAdapterKind, StatusDataSource, StatusSnapshot,
 };
 use tokio::time::{Duration, timeout};
 
@@ -53,6 +55,109 @@ struct ShutdownRecordingSource {
 
 struct ShutdownRecordingCore {
     order: Arc<Mutex<Vec<&'static str>>>,
+}
+
+struct UnreadableShutdownJournal;
+
+impl CaptureJournalStore for UnreadableShutdownJournal {
+    fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        Err(CaptureTransitionError::new(
+            mish_runtime::CaptureFailureKind::InvalidRecovery,
+            "Synthetic unreadable shutdown journal",
+        ))
+    }
+
+    fn save(&self, _journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
+        unreachable!("shutdown must fail before saving an unreadable journal")
+    }
+
+    fn clear(&self) -> Result<(), CaptureTransitionError> {
+        unreachable!("shutdown must not clear an unreadable journal")
+    }
+}
+
+struct ShutdownCapturePlatform;
+
+struct RecordingShutdownPlatform {
+    order: Arc<Mutex<Vec<&'static str>>>,
+    state: Mutex<NetworkServiceProxyState>,
+}
+
+#[derive(Default)]
+struct MemoryShutdownJournal(Mutex<Option<CaptureJournal>>);
+
+impl CaptureJournalStore for MemoryShutdownJournal {
+    fn load(&self) -> Result<Option<CaptureJournal>, CaptureTransitionError> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+
+    fn save(&self, journal: &CaptureJournal) -> Result<(), CaptureTransitionError> {
+        *self.0.lock().unwrap() = Some(journal.clone());
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), CaptureTransitionError> {
+        *self.0.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+impl CapturePlatform for RecordingShutdownPlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        self.order.lock().unwrap().push("capture");
+        *self.state.lock().unwrap() = target;
+        Box::pin(ready(Ok(())))
+    }
+}
+
+impl CapturePlatform for ShutdownCapturePlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(disabled_proxy_state())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(disabled_proxy_state())))
+    }
+
+    fn apply_service(
+        &self,
+        _target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        unreachable!("an unreadable journal must fail before a proxy write")
+    }
+}
+
+fn disabled_proxy_state() -> NetworkServiceProxyState {
+    NetworkServiceProxyState {
+        auto_discovery_enabled: false,
+        http: ManualProxyState::disabled(),
+        https: ManualProxyState::disabled(),
+        pac_enabled: false,
+        pac_url: String::new(),
+        service_id: "shutdown-fixture".into(),
+        socks: ManualProxyState::disabled(),
+    }
 }
 
 impl StatusDataSource for SuppliedStatusSource {
@@ -266,6 +371,78 @@ async fn runtime_shuts_down_status_source_before_core_lifecycle() {
     runtime.shutdown().await.unwrap();
 
     assert_eq!(*order.lock().unwrap(), ["status-source", "core"]);
+}
+
+#[tokio::test]
+async fn runtime_does_not_stop_core_when_capture_restoration_is_unconfirmed() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::new(CaptureReconciler::new(
+        Arc::new(ShutdownCapturePlatform),
+        Arc::new(UnreadableShutdownJournal),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let runtime = MishRuntime::with_capture(
+        Arc::new(ShutdownRecordingCore {
+            order: order.clone(),
+        }),
+        capture,
+    );
+
+    assert!(matches!(
+        runtime.shutdown().await,
+        Err(RuntimeShutdownFailure::CaptureRestoration)
+    ));
+    assert!(order.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn runtime_restores_capture_before_stopping_core() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let platform = Arc::new(RecordingShutdownPlatform {
+        order: order.clone(),
+        state: Mutex::new(disabled_proxy_state()),
+    });
+    let journal = Arc::new(MemoryShutdownJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform,
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    capture
+        .reconcile(
+            mish_runtime::CaptureRequest {
+                active: true,
+                selection: mish_runtime::CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    order.lock().unwrap().clear();
+    let runtime = MishRuntime::with_capture(
+        Arc::new(ShutdownRecordingCore {
+            order: order.clone(),
+        }),
+        capture,
+    );
+
+    runtime.shutdown().await.unwrap();
+
+    assert_eq!(*order.lock().unwrap(), ["capture", "core"]);
+    assert!(journal.load().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn runtime_reports_core_stop_failure_after_capture_is_safe() {
+    let runtime = MishRuntime::new(Arc::new(UnavailableCore));
+
+    assert!(matches!(
+        runtime.shutdown().await,
+        Err(RuntimeShutdownFailure::CoreStop)
+    ));
 }
 
 #[test]

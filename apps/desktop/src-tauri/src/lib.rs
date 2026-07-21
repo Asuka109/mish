@@ -10,16 +10,17 @@ use std::{
 };
 
 use mish_bridge::{
-    ActivationTiming, BrowserAsset, BrowserAssetSource, BrowserPairingPrompt, DesktopMihomoProcess,
-    DesktopMihomoProcessConfig, DesktopProfileService, DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES,
-    LocalBackupError, LocalBackupPreview, LocalBackupScope, LocalBackupService,
-    LocalRestoreConflictResolution, LocalRestorePreview, LocalRestoreResult, LoopbackServerConfig,
-    LoopbackServerHandle, ManagedCoreOwnership, ManagedMihomoResolver, ManagedRuntimeLease,
-    ManagedRuntimePolicy, MihomoActivationManager, PreparedLocalBackup, PreparedLocalRestore,
-    PreparedSupportBundle, PrivilegedCoreHost, ProfileActivationCoordinator, ProfileFileActions,
-    RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
-    SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
-    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
+    ActivationTiming, BridgeShutdownOutcome, BrowserAsset, BrowserAssetSource,
+    BrowserPairingPrompt, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
+    DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES, LocalBackupError, LocalBackupPreview,
+    LocalBackupScope, LocalBackupService, LocalRestoreConflictResolution, LocalRestorePreview,
+    LocalRestoreResult, LoopbackServerConfig, LoopbackServerHandle, ManagedCoreOwnership,
+    ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationManager,
+    PreparedLocalBackup, PreparedLocalRestore, PreparedSupportBundle, PrivilegedCoreHost,
+    ProfileActivationCoordinator, ProfileFileActions, RealManagedProcessPlatform,
+    ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,
+    SupportBundlePreview, SupportBundleService, compose_desktop_runtime_with_capture,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
     DEV_TUN_SERVICE_CORE_PATH, DevelopmentTunStartup, FileCaptureJournalStore,
@@ -48,6 +49,7 @@ use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
+mod graceful_exit;
 mod native_menu;
 mod status_bar;
 
@@ -536,6 +538,7 @@ pub fn run() -> Result<i32, String> {
                 )
                 .build(),
         )
+        .manage(graceful_exit::GracefulExitCoordinator::new())
         .manage(bridge_state.clone())
         .setup(move |app| initialize(app, requested_mihomo))
         .on_menu_event(native_menu::handle_menu_event)
@@ -557,6 +560,15 @@ pub fn run() -> Result<i32, String> {
             return;
         }
         match event {
+            tauri::RunEvent::ExitRequested { api, .. }
+                if should_intercept_exit_request(
+                    app.state::<graceful_exit::GracefulExitCoordinator>()
+                        .exit_is_authorized(),
+                ) =>
+            {
+                api.prevent_exit();
+                request_graceful_exit(app);
+            }
             tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::CloseRequested { api, .. },
@@ -568,13 +580,17 @@ pub fn run() -> Result<i32, String> {
                     .snapshot(SettingsAdapterKind::Rpc)
                     .preferences
                     .window_close_behavior;
-                if should_hide_main_window_on_close(behavior) {
-                    api.prevent_close();
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.hide();
+                match main_window_close_action(behavior) {
+                    MainWindowCloseAction::Hide => {
+                        api.prevent_close();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
                     }
-                } else {
-                    app.exit(0);
+                    MainWindowCloseAction::GracefulExit => {
+                        api.prevent_close();
+                        request_graceful_exit(app);
+                    }
                 }
             }
             tauri::RunEvent::Reopen {
@@ -590,13 +606,22 @@ pub fn run() -> Result<i32, String> {
         .map_err(|_| "desktop bridge state is unavailable")?
         .take();
     if let Some(bridge) = bridge {
-        tauri::async_runtime::block_on(bridge.shutdown());
+        match tauri::async_runtime::block_on(bridge.shutdown()) {
+            BridgeShutdownOutcome::Confirmed(_) => {}
+            BridgeShutdownOutcome::Failed { failure, .. } => {
+                return Err(format!(
+                    "desktop bridge fallback shutdown was not confirmed: {failure:?}"
+                ));
+            }
+        }
     }
     Ok(exit_code)
 }
 
 fn run_demo(context: tauri::Context<tauri::Wry>) -> Result<i32, String> {
     let app = tauri::Builder::default()
+        .manage(graceful_exit::GracefulExitCoordinator::new())
+        .manage(BridgeState(Arc::new(Mutex::new(None))))
         .manage(MainWindowStartup {
             reveal_on_ready: true,
         })
@@ -631,6 +656,50 @@ fn run_demo(context: tauri::Context<tauri::Wry>) -> Result<i32, String> {
         }
     });
     Ok(exit_code)
+}
+
+pub(crate) fn request_graceful_exit(app: &tauri::AppHandle) {
+    let coordinator = app.state::<graceful_exit::GracefulExitCoordinator>();
+    if coordinator.begin() != graceful_exit::GracefulExitRequest::Started {
+        return;
+    }
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let bridge = app
+            .state::<BridgeState>()
+            .0
+            .lock()
+            .expect("desktop bridge state is unavailable")
+            .take();
+        let Some(bridge) = bridge else {
+            app.state::<graceful_exit::GracefulExitCoordinator>()
+                .authorize_exit();
+            app.exit(0);
+            return;
+        };
+
+        match bridge.shutdown().await {
+            BridgeShutdownOutcome::Confirmed(report) if report.permits_exit() => {
+                app.state::<graceful_exit::GracefulExitCoordinator>()
+                    .authorize_exit();
+                app.exit(0);
+            }
+            BridgeShutdownOutcome::Confirmed(_) => unreachable!("incomplete shutdown report"),
+            BridgeShutdownOutcome::Failed {
+                failure, handle, ..
+            } => {
+                *app.state::<BridgeState>()
+                    .0
+                    .lock()
+                    .expect("desktop bridge state is unavailable") = Some(*handle);
+                app.state::<graceful_exit::GracefulExitCoordinator>()
+                    .record_failure(failure);
+                status_bar::show_main_window(&app, Some("/status"));
+                let _ = app.run_on_main_thread(mish_platform_macos::show_graceful_exit_error);
+            }
+        }
+    });
 }
 
 fn initialize(
@@ -946,6 +1015,24 @@ fn settings_initialization_error(error: SettingsServiceError) -> io::Error {
 
 fn should_show_main_window(login_startup: bool, behavior: LoginLaunchBehavior) -> bool {
     !login_startup || behavior == LoginLaunchBehavior::ShowWindow
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MainWindowCloseAction {
+    Hide,
+    GracefulExit,
+}
+
+fn main_window_close_action(behavior: mish_settings::WindowCloseBehavior) -> MainWindowCloseAction {
+    if should_hide_main_window_on_close(behavior) {
+        MainWindowCloseAction::Hide
+    } else {
+        MainWindowCloseAction::GracefulExit
+    }
+}
+
+fn should_intercept_exit_request(exit_is_authorized: bool) -> bool {
+    !exit_is_authorized
 }
 
 fn should_hide_main_window_on_close(behavior: mish_settings::WindowCloseBehavior) -> bool {
@@ -1343,12 +1430,12 @@ mod tests {
     use std::{fs, path::PathBuf, sync::Mutex};
 
     use super::{
-        AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, PRODUCTION_ORIGINS,
-        SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
-        atomic_write_support_bundle_with_failure, desktop_demo_requested, generate_auth_token,
-        invalidate_pending, managed_mihomo_resolver, read_local_backup,
-        save_support_bundle_selection, should_hide_main_window_on_close, should_show_main_window,
-        validate_development_mihomo_environment,
+        AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction,
+        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins,
+        atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
+        generate_auth_token, invalidate_pending, main_window_close_action, managed_mihomo_resolver,
+        read_local_backup, save_support_bundle_selection, should_intercept_exit_request,
+        should_show_main_window, validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -1450,10 +1537,20 @@ mod tests {
 
     #[test]
     fn close_behavior_defaults_to_hiding_but_can_request_exit() {
-        assert!(should_hide_main_window_on_close(
-            WindowCloseBehavior::default()
-        ));
-        assert!(!should_hide_main_window_on_close(WindowCloseBehavior::Quit));
+        assert_eq!(
+            main_window_close_action(WindowCloseBehavior::default()),
+            MainWindowCloseAction::Hide
+        );
+        assert_eq!(
+            main_window_close_action(WindowCloseBehavior::Quit),
+            MainWindowCloseAction::GracefulExit
+        );
+    }
+
+    #[test]
+    fn programmatic_exit_is_intercepted_until_cleanup_authorizes_it() {
+        assert!(should_intercept_exit_request(false));
+        assert!(!should_intercept_exit_request(true));
     }
 
     #[test]

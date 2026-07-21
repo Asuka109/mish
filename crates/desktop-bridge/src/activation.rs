@@ -13,7 +13,7 @@ use mish_profile::{
 };
 use mish_runtime::{
     CaptureReconciler, CaptureRequest, CaptureRuntimeTransition, CaptureSelection, CorePhase,
-    CoreRuntime, LoopbackProxyEndpoint, MishRuntime,
+    CoreRuntime, LoopbackProxyEndpoint, MishRuntime, RuntimeShutdownFailure,
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
@@ -728,7 +728,12 @@ impl MihomoActivationManager {
                 .runtime
                 .shutdown()
                 .await
-                .map_err(|_| MihomoActivationError::ShutdownFailed)?;
+                .map_err(|failure| match failure {
+                    RuntimeShutdownFailure::CaptureRestoration => {
+                        MihomoActivationError::CaptureFailed
+                    }
+                    RuntimeShutdownFailure::CoreStop => MihomoActivationError::ShutdownFailed,
+                })?;
         }
         if let Some(active) = state.active.take() {
             active.source.close().await;

@@ -59,9 +59,14 @@ product destinations.
 - `hide-to-status-bar` is the safe default. A close request is prevented and the
   existing main window is hidden. The WebView is not the owner of the runtime,
   bridge, capture reconciler, or status menu.
-- `quit` exits the Tauri event loop. Ordered bridge shutdown then cancels active
-  profile work, stops capture auditing, conservatively restores confirmed
-  Mish-owned System Proxy state, stops the managed core, and closes RPC.
+- `quit` enters the shell-owned graceful-exit coordinator. The coordinator
+  claims shutdown once, rejects repeated or racing quit requests, cancels
+  active profile work, stops capture auditing, conservatively restores and
+  confirms Mish-owned System Proxy state, stops and reaps the managed core,
+  and closes RPC. Tauri process exit is requested only after the typed bridge
+  report confirms every stage. A failed stage keeps Mish alive, reveals the
+  Status destination, and presents a native recovery alert; choosing Quit
+  again retries the idempotent boundary after the reported state is resolved.
 
 Login launch behavior still applies only to launches carrying the fixed login
 startup argument. A manual launch shows the window regardless of that setting.
@@ -80,8 +85,18 @@ invisible. A Dock reopen with no visible windows reveals, unminimizes, and
 focuses that same main window.
 
 Tauri's standard macOS application menu retains native About, Services, edit,
-window, fullscreen, hide, close, and quit behavior. Mish inserts Settings with
-Command-, and Find with Command-F. Settings routes to the fixed Settings
+window, fullscreen, hide, and close behavior. Mish replaces only the predefined
+AppKit `terminate:` Quit item with an application-owned **Quit Mish** item using
+Command-Q. That item, the status-bar Quit item, `windowCloseBehavior=quit`, and
+normal programmatic exit requests all enter the same graceful-exit coordinator.
+The application-wide menu listener also recognizes the status-bar Quit ID as a
+backstop because Tauri menu listeners receive events from window and tray menus.
+Duplicate delivery is harmless because the coordinator admits one shutdown.
+The status menu is constructed once. Mish retains its native item handles and
+updates text, checked state, and enabled state in place when a menu-visible field
+changes. It never replaces the tray menu after startup, so high-frequency status
+updates cannot close an open menu through `set_menu`.
+Mish inserts Settings with Command-, and Find with Command-F. Settings routes to the fixed Settings
 destination; Find focuses only a page control explicitly marked as the native
 search target. Web fallback handling accepts Command shortcuts on macOS and
 does not reinterpret Control-F or Control-, as their Command equivalents.
@@ -97,7 +112,10 @@ success.
 
 ## Verification
 
-Deterministic tests cover settings migration and persistence, independence from
+Deterministic tests cover one-shot shutdown under racing quit sources, native
+Quit ownership, status-bar and window-close routing, programmatic-exit
+interception, exact report gating, capture/journal and Core-stop failures, and
+idempotent post-run fallback. Existing coverage also includes settings migration and persistence, independence from
 login launch behavior, authenticated bounded RPC, browser capability fallback,
 fixed native navigation destinations, sensitive-label redaction, explicit
 System Proxy and TUN phase wording, observation-backed TUN checked state, and

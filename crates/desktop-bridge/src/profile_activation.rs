@@ -1,6 +1,9 @@
 use std::{
     collections::HashSet,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -151,6 +154,15 @@ pub enum ProfileActivationCoordinatorError {
     ShutdownFailed,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProfileActivationShutdownFailure {
+    BackgroundTask,
+    MutationBusy,
+    CaptureRestoration,
+    CoreStop,
+    StateCommit,
+}
+
 struct CoordinatorState {
     busy_profiles: HashSet<String>,
     cancellation: Option<CancellationToken>,
@@ -170,6 +182,7 @@ pub struct ProfileActivationCoordinator {
     directory_task: Mutex<Option<JoinHandle<()>>>,
     scheduler_cancellation: CancellationToken,
     scheduler_task: Mutex<Option<JoinHandle<()>>>,
+    shutting_down: AtomicBool,
     state: Mutex<CoordinatorState>,
     updates: broadcast::Sender<ProfileActivationSnapshot>,
 }
@@ -200,6 +213,7 @@ impl ProfileActivationCoordinator {
             directory_task: Mutex::new(None),
             scheduler_cancellation: CancellationToken::new(),
             scheduler_task: Mutex::new(None),
+            shutting_down: AtomicBool::new(false),
             state: Mutex::new(CoordinatorState {
                 busy_profiles: HashSet::new(),
                 cancellation: None,
@@ -354,6 +368,12 @@ impl ProfileActivationCoordinator {
         request: CaptureRequest,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Mish is shutting down and cannot accept a new capture mutation",
+            ));
+        }
         let before = self
             .host
             .current()
@@ -361,6 +381,12 @@ impl ProfileActivationCoordinator {
             .await;
         let desired_tun = request.active && request.selection.tun;
         if before.runtime.tun_enabled == desired_tun {
+            if self.shutting_down.load(Ordering::Acquire) {
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "Mish is shutting down and cannot accept a new capture mutation",
+                ));
+            }
             return self.host.set_capture(request, adapter_kind).await;
         }
         let original_active = before.runtime.system_proxy.desired || before.runtime.tun.desired;
@@ -369,6 +395,12 @@ impl ProfileActivationCoordinator {
         policy_selection.tun = desired_tun;
         if desired_tun {
             policy_selection.system_proxy = false;
+        }
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Mish is shutting down and cannot accept a new capture mutation",
+            ));
         }
         self.host
             .set_capture(
@@ -677,26 +709,59 @@ impl ProfileActivationCoordinator {
     }
 
     fn acquire_mutation(&self) -> Result<StateMutationPermit, ProfileActivationCoordinatorError> {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(ProfileActivationCoordinatorError::Busy);
+        }
         self.authority
             .try_acquire()
             .map_err(|_| ProfileActivationCoordinatorError::Busy)
     }
 
-    pub async fn shutdown(&self) -> Result<(), ProfileActivationCoordinatorError> {
-        self.scheduler_cancellation.cancel();
-        if let Some(task) = self.scheduler_task.lock().await.take() {
-            let _ = task.await;
+    pub async fn shutdown(&self) -> Result<(), ProfileActivationShutdownFailure> {
+        self.shutdown_inner(false).await
+    }
+
+    pub async fn shutdown_for_exit(&self) -> Result<(), ProfileActivationShutdownFailure> {
+        self.shutdown_inner(true).await
+    }
+
+    async fn shutdown_inner(&self, terminal: bool) -> Result<(), ProfileActivationShutdownFailure> {
+        if self.shutting_down.swap(true, Ordering::AcqRel) {
+            return Err(ProfileActivationShutdownFailure::MutationBusy);
         }
-        if let Some(task) = self.directory_task.lock().await.take() {
-            let _ = task.await;
+        self.scheduler_cancellation.cancel();
+        if let Some(task) = self.scheduler_task.lock().await.take()
+            && task.await.is_err()
+        {
+            self.shutting_down.store(false, Ordering::Release);
+            return Err(ProfileActivationShutdownFailure::BackgroundTask);
+        }
+        if let Some(task) = self.directory_task.lock().await.take()
+            && task.await.is_err()
+        {
+            self.shutting_down.store(false, Ordering::Release);
+            return Err(ProfileActivationShutdownFailure::BackgroundTask);
         }
         if let Some(cancellation) = &self.state.lock().await.cancellation {
             cancellation.cancel();
         }
-        self.manager
-            .shutdown()
-            .await
-            .map_err(|_| ProfileActivationCoordinatorError::ShutdownFailed)?;
+        let permit = match self.authority.try_acquire() {
+            Ok(permit) => permit,
+            Err(_) => {
+                self.shutting_down.store(false, Ordering::Release);
+                return Err(ProfileActivationShutdownFailure::MutationBusy);
+            }
+        };
+        if let Err(error) = self.manager.shutdown().await {
+            self.shutting_down.store(false, Ordering::Release);
+            return Err(match error {
+                MihomoActivationError::CaptureFailed => {
+                    ProfileActivationShutdownFailure::CaptureRestoration
+                }
+                MihomoActivationError::ShutdownFailed => ProfileActivationShutdownFailure::CoreStop,
+                _ => ProfileActivationShutdownFailure::StateCommit,
+            });
+        }
         self.host.replace(self.safe_runtime.clone());
         let mut state = self.state.lock().await;
         state.cancellation = None;
@@ -704,6 +769,12 @@ impl ProfileActivationCoordinator {
         state.snapshot.active_fingerprint = None;
         state.snapshot.safe_stopped = true;
         state.busy_profiles.clear();
+        if terminal {
+            self.authority.make_unavailable_until_restart();
+        } else {
+            self.shutting_down.store(false, Ordering::Release);
+        }
+        drop(permit);
         Ok(())
     }
 

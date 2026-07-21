@@ -89,9 +89,9 @@ launch at login off. It does not install a privileged helper, system extension,
 certificate, updater, crash reporter, or system-wide daemon. Import and activate
 a known test profile before enabling System Proxy. Closing the default main
 window hides it to the status bar; clicking the Dock icon or choosing **Open
-Mish** from the status menu reveals the same window. Use **Mish > Quit Mish** or
-the status menu's **Quit Mish** command to end the process and run ordered proxy
-restoration.
+Mish** from the status menu reveals the same window. Use **Mish > Quit Mish**,
+Command-Q, or the status menu's **Quit Mish** command to enter the same ordered
+proxy restoration.
 
 For a clean-account acceptance pass, confirm that the window restores its last
 on-screen size and position after a quit/relaunch, Command-W follows the selected

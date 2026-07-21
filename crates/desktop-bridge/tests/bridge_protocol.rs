@@ -10,11 +10,11 @@ use futures_util::{
     future::{BoxFuture, ready},
 };
 use mish_bridge::{
-    ActivationTiming, BrowserAsset, BrowserAssetSource, BrowserPairingPrompt, DesktopMihomoProcess,
-    DesktopMihomoProcessConfig, DesktopRuntimeHost, LoopbackServerConfig, ManagedMihomoResolver,
-    ManagedRuntimePolicy, MihomoActivationManager, ProfileActivationCoordinator,
-    ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
-    ReqwestHttpsSourceReader, ServiceProbeConfig, start_loopback_server,
+    ActivationTiming, BridgeShutdownOutcome, BrowserAsset, BrowserAssetSource,
+    BrowserPairingPrompt, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost,
+    LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationManager,
+    ProfileActivationCoordinator, ProfileFileActionError, ProfileFileActionPlatform,
+    ProfileFileActions, ReqwestHttpsSourceReader, ServiceProbeConfig, start_loopback_server,
     start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
@@ -2054,4 +2054,24 @@ async fn refuses_non_loopback_binding() {
         Err(error) => error,
     };
     assert!(error.contains("loopback"));
+}
+
+#[tokio::test]
+async fn shutdown_closes_an_active_rpc_socket_before_reporting_confirmation() {
+    let bridge = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
+    let mut ws = socket(bridge.address).await;
+
+    let outcome = timeout(Duration::from_secs(1), bridge.shutdown())
+        .await
+        .expect("bridge shutdown exceeded the active-socket bound");
+    let BridgeShutdownOutcome::Confirmed(report) = outcome else {
+        panic!("bridge shutdown was not confirmed")
+    };
+    assert!(report.permits_exit());
+    assert!(matches!(
+        timeout(Duration::from_secs(1), ws.next()).await,
+        Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_)))
+    ));
 }

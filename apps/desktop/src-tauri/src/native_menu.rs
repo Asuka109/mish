@@ -6,9 +6,11 @@ use tauri::{
 use crate::status_bar::show_main_window;
 
 const FIND_MENU_ID: &str = "application.find";
+const QUIT_MENU_ID: &str = "application.quit";
+const QUIT_ACCELERATOR: &str = "CmdOrCtrl+Q";
 const SETTINGS_MENU_ID: &str = "application.settings";
 
-pub(crate) fn install(app: &tauri::App) -> tauri::Result<()> {
+pub(crate) fn install<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
     let Some(menu) = app.menu() else {
         return Ok(());
     };
@@ -18,6 +20,7 @@ pub(crate) fn install(app: &tauri::App) -> tauri::Result<()> {
     let edit_menu = find_submenu(&items, "Edit");
 
     if let Some(app_menu) = app_menu {
+        replace_native_quit(app, &app_menu, app_name)?;
         let settings = MenuItemBuilder::with_id(SETTINGS_MENU_ID, "Settings…")
             .accelerator("CmdOrCtrl+,")
             .build(app)?;
@@ -37,6 +40,10 @@ pub(crate) fn install(app: &tauri::App) -> tauri::Result<()> {
 }
 
 pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
+    if is_graceful_exit_menu_command(event.id().as_ref()) {
+        crate::request_graceful_exit(app);
+        return;
+    }
     match event.id().as_ref() {
         SETTINGS_MENU_ID => show_main_window(app, Some("/settings")),
         FIND_MENU_ID => {
@@ -47,6 +54,35 @@ pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::Menu
     }
 }
 
+fn is_graceful_exit_menu_command(id: &str) -> bool {
+    id == QUIT_MENU_ID || crate::status_bar::is_quit_menu_command(id)
+}
+
+fn replace_native_quit<R: tauri::Runtime, M: tauri::Manager<R>>(
+    manager: &M,
+    app_menu: &tauri::menu::Submenu<R>,
+    app_name: &str,
+) -> tauri::Result<()> {
+    let items = app_menu.items()?;
+    let quit_position = items.iter().position(|item| {
+        item.as_predefined_menuitem()
+            .and_then(|item| item.text().ok())
+            .is_some_and(|text| is_native_quit_label(&text, app_name))
+    });
+    let Some(quit_position) = quit_position else {
+        return Err(std::io::Error::other("native Quit menu item is unavailable").into());
+    };
+    app_menu.remove_at(quit_position)?;
+    let quit = MenuItemBuilder::with_id(QUIT_MENU_ID, format!("Quit {app_name}"))
+        .accelerator(QUIT_ACCELERATOR)
+        .build(manager)?;
+    app_menu.insert(&quit, quit_position)
+}
+
+fn is_native_quit_label(label: &str, app_name: &str) -> bool {
+    label == format!("Quit {app_name}")
+}
+
 fn find_submenu<R: tauri::Runtime>(
     items: &[MenuItemKind<R>],
     title: &str,
@@ -55,4 +91,20 @@ fn find_submenu<R: tauri::Runtime>(
         let submenu = item.as_submenu()?;
         (submenu.text().ok().as_deref() == Some(title)).then(|| submenu.clone())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_quit_is_a_mish_owned_command_with_command_q() {
+        assert_eq!(QUIT_MENU_ID, "application.quit");
+        assert_eq!(QUIT_ACCELERATOR, "CmdOrCtrl+Q");
+        assert!(is_graceful_exit_menu_command("application.quit"));
+        assert!(is_graceful_exit_menu_command("status-bar.quit"));
+        assert!(!is_graceful_exit_menu_command("terminate:"));
+        assert!(is_native_quit_label("Quit Mish", "Mish"));
+        assert!(!is_native_quit_label("Hide Mish", "Mish"));
+    }
 }

@@ -11,7 +11,10 @@ use mish_runtime::{
 };
 use tauri::{
     Emitter, Manager,
-    menu::{CheckMenuItemBuilder, Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    menu::{
+        CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder, Submenu,
+        SubmenuBuilder,
+    },
     tray::TrayIconBuilder,
 };
 use uuid::Uuid;
@@ -64,7 +67,7 @@ impl StatusBarState {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct StatusMenuModel {
     core_title: &'static str,
     current_profile: String,
@@ -80,6 +83,45 @@ struct StatusMenuModel {
     tun_enabled: bool,
     tun_title: &'static str,
     repair_system_proxy_enabled: bool,
+}
+
+struct StatusMenuItems {
+    core: MenuItem<tauri::Wry>,
+    direct: CheckMenuItem<tauri::Wry>,
+    global: CheckMenuItem<tauri::Wry>,
+    leave: MenuItem<tauri::Wry>,
+    menu: Menu<tauri::Wry>,
+    profile: MenuItem<tauri::Wry>,
+    repair: MenuItem<tauri::Wry>,
+    restart: MenuItem<tauri::Wry>,
+    routing: Submenu<tauri::Wry>,
+    rule: CheckMenuItem<tauri::Wry>,
+    system_proxy: CheckMenuItem<tauri::Wry>,
+    tun: CheckMenuItem<tauri::Wry>,
+}
+
+impl StatusMenuItems {
+    fn apply(&self, model: &StatusMenuModel) -> tauri::Result<()> {
+        self.profile.set_text(&model.current_profile)?;
+        self.core.set_text(model.core_title)?;
+        self.system_proxy.set_text(model.system_proxy_title)?;
+        self.system_proxy.set_checked(model.system_proxy_checked)?;
+        self.system_proxy.set_enabled(model.system_proxy_enabled)?;
+        self.repair.set_enabled(model.repair_system_proxy_enabled)?;
+        self.leave.set_enabled(model.leave_system_proxy_enabled)?;
+        self.tun.set_text(model.tun_title)?;
+        self.tun.set_checked(model.tun_checked)?;
+        self.tun.set_enabled(model.tun_enabled)?;
+        self.routing.set_enabled(model.routing_supported)?;
+        self.rule
+            .set_checked(model.routing_mode == RoutingMode::Rule)?;
+        self.global
+            .set_checked(model.routing_mode == RoutingMode::Global)?;
+        self.direct
+            .set_checked(model.routing_mode == RoutingMode::Direct)?;
+        self.restart.set_text(model.restart_core_title)?;
+        self.restart.set_enabled(model.restart_core_enabled)
+    }
 }
 
 impl StatusMenuModel {
@@ -148,7 +190,7 @@ pub(crate) fn initialize(
     let menu = build_menu(app, &model)?;
     let handler_state = state.clone();
     let tray = TrayIconBuilder::with_id(TRAY_ID)
-        .menu(&menu)
+        .menu(&menu.menu)
         .show_menu_on_left_click(true)
         .tooltip("Mish")
         .icon(status_bar_icon())
@@ -158,19 +200,21 @@ pub(crate) fn initialize(
         });
     tray.build(app)?;
 
-    let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
-        watch_status_menu(app_handle, state).await;
+        watch_status_menu(state, model, menu).await;
     });
     Ok(())
 }
 
 fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
+    if is_quit_menu_command(id) {
+        crate::request_graceful_exit(app);
+        return;
+    }
     match id {
         OPEN_MISH_ID => show_main_window(app, None),
         OPEN_BROWSER_ID => open_browser_client(&state),
         OPEN_ROUTES_ID => show_main_window(app, Some("/routes")),
-        QUIT_ID => app.exit(0),
         TOGGLE_SYSTEM_PROXY_ID
         | TOGGLE_TUN_ID
         | REPAIR_SYSTEM_PROXY_ID
@@ -179,15 +223,17 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
         | ROUTING_GLOBAL_ID
         | ROUTING_DIRECT_ID
         | RESTART_CORE_ID => {
-            let app = app.clone();
             let id = id.to_owned();
             tauri::async_runtime::spawn(async move {
                 run_native_command(&state, &id).await;
-                refresh_menu(&app, &state).await;
             });
         }
         _ => {}
     }
+}
+
+pub(crate) fn is_quit_menu_command(id: &str) -> bool {
+    id == QUIT_ID
 }
 
 fn open_browser_client(state: &StatusBarState) {
@@ -294,7 +340,11 @@ pub(crate) fn show_main_window(app: &tauri::AppHandle, destination: Option<&str>
     }
 }
 
-async fn watch_status_menu(app: tauri::AppHandle, state: StatusBarState) {
+async fn watch_status_menu(
+    state: StatusBarState,
+    mut current_model: StatusMenuModel,
+    menu: StatusMenuItems,
+) {
     let mut runtime_changes = state.runtime.subscribe_changes();
     let mut status_updates = runtime_changes.borrow_and_update().subscribe_status();
     let mut activation_updates = state.activation.subscribe();
@@ -318,24 +368,25 @@ async fn watch_status_menu(app: tauri::AppHandle, state: StatusBarState) {
                 }
             }
         }
-        refresh_menu(&app, &state).await;
+        let next_model = state.model().await;
+        if accept_changed_menu_model(&mut current_model, next_model) {
+            let _ = menu.apply(&current_model);
+        }
     }
 }
 
-async fn refresh_menu(app: &tauri::AppHandle, state: &StatusBarState) {
-    let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        return;
-    };
-    let model = state.model().await;
-    if let Ok(menu) = build_menu(app, &model) {
-        let _ = tray.set_menu(Some(menu));
+fn accept_changed_menu_model(current: &mut StatusMenuModel, next: StatusMenuModel) -> bool {
+    if *current == next {
+        return false;
     }
+    *current = next;
+    true
 }
 
 fn build_menu<M: Manager<tauri::Wry>>(
     manager: &M,
     model: &StatusMenuModel,
-) -> tauri::Result<Menu<tauri::Wry>> {
+) -> tauri::Result<StatusMenuItems> {
     let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish").build(manager)?;
     let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Open Routes").build(manager)?;
     let browser =
@@ -385,7 +436,7 @@ fn build_menu<M: Manager<tauri::Wry>>(
         .build(manager)?;
     let quit = MenuItemBuilder::with_id(QUIT_ID, "Quit Mish").build(manager)?;
 
-    MenuBuilder::new(manager)
+    let menu = MenuBuilder::new(manager)
         .items(&[&open, &routes, &browser])
         .separator()
         .items(&[&profile, &core])
@@ -396,7 +447,21 @@ fn build_menu<M: Manager<tauri::Wry>>(
         .item(&restart)
         .separator()
         .item(&quit)
-        .build()
+        .build()?;
+    Ok(StatusMenuItems {
+        core,
+        direct,
+        global,
+        leave,
+        menu,
+        profile,
+        repair,
+        restart,
+        routing,
+        rule,
+        system_proxy,
+        tun,
+    })
 }
 
 fn system_proxy_title(phase: SystemProxyPhase) -> &'static str {
@@ -472,8 +537,44 @@ fn safe_profile_label(label: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{core_title, safe_profile_label, status_bar_icon, system_proxy_title, tun_title};
+    use super::{
+        StatusMenuModel, accept_changed_menu_model, core_title, is_quit_menu_command,
+        safe_profile_label, status_bar_icon, system_proxy_title, tun_title,
+    };
     use mish_runtime::{RuntimePhase, SystemProxyPhase, TunPhase};
+
+    #[test]
+    fn status_bar_quit_routes_to_the_shared_quit_command() {
+        assert!(is_quit_menu_command("status-bar.quit"));
+        assert!(!is_quit_menu_command("status-bar.restart-core"));
+    }
+
+    #[test]
+    fn status_menu_is_not_rebuilt_for_unchanged_runtime_updates() {
+        let mut current = StatusMenuModel {
+            core_title: "Core — Running",
+            current_profile: "Current Profile — Fixture".into(),
+            leave_system_proxy_enabled: false,
+            restart_core_enabled: true,
+            restart_core_title: "Restart Core",
+            routing_mode: mish_runtime::RoutingMode::Rule,
+            routing_supported: true,
+            system_proxy_checked: true,
+            system_proxy_enabled: true,
+            system_proxy_title: "System Proxy — On",
+            tun_checked: false,
+            tun_enabled: false,
+            tun_title: "TUN — Off",
+            repair_system_proxy_enabled: false,
+        };
+
+        let unchanged = current.clone();
+        assert!(!accept_changed_menu_model(&mut current, unchanged));
+        let mut changed = current.clone();
+        changed.core_title = "Core — Stopped";
+        assert!(accept_changed_menu_model(&mut current, changed));
+        assert_eq!(current.core_title, "Core — Stopped");
+    }
 
     #[test]
     fn status_bar_redacts_sensitive_or_unbounded_profile_labels() {
