@@ -29,9 +29,12 @@ page sections.
 ## Section headings
 
 Section headings are open, not card headers. Keep the title, short descriptor,
-and optional action on one baseline. Actions such as “Open live traffic” and
-“View all” belong at the end of the same heading row and share the same compact
-text-button treatment.
+and optional action on one baseline. On the Status page, keep English titles and
+actions to two words, and descriptors to roughly 30 character widths. Actions
+such as “Live traffic” and “View all” belong at the end of the same heading row
+and share the same compact text-button treatment. The title and action remain
+legible while the descriptor shrinks and truncates with an ellipsis; expose its
+full localized text through native advisory text when it truncates.
 
 ## Choice controls
 

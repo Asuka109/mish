@@ -849,10 +849,29 @@ h2 {
   gap: 8px;
 }
 
+.status-page .section-heading-copy {
+  flex: 1 1 auto;
+}
+
+.status-page .section-heading-copy h2 {
+  flex: 0 0 auto;
+}
+
 .section-heading-copy p {
   color: var(--color-text-muted);
   font-size: var(--text-metadata);
   white-space: nowrap;
+}
+
+.status-page .section-heading-copy p {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-page .section-heading > .text-link,
+.status-page .section-heading > .text-link svg {
+  flex: 0 0 auto;
 }
 
 .text-link {
@@ -5520,6 +5539,12 @@ h2 {
 
   .section-heading-copy p {
     white-space: normal;
+  }
+
+  .status-page .section-heading-copy p {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
   }
 
   .destination-intro {
