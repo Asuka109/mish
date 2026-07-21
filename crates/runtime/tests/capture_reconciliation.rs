@@ -1027,6 +1027,155 @@ async fn restart_audit_restores_a_confirmed_orphaned_mish_proxy() {
 }
 
 #[tokio::test]
+async fn restart_recovers_every_transaction_owned_partial_write_matrix() {
+    let prior = NetworkServiceProxyState {
+        http: ManualProxyState {
+            authenticated: false,
+            enabled: false,
+            host: "prior-http.proxy.example".into(),
+            port: 3128,
+        },
+        https: ManualProxyState {
+            authenticated: false,
+            enabled: false,
+            host: "prior-https.proxy.example".into(),
+            port: 4443,
+        },
+        socks: ManualProxyState {
+            authenticated: false,
+            enabled: true,
+            host: "prior-socks.proxy.example".into(),
+            port: 1080,
+        },
+        ..disabled_service()
+    };
+    let mish = ManualProxyState {
+        authenticated: false,
+        enabled: true,
+        host: "127.0.0.1".into(),
+        port: 7890,
+    };
+    let cases = [
+        (
+            "only HTTP written",
+            NetworkServiceProxyState {
+                http: mish.clone(),
+                ..prior.clone()
+            },
+        ),
+        (
+            "HTTPS value written before final enabled state",
+            NetworkServiceProxyState {
+                http: mish.clone(),
+                https: ManualProxyState {
+                    enabled: prior.https.enabled,
+                    ..mish.clone()
+                },
+                ..prior.clone()
+            },
+        ),
+        (
+            "partial HTTPS and SOCKS writes",
+            NetworkServiceProxyState {
+                http: mish.clone(),
+                https: mish.clone(),
+                socks: ManualProxyState {
+                    enabled: prior.socks.enabled,
+                    ..mish.clone()
+                },
+                ..prior.clone()
+            },
+        ),
+        (
+            "restoration interrupted between value and state writes",
+            NetworkServiceProxyState {
+                http: prior.http.clone(),
+                https: ManualProxyState {
+                    enabled: mish.enabled,
+                    ..prior.https.clone()
+                },
+                socks: mish.clone(),
+                ..prior.clone()
+            },
+        ),
+    ];
+
+    for (crash_point, partial) in cases {
+        let platform = Arc::new(FakePlatform::new(partial));
+        let journal = Arc::new(MemoryJournalStore::default());
+        journal
+            .save(&CaptureJournal {
+                prior: prior.clone(),
+            })
+            .unwrap();
+        let reconciler = CaptureReconciler::new(
+            platform.clone(),
+            journal.clone(),
+            LoopbackProxyEndpoint::managed(),
+        );
+
+        let status = reconciler
+            .audit(CaptureAuditReason::Restart, false)
+            .await
+            .unwrap_or_else(|error| panic!("{crash_point} was not recovered: {error}"));
+
+        assert_eq!(
+            status.system_proxy.phase,
+            SystemProxyPhase::Off,
+            "{crash_point}"
+        );
+        assert_eq!(platform.service("service-a"), prior, "{crash_point}");
+        assert_eq!(platform.apply_count(), 1, "{crash_point}");
+        assert!(journal.load().unwrap().is_none(), "{crash_point}");
+    }
+}
+
+#[tokio::test]
+async fn restart_leaves_a_partial_matrix_with_any_unknown_field_untouched() {
+    let prior = disabled_service();
+    let mish = ManualProxyState {
+        authenticated: false,
+        enabled: true,
+        host: "127.0.0.1".into(),
+        port: 7890,
+    };
+    let unknown = NetworkServiceProxyState {
+        http: mish.clone(),
+        https: ManualProxyState {
+            host: "third-party.proxy.example".into(),
+            ..mish.clone()
+        },
+        socks: ManualProxyState {
+            enabled: false,
+            ..mish
+        },
+        ..prior.clone()
+    };
+    let platform = Arc::new(FakePlatform::new(unknown.clone()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    journal
+        .save(&CaptureJournal {
+            prior: prior.clone(),
+        })
+        .unwrap();
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let error = reconciler
+        .audit(CaptureAuditReason::Restart, false)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ExternalDrift);
+    assert_eq!(platform.service("service-a"), unknown);
+    assert_eq!(platform.apply_count(), 0);
+    assert_eq!(journal.load().unwrap().unwrap().prior, prior);
+}
+
+#[tokio::test]
 async fn disabling_without_a_journal_does_not_publish_off_when_observation_fails() {
     let platform = Arc::new(FakePlatform::new(disabled_service()));
     platform.fail_next_observations(1);

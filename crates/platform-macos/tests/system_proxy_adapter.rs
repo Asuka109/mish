@@ -2,11 +2,12 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::future::{BoxFuture, ready};
 use mish_platform_macos::{
-    MacOsCommand, MacOsCommandError, MacOsCommandOutput, MacOsCommandRunner,
-    MacOsSystemProxyPlatform,
+    FileCaptureJournalStore, MacOsCommand, MacOsCommandError, MacOsCommandOutput,
+    MacOsCommandRunner, MacOsProxyKind, MacOsSystemProxyPlatform,
 };
 use mish_runtime::{
-    CapturePlatform, LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState,
+    CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
+    LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState, SystemProxyPhase,
 };
 
 struct FixtureRunner {
@@ -82,6 +83,208 @@ impl MacOsCommandRunner for FixtureRunner {
     }
 }
 
+struct StatefulCrashRunner {
+    crash_after_write: Mutex<Option<usize>>,
+    state: Mutex<NetworkServiceProxyState>,
+    writes: Mutex<usize>,
+}
+
+impl StatefulCrashRunner {
+    fn new(state: NetworkServiceProxyState) -> Self {
+        Self {
+            crash_after_write: Mutex::new(None),
+            state: Mutex::new(state),
+            writes: Mutex::new(0),
+        }
+    }
+
+    fn crash_after_write(&self, write: usize) {
+        *self.writes.lock().unwrap() = 0;
+        *self.crash_after_write.lock().unwrap() = Some(write);
+    }
+
+    fn resume(&self) {
+        *self.crash_after_write.lock().unwrap() = None;
+        *self.writes.lock().unwrap() = 0;
+    }
+
+    fn state(&self) -> NetworkServiceProxyState {
+        self.state.lock().unwrap().clone()
+    }
+
+    fn finish_write(&self) -> Result<MacOsCommandOutput, MacOsCommandError> {
+        let mut writes = self.writes.lock().unwrap();
+        *writes += 1;
+        if *self.crash_after_write.lock().unwrap() == Some(*writes) {
+            return Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::Failed,
+            });
+        }
+        Ok(MacOsCommandOutput {
+            stdout: String::new(),
+        })
+    }
+}
+
+impl MacOsCommandRunner for StatefulCrashRunner {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        let result = match command {
+            MacOsCommand::DefaultRoute => Ok(MacOsCommandOutput {
+                stdout: "route to: default\ninterface: en99\n".into(),
+            }),
+            MacOsCommand::ListNetworkServiceOrder => Ok(MacOsCommandOutput {
+                stdout: "(1) Fixture Service\n(Hardware Port: Fixture Port, Device: en99)\n".into(),
+            }),
+            MacOsCommand::GetProxy { kind, .. } => {
+                let state = self.state.lock().unwrap();
+                let proxy = match kind {
+                    MacOsProxyKind::Http => &state.http,
+                    MacOsProxyKind::Https => &state.https,
+                    MacOsProxyKind::Socks => &state.socks,
+                };
+                Ok(MacOsCommandOutput {
+                    stdout: format!(
+                        "Enabled: {}\nServer: {}\nPort: {}\nAuthenticated Proxy Enabled: {}\n",
+                        if proxy.enabled { "Yes" } else { "No" },
+                        proxy.host,
+                        proxy.port,
+                        u8::from(proxy.authenticated)
+                    ),
+                })
+            }
+            MacOsCommand::GetAutoProxyUrl { .. } => {
+                let state = self.state.lock().unwrap();
+                Ok(MacOsCommandOutput {
+                    stdout: format!(
+                        "URL: {}\nEnabled: {}\n",
+                        state.pac_url,
+                        if state.pac_enabled { "Yes" } else { "No" }
+                    ),
+                })
+            }
+            MacOsCommand::GetProxyAutoDiscovery { .. } => {
+                let enabled = self.state.lock().unwrap().auto_discovery_enabled;
+                Ok(MacOsCommandOutput {
+                    stdout: format!(
+                        "Auto Proxy Discovery: {}\n",
+                        if enabled { "On" } else { "Off" }
+                    ),
+                })
+            }
+            MacOsCommand::SetProxy {
+                host, kind, port, ..
+            } => {
+                let mut state = self.state.lock().unwrap();
+                let proxy = match kind {
+                    MacOsProxyKind::Http => &mut state.http,
+                    MacOsProxyKind::Https => &mut state.https,
+                    MacOsProxyKind::Socks => &mut state.socks,
+                };
+                proxy.authenticated = false;
+                proxy.host = host;
+                proxy.port = port;
+                drop(state);
+                self.finish_write()
+            }
+            MacOsCommand::SetProxyState { enabled, kind, .. } => {
+                let mut state = self.state.lock().unwrap();
+                match kind {
+                    MacOsProxyKind::Http => state.http.enabled = enabled,
+                    MacOsProxyKind::Https => state.https.enabled = enabled,
+                    MacOsProxyKind::Socks => state.socks.enabled = enabled,
+                }
+                drop(state);
+                self.finish_write()
+            }
+            MacOsCommand::InterfaceConfiguration
+            | MacOsCommand::RoutingTable
+            | MacOsCommand::DnsConfiguration
+            | MacOsCommand::NetworkInformation => {
+                panic!("non-System-Proxy command reached crash fixture")
+            }
+        };
+        Box::pin(ready(result))
+    }
+}
+
+fn crash_fixture_prior() -> NetworkServiceProxyState {
+    NetworkServiceProxyState {
+        auto_discovery_enabled: false,
+        http: ManualProxyState {
+            authenticated: false,
+            enabled: false,
+            host: "prior-http.proxy.example".into(),
+            port: 3128,
+        },
+        https: ManualProxyState {
+            authenticated: false,
+            enabled: true,
+            host: "prior-https.proxy.example".into(),
+            port: 4443,
+        },
+        pac_enabled: false,
+        pac_url: "http://pac.example/original.pac".into(),
+        service_id: "Fixture Service".into(),
+        socks: ManualProxyState {
+            authenticated: false,
+            enabled: false,
+            host: "prior-socks.proxy.example".into(),
+            port: 1080,
+        },
+    }
+}
+
+fn crash_fixture_target(prior: &NetworkServiceProxyState) -> NetworkServiceProxyState {
+    let proxy = ManualProxyState {
+        authenticated: false,
+        enabled: true,
+        host: "127.0.0.1".into(),
+        port: 7890,
+    };
+    NetworkServiceProxyState {
+        http: proxy.clone(),
+        https: proxy.clone(),
+        socks: proxy,
+        ..prior.clone()
+    }
+}
+
+async fn assert_restart_recovers_after_write(
+    initial: NetworkServiceProxyState,
+    write_target: NetworkServiceProxyState,
+    prior: NetworkServiceProxyState,
+    crash_after_write: usize,
+) {
+    let root = tempfile::tempdir().unwrap();
+    let journal = Arc::new(FileCaptureJournalStore::new(
+        root.path().join("system-proxy-journal.json"),
+    ));
+    journal
+        .save(&CaptureJournal {
+            prior: prior.clone(),
+        })
+        .unwrap();
+    let runner = Arc::new(StatefulCrashRunner::new(initial));
+    let platform = Arc::new(MacOsSystemProxyPlatform::with_runner(runner.clone()));
+    runner.crash_after_write(crash_after_write);
+
+    platform.apply_service(write_target).await.unwrap_err();
+    runner.resume();
+    let restarted =
+        CaptureReconciler::new(platform, journal.clone(), LoopbackProxyEndpoint::managed());
+    let status = restarted
+        .audit(CaptureAuditReason::Restart, false)
+        .await
+        .unwrap();
+
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Off);
+    assert_eq!(runner.state(), prior);
+    assert!(journal.load().unwrap().is_none());
+}
+
 #[tokio::test]
 async fn applies_only_structured_http_https_and_socks_commands() {
     let runner = Arc::new(FixtureRunner::new());
@@ -144,6 +347,32 @@ async fn applies_only_structured_http_https_and_socks_commands() {
             },
         ]
     );
+}
+
+#[tokio::test]
+async fn every_apply_and_restore_write_is_restart_recoverable() {
+    let prior = crash_fixture_prior();
+    let target = crash_fixture_target(&prior);
+
+    for crash_after_write in 1..=6 {
+        assert_restart_recovers_after_write(
+            prior.clone(),
+            target.clone(),
+            prior.clone(),
+            crash_after_write,
+        )
+        .await;
+    }
+
+    for crash_after_write in 1..=6 {
+        assert_restart_recovers_after_write(
+            target.clone(),
+            prior.clone(),
+            prior.clone(),
+            crash_after_write,
+        )
+        .await;
+    }
 }
 
 #[tokio::test]
