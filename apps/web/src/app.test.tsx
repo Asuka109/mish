@@ -695,7 +695,7 @@ describe("production routes", () => {
     expect(
       screen.getByText(/cannot perform or confirm native macOS operations/i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Launch at login" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Off" })).toBeDisabled();
     expect(
       screen.getByRole("button", { name: "Virtual Interface, not selected, not running" }),
     ).toBeDisabled();
@@ -1215,7 +1215,7 @@ describe("desktop RPC experience", () => {
     expect(settingsClient.setStartup).not.toHaveBeenCalled();
   });
 
-  it("separates login registration from the exclusive login-window behavior", async () => {
+  it("presents login startup as one exclusive three-state setting", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
     renderRoute(
@@ -1227,9 +1227,15 @@ describe("desktop RPC experience", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    const background = await screen.findByRole("button", { name: "Background" });
-    expect(background).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Launch at login" }));
+    const off = await screen.findByRole("button", { name: "Off" });
+    const showWindow = screen.getByRole("button", { name: "Show window" });
+    const background = screen.getByRole("button", { name: "Background" });
+    expect(off).toHaveAttribute("aria-pressed", "true");
+    expect(showWindow).not.toBeDisabled();
+    expect(background).not.toBeDisabled();
+    expect(screen.queryByText("Applied")).not.toBeInTheDocument();
+
+    await user.click(showWindow);
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenCalledWith({
         launchAtLogin: true,
@@ -1244,6 +1250,32 @@ describe("desktop RPC experience", () => {
         loginLaunchBehavior: "background",
       }),
     );
+    await user.click(off);
+    await waitFor(() =>
+      expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
+        launchAtLogin: false,
+        loginLaunchBehavior: "background",
+      }),
+    );
+  });
+
+  it("shows login startup status only when the observed registration needs attention", async () => {
+    const settingsClient = new DesktopSettingsClient();
+    settingsClient.snapshot.startupRegistration = {
+      desired: true,
+      observed: false,
+      phase: "drift",
+    };
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByText("Needs reconciliation")).toBeInTheDocument();
   });
 
   it("moves a Settings operation failure into a toast and the notification center", async () => {
@@ -1259,7 +1291,7 @@ describe("desktop RPC experience", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    await user.click(await screen.findByRole("button", { name: "Launch at login" }));
+    await user.click(await screen.findByRole("button", { name: "Show window" }));
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(

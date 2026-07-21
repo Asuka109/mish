@@ -110,7 +110,8 @@ const zh = {
     lanDescription: "Mish 目前只允许从这台设备访问，不能通过局域网控制。",
     languageDescription: "只切换 Mish 界面文案；配置、策略组、节点和服务名称保持原样。",
     launchAtLogin: "登录时启动",
-    launchAtLoginDescription: "开启后，登录当前 macOS 账户时会自动启动 Mish。",
+    launchAtLoginDescription:
+      "选择登录 macOS 时是否自动启动 Mish，以及自动启动后是否显示主窗口。手动打开时始终显示窗口。",
     loginWindow: "登录启动窗口",
     loginWindowDescription: "选择自动启动时是否显示主窗口。手动打开 Mish 时始终会显示窗口。",
     loopback: "仅允许本机访问",

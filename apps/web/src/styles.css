@@ -3683,7 +3683,6 @@ h2 {
   height: 15px;
 }
 
-.settings-switch,
 .settings-segmented > button {
   display: inline-flex;
   height: 30px;
@@ -3693,12 +3692,6 @@ h2 {
   background: var(--color-canvas);
   color: var(--color-text-muted);
   font-size: var(--text-metadata);
-}
-
-.settings-switch {
-  min-width: 52px;
-  padding: 0 10px;
-  border-radius: var(--radius-full);
 }
 
 .settings-segmented > button {
@@ -3718,14 +3711,11 @@ h2 {
   border-left: 0;
 }
 
-.settings-switch:hover,
 .settings-segmented > button:hover {
   background: var(--color-accent);
   color: var(--color-body);
 }
 
-.settings-switch[aria-pressed="true"],
-.settings-switch[data-pressed],
 .settings-segmented > button[aria-pressed="true"],
 .settings-segmented > button[data-pressed] {
   background: var(--color-accent);
@@ -3733,7 +3723,6 @@ h2 {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-hairline) 56%, transparent);
 }
 
-.settings-switch:disabled,
 .settings-segmented > button:disabled {
   cursor: not-allowed;
   opacity: 0.48;

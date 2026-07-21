@@ -124,7 +124,7 @@ const en = {
       "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
     launchAtLogin: "Launch at login",
     launchAtLoginDescription:
-      "Registers Mish with the current macOS account and confirms the observed registration state.",
+      "Choose whether Mish starts when you log in and whether an automatic launch shows the main window. Manual launches always show the window.",
     loginWindow: "Login launch window",
     loginWindowDescription:
       "Choose one behavior for login launches. Manual launches always show the window.",

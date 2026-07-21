@@ -391,7 +391,7 @@ type RootTranslation = {
 		 */
 		launchAtLogin: string
 		/**
-		 * R​e​g​i​s​t​e​r​s​ ​M​i​s​h​ ​w​i​t​h​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​m​a​c​O​S​ ​a​c​c​o​u​n​t​ ​a​n​d​ ​c​o​n​f​i​r​m​s​ ​t​h​e​ ​o​b​s​e​r​v​e​d​ ​r​e​g​i​s​t​r​a​t​i​o​n​ ​s​t​a​t​e​.
+		 * C​h​o​o​s​e​ ​w​h​e​t​h​e​r​ ​M​i​s​h​ ​s​t​a​r​t​s​ ​w​h​e​n​ ​y​o​u​ ​l​o​g​ ​i​n​ ​a​n​d​ ​w​h​e​t​h​e​r​ ​a​n​ ​a​u​t​o​m​a​t​i​c​ ​l​a​u​n​c​h​ ​s​h​o​w​s​ ​t​h​e​ ​m​a​i​n​ ​w​i​n​d​o​w​.​ ​M​a​n​u​a​l​ ​l​a​u​n​c​h​e​s​ ​a​l​w​a​y​s​ ​s​h​o​w​ ​t​h​e​ ​w​i​n​d​o​w​.
 		 */
 		launchAtLoginDescription: string
 		/**
@@ -4378,7 +4378,7 @@ export type TranslationFunctions = {
 		 */
 		launchAtLogin: () => LocalizedString
 		/**
-		 * Registers Mish with the current macOS account and confirms the observed registration state.
+		 * Choose whether Mish starts when you log in and whether an automatic launch shows the main window. Manual launches always show the window.
 		 */
 		launchAtLoginDescription: () => LocalizedString
 		/**

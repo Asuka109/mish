@@ -7,7 +7,6 @@ import {
   SectionGrid,
   SectionGridItem,
   Spinner,
-  Toggle,
   ToggleGroup,
   ToggleGroupItem,
 } from "@mish/ui";
@@ -34,7 +33,9 @@ import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-type PendingButtonAction = "language" | "launch-at-login" | "login-behavior" | "window-close";
+type PendingButtonAction = "language" | "startup" | "window-close";
+
+type StartupOption = "off" | "show-window" | "background";
 
 type PromiseButtonAction =
   | "install-helper"
@@ -155,6 +156,9 @@ export function SettingsPage() {
   const snapshot = settings.snapshot;
   const startup = snapshot.preferences.startup;
   const displayedStartup = optimisticStartup ?? startup;
+  const displayedStartupOption: StartupOption = displayedStartup.launchAtLogin
+    ? displayedStartup.loginLaunchBehavior
+    : "off";
   const captureSupported = isCommandSupported("capture");
   const captureRuntime = product?.runtime;
   const captureActive = Boolean(captureRuntime?.systemProxyEnabled || captureRuntime?.tunEnabled);
@@ -216,11 +220,12 @@ export function SettingsPage() {
     }
   }
 
-  async function changeStartup(
-    action: "launch-at-login" | "login-behavior",
-    nextStartup: StartupPreferencesDto,
-  ) {
-    setPendingButtonAction(action);
+  async function changeStartup(option: StartupOption) {
+    const nextStartup: StartupPreferencesDto =
+      option === "off"
+        ? { ...startup, launchAtLogin: false }
+        : { launchAtLogin: true, loginLaunchBehavior: option };
+    setPendingButtonAction("startup");
     setOptimisticStartup(nextStartup);
     try {
       await settings.setStartup(nextStartup);
@@ -464,90 +469,67 @@ export function SettingsPage() {
           title={LL.settingsPage.launchAtLogin()}
         >
           <div className="settings-inline-control">
-            <Toggle
-              aria-busy={pendingButtonAction === "launch-at-login"}
+            <ToggleGroup
               aria-label={LL.settingsPage.launchAtLogin()}
-              className="settings-switch"
+              className="settings-segmented"
               disabled={!startupSupported || settings.pending}
-              onPressedChange={(launchAtLogin) =>
-                void changeStartup("launch-at-login", { ...startup, launchAtLogin })
-              }
-              pressed={displayedStartup.launchAtLogin}
+              onValueChange={(values) => {
+                const option = values[0];
+                if (option === "off" || option === "show-window" || option === "background") {
+                  void changeStartup(option);
+                }
+              }}
+              spacing={0}
+              value={[displayedStartupOption]}
               variant="outline"
             >
-              {pendingButtonAction === "launch-at-login" ? (
-                <Spinner data-icon="inline-start" />
-              ) : null}
-              {displayedStartup.launchAtLogin ? LL.settingsPage.on() : LL.settingsPage.off()}
-            </Toggle>
-            <AvailabilityBadge availability={snapshot.capabilities.launchAtLogin} />
+              <ToggleGroupItem
+                aria-busy={pendingButtonAction === "startup" && displayedStartupOption === "off"}
+                value="off"
+              >
+                {pendingButtonAction === "startup" && displayedStartupOption === "off" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {LL.settingsPage.off()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "startup" && displayedStartupOption === "show-window"
+                }
+                value="show-window"
+              >
+                {pendingButtonAction === "startup" && displayedStartupOption === "show-window" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {LL.settingsPage.showWindow()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "startup" && displayedStartupOption === "background"
+                }
+                value="background"
+              >
+                {pendingButtonAction === "startup" && displayedStartupOption === "background" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : null}
+                {LL.settingsPage.background()}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {snapshot.capabilities.launchAtLogin !== "supported" ? (
+              <AvailabilityBadge availability={snapshot.capabilities.launchAtLogin} />
+            ) : snapshot.startupRegistration.phase !== "applied" ? (
+              <Badge
+                variant={
+                  snapshot.startupRegistration.phase === "drift" ||
+                  snapshot.startupRegistration.phase === "failed"
+                    ? "warning"
+                    : "outline"
+                }
+              >
+                {LL.settingsPage.registrationPhase[snapshot.startupRegistration.phase]()}
+              </Badge>
+            ) : null}
           </div>
-        </SettingsRow>
-        <SettingsRow
-          description={LL.settingsPage.loginWindowDescription()}
-          title={LL.settingsPage.loginWindow()}
-        >
-          <ToggleGroup
-            aria-label={LL.settingsPage.loginWindow()}
-            className="settings-segmented"
-            disabled={!startupSupported || !displayedStartup.launchAtLogin || settings.pending}
-            onValueChange={(values) => {
-              const behavior = values[0];
-              if (behavior === "show-window" || behavior === "background") {
-                void changeStartup("login-behavior", {
-                  ...startup,
-                  loginLaunchBehavior: behavior,
-                });
-              }
-            }}
-            spacing={0}
-            value={[displayedStartup.loginLaunchBehavior]}
-            variant="outline"
-          >
-            <ToggleGroupItem
-              aria-busy={
-                pendingButtonAction === "login-behavior" &&
-                displayedStartup.loginLaunchBehavior === "show-window"
-              }
-              value="show-window"
-            >
-              {pendingButtonAction === "login-behavior" &&
-              displayedStartup.loginLaunchBehavior === "show-window" ? (
-                <Spinner data-icon="inline-start" />
-              ) : null}
-              {LL.settingsPage.showWindow()}
-            </ToggleGroupItem>
-            <ToggleGroupItem
-              aria-busy={
-                pendingButtonAction === "login-behavior" &&
-                displayedStartup.loginLaunchBehavior === "background"
-              }
-              value="background"
-            >
-              {pendingButtonAction === "login-behavior" &&
-              displayedStartup.loginLaunchBehavior === "background" ? (
-                <Spinner data-icon="inline-start" />
-              ) : null}
-              {LL.settingsPage.background()}
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </SettingsRow>
-        <SettingsRow
-          description={LL.settingsPage.registrationDescription()}
-          title={LL.settingsPage.registration()}
-        >
-          <Badge
-            variant={
-              snapshot.startupRegistration.phase === "applied"
-                ? "success"
-                : snapshot.startupRegistration.phase === "drift" ||
-                    snapshot.startupRegistration.phase === "failed"
-                  ? "warning"
-                  : "outline"
-            }
-          >
-            {LL.settingsPage.registrationPhase[snapshot.startupRegistration.phase]()}
-          </Badge>
         </SettingsRow>
       </SettingsSection>
 
