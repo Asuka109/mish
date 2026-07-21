@@ -21,6 +21,11 @@ Ordinary settings RPC accepts only these bounded commands:
   `show-window` or `background` login-launch behavior; or
 - set one of `hide-to-status-bar` or `quit` as the main-window close behavior.
 
+Protocol version 18 also accepts one closed onboarding welcome transition:
+`prompt`, `open`, `dismiss`, or `complete`. These transitions update only the
+private settings record. They do not invoke Core, capture, a network observer,
+a TUN helper, or any operating-system adapter.
+
 It also exposes empty-parameter, user-triggered `installTunHelper`,
 `repairTunHelper`, and `removeTunHelper` operations. Their snapshot reports
 availability, installed and expected versions, health, lifecycle phase, and the
@@ -46,12 +51,23 @@ atomically rename it over the destination, and flush the parent directory.
 
 Missing storage uses safe defaults: system appearance, English, launch at login
 off, native material as the desired window surface, show the window for any
-future login launch, and hide the main window to the status bar on close. Version
-0 appearance/locale data and version 1 or 2 settings migrate into the current
-schema. Existing installations migrate to `material` to preserve the prior
-macOS rendering behavior. Invalid, unsupported, or oversized storage is replaced
-atomically with safe defaults and reported once through `storageRecovered`; no
-system startup or network state is changed during recovery.
+future login launch, and hide the main window to the status bar on close. It
+also creates and immediately persists exactly one version-2 welcome invitation
+with a stable creation time. The desktop frontend records `promptedAt` when it
+first presents the proactive welcome message. Opening records a separate first
+open time. Dismissal records another time but retains the invitation. Completion
+records its own time and suppresses the invitation across restart and future
+schema upgrades.
+
+Version 0 appearance/locale data and version 1, 2, or 3 settings migrate into
+the current schema with one unprompted invitation, so existing installations
+receive the same opt-in welcome after upgrading. Versions 4 and 5 carried the
+earlier minimal welcome. They migrate to one unprompted version-2 invitation so
+the expanded profile, capture, and routing tour is shown once even when the old
+welcome was completed. Invalid, unsupported, or oversized storage is replaced
+atomically with safe defaults and reported once through `storageRecovered`;
+recovery does not reissue an invitation or change system startup or network
+state.
 
 The browser fixture uses local storage only as an appearance, window-surface,
 and language fallback. It reports startup, native material, privacy
@@ -60,6 +76,13 @@ success. A stored material preference therefore resolves to an opaque browser
 surface without being rewritten. The Settings UI omits the window-surface row
 entirely whenever `nativeSidebarMaterial` is not `supported`; opaque-only Web,
 mobile, and desktop platforms do not expose an inapplicable preference.
+
+The desktop shell and authenticated desktop browser client surface the durable
+invitation through their shared notification center. The installed mobile shell
+is explicitly excluded from this version: it creates no invitation and mounts
+neither the desktop notification center nor the welcome dialog. A future mobile
+onboarding flow requires its own platform recipe rather than inheriting this
+desktop modal.
 
 ## Launch at login
 

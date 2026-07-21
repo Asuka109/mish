@@ -21,7 +21,8 @@ use serde::{Deserialize, Serialize};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 
-const CURRENT_SCHEMA_VERSION: u8 = 3;
+const CURRENT_SCHEMA_VERSION: u8 = 6;
+const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -72,14 +73,65 @@ pub struct StartupPreferences {
     pub login_launch_behavior: LoginLaunchBehavior,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OnboardingWelcomeInvitation {
+    pub completed_at: Option<u64>,
+    pub created_at: u64,
+    pub first_opened_at: Option<u64>,
+    pub last_dismissed_at: Option<u64>,
+    pub prompted_at: Option<u64>,
+    pub version: u8,
+}
+
+impl OnboardingWelcomeInvitation {
+    fn fresh(created_at: u64) -> Self {
+        Self {
+            completed_at: None,
+            created_at,
+            first_opened_at: None,
+            last_dismissed_at: None,
+            prompted_at: None,
+            version: ONBOARDING_WELCOME_VERSION,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OnboardingPreferences {
+    pub welcome_invitation: Option<OnboardingWelcomeInvitation>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum OnboardingWelcomeAction {
+    Complete,
+    Dismiss,
+    Open,
+    Prompt,
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingsPreferences {
     pub appearance: AppearancePreference,
     pub language: LanguagePreference,
+    pub onboarding: OnboardingPreferences,
     pub startup: StartupPreferences,
     pub window_close_behavior: WindowCloseBehavior,
     pub window_surface: WindowSurfacePreference,
+}
+
+impl SettingsPreferences {
+    fn fresh_install(created_at: u64) -> Self {
+        Self {
+            onboarding: OnboardingPreferences {
+                welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(created_at)),
+            },
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -312,7 +364,7 @@ pub trait SettingsRepository: Send + Sync {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LoadedSettings {
-    pub migrated: bool,
+    pub needs_persistence: bool,
     pub preferences: SettingsPreferences,
 }
 
@@ -520,7 +572,7 @@ impl SettingsService {
                     .map_err(|_| SettingsServiceError::Persistence)?;
                 (
                     LoadedSettings {
-                        migrated: false,
+                        needs_persistence: false,
                         preferences,
                     },
                     true,
@@ -530,7 +582,7 @@ impl SettingsService {
                 return Err(SettingsServiceError::Persistence);
             }
         };
-        if loaded.migrated {
+        if loaded.needs_persistence {
             repository
                 .save(&loaded.preferences)
                 .map_err(|_| SettingsServiceError::Persistence)?;
@@ -665,6 +717,49 @@ impl SettingsService {
             .lock()
             .expect("settings operation lock poisoned");
         self.update(|preferences| preferences.language = language)
+    }
+
+    pub fn set_onboarding_welcome_state(
+        &self,
+        action: OnboardingWelcomeAction,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        self.update(|preferences| {
+            let Some(invitation) = preferences.onboarding.welcome_invitation.as_mut() else {
+                return;
+            };
+            if invitation.completed_at.is_some() {
+                return;
+            }
+            let now = observation_time()
+                .max(invitation.created_at)
+                .max(invitation.first_opened_at.unwrap_or_default())
+                .max(invitation.last_dismissed_at.unwrap_or_default())
+                .max(invitation.prompted_at.unwrap_or_default());
+            match action {
+                OnboardingWelcomeAction::Open => {
+                    invitation.prompted_at.get_or_insert(now);
+                    invitation.first_opened_at.get_or_insert(now);
+                }
+                OnboardingWelcomeAction::Dismiss => {
+                    invitation.prompted_at.get_or_insert(now);
+                    invitation.first_opened_at.get_or_insert(now);
+                    invitation.last_dismissed_at = Some(now);
+                }
+                OnboardingWelcomeAction::Complete => {
+                    invitation.prompted_at.get_or_insert(now);
+                    invitation.first_opened_at.get_or_insert(now);
+                    invitation.completed_at = Some(now);
+                }
+                OnboardingWelcomeAction::Prompt => {
+                    invitation.prompted_at.get_or_insert(now);
+                }
+            }
+        })
     }
 
     pub fn set_startup(
@@ -867,9 +962,57 @@ impl FileSettingsRepository {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct StoredSettingsV3 {
+struct StoredSettingsV6 {
     preferences: SettingsPreferences,
     schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSettingsV5 {
+    preferences: SettingsPreferences,
+    schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSettingsV4 {
+    preferences: SettingsPreferencesV4,
+    schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettingsPreferencesV4 {
+    appearance: AppearancePreference,
+    language: LanguagePreference,
+    onboarding: OnboardingPreferencesV4,
+    startup: StartupPreferences,
+    window_close_behavior: WindowCloseBehavior,
+    window_surface: WindowSurfacePreference,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OnboardingPreferencesV4 {
+    welcome_invitation: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSettingsV3 {
+    preferences: SettingsPreferencesV3,
+    schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettingsPreferencesV3 {
+    appearance: AppearancePreference,
+    language: LanguagePreference,
+    startup: StartupPreferences,
+    window_close_behavior: WindowCloseBehavior,
+    window_surface: WindowSurfacePreference,
 }
 
 #[derive(Deserialize)]
@@ -917,8 +1060,8 @@ impl SettingsRepository for FileSettingsRepository {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(LoadedSettings {
-                    migrated: false,
-                    preferences: SettingsPreferences::default(),
+                    needs_persistence: true,
+                    preferences: SettingsPreferences::fresh_install(observation_time()),
                 });
             }
             Err(_) => return Err(SettingsRepositoryError::Unavailable),
@@ -934,11 +1077,77 @@ impl SettingsRepository for FileSettingsRepository {
             .and_then(serde_json::Value::as_u64)
         {
             Some(version) if version == u64::from(CURRENT_SCHEMA_VERSION) => {
+                let stored: StoredSettingsV6 =
+                    serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if !valid_onboarding_preferences(stored.preferences.onboarding) {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
+                Ok(LoadedSettings {
+                    needs_persistence: false,
+                    preferences: stored.preferences,
+                })
+            }
+            Some(5) => {
+                let stored: StoredSettingsV5 =
+                    serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if stored.schema_version != 5 {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
+                Ok(LoadedSettings {
+                    needs_persistence: true,
+                    preferences: SettingsPreferences {
+                        onboarding: OnboardingPreferences {
+                            welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
+                                observation_time(),
+                            )),
+                        },
+                        ..stored.preferences
+                    },
+                })
+            }
+            Some(4) => {
+                let stored: StoredSettingsV4 =
+                    serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if stored.schema_version != 4 {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
+                let _previous_invitation = stored.preferences.onboarding.welcome_invitation;
+                Ok(LoadedSettings {
+                    needs_persistence: true,
+                    preferences: SettingsPreferences {
+                        appearance: stored.preferences.appearance,
+                        language: stored.preferences.language,
+                        onboarding: OnboardingPreferences {
+                            welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
+                                observation_time(),
+                            )),
+                        },
+                        startup: stored.preferences.startup,
+                        window_close_behavior: stored.preferences.window_close_behavior,
+                        window_surface: stored.preferences.window_surface,
+                    },
+                })
+            }
+            Some(3) => {
                 let stored: StoredSettingsV3 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if stored.schema_version != 3 {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
                 Ok(LoadedSettings {
-                    migrated: false,
-                    preferences: stored.preferences,
+                    needs_persistence: true,
+                    preferences: SettingsPreferences {
+                        appearance: stored.preferences.appearance,
+                        language: stored.preferences.language,
+                        onboarding: OnboardingPreferences {
+                            welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
+                                observation_time(),
+                            )),
+                        },
+                        startup: stored.preferences.startup,
+                        window_close_behavior: stored.preferences.window_close_behavior,
+                        window_surface: stored.preferences.window_surface,
+                    },
                 })
             }
             Some(2) => {
@@ -948,10 +1157,15 @@ impl SettingsRepository for FileSettingsRepository {
                     return Err(SettingsRepositoryError::Corrupt);
                 }
                 Ok(LoadedSettings {
-                    migrated: true,
+                    needs_persistence: true,
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        onboarding: OnboardingPreferences {
+                            welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
+                                observation_time(),
+                            )),
+                        },
                         startup: stored.preferences.startup,
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: WindowSurfacePreference::Material,
@@ -965,10 +1179,15 @@ impl SettingsRepository for FileSettingsRepository {
                     return Err(SettingsRepositoryError::Corrupt);
                 }
                 Ok(LoadedSettings {
-                    migrated: true,
+                    needs_persistence: true,
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        onboarding: OnboardingPreferences {
+                            welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
+                                observation_time(),
+                            )),
+                        },
                         startup: stored.preferences.startup,
                         window_close_behavior: WindowCloseBehavior::default(),
                         window_surface: WindowSurfacePreference::Material,
@@ -982,10 +1201,15 @@ impl SettingsRepository for FileSettingsRepository {
                     return Err(SettingsRepositoryError::Corrupt);
                 }
                 Ok(LoadedSettings {
-                    migrated: true,
+                    needs_persistence: true,
                     preferences: SettingsPreferences {
                         appearance: stored.theme,
                         language: stored.locale,
+                        onboarding: OnboardingPreferences {
+                            welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
+                                observation_time(),
+                            )),
+                        },
                         startup: StartupPreferences::default(),
                         window_close_behavior: WindowCloseBehavior::default(),
                         window_surface: WindowSurfacePreference::Material,
@@ -997,7 +1221,7 @@ impl SettingsRepository for FileSettingsRepository {
     }
 
     fn save(&self, preferences: &SettingsPreferences) -> Result<(), SettingsRepositoryError> {
-        let bytes = serde_json::to_vec(&StoredSettingsV3 {
+        let bytes = serde_json::to_vec(&StoredSettingsV6 {
             preferences: *preferences,
             schema_version: CURRENT_SCHEMA_VERSION,
         })
@@ -1032,6 +1256,56 @@ impl SettingsRepository for FileSettingsRepository {
     }
 }
 
+fn valid_onboarding_preferences(onboarding: OnboardingPreferences) -> bool {
+    let Some(invitation) = onboarding.welcome_invitation else {
+        return true;
+    };
+    if invitation.version != ONBOARDING_WELCOME_VERSION {
+        return false;
+    }
+    let timestamps = [
+        invitation.completed_at,
+        invitation.first_opened_at,
+        invitation.last_dismissed_at,
+        invitation.prompted_at,
+    ];
+    if timestamps
+        .into_iter()
+        .flatten()
+        .any(|timestamp| timestamp < invitation.created_at)
+    {
+        return false;
+    }
+    if invitation.prompted_at.is_none()
+        && (invitation.completed_at.is_some()
+            || invitation.first_opened_at.is_some()
+            || invitation.last_dismissed_at.is_some())
+    {
+        return false;
+    }
+    if let Some(prompted_at) = invitation.prompted_at
+        && [
+            invitation.completed_at,
+            invitation.first_opened_at,
+            invitation.last_dismissed_at,
+        ]
+        .into_iter()
+        .flatten()
+        .any(|timestamp| timestamp < prompted_at)
+    {
+        return false;
+    }
+    let Some(first_opened_at) = invitation.first_opened_at else {
+        return invitation.completed_at.is_none() && invitation.last_dismissed_at.is_none();
+    };
+    invitation
+        .last_dismissed_at
+        .is_none_or(|timestamp| timestamp >= first_opened_at)
+        && invitation
+            .completed_at
+            .is_none_or(|timestamp| timestamp >= first_opened_at)
+}
+
 fn temporary_path(destination: &Path) -> PathBuf {
     let mut path = destination.to_path_buf();
     let name = destination
@@ -1054,7 +1328,7 @@ mod tests {
     impl SettingsRepository for FailingSaveRepository {
         fn load(&self) -> Result<LoadedSettings, SettingsRepositoryError> {
             Ok(LoadedSettings {
-                migrated: false,
+                needs_persistence: false,
                 preferences: SettingsPreferences::default(),
             })
         }
@@ -1151,11 +1425,165 @@ mod tests {
     }
 
     #[test]
-    fn missing_storage_uses_safe_defaults() {
+    fn missing_storage_creates_one_fresh_onboarding_invitation() {
         let (_root, repository) = repository();
         let loaded = repository.load().expect("default settings");
-        assert_eq!(loaded.preferences, SettingsPreferences::default());
-        assert!(!loaded.migrated);
+        assert!(loaded.needs_persistence);
+        let invitation = loaded
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("fresh welcome invitation");
+        assert_eq!(invitation.version, ONBOARDING_WELCOME_VERSION);
+        assert_eq!(invitation.completed_at, None);
+        assert_eq!(invitation.first_opened_at, None);
+        assert_eq!(invitation.last_dismissed_at, None);
+        assert_eq!(invitation.prompted_at, None);
+    }
+
+    #[test]
+    fn fresh_onboarding_invitation_is_persisted_once_and_reused_after_restart() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("fresh settings service");
+        let invitation = service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("persisted welcome invitation");
+        drop(service);
+
+        let restarted = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("restarted settings service");
+
+        assert_eq!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .onboarding
+                .welcome_invitation,
+            Some(invitation)
+        );
+        assert!(!repository.load().unwrap().needs_persistence);
+    }
+
+    #[test]
+    fn welcome_dismissal_and_completion_are_distinct_durable_states() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("fresh settings service");
+
+        let prompted = service
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Prompt)
+            .expect("prompt welcome")
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("prompted welcome invitation");
+        assert!(prompted.prompted_at.is_some());
+        assert_eq!(prompted.first_opened_at, None);
+        service
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Open)
+            .expect("open welcome");
+        let dismissed = service
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Dismiss)
+            .expect("dismiss welcome")
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("retained welcome invitation");
+        assert!(dismissed.first_opened_at.is_some());
+        assert!(dismissed.last_dismissed_at.is_some());
+        assert_eq!(dismissed.completed_at, None);
+        drop(service);
+
+        let restarted = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("restarted settings service");
+        assert_eq!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .onboarding
+                .welcome_invitation,
+            Some(dismissed)
+        );
+        let completed = restarted
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Complete)
+            .expect("complete welcome")
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("completed welcome record");
+        assert!(completed.completed_at.is_some());
+        drop(restarted);
+
+        let upgraded =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("upgraded settings service");
+        assert_eq!(
+            upgraded
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .onboarding
+                .welcome_invitation,
+            Some(completed)
+        );
+    }
+
+    #[test]
+    fn welcome_prompt_is_durable_without_opening_the_dialog() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("fresh settings service");
+        let prompted = service
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Prompt)
+            .expect("prompt welcome")
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("prompted welcome invitation");
+        assert!(prompted.prompted_at.is_some());
+        assert_eq!(prompted.first_opened_at, None);
+        assert_eq!(prompted.completed_at, None);
+        drop(service);
+
+        let restarted =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("restarted settings service");
+        assert_eq!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .onboarding
+                .welcome_invitation,
+            Some(prompted)
+        );
     }
 
     #[tokio::test]
@@ -1205,6 +1633,7 @@ mod tests {
         let preferences = SettingsPreferences {
             appearance: AppearancePreference::Dark,
             language: LanguagePreference::Zh,
+            onboarding: OnboardingPreferences::default(),
             startup: StartupPreferences {
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
@@ -1255,7 +1684,12 @@ mod tests {
                 .appearance,
             AppearancePreference::Dark
         );
-        assert!(!repository.load().expect("rewritten settings").migrated);
+        assert!(
+            !repository
+                .load()
+                .expect("rewritten settings")
+                .needs_persistence
+        );
     }
 
     #[test]
@@ -1284,7 +1718,118 @@ mod tests {
                 .window_close_behavior,
             WindowCloseBehavior::HideToStatusBar
         );
-        assert!(!repository.load().expect("rewritten settings").migrated);
+        assert!(
+            !repository
+                .load()
+                .expect("rewritten settings")
+                .needs_persistence
+        );
+    }
+
+    #[test]
+    fn existing_version_three_installations_receive_one_unprompted_invitation() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":3,"preferences":{"appearance":"dark","language":"zh","startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+        )
+        .expect("version three settings");
+
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("migrated settings service");
+
+        let invitation = service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("migrated welcome invitation");
+        assert_eq!(invitation.version, ONBOARDING_WELCOME_VERSION);
+        assert_eq!(invitation.prompted_at, None);
+        assert_eq!(invitation.completed_at, None);
+        assert!(!repository.load().unwrap().needs_persistence);
+    }
+
+    #[test]
+    fn version_four_installations_without_an_invitation_receive_one_prompt() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":4,"preferences":{"appearance":"dark","language":"zh","onboarding":{"welcomeInvitation":null},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+        )
+        .expect("version four settings");
+
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("migrated settings service");
+
+        let invitation = service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("migrated welcome invitation");
+        assert_eq!(invitation.prompted_at, None);
+        assert_eq!(invitation.completed_at, None);
+        assert!(!repository.load().unwrap().needs_persistence);
+    }
+
+    #[test]
+    fn version_four_completion_receives_the_new_welcome_tour() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":4,"preferences":{"appearance":"dark","language":"zh","onboarding":{"welcomeInvitation":{"completedAt":12,"createdAt":10,"firstOpenedAt":11,"lastDismissedAt":null,"version":1}},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+        )
+        .expect("version four completed settings");
+
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("migrated settings service");
+        let invitation = service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("new welcome invitation");
+
+        assert_eq!(invitation.version, ONBOARDING_WELCOME_VERSION);
+        assert_eq!(invitation.prompted_at, None);
+        assert_eq!(invitation.first_opened_at, None);
+        assert_eq!(invitation.completed_at, None);
+    }
+
+    #[test]
+    fn version_five_completion_receives_the_new_welcome_tour() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":5,"preferences":{"appearance":"dark","language":"zh","onboarding":{"welcomeInvitation":{"completedAt":12,"createdAt":10,"firstOpenedAt":11,"lastDismissedAt":null,"promptedAt":10,"version":1}},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+        )
+        .expect("version five completed settings");
+
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("migrated settings service");
+        let invitation = service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("new welcome invitation");
+
+        assert_eq!(invitation.version, ONBOARDING_WELCOME_VERSION);
+        assert_eq!(invitation.prompted_at, None);
+        assert_eq!(invitation.completed_at, None);
     }
 
     #[test]
@@ -1314,7 +1859,12 @@ mod tests {
             preferences.window_surface,
             WindowSurfacePreference::Material
         );
-        assert!(!repository.load().expect("rewritten settings").migrated);
+        assert!(
+            !repository
+                .load()
+                .expect("rewritten settings")
+                .needs_persistence
+        );
     }
 
     #[test]
@@ -1365,6 +1915,7 @@ mod tests {
         let restored = SettingsPreferences {
             appearance: AppearancePreference::Dark,
             language: LanguagePreference::Zh,
+            onboarding: OnboardingPreferences::default(),
             startup: StartupPreferences {
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,

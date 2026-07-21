@@ -272,13 +272,60 @@ const zh = {
     switchProfile: "切换配置。当前配置：{profile}",
   },
   notifications: {
-    description: "最近的警告、错误与恢复操作。",
-    emptyDescription: "新的警告与错误会显示在这里。",
+    description: "最近的消息、警告与恢复操作。",
+    emptyDescription: "新的产品与运行状态消息会显示在这里。",
     emptyTitle: "暂无通知",
     markAllRead: "全部已读",
     title: "通知",
     trigger: "通知，{count} 条未读",
     viewAllEvents: "查看全部事件",
+  },
+  onboarding: {
+    back: "返回",
+    captureDescription: "Mish 需要接管设备流量才能为你提供服务。提供两种不同的接入方式。",
+    captureSystemDescription:
+      "使用操作系统的代理设置，适合会遵循系统代理的应用，改动较轻；部分应用可能不会经过它。",
+    captureSystemTitle: "系统代理",
+    captureTitle: "让 Mish 接管你的流量",
+    captureTunDescription:
+      "通过虚拟网络接口覆盖更广泛的设备流量；它依赖平台支持，并可能需要系统授权。",
+    captureTunTitle: "虚拟网卡（TUN）",
+    completedAnnouncement: "欢迎介绍已完成，邀请已从通知中移除。",
+    completeWelcome: "开始使用 Mish",
+    coverPurpose:
+      "Mish 是一款由 Mihomo 内核驱动的独立代理客户端，目标是提供跨平台支持、清晰交互与更精致的设计。",
+    dismissWelcome: "稍后再说",
+    next: "继续",
+    notificationAction: "打开欢迎介绍",
+    notificationMessage: "欢迎使用 Mish。你的入门介绍已准备好，可随时查看。",
+    policyGroupsDescription:
+      "会通过规则让不同的请求分别使用不同的策略，并能通过策略组手动或自动地在不同节点间切换，以适应不同的网络访问需要，或进行故障转移等。",
+    policyGroupsExample:
+      "例如，流媒体规则可以指向“流媒体”策略组。你只需在这个组里选择需要的地区节点，所有匹配的连接就会跟随该选择，无需逐条修改规则。",
+    policyGroupsTitle: "策略组把规则连接到节点",
+    profileDescription:
+      "配置文件描述代理节点、节点提供者、策略组与路由规则。Mish 需要先有一份配置，才能启动 Mihomo。",
+    profileManualDescription:
+      "如果你希望完整控制每条规则与策略组，也可以自行编写或导入 YAML 配置。",
+    profileManualTitle: "手动编写",
+    profileProviderDescription:
+      "大多数服务供应商会提供订阅地址或配置文件；在“配置”页面导入后即可快速开始。",
+    profileProviderTitle: "来自服务供应商",
+    profileTitle: "从一份配置文件开始",
+    progress: "第 {current} 步，共 {total} 步",
+    progressLabel: "欢迎介绍进度",
+    promptTitle: "Mish 欢迎介绍已准备好",
+    routingDescription:
+      "路由规则决定哪些连接需要经过代理，策略组则把这些决定连接到可以重复选择的出口节点。",
+    routingGlobalFallback:
+      "当规则匹配有误时，可以暂时切换到“全局”模式，但原本可以直连的流量也会经过代理，通常会变慢。",
+    routingRuleGuidance:
+      "需要代理时，大多数情况下使用“规则”模式即可；你可以自行编写规则，也可以使用服务供应商提供的规则。",
+    routingTitle: "路由与策略组",
+    source: "Mish",
+    startTour: "开始介绍",
+    welcomeDescription: "了解添加配置、接管流量与选择路由方式所需的几个基本概念。",
+    welcomeTitle: "欢迎使用 Mish",
   },
   proxyControl: {
     disableAria: "关闭代理",

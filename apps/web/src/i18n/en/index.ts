@@ -304,13 +304,62 @@ const en = {
     switchProfile: "Switch profile. Current profile: {profile:string}",
   },
   notifications: {
-    description: "Recent warnings, errors, and recovery actions.",
-    emptyDescription: "New warnings and errors will appear here.",
+    description: "Recent messages, warnings, and recovery actions.",
+    emptyDescription: "New product and runtime messages will appear here.",
     emptyTitle: "No notifications",
     markAllRead: "Mark all read",
     title: "Notifications",
     trigger: "Notifications, {count:number} unread",
     viewAllEvents: "View all events",
+  },
+  onboarding: {
+    back: "Back",
+    captureDescription:
+      "Mish needs to capture your device traffic before it can serve you. It offers two different connection methods.",
+    captureSystemDescription:
+      "Uses the operating system's proxy settings. It is a lightweight choice for apps that follow those settings, but some apps may bypass it.",
+    captureSystemTitle: "System Proxy",
+    captureTitle: "Let Mish handle your traffic",
+    captureTunDescription:
+      "Uses a virtual network interface to reach broader device traffic. It depends on platform support and may require system authorization.",
+    captureTunTitle: "Virtual Interface (TUN)",
+    completedAnnouncement: "Welcome complete. The invitation was removed from Notifications.",
+    completeWelcome: "Start using Mish",
+    coverPurpose:
+      "Mish is an independent proxy client powered by the Mihomo core. It is being built around cross-platform support, clear interaction, and thoughtful design.",
+    dismissWelcome: "Not now",
+    next: "Continue",
+    notificationAction: "Open welcome",
+    notificationMessage: "Welcome to Mish. Your introduction is ready whenever you are.",
+    policyGroupsDescription:
+      "Rules let different requests use different policies. Policy groups can switch between nodes manually or automatically to meet different network access needs or provide failover.",
+    policyGroupsExample:
+      "For example, a streaming rule can target a “Streaming” group. Choose the region you need once, and every matching connection follows that choice without editing the rules.",
+    policyGroupsTitle: "Policy groups connect rules to nodes",
+    profileDescription:
+      "A profile describes proxy nodes, providers, policy groups, and routing rules. Mish needs one before it can start Mihomo.",
+    profileManualDescription:
+      "You can write or import a YAML profile yourself when you need full control over every rule and group.",
+    profileManualTitle: "Write your own",
+    profileProviderDescription:
+      "Most service providers give you a subscription address or configuration file. Import it on Profiles to get started quickly.",
+    profileProviderTitle: "From your provider",
+    profileTitle: "Start with a profile",
+    progress: "Step {current:number} of {total:number}",
+    progressLabel: "Welcome progress",
+    promptTitle: "Your Mish welcome is ready",
+    routingDescription:
+      "Routing rules decide which connections need a proxy. Policy groups turn those decisions into a reusable choice of exit node.",
+    routingGlobalFallback:
+      "If a rule matches incorrectly, you can temporarily switch to Global mode, but traffic that could have connected directly will also use the proxy and will usually become slower.",
+    routingRuleGuidance:
+      "When you need a proxy, Rule mode is the right choice in most cases. You can write the rules yourself or use the rules supplied by your service provider.",
+    routingTitle: "Routes and policy groups",
+    source: "Mish",
+    startTour: "Show me around",
+    welcomeDescription:
+      "Learn the few ideas you need to add a profile, capture traffic, and choose how it is routed.",
+    welcomeTitle: "Welcome to Mish",
   },
   proxyControl: {
     disableAria: "Disable proxy",

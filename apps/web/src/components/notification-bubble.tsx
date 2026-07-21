@@ -13,7 +13,7 @@ import {
   PopoverTrigger,
 } from "@mish/ui";
 import type { EventLevel, EventRecordDto } from "@mish/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
@@ -25,8 +25,10 @@ import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useOptionalTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
+import { WelcomeDialog } from "./welcome-dialog";
 
 const visibleNotificationLimit = 5;
+const welcomePromptToastId = "onboarding-welcome-prompt";
 const noEvents: EventRecordDto[] = [];
 
 interface ReadNotificationState {
@@ -42,7 +44,7 @@ interface NotificationAction {
 interface NotificationEntry {
   actions?: NotificationAction[];
   id: string;
-  level: "error" | "warning";
+  level: EventLevel;
   message: string;
   observedAt: number;
   source: string;
@@ -108,6 +110,9 @@ export function NotificationBubble() {
   } = useProduct();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const notificationTriggerRef = useRef<HTMLButtonElement>(null);
+  const welcomePromptStarted = useRef(false);
   const [readState, setReadState] = useState<ReadNotificationState>({
     notificationIds: new Set(),
     sessionId: null,
@@ -144,6 +149,16 @@ export function NotificationBubble() {
   const settingsFailureObservedAt = useObservedAt(settingsFailure);
   const trafficFailureObservedAt = useObservedAt(Boolean(trafficFailure));
   const localProxyFailureObservedAt = useObservedAt(Boolean(localProxyFailure));
+  const welcomeInvitation = settingsContext?.snapshot.preferences.onboarding.welcomeInvitation;
+  const welcomeAvailable = Boolean(welcomeInvitation && welcomeInvitation.completedAt === null);
+  const openWelcomeDialog = useCallback(async () => {
+    if (!settingsContext) return;
+    const opened = await settingsContext.setOnboardingWelcomeState("open");
+    if (!opened) return;
+    toast.dismiss(welcomePromptToastId);
+    setOpen(false);
+    setWelcomeOpen(true);
+  }, [settingsContext]);
   const repairRequiresCore =
     Boolean(systemProxy?.recoveryActions.includes("repair")) &&
     snapshot?.runtime.phase !== "healthy";
@@ -169,6 +184,23 @@ export function NotificationBubble() {
     });
   }
   const notifications: NotificationEntry[] = [
+    ...(welcomeAvailable && welcomeInvitation && settingsContext
+      ? [
+          {
+            actions: [
+              {
+                label: LL.onboarding.notificationAction(),
+                onClick: openWelcomeDialog,
+              },
+            ],
+            id: `onboarding-welcome:${welcomeInvitation.version}`,
+            level: "info" as const,
+            message: LL.onboarding.notificationMessage(),
+            observedAt: welcomeInvitation.createdAt,
+            source: LL.onboarding.source(),
+          },
+        ]
+      : []),
     ...(systemProxyDrift
       ? [
           {
@@ -262,6 +294,36 @@ export function NotificationBubble() {
   const settingsFailureToastVisible = useRef(false);
   const trafficFailureToastVisible = useRef(false);
   const localProxyToastVisible = useRef(false);
+
+  useEffect(() => {
+    if (
+      !settingsContext ||
+      !welcomeInvitation ||
+      welcomeInvitation.completedAt !== null ||
+      welcomeInvitation.promptedAt !== null ||
+      welcomePromptStarted.current
+    ) {
+      return;
+    }
+    welcomePromptStarted.current = true;
+    const promptOperation = settingsContext.setOnboardingWelcomeState("prompt");
+    toast.info(LL.onboarding.promptTitle(), {
+      action: {
+        label: LL.onboarding.notificationAction(),
+        onClick: () => {
+          void promptOperation.then((prompted) => {
+            if (prompted) return openWelcomeDialog();
+          });
+        },
+      },
+      description: LL.onboarding.notificationMessage(),
+      duration: Number.POSITIVE_INFINITY,
+      id: welcomePromptToastId,
+    });
+    void promptOperation.then((prompted) => {
+      if (!prompted) welcomePromptStarted.current = false;
+    });
+  }, [LL, openWelcomeDialog, settingsContext, welcomeInvitation]);
 
   useEffect(() => {
     if (!localProxyResult) {
@@ -378,71 +440,81 @@ export function NotificationBubble() {
   }
 
   return (
-    <Popover onOpenChange={setOpen} open={open}>
-      <PopoverTrigger
-        render={
-          <Button
-            aria-label={LL.notifications.trigger({ count: unreadCount })}
-            className="toolbar-button notification-trigger"
-            size="icon-sm"
-            variant="ghost"
-          />
-        }
-      >
-        <Bell aria-hidden="true" />
-        {unreadCount > 0 ? (
-          <Badge className="notification-count tabular" variant="destructive">
-            {formatUnreadCount(unreadCount)}
-          </Badge>
-        ) : null}
-      </PopoverTrigger>
-      <PopoverContent align="end" className="notification-popover" sideOffset={8}>
-        <div className="notification-header">
-          <div>
-            <PopoverTitle className="notification-title">{LL.notifications.title()}</PopoverTitle>
-            <PopoverDescription className="notification-description">
-              {LL.notifications.description()}
-            </PopoverDescription>
+    <>
+      <Popover onOpenChange={setOpen} open={open}>
+        <PopoverTrigger
+          render={
+            <Button
+              aria-label={LL.notifications.trigger({ count: unreadCount })}
+              className="toolbar-button notification-trigger"
+              ref={notificationTriggerRef}
+              size="icon-sm"
+              variant="ghost"
+            />
+          }
+        >
+          <Bell aria-hidden="true" />
+          {unreadCount > 0 ? (
+            <Badge className="notification-count tabular" variant="destructive">
+              {formatUnreadCount(unreadCount)}
+            </Badge>
+          ) : null}
+        </PopoverTrigger>
+        <PopoverContent align="end" className="notification-popover" sideOffset={8}>
+          <div className="notification-header">
+            <div>
+              <PopoverTitle className="notification-title">{LL.notifications.title()}</PopoverTitle>
+              <PopoverDescription className="notification-description">
+                {LL.notifications.description()}
+              </PopoverDescription>
+            </div>
+            <Button disabled={unreadCount === 0} onClick={markAllRead} size="sm" variant="ghost">
+              {LL.notifications.markAllRead()}
+            </Button>
           </div>
-          <Button disabled={unreadCount === 0} onClick={markAllRead} size="sm" variant="ghost">
-            {LL.notifications.markAllRead()}
-          </Button>
-        </div>
 
-        {visibleNotifications.length > 0 ? (
-          <ol className="notification-list">
-            {visibleNotifications.map((notification) => (
-              <NotificationItem
-                disabled={isCommandPending("capture")}
-                key={notification.id}
-                LL={LL}
-                locale={locale}
-                notification={notification}
-              />
-            ))}
-          </ol>
-        ) : (
-          <Empty className="notification-empty">
-            <EmptyHeader>
-              <EmptyTitle>{LL.notifications.emptyTitle()}</EmptyTitle>
-              <EmptyDescription>{LL.notifications.emptyDescription()}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        )}
+          {visibleNotifications.length > 0 ? (
+            <ol className="notification-list">
+              {visibleNotifications.map((notification) => (
+                <NotificationItem
+                  disabled={isCommandPending("capture") || Boolean(settingsContext?.pending)}
+                  key={notification.id}
+                  LL={LL}
+                  locale={locale}
+                  notification={notification}
+                />
+              ))}
+            </ol>
+          ) : (
+            <Empty className="notification-empty">
+              <EmptyHeader>
+                <EmptyTitle>{LL.notifications.emptyTitle()}</EmptyTitle>
+                <EmptyDescription>{LL.notifications.emptyDescription()}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
 
-        <div className="notification-footer">
-          <Button
-            className="notification-view-all"
-            nativeButton={false}
-            render={<Link onClick={() => setOpen(false)} to="/events" />}
-            size="sm"
-            variant="outline"
-          >
-            {LL.notifications.viewAllEvents()}
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+          <div className="notification-footer">
+            <Button
+              className="notification-view-all"
+              nativeButton={false}
+              render={<Link onClick={() => setOpen(false)} to="/events" />}
+              size="sm"
+              variant="outline"
+            >
+              {LL.notifications.viewAllEvents()}
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      {settingsContext ? (
+        <WelcomeDialog
+          onOpenChange={setWelcomeOpen}
+          open={welcomeOpen}
+          returnFocusRef={notificationTriggerRef}
+        />
+      ) : null}
+    </>
   );
 }
 

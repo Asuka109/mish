@@ -6,9 +6,15 @@ Local backup does not introduce a new durable model. The authoritative profile
 record remains `FileProfileRepository`: profile metadata owns the refresh policy,
 immutable source revisions own source bytes, normalized artifacts own runtime
 input, and versioned patch sets own structured user edits. The authoritative
-application preference record remains `settings.json` version 3 through
+application preference record remains `settings.json` version 6 through
 `FileSettingsRepository`. There is no separate scheduler, patch, or backup
 database.
+
+Settings backups preserve the versioned welcome-invitation record together with
+the other preferences. Restoring that record transfers at most the same single
+invitation and its opened, dismissed, or completed state; restore never creates
+a second invitation. The independent prompted state is preserved as well, so a
+restore does not repeat a message that the user has already seen.
 
 All authoritative Profile and Settings writers share one
 `StateMutationAuthority`. The desktop composition injects the same authority

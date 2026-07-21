@@ -246,7 +246,7 @@ impl LocalBackupService {
                 normalized_artifact: NORMALIZED_ARTIFACT_SCHEMA_VERSION,
                 patches: PROFILE_PATCH_SCHEMA_VERSION,
                 profile: PROFILE_SCHEMA_VERSION,
-                settings: 3,
+                settings: 6,
             },
             scope,
             settings: scope
@@ -619,7 +619,7 @@ fn validate_manifest(manifest: &LocalBackupManifest) -> Result<(), LocalBackupEr
         || manifest.schema_versions.profile != PROFILE_SCHEMA_VERSION
         || manifest.schema_versions.normalized_artifact != NORMALIZED_ARTIFACT_SCHEMA_VERSION
         || manifest.schema_versions.patches != PROFILE_PATCH_SCHEMA_VERSION
-        || manifest.schema_versions.settings != 3
+        || manifest.schema_versions.settings != 6
     {
         return Err(LocalBackupError::UnsupportedVersion);
     }

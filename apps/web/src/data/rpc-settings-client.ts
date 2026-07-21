@@ -2,6 +2,7 @@ import {
   mishRpcMethods,
   type AppearancePreference,
   type LanguagePreference,
+  type OnboardingWelcomeAction,
   type SettingsClient,
   type SettingsSnapshotDto,
   type StartupPreferencesDto,
@@ -55,6 +56,12 @@ export class RpcSettingsClient implements SettingsClient {
   setLanguage(language: LanguagePreference, options?: RpcRequestOptions) {
     return this.rpc
       .request("settings.setLanguage", { language }, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
+  setOnboardingWelcomeState(action: OnboardingWelcomeAction, options?: RpcRequestOptions) {
+    return this.rpc
+      .request("settings.setOnboardingWelcomeState", { action }, options)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 

@@ -31,6 +31,7 @@ const settingsSnapshot = {
   preferences: {
     appearance: "system" as const,
     language: "en" as const,
+    onboarding: { welcomeInvitation: null },
     startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" as const },
     windowCloseBehavior: "hide-to-status-bar" as const,
     windowSurface: "material" as const,

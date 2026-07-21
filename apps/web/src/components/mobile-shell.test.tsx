@@ -81,6 +81,14 @@ describe("MobileShell", () => {
     expect(screen.getByRole("button", { name: "Review VPN permission" })).toBeVisible();
   });
 
+  it("excludes the desktop notification center and welcome invitation", () => {
+    const view = renderShell("/status");
+
+    expect(view.container.querySelector(".notification-trigger")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Notifications/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Welcome to Mish" })).not.toBeInTheDocument();
+  });
+
   it("selects Activity and its Rules child from a desktop-compatible deep link", () => {
     renderShell("/traffic?tab=rules");
 

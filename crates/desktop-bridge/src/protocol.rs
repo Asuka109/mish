@@ -20,8 +20,9 @@ use mish_runtime::{
     TrafficCommandOperation,
 };
 use mish_settings::{
-    AppearancePreference, LanguagePreference, SettingsAdapterKind, SettingsService,
-    SettingsServiceError, StartupPreferences, WindowCloseBehavior, WindowSurfacePreference,
+    AppearancePreference, LanguagePreference, OnboardingWelcomeAction, SettingsAdapterKind,
+    SettingsService, SettingsServiceError, StartupPreferences, WindowCloseBehavior,
+    WindowSurfacePreference,
 };
 use tokio::sync::broadcast;
 
@@ -200,6 +201,12 @@ struct SetAppearanceParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetLanguageParams {
     language: LanguagePreference,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetOnboardingWelcomeStateParams {
+    action: OnboardingWelcomeAction,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1337,6 +1344,20 @@ async fn handle_message(
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
             match service.set_language(params.language) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.setOnboardingWelcomeState" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetOnboardingWelcomeStateParams =
+                match serde_json::from_value(request.params) {
+                    Ok(params) => params,
+                    Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match service.set_onboarding_welcome_state(params.action) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
                 Err(error) => return Some(settings_error_response(id, error)),
             }

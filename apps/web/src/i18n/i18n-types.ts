@@ -953,11 +953,11 @@ type RootTranslation = {
 	}
 	notifications: {
 		/**
-		 * R​e​c​e​n​t​ ​w​a​r​n​i​n​g​s​,​ ​e​r​r​o​r​s​,​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​a​c​t​i​o​n​s​.
+		 * R​e​c​e​n​t​ ​m​e​s​s​a​g​e​s​,​ ​w​a​r​n​i​n​g​s​,​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​a​c​t​i​o​n​s​.
 		 */
 		description: string
 		/**
-		 * N​e​w​ ​w​a​r​n​i​n​g​s​ ​a​n​d​ ​e​r​r​o​r​s​ ​w​i​l​l​ ​a​p​p​e​a​r​ ​h​e​r​e​.
+		 * N​e​w​ ​p​r​o​d​u​c​t​ ​a​n​d​ ​r​u​n​t​i​m​e​ ​m​e​s​s​a​g​e​s​ ​w​i​l​l​ ​a​p​p​e​a​r​ ​h​e​r​e​.
 		 */
 		emptyDescription: string
 		/**
@@ -981,6 +981,146 @@ type RootTranslation = {
 		 * V​i​e​w​ ​a​l​l​ ​e​v​e​n​t​s
 		 */
 		viewAllEvents: string
+	}
+	onboarding: {
+		/**
+		 * B​a​c​k
+		 */
+		back: string
+		/**
+		 * M​i​s​h​ ​n​e​e​d​s​ ​t​o​ ​c​a​p​t​u​r​e​ ​y​o​u​r​ ​d​e​v​i​c​e​ ​t​r​a​f​f​i​c​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​s​e​r​v​e​ ​y​o​u​.​ ​I​t​ ​o​f​f​e​r​s​ ​t​w​o​ ​d​i​f​f​e​r​e​n​t​ ​c​o​n​n​e​c​t​i​o​n​ ​m​e​t​h​o​d​s​.
+		 */
+		captureDescription: string
+		/**
+		 * U​s​e​s​ ​t​h​e​ ​o​p​e​r​a​t​i​n​g​ ​s​y​s​t​e​m​'​s​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​.​ ​I​t​ ​i​s​ ​a​ ​l​i​g​h​t​w​e​i​g​h​t​ ​c​h​o​i​c​e​ ​f​o​r​ ​a​p​p​s​ ​t​h​a​t​ ​f​o​l​l​o​w​ ​t​h​o​s​e​ ​s​e​t​t​i​n​g​s​,​ ​b​u​t​ ​s​o​m​e​ ​a​p​p​s​ ​m​a​y​ ​b​y​p​a​s​s​ ​i​t​.
+		 */
+		captureSystemDescription: string
+		/**
+		 * S​y​s​t​e​m​ ​P​r​o​x​y
+		 */
+		captureSystemTitle: string
+		/**
+		 * L​e​t​ ​M​i​s​h​ ​h​a​n​d​l​e​ ​y​o​u​r​ ​t​r​a​f​f​i​c
+		 */
+		captureTitle: string
+		/**
+		 * U​s​e​s​ ​a​ ​v​i​r​t​u​a​l​ ​n​e​t​w​o​r​k​ ​i​n​t​e​r​f​a​c​e​ ​t​o​ ​r​e​a​c​h​ ​b​r​o​a​d​e​r​ ​d​e​v​i​c​e​ ​t​r​a​f​f​i​c​.​ ​I​t​ ​d​e​p​e​n​d​s​ ​o​n​ ​p​l​a​t​f​o​r​m​ ​s​u​p​p​o​r​t​ ​a​n​d​ ​m​a​y​ ​r​e​q​u​i​r​e​ ​s​y​s​t​e​m​ ​a​u​t​h​o​r​i​z​a​t​i​o​n​.
+		 */
+		captureTunDescription: string
+		/**
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​(​T​U​N​)
+		 */
+		captureTunTitle: string
+		/**
+		 * W​e​l​c​o​m​e​ ​c​o​m​p​l​e​t​e​.​ ​T​h​e​ ​i​n​v​i​t​a​t​i​o​n​ ​w​a​s​ ​r​e​m​o​v​e​d​ ​f​r​o​m​ ​N​o​t​i​f​i​c​a​t​i​o​n​s​.
+		 */
+		completedAnnouncement: string
+		/**
+		 * S​t​a​r​t​ ​u​s​i​n​g​ ​M​i​s​h
+		 */
+		completeWelcome: string
+		/**
+		 * M​i​s​h​ ​i​s​ ​a​n​ ​i​n​d​e​p​e​n​d​e​n​t​ ​p​r​o​x​y​ ​c​l​i​e​n​t​ ​p​o​w​e​r​e​d​ ​b​y​ ​t​h​e​ ​M​i​h​o​m​o​ ​c​o​r​e​.​ ​I​t​ ​i​s​ ​b​e​i​n​g​ ​b​u​i​l​t​ ​a​r​o​u​n​d​ ​c​r​o​s​s​-​p​l​a​t​f​o​r​m​ ​s​u​p​p​o​r​t​,​ ​c​l​e​a​r​ ​i​n​t​e​r​a​c​t​i​o​n​,​ ​a​n​d​ ​t​h​o​u​g​h​t​f​u​l​ ​d​e​s​i​g​n​.
+		 */
+		coverPurpose: string
+		/**
+		 * N​o​t​ ​n​o​w
+		 */
+		dismissWelcome: string
+		/**
+		 * C​o​n​t​i​n​u​e
+		 */
+		next: string
+		/**
+		 * O​p​e​n​ ​w​e​l​c​o​m​e
+		 */
+		notificationAction: string
+		/**
+		 * W​e​l​c​o​m​e​ ​t​o​ ​M​i​s​h​.​ ​Y​o​u​r​ ​i​n​t​r​o​d​u​c​t​i​o​n​ ​i​s​ ​r​e​a​d​y​ ​w​h​e​n​e​v​e​r​ ​y​o​u​ ​a​r​e​.
+		 */
+		notificationMessage: string
+		/**
+		 * R​u​l​e​s​ ​l​e​t​ ​d​i​f​f​e​r​e​n​t​ ​r​e​q​u​e​s​t​s​ ​u​s​e​ ​d​i​f​f​e​r​e​n​t​ ​p​o​l​i​c​i​e​s​.​ ​P​o​l​i​c​y​ ​g​r​o​u​p​s​ ​c​a​n​ ​s​w​i​t​c​h​ ​b​e​t​w​e​e​n​ ​n​o​d​e​s​ ​m​a​n​u​a​l​l​y​ ​o​r​ ​a​u​t​o​m​a​t​i​c​a​l​l​y​ ​t​o​ ​m​e​e​t​ ​d​i​f​f​e​r​e​n​t​ ​n​e​t​w​o​r​k​ ​a​c​c​e​s​s​ ​n​e​e​d​s​ ​o​r​ ​p​r​o​v​i​d​e​ ​f​a​i​l​o​v​e​r​.
+		 */
+		policyGroupsDescription: string
+		/**
+		 * F​o​r​ ​e​x​a​m​p​l​e​,​ ​a​ ​s​t​r​e​a​m​i​n​g​ ​r​u​l​e​ ​c​a​n​ ​t​a​r​g​e​t​ ​a​ ​“​S​t​r​e​a​m​i​n​g​”​ ​g​r​o​u​p​.​ ​C​h​o​o​s​e​ ​t​h​e​ ​r​e​g​i​o​n​ ​y​o​u​ ​n​e​e​d​ ​o​n​c​e​,​ ​a​n​d​ ​e​v​e​r​y​ ​m​a​t​c​h​i​n​g​ ​c​o​n​n​e​c​t​i​o​n​ ​f​o​l​l​o​w​s​ ​t​h​a​t​ ​c​h​o​i​c​e​ ​w​i​t​h​o​u​t​ ​e​d​i​t​i​n​g​ ​t​h​e​ ​r​u​l​e​s​.
+		 */
+		policyGroupsExample: string
+		/**
+		 * P​o​l​i​c​y​ ​g​r​o​u​p​s​ ​c​o​n​n​e​c​t​ ​r​u​l​e​s​ ​t​o​ ​n​o​d​e​s
+		 */
+		policyGroupsTitle: string
+		/**
+		 * A​ ​p​r​o​f​i​l​e​ ​d​e​s​c​r​i​b​e​s​ ​p​r​o​x​y​ ​n​o​d​e​s​,​ ​p​r​o​v​i​d​e​r​s​,​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​,​ ​a​n​d​ ​r​o​u​t​i​n​g​ ​r​u​l​e​s​.​ ​M​i​s​h​ ​n​e​e​d​s​ ​o​n​e​ ​b​e​f​o​r​e​ ​i​t​ ​c​a​n​ ​s​t​a​r​t​ ​M​i​h​o​m​o​.
+		 */
+		profileDescription: string
+		/**
+		 * Y​o​u​ ​c​a​n​ ​w​r​i​t​e​ ​o​r​ ​i​m​p​o​r​t​ ​a​ ​Y​A​M​L​ ​p​r​o​f​i​l​e​ ​y​o​u​r​s​e​l​f​ ​w​h​e​n​ ​y​o​u​ ​n​e​e​d​ ​f​u​l​l​ ​c​o​n​t​r​o​l​ ​o​v​e​r​ ​e​v​e​r​y​ ​r​u​l​e​ ​a​n​d​ ​g​r​o​u​p​.
+		 */
+		profileManualDescription: string
+		/**
+		 * W​r​i​t​e​ ​y​o​u​r​ ​o​w​n
+		 */
+		profileManualTitle: string
+		/**
+		 * M​o​s​t​ ​s​e​r​v​i​c​e​ ​p​r​o​v​i​d​e​r​s​ ​g​i​v​e​ ​y​o​u​ ​a​ ​s​u​b​s​c​r​i​p​t​i​o​n​ ​a​d​d​r​e​s​s​ ​o​r​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​f​i​l​e​.​ ​I​m​p​o​r​t​ ​i​t​ ​o​n​ ​P​r​o​f​i​l​e​s​ ​t​o​ ​g​e​t​ ​s​t​a​r​t​e​d​ ​q​u​i​c​k​l​y​.
+		 */
+		profileProviderDescription: string
+		/**
+		 * F​r​o​m​ ​y​o​u​r​ ​p​r​o​v​i​d​e​r
+		 */
+		profileProviderTitle: string
+		/**
+		 * S​t​a​r​t​ ​w​i​t​h​ ​a​ ​p​r​o​f​i​l​e
+		 */
+		profileTitle: string
+		/**
+		 * S​t​e​p​ ​{​c​u​r​r​e​n​t​}​ ​o​f​ ​{​t​o​t​a​l​}
+		 * @param {number} current
+		 * @param {number} total
+		 */
+		progress: RequiredParams<'current' | 'total'>
+		/**
+		 * W​e​l​c​o​m​e​ ​p​r​o​g​r​e​s​s
+		 */
+		progressLabel: string
+		/**
+		 * Y​o​u​r​ ​M​i​s​h​ ​w​e​l​c​o​m​e​ ​i​s​ ​r​e​a​d​y
+		 */
+		promptTitle: string
+		/**
+		 * R​o​u​t​i​n​g​ ​r​u​l​e​s​ ​d​e​c​i​d​e​ ​w​h​i​c​h​ ​c​o​n​n​e​c​t​i​o​n​s​ ​n​e​e​d​ ​a​ ​p​r​o​x​y​.​ ​P​o​l​i​c​y​ ​g​r​o​u​p​s​ ​t​u​r​n​ ​t​h​o​s​e​ ​d​e​c​i​s​i​o​n​s​ ​i​n​t​o​ ​a​ ​r​e​u​s​a​b​l​e​ ​c​h​o​i​c​e​ ​o​f​ ​e​x​i​t​ ​n​o​d​e​.
+		 */
+		routingDescription: string
+		/**
+		 * I​f​ ​a​ ​r​u​l​e​ ​m​a​t​c​h​e​s​ ​i​n​c​o​r​r​e​c​t​l​y​,​ ​y​o​u​ ​c​a​n​ ​t​e​m​p​o​r​a​r​i​l​y​ ​s​w​i​t​c​h​ ​t​o​ ​G​l​o​b​a​l​ ​m​o​d​e​,​ ​b​u​t​ ​t​r​a​f​f​i​c​ ​t​h​a​t​ ​c​o​u​l​d​ ​h​a​v​e​ ​c​o​n​n​e​c​t​e​d​ ​d​i​r​e​c​t​l​y​ ​w​i​l​l​ ​a​l​s​o​ ​u​s​e​ ​t​h​e​ ​p​r​o​x​y​ ​a​n​d​ ​w​i​l​l​ ​u​s​u​a​l​l​y​ ​b​e​c​o​m​e​ ​s​l​o​w​e​r​.
+		 */
+		routingGlobalFallback: string
+		/**
+		 * W​h​e​n​ ​y​o​u​ ​n​e​e​d​ ​a​ ​p​r​o​x​y​,​ ​R​u​l​e​ ​m​o​d​e​ ​i​s​ ​t​h​e​ ​r​i​g​h​t​ ​c​h​o​i​c​e​ ​i​n​ ​m​o​s​t​ ​c​a​s​e​s​.​ ​Y​o​u​ ​c​a​n​ ​w​r​i​t​e​ ​t​h​e​ ​r​u​l​e​s​ ​y​o​u​r​s​e​l​f​ ​o​r​ ​u​s​e​ ​t​h​e​ ​r​u​l​e​s​ ​s​u​p​p​l​i​e​d​ ​b​y​ ​y​o​u​r​ ​s​e​r​v​i​c​e​ ​p​r​o​v​i​d​e​r​.
+		 */
+		routingRuleGuidance: string
+		/**
+		 * R​o​u​t​e​s​ ​a​n​d​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s
+		 */
+		routingTitle: string
+		/**
+		 * M​i​s​h
+		 */
+		source: string
+		/**
+		 * S​h​o​w​ ​m​e​ ​a​r​o​u​n​d
+		 */
+		startTour: string
+		/**
+		 * L​e​a​r​n​ ​t​h​e​ ​f​e​w​ ​i​d​e​a​s​ ​y​o​u​ ​n​e​e​d​ ​t​o​ ​a​d​d​ ​a​ ​p​r​o​f​i​l​e​,​ ​c​a​p​t​u​r​e​ ​t​r​a​f​f​i​c​,​ ​a​n​d​ ​c​h​o​o​s​e​ ​h​o​w​ ​i​t​ ​i​s​ ​r​o​u​t​e​d​.
+		 */
+		welcomeDescription: string
+		/**
+		 * W​e​l​c​o​m​e​ ​t​o​ ​M​i​s​h
+		 */
+		welcomeTitle: string
 	}
 	proxyControl: {
 		/**
@@ -5072,11 +5212,11 @@ export type TranslationFunctions = {
 	}
 	notifications: {
 		/**
-		 * Recent warnings, errors, and recovery actions.
+		 * Recent messages, warnings, and recovery actions.
 		 */
 		description: () => LocalizedString
 		/**
-		 * New warnings and errors will appear here.
+		 * New product and runtime messages will appear here.
 		 */
 		emptyDescription: () => LocalizedString
 		/**
@@ -5099,6 +5239,144 @@ export type TranslationFunctions = {
 		 * View all events
 		 */
 		viewAllEvents: () => LocalizedString
+	}
+	onboarding: {
+		/**
+		 * Back
+		 */
+		back: () => LocalizedString
+		/**
+		 * Mish needs to capture your device traffic before it can serve you. It offers two different connection methods.
+		 */
+		captureDescription: () => LocalizedString
+		/**
+		 * Uses the operating system's proxy settings. It is a lightweight choice for apps that follow those settings, but some apps may bypass it.
+		 */
+		captureSystemDescription: () => LocalizedString
+		/**
+		 * System Proxy
+		 */
+		captureSystemTitle: () => LocalizedString
+		/**
+		 * Let Mish handle your traffic
+		 */
+		captureTitle: () => LocalizedString
+		/**
+		 * Uses a virtual network interface to reach broader device traffic. It depends on platform support and may require system authorization.
+		 */
+		captureTunDescription: () => LocalizedString
+		/**
+		 * Virtual Interface (TUN)
+		 */
+		captureTunTitle: () => LocalizedString
+		/**
+		 * Welcome complete. The invitation was removed from Notifications.
+		 */
+		completedAnnouncement: () => LocalizedString
+		/**
+		 * Start using Mish
+		 */
+		completeWelcome: () => LocalizedString
+		/**
+		 * Mish is an independent proxy client powered by the Mihomo core. It is being built around cross-platform support, clear interaction, and thoughtful design.
+		 */
+		coverPurpose: () => LocalizedString
+		/**
+		 * Not now
+		 */
+		dismissWelcome: () => LocalizedString
+		/**
+		 * Continue
+		 */
+		next: () => LocalizedString
+		/**
+		 * Open welcome
+		 */
+		notificationAction: () => LocalizedString
+		/**
+		 * Welcome to Mish. Your introduction is ready whenever you are.
+		 */
+		notificationMessage: () => LocalizedString
+		/**
+		 * Rules let different requests use different policies. Policy groups can switch between nodes manually or automatically to meet different network access needs or provide failover.
+		 */
+		policyGroupsDescription: () => LocalizedString
+		/**
+		 * For example, a streaming rule can target a “Streaming” group. Choose the region you need once, and every matching connection follows that choice without editing the rules.
+		 */
+		policyGroupsExample: () => LocalizedString
+		/**
+		 * Policy groups connect rules to nodes
+		 */
+		policyGroupsTitle: () => LocalizedString
+		/**
+		 * A profile describes proxy nodes, providers, policy groups, and routing rules. Mish needs one before it can start Mihomo.
+		 */
+		profileDescription: () => LocalizedString
+		/**
+		 * You can write or import a YAML profile yourself when you need full control over every rule and group.
+		 */
+		profileManualDescription: () => LocalizedString
+		/**
+		 * Write your own
+		 */
+		profileManualTitle: () => LocalizedString
+		/**
+		 * Most service providers give you a subscription address or configuration file. Import it on Profiles to get started quickly.
+		 */
+		profileProviderDescription: () => LocalizedString
+		/**
+		 * From your provider
+		 */
+		profileProviderTitle: () => LocalizedString
+		/**
+		 * Start with a profile
+		 */
+		profileTitle: () => LocalizedString
+		/**
+		 * Step {current} of {total}
+		 */
+		progress: (arg: { current: number, total: number }) => LocalizedString
+		/**
+		 * Welcome progress
+		 */
+		progressLabel: () => LocalizedString
+		/**
+		 * Your Mish welcome is ready
+		 */
+		promptTitle: () => LocalizedString
+		/**
+		 * Routing rules decide which connections need a proxy. Policy groups turn those decisions into a reusable choice of exit node.
+		 */
+		routingDescription: () => LocalizedString
+		/**
+		 * If a rule matches incorrectly, you can temporarily switch to Global mode, but traffic that could have connected directly will also use the proxy and will usually become slower.
+		 */
+		routingGlobalFallback: () => LocalizedString
+		/**
+		 * When you need a proxy, Rule mode is the right choice in most cases. You can write the rules yourself or use the rules supplied by your service provider.
+		 */
+		routingRuleGuidance: () => LocalizedString
+		/**
+		 * Routes and policy groups
+		 */
+		routingTitle: () => LocalizedString
+		/**
+		 * Mish
+		 */
+		source: () => LocalizedString
+		/**
+		 * Show me around
+		 */
+		startTour: () => LocalizedString
+		/**
+		 * Learn the few ideas you need to add a profile, capture traffic, and choose how it is routed.
+		 */
+		welcomeDescription: () => LocalizedString
+		/**
+		 * Welcome to Mish
+		 */
+		welcomeTitle: () => LocalizedString
 	}
 	proxyControl: {
 		/**
