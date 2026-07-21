@@ -83,6 +83,19 @@ The DOM element owns the fallback blue surface and text contrast.
 - The notification center merges runtime feedback and event records strictly by
   observation time, newest first. Severity, source, and available actions never
   influence ordering.
+- On a fresh eligible desktop installation, the notification center also retains
+  one versioned welcome invitation. Existing installations receive the same
+  invitation once when upgrading from an older settings schema. On the first
+  desktop entry, an unprompted invitation produces a persistent information
+  toast with an action that opens the welcome tour; that presentation is recorded
+  independently from opening, dismissal, and completion. The four-page tour
+  introduces Mish and Mihomo, profiles, System Proxy and TUN capture concepts,
+  and routing modes with policy groups. Its inset cover illustration contains no
+  localized text. Escape, the close control, and “Not now” persist dismissal
+  without removing the invitation; only explicit completion removes it. The tour
+  is educational: it performs no Core, capture, network, profile, routing, or
+  helper operation and returns focus to the notification trigger when it closes.
+  Installed mobile builds exclude this invitation and dialog.
 
 ## Session
 

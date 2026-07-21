@@ -2,6 +2,7 @@ import type {
   AppearancePreference,
   LanguagePreference,
   LocalBackupClient,
+  OnboardingWelcomeAction,
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
@@ -38,6 +39,7 @@ interface SettingsContextValue {
   repairTunHelper(): Promise<boolean>;
   setAppearance(appearance: AppearancePreference): Promise<boolean>;
   setLanguage(language: LanguagePreference): Promise<boolean>;
+  setOnboardingWelcomeState(action: OnboardingWelcomeAction): Promise<boolean>;
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
   setWindowCloseBehavior(behavior: WindowCloseBehavior): Promise<boolean>;
   setWindowSurface(surface: WindowSurfacePreference): Promise<boolean>;
@@ -147,6 +149,8 @@ export function SettingsProvider({
       repairTunHelper: async () => (await runTunHelper(() => client.repairTunHelper())).ok,
       setAppearance: async (appearance) => (await run(() => client.setAppearance(appearance))).ok,
       setLanguage: async (language) => (await run(() => client.setLanguage(language))).ok,
+      setOnboardingWelcomeState: async (action) =>
+        (await run(() => client.setOnboardingWelcomeState(action))).ok,
       setStartup: async (startup) => (await run(() => client.setStartup(startup))).ok,
       setWindowCloseBehavior: async (behavior) =>
         (await run(() => client.setWindowCloseBehavior(behavior))).ok,

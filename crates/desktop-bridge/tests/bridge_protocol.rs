@@ -25,9 +25,10 @@ use mish_runtime::{
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
     NetworkDnsPlatform, NetworkDnsSource, NetworkInterfaceKind, NetworkInterfaceObservation,
-    SettingsCapabilities, SettingsPreferences, SettingsRepository, SettingsRepositoryError,
-    SettingsService, StartupPlatform, StartupPlatformError, WindowSurfacePlatform,
-    WindowSurfacePlatformError, WindowSurfacePreference,
+    OnboardingPreferences, OnboardingWelcomeInvitation, SettingsCapabilities, SettingsPreferences,
+    SettingsRepository, SettingsRepositoryError, SettingsService, StartupPlatform,
+    StartupPlatformError, WindowSurfacePlatform, WindowSurfacePlatformError,
+    WindowSurfacePreference,
 };
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
@@ -190,7 +191,7 @@ struct MemorySettingsRepository(std::sync::Mutex<SettingsPreferences>);
 impl SettingsRepository for MemorySettingsRepository {
     fn load(&self) -> Result<LoadedSettings, SettingsRepositoryError> {
         Ok(LoadedSettings {
-            migrated: false,
+            needs_persistence: false,
             preferences: *self.0.lock().unwrap(),
         })
     }
@@ -252,9 +253,22 @@ impl NetworkDnsPlatform for MemoryNetworkDnsPlatform {
 }
 
 fn settings_service() -> Arc<SettingsService> {
+    let preferences = SettingsPreferences {
+        onboarding: OnboardingPreferences {
+            welcome_invitation: Some(OnboardingWelcomeInvitation {
+                completed_at: None,
+                created_at: 1,
+                first_opened_at: None,
+                last_dismissed_at: None,
+                prompted_at: None,
+                version: 2,
+            }),
+        },
+        ..SettingsPreferences::default()
+    };
     Arc::new(
         SettingsService::load_with_platforms(
-            Arc::new(MemorySettingsRepository::default()),
+            Arc::new(MemorySettingsRepository(Mutex::new(preferences))),
             Some(Arc::new(MemoryStartupPlatform::default())),
             Some(Arc::new(MemoryWindowSurfacePlatform::default())),
             SettingsCapabilities::macos(true),
@@ -762,6 +776,69 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     );
     assert!(initial["result"].get("authToken").is_none());
 
+    let prompted = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":27, "method":"settings.setOnboardingWelcomeState",
+            "params":{"action":"prompt"}
+        }),
+    )
+    .await;
+    assert!(
+        prompted["result"]["preferences"]["onboarding"]["welcomeInvitation"]["promptedAt"]
+            .is_number()
+    );
+    assert!(
+        prompted["result"]["preferences"]["onboarding"]["welcomeInvitation"]["firstOpenedAt"]
+            .is_null()
+    );
+
+    let opened = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":24, "method":"settings.setOnboardingWelcomeState",
+            "params":{"action":"open"}
+        }),
+    )
+    .await;
+    assert!(
+        opened["result"]["preferences"]["onboarding"]["welcomeInvitation"]["firstOpenedAt"]
+            .is_number()
+    );
+    assert!(
+        opened["result"]["preferences"]["onboarding"]["welcomeInvitation"]["completedAt"].is_null()
+    );
+
+    let dismissed = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":25, "method":"settings.setOnboardingWelcomeState",
+            "params":{"action":"dismiss"}
+        }),
+    )
+    .await;
+    assert!(
+        dismissed["result"]["preferences"]["onboarding"]["welcomeInvitation"]["lastDismissedAt"]
+            .is_number()
+    );
+    assert!(
+        dismissed["result"]["preferences"]["onboarding"]["welcomeInvitation"]["completedAt"]
+            .is_null()
+    );
+
+    let completed = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":26, "method":"settings.setOnboardingWelcomeState",
+            "params":{"action":"complete"}
+        }),
+    )
+    .await;
+    assert!(
+        completed["result"]["preferences"]["onboarding"]["welcomeInvitation"]["completedAt"]
+            .is_number()
+    );
+
     let arbitrary_network_argument = request(
         &mut ws,
         json!({
@@ -895,6 +972,11 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
             11,
             "settings.setWindowSurface",
             json!({"surface":"opaque","blur":24}),
+        ),
+        (
+            12,
+            "settings.setOnboardingWelcomeState",
+            json!({"action":"complete","command":"start-core"}),
         ),
     ] {
         let rejected = request(

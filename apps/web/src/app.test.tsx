@@ -15,6 +15,7 @@ import {
   type LocalBackupClient,
   type LocalBackupScopeDto,
   type LocalProxyTestPhase,
+  type OnboardingWelcomeAction,
   type RoutingMode,
   type SettingsClient,
   type SettingsSnapshotDto,
@@ -234,6 +235,16 @@ class DesktopSettingsClient implements SettingsClient {
     this.snapshot.preferences.language = language;
     return this.getSnapshot();
   });
+  setOnboardingWelcomeState = vi.fn(async (action: OnboardingWelcomeAction) => {
+    const invitation = this.snapshot.preferences.onboarding.welcomeInvitation;
+    if (!invitation || invitation.completedAt !== null) return this.getSnapshot();
+    const observedAt = Math.max(Date.now(), invitation.createdAt);
+    invitation.promptedAt ??= observedAt;
+    if (action !== "prompt") invitation.firstOpenedAt ??= observedAt;
+    if (action === "dismiss") invitation.lastDismissedAt = observedAt;
+    if (action === "complete") invitation.completedAt = observedAt;
+    return this.getSnapshot();
+  });
   setStartup = vi.fn(async (startup: StartupPreferencesDto) => {
     this.snapshot.preferences.startup = startup;
     this.snapshot.startupRegistration = {
@@ -251,6 +262,19 @@ class DesktopSettingsClient implements SettingsClient {
     this.snapshot.preferences.windowSurface = surface;
     return this.getSnapshot();
   });
+}
+
+function onboardingSettingsClient() {
+  const client = new DesktopSettingsClient();
+  client.snapshot.preferences.onboarding.welcomeInvitation = {
+    completedAt: null,
+    createdAt: 1_789_824_600_000,
+    firstOpenedAt: null,
+    lastDismissedAt: null,
+    promptedAt: null,
+    version: 2,
+  };
+  return client;
 }
 
 class InactiveDesktopStatusClient extends FixtureStatusClient {
@@ -707,6 +731,236 @@ describe("production routes", () => {
     await user.click(screen.getByRole("button", { name: "View all events" }));
 
     expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
+  });
+
+  it("proactively prompts an unprompted onboarding invitation only once", async () => {
+    const infoToast = vi.spyOn(toast, "info");
+    const settingsClient = onboardingSettingsClient();
+    const view = renderRoute(
+      "/status",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await waitFor(() =>
+      expect(settingsClient.setOnboardingWelcomeState).toHaveBeenCalledWith("prompt"),
+    );
+    await waitFor(() =>
+      expect(infoToast).toHaveBeenCalledWith(
+        "Your Mish welcome is ready",
+        expect.objectContaining({
+          action: expect.objectContaining({
+            label: "Open welcome",
+            onClick: expect.any(Function),
+          }),
+          description: "Welcome to Mish. Your introduction is ready whenever you are.",
+          duration: Number.POSITIVE_INFINITY,
+          id: "onboarding-welcome-prompt",
+        }),
+      ),
+    );
+    expect(
+      settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.promptedAt,
+    ).not.toBeNull();
+    expect(
+      settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.completedAt,
+    ).toBeNull();
+    expect(
+      settingsClient.setOnboardingWelcomeState.mock.calls.filter(([action]) => action === "prompt"),
+    ).toHaveLength(1);
+    const toastAction = infoToast.mock.calls.at(-1)?.[1]?.action as { onClick(): void } | undefined;
+    expect(toastAction).toBeDefined();
+    await act(async () => toastAction?.onClick());
+    expect(await screen.findByRole("dialog", { name: "Welcome to Mish" })).toBeVisible();
+    expect(settingsClient.setOnboardingWelcomeState).toHaveBeenCalledWith("open");
+
+    view.unmount();
+    infoToast.mockClear();
+    renderRoute(
+      "/status",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+    await act(async () => Promise.resolve());
+    expect(infoToast).not.toHaveBeenCalled();
+    expect(
+      settingsClient.setOnboardingWelcomeState.mock.calls.filter(([action]) => action === "prompt"),
+    ).toHaveLength(1);
+  });
+
+  it("opens the durable welcome by keyboard, names it, restores focus, and retains it on dismiss", async () => {
+    const user = userEvent.setup();
+    const settingsClient = onboardingSettingsClient();
+    const initialSnapshot = structuredClone(settingsClient.snapshot);
+    const view = renderRoute(
+      "/status",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      initialSnapshot,
+    );
+    const notificationTrigger = await screen.findByRole("button", {
+      name: /Notifications, \d+ unread/,
+    });
+
+    notificationTrigger.focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("button", { name: "Open welcome" }));
+
+    const welcome = await screen.findByRole("dialog", { name: "Welcome to Mish" });
+    const cover = welcome.querySelector("img");
+    expect(cover).toHaveAttribute("src", "/onboarding/welcome-cover.webp");
+    expect(welcome.querySelector(".welcome-progress")).toBeNull();
+    expect(welcome).toHaveTextContent("independent proxy client powered by the Mihomo core");
+    const start = within(welcome).getByRole("button", { name: "Show me around" });
+    const dismiss = within(welcome).getByRole("button", { name: "Not now" });
+    const backdrop = document.querySelector(".dialog-backdrop");
+    await waitFor(() => expect(start).toHaveFocus());
+    await user.tab({ shift: true });
+    expect(dismiss).toHaveFocus();
+    await user.tab();
+    expect(start).toHaveFocus();
+    expect(backdrop).not.toBeNull();
+    await user.click(backdrop as HTMLElement);
+    expect(welcome).toBeInTheDocument();
+    expect(settingsClient.setOnboardingWelcomeState).not.toHaveBeenCalledWith("dismiss");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(welcome).not.toBeInTheDocument());
+    await waitFor(() => expect(notificationTrigger).toHaveFocus());
+    await waitFor(() =>
+      expect(settingsClient.setOnboardingWelcomeState).toHaveBeenLastCalledWith("dismiss"),
+    );
+    expect(
+      settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.completedAt,
+    ).toBeNull();
+    expect(
+      settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.lastDismissedAt,
+    ).not.toBeNull();
+
+    view.unmount();
+    renderRoute(
+      "/status",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: /Notifications, \d+ unread/,
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Open welcome" })).toBeVisible();
+  });
+
+  it("renders the welcome invitation and dialog in Simplified Chinese", async () => {
+    const user = userEvent.setup();
+    const settingsClient = onboardingSettingsClient();
+    renderRoute(
+      "/status",
+      "zh",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await user.click(await screen.findByRole("button", { name: /通知，\d+ 条未读/ }));
+    await user.click(await screen.findByRole("button", { name: "打开欢迎介绍" }));
+
+    const welcome = await screen.findByRole("dialog", { name: "欢迎使用 Mish" });
+    expect(welcome).toHaveTextContent("由 Mihomo 内核驱动的独立代理客户端");
+    expect(welcome.querySelector(".welcome-progress")).toBeNull();
+    expect(within(welcome).getByRole("button", { name: "稍后再说" })).toBeVisible();
+    await user.click(within(welcome).getByRole("button", { name: "开始介绍" }));
+    const profileTitle = await screen.findByRole("heading", { name: "从一份配置文件开始" });
+    const progress = welcome.querySelector(".welcome-progress");
+    expect(profileTitle).toHaveFocus();
+    expect(welcome.querySelector(".welcome-step-icon")).toBeNull();
+    expect(
+      (welcome.querySelector(".welcome-concept-grid") as HTMLElement).style.getPropertyValue(
+        "--section-grid-columns",
+      ),
+    ).toBe("1");
+    expect(progress).not.toBeNull();
+    expect(progress?.querySelectorAll("li")).toHaveLength(3);
+    expect(progress?.querySelector("li[aria-current='step']")).toBe(progress?.querySelector("li"));
+    expect(progress?.compareDocumentPosition(profileTitle)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(progress).not.toHaveTextContent("第 1 步");
+    expect(welcome).toHaveTextContent("大多数服务供应商会提供订阅地址或配置文件");
+    await user.click(within(welcome).getByRole("button", { name: "继续" }));
+    expect(await screen.findByRole("heading", { name: "让 Mish 接管你的流量" })).toHaveFocus();
+    expect(welcome).toHaveTextContent("Mish 需要接管设备流量才能为你提供服务");
+    expect(welcome).toHaveTextContent("提供两种不同的接入方式");
+    expect(welcome).toHaveTextContent("系统代理");
+    expect(welcome).toHaveTextContent("虚拟网卡（TUN）");
+    await user.click(within(welcome).getByRole("button", { name: "继续" }));
+    expect(await screen.findByRole("heading", { name: "路由与策略组" })).toHaveFocus();
+    expect(within(welcome).queryByRole("heading", { name: "规则" })).not.toBeInTheDocument();
+    expect(within(welcome).queryByRole("heading", { name: "全局" })).not.toBeInTheDocument();
+    expect(within(welcome).queryByRole("heading", { name: "直连" })).not.toBeInTheDocument();
+    expect(welcome).toHaveTextContent("大多数情况下使用“规则”模式即可");
+    expect(welcome).toHaveTextContent("原本可以直连的流量也会经过代理，通常会变慢");
+    expect(welcome).not.toHaveTextContent("国内流量");
+    expect(welcome).toHaveTextContent("策略组把规则连接到节点");
+    expect(welcome).toHaveTextContent("通过规则让不同的请求分别使用不同的策略");
+    expect(welcome).toHaveTextContent("手动或自动地在不同节点间切换");
+    expect(welcome).toHaveTextContent("进行故障转移");
+    expect(within(welcome).getByRole("button", { name: "开始使用 Mish" })).toBeVisible();
+  });
+
+  it("announces completion, removes the invitation durably, and performs no runtime action", async () => {
+    const user = userEvent.setup();
+    const settingsClient = onboardingSettingsClient();
+    const statusClient = new FixtureStatusClient();
+    const setCapture = vi.spyOn(statusClient, "setCapture");
+    const setRoutingMode = vi.spyOn(statusClient, "setRoutingMode");
+    renderRoute(
+      "/status",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+    const notificationTrigger = await screen.findByRole("button", {
+      name: /Notifications, \d+ unread/,
+    });
+
+    await user.click(notificationTrigger);
+    await user.click(await screen.findByRole("button", { name: "Open welcome" }));
+    const welcome = await screen.findByRole("dialog", { name: "Welcome to Mish" });
+    await user.click(within(welcome).getByRole("button", { name: "Show me around" }));
+    await user.click(within(welcome).getByRole("button", { name: "Continue" }));
+    await user.click(within(welcome).getByRole("button", { name: "Continue" }));
+    await user.click(within(welcome).getByRole("button", { name: "Start using Mish" }));
+
+    const announcement = await screen.findByText(
+      "Welcome complete. The invitation was removed from Notifications.",
+    );
+    expect(announcement).toHaveAttribute("role", "status");
+    await waitFor(() => expect(notificationTrigger).toHaveFocus());
+    expect(settingsClient.setOnboardingWelcomeState).toHaveBeenLastCalledWith("complete");
+    expect(
+      settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.completedAt,
+    ).not.toBeNull();
+    expect(setCapture).not.toHaveBeenCalled();
+    expect(setRoutingMode).not.toHaveBeenCalled();
+    expect(settingsClient.installTunHelper).not.toHaveBeenCalled();
+    expect(settingsClient.repairTunHelper).not.toHaveBeenCalled();
+    expect(settingsClient.removeTunHelper).not.toHaveBeenCalled();
+
+    await user.click(notificationTrigger);
+    expect(screen.queryByRole("button", { name: "Open welcome" })).not.toBeInTheDocument();
   });
 
   it.each([

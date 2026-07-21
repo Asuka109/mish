@@ -18,6 +18,7 @@ describe("browser settings fixture", () => {
       client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" }),
     ).rejects.toThrow(/unavailable/i);
     await expect(client.setWindowCloseBehavior("quit")).rejects.toThrow(/unavailable/i);
+    await expect(client.setOnboardingWelcomeState("open")).rejects.toThrow(/unavailable/i);
     await expect(client.installTunHelper()).rejects.toThrow(/unavailable/i);
     await expect(client.repairTunHelper()).rejects.toThrow(/unavailable/i);
     await expect(client.removeTunHelper()).rejects.toThrow(/unavailable/i);

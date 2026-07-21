@@ -1175,6 +1175,101 @@ export type WindowCloseBehavior = z.infer<typeof WindowCloseBehaviorSchema>;
 export const WindowSurfacePreferenceSchema = z.enum(["opaque", "material"]);
 export type WindowSurfacePreference = z.infer<typeof WindowSurfacePreferenceSchema>;
 
+export const OnboardingWelcomeInvitationSchema = z
+  .object({
+    completedAt: z.number().int().nonnegative().nullable(),
+    createdAt: z.number().int().nonnegative(),
+    firstOpenedAt: z.number().int().nonnegative().nullable(),
+    lastDismissedAt: z.number().int().nonnegative().nullable(),
+    promptedAt: z.number().int().nonnegative().nullable(),
+    version: z.literal(2),
+  })
+  .strict()
+  .superRefine((invitation, context) => {
+    for (const [field, value] of [
+      ["completedAt", invitation.completedAt],
+      ["firstOpenedAt", invitation.firstOpenedAt],
+      ["lastDismissedAt", invitation.lastDismissedAt],
+      ["promptedAt", invitation.promptedAt],
+    ] as const) {
+      if (value !== null && value < invitation.createdAt) {
+        context.addIssue({
+          code: "custom",
+          message: `${field} cannot precede invitation creation`,
+          path: [field],
+        });
+      }
+    }
+    if (
+      invitation.promptedAt === null &&
+      (invitation.completedAt !== null ||
+        invitation.firstOpenedAt !== null ||
+        invitation.lastDismissedAt !== null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Opening, dismissal, and completion require an onboarding prompt",
+      });
+    }
+    if (invitation.promptedAt !== null) {
+      for (const [field, value] of [
+        ["completedAt", invitation.completedAt],
+        ["firstOpenedAt", invitation.firstOpenedAt],
+        ["lastDismissedAt", invitation.lastDismissedAt],
+      ] as const) {
+        if (value !== null && value < invitation.promptedAt) {
+          context.addIssue({
+            code: "custom",
+            message: `${field} cannot precede the onboarding prompt`,
+            path: [field],
+          });
+        }
+      }
+    }
+    if (
+      (invitation.completedAt !== null || invitation.lastDismissedAt !== null) &&
+      invitation.firstOpenedAt === null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Dismissal and completion require the welcome to have been opened",
+      });
+    }
+    if (
+      invitation.firstOpenedAt !== null &&
+      invitation.lastDismissedAt !== null &&
+      invitation.lastDismissedAt < invitation.firstOpenedAt
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Dismissal cannot precede the first welcome opening",
+        path: ["lastDismissedAt"],
+      });
+    }
+    if (
+      invitation.firstOpenedAt !== null &&
+      invitation.completedAt !== null &&
+      invitation.completedAt < invitation.firstOpenedAt
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Completion cannot precede the first welcome opening",
+        path: ["completedAt"],
+      });
+    }
+  });
+export interface OnboardingWelcomeInvitationDto extends z.infer<
+  typeof OnboardingWelcomeInvitationSchema
+> {}
+
+export const OnboardingPreferencesSchema = z
+  .object({ welcomeInvitation: OnboardingWelcomeInvitationSchema.nullable() })
+  .strict();
+export interface OnboardingPreferencesDto extends z.infer<typeof OnboardingPreferencesSchema> {}
+
+export const OnboardingWelcomeActionSchema = z.enum(["prompt", "open", "dismiss", "complete"]);
+export type OnboardingWelcomeAction = z.infer<typeof OnboardingWelcomeActionSchema>;
+
 export const StartupPreferencesSchema = z
   .object({
     launchAtLogin: z.boolean(),
@@ -1187,6 +1282,7 @@ export const SettingsPreferencesSchema = z
   .object({
     appearance: AppearancePreferenceSchema,
     language: LanguagePreferenceSchema,
+    onboarding: OnboardingPreferencesSchema,
     startup: StartupPreferencesSchema,
     windowCloseBehavior: WindowCloseBehaviorSchema,
     windowSurface: WindowSurfacePreferenceSchema,
@@ -2444,6 +2540,9 @@ export const SetAppearancePreferenceCommandSchema = z
 export const SetLanguagePreferenceCommandSchema = z
   .object({ language: LanguagePreferenceSchema })
   .strict();
+export const SetOnboardingWelcomeStateCommandSchema = z
+  .object({ action: OnboardingWelcomeActionSchema })
+  .strict();
 export const SetStartupPreferencesCommandSchema = z
   .object({ startup: StartupPreferencesSchema })
   .strict();
@@ -2478,6 +2577,10 @@ export const settingsRpcMethods = {
   },
   "settings.setLanguage": {
     params: SetLanguagePreferenceCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setOnboardingWelcomeState": {
+    params: SetOnboardingWelcomeStateCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.setStartup": {
@@ -2638,6 +2741,10 @@ export interface SettingsClient {
   ): Promise<SettingsSnapshotDto>;
   setLanguage(
     language: LanguagePreference,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  setOnboardingWelcomeState(
+    action: OnboardingWelcomeAction,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
   setStartup(

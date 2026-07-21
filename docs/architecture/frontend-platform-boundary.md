@@ -269,6 +269,11 @@ Status snapshots and rejects declaration-only TUN confirmation.
 The command accepts only the identifier of an already validated monitor; callers
 cannot supply an arbitrary network target.
 
+Protocol version 18 adds the bounded `settings.setOnboardingWelcomeState`
+command. It accepts only `open`, `dismiss`, or `complete`, persists the existing
+versioned invitation record, and has no Core, capture, network, helper, or native
+platform side effect.
+
 The approved Android direction pairs Kotlin `VpnService` with a reproducibly
 built embedded Go Core library. The approved iOS direction pairs Swift
 `NEPacketTunnelProvider` with the matching embedded Core framework. Both use a

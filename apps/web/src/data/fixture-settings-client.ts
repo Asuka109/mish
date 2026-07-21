@@ -1,6 +1,7 @@
 import type {
   AppearancePreference,
   LanguagePreference,
+  OnboardingWelcomeAction,
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
@@ -68,6 +69,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
     preferences: {
       appearance: storedAppearance(),
       language: storedLanguage(),
+      onboarding: { welcomeInvitation: null },
       startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" },
       windowCloseBehavior: "hide-to-status-bar",
       windowSurface: storedWindowSurface(),
@@ -123,6 +125,10 @@ export class FixtureSettingsClient implements SettingsClient {
   async setLanguage(language: LanguagePreference) {
     this.snapshot.preferences.language = language;
     return this.getSnapshot();
+  }
+
+  async setOnboardingWelcomeState(_action: OnboardingWelcomeAction): Promise<SettingsSnapshotDto> {
+    throw new Error("Onboarding invitations are unavailable in the browser fixture");
   }
 
   async setStartup(_startup: StartupPreferencesDto): Promise<SettingsSnapshotDto> {
