@@ -1440,6 +1440,7 @@ h2 {
 }
 
 .notification-item {
+  position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1456,26 +1457,44 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding-right: 26px;
 }
 
 .notification-item-heading .ui-badge {
   height: 20px;
 }
 
-.notification-item-heading time,
-.notification-item > span {
+.notification-item-heading time {
   color: var(--color-text-muted);
   font-size: 12px;
 }
 
-.notification-item p {
-  overflow: hidden;
+.notification-message {
+  overflow-wrap: anywhere;
   color: var(--color-body);
+  cursor: text;
   font-size: var(--text-metadata);
   font-weight: var(--font-weight-control);
   line-height: 19px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  user-select: text;
+  white-space: normal;
+  -webkit-user-select: text;
+}
+
+.notification-remove {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+
+.notification-item:is(:hover, :focus-within) .notification-remove {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .notification-actions {

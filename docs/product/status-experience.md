@@ -81,8 +81,11 @@ The DOM element owns the fallback blue surface and text contrast.
   routing controls. System Proxy drift offers both repair and keep-current when
   the runtime advertises those actions.
 - The notification center merges runtime feedback and event records strictly by
-  observation time, newest first. Severity, source, and available actions never
-  influence ordering.
+  observation time, newest first. Severity and available actions never influence
+  ordering. Opening the center marks the notifications currently shown as read
+  without removing them. Messages wrap naturally and remain selectable, source
+  labels are omitted, and each item has an accessible remove control revealed by
+  hover or keyboard focus. Item removal affects only the current UI session.
 - On a fresh eligible desktop installation, the notification center also retains
   one versioned welcome invitation. Existing installations receive the same
   invitation once when upgrading from an older settings schema. On the first
@@ -95,7 +98,9 @@ The DOM element owns the fallback blue surface and text contrast.
   without removing the invitation; only explicit completion removes it. The tour
   is educational: it performs no Core, capture, network, profile, routing, or
   helper operation and returns focus to the notification trigger when it closes.
-  Installed mobile builds exclude this invitation and dialog.
+  Removing its notification item does not complete or dismiss the durable
+  invitation, so it can resume in a later app session. Installed mobile builds
+  exclude this invitation and dialog.
 
 ## Session
 

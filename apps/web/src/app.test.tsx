@@ -706,31 +706,64 @@ describe("production routes", () => {
     );
   });
 
-  it("shows important events in the notification popover and marks them read", async () => {
+  it("marks current notifications read on open, retains them, and removes only one item", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    await user.click(await screen.findByRole("button", { name: "Notifications, 2 unread" }));
+    const notificationTrigger = await screen.findByRole("button", {
+      name: "Notifications, 2 unread",
+    });
+    await user.click(notificationTrigger);
 
-    expect(await screen.findByRole("heading", { name: "Notifications" })).toBeInTheDocument();
-    expect(screen.getByText("Synthetic route check failed")).toBeInTheDocument();
+    const notificationCenter = await screen.findByRole("dialog");
     expect(
-      screen.getByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
+      within(notificationCenter).getByRole("heading", { name: "Notifications" }),
     ).toBeInTheDocument();
-    const notificationItems = screen.getAllByRole("listitem");
+    expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
+    const routeMessage = within(notificationCenter).getByText("Synthetic route check failed");
+    expect(routeMessage).toHaveClass("notification-message");
+    expect(routeMessage).toHaveAttribute("data-native-text-interaction");
+    expect(
+      within(notificationCenter).getByText(
+        "Synthetic DNS lookup timed out for api.fixture.invalid",
+      ),
+    ).toBeInTheDocument();
+    const notificationItems = within(notificationCenter).getAllByRole("listitem");
     expect(notificationItems[0]).toHaveTextContent("Synthetic route check failed");
     expect(notificationItems[1]).toHaveTextContent(
       "Synthetic DNS lookup timed out for api.fixture.invalid",
     );
+    expect(within(notificationCenter).queryByText("Platform")).not.toBeInTheDocument();
+    expect(within(notificationCenter).queryByText("Mihomo core")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Mark all read" }));
+    const removeRouteNotification = within(notificationCenter).getByRole("button", {
+      name: "Remove notification: Synthetic route check failed",
+    });
+    expect(removeRouteNotification.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    removeRouteNotification.focus();
+    expect(removeRouteNotification).toHaveFocus();
+    await user.click(removeRouteNotification);
 
-    expect(screen.getByRole("button", { name: "Notifications, 0 unread" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mark all read" })).toBeDisabled();
+    expect(routeMessage).not.toBeInTheDocument();
+    expect(
+      within(notificationCenter).getByText(
+        "Synthetic DNS lookup timed out for api.fixture.invalid",
+      ),
+    ).toBeInTheDocument();
+    expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
 
-    await user.click(screen.getByRole("button", { name: "View all events" }));
+    await user.click(notificationTrigger);
+    await waitFor(() => expect(notificationCenter).not.toBeInTheDocument());
+    expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
+    await user.click(notificationTrigger);
 
-    expect(await screen.findByRole("heading", { name: "Events" })).toBeInTheDocument();
+    const reopenedCenter = await screen.findByRole("dialog");
+    expect(
+      within(reopenedCenter).queryByText("Synthetic route check failed"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(reopenedCenter).getByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
+    ).toBeInTheDocument();
   });
 
   it("proactively prompts an unprompted onboarding invitation only once", async () => {
@@ -792,6 +825,58 @@ describe("production routes", () => {
     expect(
       settingsClient.setOnboardingWelcomeState.mock.calls.filter(([action]) => action === "prompt"),
     ).toHaveLength(1);
+  });
+
+  it("removes the welcome item locally without completing its durable invitation", async () => {
+    const user = userEvent.setup();
+    const settingsClient = onboardingSettingsClient();
+    const view = renderRoute(
+      "/status",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await waitFor(() =>
+      expect(settingsClient.setOnboardingWelcomeState).toHaveBeenCalledWith("prompt"),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: /Notifications, \d+ unread/,
+      }),
+    );
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(within(notificationCenter).queryByText("Mish")).not.toBeInTheDocument();
+    await user.click(
+      within(notificationCenter).getByRole("button", {
+        name: "Remove notification: Welcome to Mish. Your introduction is ready whenever you are.",
+      }),
+    );
+
+    expect(within(notificationCenter).queryByRole("button", { name: "Open welcome" })).toBeNull();
+    expect(
+      settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.completedAt,
+    ).toBeNull();
+    expect(settingsClient.setOnboardingWelcomeState).not.toHaveBeenCalledWith("complete");
+    expect(settingsClient.setOnboardingWelcomeState).not.toHaveBeenCalledWith("dismiss");
+
+    view.unmount();
+    renderRoute(
+      "/status",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: /Notifications, \d+ unread/,
+      }),
+    );
+    expect(await screen.findByRole("button", { name: "Open welcome" })).toBeVisible();
   });
 
   it("opens the durable welcome by keyboard, names it, restores focus, and retains it on dismiss", async () => {

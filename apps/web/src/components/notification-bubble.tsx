@@ -1,4 +1,5 @@
 import { Bell } from "@phosphor-icons/react/Bell";
+import { X } from "@phosphor-icons/react/X";
 import {
   Badge,
   Button,
@@ -31,8 +32,9 @@ const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
 const noEvents: EventRecordDto[] = [];
 
-interface ReadNotificationState {
-  notificationIds: Set<string>;
+interface NotificationState {
+  readNotificationIds: Set<string>;
+  removedNotificationIds: Set<string>;
   sessionId: string | null;
 }
 
@@ -47,7 +49,6 @@ interface NotificationEntry {
   level: EventLevel;
   message: string;
   observedAt: number;
-  source: string;
 }
 
 type LocalProxyFeedback =
@@ -113,8 +114,9 @@ export function NotificationBubble() {
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   const welcomePromptStarted = useRef(false);
-  const [readState, setReadState] = useState<ReadNotificationState>({
-    notificationIds: new Set(),
+  const [notificationState, setNotificationState] = useState<NotificationState>({
+    readNotificationIds: new Set(),
+    removedNotificationIds: new Set(),
     sessionId: null,
   });
   const events = eventsContext?.events ?? noEvents;
@@ -197,7 +199,6 @@ export function NotificationBubble() {
             level: "info" as const,
             message: LL.onboarding.notificationMessage(),
             observedAt: welcomeInvitation.createdAt,
-            source: LL.onboarding.source(),
           },
         ]
       : []),
@@ -209,7 +210,6 @@ export function NotificationBubble() {
             level: "warning" as const,
             message: systemProxyDriftMessage,
             observedAt: driftObservedAt,
-            source: LL.navigation.status(),
           },
         ]
       : []),
@@ -220,7 +220,6 @@ export function NotificationBubble() {
             level: "error" as const,
             message: systemProxyStatusMessage(LL, systemProxy),
             observedAt: systemProxyFailureObservedAt,
-            source: LL.navigation.status(),
           },
         ]
       : []),
@@ -231,7 +230,6 @@ export function NotificationBubble() {
             level: tun.phase === "failed" ? ("error" as const) : ("warning" as const),
             message: tunStatusMessage(LL, tun),
             observedAt: tunWarningObservedAt,
-            source: LL.navigation.status(),
           },
         ]
       : []),
@@ -242,7 +240,6 @@ export function NotificationBubble() {
             level: "error" as const,
             message: productError,
             observedAt: productFailureObservedAt,
-            source: LL.navigation.status(),
           },
         ]
       : []),
@@ -253,7 +250,6 @@ export function NotificationBubble() {
             level: "error" as const,
             message: settingsFailureMessage,
             observedAt: settingsFailureObservedAt,
-            source: LL.navigation.settings(),
           },
         ]
       : []),
@@ -264,7 +260,6 @@ export function NotificationBubble() {
             level: "error" as const,
             message: trafficFailureMessage(LL, trafficFailure),
             observedAt: trafficFailureObservedAt,
-            source: LL.navigation.traffic(),
           },
         ]
       : []),
@@ -275,7 +270,6 @@ export function NotificationBubble() {
             level: localProxyFailure.level,
             message: localProxyFailure.message,
             observedAt: localProxyFailureObservedAt,
-            source: LL.navigation.settings(),
           },
         ]
       : []),
@@ -284,7 +278,6 @@ export function NotificationBubble() {
       level: event.level as "error" | "warning",
       message: event.message,
       observedAt: event.observedAt,
-      source: LL.events.source[event.source](),
     })),
   ];
   const driftToastVisible = useRef(false);
@@ -422,26 +415,54 @@ export function NotificationBubble() {
     toast.error(trafficFailureMessage(LL, trafficFailure));
   }, [LL, trafficFailure]);
 
-  const readNotificationIds =
-    readState.sessionId === sessionId ? readState.notificationIds : new Set<string>();
   const notificationsByTime = notifications.toSorted(
     (left, right) => right.observedAt - left.observedAt,
   );
-  const unreadCount = notificationsByTime.filter(
+  const readNotificationIds =
+    notificationState.sessionId === sessionId
+      ? notificationState.readNotificationIds
+      : new Set<string>();
+  const removedNotificationIds =
+    notificationState.sessionId === sessionId
+      ? notificationState.removedNotificationIds
+      : new Set<string>();
+  const retainedNotifications = notificationsByTime.filter(
+    (notification) => !removedNotificationIds.has(notification.id),
+  );
+  const unreadCount = retainedNotifications.filter(
     (notification) => !readNotificationIds.has(notification.id),
   ).length;
-  const visibleNotifications = notificationsByTime.slice(0, visibleNotificationLimit);
+  const visibleNotifications = retainedNotifications.slice(0, visibleNotificationLimit);
 
-  function markAllRead() {
-    setReadState({
-      notificationIds: new Set(notificationsByTime.map(({ id }) => id)),
-      sessionId,
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      setNotificationState((current) => ({
+        readNotificationIds: new Set(retainedNotifications.map(({ id }) => id)),
+        removedNotificationIds:
+          current.sessionId === sessionId ? current.removedNotificationIds : new Set(),
+        sessionId,
+      }));
+    }
+    setOpen(nextOpen);
+  }
+
+  function removeNotification(notificationId: string) {
+    setNotificationState((current) => {
+      const sameSession = current.sessionId === sessionId;
+      return {
+        readNotificationIds: sameSession ? current.readNotificationIds : new Set(),
+        removedNotificationIds: new Set([
+          ...(sameSession ? current.removedNotificationIds : []),
+          notificationId,
+        ]),
+        sessionId,
+      };
     });
   }
 
   return (
     <>
-      <Popover onOpenChange={setOpen} open={open}>
+      <Popover onOpenChange={handleOpenChange} open={open}>
         <PopoverTrigger
           render={
             <Button
@@ -468,9 +489,6 @@ export function NotificationBubble() {
                 {LL.notifications.description()}
               </PopoverDescription>
             </div>
-            <Button disabled={unreadCount === 0} onClick={markAllRead} size="sm" variant="ghost">
-              {LL.notifications.markAllRead()}
-            </Button>
           </div>
 
           {visibleNotifications.length > 0 ? (
@@ -482,6 +500,7 @@ export function NotificationBubble() {
                   LL={LL}
                   locale={locale}
                   notification={notification}
+                  onRemove={removeNotification}
                 />
               ))}
             </ol>
@@ -523,9 +542,10 @@ interface NotificationItemProps {
   LL: TranslationFunctions;
   locale: Locales;
   notification: NotificationEntry;
+  onRemove(notificationId: string): void;
 }
 
-function NotificationItem({ disabled, LL, locale, notification }: NotificationItemProps) {
+function NotificationItem({ disabled, LL, locale, notification, onRemove }: NotificationItemProps) {
   const [pendingAction, setPendingAction] = useState<{
     label: string;
     promise: Promise<unknown>;
@@ -538,6 +558,15 @@ function NotificationItem({ disabled, LL, locale, notification }: NotificationIt
 
   return (
     <li className="notification-item">
+      <Button
+        aria-label={LL.notifications.remove({ message: notification.message })}
+        className="notification-remove"
+        onClick={() => onRemove(notification.id)}
+        size="icon-sm"
+        variant="ghost"
+      >
+        <X aria-hidden="true" />
+      </Button>
       <div className="notification-item-heading">
         <Badge variant={levelBadge(notification.level)}>
           {LL.events.level[notification.level]()}
@@ -546,8 +575,9 @@ function NotificationItem({ disabled, LL, locale, notification }: NotificationIt
           {formatNotificationTime(notification.observedAt, locale)}
         </time>
       </div>
-      <p>{notification.message}</p>
-      <span>{notification.source}</span>
+      <p className="notification-message" data-native-text-interaction>
+        {notification.message}
+      </p>
       {notification.actions && notification.actions.length > 0 ? (
         <div className="notification-actions">
           {notification.actions.map((action) => (

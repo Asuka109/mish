@@ -57,6 +57,23 @@ describe("responsive shell CSS", () => {
     expect(notificationInteractiveRule).toContain("color: var(--color-body)");
   });
 
+  it("keeps notification messages wrappable and exposes remove controls on interaction", () => {
+    const messageRule = styles.match(/\.notification-message \{[\s\S]*?\n\}/)?.[0];
+    const removeRule = styles.match(/\.notification-remove \{[\s\S]*?\n\}/)?.[0];
+    const revealRule = styles.match(
+      /\.notification-item:is\(:hover, :focus-within\) \.notification-remove \{[\s\S]*?\n\}/,
+    )?.[0];
+
+    expect(messageRule).toContain("overflow-wrap: anywhere");
+    expect(messageRule).toContain("user-select: text");
+    expect(messageRule).toContain("white-space: normal");
+    expect(messageRule).not.toContain("text-overflow: ellipsis");
+    expect(removeRule).toContain("opacity: 0");
+    expect(removeRule).toContain("pointer-events: none");
+    expect(revealRule).toContain("opacity: 1");
+    expect(revealRule).toContain("pointer-events: auto");
+  });
+
   it("separates the profile patch editor sections inside a padded content region", () => {
     const patchContentRule = styles.match(/\.profile-patch-content \{[\s\S]*?\n\}/)?.[0];
 
