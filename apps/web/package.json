@@ -8,6 +8,7 @@
     "build:desktop": "vite build --mode desktop && node ../../scripts/verify-desktop-web-bundle.ts",
     "build:mobile": "vite build --mode mobile",
     "dev": "vite",
+    "dev:demo": "vite --mode demo",
     "dev:desktop": "vite --mode desktop",
     "dev:mobile": "vite --mode mobile",
     "preview": "vite preview",

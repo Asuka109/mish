@@ -241,6 +241,9 @@ as local-file import, backup/restore, support-bundle export, and Sidebar materia
 remain unavailable. Then open the bridge root directly, confirm that no product
 or demo state appears before authentication, enter the six-digit PIN shown by
 the desktop app, and confirm that the browser session survives a refresh.
+The explicit source-only `pnpm demo` and `pnpm desktop:demo` targets are outside
+this authentication check; ordinary development and production modes must never
+infer demo mode from a missing or failed backend.
 
 ## Desktop-bridge replacement gate
 

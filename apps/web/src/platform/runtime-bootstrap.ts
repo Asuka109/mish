@@ -47,8 +47,8 @@ interface BrowserBootstrapDependencies {
 }
 
 interface BootstrapDependencies {
-  allowBrowserFixture?: boolean;
   browserBootstrap?: BrowserBootstrapDependencies;
+  demoMode?: boolean;
   invokeCommitLocalRestore(
     previewId: string,
     resolution: LocalRestoreConflictResolution,
@@ -91,7 +91,7 @@ const defaultDependencies: BootstrapDependencies = {
     loadProof: readBrowserProof,
     saveProof: saveBrowserProof,
   },
-  allowBrowserFixture: import.meta.env.MODE === "test",
+  demoMode: import.meta.env.MODE === "demo" || import.meta.env.MODE === "test",
   invokeCommitLocalRestore: (previewId, resolution) =>
     invoke("local_backup_restore_commit", { previewId, resolution }),
   invokeBootstrap: () => invoke("runtime_bootstrap"),
@@ -108,10 +108,13 @@ const defaultDependencies: BootstrapDependencies = {
 export async function resolveStartupStatusClient(
   dependencies: BootstrapDependencies = defaultDependencies,
 ): Promise<StartupStatusClient> {
+  if (dependencies.demoMode) {
+    return createFixtureStartup(dependencies.isDesktop() ? "desktop" : "browser");
+  }
+
   if (!dependencies.isDesktop()) {
     const browser = dependencies.browserBootstrap;
     if (!browser) {
-      if (dependencies.allowBrowserFixture) return createBrowserFixtureStartup();
       throw new BrowserAuthenticationRequired();
     }
     const pin = browser.launchPin();
@@ -122,7 +125,6 @@ export async function resolveStartupStatusClient(
       return createRpcStartup(bootstrap, dependencies, "browser", "mish-browser-client");
     } catch (error) {
       browser.clearProof();
-      if (dependencies.allowBrowserFixture) return createBrowserFixtureStartup();
       if (error instanceof BrowserBootstrapUnavailable) {
         throw new BrowserAuthenticationRequired();
       }
@@ -136,11 +138,11 @@ export async function resolveStartupStatusClient(
   return createRpcStartup(bootstrap, dependencies, "desktop", "mish-desktop-webview");
 }
 
-async function createBrowserFixtureStartup(): Promise<StartupStatusClient> {
+async function createFixtureStartup(runtime: "browser" | "desktop"): Promise<StartupStatusClient> {
   const settingsClient = new FixtureSettingsClient();
   return {
     dispose: () => undefined,
-    runtime: "browser",
+    runtime,
     localBackupClient: new UnavailableLocalBackupClient(),
     settingsClient,
     settingsSnapshot: await settingsClient.getSnapshot(),

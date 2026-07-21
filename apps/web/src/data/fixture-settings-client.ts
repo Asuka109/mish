@@ -102,19 +102,19 @@ export class FixtureSettingsClient implements SettingsClient {
   }
 
   async refreshNetworkDns(): Promise<SettingsSnapshotDto> {
-    throw new Error("Native Network and DNS observation is unavailable in the browser fixture");
+    throw new Error("Native Network and DNS observation is unavailable in demo mode");
   }
 
   async installTunHelper(): Promise<SettingsSnapshotDto> {
-    throw new Error("The signed TUN helper is unavailable in the browser fixture");
+    throw new Error("The signed TUN helper is unavailable in demo mode");
   }
 
   async repairTunHelper(): Promise<SettingsSnapshotDto> {
-    throw new Error("The signed TUN helper is unavailable in the browser fixture");
+    throw new Error("The signed TUN helper is unavailable in demo mode");
   }
 
   async removeTunHelper(): Promise<SettingsSnapshotDto> {
-    throw new Error("The signed TUN helper is unavailable in the browser fixture");
+    throw new Error("The signed TUN helper is unavailable in demo mode");
   }
 
   async setAppearance(appearance: AppearancePreference) {
@@ -128,15 +128,15 @@ export class FixtureSettingsClient implements SettingsClient {
   }
 
   async setOnboardingWelcomeState(_action: OnboardingWelcomeAction): Promise<SettingsSnapshotDto> {
-    throw new Error("Onboarding invitations are unavailable in the browser fixture");
+    throw new Error("Onboarding invitations are unavailable in demo mode");
   }
 
   async setStartup(_startup: StartupPreferencesDto): Promise<SettingsSnapshotDto> {
-    throw new Error("Native startup operations are unavailable in the browser fixture");
+    throw new Error("Native startup operations are unavailable in demo mode");
   }
 
   async setWindowCloseBehavior(_behavior: WindowCloseBehavior): Promise<SettingsSnapshotDto> {
-    throw new Error("Native window lifecycle operations are unavailable in the browser fixture");
+    throw new Error("Native window lifecycle operations are unavailable in demo mode");
   }
 
   async setWindowSurface(surface: WindowSurfacePreference) {

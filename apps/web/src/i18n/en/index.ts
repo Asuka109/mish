@@ -113,7 +113,7 @@ const en = {
     expertDescription:
       "Raw configuration, directories, developer tools, and reset actions require dedicated validation and scope.",
     fixtureDescription:
-      "This browser fixture can preview appearance and language only. It cannot perform or confirm native macOS operations.",
+      "Demo mode can preview appearance and language only. It cannot perform or confirm native macOS operations.",
     followsSystem: "Follows system",
     hideToStatusBar: "Hide to status bar",
     installTunHelper: "Install helper",
@@ -598,7 +598,7 @@ const en = {
     patchEnable: "Enable",
     patchEnabled: "Enabled",
     patchFixture:
-      "Illustrative browser fixture only. This fictional patch is not validated or activated by a desktop runtime.",
+      "Illustrative demo data only. This fictional patch is not validated or activated by an operational desktop runtime.",
     patchFormDescription: "Only entities known to the current source revision can be referenced.",
     patchGroupAdd: "Add selector group",
     patchGroupLabel: "Group label",
@@ -705,7 +705,7 @@ const en = {
     emptyTitle: "No saved profiles",
     error: "Latest attempt failed",
     fixtureDescription:
-      "This browser-only view uses fictional metadata. Import, refresh, save, delete, and local file access are unavailable.",
+      "This demo uses fictional metadata. Import, refresh, save, delete, and local file access are unavailable.",
     groups: "Groups",
     httpsDescription: "The complete address remains visible on this profile's card.",
     httpsLabel: "Subscription URL",
@@ -741,7 +741,7 @@ const en = {
     provenanceActivationImpact: "Activation impact",
     provenanceApplicationPolicy: "Application policy",
     provenanceAuthorityDesktop: "Validated by the desktop policy engine",
-    provenanceAuthorityFixture: "Illustrative browser fixture — not desktop validation",
+    provenanceAuthorityFixture: "Illustrative demo data — not operational desktop validation",
     provenanceAuthorityMigrated:
       "Migrated policy baseline — refresh this profile to review source-field presence",
     provenanceBaseline: "Managed baseline",
@@ -790,7 +790,7 @@ const en = {
     providerAvailable: "Available",
     providerDegraded: "Degraded",
     providerFixtureBoundary:
-      "Browser fixture mode does not observe a real Mihomo runtime or execute provider updates.",
+      "Demo mode does not observe a real Mihomo runtime or execute provider updates.",
     providerLastUpdate: "Core last update",
     providerNotCancellable:
       "Mihomo v1.19.29 does not provide remote cancellation for provider updates. If the runtime changes, Mish discards the old result.",
@@ -965,7 +965,7 @@ const en = {
     closeTimeout:
       "Mihomo did not confirm the close before the deadline. The latest authoritative snapshot is shown.",
     closeUnsupported:
-      "Connection closing is unavailable in this runtime. Browser fixture data never reports desktop mutation success.",
+      "Connection closing is unavailable in this runtime. Demo data never reports operational mutation success.",
     closingAllActive: "Closing active connections…",
     closingConnection: "Closing…",
     closed: "Closed",
@@ -1046,7 +1046,7 @@ const en = {
     copyEvent: "Copy safe event text",
     description: "Bounded, redacted application and Mihomo Controller observations.",
     fixtureNotice:
-      "Fictional browser fixture events. No desktop Controller, file, network, or system source was contacted.",
+      "Fictional demo events. No desktop Controller, file, network, or system source was contacted.",
     followLatest: "Follow latest",
     followingLatest: "Following latest",
     level: {
@@ -1156,10 +1156,10 @@ const en = {
       timeRange: "Included time range",
       title: "Local support bundle",
       unavailable:
-        "Support bundle export is unavailable in the browser. Use the desktop application to preview and save locally.",
+        "Support bundle export is unavailable in demo mode. Use the operational desktop application to preview and save locally.",
     },
     fixtureNotice:
-      "Fictional browser fixture results. They are not a desktop diagnostic run or a device observation.",
+      "Fictional demo results. They are not an operational diagnostic run or a device observation.",
     inference: "Interpretation",
     observation: "Observed fact",
     open: "Open diagnostics",

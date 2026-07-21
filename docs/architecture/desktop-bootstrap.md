@@ -23,6 +23,16 @@ desktop app. Both paths construct the Status, Profile, Traffic, Events,
 Diagnostics, and Settings RPC adapters only after authentication. The Tauri
 WebView uses a separate private IPC bootstrap for those adapters.
 
+Source development exposes fixtures only through `pnpm demo` and
+`pnpm desktop:demo`. The browser command selects fixtures before any bootstrap
+request. The desktop command uses the isolated `com.asuka109.mish.demo`
+identifier and a minimal Tauri shell that exposes only window reveal plus safe
+native window interactions. It does not validate or start Core, resolve the
+operational app-data directory, acquire the managed-runtime lease, construct the
+bridge or platform adapters, register lifecycle observers, or install the
+operational status bar. Missing or failed authentication in every non-demo mode
+still fails closed and never selects fixtures.
+
 ## Local resource flow
 
 1. `pnpm desktop:build` builds `apps/web/dist` before compiling the shell.
@@ -31,10 +41,12 @@ WebView uses a separate private IPC bootstrap for those adapters.
    hosted frontend, or runtime asset download is configured.
 4. Tauri's embedded asset resolver serves exact assets and falls back to
    `index.html` for an unknown route so React Router can handle direct links.
-5. During development, the shell explicitly loads `http://127.0.0.1:4173`, and
-   Vite supplies the equivalent SPA fallback. The development command first
-   builds `apps/web/dist` so the bridge can serve a deterministic browser-client
-   artifact through Tauri's asset resolver while the WebView uses Vite HMR.
+5. During development, the launcher selects the first available IPv4-loopback
+   port from 4173 and supplies the same exact origin to Vite, Tauri's `devUrl`,
+   and the bridge allowlist. Vite supplies the equivalent SPA fallback. The
+   development command first builds `apps/web/dist` so the bridge can serve a
+   deterministic browser-client artifact through Tauri's asset resolver while
+   the WebView uses Vite HMR.
 6. The shell obtains 32 bytes from the operating-system CSPRNG, hex-encodes the
    token, resolves Tauri's application-data directory, constructs the private
    profile repository, runtime root, and mode-`0600` System Proxy recovery

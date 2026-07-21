@@ -7,16 +7,18 @@ use `<scope>:<action>[:<variant>]` when they target one product area and
 
 ## Daily commands
 
-| Command             | Purpose                                               |
-| ------------------- | ----------------------------------------------------- |
-| `pnpm dev`          | Start the production Web fixture on `127.0.0.1:4173`. |
-| `pnpm desktop:dev`  | Start the Tauri desktop development shell.            |
-| `pnpm sketch:dev`   | Start the retained interaction reference.             |
-| `pnpm test:watch`   | Run Web unit tests in watch mode.                     |
-| `pnpm test:unit`    | Run all TypeScript unit tests once.                   |
-| `pnpm check`        | Run the fast pull-request-equivalent gate.            |
-| `pnpm check:all`    | Run the complete non-browser repository inspection.   |
-| `pnpm test:browser` | Run the responsive suite in a real Chromium browser.  |
+| Command             | Purpose                                                      |
+| ------------------- | ------------------------------------------------------------ |
+| `pnpm demo`         | Start the explicit browser demo on the first port from 4173. |
+| `pnpm desktop:demo` | Start the backend-free demo in a native Tauri window.        |
+| `pnpm dev`          | Start the ordinary unauthenticated Web development entry.    |
+| `pnpm desktop:dev`  | Start operational Tauri with an auto-selected Web origin.    |
+| `pnpm sketch:dev`   | Start the retained interaction reference.                    |
+| `pnpm test:watch`   | Run Web unit tests in watch mode.                            |
+| `pnpm test:unit`    | Run all TypeScript unit tests once.                          |
+| `pnpm check`        | Run the fast pull-request-equivalent gate.                   |
+| `pnpm check:all`    | Run the complete non-browser repository inspection.          |
+| `pnpm test:browser` | Run the responsive suite in a real Chromium browser.         |
 
 Arguments pass through to the underlying package command. For example:
 
@@ -30,13 +32,19 @@ pnpm web:test:run -- src/path/to/example.test.ts
 
 | Scope   | Commands                                                                                                                         |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Web     | `web:dev`, `web:build`, `web:preview`, `web:test`, `web:test:run`                                                                |
-| Desktop | `desktop:dev`, `desktop:build`, `desktop:bundle:macos`, `desktop:bundle:verify:macos`                                            |
+| Web     | `web:demo`, `web:dev`, `web:build`, `web:preview`, `web:test`, `web:test:run`                                                    |
+| Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:bundle:macos`, `desktop:bundle:verify:macos`                            |
 | Sketch  | `sketch:dev`, `sketch:build`, `sketch:preview`                                                                                   |
 | Android | `mobile:android:init`, `mobile:android:configure`, `mobile:android:prepare-tests`, `mobile:android:test`, `mobile:android:build` |
 
 `sketch/` remains an independent pnpm workspace. Its root commands use
 `pnpm --dir sketch`, so callers do not need to change directories.
+
+Web servers and backend-free desktop demos from separate worktrees can run
+concurrently because each process falls back to its own available port. An
+operational desktop launcher coordinates that port but intentionally retains
+one shared managed-runtime lease; stop the running operational desktop before
+launching another worktree that can operate Mihomo or system capture.
 
 ## Tests
 

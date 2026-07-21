@@ -26,11 +26,16 @@ Requirements: Node.js 24, pnpm 11.13.1, and stable Rust.
 ```sh
 pnpm install --frozen-lockfile
 pnpm check:pr
-pnpm dev
+pnpm demo
 ```
 
-`pnpm dev` serves the browser fixture at `http://127.0.0.1:4173`. It does not
-start Mihomo or change system network settings.
+`pnpm demo` serves the explicit browser demo on `http://127.0.0.1:4173` when
+available and otherwise uses the next available port. It does not authenticate,
+read application data, start Mihomo, or change system network settings.
+
+Use `pnpm desktop:demo` for the same fictional data in a native Tauri desktop
+window. It can run beside an operational desktop instance because it does not
+initialize the bridge, managed-runtime lease, Core, System Proxy, or TUN.
 
 For desktop development:
 

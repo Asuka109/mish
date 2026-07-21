@@ -52,6 +52,8 @@ mod native_menu;
 mod status_bar;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
+const DEV_ORIGIN_ENV: &str = "MISH_DEV_ORIGIN";
+const DESKTOP_DEMO_ENV: &str = "MISH_DESKTOP_DEMO";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
 const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
 
@@ -507,6 +509,14 @@ fn invalidate_pending<T>(pending: &Mutex<Option<T>>) -> Result<(), LocalBackupCo
 }
 
 pub fn run() -> Result<i32, String> {
+    let context = tauri::generate_context!();
+    if desktop_demo_requested(
+        tauri::is_dev(),
+        std::env::var(DESKTOP_DEMO_ENV).ok().as_deref(),
+    ) {
+        return run_demo(context);
+    }
+
     let requested_mihomo = std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from);
     validate_development_mihomo_environment(tauri::is_dev(), requested_mihomo.as_deref())?;
     let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
@@ -540,7 +550,7 @@ pub fn run() -> Result<i32, String> {
             local_backup_restore_preview,
             local_backup_restore_commit
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .map_err(|error| error.to_string())?;
     let exit_code = app.run_return(|app, event| {
         if !cfg!(target_os = "macos") {
@@ -582,6 +592,44 @@ pub fn run() -> Result<i32, String> {
     if let Some(bridge) = bridge {
         tauri::async_runtime::block_on(bridge.shutdown());
     }
+    Ok(exit_code)
+}
+
+fn run_demo(context: tauri::Context<tauri::Wry>) -> Result<i32, String> {
+    let app = tauri::Builder::default()
+        .manage(MainWindowStartup {
+            reveal_on_ready: true,
+        })
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                window.set_title("Mish Demo")?;
+            }
+            if cfg!(target_os = "macos") {
+                native_menu::install(app)?;
+            }
+            Ok(())
+        })
+        .on_menu_event(native_menu::handle_menu_event)
+        .invoke_handler(tauri::generate_handler![reveal_main_window])
+        .build(context)
+        .map_err(|error| error.to_string())?;
+    let exit_code = app.run_return(|app, event| {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        match event {
+            tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { .. },
+                ..
+            } if label == "main" => app.exit(0),
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => status_bar::show_main_window(app, None),
+            _ => {}
+        }
+    });
     Ok(exit_code)
 }
 
@@ -747,7 +795,11 @@ fn initialize(
         activation.start_directory_reconciler().await;
         let bridge = start_loopback_server_with_runtime_host_and_lifecycle(
             LoopbackServerConfig {
-                allowed_origins: allowed_origins(tauri::is_dev()),
+                allowed_origins: allowed_origins(
+                    tauri::is_dev(),
+                    std::env::var(DEV_ORIGIN_ENV).ok().as_deref(),
+                )
+                .map_err(io::Error::other)?,
                 auth_token: auth_token.clone(),
                 bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
                 browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
@@ -928,6 +980,10 @@ fn validate_development_mihomo_environment(
     Ok(())
 }
 
+fn desktop_demo_requested(is_dev: bool, requested: Option<&str>) -> bool {
+    is_dev && requested == Some("1")
+}
+
 fn ephemeral_runtime_policy()
 -> Result<ManagedRuntimePolicy, mish_bridge::RuntimeConfigGenerationError> {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
@@ -991,11 +1047,23 @@ fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
     }
 }
 
-fn allowed_origins(is_dev: bool) -> Vec<String> {
+fn allowed_origins(
+    is_dev: bool,
+    configured_development_origin: Option<&str>,
+) -> Result<Vec<String>, &'static str> {
     if is_dev {
-        return vec![DEV_ORIGIN.to_owned()];
+        let origin = configured_development_origin.unwrap_or(DEV_ORIGIN);
+        let parsed = tauri::Url::parse(origin).map_err(|_| "invalid development Web origin")?;
+        let port = parsed
+            .port()
+            .ok_or("development Web origin must include an explicit port")?;
+        let expected = format!("http://127.0.0.1:{port}");
+        if origin != expected {
+            return Err("development Web origin must be an exact IPv4 loopback HTTP origin");
+        }
+        return Ok(vec![origin.to_owned()]);
     }
-    PRODUCTION_ORIGINS.into_iter().map(str::to_owned).collect()
+    Ok(PRODUCTION_ORIGINS.into_iter().map(str::to_owned).collect())
 }
 
 fn generate_auth_token() -> Result<String, String> {
@@ -1277,9 +1345,9 @@ mod tests {
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, PRODUCTION_ORIGINS,
         SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins, atomic_write_bounded,
-        atomic_write_support_bundle_with_failure, generate_auth_token, invalidate_pending,
-        managed_mihomo_resolver, read_local_backup, save_support_bundle_selection,
-        should_hide_main_window_on_close, should_show_main_window,
+        atomic_write_support_bundle_with_failure, desktop_demo_requested, generate_auth_token,
+        invalidate_pending, managed_mihomo_resolver, read_local_backup,
+        save_support_bundle_selection, should_hide_main_window_on_close, should_show_main_window,
         validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
@@ -1297,12 +1365,28 @@ mod tests {
 
     #[test]
     fn development_accepts_only_the_explicit_vite_origin() {
-        assert_eq!(allowed_origins(true), [DEV_ORIGIN]);
+        assert_eq!(allowed_origins(true, None).unwrap(), [DEV_ORIGIN]);
+        assert_eq!(
+            allowed_origins(true, Some("http://127.0.0.1:4174")).unwrap(),
+            ["http://127.0.0.1:4174"]
+        );
+    }
+
+    #[test]
+    fn development_rejects_non_loopback_or_non_origin_overrides() {
+        for origin in [
+            "http://localhost:4174",
+            "http://127.0.0.1:4174/",
+            "https://127.0.0.1:4174",
+            "http://example.com:4174",
+        ] {
+            assert!(allowed_origins(true, Some(origin)).is_err());
+        }
     }
 
     #[test]
     fn production_accepts_only_bundled_tauri_origins() {
-        assert_eq!(allowed_origins(false), PRODUCTION_ORIGINS);
+        assert_eq!(allowed_origins(false, None).unwrap(), PRODUCTION_ORIGINS);
     }
 
     #[test]
@@ -1312,6 +1396,14 @@ mod tests {
 
         assert!(error.contains("MISH_MIHOMO_BIN is required"));
         assert!(error.contains("pnpm prepare:mihomo"));
+    }
+
+    #[test]
+    fn desktop_demo_requires_an_explicit_development_only_request() {
+        assert!(desktop_demo_requested(true, Some("1")));
+        assert!(!desktop_demo_requested(true, None));
+        assert!(!desktop_demo_requested(true, Some("true")));
+        assert!(!desktop_demo_requested(false, Some("1")));
     }
 
     #[test]

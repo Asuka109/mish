@@ -423,10 +423,7 @@ export class FixtureStatusClient implements StatusClient {
     if (options?.signal?.aborted) {
       throw new StatusClientError("cancelled", "The fixture request was cancelled");
     }
-    throw new StatusClientError(
-      "unsupported",
-      "The browser fixture has no local Mihomo proxy listener",
-    );
+    throw new StatusClientError("unsupported", "Demo mode has no local Mihomo proxy listener");
   }
 
   async setActiveProfile(profileId: string, options?: { signal?: AbortSignal }) {
@@ -461,17 +458,14 @@ export class FixtureStatusClient implements StatusClient {
     _groupId: string,
     _options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto> {
-    throw new StatusClientError(
-      "unsupported",
-      "Browser fixtures do not execute Mihomo delay tests",
-    );
+    throw new StatusClientError("unsupported", "Demo mode does not execute Mihomo delay tests");
   }
 
   async cancelGroupDelayTest(
     _testId: string,
     _options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto> {
-    throw new StatusClientError("unsupported", "Browser fixtures do not own Mihomo delay tests");
+    throw new StatusClientError("unsupported", "Demo mode does not own Mihomo delay tests");
   }
 
   async upsertServiceMonitor(draft: ServiceMonitorDraft, options?: { signal?: AbortSignal }) {

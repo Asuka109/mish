@@ -359,7 +359,7 @@ function cancelled() {
 function unsupported() {
   return new ProfileClientError(
     "unsupported",
-    "Profile mutations are unavailable in the isolated browser fixture",
+    "Profile mutations are unavailable in isolated demo mode",
   );
 }
 

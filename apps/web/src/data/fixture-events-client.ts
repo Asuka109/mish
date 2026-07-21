@@ -47,7 +47,7 @@ export class FixtureEventsClient implements EventsClient {
     sequence: 3,
     sessionId: "fixture-events",
     sourceStatuses: ["application", "core", "platform", "rpc"].map((source) => ({
-      detail: "Synthetic browser-only fixture; no desktop source was contacted",
+      detail: "Synthetic demo fixture; no desktop source was contacted",
       phase: "fixture-only" as const,
       source: source as "application" | "core" | "platform" | "rpc",
     })),

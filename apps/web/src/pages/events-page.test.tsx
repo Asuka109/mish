@@ -53,7 +53,7 @@ describe("Events page", () => {
   it("labels browser data as fictional and exposes every unsupported source explicitly", async () => {
     const view = renderEvents(new FixtureEventsClient());
 
-    expect(await screen.findByText(/Fictional browser fixture events/)).toBeVisible();
+    expect(await screen.findByText(/Fictional demo events/)).toBeVisible();
     const sources = screen.getByRole("region", { name: "Event sources" });
     expect(
       within(sources).getByText(
@@ -64,7 +64,7 @@ describe("Events page", () => {
     expect(within(sources).queryByText(/Synthetic browser-only fixture/)).not.toBeInTheDocument();
     expect(view.container.querySelectorAll(".events-source-indicator")).toHaveLength(4);
     expect(screen.getByRole("button", { name: "Preview support bundle" })).toBeDisabled();
-    expect(screen.getByText(/unavailable in the browser/i)).toBeVisible();
+    expect(screen.getByText(/unavailable in demo mode/i)).toBeVisible();
   });
 
   it("filters text, pauses the view while buffering, resumes, and clears only local memory", async () => {
@@ -142,7 +142,7 @@ describe("Events page", () => {
     renderEvents(new FixtureEventsClient());
 
     const run = await findEnabledButton("Run diagnostics");
-    expect(screen.getByText(/Fictional browser fixture results/)).toBeVisible();
+    expect(screen.getByText(/Fictional demo results/)).toBeVisible();
     expect(screen.queryByText("Synthetic fixture DNS failure")).not.toBeInTheDocument();
 
     await waitForInitialRouteReady();
@@ -153,7 +153,7 @@ describe("Events page", () => {
     expect(screen.getAllByText("Observed fact").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Interpretation").length).toBeGreaterThan(0);
     expect(screen.getByText(/mish-guided-diagnostics-fixture-v1/)).toBeVisible();
-    expect(screen.getByText(/not a desktop diagnostic run/i)).toBeVisible();
+    expect(screen.getByText(/not an operational diagnostic run/i)).toBeVisible();
     expect(screen.getByRole("button", { name: "Preview support bundle" })).toBeDisabled();
   });
 

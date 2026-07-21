@@ -64,6 +64,29 @@ const supportBundleDependencies = {
 };
 
 describe("desktop runtime bootstrap", () => {
+  it.each([
+    [false, "browser"],
+    [true, "desktop"],
+  ] as const)(
+    "starts explicit demo fixtures without contacting a backend when desktop is %s",
+    async (desktop, runtime) => {
+      const invokeBootstrap = vi.fn();
+      const startup = await resolveStartupStatusClient({
+        demoMode: true,
+        invokeBootstrap,
+        invokeLocalProfilePreflight: vi.fn(),
+        ...supportBundleDependencies,
+        isDesktop: () => desktop,
+        openWebSocket: vi.fn(),
+      });
+
+      expect(startup.runtime).toBe(runtime);
+      expect(startup.settingsSnapshot.adapterKind).toBe("fixture");
+      expect(invokeBootstrap).not.toHaveBeenCalled();
+      startup.dispose();
+    },
+  );
+
   it("requires authentication for an ordinary browser instead of exposing fixtures", async () => {
     const invokeBootstrap = vi.fn();
     const invokeLocalProfilePreflight = vi.fn();

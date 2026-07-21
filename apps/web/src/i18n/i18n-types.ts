@@ -359,7 +359,7 @@ type RootTranslation = {
 		 */
 		expertDescription: string
 		/**
-		 * T​h​i​s​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​c​a​n​ ​p​r​e​v​i​e​w​ ​a​p​p​e​a​r​a​n​c​e​ ​a​n​d​ ​l​a​n​g​u​a​g​e​ ​o​n​l​y​.​ ​I​t​ ​c​a​n​n​o​t​ ​p​e​r​f​o​r​m​ ​o​r​ ​c​o​n​f​i​r​m​ ​n​a​t​i​v​e​ ​m​a​c​O​S​ ​o​p​e​r​a​t​i​o​n​s​.
+		 * D​e​m​o​ ​m​o​d​e​ ​c​a​n​ ​p​r​e​v​i​e​w​ ​a​p​p​e​a​r​a​n​c​e​ ​a​n​d​ ​l​a​n​g​u​a​g​e​ ​o​n​l​y​.​ ​I​t​ ​c​a​n​n​o​t​ ​p​e​r​f​o​r​m​ ​o​r​ ​c​o​n​f​i​r​m​ ​n​a​t​i​v​e​ ​m​a​c​O​S​ ​o​p​e​r​a​t​i​o​n​s​.
 		 */
 		fixtureDescription: string
 		/**
@@ -1941,7 +1941,7 @@ type RootTranslation = {
 		 */
 		patchEnabled: string
 		/**
-		 * I​l​l​u​s​t​r​a​t​i​v​e​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​o​n​l​y​.​ ​T​h​i​s​ ​f​i​c​t​i​o​n​a​l​ ​p​a​t​c​h​ ​i​s​ ​n​o​t​ ​v​a​l​i​d​a​t​e​d​ ​o​r​ ​a​c​t​i​v​a​t​e​d​ ​b​y​ ​a​ ​d​e​s​k​t​o​p​ ​r​u​n​t​i​m​e​.
+		 * I​l​l​u​s​t​r​a​t​i​v​e​ ​d​e​m​o​ ​d​a​t​a​ ​o​n​l​y​.​ ​T​h​i​s​ ​f​i​c​t​i​o​n​a​l​ ​p​a​t​c​h​ ​i​s​ ​n​o​t​ ​v​a​l​i​d​a​t​e​d​ ​o​r​ ​a​c​t​i​v​a​t​e​d​ ​b​y​ ​a​n​ ​o​p​e​r​a​t​i​o​n​a​l​ ​d​e​s​k​t​o​p​ ​r​u​n​t​i​m​e​.
 		 */
 		patchFixture: string
 		/**
@@ -2323,7 +2323,7 @@ type RootTranslation = {
 		 */
 		error: string
 		/**
-		 * T​h​i​s​ ​b​r​o​w​s​e​r​-​o​n​l​y​ ​v​i​e​w​ ​u​s​e​s​ ​f​i​c​t​i​o​n​a​l​ ​m​e​t​a​d​a​t​a​.​ ​I​m​p​o​r​t​,​ ​r​e​f​r​e​s​h​,​ ​s​a​v​e​,​ ​d​e​l​e​t​e​,​ ​a​n​d​ ​l​o​c​a​l​ ​f​i​l​e​ ​a​c​c​e​s​s​ ​a​r​e​ ​u​n​a​v​a​i​l​a​b​l​e​.
+		 * T​h​i​s​ ​d​e​m​o​ ​u​s​e​s​ ​f​i​c​t​i​o​n​a​l​ ​m​e​t​a​d​a​t​a​.​ ​I​m​p​o​r​t​,​ ​r​e​f​r​e​s​h​,​ ​s​a​v​e​,​ ​d​e​l​e​t​e​,​ ​a​n​d​ ​l​o​c​a​l​ ​f​i​l​e​ ​a​c​c​e​s​s​ ​a​r​e​ ​u​n​a​v​a​i​l​a​b​l​e​.
 		 */
 		fixtureDescription: string
 		/**
@@ -2459,7 +2459,7 @@ type RootTranslation = {
 		 */
 		provenanceAuthorityDesktop: string
 		/**
-		 * I​l​l​u​s​t​r​a​t​i​v​e​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​—​ ​n​o​t​ ​d​e​s​k​t​o​p​ ​v​a​l​i​d​a​t​i​o​n
+		 * I​l​l​u​s​t​r​a​t​i​v​e​ ​d​e​m​o​ ​d​a​t​a​ ​—​ ​n​o​t​ ​o​p​e​r​a​t​i​o​n​a​l​ ​d​e​s​k​t​o​p​ ​v​a​l​i​d​a​t​i​o​n
 		 */
 		provenanceAuthorityFixture: string
 		/**
@@ -2641,7 +2641,7 @@ type RootTranslation = {
 		 */
 		providerDegraded: string
 		/**
-		 * B​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​m​o​d​e​ ​d​o​e​s​ ​n​o​t​ ​o​b​s​e​r​v​e​ ​a​ ​r​e​a​l​ ​M​i​h​o​m​o​ ​r​u​n​t​i​m​e​ ​o​r​ ​e​x​e​c​u​t​e​ ​p​r​o​v​i​d​e​r​ ​u​p​d​a​t​e​s​.
+		 * D​e​m​o​ ​m​o​d​e​ ​d​o​e​s​ ​n​o​t​ ​o​b​s​e​r​v​e​ ​a​ ​r​e​a​l​ ​M​i​h​o​m​o​ ​r​u​n​t​i​m​e​ ​o​r​ ​e​x​e​c​u​t​e​ ​p​r​o​v​i​d​e​r​ ​u​p​d​a​t​e​s​.
 		 */
 		providerFixtureBoundary: string
 		/**
@@ -3210,7 +3210,7 @@ type RootTranslation = {
 		 */
 		closeTimeout: string
 		/**
-		 * C​o​n​n​e​c​t​i​o​n​ ​c​l​o​s​i​n​g​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​r​u​n​t​i​m​e​.​ ​B​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​d​a​t​a​ ​n​e​v​e​r​ ​r​e​p​o​r​t​s​ ​d​e​s​k​t​o​p​ ​m​u​t​a​t​i​o​n​ ​s​u​c​c​e​s​s​.
+		 * C​o​n​n​e​c​t​i​o​n​ ​c​l​o​s​i​n​g​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​r​u​n​t​i​m​e​.​ ​D​e​m​o​ ​d​a​t​a​ ​n​e​v​e​r​ ​r​e​p​o​r​t​s​ ​o​p​e​r​a​t​i​o​n​a​l​ ​m​u​t​a​t​i​o​n​ ​s​u​c​c​e​s​s​.
 		 */
 		closeUnsupported: string
 		/**
@@ -3509,7 +3509,7 @@ type RootTranslation = {
 		 */
 		description: string
 		/**
-		 * F​i​c​t​i​o​n​a​l​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​e​v​e​n​t​s​.​ ​N​o​ ​d​e​s​k​t​o​p​ ​C​o​n​t​r​o​l​l​e​r​,​ ​f​i​l​e​,​ ​n​e​t​w​o​r​k​,​ ​o​r​ ​s​y​s​t​e​m​ ​s​o​u​r​c​e​ ​w​a​s​ ​c​o​n​t​a​c​t​e​d​.
+		 * F​i​c​t​i​o​n​a​l​ ​d​e​m​o​ ​e​v​e​n​t​s​.​ ​N​o​ ​d​e​s​k​t​o​p​ ​C​o​n​t​r​o​l​l​e​r​,​ ​f​i​l​e​,​ ​n​e​t​w​o​r​k​,​ ​o​r​ ​s​y​s​t​e​m​ ​s​o​u​r​c​e​ ​w​a​s​ ​c​o​n​t​a​c​t​e​d​.
 		 */
 		fixtureNotice: string
 		/**
@@ -3877,12 +3877,12 @@ type RootTranslation = {
 			 */
 			title: string
 			/**
-			 * S​u​p​p​o​r​t​ ​b​u​n​d​l​e​ ​e​x​p​o​r​t​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​e​ ​b​r​o​w​s​e​r​.​ ​U​s​e​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​a​p​p​l​i​c​a​t​i​o​n​ ​t​o​ ​p​r​e​v​i​e​w​ ​a​n​d​ ​s​a​v​e​ ​l​o​c​a​l​l​y​.
+			 * S​u​p​p​o​r​t​ ​b​u​n​d​l​e​ ​e​x​p​o​r​t​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​i​n​ ​d​e​m​o​ ​m​o​d​e​.​ ​U​s​e​ ​t​h​e​ ​o​p​e​r​a​t​i​o​n​a​l​ ​d​e​s​k​t​o​p​ ​a​p​p​l​i​c​a​t​i​o​n​ ​t​o​ ​p​r​e​v​i​e​w​ ​a​n​d​ ​s​a​v​e​ ​l​o​c​a​l​l​y​.
 			 */
 			unavailable: string
 		}
 		/**
-		 * F​i​c​t​i​o​n​a​l​ ​b​r​o​w​s​e​r​ ​f​i​x​t​u​r​e​ ​r​e​s​u​l​t​s​.​ ​T​h​e​y​ ​a​r​e​ ​n​o​t​ ​a​ ​d​e​s​k​t​o​p​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​ ​o​r​ ​a​ ​d​e​v​i​c​e​ ​o​b​s​e​r​v​a​t​i​o​n​.
+		 * F​i​c​t​i​o​n​a​l​ ​d​e​m​o​ ​r​e​s​u​l​t​s​.​ ​T​h​e​y​ ​a​r​e​ ​n​o​t​ ​a​n​ ​o​p​e​r​a​t​i​o​n​a​l​ ​d​i​a​g​n​o​s​t​i​c​ ​r​u​n​ ​o​r​ ​a​ ​d​e​v​i​c​e​ ​o​b​s​e​r​v​a​t​i​o​n​.
 		 */
 		fixtureNotice: string
 		/**
@@ -4625,7 +4625,7 @@ export type TranslationFunctions = {
 		 */
 		expertDescription: () => LocalizedString
 		/**
-		 * This browser fixture can preview appearance and language only. It cannot perform or confirm native macOS operations.
+		 * Demo mode can preview appearance and language only. It cannot perform or confirm native macOS operations.
 		 */
 		fixtureDescription: () => LocalizedString
 		/**
@@ -6161,7 +6161,7 @@ export type TranslationFunctions = {
 		 */
 		patchEnabled: () => LocalizedString
 		/**
-		 * Illustrative browser fixture only. This fictional patch is not validated or activated by a desktop runtime.
+		 * Illustrative demo data only. This fictional patch is not validated or activated by an operational desktop runtime.
 		 */
 		patchFixture: () => LocalizedString
 		/**
@@ -6533,7 +6533,7 @@ export type TranslationFunctions = {
 		 */
 		error: () => LocalizedString
 		/**
-		 * This browser-only view uses fictional metadata. Import, refresh, save, delete, and local file access are unavailable.
+		 * This demo uses fictional metadata. Import, refresh, save, delete, and local file access are unavailable.
 		 */
 		fixtureDescription: () => LocalizedString
 		/**
@@ -6669,7 +6669,7 @@ export type TranslationFunctions = {
 		 */
 		provenanceAuthorityDesktop: () => LocalizedString
 		/**
-		 * Illustrative browser fixture — not desktop validation
+		 * Illustrative demo data — not operational desktop validation
 		 */
 		provenanceAuthorityFixture: () => LocalizedString
 		/**
@@ -6849,7 +6849,7 @@ export type TranslationFunctions = {
 		 */
 		providerDegraded: () => LocalizedString
 		/**
-		 * Browser fixture mode does not observe a real Mihomo runtime or execute provider updates.
+		 * Demo mode does not observe a real Mihomo runtime or execute provider updates.
 		 */
 		providerFixtureBoundary: () => LocalizedString
 		/**
@@ -7407,7 +7407,7 @@ export type TranslationFunctions = {
 		 */
 		closeTimeout: () => LocalizedString
 		/**
-		 * Connection closing is unavailable in this runtime. Browser fixture data never reports desktop mutation success.
+		 * Connection closing is unavailable in this runtime. Demo data never reports operational mutation success.
 		 */
 		closeUnsupported: () => LocalizedString
 		/**
@@ -7701,7 +7701,7 @@ export type TranslationFunctions = {
 		 */
 		description: () => LocalizedString
 		/**
-		 * Fictional browser fixture events. No desktop Controller, file, network, or system source was contacted.
+		 * Fictional demo events. No desktop Controller, file, network, or system source was contacted.
 		 */
 		fixtureNotice: () => LocalizedString
 		/**
@@ -8066,12 +8066,12 @@ export type TranslationFunctions = {
 			 */
 			title: () => LocalizedString
 			/**
-			 * Support bundle export is unavailable in the browser. Use the desktop application to preview and save locally.
+			 * Support bundle export is unavailable in demo mode. Use the operational desktop application to preview and save locally.
 			 */
 			unavailable: () => LocalizedString
 		}
 		/**
-		 * Fictional browser fixture results. They are not a desktop diagnostic run or a device observation.
+		 * Fictional demo results. They are not an operational diagnostic run or a device observation.
 		 */
 		fixtureNotice: () => LocalizedString
 		/**
