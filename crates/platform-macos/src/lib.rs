@@ -209,7 +209,9 @@ impl TunHelperPlatform for MacOsTunHelperPlatform {
         Box::pin(async move { Err(error) })
     }
 
-    fn observe_tun(&self) -> BoxFuture<'_, Result<bool, TunHelperError>> {
+    fn observe_tun(
+        &self,
+    ) -> BoxFuture<'_, Result<mish_runtime::TunNetworkObservation, TunHelperError>> {
         let error = self.error();
         Box::pin(async move { Err(error) })
     }
@@ -565,6 +567,7 @@ pub enum MacOsProxyKind {
 pub enum MacOsCommand {
     DefaultRoute,
     DnsConfiguration,
+    InterfaceConfiguration,
     GetAutoProxyUrl {
         service: String,
     },
@@ -577,6 +580,7 @@ pub enum MacOsCommand {
     },
     ListNetworkServiceOrder,
     NetworkInformation,
+    RoutingTable,
     SetProxy {
         host: String,
         kind: MacOsProxyKind,
@@ -608,9 +612,17 @@ impl MacOsCommand {
                 arguments: vec!["--dns".into()],
                 program: "/usr/sbin/scutil",
             },
+            Self::InterfaceConfiguration => MacOsCommandSpec {
+                arguments: Vec::new(),
+                program: "/sbin/ifconfig",
+            },
             Self::NetworkInformation => MacOsCommandSpec {
                 arguments: vec!["--nwi".into()],
                 program: "/usr/sbin/scutil",
+            },
+            Self::RoutingTable => MacOsCommandSpec {
+                arguments: vec!["-rn".into()],
+                program: "/usr/sbin/netstat",
             },
             Self::GetProxy { kind, service } => networksetup_spec([proxy_get_flag(*kind), service]),
             Self::GetAutoProxyUrl { service } => networksetup_spec(["-getautoproxyurl", service]),

@@ -315,6 +315,9 @@ pub enum TunPhase {
 pub enum TunObservedState {
     Disabled,
     Enabled,
+    Foreign,
+    Partial,
+    Stale,
     Unknown,
 }
 
@@ -331,6 +334,9 @@ pub enum TunFailureKind {
     HelperPermissionDenied,
     HelperProtocolMismatch,
     HelperVersionMismatch,
+    ObservationForeign,
+    ObservationPartial,
+    ObservationStale,
     RollbackFailed,
     RuntimeTransition,
 }
@@ -340,6 +346,7 @@ pub enum TunFailureKind {
 pub struct TunRuntimeStatus {
     pub desired: bool,
     pub failure: Option<TunFailureKind>,
+    pub observation: Option<crate::TunNetworkObservation>,
     pub observed: TunObservedState,
     pub phase: TunPhase,
 }
@@ -349,6 +356,7 @@ impl TunRuntimeStatus {
         Self {
             desired: false,
             failure: None,
+            observation: None,
             observed: TunObservedState::Unknown,
             phase: TunPhase::Off,
         }
@@ -1286,11 +1294,16 @@ impl TunReconciler {
         }
         if desired && self.availability() != CapabilityAvailability::Supported {
             let failure = helper_snapshot_failure(&self.helper.snapshot());
-            self.record_failure(true, failure, previous.observed);
+            self.record_failure(true, failure, previous.observed, previous.observation);
             return Err(capture_error_from_tun_failure(failure));
         }
         if desired && !core_healthy {
-            self.record_failure(true, TunFailureKind::CoreUnhealthy, previous.observed);
+            self.record_failure(
+                true,
+                TunFailureKind::CoreUnhealthy,
+                previous.observed,
+                previous.observation,
+            );
             return Err(CaptureTransitionError::new(
                 CaptureFailureKind::CoreUnhealthy,
                 "TUN capture requires a healthy Mihomo core",
@@ -1298,16 +1311,14 @@ impl TunReconciler {
         }
         self.set_pending(desired);
         match self.helper.set_tun_enabled(desired).await {
-            Ok(observed) if observed == desired => {
+            Ok(observation) => {
+                let observed = tun_observed_state(&observation);
                 let status = TunRuntimeStatus {
                     desired,
                     failure: None,
-                    observed: if observed {
-                        TunObservedState::Enabled
-                    } else {
-                        TunObservedState::Disabled
-                    },
-                    phase: if observed {
+                    observation: Some(observation),
+                    observed,
+                    phase: if observed == TunObservedState::Enabled {
                         TunPhase::Applied
                     } else {
                         TunPhase::Off
@@ -1316,30 +1327,13 @@ impl TunReconciler {
                 *self.status.lock().expect("TUN status lock poisoned") = status.clone();
                 Ok(status)
             }
-            Ok(_) => {
-                self.record_failure(
-                    desired,
-                    TunFailureKind::ConfirmationFailed,
-                    TunObservedState::Unknown,
-                );
-                Err(CaptureTransitionError::new(
-                    CaptureFailureKind::ConfirmationFailed,
-                    "TUN state could not be confirmed",
-                ))
-            }
             Err(error) => {
                 let failure = map_helper_failure(error.kind);
-                let observed = self.helper.observe_tun().await.ok().map_or(
-                    TunObservedState::Unknown,
-                    |enabled| {
-                        if enabled {
-                            TunObservedState::Enabled
-                        } else {
-                            TunObservedState::Disabled
-                        }
-                    },
-                );
-                self.record_failure(desired, failure, observed);
+                let observation = self.helper.observe_tun().await.ok();
+                let observed = observation
+                    .as_ref()
+                    .map_or(TunObservedState::Unknown, tun_observed_state);
+                self.record_failure(desired, failure, observed, observation);
                 Err(capture_error_from_tun_failure(failure))
             }
         }
@@ -1369,16 +1363,19 @@ impl TunReconciler {
             self.record_drift(failure);
             capture_error_from_tun_failure(failure)
         })?;
-        if observed == current.desired {
+        let matches_desired = if current.desired {
+            observed.confirms_enabled_at(crate::tun_observation_now())
+        } else {
+            observed.confirms_disabled_at(crate::tun_observation_now())
+        };
+        if matches_desired {
+            let observed_state = tun_observed_state(&observed);
             let status = TunRuntimeStatus {
                 desired: current.desired,
                 failure: None,
-                observed: if observed {
-                    TunObservedState::Enabled
-                } else {
-                    TunObservedState::Disabled
-                },
-                phase: if observed {
+                observation: Some(observed),
+                observed: observed_state,
+                phase: if observed_state == TunObservedState::Enabled {
                     TunPhase::Applied
                 } else {
                     TunPhase::Off
@@ -1387,7 +1384,8 @@ impl TunReconciler {
             *self.status.lock().expect("TUN status lock poisoned") = status.clone();
             return Ok(status);
         }
-        self.record_drift(TunFailureKind::ConfirmationFailed);
+        let failure = map_helper_failure(observed.failure_kind_at(crate::tun_observation_now()));
+        self.record_observed_drift(failure, observed);
         Err(CaptureTransitionError::new(
             CaptureFailureKind::ExternalDrift,
             "TUN state changed outside Mish",
@@ -1399,15 +1397,23 @@ impl TunReconciler {
         *self.status.lock().expect("TUN status lock poisoned") = TunRuntimeStatus {
             desired,
             failure: None,
+            observation: previous.observation,
             observed: previous.observed,
             phase: TunPhase::Pending,
         };
     }
 
-    fn record_failure(&self, desired: bool, failure: TunFailureKind, observed: TunObservedState) {
+    fn record_failure(
+        &self,
+        desired: bool,
+        failure: TunFailureKind,
+        observed: TunObservedState,
+        observation: Option<crate::TunNetworkObservation>,
+    ) {
         *self.status.lock().expect("TUN status lock poisoned") = TunRuntimeStatus {
             desired,
             failure: Some(failure),
+            observation,
             observed,
             phase: TunPhase::Failed,
         };
@@ -1418,6 +1424,20 @@ impl TunReconciler {
         status.failure = Some(failure);
         status.phase = TunPhase::Drift;
         status.observed = TunObservedState::Unknown;
+        status.observation = None;
+        *self.status.lock().expect("TUN status lock poisoned") = status;
+    }
+
+    fn record_observed_drift(
+        &self,
+        failure: TunFailureKind,
+        observation: crate::TunNetworkObservation,
+    ) {
+        let mut status = self.status();
+        status.failure = Some(failure);
+        status.phase = TunPhase::Drift;
+        status.observed = tun_observed_state(&observation);
+        status.observation = Some(observation);
         *self.status.lock().expect("TUN status lock poisoned") = status;
     }
 }
@@ -1621,6 +1641,7 @@ impl CaptureReconciler {
         }
 
         if tun_desired && let Err(original) = self.set_tun(true, core_healthy).await {
+            let original_tun_failure = self.tun.as_ref().and_then(|tun| tun.status().failure);
             let rollback_system = self
                 .set_system_proxy(
                     previous.system_proxy_enabled,
@@ -1641,6 +1662,9 @@ impl CaptureReconciler {
                     "Traffic capture failed and the prior state could not be confirmed",
                 ));
             }
+            status.tun.desired = true;
+            status.tun.failure = original_tun_failure;
+            status.tun.phase = TunPhase::Failed;
             *self.status.lock().expect("capture status lock poisoned") = status;
             return Err(original);
         }
@@ -1783,6 +1807,9 @@ fn map_helper_failure(failure: TunHelperFailureKind) -> TunFailureKind {
             TunFailureKind::HelperProtocolMismatch
         }
         TunHelperFailureKind::VersionMismatch => TunFailureKind::HelperVersionMismatch,
+        TunHelperFailureKind::ObservationForeign => TunFailureKind::ObservationForeign,
+        TunHelperFailureKind::ObservationPartial => TunFailureKind::ObservationPartial,
+        TunHelperFailureKind::ObservationStale => TunFailureKind::ObservationStale,
         TunHelperFailureKind::InstallationFailed
         | TunHelperFailureKind::InstallerUnavailable
         | TunHelperFailureKind::OperationFailed
@@ -1801,6 +1828,9 @@ fn capture_error_from_tun_failure(failure: TunFailureKind) -> CaptureTransitionE
         TunFailureKind::CoreUnhealthy => CaptureFailureKind::CoreUnhealthy,
         TunFailureKind::RollbackFailed => CaptureFailureKind::RollbackFailed,
         TunFailureKind::RuntimeTransition => CaptureFailureKind::RuntimeTransition,
+        TunFailureKind::ObservationForeign => CaptureFailureKind::ExternalDrift,
+        TunFailureKind::ObservationPartial => CaptureFailureKind::ConfirmationFailed,
+        TunFailureKind::ObservationStale => CaptureFailureKind::ObservationFailed,
         TunFailureKind::HelperOperationFailed => CaptureFailureKind::ApplyFailed,
         TunFailureKind::CapabilityUnavailable
         | TunFailureKind::HelperConnectionFailed
@@ -1810,6 +1840,30 @@ fn capture_error_from_tun_failure(failure: TunFailureKind) -> CaptureTransitionE
         | TunFailureKind::HelperVersionMismatch => CaptureFailureKind::CapabilityUnavailable,
     };
     CaptureTransitionError::new(kind, "TUN reconciliation failed")
+}
+
+fn tun_observed_state(observation: &crate::TunNetworkObservation) -> TunObservedState {
+    let now = crate::tun_observation_now();
+    if !observation.is_fresh_at(now) {
+        return TunObservedState::Stale;
+    }
+    if observation.confirms_enabled_at(now) {
+        return TunObservedState::Enabled;
+    }
+    if observation.confirms_disabled_at(now) {
+        return TunObservedState::Disabled;
+    }
+    if [
+        observation.core,
+        observation.interface,
+        observation.routes,
+        observation.dns,
+    ]
+    .contains(&crate::TunObservationComponentState::Foreign)
+    {
+        return TunObservedState::Foreign;
+    }
+    TunObservedState::Partial
 }
 
 fn observed_state(

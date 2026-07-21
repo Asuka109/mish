@@ -98,7 +98,13 @@ function createSnapshot() {
         recoveryActions: [],
       },
       systemProxyEnabled: false,
-      tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
+      tun: {
+        desired: false,
+        failure: null,
+        observation: null,
+        observed: "disabled",
+        phase: "off",
+      },
       tunEnabled: false,
     },
     serviceProbePolicy: { intervalSeconds: 60 },
@@ -201,6 +207,35 @@ describe("RpcClient", () => {
     const request = await waitForSentMessage(transport, 1);
     const snapshot = createSnapshot();
     snapshot.runtime.systemProxyEnabled = true;
+
+    transport.respond({ id: request.id, jsonrpc: "2.0", result: snapshot });
+
+    await expect(resultPromise).rejects.toBeInstanceOf(RpcValidationError);
+    client.dispose();
+  });
+
+  it("rejects an applied TUN state without complete privileged observations", async () => {
+    const transport = new FakeTransport();
+    const client = createClient(() => transport);
+    const resultPromise = client.request("status.getSnapshot", {});
+    await authenticate(transport);
+    const request = await waitForSentMessage(transport, 1);
+    const snapshot = createSnapshot();
+    snapshot.runtime.tun = {
+      desired: true,
+      failure: null,
+      observation: {
+        core: "confirmed",
+        dns: "confirmed",
+        interface: "confirmed",
+        observedAt: Date.now(),
+        routes: "partial",
+        schemaVersion: 1,
+      },
+      observed: "enabled",
+      phase: "applied",
+    };
+    snapshot.runtime.tunEnabled = true;
 
     transport.respond({ id: request.id, jsonrpc: "2.0", result: snapshot });
 

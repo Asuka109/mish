@@ -49,7 +49,13 @@ class MobileFixtureStatusClient extends FixtureStatusClient {
         recoveryActions: [],
       },
       systemProxyEnabled: false,
-      tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
+      tun: {
+        desired: false,
+        failure: null,
+        observation: null,
+        observed: "disabled",
+        phase: "off",
+      },
       tunEnabled: false,
     };
     return snapshot;

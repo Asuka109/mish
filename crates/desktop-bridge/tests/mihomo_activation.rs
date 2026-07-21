@@ -710,10 +710,10 @@ rules:
 fn tun_policy_requires_explicit_selection_and_a_healthy_exact_version() {
     let helper = TunHelperSnapshot {
         availability: TunHelperAvailability::Available,
-        expected_version: "2".to_owned(),
+        expected_version: mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned(),
         health: TunHelperHealth::Healthy,
         installation_id: None,
-        installed_version: Some("2".to_owned()),
+        installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
         last_failure: None,
         phase: TunHelperLifecyclePhase::Idle,
     };

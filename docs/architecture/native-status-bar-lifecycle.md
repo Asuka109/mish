@@ -24,7 +24,8 @@ The implemented compact surface contains:
   not resemble a URL, path, endpoint, or credential;
 - confirmed System Proxy state, enable/disable, repair, and leave-as-is recovery
   commands;
-- a disabled `TUN — Unavailable` item;
+- confirmed TUN state and enable/disable commands when the helper is healthy,
+  with pending, failed, and drift states remaining non-active;
 - routing-mode selection when the active Controller source advertises the
   command;
 - transactional Core restart or recovery through the active or last attempted
@@ -99,7 +100,8 @@ success.
 Deterministic tests cover settings migration and persistence, independence from
 login launch behavior, authenticated bounded RPC, browser capability fallback,
 fixed native navigation destinations, sensitive-label redaction, explicit
-System Proxy phase wording, and the default hide-versus-quit decision. The
-workspace validation command covers Rust/TypeScript types, unit and integration
-tests, formatting, linting, generated localization types, documentation links,
-and production build output.
+System Proxy and TUN phase wording, observation-backed TUN checked state, and
+the default hide-versus-quit decision. The workspace validation command covers
+Rust/TypeScript types, unit and integration tests, formatting, linting,
+generated localization types, documentation links, and production build
+output.

@@ -264,6 +264,8 @@ coordination asks the bridge-owned probe service for one cycle whenever Core
 starts, without transferring probe ownership to Core.
 
 Protocol version 17 adds an immediate, monitor-scoped service probe command.
+Protocol version 18 adds the versioned privileged TUN network observation to
+Status snapshots and rejects declaration-only TUN confirmation.
 The command accepts only the identifier of an already validated monitor; callers
 cannot supply an arbitrary network target.
 

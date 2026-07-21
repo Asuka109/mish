@@ -106,10 +106,14 @@ The production transport-neutral lifecycle contract exposes only:
 - `health`, `enable-tun`, and `disable-tun` wire commands.
 
 Messages are capped at 16 KiB, reject unknown fields, and require protocol
-version 2. Helper snapshot version 2 adds the bounded installation identity used
-by onboarding. Production XPC additionally requires an exact signed peer identifier
-and team identifier. It accepts no shell command, interface name, route, DNS
-address, or arbitrary argument and opens no LAN listener.
+version 3. Protocol version 3 carries observation schema version 1: a timestamp
+plus closed `core`, `interface`, `routes`, and `dns` component states. Each
+component is only `absent`, `confirmed`, `foreign`, `partial`, or `unknown`.
+Observations older than ten seconds, from another schema version, or more than
+one second in the future are stale. Production XPC additionally requires an
+exact signed peer identifier and team identifier. It accepts no shell command,
+interface name, route, DNS address, or arbitrary argument and opens no LAN
+listener.
 
 The development Unix-socket protocol adds a narrowly validated Core host
 contract: `start`, `observe`, `owns-listener`, `stop`, and `stop-all`. `start`
@@ -120,6 +124,37 @@ TUN flag, verifies the exact pinned Core version, and owns the complete child
 process lifetime. Paths outside that shape, symlinks, loose permissions,
 foreign ownership, oversized files, malformed tokens, and unknown messages are
 rejected.
+
+The development service takes a pre-launch `utun` baseline and attributes a
+single newly created interface to the exact child it started. It fingerprints
+that interface by name and assigned addresses; a changed fingerprint or more
+than one candidate is foreign state. Fixed, bounded `/sbin/ifconfig`,
+`/usr/sbin/netstat -rn`, and `/usr/sbin/scutil --dns` observations then confirm
+the interface and the managed Darwin IPv4 route partition (plus the IPv6
+partition when the interface has a non-link-local IPv6 address). DNS is
+confirmed from the fixed `any:53` policy only when every observed port-53 system
+nameserver is either scoped directly to the owned interface or its
+longest-prefix route uses that interface. Non-port-53 resolvers do not prove or
+disprove this packet-path effect. A missing route remains partial, a mixture of
+captured and bypassing nameservers is partial, and nameservers whose more
+specific routes use another interface leave DNS absent. This observes Mihomo's
+actual Darwin DNS hijack path without changing system DNS settings. Command
+execution is capped at five seconds and 64 KiB; parsers cap interfaces, routes,
+resolvers, nameservers, names, and addresses. Configuration `tun.enable` is used
+only to decide whether to begin ownership tracking and is never returned as
+observed runtime truth.
+
+An untracked `utun` carrying an IPv4 address is foreign rather than absent.
+This conservative rule prevents a helper restart, orphaned Core, or another
+TUN product from being mistaken for clean state and prevents Mish from claiming
+that interface during a later launch.
+
+Enabled requires a fresh observation with all four components confirmed.
+Disabled requires fresh absence of every Mish-owned interface, route, and DNS
+effect; a non-TUN managed Core does not count as a TUN Core. Missing effects,
+residual cleanup effects, an exited Core with residual effects, foreign
+interfaces, parser failures, and stale observations remain non-applied typed
+state.
 
 Repair and removal first disable and reobserve TUN. Every lifecycle operation
 is serialized and followed by a fresh observation. Permission refusal,
@@ -148,7 +183,7 @@ cross the helper boundary.
 
 System Proxy and TUN transitions are serialized. A transition disables the old
 mode, regenerates the active profile with the new `tun.enable` value, restarts
-the service-owned Core, confirms the requested mode, and restores the prior
-confirmed Core, capture, and OS state on failure. RPC and the native status-bar
-menu call this same transaction. Neither mode may be reported active from
-desired state alone.
+the service-owned Core, confirms the requested mode from the privileged network
+observation, and restores the prior confirmed Core, capture, and OS state on
+failure. RPC and the native status-bar menu call this same transaction. Neither
+mode may be reported active from desired state alone.

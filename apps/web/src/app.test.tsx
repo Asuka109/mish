@@ -607,7 +607,13 @@ async function createRpcSnapshot(sparse = false) {
       recoveryActions: [],
     },
     systemProxyEnabled: false,
-    tun: { desired: false, failure: null, observed: "disabled", phase: "off" },
+    tun: {
+      desired: false,
+      failure: null,
+      observation: null,
+      observed: "disabled",
+      phase: "off",
+    },
     tunEnabled: false,
   };
   if (!sparse) return snapshot;
@@ -746,10 +752,10 @@ describe("production routes", () => {
     settingsClient.snapshot.capabilities.tun = "supported";
     settingsClient.snapshot.tunHelper = {
       availability: "available",
-      expectedVersion: "2",
+      expectedVersion: "3",
       health: "healthy",
       installationId: "a".repeat(64),
-      installedVersion: "2",
+      installedVersion: "3",
       lastFailure: null,
       phase: "idle",
     };
@@ -2053,8 +2059,16 @@ describe("Status fixture experience", () => {
     snapshot.capabilities = { systemProxy: "unavailable", tun: "supported" };
     snapshot.runtime.tun = {
       desired: true,
-      failure: null,
-      observed: "disabled",
+      failure: "observation-partial",
+      observation: {
+        core: "confirmed",
+        dns: "confirmed",
+        interface: "confirmed",
+        observedAt: Date.now(),
+        routes: "partial",
+        schemaVersion: 1,
+      },
+      observed: "partial",
       phase: "drift",
     };
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));

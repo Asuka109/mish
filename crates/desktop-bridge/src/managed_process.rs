@@ -91,15 +91,13 @@ impl PrivilegedCoreLaunchRequest {
 pub struct PrivilegedCoreProcess {
     launch_token: String,
     pid: u32,
-    tun_enabled: bool,
 }
 
 impl PrivilegedCoreProcess {
-    pub fn new(pid: u32, launch_token: impl Into<String>, tun_enabled: bool) -> Self {
+    pub fn new(pid: u32, launch_token: impl Into<String>) -> Self {
         Self {
             launch_token: launch_token.into(),
             pid,
-            tun_enabled,
         }
     }
 
@@ -109,10 +107,6 @@ impl PrivilegedCoreProcess {
 
     pub fn pid(&self) -> u32 {
         self.pid
-    }
-
-    pub fn tun_enabled(&self) -> bool {
-        self.tun_enabled
     }
 }
 

@@ -1,12 +1,18 @@
-use std::{fmt, sync::Mutex};
+use std::{
+    fmt,
+    sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 
-pub const TUN_HELPER_EXPECTED_VERSION: &str = "2";
-pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 2;
+pub const TUN_HELPER_EXPECTED_VERSION: &str = "3";
+pub const TUN_HELPER_PROTOCOL_VERSION: u16 = 3;
 pub const TUN_HELPER_MAX_MESSAGE_BYTES: usize = 16 * 1024;
+pub const TUN_OBSERVATION_SCHEMA_VERSION: u16 = 1;
+pub const TUN_OBSERVATION_MAX_AGE_MILLISECONDS: u64 = 10_000;
 pub const TUN_APP_SIGNING_IDENTIFIER: &str = "com.asuka109.mish";
 pub const TUN_HELPER_SIGNING_IDENTIFIER: &str = "com.asuka109.mish.tun-helper";
 
@@ -55,6 +61,9 @@ pub enum TunHelperFailureKind {
     InvalidSignature,
     MessageTooLarge,
     OperationFailed,
+    ObservationForeign,
+    ObservationPartial,
+    ObservationStale,
     PermissionDenied,
     PreparationFailed,
     ProtocolMismatch,
@@ -64,6 +73,117 @@ pub enum TunHelperFailureKind {
     UnsignedApp,
     UnsupportedSystem,
     VersionMismatch,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TunObservationComponentState {
+    Absent,
+    Confirmed,
+    Foreign,
+    Partial,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TunNetworkObservation {
+    pub core: TunObservationComponentState,
+    pub dns: TunObservationComponentState,
+    pub interface: TunObservationComponentState,
+    pub observed_at: u64,
+    pub routes: TunObservationComponentState,
+    pub schema_version: u16,
+}
+
+impl TunNetworkObservation {
+    pub const fn new(
+        core: TunObservationComponentState,
+        interface: TunObservationComponentState,
+        routes: TunObservationComponentState,
+        dns: TunObservationComponentState,
+        observed_at: u64,
+    ) -> Self {
+        Self {
+            core,
+            dns,
+            interface,
+            observed_at,
+            routes,
+            schema_version: TUN_OBSERVATION_SCHEMA_VERSION,
+        }
+    }
+
+    pub const fn unknown(observed_at: u64) -> Self {
+        Self::new(
+            TunObservationComponentState::Unknown,
+            TunObservationComponentState::Unknown,
+            TunObservationComponentState::Unknown,
+            TunObservationComponentState::Unknown,
+            observed_at,
+        )
+    }
+
+    pub const fn disabled(observed_at: u64) -> Self {
+        Self::new(
+            TunObservationComponentState::Absent,
+            TunObservationComponentState::Absent,
+            TunObservationComponentState::Absent,
+            TunObservationComponentState::Absent,
+            observed_at,
+        )
+    }
+
+    pub const fn enabled(observed_at: u64) -> Self {
+        Self::new(
+            TunObservationComponentState::Confirmed,
+            TunObservationComponentState::Confirmed,
+            TunObservationComponentState::Confirmed,
+            TunObservationComponentState::Confirmed,
+            observed_at,
+        )
+    }
+
+    pub fn is_fresh_at(&self, now: u64) -> bool {
+        self.schema_version == TUN_OBSERVATION_SCHEMA_VERSION
+            && self.observed_at <= now.saturating_add(1_000)
+            && now.saturating_sub(self.observed_at) <= TUN_OBSERVATION_MAX_AGE_MILLISECONDS
+    }
+
+    pub fn confirms_enabled_at(&self, now: u64) -> bool {
+        self.is_fresh_at(now)
+            && self.core == TunObservationComponentState::Confirmed
+            && self.interface == TunObservationComponentState::Confirmed
+            && self.routes == TunObservationComponentState::Confirmed
+            && self.dns == TunObservationComponentState::Confirmed
+    }
+
+    pub fn confirms_disabled_at(&self, now: u64) -> bool {
+        self.is_fresh_at(now)
+            && self.interface == TunObservationComponentState::Absent
+            && self.routes == TunObservationComponentState::Absent
+            && self.dns == TunObservationComponentState::Absent
+    }
+
+    pub fn failure_kind_at(&self, now: u64) -> TunHelperFailureKind {
+        if !self.is_fresh_at(now) {
+            return TunHelperFailureKind::ObservationStale;
+        }
+        if [self.core, self.interface, self.routes, self.dns]
+            .contains(&TunObservationComponentState::Foreign)
+        {
+            return TunHelperFailureKind::ObservationForeign;
+        }
+        TunHelperFailureKind::ObservationPartial
+    }
+}
+
+pub fn tun_observation_now() -> u64 {
+    let milliseconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    u64::try_from(milliseconds).unwrap_or(u64::MAX)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -197,7 +317,7 @@ pub trait TunHelperPlatform: Send + Sync {
         operation: TunHelperLifecycleOperation,
     ) -> BoxFuture<'_, Result<(), TunHelperError>>;
 
-    fn observe_tun(&self) -> BoxFuture<'_, Result<bool, TunHelperError>>;
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>>;
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>>;
 }
@@ -245,12 +365,12 @@ impl TunHelperController {
             .await
     }
 
-    pub async fn observe_tun(&self) -> Result<bool, TunHelperError> {
+    pub async fn observe_tun(&self) -> Result<TunNetworkObservation, TunHelperError> {
         let _operation = self.operation.lock().await;
         self.observe_tun_locked().await
     }
 
-    async fn observe_tun_locked(&self) -> Result<bool, TunHelperError> {
+    async fn observe_tun_locked(&self) -> Result<TunNetworkObservation, TunHelperError> {
         if !self.snapshot().has_healthy_identity() {
             return Err(TunHelperError::new(
                 TunHelperFailureKind::ConnectionFailed,
@@ -266,7 +386,10 @@ impl TunHelperController {
         }
     }
 
-    pub async fn set_tun_enabled(&self, enabled: bool) -> Result<bool, TunHelperError> {
+    pub async fn set_tun_enabled(
+        &self,
+        enabled: bool,
+    ) -> Result<TunNetworkObservation, TunHelperError> {
         let _operation = self.operation.lock().await;
         if !self.snapshot().has_healthy_identity() {
             return Err(TunHelperError::new(
@@ -279,9 +402,15 @@ impl TunHelperController {
             return Err(error);
         }
         let observed = self.observe_tun_locked().await?;
-        if observed != enabled {
+        let confirmed = if enabled {
+            observed.confirms_enabled_at(tun_observation_now())
+        } else {
+            observed.confirms_disabled_at(tun_observation_now())
+        };
+        if !confirmed {
+            let kind = observed.failure_kind_at(tun_observation_now());
             return Err(TunHelperError::new(
-                TunHelperFailureKind::ConfirmationFailed,
+                kind,
                 "The TUN helper did not confirm the requested state",
             ));
         }
@@ -310,9 +439,10 @@ impl TunHelperController {
                     return Err(error);
                 }
             };
-            if observed {
+            if !observed.confirms_disabled_at(tun_observation_now()) {
+                let kind = observed.failure_kind_at(tun_observation_now());
                 let error = TunHelperError::new(
-                    TunHelperFailureKind::ConfirmationFailed,
+                    kind,
                     "TUN remained enabled before the helper lifecycle operation",
                 );
                 self.record_failure(error.kind);

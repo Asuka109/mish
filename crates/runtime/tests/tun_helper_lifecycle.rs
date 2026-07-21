@@ -7,7 +7,8 @@ use mish_runtime::{
     TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
     TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
     TunHelperPeerIdentity, TunHelperPlatform, TunHelperSnapshot, TunHelperWireCommand,
-    decode_tun_helper_request, validate_tun_helper_peer,
+    TunNetworkObservation, decode_tun_helper_request, tun_observation_now,
+    validate_tun_helper_peer,
 };
 
 #[test]
@@ -91,9 +92,15 @@ impl TunHelperPlatform for FakeHelperPlatform {
         Box::pin(async { Ok(()) })
     }
 
-    fn observe_tun(&self) -> BoxFuture<'_, Result<bool, TunHelperError>> {
+    fn observe_tun(&self) -> BoxFuture<'_, Result<TunNetworkObservation, TunHelperError>> {
         let enabled = *self.tun_enabled.lock().unwrap();
-        Box::pin(async move { Ok(enabled) })
+        Box::pin(async move {
+            Ok(if enabled {
+                TunNetworkObservation::enabled(tun_observation_now())
+            } else {
+                TunNetworkObservation::disabled(tun_observation_now())
+            })
+        })
     }
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
@@ -225,4 +232,35 @@ fn closed_wire_protocol_rejects_identity_size_version_and_unknown_fields() {
         team_identifier: Some("TEAM".to_owned()),
     };
     validate_tun_helper_peer(&helper_identity, "TEAM").unwrap();
+}
+
+#[test]
+fn tun_observation_schema_is_strict_and_versioned() {
+    let current = tun_observation_now();
+    let stale_schema: TunNetworkObservation = serde_json::from_value(serde_json::json!({
+        "core": "confirmed",
+        "dns": "confirmed",
+        "interface": "confirmed",
+        "observedAt": current,
+        "routes": "confirmed",
+        "schemaVersion": 0
+    }))
+    .unwrap();
+    assert_eq!(
+        stale_schema.failure_kind_at(current),
+        TunHelperFailureKind::ObservationStale
+    );
+
+    assert!(
+        serde_json::from_value::<TunNetworkObservation>(serde_json::json!({
+            "core": "confirmed",
+            "dns": "confirmed",
+            "interface": "confirmed",
+            "observedAt": current,
+            "routes": "confirmed",
+            "schemaVersion": 1,
+            "tunEnabled": true
+        }))
+        .is_err()
+    );
 }
