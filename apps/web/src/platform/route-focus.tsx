@@ -52,11 +52,11 @@ export function RouteFocusManager() {
       if (pageScroller) scrollPositions.current.set(pathname, pageScroller.scrollTop);
     };
     const restoreScrollPosition = () => {
-      pageScroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
       if (!pageScroller) return;
       pageScroller.scrollTop = scrollPositions.current.get(pathname) ?? 0;
-      pageScroller.addEventListener("scroll", rememberScrollPosition, { passive: true });
     };
+    pageScroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
+    pageScroller?.addEventListener("scroll", rememberScrollPosition, { passive: true });
     const animationFrame = window.requestAnimationFrame(() => {
       stopWatching = watchCurrentRoute(
         restoreScrollPosition,
