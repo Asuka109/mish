@@ -174,7 +174,7 @@ export function StatusPage() {
   }
 
   return (
-    <div className="page-scroll">
+    <div>
       <div className="status-page">
         <h1 className="sr-only">{LL.navigation.status()}</h1>
         {snapshot.adapterKind !== "fixture" && connection.stale ? (

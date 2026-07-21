@@ -561,7 +561,9 @@ export function AppShell() {
       <SurfaceScope as="main" className="workspace" surfaceRole="content">
         <RouteFocusManager />
         <Toolbar />
-        <Outlet />
+        <div className="workspace-page-scroll">
+          <Outlet />
+        </div>
       </SurfaceScope>
     </div>
   );

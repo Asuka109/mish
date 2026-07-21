@@ -170,7 +170,7 @@ export function EventsPage() {
   const hasFilters = Boolean(query || level !== "all" || source !== "all");
 
   return (
-    <div className="events-page page-scroll">
+    <div className="events-page">
       <div className="page-heading events-heading">
         <div>
           <h1>{LL.events.title()}</h1>

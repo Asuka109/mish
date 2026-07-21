@@ -280,7 +280,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="settings-page page-scroll">
+    <div className="settings-page">
       <header className="settings-header">
         <h1>{LL.settingsPage.title()}</h1>
         <p>
