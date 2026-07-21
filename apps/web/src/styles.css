@@ -636,6 +636,7 @@ h2 {
 }
 
 .routing-mode-button,
+.traffic-view-switch-button,
 .capture-mode-button,
 .capture-help-button {
   display: inline-flex;
@@ -648,24 +649,33 @@ h2 {
   font-size: var(--text-metadata);
 }
 
-.routing-mode-button {
+.routing-mode-button,
+.traffic-view-switch-button {
   padding: 0 12px;
   border-radius: 0;
 }
 
-.routing-mode-button:first-child {
+.traffic-view-switch-button {
+  gap: 7px;
+}
+
+.routing-mode-button:first-child,
+.traffic-view-switch-button:first-child {
   border-radius: 8px 0 0 8px;
 }
 
-.routing-mode-button:last-child {
+.routing-mode-button:last-child,
+.traffic-view-switch-button:last-child {
   border-radius: 0 8px 8px 0;
 }
 
-.routing-mode-button:not(:first-child) {
+.routing-mode-button:not(:first-child),
+.traffic-view-switch-button:not(:first-child) {
   border-left: 0;
 }
 
 .routing-mode-button:hover,
+.traffic-view-switch-button:hover,
 .capture-mode-button:hover,
 .capture-help-button:hover {
   background: var(--color-accent);
@@ -674,6 +684,8 @@ h2 {
 
 .routing-mode-button[aria-pressed="true"],
 .routing-mode-button[data-pressed],
+.traffic-view-switch-button[aria-pressed="true"],
+.traffic-view-switch-button[data-pressed],
 .capture-mode-button[aria-pressed="true"],
 .capture-mode-button[data-pressed] {
   background: var(--color-accent);
@@ -2432,6 +2444,11 @@ h2 {
 
 .traffic-tabs {
   margin-top: 20px;
+}
+
+.traffic-view-switch-button .ui-badge {
+  min-width: 20px;
+  padding: 0 5px;
 }
 
 .traffic-tools {

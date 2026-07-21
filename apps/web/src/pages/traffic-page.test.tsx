@@ -154,7 +154,7 @@ describe("Traffic page", () => {
     await user.click(within(confirmation).getByRole("button", { name: "Close connection" }));
 
     expect(screen.queryByText("docs.fixture.invalid")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: /Closed/ }));
+    await user.click(screen.getByRole("button", { name: /Closed/ }));
     expect(await screen.findByText("docs.fixture.invalid")).toBeVisible();
   });
 
@@ -185,8 +185,11 @@ describe("Traffic page", () => {
     expect(await screen.findByText("No matches")).toBeVisible();
     await user.clear(search);
     expect(await screen.findByText("No active connections")).toBeVisible();
-    await user.click(screen.getByRole("tab", { name: /Closed/ }));
-    expect(screen.getByRole("tab", { name: /Closed 6/ })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /Closed/ }));
+    expect(screen.getByRole("button", { name: /Closed 6/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("moves a failed close confirmation into a toast and the notification center", async () => {
@@ -228,7 +231,7 @@ describe("Traffic page", () => {
       sequence: before.sequence + 1,
     });
 
-    await user.click(screen.getByRole("tab", { name: /Closed/ }));
+    await user.click(screen.getByRole("button", { name: /Closed/ }));
     expect(await screen.findByText("docs.fixture.invalid")).toBeVisible();
     const search = screen.getByRole("textbox", { name: "Search Traffic" });
     await user.type(search, "process:browser chain:relay state:closed");
@@ -247,7 +250,7 @@ describe("Traffic page", () => {
     const user = userEvent.setup();
     renderTraffic(new FixtureTrafficClient());
     await screen.findByText("Fixture Browser");
-    await user.click(screen.getByRole("tab", { name: /Rules/ }));
+    await user.click(screen.getByRole("button", { name: /Rules/ }));
     const search = screen.getByRole("textbox", { name: "Search Traffic" });
     await user.type(search, "enabled:false target:reject");
 

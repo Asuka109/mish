@@ -37,10 +37,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -188,26 +186,30 @@ export function TrafficPage() {
           : LL.traffic.closeUnsupported()}
       </p>
 
-      <Tabs
-        className="traffic-tabs"
-        onValueChange={(value) => {
-          if (value !== "active" && value !== "closed" && value !== "rules") return;
-          setTab(value);
-          setSearchParams(value === "active" ? {} : { tab: value }, { replace: true });
-        }}
-        value={tab}
-      >
-        <TabsList aria-label={LL.traffic.title()}>
-          <TabsTrigger value="active">
+      <div className="traffic-tabs">
+        <ToggleGroup
+          aria-label={LL.traffic.title()}
+          className="traffic-view-switch"
+          onValueChange={(values) => {
+            const value = values[0];
+            if (value !== "active" && value !== "closed" && value !== "rules") return;
+            setTab(value);
+            setSearchParams(value === "active" ? {} : { tab: value }, { replace: true });
+          }}
+          spacing={0}
+          value={[tab]}
+          variant="outline"
+        >
+          <ToggleGroupItem className="traffic-view-switch-button" value="active">
             {LL.traffic.active()} <Badge variant="outline">{activeConnections.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="closed">
+          </ToggleGroupItem>
+          <ToggleGroupItem className="traffic-view-switch-button" value="closed">
             {LL.traffic.closed()} <Badge variant="outline">{closed.length}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="rules">
+          </ToggleGroupItem>
+          <ToggleGroupItem className="traffic-view-switch-button" value="rules">
             {LL.traffic.rules()} <Badge variant="outline">{snapshot?.rules.length ?? 0}</Badge>
-          </TabsTrigger>
-        </TabsList>
+          </ToggleGroupItem>
+        </ToggleGroup>
 
         <div className="traffic-tools">
           <div className="traffic-search-row">
@@ -279,7 +281,7 @@ export function TrafficPage() {
           {LL.traffic.clearClosedDescription()}
         </p>
 
-        <TabsContent value="active">
+        {tab === "active" ? (
           <ConnectionPanel
             LL={LL}
             connections={filteredConnections.slice(0, visibleLimit)}
@@ -297,8 +299,8 @@ export function TrafficPage() {
             onRequestClose={setCloseTarget}
             onSelect={setSelectedConnection}
           />
-        </TabsContent>
-        <TabsContent value="closed">
+        ) : null}
+        {tab === "closed" ? (
           <ConnectionPanel
             LL={LL}
             connections={filteredConnections.slice(0, visibleLimit)}
@@ -316,11 +318,11 @@ export function TrafficPage() {
             onRequestClose={() => undefined}
             onSelect={setSelectedConnection}
           />
-        </TabsContent>
-        <TabsContent value="rules">
+        ) : null}
+        {tab === "rules" ? (
           <RulesPanel LL={LL} rules={filteredRules.slice(0, visibleLimit)} />
-        </TabsContent>
-      </Tabs>
+        ) : null}
+      </div>
 
       {total > visibleLimit ? (
         <div className="traffic-load-more">
