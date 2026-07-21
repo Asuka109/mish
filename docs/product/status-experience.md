@@ -72,6 +72,10 @@ The DOM element owns the fallback blue surface and text contrast.
   that selected configuration, waits for its managed listener to become ready,
   and then applies the complete selected capture combination. The UI must not
   send a capture-only request to a safely stopped runtime.
+- A Core start failure returns the aggregate control to its inactive, retryable
+  state without clearing the selected capture combination. The failure appears
+  once with a specific explanation; the notification center does not add a
+  second generic command failure for the same capture attempt.
 - Capture drift, typed confirmation failures, and their recovery actions appear
   in transient notifications and the notification center without shifting the
   routing controls. System Proxy drift offers both repair and keep-current when

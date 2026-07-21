@@ -340,7 +340,7 @@ const zh = {
     repairSystemProxy: "修复系统代理",
     systemProxy: "系统代理",
     systemProxyApplied: "系统代理已开启。",
-    systemProxyCoreFailure: "当前配置无法启动代理，因此系统代理没有开启。",
+    systemProxyCoreFailure: "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
     systemProxyInvalidRecovery:
       "Mish 无法确认系统代理原来的设置。你可以保留系统当前设置，让 Mish 停止管理系统代理，然后重试。",
     systemProxyPersistenceFailure:

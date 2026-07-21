@@ -23,6 +23,7 @@ export function useCaptureCommand() {
         !captureActive &&
         status?.adapterKind === "rpc" &&
         (status.runtime.phase === "inactive" ||
+          status.runtime.phase === "error" ||
           profileSnapshot?.activation.activeProfileId !== profiles?.selectedProfileId);
 
       if (!needsProfileStart || !profileSnapshot) {

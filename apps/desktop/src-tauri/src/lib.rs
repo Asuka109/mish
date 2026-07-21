@@ -495,6 +495,8 @@ fn invalidate_pending<T>(pending: &Mutex<Option<T>>) -> Result<(), LocalBackupCo
 }
 
 pub fn run() -> Result<i32, String> {
+    let requested_mihomo = std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from);
+    validate_development_mihomo_environment(tauri::is_dev(), requested_mihomo.as_deref())?;
     let bridge_state = BridgeState(Arc::new(Mutex::new(None)));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(
@@ -513,7 +515,7 @@ pub fn run() -> Result<i32, String> {
                 .build(),
         )
         .manage(bridge_state.clone())
-        .setup(initialize)
+        .setup(move |app| initialize(app, requested_mihomo))
         .on_menu_event(native_menu::handle_menu_event)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
@@ -571,7 +573,10 @@ pub fn run() -> Result<i32, String> {
     Ok(exit_code)
 }
 
-fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn initialize(
+    app: &mut tauri::App,
+    requested_mihomo: Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
     let runtime_root = profile_root.join("runtime");
@@ -625,7 +630,6 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
         .map_err(|_| io::Error::other("HTTPS profile reader could not be initialized"))?,
     );
-    let requested_mihomo = std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from);
     let resource_directory = app.path().resource_dir()?;
     let lifecycle_source = platform_lifecycle_event_source()?;
     let bridge = tauri::async_runtime::block_on(async {
@@ -638,13 +642,12 @@ fn initialize(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 .await
                 .map_err(|_| io::Error::other("development TUN service startup cleanup failed"))?;
         }
+        let startup_mihomo = development_service_ready
+            .then(|| PathBuf::from(DEV_TUN_SERVICE_CORE_PATH))
+            .or(requested_mihomo);
         let resolver = managed_mihomo_resolver(
             tauri::is_dev(),
-            if development_service_ready {
-                Some(PathBuf::from(DEV_TUN_SERVICE_CORE_PATH))
-            } else {
-                requested_mihomo
-            },
+            startup_mihomo,
             &profile_root,
             &resource_directory,
         );
@@ -882,6 +885,19 @@ fn managed_mihomo_resolver(
         return ManagedMihomoResolver::development(prepared, runtime_root);
     }
     ManagedMihomoResolver::production(resource_directory.to_path_buf(), runtime_root)
+}
+
+fn validate_development_mihomo_environment(
+    is_dev: bool,
+    requested_binary: Option<&Path>,
+) -> Result<(), String> {
+    if is_dev && requested_binary.is_none() {
+        return Err(
+            "MISH_MIHOMO_BIN is required for desktop development; run `pnpm prepare:mihomo`, set MISH_MIHOMO_BIN to the prepared binary, and restart `pnpm desktop:dev`"
+                .to_owned(),
+        );
+    }
+    Ok(())
 }
 
 fn ephemeral_runtime_policy()
@@ -1228,7 +1244,7 @@ impl Drop for TemporarySupportBundle {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, sync::Mutex};
+    use std::{fs, path::PathBuf, sync::Mutex};
 
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, PRODUCTION_ORIGINS,
@@ -1236,6 +1252,7 @@ mod tests {
         atomic_write_support_bundle_with_failure, generate_auth_token, invalidate_pending,
         managed_mihomo_resolver, read_local_backup, save_support_bundle_selection,
         should_hide_main_window_on_close, should_show_main_window,
+        validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -1262,13 +1279,26 @@ mod tests {
 
     #[test]
     fn development_requires_an_explicit_prepared_mihomo_binary() {
-        let root = std::env::temp_dir().join("mish-tauri-dev-missing-binary-test");
-        let resolver = managed_mihomo_resolver(true, None, &root, &root.join("resources"));
+        let error = validate_development_mihomo_environment(true, None)
+            .expect_err("development should fail before Tauri starts");
 
-        assert!(matches!(
-            resolver.resolve(),
-            Err(MihomoResolveError::BinaryMissing)
-        ));
+        assert!(error.contains("MISH_MIHOMO_BIN is required"));
+        assert!(error.contains("pnpm prepare:mihomo"));
+    }
+
+    #[test]
+    fn development_accepts_a_requested_mihomo_binary() {
+        let requested = PathBuf::from("/private/tmp/mihomo");
+
+        assert_eq!(
+            validate_development_mihomo_environment(true, Some(&requested)),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn production_does_not_require_the_development_environment_variable() {
+        assert_eq!(validate_development_mihomo_environment(false, None), Ok(()));
     }
 
     #[test]

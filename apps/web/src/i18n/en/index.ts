@@ -375,7 +375,7 @@ const en = {
     systemProxy: "System Proxy",
     systemProxyApplied: "System Proxy is applied and confirmed by macOS.",
     systemProxyCoreFailure:
-      "System Proxy was not enabled because Mihomo Core did not start with the selected profile.",
+      "Proxy startup failed. Mish remains idle; check the selected profile and try again.",
     systemProxyInvalidRecovery:
       "Mish cannot validate its saved System Proxy recovery record. Leave the external proxy unchanged to clear Mish ownership, then retry.",
     systemProxyPersistenceFailure:

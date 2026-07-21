@@ -138,7 +138,8 @@ function ProxyControlButton() {
     : false;
   const captureAvailable = systemProxyAvailable || tunAvailable;
   const needsAttention =
-    runtime?.systemProxy.phase === "drift" || runtime?.systemProxy.phase === "failed";
+    runtime?.systemProxy.phase === "drift" ||
+    (runtime?.systemProxy.phase === "failed" && runtime.systemProxy.failure !== "core-unhealthy");
   const phase = pending
     ? active
       ? "stopping"

@@ -1209,7 +1209,7 @@ type RootTranslation = {
 		 */
 		systemProxyApplied: string
 		/**
-		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​w​a​s​ ​n​o​t​ ​e​n​a​b​l​e​d​ ​b​e​c​a​u​s​e​ ​M​i​h​o​m​o​ ​C​o​r​e​ ​d​i​d​ ​n​o​t​ ​s​t​a​r​t​ ​w​i​t​h​ ​t​h​e​ ​s​e​l​e​c​t​e​d​ ​p​r​o​f​i​l​e​.
+		 * P​r​o​x​y​ ​s​t​a​r​t​u​p​ ​f​a​i​l​e​d​.​ ​M​i​s​h​ ​r​e​m​a​i​n​s​ ​i​d​l​e​;​ ​c​h​e​c​k​ ​t​h​e​ ​s​e​l​e​c​t​e​d​ ​p​r​o​f​i​l​e​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
 		 */
 		systemProxyCoreFailure: string
 		/**
@@ -5236,7 +5236,7 @@ export type TranslationFunctions = {
 		 */
 		systemProxyApplied: () => LocalizedString
 		/**
-		 * System Proxy was not enabled because Mihomo Core did not start with the selected profile.
+		 * Proxy startup failed. Mish remains idle; check the selected profile and try again.
 		 */
 		systemProxyCoreFailure: () => LocalizedString
 		/**

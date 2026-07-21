@@ -26,7 +26,8 @@ Standalone Vite remains fixture-backed. The desktop process generates its own
 256-bit token, keeps it out of URLs and storage, and gives it only to authorized
 clients. Mihomo never starts merely because the Web UI opens. Development
 requires explicit `MISH_MIHOMO_BIN`; production accepts only the packaged pinned
-resource.
+resource. When `MISH_MIHOMO_BIN` is missing, desktop setup fails immediately with
+the preparation and restart commands instead of opening an unusable window.
 
 System Proxy defaults off and is journaled, confirmed, and restored by the
 shared runtime. Source development may install the bounded root LaunchDaemon

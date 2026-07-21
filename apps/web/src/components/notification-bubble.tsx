@@ -99,6 +99,7 @@ export function NotificationBubble() {
   const settingsContext = useOptionalSettings();
   const trafficContext = useOptionalTraffic();
   const {
+    commandStates,
     error: productError,
     isCommandPending,
     localProxyTest,
@@ -125,7 +126,9 @@ export function NotificationBubble() {
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
   const tunWarning = tun?.phase === "drift" || tun?.phase === "failed";
-  const productFailure = Boolean(snapshot && productError);
+  const captureFailureAlreadyExplained =
+    commandStates.capture.phase === "failure" && (systemProxyFailed || tunWarning);
+  const productFailure = Boolean(snapshot && productError && !captureFailureAlreadyExplained);
   const settingsFailure = Boolean(settingsContext?.error);
   const settingsFailureMessage = settingsContext?.tunHelperFailure
     ? tunHelperFailureMessage(LL, settingsContext.tunHelperFailure)

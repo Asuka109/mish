@@ -358,6 +358,16 @@ class RecordingCaptureClient extends SnapshotStatusClient {
   }
 }
 
+class FailingCoreUnhealthyCaptureClient extends SnapshotStatusClient {
+  readonly setCapture = vi.fn(async () => {
+    throw new StatusClientError("remote", "Capture failed");
+  });
+
+  override supportsCommand(command: StatusCommand) {
+    return command === "capture";
+  }
+}
+
 async function managedProfileSnapshot(): Promise<ProfileSnapshotDto> {
   const snapshot: ProfileSnapshotDto = await new FixtureProfileClient().getSnapshot();
   snapshot.adapterKind = "rpc";
@@ -1695,6 +1705,49 @@ describe("Status fixture experience", () => {
     expect(profileClient.activateProfile.mock.invocationCallOrder[0]).toBeLessThan(
       statusClient.setCapture.mock.invocationCallOrder[0],
     );
+  });
+
+  it("returns a Core startup failure to idle and shows one specific notification", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
+    snapshot.runtime.phase = "error";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: "core-unhealthy",
+      observed: "disabled",
+      phase: "failed",
+      recoveryActions: [],
+    };
+    const statusClient = new FailingCoreUnhealthyCaptureClient(snapshot);
+    const profileClient = await createCompletingActivationProfileClient();
+    renderRoute("/status", "zh", statusClient, profileClient);
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
+      ),
+    );
+    const startButton = screen.getByRole("button", { name: "启动代理" });
+    expect(startButton).toHaveAttribute("data-status", "inactive");
+    expect(startButton).toBeEnabled();
+
+    errorToast.mockClear();
+    await user.click(startButton);
+
+    await waitFor(() => expect(profileClient.activateProfile).toHaveBeenCalledOnce());
+    await waitFor(() => expect(statusClient.setCapture).toHaveBeenCalledOnce());
+    expect(errorToast).not.toHaveBeenCalledWith("操作失败。");
+    expect(screen.getByRole("button", { name: "启动代理" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: /通知/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent(
+      "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
+    );
+    expect(notificationCenter).not.toHaveTextContent("操作失败。");
   });
 
   it("remembers selected capture modes when the master control stops and resumes capture", async () => {
