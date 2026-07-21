@@ -246,6 +246,7 @@ pub struct TunHelperObservation {
     pub health: TunHelperHealth,
     pub installation_id: Option<String>,
     pub installed_version: Option<String>,
+    pub last_failure: Option<TunHelperFailureKind>,
 }
 
 impl TunHelperObservation {
@@ -255,6 +256,7 @@ impl TunHelperObservation {
             health: TunHelperHealth::NotInstalled,
             installation_id: None,
             installed_version: None,
+            last_failure: None,
         }
     }
 
@@ -264,6 +266,7 @@ impl TunHelperObservation {
             health: TunHelperHealth::Healthy,
             installation_id: None,
             installed_version: Some(version.into()),
+            last_failure: None,
         }
     }
 
@@ -276,6 +279,7 @@ impl TunHelperObservation {
             health: TunHelperHealth::Healthy,
             installation_id: Some(installation_id.into()),
             installed_version: Some(version.into()),
+            last_failure: None,
         }
     }
 }
@@ -549,14 +553,14 @@ fn snapshot_from_observation(observation: TunHelperObservation) -> TunHelperSnap
         health: observation.health,
         installation_id: observation.installation_id,
         installed_version: observation.installed_version,
-        last_failure: None,
+        last_failure: observation.last_failure,
         phase: TunHelperLifecyclePhase::Idle,
     };
     if snapshot.health == TunHelperHealth::Healthy && !version_matches {
         snapshot.availability = TunHelperAvailability::RepairRequired;
         snapshot.health = TunHelperHealth::VersionMismatch;
         snapshot.last_failure = Some(TunHelperFailureKind::VersionMismatch);
-    } else {
+    } else if snapshot.last_failure.is_none() {
         snapshot.last_failure = match snapshot.availability {
             TunHelperAvailability::Unpackaged => Some(TunHelperFailureKind::Unpackaged),
             TunHelperAvailability::UnsignedApp => Some(TunHelperFailureKind::UnsignedApp),

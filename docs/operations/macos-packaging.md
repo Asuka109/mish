@@ -21,8 +21,18 @@ Tauri resource configuration and builds `Mish.app`. Keeping generated resources
 out of the base Tauri configuration lets clean validation builds remain offline.
 The post-build verifier checks the stable application identifier, ARM64
 architecture, exact uncompressed Core checksum and version, complete
-byte-for-byte offline Web resource mirror, code-signing structure, and absence
-of unverified TUN helper content.
+byte-for-byte offline Web resource mirror, and code-signing structure. Ad-hoc
+packages must contain no privileged artifact. Developer ID packages additionally
+require the exact sealed helper and LaunchDaemon layout, Developer ID
+application/helper identifiers and team, helper/protocol versions, and no
+misplaced, linked, mutable, duplicate, set-id, or unexpected privileged content.
+
+Run `pnpm test:macos:bundle` for fast synthetic negative layouts. Run
+`pnpm desktop:bundle:fixture:macos` to produce and inspect the complete
+production layout without credentials. That fixture signs the app and helper
+ad-hoc, proves the structure and closed version probes, and additionally proves
+that both artifacts fail the required Developer ID team checks. It never
+registers or launches the LaunchDaemon.
 
 GitHub Actions wraps the app with `ditto` as `Mish-<short-sha>.app.zip` and
 uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a
@@ -142,14 +152,16 @@ for the upstream environment-variable contract.
 
 ## TUN helper production gate
 
-The application signing identifier is `com.asuka109.mish`. The reserved helper
-identifier is `com.asuka109.mish.tun-helper`. Neither the current source tree nor
-the packaging workflow contains a helper executable or
-`Contents/Library/LaunchDaemons` property list, so packaged builds truthfully
-report TUN as unpackaged.
+The application signing identifier is `com.asuka109.mish`. Developer ID
+packaging embeds the production-only `com.asuka109.mish.tun-helper` executable
+at `Contents/Resources/mish-tun-helper` and its property list at
+`Contents/Library/LaunchDaemons/com.asuka109.mish.tun-helper.plist`. The plist
+uses `BundleProgram` with the first path and exposes only the exact helper Mach
+service. Ad-hoc packaging omits both artifacts and continues to report TUN as
+unpackaged.
 
-A future helper implementation must remain unavailable until the application
-has independently confirmed all of these conditions:
+The helper remains unavailable until the application has independently
+confirmed all of these conditions:
 
 1. the helper and app are signed by the expected Developer ID team with their
    exact signing identifiers;
@@ -159,9 +171,19 @@ has independently confirmed all of these conditions:
 4. mutual XPC code-signing requirements accept only those identities; and
 5. XPC health and a disabled TUN state are freshly observed.
 
-Ad-hoc signatures must never pass those checks. Adding Apple secrets signs and
-notarizes the application/Core package only; it does not synthesize a helper or
-change the runtime's current `unpackaged` boundary.
+Ad-hoc signatures never pass those checks. The production gate validates both
+code objects against an Apple-issued Developer ID Application requirement with
+their exact identifiers and configured team, then reads the exact LaunchDaemon
+status through `SMAppService`. `enabled` alone is insufficient: a matching
+version, protocol, healthy production XPC response, and fresh observation that
+the owned interface/routes/DNS effects are absent are also mandatory.
+
+The current production executable intentionally has no development Unix-socket
+or installer behavior. Until a separately reviewed production XPC command
+transport supplies that health and observation evidence, even a correctly
+signed and registered package remains recovery-required. Actual signing,
+notarization, registration, administrator approval, and live production TUN
+acceptance remain outside the credential-free gate.
 
 Local source development is separate from this packaging gate. On Apple
 Silicon, `pnpm macos:tun:install` installs an explicitly authorized root
