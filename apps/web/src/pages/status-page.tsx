@@ -333,14 +333,12 @@ export function StatusPage() {
                       <TrafficSparkline
                         color="var(--color-traffic-download)"
                         data={sessionTraffic.downloadSeries}
-                        id="download"
                       />
                     </div>
                     <div className="traffic-session-chart-cell">
                       <TrafficSparkline
                         color="var(--color-traffic-upload)"
                         data={sessionTraffic.uploadSeries}
-                        id="upload"
                       />
                     </div>
                   </div>

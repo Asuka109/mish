@@ -8,7 +8,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 async function renderSparkline(data: number[]): Promise<void> {
-  root.render(<TrafficSparkline color="#2f6fdc" data={data} id="download" />);
+  root.render(<TrafficSparkline color="#2f6fdc" data={data} />);
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
 

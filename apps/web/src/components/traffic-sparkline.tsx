@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 interface TrafficSparklineProps {
   color: string;
   data: number[];
-  id: string;
 }
 
 export const TRAFFIC_SPARKLINE_MAX_SAMPLES = 60;
@@ -58,7 +57,7 @@ function paddedMaximum(data: number[]): number {
   return Math.max(1, Math.round(Math.max(1, ...data.map((value) => Math.max(0, value))) * 1.12));
 }
 
-export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
+export function TrafficSparkline({ color, data }: TrafficSparklineProps) {
   const reducedMotion = useReducedMotion();
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<Highcharts.Chart | null>(null);
@@ -170,7 +169,5 @@ export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
     [],
   );
 
-  return (
-    <div ref={containerRef} aria-hidden="true" className="traffic-sparkline" data-series={id} />
-  );
+  return <div ref={containerRef} aria-hidden="true" className="traffic-sparkline" />;
 }

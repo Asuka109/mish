@@ -61,29 +61,29 @@ describe("TrafficSparkline", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("keeps the graph empty until the third session sample arrives", () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 2]} id="download" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 2]} />);
 
     expect(view.container.querySelector("svg")).toBeNull();
 
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} />);
     expect(view.container.querySelector("svg")).not.toBeNull();
   });
 
   it("appends a newly observed sample without replacing the existing series", async () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} id="download" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} />);
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3, 4]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3, 4]} />);
 
     await waitFor(() => expect(highchartsMocks.charts[0]?.addPoint).toHaveBeenCalledOnce());
     expect(highchartsMocks.charts[0]?.setData).not.toHaveBeenCalled();
   });
 
   it("does not redraw when projection returns a new array with identical samples", async () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} id="download" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} />);
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 2, 3]} />);
 
     expect(highchartsMocks.charts[0]?.addPoint).not.toHaveBeenCalled();
     expect(highchartsMocks.charts[0]?.setData).not.toHaveBeenCalled();
@@ -91,12 +91,10 @@ describe("TrafficSparkline", () => {
 
   it("shifts the oldest point when appending beyond the 60-sample window", async () => {
     const initialData = Array.from({ length: 60 }, (_, index) => index);
-    const view = render(<TrafficSparkline color="#2f6fdc" data={initialData} id="download" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={initialData} />);
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
-    view.rerender(
-      <TrafficSparkline color="#2f6fdc" data={[...initialData.slice(1), 60]} id="download" />,
-    );
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[...initialData.slice(1), 60]} />);
 
     await waitFor(() => expect(highchartsMocks.charts[0]?.addPoint).toHaveBeenCalledOnce());
     expect(highchartsMocks.charts[0]?.addPoint).toHaveBeenCalledWith([60, 60], true, true, {
@@ -106,24 +104,24 @@ describe("TrafficSparkline", () => {
   });
 
   it("destroys the old chart below the sample threshold and creates a fresh relaunch chart", async () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[4, 5, 6]} id="download" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[4, 5, 6]} />);
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[]} />);
     await waitFor(() => expect(highchartsMocks.charts[0]?.destroy).toHaveBeenCalledOnce());
     expect(view.container.querySelector("svg")).toBeNull();
 
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 0, 2]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 0, 2]} />);
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledTimes(2));
     expect(highchartsMocks.charts[1]?.addPoint).not.toHaveBeenCalled();
   });
 
   it("reconciles interrupted sample updates and destroys the chart on unmount", async () => {
-    const view = render(<TrafficSparkline color="#2f855a" data={[1, 2, 3]} id="upload" />);
+    const view = render(<TrafficSparkline color="#2f855a" data={[1, 2, 3]} />);
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
-    view.rerender(<TrafficSparkline color="#2f855a" data={[1, 2, 3, 4]} id="upload" />);
-    view.rerender(<TrafficSparkline color="#2f855a" data={[1, 2, 3, 4, 5]} id="upload" />);
+    view.rerender(<TrafficSparkline color="#2f855a" data={[1, 2, 3, 4]} />);
+    view.rerender(<TrafficSparkline color="#2f855a" data={[1, 2, 3, 4, 5]} />);
 
     await waitFor(() => expect(highchartsMocks.charts[0]?.addPoint).toHaveBeenCalledTimes(2));
     expect(highchartsMocks.chart).toHaveBeenCalledOnce();
@@ -133,7 +131,7 @@ describe("TrafficSparkline", () => {
   });
 
   it("right-aligns the initial smooth non-negative series in the 60-sample domain", async () => {
-    render(<TrafficSparkline color="#2f6fdc" data={[-5, 24, 18]} id="download" />);
+    render(<TrafficSparkline color="#2f6fdc" data={[-5, 24, 18]} />);
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
     const options = highchartsMocks.charts[0]?.options as {
@@ -156,25 +154,25 @@ describe("TrafficSparkline", () => {
   });
 
   it("keeps the session y-axis stable until a new maximum arrives", async () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[10, 20, 15]} id="download" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[10, 20, 15]} />);
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[10, 20, 15, 5]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[10, 20, 15, 5]} />);
     expect(highchartsMocks.charts[0]?.updateYAxis).not.toHaveBeenCalled();
 
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[10, 20, 15, 5, 100]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[10, 20, 15, 5, 100]} />);
     await waitFor(() => expect(highchartsMocks.charts[0]?.updateYAxis).toHaveBeenCalledOnce());
     expect(highchartsMocks.charts[0]?.updateYAxis).toHaveBeenCalledWith({ max: 112 }, false);
   });
 
   it("animates an appended sample without recreating the chart", async () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 4, 2]} id="download" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 4, 2]} />);
 
     expect(view.container.querySelector(".traffic-sparkline")).toHaveAttribute(
       "aria-hidden",
       "true",
     );
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 4, 2, 7]} id="download" />);
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 4, 2, 7]} />);
 
     await waitFor(() => expect(highchartsMocks.charts[0]?.addPoint).toHaveBeenCalledOnce());
     expect(highchartsMocks.chart).toHaveBeenCalledOnce();
@@ -187,15 +185,15 @@ describe("TrafficSparkline", () => {
   it("appends the new sample directly when reduced motion is enabled", async () => {
     mockReducedMotion(true);
 
-    const view = render(<TrafficSparkline color="#2f855a" data={[1, 3, 2]} id="upload" />);
-    view.rerender(<TrafficSparkline color="#2f855a" data={[1, 3, 2, 5]} id="upload" />);
+    const view = render(<TrafficSparkline color="#2f855a" data={[1, 3, 2]} />);
+    view.rerender(<TrafficSparkline color="#2f855a" data={[1, 3, 2, 5]} />);
 
     await waitFor(() => expect(highchartsMocks.charts[0]?.addPoint).toHaveBeenCalledOnce());
     expect(highchartsMocks.charts[0]?.addPoint).toHaveBeenCalledWith([60, 5], true, false, false);
   });
 
   it("renders no chart surface for an empty session series", () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[]} id="upload" />);
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[]} />);
     expect(view.container.querySelector("svg")).toBeNull();
   });
 });
