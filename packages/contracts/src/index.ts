@@ -1172,7 +1172,7 @@ export interface PlatformCapabilitiesDto extends z.infer<typeof PlatformCapabili
 export const AppearancePreferenceSchema = z.enum(["system", "light", "dark"]);
 export type AppearancePreference = z.infer<typeof AppearancePreferenceSchema>;
 
-export const LanguagePreferenceSchema = z.enum(["en", "zh"]);
+export const LanguagePreferenceSchema = z.enum(["en", "zh-CN"]);
 export type LanguagePreference = z.infer<typeof LanguagePreferenceSchema>;
 
 export const LoginLaunchBehaviorSchema = z.enum(["show-window", "background"]);
@@ -1499,6 +1499,7 @@ export const SettingsSnapshotSchema = z
       .strict(),
     preferences: SettingsPreferencesSchema,
     privacy: PrivacyAccessSnapshotSchema,
+    revision: z.number().int().nonnegative().default(0),
     startupRegistration: StartupRegistrationSnapshotSchema,
     storageRecovered: z.boolean(),
     tunHelper: TunHelperSnapshotSchema,

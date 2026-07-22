@@ -3012,9 +3012,10 @@ describe("Status fixture experience", () => {
     expect(within(service).getByText(google.label)).toHaveAttribute("title", google.label);
   });
 
-  it("switches to Simplified Chinese and persists the locale", async () => {
+  it("switches to Simplified Chinese from the authoritative Settings snapshot", async () => {
     const user = userEvent.setup();
-    const view = renderRoute("/status");
+    const settingsClient = new FixtureSettingsClient();
+    const view = renderRoute("/status", "en", undefined, undefined, settingsClient);
     await screen.findByText("Live demo traffic");
     const authoredLabels = [...view.container.querySelectorAll(".user-authored-label")].map(
       (element) => element.textContent,
@@ -3025,11 +3026,12 @@ describe("Status fixture experience", () => {
     );
     await user.click(await screen.findByRole("menuitemradio", { name: "简体中文" }));
 
-    expect(await screen.findByText("当前演示的实时流量")).toBeInTheDocument();
+    await expect(settingsClient.getSnapshot()).resolves.toMatchObject({
+      preferences: { language: "zh-CN" },
+    });
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
-    expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
-    expect(localStorage.getItem("mish.locale")).toBe("zh");
+    expect(screen.getByRole("link", { name: "Routes" })).toBeInTheDocument();
+    expect(localStorage.getItem("mish.locale")).toBeNull();
     expect(
       [...view.container.querySelectorAll(".user-authored-label")].map(
         (element) => element.textContent,
