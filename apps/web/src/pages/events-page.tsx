@@ -82,6 +82,43 @@ const eventStyles = tv({
     row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-[10px] border-b border-(--color-hairline-soft) px-[10px] py-[9px] last:border-b-0 [&>time]:pt-[3px] [&>time]:text-[12px] [&>time]:text-(--color-text-muted) [&_.ui-badge]:justify-self-start",
     source: "event-source pt-[3px] text-[12px] text-(--color-text-muted)",
     copy: "event-copy grid min-w-0 gap-[3px] [&_strong]:wrap-anywhere [&_strong]:text-(--text-metadata) [&_strong]:leading-[19px] [&_strong]:font-(--font-weight-control) [&_small]:wrap-anywhere [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted)",
+    diagnostics:
+      "diagnostics-section mt-6 scroll-mt-4 outline-none focus-visible:rounded-(--radius-md) focus-visible:shadow-[0_0_0_2px_var(--color-accent)]",
+    diagnosticsHeading:
+      "diagnostics-heading section-heading items-start max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] [&>div]:min-w-0 [&_p]:mt-1 [&_p]:max-w-[760px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
+    diagnosticMessage: "mt-[10px] text-(--text-metadata) leading-[19px] text-(--color-text-muted)",
+    diagnosticFixture: "text-(--color-warning)",
+    diagnosticError: "text-(--color-error)",
+    diagnosticHistory: "diagnostic-history grid gap-6",
+    diagnosticRun:
+      "diagnostic-run mt-3 [.diagnostic-history_&+&]:border-t [.diagnostic-history_&+&]:border-(--color-hairline-soft) [.diagnostic-history_&+&]:pt-5",
+    diagnosticSummary:
+      "diagnostic-run-summary mb-[10px] flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-(--color-text-muted) [&>span:last-child]:min-w-[220px] [&>span:last-child]:flex-1 [&>span:last-child]:wrap-anywhere max-[600px]:[&>span:last-child]:min-w-0",
+    diagnosticChecks: "diagnostic-checks",
+    diagnosticCheck:
+      "diagnostic-check min-w-0 px-[14px] py-3 first:rounded-ss-[7px] first:rounded-se-[7px] last:rounded-es-[7px] last:rounded-ee-[7px]",
+    diagnosticCheckHeading:
+      "diagnostic-check-heading flex items-center justify-between gap-3 [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-section)",
+    diagnosticFacts:
+      "mt-[10px] grid grid-cols-2 gap-x-[18px] gap-y-[10px] max-[900px]:grid-cols-1 [&>div]:min-w-0 [&_dt]:text-[11px] [&_dt]:font-(--font-weight-control) [&_dt]:tracking-[0.03em] [&_dt]:text-(--color-text-muted) [&_dt]:uppercase [&_dd]:mt-[2px] [&_dd]:wrap-anywhere [&_dd]:text-(--text-metadata) [&_dd]:leading-[18px] [&_dd]:text-(--color-body)",
+    supportBundle:
+      "support-bundle-section mt-5 flex items-start justify-between gap-5 border-t border-(--color-hairline-soft) pt-[18px] max-[900px]:flex-col max-[900px]:items-stretch [&>div]:min-w-0 [&>button]:max-[900px]:self-start [&_h3]:text-(--text-body) [&_h3]:font-(--font-weight-section) [&_p]:mt-1 [&_p]:max-w-[720px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted)",
+    supportStatus:
+      "support-bundle-status mt-[9px] text-(--text-metadata) text-(--color-text-muted) data-[status=failed]:text-(--color-error) data-[status=written]:text-(--color-success-text)",
+    supportDialog:
+      "support-bundle-dialog w-[min(680px,calc(100vw_-_32px))] max-h-[min(760px,calc(100vh_-_32px))]",
+    supportMetadata:
+      "support-bundle-metadata grid grid-cols-3 gap-px border-y border-(--color-hairline-soft) bg-(--color-hairline-soft) max-[820px]:grid-cols-1 [&>div]:grid [&>div]:gap-1 [&>div]:bg-(--color-canvas) [&>div]:px-[14px] [&>div]:py-[11px] [&_dt]:text-[12px] [&_dt]:text-(--color-text-muted) [&_dd]:wrap-anywhere [&_dd]:text-(--text-metadata) [&_dd]:text-(--color-body)",
+    supportPreview:
+      "support-bundle-preview-body grid min-h-0 gap-[18px] overflow-auto p-4 [&_section]:grid [&_section]:gap-[9px] [&_h4]:text-(--text-body) [&_h4]:font-(--font-weight-section)",
+    supportCategories:
+      "support-bundle-category-grid [--section-grid-columns:2] max-[820px]:[--section-grid-columns:1]",
+    supportCategory:
+      "support-bundle-category flex min-w-0 items-center justify-between gap-3 px-[11px] py-[9px] text-(--text-metadata) text-(--color-body) first:rounded-ss-[7px] first:rounded-se-[7px] last:rounded-es-[7px] last:rounded-ee-[7px] [&_strong]:flex-none [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-ink)",
+    supportRedactions:
+      "support-bundle-redactions grid grid-cols-2 gap-x-[18px] gap-y-[6px] pl-[18px] text-[12px] leading-[17px] text-(--color-text-muted) max-[820px]:grid-cols-1",
+    diagnosticsLink:
+      "event-diagnostics-link w-fit text-[12px] font-(--font-weight-control) text-(--color-brand) no-underline hover:underline",
   },
 });
 
@@ -251,12 +288,12 @@ export function EventsPage() {
 
       <section
         aria-labelledby="guided-diagnostics-title"
-        className="diagnostics-section"
+        className={eventStyles().diagnostics()}
         id="diagnostics"
         ref={diagnosticsRef}
         tabIndex={-1}
       >
-        <div className="section-heading diagnostics-heading">
+        <div className={eventStyles().diagnosticsHeading()}>
           <div>
             <h2 id="guided-diagnostics-title">{LL.diagnostics.title()}</h2>
             <p>{LL.diagnostics.description()}</p>
@@ -283,25 +320,35 @@ export function EventsPage() {
           )}
         </div>
         {diagnosticHistory?.adapterKind === "fixture" ? (
-          <p className="diagnostics-fixture-note" role="status">
+          <p
+            className={eventStyles().diagnosticMessage({
+              className: eventStyles().diagnosticFixture(),
+            })}
+            role="status"
+          >
             {LL.diagnostics.fixtureNotice()}
           </p>
         ) : null}
         {diagnosticError ? (
-          <p className="diagnostics-error" role="alert">
+          <p
+            className={eventStyles().diagnosticMessage({
+              className: eventStyles().diagnosticError(),
+            })}
+            role="alert"
+          >
             {LL.diagnostics.error()}
           </p>
         ) : null}
         {diagnosticHistory?.runs.length ? (
-          <div className="diagnostic-history">
+          <div className={eventStyles().diagnosticHistory()}>
             {diagnosticHistory.runs.map((run) => (
               <DiagnosticRun key={run.id} locale={locale} run={run} translations={LL} />
             ))}
           </div>
         ) : (
-          <p className="diagnostics-empty">{LL.diagnostics.empty()}</p>
+          <p className={eventStyles().diagnosticMessage()}>{LL.diagnostics.empty()}</p>
         )}
-        <div className="support-bundle-section">
+        <div className={eventStyles().supportBundle()}>
           <div>
             <h3>{LL.diagnostics.export.title()}</h3>
             <p>{LL.diagnostics.export.description()}</p>
@@ -317,13 +364,13 @@ export function EventsPage() {
           </Button>
         </div>
         {supportBundleAvailability !== "supported" ? (
-          <p className="support-bundle-status" role="status">
+          <p className={eventStyles().supportStatus()} role="status">
             {LL.diagnostics.export.unavailable()}
           </p>
         ) : null}
         {supportBundleResult !== "idle" ? (
           <p
-            className="support-bundle-status"
+            className={eventStyles().supportStatus()}
             data-status={supportBundleResult}
             role={supportBundleResult === "failed" ? "alert" : "status"}
           >
@@ -334,7 +381,7 @@ export function EventsPage() {
 
       {supportBundlePreview ? (
         <Dialog onOpenChange={(open) => (open ? undefined : clearSupportBundlePreview())} open>
-          <DialogContent className="support-bundle-dialog" closeLabel={LL.common.close()}>
+          <DialogContent className={eventStyles().supportDialog()} closeLabel={LL.common.close()}>
             <>
               <DialogHeader>
                 <DialogTitle className="dialog-title">
@@ -344,7 +391,7 @@ export function EventsPage() {
                   {LL.diagnostics.export.previewDescription()}
                 </DialogDescription>
               </DialogHeader>
-              <dl className="support-bundle-metadata">
+              <dl className={eventStyles().supportMetadata()}>
                 <div>
                   <dt>{LL.diagnostics.export.format()}</dt>
                   <dd>JSON · v{supportBundlePreview.formatVersion}</dd>
@@ -367,12 +414,12 @@ export function EventsPage() {
                   </dd>
                 </div>
               </dl>
-              <div className="support-bundle-preview-body">
+              <div className={eventStyles().supportPreview()}>
                 <section aria-labelledby="support-bundle-categories">
                   <h4 id="support-bundle-categories">{LL.diagnostics.export.categories()}</h4>
-                  <SectionGrid className="support-bundle-category-grid">
+                  <SectionGrid className={eventStyles().supportCategories()}>
                     {supportBundlePreview.categories.map(({ category, itemCount }) => (
-                      <SectionGridItem className="support-bundle-category" key={category}>
+                      <SectionGridItem className={eventStyles().supportCategory()} key={category}>
                         <span>{supportBundleCategoryLabel(LL, category)}</span>
                         <strong className="tabular">{itemCount}</strong>
                       </SectionGridItem>
@@ -381,7 +428,7 @@ export function EventsPage() {
                 </section>
                 <section aria-labelledby="support-bundle-redactions">
                   <h4 id="support-bundle-redactions">{LL.diagnostics.export.redactions()}</h4>
-                  <ul className="support-bundle-redactions">
+                  <ul className={eventStyles().supportRedactions()}>
                     {supportBundlePreview.excludedOrRedacted.map((category) => (
                       <li key={category}>{supportBundleRedactionLabel(LL, category)}</li>
                     ))}
@@ -491,7 +538,7 @@ export function EventsPage() {
                 <strong>{event.message}</strong>
                 {event.detail ? <small>{event.detail}</small> : null}
                 {offersDiagnostics(event) ? (
-                  <Link className="event-diagnostics-link" to="/events?diagnostics=1">
+                  <Link className={eventStyles().diagnosticsLink()} to="/events?diagnostics=1">
                     {LL.diagnostics.open()}
                   </Link>
                 ) : null}
@@ -558,8 +605,8 @@ function DiagnosticRun({
   translations: TranslationFunctions;
 }) {
   return (
-    <div className="diagnostic-run" data-status={run.status}>
-      <div className="diagnostic-run-summary">
+    <div className={eventStyles().diagnosticRun()} data-status={run.status}>
+      <div className={eventStyles().diagnosticSummary()}>
         <Badge variant={runBadge(run)}>{LL.diagnostics.status[run.status]()}</Badge>
         <span className="tabular">{formatEventTime(run.startedAt, locale)}</span>
         <span>
@@ -571,16 +618,20 @@ function DiagnosticRun({
           })}
         </span>
       </div>
-      <SectionGrid className="diagnostic-checks">
+      <SectionGrid className={eventStyles().diagnosticChecks()}>
         {run.checks.map((check) => (
-          <SectionGridItem className="diagnostic-check" data-status={check.status} key={check.id}>
-            <div className="diagnostic-check-heading">
+          <SectionGridItem
+            className={eventStyles().diagnosticCheck()}
+            data-status={check.status}
+            key={check.id}
+          >
+            <div className={eventStyles().diagnosticCheckHeading()}>
               <strong>{diagnosticCheckLabel(LL, check)}</strong>
               <Badge variant={checkBadge(check.status)}>
                 {LL.diagnostics.status[check.status]()}
               </Badge>
             </div>
-            <dl>
+            <dl className={eventStyles().diagnosticFacts()}>
               <div>
                 <dt>{LL.diagnostics.scope()}</dt>
                 <dd>{check.scope}</dd>
