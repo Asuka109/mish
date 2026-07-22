@@ -83,6 +83,7 @@ describe("status traffic row layout", () => {
 
     const columns = trafficColumns();
     expect(getComputedStyle(trafficPair()).display).toBe("flex");
+    expect(getComputedStyle(trafficPair()).gap).toBe("12px");
     expect(getComputedStyle(columns[0]).flexGrow).toBe("0");
     expect(getComputedStyle(columns[1]).flexGrow).toBe("0");
     expect(getComputedStyle(columns[2]).flexGrow).toBe("1");

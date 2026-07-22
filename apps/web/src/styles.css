@@ -928,6 +928,7 @@ h2 {
   display: flex;
   flex: 0 0 100%;
   align-items: stretch;
+  gap: 12px;
   min-height: 128px;
 }
 
@@ -949,18 +950,19 @@ h2 {
 }
 
 .traffic-session-summary-column {
-  flex: 0 0 144px;
+  width: 144px;
+  flex: 0;
 }
 
 .traffic-session-rate-column {
   width: 96px;
   min-width: 96px;
-  flex: 0 0 96px;
+  flex: 0;
 }
 
 .traffic-session-curve-column {
   position: relative;
-  flex: 1 1 120px;
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   -webkit-mask-image: linear-gradient(
@@ -5287,13 +5289,12 @@ h2 {
 
 @container session (max-width: 320px) {
   .traffic-session-summary-column {
-    flex-basis: 128px;
+    width: 128px;
   }
 
   .traffic-session-rate-column {
     width: 76px;
     min-width: 76px;
-    flex-basis: 76px;
   }
 }
 
