@@ -12,9 +12,9 @@ use mish_profile::{
     ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CapabilityAvailability, CaptureFailureKind, CaptureRequest,
-    CaptureSelection, CaptureTransitionError, EventLevel, MishRuntime, ProviderSnapshot,
-    StatusAdapterKind,
+    ApplicationDiagnosticEvent, ApplicationNotificationKind, CapabilityAvailability,
+    CaptureFailureKind, CaptureRequest, CaptureSelection, CaptureTransitionError, EventLevel,
+    MishRuntime, ProviderSnapshot, StatusAdapterKind,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
@@ -182,6 +182,7 @@ pub struct ProfileActivationCoordinator {
     manager: Arc<MihomoActivationManager>,
     policy_factory: Arc<PolicyFactory>,
     profiles: Arc<DesktopProfileService>,
+    proxy_operation: Arc<Mutex<()>>,
     safe_runtime: MishRuntime,
     directory_task: Mutex<Option<JoinHandle<()>>>,
     scheduler_cancellation: CancellationToken,
@@ -213,6 +214,7 @@ impl ProfileActivationCoordinator {
             manager,
             policy_factory: Arc::new(policy_factory),
             profiles,
+            proxy_operation: Arc::new(Mutex::new(())),
             safe_runtime,
             directory_task: Mutex::new(None),
             scheduler_cancellation: CancellationToken::new(),
@@ -263,7 +265,8 @@ impl ProfileActivationCoordinator {
             }
         }
         let permit = self.acquire_mutation()?;
-        {
+        let cancellation = CancellationToken::new();
+        let pending = {
             let mut state = self.state.lock().await;
             if state.snapshot.command_id.as_deref() == Some(command_id) {
                 return Ok(state.snapshot.clone());
@@ -277,30 +280,6 @@ impl ProfileActivationCoordinator {
             if !state.busy_profiles.insert(profile_id.to_owned()) {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
-        }
-        let record = match self.profiles.activation_record(profile_id) {
-            Ok(record) => record,
-            Err(error) => {
-                self.release_profile(profile_id).await;
-                return Err(error.into());
-            }
-        };
-        let policy = (self.policy_factory)()
-            .map_err(|_| ProfileActivationCoordinatorError::PolicyUnavailable);
-        let policy = match policy {
-            Ok(policy) => policy,
-            Err(error) => {
-                self.release_profile(profile_id).await;
-                return Err(error);
-            }
-        };
-        let cancellation = CancellationToken::new();
-        let pending = {
-            let mut state = self.state.lock().await;
-            if state.snapshot.phase == ProfileActivationPhase::Pending {
-                state.busy_profiles.remove(profile_id);
-                return Err(ProfileActivationCoordinatorError::Conflict);
-            }
             state.cancellation = Some(cancellation.clone());
             state.snapshot.command_id = Some(command_id.to_owned());
             state.snapshot.attempted_at = Some(now_unix_milliseconds());
@@ -312,6 +291,27 @@ impl ProfileActivationCoordinator {
             state.snapshot.clone()
         };
         let _ = self.updates.send(pending.clone());
+        let record = match self.profiles.activation_record(profile_id) {
+            Ok(record) => record,
+            Err(error) => {
+                self.finish_preflight_activation(
+                    command_id,
+                    ProfileActivationFailure::InvalidProfile,
+                )
+                .await;
+                return Err(error.into());
+            }
+        };
+        let policy = (self.policy_factory)()
+            .map_err(|_| ProfileActivationCoordinatorError::PolicyUnavailable);
+        let policy = match policy {
+            Ok(policy) => policy,
+            Err(error) => {
+                self.finish_preflight_activation(command_id, ProfileActivationFailure::StateCommit)
+                    .await;
+                return Err(error);
+            }
+        };
         let coordinator = self.clone();
         let command_id = command_id.to_owned();
         tokio::spawn(async move {
@@ -419,6 +419,12 @@ impl ProfileActivationCoordinator {
         selection: CaptureSelection,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
+        let _operation = self.proxy_operation.try_lock().map_err(|_| {
+            CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Another aggregate proxy operation is already in progress",
+            )
+        })?;
         if self.shutting_down.load(Ordering::Acquire) {
             return Err(CaptureTransitionError::new(
                 CaptureFailureKind::RuntimeTransition,
@@ -434,7 +440,7 @@ impl ProfileActivationCoordinator {
             usable_capture_selection(before.adapter_kind, &before.capabilities, selection)?;
         if before.runtime.system_proxy_enabled || before.runtime.tun_enabled {
             return self
-                .set_capture(
+                .set_capture_inner(
                     CaptureRequest {
                         active: true,
                         selection,
@@ -443,41 +449,47 @@ impl ProfileActivationCoordinator {
                 )
                 .await;
         }
-
-        let current = self.activation_snapshot().await;
-        let activation = if current.phase == ProfileActivationPhase::Success
-            && profile_id
-                .is_none_or(|profile_id| current.active_profile_id.as_deref() == Some(profile_id))
-        {
-            current
-        } else if let Some(profile_id) = profile_id {
-            self.activate(command_id, profile_id)
-                .await
-                .map_err(profile_launch_error)?
-        } else {
-            self.activate_last_successful_profile(command_id)
-                .await
-                .map_err(profile_launch_error)?
+        let request = CaptureRequest {
+            active: true,
+            selection,
         };
-        let completed = if activation.phase == ProfileActivationPhase::Pending {
-            self.wait_for_terminal_activation(command_id).await?
-        } else {
-            activation
-        };
-        if completed.phase != ProfileActivationPhase::Success {
-            return Err(CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Profile activation failed before Capture could be applied",
-            ));
+        let prior_capture = self.host.current().publish_capture_pending(&request);
+        let result = async {
+            let current = self.activation_snapshot().await;
+            let activation = if current.phase == ProfileActivationPhase::Success
+                && profile_id.is_none_or(|profile_id| {
+                    current.active_profile_id.as_deref() == Some(profile_id)
+                }) {
+                current
+            } else if let Some(profile_id) = profile_id {
+                self.activate(command_id, profile_id)
+                    .await
+                    .map_err(profile_launch_error)?
+            } else {
+                self.activate_last_successful_profile(command_id)
+                    .await
+                    .map_err(profile_launch_error)?
+            };
+            let completed = if activation.phase == ProfileActivationPhase::Pending {
+                self.wait_for_terminal_activation(command_id).await?
+            } else {
+                activation
+            };
+            if completed.phase != ProfileActivationPhase::Success {
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "Profile activation failed before Capture could be applied",
+                ));
+            }
+            self.set_capture_inner(request, adapter_kind).await
         }
-        self.set_capture(
-            CaptureRequest {
-                active: true,
-                selection,
-            },
-            adapter_kind,
-        )
-        .await
+        .await;
+        if result.is_err()
+            && let Some(prior_capture) = prior_capture
+        {
+            self.host.current().restore_capture_status(prior_capture);
+        }
+        result
     }
 
     async fn wait_for_terminal_activation(
@@ -507,6 +519,20 @@ impl ProfileActivationCoordinator {
     }
 
     pub async fn set_capture(
+        self: &Arc<Self>,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        let _operation = self.proxy_operation.try_lock().map_err(|_| {
+            CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Another aggregate proxy operation is already in progress",
+            )
+        })?;
+        self.set_capture_inner(request, adapter_kind).await
+    }
+
+    async fn set_capture_inner(
         self: &Arc<Self>,
         request: CaptureRequest,
         adapter_kind: StatusAdapterKind,
@@ -938,6 +964,32 @@ impl ProfileActivationCoordinator {
         self.state.lock().await.busy_profiles.remove(profile_id);
     }
 
+    async fn finish_preflight_activation(
+        &self,
+        command_id: &str,
+        failure: ProfileActivationFailure,
+    ) {
+        let mut state = self.state.lock().await;
+        if state.snapshot.command_id.as_deref() != Some(command_id) {
+            return;
+        }
+        if let Some(profile_id) = state.snapshot.target_profile_id.clone() {
+            state.busy_profiles.remove(&profile_id);
+        }
+        state.cancellation = None;
+        state.snapshot.failure = Some(failure);
+        state.snapshot.phase = ProfileActivationPhase::Failure;
+        let _ = self.updates.send(state.snapshot.clone());
+        drop(state);
+        self.host
+            .record_application_event(ApplicationDiagnosticEvent::notification(
+                EventLevel::Error,
+                "Profile activation failed",
+                Some("Review the selected Profile and retry after resolving the reported failure"),
+                ApplicationNotificationKind::ProfileActivationFailure,
+            ));
+    }
+
     async fn finish_activation(
         &self,
         command_id: &str,
@@ -1256,5 +1308,10 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
             "Verify the packaged Mihomo resource and private application-data storage, then retry"
         }
     };
-    ApplicationDiagnosticEvent::new(EventLevel::Error, "Profile activation failed", Some(detail))
+    ApplicationDiagnosticEvent::notification(
+        EventLevel::Error,
+        "Profile activation failed",
+        Some(detail),
+        ApplicationNotificationKind::ProfileActivationFailure,
+    )
 }

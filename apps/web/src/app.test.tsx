@@ -608,7 +608,27 @@ class DriftRecoveryClient extends SnapshotStatusClient {
 }
 
 class DeferredCaptureClient extends SnapshotStatusClient {
+  private readonly listeners = new Set<(snapshot: StatusSnapshotDto) => void>();
+  private currentSnapshot: StatusSnapshotDto;
+
+  constructor(snapshot: StatusSnapshotDto) {
+    super(snapshot);
+    this.currentSnapshot = structuredClone(snapshot);
+  }
+
+  override async getSnapshot() {
+    return structuredClone(this.currentSnapshot);
+  }
+
+  override subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
   override setCapture(): Promise<StatusSnapshotDto> {
+    this.currentSnapshot.runtime.systemProxy.phase = "pending";
+    this.currentSnapshot.runtime.tun.phase = "pending";
+    for (const listener of this.listeners) listener(structuredClone(this.currentSnapshot));
     return new Promise(() => undefined);
   }
 
@@ -1245,22 +1265,18 @@ describe("production routes", () => {
     const errorToast = vi.spyOn(toast, "error");
     const eventsClient = createFixtureEventsClient();
     const eventsSnapshot = await eventsClient.getSnapshot();
-    eventsClient.publishSnapshot({
-      ...eventsSnapshot,
-      events: [
-        ...eventsSnapshot.events,
-        {
-          detail: "Restart the active profile and retry only after Status is healthy",
-          id: "capture-failure:listener-unavailable",
-          level: "error",
-          message: "Traffic capture was blocked because the managed listener is unavailable",
-          observedAt: Date.now(),
-          sequence: eventsSnapshot.sequence + 1,
-          source: "application",
-        },
-      ],
+    eventsSnapshot.adapterKind = "rpc";
+    eventsClient.publishSnapshot(eventsSnapshot);
+    const failureEvent = {
+      detail: "Restart the active profile and retry only after Status is healthy",
+      id: "capture-failure:listener-unavailable",
+      level: "error" as const,
+      message: "Traffic capture was blocked because the managed listener is unavailable",
+      notificationKind: "capture-failure" as const,
+      observedAt: Date.now(),
       sequence: eventsSnapshot.sequence + 1,
-    });
+      source: "application" as const,
+    };
     renderRoute(
       "/status",
       "en",
@@ -1277,10 +1293,15 @@ describe("production routes", () => {
         name: "Virtual Interface, not selected, not running",
       }),
     );
+    eventsClient.publishSnapshot({
+      ...eventsSnapshot,
+      events: [...eventsSnapshot.events, failureEvent],
+      sequence: eventsSnapshot.sequence + 1,
+    });
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "Traffic capture was blocked because the managed listener is unavailable",
-        expect.objectContaining({ id: "capture-failure:capture-failure:listener-unavailable" }),
+        expect.objectContaining({ id: "capture-failure:listener-unavailable" }),
       ),
     );
     expect(errorToast).not.toHaveBeenCalledWith("The command failed.", expect.anything());

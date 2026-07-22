@@ -921,7 +921,7 @@ impl MihomoActivationManager {
         let Some(capture) = &self.capture else {
             return Ok(None);
         };
-        let status = capture.status();
+        let status = capture.confirmed_status();
         if !status.system_proxy.desired && !status.tun.desired {
             return Ok(None);
         }

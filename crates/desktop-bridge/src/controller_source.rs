@@ -2013,6 +2013,7 @@ impl EventsDataSource for ControllerStatusSource {
                 && previous.level == event.level()
                 && previous.message == event.message()
                 && previous.detail.as_deref() == event.detail()
+                && previous.notification_kind == event.notification_kind()
         }) {
             return;
         }
@@ -2022,6 +2023,7 @@ impl EventsDataSource for ControllerStatusSource {
             EventSource::Application,
             event.message().to_owned(),
             event.detail().map(str::to_owned),
+            event.notification_kind(),
         );
         drop(state);
         publish_event_change(&self.inner);
@@ -2700,6 +2702,7 @@ fn start_event_session(inner: &SourceInner, generation: u64) {
         EventSource::Application,
         "Controller event session started".into(),
         Some("A new session boundary was created; earlier events are not continuous".into()),
+        None,
     );
     drop(state);
     publish_event_change(inner);
@@ -2742,6 +2745,7 @@ fn record_event_failure(inner: &SourceInner, error: &ControllerStatusSourceError
         EventSource::Application,
         message.into(),
         Some(detail.into()),
+        None,
     );
     drop(state);
     publish_event_change(inner);
@@ -2819,6 +2823,7 @@ fn apply_log_message(inner: &Arc<SourceInner>, message: LogMessage, generation: 
         EventSource::Core,
         redact_event_text(&message.message),
         detail,
+        None,
     );
     drop(state);
     publish_event_change(inner);
@@ -2830,6 +2835,7 @@ fn push_event(
     source: EventSource,
     message: String,
     detail: Option<String>,
+    notification_kind: Option<mish_runtime::ApplicationNotificationKind>,
 ) {
     let Some(session_id) = &state.event_session_id else {
         return;
@@ -2840,6 +2846,7 @@ fn push_event(
         id: format!("{session_id}:{}", state.event_sequence),
         level,
         message,
+        notification_kind,
         observed_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

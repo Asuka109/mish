@@ -76,6 +76,27 @@ impl StatusBarState {
             .launch_proxy_when_mish_launches;
         StatusBarModel::new(&status, &activation, launch_on_start)
     }
+
+    async fn model_with_capture(
+        &self,
+        capture: mish_runtime::CaptureRuntimeStatus,
+    ) -> StatusBarModel {
+        let (mut status, traffic) = self.runtime.native_traffic_handoff().await;
+        status.runtime.capture_selection = capture.capture_selection;
+        status.runtime.system_proxy = capture.system_proxy;
+        status.runtime.system_proxy_enabled = capture.system_proxy_enabled;
+        status.runtime.tun = capture.tun;
+        status.runtime.tun_enabled = capture.tun_enabled;
+        self.traffic_observations.observe(&status, &traffic);
+        let activation = self.activation.activation_snapshot().await;
+        let launch_on_start = self
+            .settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .startup
+            .launch_proxy_when_mish_launches;
+        StatusBarModel::new(&status, &activation, launch_on_start)
+    }
 }
 
 /// The sole native handoff from authoritative Traffic into private rolling
@@ -386,6 +407,7 @@ async fn watch_status_menu(
 ) {
     let mut runtime_changes = state.runtime.subscribe_changes();
     let mut status_updates = runtime_changes.borrow_and_update().subscribe_status();
+    let mut capture_updates = runtime_changes.borrow().subscribe_capture();
     let mut activation_updates = state.activation.subscribe();
     let mut settings_updates = state.settings.subscribe();
     let mut refresh = tokio::time::interval(Duration::from_secs(1));
@@ -407,11 +429,35 @@ async fn watch_status_menu(
                     break;
                 }
                 status_updates = runtime_changes.borrow_and_update().subscribe_status();
+                capture_updates = runtime_changes.borrow().subscribe_capture();
             }
             update = status_updates.recv() => {
                 if update.is_err() && status_updates.is_closed() {
                     status_updates = runtime_changes.borrow().subscribe_status();
                 }
+            }
+            update = async { capture_updates.as_mut().expect("capture updates are enabled").recv().await }, if capture_updates.is_some() => {
+                let capture = match update {
+                    Ok(capture) => capture,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        capture_updates = runtime_changes.borrow().subscribe_capture();
+                        continue;
+                    }
+                };
+                let next_model = state.model_with_capture(capture).await;
+                let update = status_bar_update(&current_model, &next_model);
+                if update.menu_changed {
+                    current_model.menu = next_model.menu.clone();
+                    let _ = items.menu.apply(&current_model.menu);
+                }
+                if update.icon_changed {
+                    current_model.icon_active = next_model.icon_active;
+                    let _ = items
+                        .tray
+                        .set_icon_with_as_template(Some(status_bar_icon(current_model.icon_active)), true);
+                }
+                continue;
             }
             update = activation_updates.recv() => {
                 if update.is_err() && activation_updates.is_closed() {
