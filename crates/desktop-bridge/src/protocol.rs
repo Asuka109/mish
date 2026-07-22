@@ -14,10 +14,10 @@ use mish_profile::{
     RepositoryError,
 };
 use mish_runtime::{
-    CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
-    CoreErrorKind, CoreStatus, ProviderAuthority, ProviderKind, RoutingMode, StatusAdapterKind,
-    StatusCommand, StatusCommandError, StatusCommandErrorKind, TrafficCommandAuthority,
-    TrafficCommandOperation,
+    CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
+    CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
+    ProviderAuthority, ProviderKind, RoutingMode, StatusAdapterKind, StatusCommand,
+    StatusCommandError, StatusCommandErrorKind, TrafficCommandAuthority, TrafficCommandOperation,
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
@@ -26,6 +26,7 @@ use mish_settings::{
 };
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -178,6 +179,8 @@ struct SetServiceProbeIntervalParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetCaptureParams {
     active: bool,
+    #[serde(default)]
+    profile_id: Option<String>,
     selection: CaptureSelection,
 }
 
@@ -1286,15 +1289,7 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
-            match set_capture_with_core_reactivation(
-                state,
-                CaptureRequest {
-                    active: params.active,
-                    selection: params.selection,
-                },
-            )
-            .await
-            {
+            match set_aggregate_capture(state, params).await {
                 Ok(_) => state.status_snapshot().await,
                 Err(error) => return Some(capture_error_response(id, error)),
             }
@@ -1570,6 +1565,96 @@ async fn set_capture_with_core_reactivation(
             .set_capture(request, StatusAdapterKind::Rpc)
             .await
     }
+}
+
+/// Single transport-neutral boundary for aggregate proxy launch/stop.  Native menu callers can
+/// reuse this through `ProfileActivationCoordinator::launch_proxy` without reproducing Web flow.
+async fn set_aggregate_capture(
+    state: &ProtocolState,
+    params: SetCaptureParams,
+) -> Result<Value, CaptureTransitionError> {
+    if !params.active {
+        return set_capture_with_core_reactivation(
+            state,
+            CaptureRequest {
+                active: false,
+                selection: params.selection,
+            },
+        )
+        .await;
+    }
+
+    let selection = requested_capture_selection(state, params.selection).await?;
+    if let Some(settings) = &state.settings_service {
+        settings
+            .set_capture_selection(selection.clone())
+            .map_err(|_| {
+                CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "The selected Capture modes could not be remembered",
+                )
+            })?;
+    }
+    if let Some(activation) = &state.profile_activation {
+        return activation
+            .launch_proxy(
+                &Uuid::new_v4().to_string(),
+                params.profile_id.as_deref(),
+                selection,
+                StatusAdapterKind::Rpc,
+            )
+            .await;
+    }
+    state
+        .runtime
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+}
+
+async fn requested_capture_selection(
+    state: &ProtocolState,
+    selection: CaptureSelection,
+) -> Result<CaptureSelection, CaptureTransitionError> {
+    let snapshot = state
+        .runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    let system_proxy_available =
+        capture_capability_available(snapshot.adapter_kind, snapshot.capabilities.system_proxy);
+    let tun_available =
+        capture_capability_available(snapshot.adapter_kind, snapshot.capabilities.tun);
+    if (selection.system_proxy && !system_proxy_available) || (selection.tun && !tun_available) {
+        Err(CaptureTransitionError::new(
+            CaptureFailureKind::CapabilityUnavailable,
+            "The requested Capture mode is unavailable on this system",
+        ))
+    } else if selection.system_proxy || selection.tun {
+        Ok(selection)
+    } else {
+        Err(CaptureTransitionError::new(
+            CaptureFailureKind::UnsupportedSelection,
+            "No available Capture mode can be launched on this system",
+        ))
+    }
+}
+
+fn capture_capability_available(
+    adapter_kind: StatusAdapterKind,
+    availability: CapabilityAvailability,
+) -> bool {
+    matches!(
+        (adapter_kind, availability),
+        (
+            StatusAdapterKind::Native,
+            CapabilityAvailability::FixtureOnly
+        ) | (StatusAdapterKind::Rpc, CapabilityAvailability::Supported)
+    )
 }
 
 fn constant_time_equal(left: &str, right: &str) -> bool {

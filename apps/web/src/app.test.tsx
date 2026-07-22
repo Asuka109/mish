@@ -1147,7 +1147,7 @@ describe("production routes", () => {
     expect(controllerPort).toHaveValue(29090);
   });
 
-  it("reallocates managed ports and retries activation from the conflict notification", async () => {
+  it("reallocates managed ports and retries the aggregate proxy command", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
@@ -1172,11 +1172,11 @@ describe("production routes", () => {
     );
 
     await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
-    await waitFor(() => expect(profileClient.activateProfile).toHaveBeenCalledOnce());
     await waitFor(() =>
       expect(statusClient.setCapture).toHaveBeenCalledWith(
         { systemProxy: true, tun: false },
         true,
+        "fixture-profile-studio",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
@@ -2207,7 +2207,7 @@ describe("Status fixture experience", () => {
     ).toBeInTheDocument();
   });
 
-  it("starts the selected profile before enabling a capture mode from safe stop", async () => {
+  it("delegates selected-profile capture launch to the aggregate command", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
@@ -2221,18 +2221,13 @@ describe("Status fixture experience", () => {
     );
 
     await waitFor(() => expect(statusClient.setCapture).toHaveBeenCalledTimes(1));
-    expect(profileClient.activateProfile).toHaveBeenCalledWith(
-      expect.any(String),
-      "fixture-profile-studio",
-    );
     expect(statusClient.setCapture).toHaveBeenCalledWith(
       { systemProxy: true, tun: false },
       true,
+      "fixture-profile-studio",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    expect(profileClient.activateProfile.mock.invocationCallOrder[0]).toBeLessThan(
-      statusClient.setCapture.mock.invocationCallOrder[0],
-    );
+    expect(profileClient.activateProfile).not.toHaveBeenCalled();
   });
 
   it("returns a Core startup failure to idle and shows one specific notification", async () => {
@@ -2265,8 +2260,8 @@ describe("Status fixture experience", () => {
     errorToast.mockClear();
     await user.click(startButton);
 
-    await waitFor(() => expect(profileClient.activateProfile).toHaveBeenCalledOnce());
     await waitFor(() => expect(statusClient.setCapture).toHaveBeenCalledOnce());
+    expect(profileClient.activateProfile).not.toHaveBeenCalled();
     expect(errorToast).not.toHaveBeenCalledWith("操作失败。");
     expect(screen.getByRole("button", { name: "启动代理" })).toBeEnabled();
 

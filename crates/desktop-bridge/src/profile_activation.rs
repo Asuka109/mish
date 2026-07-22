@@ -12,8 +12,9 @@ use mish_profile::{
     ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CaptureFailureKind, CaptureRequest, CaptureTransitionError,
-    EventLevel, MishRuntime, ProviderSnapshot, StatusAdapterKind,
+    ApplicationDiagnosticEvent, CapabilityAvailability, CaptureFailureKind, CaptureRequest,
+    CaptureSelection, CaptureTransitionError, EventLevel, MishRuntime, ProviderSnapshot,
+    StatusAdapterKind,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
@@ -404,6 +405,105 @@ impl ProfileActivationCoordinator {
             })
             .ok_or(ProfileActivationCoordinatorError::Unavailable)?;
         self.activate(command_id, &profile_id).await
+    }
+
+    /// Transport-neutral aggregate proxy launch authority.
+    ///
+    /// Interactive callers may supply a selected Profile; startup and future native callers pass
+    /// `None` to resume the last successful Profile.  Profile activation and the single Capture
+    /// mutation deliberately share this lifecycle so no transport can become a second authority.
+    pub async fn launch_proxy(
+        self: &Arc<Self>,
+        command_id: &str,
+        profile_id: Option<&str>,
+        selection: CaptureSelection,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<Value, CaptureTransitionError> {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Mish is shutting down and cannot accept a new proxy launch",
+            ));
+        }
+        let before = self
+            .host
+            .current()
+            .status_snapshot_typed(adapter_kind)
+            .await;
+        let selection =
+            usable_capture_selection(before.adapter_kind, &before.capabilities, selection)?;
+        if before.runtime.system_proxy_enabled || before.runtime.tun_enabled {
+            return self
+                .set_capture(
+                    CaptureRequest {
+                        active: true,
+                        selection,
+                    },
+                    adapter_kind,
+                )
+                .await;
+        }
+
+        let current = self.activation_snapshot().await;
+        let activation = if current.phase == ProfileActivationPhase::Success
+            && profile_id
+                .is_none_or(|profile_id| current.active_profile_id.as_deref() == Some(profile_id))
+        {
+            current
+        } else if let Some(profile_id) = profile_id {
+            self.activate(command_id, profile_id)
+                .await
+                .map_err(profile_launch_error)?
+        } else {
+            self.activate_last_successful_profile(command_id)
+                .await
+                .map_err(profile_launch_error)?
+        };
+        let completed = if activation.phase == ProfileActivationPhase::Pending {
+            self.wait_for_terminal_activation(command_id).await?
+        } else {
+            activation
+        };
+        if completed.phase != ProfileActivationPhase::Success {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Profile activation failed before Capture could be applied",
+            ));
+        }
+        self.set_capture(
+            CaptureRequest {
+                active: true,
+                selection,
+            },
+            adapter_kind,
+        )
+        .await
+    }
+
+    async fn wait_for_terminal_activation(
+        &self,
+        command_id: &str,
+    ) -> Result<ProfileActivationSnapshot, CaptureTransitionError> {
+        let current = self.activation_snapshot().await;
+        if current.command_id.as_deref() == Some(command_id)
+            && current.phase != ProfileActivationPhase::Pending
+        {
+            return Ok(current);
+        }
+        let mut updates = self.subscribe();
+        loop {
+            let snapshot = updates.recv().await.map_err(|_| {
+                CaptureTransitionError::new(
+                    CaptureFailureKind::RuntimeTransition,
+                    "Profile activation updates became unavailable",
+                )
+            })?;
+            if snapshot.command_id.as_deref() == Some(command_id)
+                && snapshot.phase != ProfileActivationPhase::Pending
+            {
+                return Ok(snapshot);
+            }
+        }
     }
 
     pub async fn set_capture(
@@ -918,6 +1018,50 @@ impl ProfileActivationCoordinator {
             }
         }
         let _ = self.updates.send(state.snapshot.clone());
+    }
+}
+
+fn profile_launch_error(error: ProfileActivationCoordinatorError) -> CaptureTransitionError {
+    CaptureTransitionError::new(
+        CaptureFailureKind::RuntimeTransition,
+        match error {
+            ProfileActivationCoordinatorError::Conflict
+            | ProfileActivationCoordinatorError::Busy => {
+                "Another proxy launch is already in progress"
+            }
+            ProfileActivationCoordinatorError::Unavailable => "Profile activation is unavailable",
+            _ => "Profile activation could not be prepared",
+        },
+    )
+}
+
+fn usable_capture_selection(
+    adapter_kind: StatusAdapterKind,
+    capabilities: &mish_runtime::PlatformCapabilities,
+    mut selection: CaptureSelection,
+) -> Result<CaptureSelection, CaptureTransitionError> {
+    let available = |availability| {
+        matches!(
+            (adapter_kind, availability),
+            (
+                StatusAdapterKind::Native,
+                CapabilityAvailability::FixtureOnly
+            ) | (StatusAdapterKind::Rpc, CapabilityAvailability::Supported)
+        )
+    };
+    selection.system_proxy &= available(capabilities.system_proxy);
+    selection.tun &= available(capabilities.tun);
+    if !selection.system_proxy && !selection.tun {
+        selection.system_proxy = available(capabilities.system_proxy);
+        selection.tun = !selection.system_proxy && available(capabilities.tun);
+    }
+    if selection.system_proxy || selection.tun {
+        Ok(selection)
+    } else {
+        Err(CaptureTransitionError::new(
+            CaptureFailureKind::UnsupportedSelection,
+            "No available Capture mode can be launched on this system",
+        ))
     }
 }
 

@@ -324,7 +324,7 @@ export interface TunRuntimeStatusDto extends z.infer<typeof TunRuntimeStatusSche
 
 export const RuntimeStatusSchema = z
   .object({
-    captureSelection: CaptureSelectionSchema,
+    captureSelection: CaptureSelectionSchema.default({ systemProxy: false, tun: false }),
     message: z.string(),
     phase: RuntimePhaseSchema,
     systemProxy: SystemProxyRuntimeStatusSchema,
@@ -1291,6 +1291,7 @@ export interface ManagedPortPreferencesDto extends z.infer<typeof ManagedPortPre
 export const SettingsPreferencesSchema = z
   .object({
     appearance: AppearancePreferenceSchema,
+    captureSelection: CaptureSelectionSchema.default({ systemProxy: false, tun: false }),
     language: LanguagePreferenceSchema,
     managedPorts: ManagedPortPreferencesSchema,
     onboarding: OnboardingPreferencesSchema,
@@ -1687,7 +1688,11 @@ export const SetRoutingModeCommandSchema = z.object({ mode: RoutingModeSchema })
 export interface SetRoutingModeCommand extends z.infer<typeof SetRoutingModeCommandSchema> {}
 
 export const SetCaptureCommandSchema = z
-  .object({ active: z.boolean(), selection: CaptureSelectionSchema })
+  .object({
+    active: z.boolean(),
+    profileId: IdentifierSchema.optional(),
+    selection: CaptureSelectionSchema,
+  })
   .strict();
 export interface SetCaptureCommand extends z.infer<typeof SetCaptureCommandSchema> {}
 
@@ -2767,6 +2772,7 @@ export interface StatusClient {
   setCapture(
     selection: CaptureSelectionDto,
     active: boolean,
+    profileId?: string,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   setRoutingMode(mode: RoutingMode, options?: { signal?: AbortSignal }): Promise<StatusSnapshotDto>;
