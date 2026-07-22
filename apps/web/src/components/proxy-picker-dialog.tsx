@@ -53,7 +53,9 @@ export function ProxyPickerDialog({
       <DialogContent className={proxyPickerStyles().dialog()} closeLabel={LL.common.close()}>
         <div className={proxyPickerStyles().header()}>
           <div>
-            <DialogTitle className={`${proxyPickerStyles().title()} user-authored-label`}>
+            <DialogTitle
+              className={proxyPickerStyles().title({ className: "user-authored-label" })}
+            >
               {group.label}
             </DialogTitle>
             <DialogDescription className={proxyPickerStyles().description()}>
@@ -86,7 +88,7 @@ export function ProxyPickerDialog({
                       <strong className="user-authored-label">{node.label}</strong>
                       <span>{node.protocol}</span>
                     </span>
-                    <span className={`${proxyPickerStyles().latency()} tabular-nums`}>
+                    <span className={proxyPickerStyles().latency({ className: "tabular-nums" })}>
                       {node.latencyMilliseconds === null
                         ? LL.common.unavailable()
                         : `${node.latencyMilliseconds} ms`}

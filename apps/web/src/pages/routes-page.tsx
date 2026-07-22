@@ -261,7 +261,7 @@ function RouteNodeRow({
   const selected = group.selectedChildId === node.id;
   const content = (
     <>
-      <span className={`${routeStyles().childCopy()} ${routeStyles().referenceCopy()}`}>
+      <span className={routeStyles().childCopy({ className: routeStyles().referenceCopy() })}>
         <strong className="user-authored-label" title={node.label}>
           {node.label}
         </strong>
@@ -271,7 +271,7 @@ function RouteNodeRow({
         {delayResult ? (
           <DelayResult result={delayResult} />
         ) : (
-          <span className={`${routeStyles().latency()} tabular-nums`}>
+          <span className={routeStyles().latency({ className: "tabular-nums" })}>
             {node.latencyMilliseconds === null
               ? LL.routes.latencyUnavailable()
               : LL.routes.latencyMilliseconds({ latency: node.latencyMilliseconds })}
@@ -296,7 +296,7 @@ function RouteNodeRow({
       aria-describedby={commandDescriptionId}
       aria-label={LL.routes.selectChild({ child: node.label, group: group.label })}
       aria-pressed={selected}
-      className={`${routeStyles().childRow()} ${routeStyles().childSelectable()}`}
+      className={routeStyles().childRow({ className: routeStyles().childSelectable() })}
       disabled={commandPending || !commandSupported}
       loading={selectionPending}
       loadingText={LL.common.pending()}
@@ -360,7 +360,7 @@ function RouteGroupReferenceRow({
       aria-describedby={commandDescriptionId}
       aria-label={LL.routes.selectChild({ child: group.label, group: parentGroup.label })}
       aria-pressed={selected}
-      className={`${routeStyles().childRow()} ${routeStyles().childSelectable()}`}
+      className={routeStyles().childRow({ className: routeStyles().childSelectable() })}
       disabled={commandPending || !commandSupported}
       loading={selectionPending}
       loadingText={LL.common.pending()}
@@ -458,7 +458,7 @@ function RouteGroup({
           </strong>
           <Badge variant="outline">{getGroupTypeLabel(LL, group)}</Badge>
         </span>
-        <span className={`${routeStyles().groupCurrent()} user-authored-label`}>
+        <span className={routeStyles().groupCurrent({ className: "user-authored-label" })}>
           {currentChild
             ? LL.routes.currentChild({ child: currentChild })
             : LL.routes.noCurrentChild()}
@@ -483,7 +483,9 @@ function RouteGroup({
                   ? LL.routes.collapseGroup({ group: group.label })
                   : LL.routes.expandGroup({ group: group.label })
               }
-              className={`${routeStyles().groupToggle()} ${routeStyles().groupToggleInteractive()}`}
+              className={routeStyles().groupToggle({
+                className: routeStyles().groupToggleInteractive(),
+              })}
               disabled={disabled}
               onClick={() => onToggle(group.id)}
               variant="ghost"
@@ -491,7 +493,11 @@ function RouteGroup({
               {headerContent}
             </Button>
           ) : (
-            <div className={`${routeStyles().groupToggle()} ${routeStyles().groupToggleStatic()}`}>
+            <div
+              className={routeStyles().groupToggle({
+                className: routeStyles().groupToggleStatic(),
+              })}
+            >
               {headerContent}
             </div>
           )}
@@ -524,7 +530,7 @@ function RouteGroup({
                   ))}
                 </ToggleGroup>
               </div>
-              <div className={`${routeStyles().toolsRow()} ${routeStyles().delayTools()}`}>
+              <div className={routeStyles().toolsRow({ className: routeStyles().delayTools() })}>
                 <span className={routeStyles().delayCopy()}>
                   <strong className="user-authored-label">
                     {delayMatchesGroup && delayIsActive

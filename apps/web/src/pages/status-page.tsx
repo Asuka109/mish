@@ -353,7 +353,7 @@ export function StatusPage() {
                     </small>
                   </span>
                 </span>
-                <strong className={`${statusStyles().trafficRate()} tabular-nums`}>
+                <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.downloadBytesPerSecond, locale)
                     : "- B/s"}
@@ -374,7 +374,7 @@ export function StatusPage() {
                     </small>
                   </span>
                 </span>
-                <strong className={`${statusStyles().trafficRate()} tabular-nums`}>
+                <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.uploadBytesPerSecond, locale)
                     : "- B/s"}
@@ -447,17 +447,21 @@ export function StatusPage() {
                   const rowContent = (
                     <>
                       <span className={statusStyles().policyLeading()}>
-                        <span className={`${statusStyles().policyRank()} tabular-nums`}>
+                        <span className={statusStyles().policyRank({ className: "tabular-nums" })}>
                           {index + 1}
                         </span>
                         <span className={statusStyles().policyCopy()}>
                           <strong
-                            className={`${statusStyles().policyPrimary()} user-authored-label`}
+                            className={statusStyles().policyPrimary({
+                              className: "user-authored-label",
+                            })}
                           >
                             {group.label}
                           </strong>
                           <span
-                            className={`${statusStyles().policySecondary()} user-authored-label`}
+                            className={statusStyles().policySecondary({
+                              className: "user-authored-label",
+                            })}
                           >
                             {selectedNode?.label ?? selectedGroup?.label ?? LL.status.noSelection()}
                             {selectedNode?.latencyMilliseconds === null ||

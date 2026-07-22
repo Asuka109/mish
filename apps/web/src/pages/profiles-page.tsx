@@ -520,7 +520,11 @@ function ProfileCard({
       {subscription ? (
         <div className={profileStyles().subscription()}>
           <div className={profileStyles().subscriptionGrid()}>
-            <div className={`${profileStyles().subscriptionCell()} ${profileStyles().source()}`}>
+            <div
+              className={profileStyles().subscriptionCell({
+                className: profileStyles().source(),
+              })}
+            >
               <span>
                 <GlobeHemisphereWest aria-hidden="true" />
                 {LL.profiles.subscriptionAddress()}
@@ -533,7 +537,11 @@ function ProfileCard({
               label={LL.profiles.lastUpdate()}
               value={formatTimestamp(lastUpdateAt, dateFormatter, LL)}
             />
-            <div className={`${profileStyles().subscriptionCell()} ${profileStyles().date()}`}>
+            <div
+              className={profileStyles().subscriptionCell({
+                className: profileStyles().date(),
+              })}
+            >
               <span>{LL.profiles.nextUpdate()}</span>
               <div className={profileStyles().nextUpdate()}>
                 <strong>
@@ -605,7 +613,7 @@ function FileNameTitle({ fileName }: { fileName: string }) {
 
 function ProfileDate({ label, value }: { label: string; value: string }) {
   return (
-    <div className={`${profileStyles().subscriptionCell()} ${profileStyles().date()}`}>
+    <div className={profileStyles().subscriptionCell({ className: profileStyles().date() })}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
