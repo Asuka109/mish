@@ -907,6 +907,7 @@ fn initialize(
             bridge
                 .browser_client()
                 .ok_or_else(|| io::Error::other("browser client host is unavailable"))?,
+            settings_service.clone(),
         );
         Ok::<_, io::Error>((bridge, status_bar_state, support_bundle, activation))
     })?;

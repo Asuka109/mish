@@ -10,27 +10,44 @@ authenticated Web RPC surface. It does not own a second application-state
 store.
 
 The menu subscribes to runtime replacement, core/status updates, capture
-reconciliation updates, and profile activation updates. It rebuilds native menu
-items from the latest typed native Status snapshot after each update and after
-each native command. Pending, failed, drifted, and unavailable states are
-worded explicitly; a failed operation is never converted into a local success.
+reconciliation updates, and profile activation updates. It is constructed once
+and retains native item handles. Menu-visible operation state updates in place
+after authoritative updates; a one-second local timer updates only the three
+read-only status item texts. The timer never polls the Controller or Traffic:
+it reads the private route-activity summary and the most recent authoritative
+`StatusSnapshot` Traffic rates. Pending and failed aggregate operations remain
+explicit and are never converted into a local success.
 
 ## Menu surface
 
-The implemented compact surface contains:
+The implemented compact surface has four separator-delimited sections:
 
-- open Mish and open the Routes destination in the existing WebView;
-- current profile state, with a bounded display-safe label when that label does
-  not resemble a URL, path, endpoint, or credential;
-- confirmed System Proxy state, enable/disable, repair, and leave-as-is recovery
-  commands;
-- confirmed TUN state and enable/disable commands when the helper is healthy,
-  with pending, failed, and drift states remaining non-active;
-- routing-mode selection when the active Controller source advertises the
-  command;
-- transactional Core restart or recovery through the active or last attempted
-  profile; and
-- quit.
+1. One aggregate **Launch proxy** / **Stop proxy** command. It uses the same
+   `ProfileActivationCoordinator` launch and capture authority as Web/sidebar
+   controls and automatic launch. Starting resumes the remembered available
+   System Proxy/TUN selection; stopping preserves that selection while making
+   capture inactive. Native code does not recreate capture sequencing. Pending
+   is disabled and labelled accordingly; failures are labelled as failed but
+   remain retryable when the coordinator is available.
+2. Fixed native navigation: **Open Mish** (the Status destination), **Routes**,
+   **Profiles**, **Traffic**, **Events**, and **Settings**. Routes has no node
+   activity suffix. Navigation accepts only this allowlist and shows,
+   unminimizes, and focuses the existing WebView.
+3. Three disabled, read-only live labels immediately below navigation: **Most active node**, **Download**,
+   and **Upload**. The node label is the existing bounded, redacted trailing
+   60-second summary. Download and Upload use `StatusSnapshot.traffic` rates
+   and the established binary byte-rate convention. Missing or non-ready
+   Traffic is **Unavailable**; a ready snapshot with no qualifying route is
+   **Idle**. These handles update in place once per second and never replace
+   the tray menu.
+4. **Open Browser Client**, followed by a checked **Launch proxy when Mish
+   launches** preference and then **Quit Mish**. The preference writes only the
+   existing next-launch setting; it does not launch a Profile or mutate capture
+   immediately.
+
+Current Profile, Core, System Proxy, Repair, Leave, TUN, Routing Mode, and
+Recover Core are deliberately absent from this native surface. Their product
+functions remain available elsewhere in Mish.
 
 `Open Browser Client` creates a fresh high-entropy one-time launch PIN and opens
 the desktop bridge's bundled-asset origin in the default browser. The PIN is not
@@ -95,8 +112,8 @@ The shell now defers that initial reveal until the WebView has validated desktop
 bootstrap and React has committed its first tree. A bounded `reveal_main_window`
 command applies the previously computed login-launch policy, so the WebView
 cannot promote a background login launch into a visible window.
-Opening Mish or Routes from the status bar shows, unminimizes, and focuses the
-existing window.
+Opening any fixed destination from the status bar shows, unminimizes, and
+focuses the existing window.
 
 The native shell persists only the main window's size, valid on-screen position,
 and maximized state. It does not persist visibility or fullscreen state. This
@@ -138,9 +155,10 @@ Quit ownership, status-bar and window-close routing, programmatic-exit
 interception, exact report gating, capture/journal and Core-stop failures, and
 idempotent post-run fallback. Existing coverage also includes settings migration and persistence, independence from
 login launch behavior, authenticated bounded RPC, browser capability fallback,
-fixed native navigation destinations, sensitive-label redaction, explicit
-System Proxy and TUN phase wording, observation-backed TUN checked state, and
-the default hide-versus-quit decision. The workspace validation command covers
+the exact compact section/item model, fixed native navigation destinations,
+aggregate command delegation and truthful enabled state, in-place one-second
+live status refresh, byte-rate formatting, and bounded route-summary expiry,
+reset, and redaction. The workspace validation command covers
 Rust/TypeScript types, unit and integration tests, formatting, linting,
 generated localization types, documentation links, and production build
 output.
