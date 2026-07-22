@@ -33,7 +33,7 @@ describe("RPC settings client", () => {
     >);
 
     await client.setAppearance("dark");
-    await client.setLanguage("zh");
+    await client.setLanguage("zh-CN");
     await client.setOnboardingWelcomeState("dismiss");
     await client.setStartup({
       launchAtLogin: true,
@@ -46,7 +46,7 @@ describe("RPC settings client", () => {
 
     expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
       ["settings.setAppearance", { appearance: "dark" }],
-      ["settings.setLanguage", { language: "zh" }],
+      ["settings.setLanguage", { language: "zh-CN" }],
       ["settings.setOnboardingWelcomeState", { action: "dismiss" }],
       [
         "settings.setStartup",

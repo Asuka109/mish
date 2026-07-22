@@ -1,12 +1,15 @@
 import type { StatusConnectionState } from "@mish/contracts";
-import { Button, Input, Spinner } from "@mish/ui";
+import { Button, Input } from "@mish/ui";
 import { ShieldCheck } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import {
   buildBrowserBackendUrl,
   discoverMishBrowserBackend,
+  MISH_BROWSER_DISCOVERY_START_PORT,
+  probeMishBrowserBackend,
   type BrowserBackendDiscoveryResult,
 } from "../platform/browser-backend-discovery";
 
@@ -16,18 +19,22 @@ interface BrowserConnectionMonitor {
 }
 
 type RecoveryState =
-  | BrowserBackendDiscoveryResult
-  | { phase: "disconnected" }
-  | { phase: "searching"; port: number }
-  | { phase: "cancelled" | "failed" };
+  | Extract<BrowserBackendDiscoveryResult, { phase: "not-found" }>
+  | { phase: "connect-failed" | "connecting"; port: number }
+  | { phase: "disconnected" | "scan-failed" | "scanning" };
+
+interface RecoveryOperation {
+  controller: AbortController;
+}
 
 interface BrowserBackendRecoveryProps {
   backendPort?: number;
   children: ReactNode;
   connection?: BrowserConnectionMonitor;
   discover?: typeof discoverMishBrowserBackend;
-  navigate?: (origin: string) => void;
+  navigate?: (origin: string) => Promise<void> | void;
   onRecoveryRequired?: () => void;
+  probe?: typeof probeMishBrowserBackend;
   runtime: "browser" | "desktop" | "mobile";
 }
 
@@ -41,18 +48,15 @@ const recoveryStyles = tv({
     icon: "mb-md flex size-11 items-center justify-center rounded-md bg-accent text-focus-accent [&_svg]:size-6",
     eyebrow: "text-metadata text-muted-foreground",
     title: "my-xs mb-sm text-title font-semibold",
-    description: "text-body text-fg",
     form: "mt-lg",
     portField: cx(
       "[&_label]:mb-xs [&_label]:block [&_label]:text-body [&_label]:font-semibold",
       "[&_label]:text-ink [&_.ui-input]:w-full [&_.ui-input]:font-mono",
     ),
-    hint: "mt-xs text-metadata text-muted-foreground",
-    status: cx(
-      "mt-md flex items-center gap-sm text-fg",
-      "data-[phase=failed]:text-error data-[phase=not-found]:text-error",
-    ),
-    actions: "mt-lg [&_.ui-button]:w-full",
+    fieldError: "mt-xs text-metadata text-error",
+    actions: "mt-lg grid grid-cols-2 gap-sm [&_.ui-button]:w-full",
+    statusRegion: "mt-md min-h-11",
+    status: "text-body text-error",
   },
 });
 
@@ -63,6 +67,7 @@ export function BrowserBackendRecovery({
   discover = discoverMishBrowserBackend,
   navigate = (origin) => window.location.replace(buildBrowserBackendUrl(origin)),
   onRecoveryRequired,
+  probe = probeMishBrowserBackend,
   runtime,
 }: BrowserBackendRecoveryProps) {
   const { LL } = useI18nContext();
@@ -72,7 +77,9 @@ export function BrowserBackendRecovery({
     backendPort === undefined ? "" : String(backendPort),
   );
   const heading = useRef<HTMLHeadingElement | null>(null);
-  const scanController = useRef<AbortController | null>(null);
+  const portInput = useRef<HTMLInputElement | null>(null);
+  const activeOperation = useRef<RecoveryOperation | null>(null);
+  const componentActive = useRef(true);
   const recoveryNotified = useRef(false);
 
   useEffect(() => {
@@ -91,63 +98,102 @@ export function BrowserBackendRecovery({
     onRecoveryRequired?.();
   }, [onRecoveryRequired, recoveryRequired]);
 
-  useEffect(
-    () => () => {
-      scanController.current?.abort();
-    },
-    [],
-  );
-
   useEffect(() => {
-    if (recovery.phase !== "found") return;
-    const timer = window.setTimeout(() => navigate(recovery.origin), 400);
-    return () => window.clearTimeout(timer);
-  }, [navigate, recovery]);
+    componentActive.current = true;
+    return () => {
+      componentActive.current = false;
+      activeOperation.current?.controller.abort();
+      activeOperation.current = null;
+    };
+  }, []);
 
   if (!recoveryRequired || runtime !== "browser" || backendPort === undefined) return children;
   const requestedBackendPort = parseBackendPort(requestedPort);
+  const pending = recovery.phase === "connecting" || recovery.phase === "scanning";
+  const invalidPort = requestedBackendPort === null;
 
-  const reconnect = async () => {
-    if (scanController.current || requestedBackendPort === null) return;
-    const controller = new AbortController();
-    scanController.current = controller;
-    setRecovery({ phase: "searching", port: requestedBackendPort });
+  const beginOperation = () => {
+    if (activeOperation.current) return null;
+    const operation = {
+      controller: new AbortController(),
+    };
+    activeOperation.current = operation;
+    return operation;
+  };
+
+  const operationIsCurrent = (operation: RecoveryOperation) =>
+    componentActive.current &&
+    activeOperation.current === operation &&
+    !operation.controller.signal.aborted;
+
+  const finishOperation = (operation: RecoveryOperation) => {
+    if (activeOperation.current === operation) activeOperation.current = null;
+  };
+
+  const connectToPort = async (port: number, operation: RecoveryOperation) => {
+    if (!operationIsCurrent(operation)) return;
+    setRecovery({ phase: "connecting", port });
     try {
-      const result: BrowserBackendDiscoveryResult = await discover({
-        preferredPort: requestedBackendPort,
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) {
-        setRecovery({ phase: "cancelled" });
-      } else if (result.phase === "found") {
-        setRecovery(result);
-      } else {
-        setRecovery(result);
+      const result = await probe({ port, signal: operation.controller.signal });
+      if (!operationIsCurrent(operation)) return;
+      if (result.phase !== "found") {
+        setRecovery({ phase: "connect-failed", port });
+        finishOperation(operation);
+        return;
       }
-    } catch (error) {
-      setRecovery({
-        phase:
-          controller.signal.aborted ||
-          (error instanceof DOMException && error.name === "AbortError")
-            ? "cancelled"
-            : "failed",
-      });
-    } finally {
-      if (scanController.current === controller) scanController.current = null;
+      await navigate(result.origin);
+      // A successful navigation unloads this view. Keep the operation pending until then.
+    } catch {
+      if (!operationIsCurrent(operation)) return;
+      setRecovery({ phase: "connect-failed", port });
+      finishOperation(operation);
     }
   };
 
-  const cancel = () => scanController.current?.abort();
+  const connect = () => {
+    if (requestedBackendPort === null) {
+      portInput.current?.focus();
+      return;
+    }
+    const operation = beginOperation();
+    if (!operation) return;
+    void connectToPort(requestedBackendPort, operation);
+  };
+
+  const scan = async () => {
+    const operation = beginOperation();
+    if (!operation) return;
+    setRecovery({ phase: "scanning" });
+    try {
+      const result: BrowserBackendDiscoveryResult = await discover({
+        preferredPort: MISH_BROWSER_DISCOVERY_START_PORT,
+        signal: operation.controller.signal,
+      });
+      if (!operationIsCurrent(operation)) return;
+      if (result.phase === "not-found") {
+        setRecovery(result);
+        finishOperation(operation);
+        return;
+      }
+      flushSync(() => setRequestedPort(String(result.port)));
+      await connectToPort(result.port, operation);
+    } catch {
+      if (!operationIsCurrent(operation)) return;
+      setRecovery({ phase: "scan-failed" });
+      finishOperation(operation);
+    }
+  };
+
   const status = recoveryStatus(LL, recovery);
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    void reconnect();
+    connect();
   };
 
   return (
     <main className={recoveryStyles().root()}>
       <section
-        aria-busy={recovery.phase === "searching"}
+        aria-busy={pending}
         aria-labelledby="browser-backend-recovery-title"
         className={recoveryStyles().card()}
       >
@@ -163,7 +209,6 @@ export function BrowserBackendRecovery({
         >
           {LL.browserBackendRecovery.title()}
         </h1>
-        <p className={recoveryStyles().description()}>{LL.browserBackendRecovery.description()}</p>
         <form className={recoveryStyles().form()} onSubmit={submit}>
           <div className={recoveryStyles().portField()}>
             <label htmlFor="browser-backend-recovery-port">
@@ -171,50 +216,58 @@ export function BrowserBackendRecovery({
             </label>
             <Input
               id="browser-backend-recovery-port"
-              aria-describedby="browser-backend-recovery-port-hint"
-              aria-invalid={requestedPort.length > 0 && requestedBackendPort === null}
-              disabled={recovery.phase === "searching" || recovery.phase === "found"}
+              aria-describedby={invalidPort ? "browser-backend-recovery-port-error" : undefined}
+              aria-invalid={invalidPort}
+              disabled={pending}
               inputMode="numeric"
               maxLength={5}
               onChange={(event) => {
                 setRequestedPort(event.target.value.replace(/\D/g, "").slice(0, 5));
-                if (recovery.phase !== "searching" && recovery.phase !== "found") {
+                if (!activeOperation.current) {
                   setRecovery({ phase: "disconnected" });
                 }
               }}
               pattern="[0-9]{1,5}"
+              ref={portInput}
               value={requestedPort}
             />
-            <p id="browser-backend-recovery-port-hint" className={recoveryStyles().hint()}>
-              {LL.browserBackendRecovery.portHint()}
-            </p>
+            {invalidPort ? (
+              <p className={recoveryStyles().fieldError()} id="browser-backend-recovery-port-error">
+                {LL.browserBackendRecovery.invalidPort()}
+              </p>
+            ) : null}
           </div>
 
-          {status ? (
-            <div
-              aria-live="polite"
-              className={recoveryStyles().status()}
-              data-phase={recovery.phase}
-              role={
-                recovery.phase === "failed" || recovery.phase === "not-found" ? "alert" : "status"
-              }
-            >
-              {recovery.phase === "searching" ? <Spinner /> : null}
-              <span>{status}</span>
-            </div>
-          ) : null}
-
           <div className={recoveryStyles().actions()}>
-            {recovery.phase === "searching" ? (
-              <Button onClick={cancel} type="button" variant="outline">
-                {LL.browserBackendRecovery.cancel()}
-              </Button>
-            ) : recovery.phase !== "found" ? (
-              <Button disabled={requestedBackendPort === null} type="submit">
-                {recovery.phase === "disconnected"
-                  ? LL.browserBackendRecovery.reconnect()
-                  : LL.browserBackendRecovery.retry()}
-              </Button>
+            <Button
+              disabled={pending || requestedBackendPort === null}
+              loading={recovery.phase === "connecting"}
+              loadingText={LL.browserBackendRecovery.connecting()}
+              type="submit"
+            >
+              {LL.browserBackendRecovery.connect()}
+            </Button>
+            <Button
+              disabled={pending}
+              loading={recovery.phase === "scanning"}
+              loadingText={LL.browserBackendRecovery.scanning()}
+              onClick={() => void scan()}
+              type="button"
+              variant="outline"
+            >
+              {LL.browserBackendRecovery.scan()}
+            </Button>
+          </div>
+          <div className={recoveryStyles().statusRegion()}>
+            {status ? (
+              <div
+                aria-live="assertive"
+                className={recoveryStyles().status()}
+                data-phase={recovery.phase}
+                role="alert"
+              >
+                <span>{status}</span>
+              </div>
             ) : null}
           </div>
         </form>
@@ -225,19 +278,12 @@ export function BrowserBackendRecovery({
 
 function recoveryStatus(LL: ReturnType<typeof useI18nContext>["LL"], recovery: RecoveryState) {
   switch (recovery.phase) {
-    case "searching":
-      return LL.browserBackendRecovery.searching({ port: recovery.port });
-    case "found":
-      return LL.browserBackendRecovery.found({ port: recovery.port });
     case "not-found":
-      return LL.browserBackendRecovery.notFound({
-        emptyPorts: recovery.emptyPorts,
-        occupiedPorts: recovery.occupiedPorts,
-      });
-    case "cancelled":
-      return LL.browserBackendRecovery.cancelled();
-    case "failed":
-      return LL.browserBackendRecovery.failed();
+      return LL.browserBackendRecovery.notFound();
+    case "connect-failed":
+      return LL.browserBackendRecovery.connectFailed({ port: recovery.port });
+    case "scan-failed":
+      return LL.browserBackendRecovery.scanFailed();
     default:
       return null;
   }

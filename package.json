@@ -76,7 +76,7 @@
     "test:run": "pnpm test:workspace",
     "test:rust": "cargo test --workspace -- --test-threads=1",
     "test:ts": "pnpm test:unit",
-    "test:scripts": "node --test scripts/tauri-dev.test.ts",
+    "test:scripts": "node --test scripts/tauri-dev.test.ts scripts/manage-macos-tun-service.test.ts",
     "test:unit": "pnpm --filter @mish/web --filter @mish/mock-bridge --filter @mish/rpc-client test:run && pnpm test:scripts",
     "test:watch": "pnpm web:test",
     "test:workspace": "pnpm --recursive --if-present test:run",
