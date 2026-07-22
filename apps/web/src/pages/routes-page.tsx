@@ -73,7 +73,7 @@ const routeStyles = tv({
       "routes-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
       "[&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5",
     ),
-    graph: "routes-graph mt-5",
+    graph: "routes-graph mt-5 overflow-hidden rounded-md border border-hairline bg-canvas",
     graphError: cx(
       "routes-graph-error mt-5 rounded-md border border-route-graph-error-border p-4 [&_p]:mt-1.25",
       "[&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground",
@@ -81,10 +81,9 @@ const routeStyles = tv({
       "[&_li]:text-metadata [&_li]:leading-4.75 [&_li]:text-muted-foreground",
       "[&_li]:before:mr-1.75 [&_li]:before:text-error [&_li]:before:content-['•']",
     ),
-    rootList: "route-root-list m-0 flex list-none flex-col gap-3 p-0 max-shell-mobile:gap-2",
-    groupItem: "route-group-item min-w-0",
-    group:
-      "route-group min-w-0 overflow-hidden rounded-md border border-hairline bg-canvas data-[disabled=true]:opacity-55",
+    rootList: "route-root-list m-0 flex list-none flex-col p-0",
+    groupItem: "route-group-item min-w-0 border-b border-hairline-soft last:border-b-0",
+    group: "route-group min-w-0 bg-canvas data-[disabled=true]:opacity-55",
     groupHeader: "route-group-header flex min-h-14.5 min-w-0 items-stretch",
     groupToggle: cx(
       "route-group-toggle grid min-h-14.5 min-w-0 w-full grid-cols-[18px_minmax(0,1fr)] items-center",

@@ -117,6 +117,23 @@ describe("unified policy browser", () => {
     renderPolicyWorkspace("/routes", "en", "dark");
     await expect.element(page.getByRole("heading", { name: "Routes" })).toBeVisible();
 
+    const graph = document.querySelector<HTMLElement>(".routes-graph");
+    const groupList = graph?.querySelector<HTMLElement>(":scope > .route-root-list");
+    const groupCards = groupList?.querySelectorAll<HTMLElement>(":scope > li > .route-group");
+    if (!graph || !groupList || !groupCards) throw new Error("Missing Routes collection card");
+    expect(getComputedStyle(graph).borderTopWidth).toBe("1px");
+    expect(getComputedStyle(graph).overflow).toBe("hidden");
+    expect(groupCards.length).toBeGreaterThan(1);
+    const groupItems = [...groupList.children] as HTMLElement[];
+    expect(groupItems[1]!.getBoundingClientRect().top).toBeCloseTo(
+      groupItems[0]!.getBoundingClientRect().bottom,
+      0,
+    );
+    groupCards.forEach((groupCard) => {
+      expect(getComputedStyle(groupCard).borderTopWidth).toBe("0px");
+      expect(getComputedStyle(groupCard).borderRadius).toBe("0px");
+    });
+
     await userEvent.click(page.getByRole("button", { name: "Expand 🌐 Proxy" }));
     await userEvent.click(page.getByRole("button", { name: "Expand 🎬 Streaming" }));
     await expect.element(page.getByRole("button", { name: "Collapse 🌐 Proxy" })).toBeVisible();
@@ -124,6 +141,9 @@ describe("unified policy browser", () => {
     await expect
       .element(page.getByRole("button", { name: "Start Delay Test for 🌐 Proxy" }))
       .toBeVisible();
+    expect(graph.querySelectorAll(":scope > .route-root-list > li .route-group-body")).toHaveLength(
+      2,
+    );
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(document.documentElement.dataset.windowSurface).toBe("material");
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);

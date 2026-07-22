@@ -243,6 +243,17 @@ Status: passed.
 - Post-fix evidence: the combined comparison shows all three sort options visibly anchored below the trigger without clipping or layout shift. A real-browser regression opens the modal Select, verifies the Latency option is visible, and asserts that the positioner is above the dialog before closing it with Escape.
 - Comparison history: the first browser run reproduced the failure with an automatic/`NaN` computed stacking value against dialog level 71. After the shared-layer fix, all 41 browser tests passed and the desktop production bundle emitted `z-index: 72`.
 
+### Annotation follow-up: unified Routes collection card
+
+- Source visual truth: `/var/folders/5z/wjdqjxyn66n_69rwycgmdz1c0000gn/T/codex-clipboard-ef3e4355-d4f6-4eec-a5ed-90a385647836.png` for the node-browser collection language and `/var/folders/5z/wjdqjxyn66n_69rwycgmdz1c0000gn/T/codex-clipboard-8d7486e3-e0c5-4cd5-827d-9b2e0de003f6.png` for the complete Routes hierarchy and tools.
+- Implementation screenshots: `.scratch/design-qa/routes-unified-card-collapsed.png` and `.scratch/design-qa/routes-unified-card-expanded.png`, each captured by the browser regression at an 800 × 600 CSS viewport with device scale factor 1 in dark material mode.
+- Combined comparison: `.scratch/design-qa/routes-unified-card-comparison.png`, a 1600 × 600 canvas pairing the normalized source collection crop with the rendered collapsed Routes collection.
+- Initial finding: each independent policy group owned a separate rounded border and vertical gap, producing a stack of cards instead of the node browser's single continuous semantic collection. This was a P1 host-composition mismatch because it fragmented one browser into many unrelated surfaces.
+- Fix: the Routes graph now owns the only card border, radius, clipping, and canvas background. Policy groups are continuous rows separated by hairlines; expanded toolbars and child rows stay inside that same outer surface. Individual group articles no longer carry borders or radii.
+- Post-fix evidence: the collapsed comparison shows one collection card with continuous rows, aligned counts, and the existing group-summary hierarchy. The expanded capture shows two groups open simultaneously with toolbars and node rows remaining inside the same uninterrupted outer card. Browser geometry verifies one bordered/clipped graph, zero gaps between peer groups, borderless group articles, and two mounted expanded bodies.
+- Required fidelity surfaces: existing system typography, row heights, tokens, icons, selected/latency states, search field, toolbar controls, and bilingual dynamic copy are unchanged. No image or brand assets changed. At 320 and 390 CSS pixels, the same collection surface retains dedicated group links and the existing single-group child route rather than squeezing the desktop tree.
+- Comparison history: the pre-fix Routes capture showed distinct rounded cards with 12-pixel gaps. The post-fix combined and expanded captures show no remaining P0, P1, or P2 issue for the requested one-card composition.
+
 ### Content and state checks
 
 - Verified English and Chinese localization, Unicode labels, long-label containment, configured fallback, reconnecting/stale behavior, empty and no-match states, delay states, and explicit non-color status labels.
