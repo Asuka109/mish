@@ -25,19 +25,19 @@ non-fixture adapter.
 
 ## DTO families
 
-| DTO                       | Required meaning                                                                             | Authority                                    |
-| ------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `RuntimeStatusDto`        | Core lifecycle, capture selection, confirmed System Proxy and TUN state, error or transition | Local bridge plus platform adapter           |
-| `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                                           | Mihomo traffic stream                        |
+| DTO                       | Required meaning                                                                             | Authority                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `RuntimeStatusDto`        | Core lifecycle, capture selection, confirmed System Proxy and TUN state, error or transition | Local bridge plus platform adapter               |
+| `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                                           | Mihomo traffic stream                            |
 | `RuntimeMetricsDto`       | Memory in use, proxy-session uptime, active connections, effective rules                     | Mihomo observations plus local-bridge derivation |
-| `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local bridge persistence                     |
-| `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations    |
-| `GroupDelayPolicyDto`     | Visible application policy ID and bounded timeout                                            | Local bridge application policy              |
-| `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results |
-| `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                      |
-| `ServiceMonitorDto`       | ID, opaque title, probe URL, HTTPS icon URL, probe policy                                    | Local bridge persistence                     |
-| `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                 |
-| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                             |
+| `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local bridge persistence                         |
+| `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations        |
+| `GroupDelayPolicyDto`     | Visible application policy ID and bounded timeout                                            | Local bridge application policy                  |
+| `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results     |
+| `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                          |
+| `ServiceMonitorDto`       | ID, opaque title, probe URL, HTTPS icon URL, probe policy                                    | Local bridge persistence                         |
+| `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                     |
+| `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                                 |
 
 User-authored Mihomo labels are opaque Unicode strings. Production code must
 not split, normalize, reorder, or infer structured emoji and text fields. The
