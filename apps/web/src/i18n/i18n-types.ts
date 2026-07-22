@@ -2130,21 +2130,24 @@ type RootTranslation = {
 		 */
 		activationFailed: string
 		/**
-		 * P​r​e​p​a​r​i​n​g​ ​g​e​o​g​r​a​p​h​i​c​ ​r​u​l​e​ ​d​a​t​a​ ​b​e​f​o​r​e​ ​a​c​t​i​v​a​t​i​o​n​…
+		 * P​r​e​p​a​r​i​n​g​ ​{​a​s​s​e​t​}​ ​b​e​f​o​r​e​ ​a​c​t​i​v​a​t​i​o​n​…
+		 * @param {string} asset
 		 */
-		geodataPreparing: string
+		geodataPreparing: RequiredParams<'asset'>
 		/**
 		 * T​h​e​ ​f​i​r​s​t​ ​d​o​w​n​l​o​a​d​ ​m​a​y​ ​t​a​k​e​ ​a​ ​f​e​w​ ​m​i​n​u​t​e​s​.
 		 */
 		geodataPreparingDetail: string
 		/**
-		 * M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​t​h​e​ ​g​e​o​g​r​a​p​h​i​c​ ​r​u​l​e​ ​d​a​t​a​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
+		 * M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​{​a​s​s​e​t​}​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
+		 * @param {string} asset
 		 */
-		geodataFailed: string
+		geodataFailed: RequiredParams<'asset'>
 		/**
-		 * G​e​o​g​r​a​p​h​i​c​ ​r​u​l​e​ ​d​a​t​a​ ​w​a​s​ ​n​o​t​ ​r​e​a​d​y​ ​b​e​f​o​r​e​ ​t​h​e​ ​a​c​t​i​v​a​t​i​o​n​ ​d​e​a​d​l​i​n​e​.
+		 * {​a​s​s​e​t​}​ ​w​a​s​ ​n​o​t​ ​r​e​a​d​y​ ​b​e​f​o​r​e​ ​t​h​e​ ​a​c​t​i​v​a​t​i​o​n​ ​d​e​a​d​l​i​n​e​.
+		 * @param {string} asset
 		 */
-		geodataTimeout: string
+		geodataTimeout: RequiredParams<'asset'>
 		/**
 		 * C​h​e​c​k​ ​y​o​u​r​ ​n​e​t​w​o​r​k​ ​c​o​n​n​e​c​t​i​o​n​ ​a​n​d​ ​r​e​t​r​y​ ​a​c​t​i​v​a​t​i​o​n​.
 		 */
@@ -6390,21 +6393,21 @@ export type TranslationFunctions = {
 		 */
 		activationFailed: () => LocalizedString
 		/**
-		 * Preparing geographic rule data before activation…
+		 * Preparing {asset} before activation…
 		 */
-		geodataPreparing: () => LocalizedString
+		geodataPreparing: (arg: { asset: string }) => LocalizedString
 		/**
 		 * The first download may take a few minutes.
 		 */
 		geodataPreparingDetail: () => LocalizedString
 		/**
-		 * Mihomo could not prepare the geographic rule data required by this profile.
+		 * Mihomo could not prepare {asset} required by this profile.
 		 */
-		geodataFailed: () => LocalizedString
+		geodataFailed: (arg: { asset: string }) => LocalizedString
 		/**
-		 * Geographic rule data was not ready before the activation deadline.
+		 * {asset} was not ready before the activation deadline.
 		 */
-		geodataTimeout: () => LocalizedString
+		geodataTimeout: (arg: { asset: string }) => LocalizedString
 		/**
 		 * Check your network connection and retry activation.
 		 */

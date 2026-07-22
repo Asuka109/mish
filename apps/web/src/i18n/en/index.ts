@@ -638,10 +638,10 @@ const en = {
       "Mihomo did not provide a valid Controller readiness snapshot. Review Events, then restart this profile.",
     activationFailed:
       "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
-    geodataPreparing: "Preparing geographic rule data before activation…",
+    geodataPreparing: "Preparing {asset:string} before activation…",
     geodataPreparingDetail: "The first download may take a few minutes.",
-    geodataFailed: "Mihomo could not prepare the geographic rule data required by this profile.",
-    geodataTimeout: "Geographic rule data was not ready before the activation deadline.",
+    geodataFailed: "Mihomo could not prepare {asset:string} required by this profile.",
+    geodataTimeout: "{asset:string} was not ready before the activation deadline.",
     geodataRetry: "Check your network connection and retry activation.",
     activationListenerConflict:
       "Mish could not use {endpoint} because another application owns it. Stop or reconfigure that application, then retry.",

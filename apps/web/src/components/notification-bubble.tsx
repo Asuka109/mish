@@ -37,6 +37,22 @@ import { WelcomeDialog } from "./welcome-dialog";
 const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
 export const geodataProgressNotificationId = "profile-activation-geodata-progress";
+
+function geodataAssetName(asset: "geo-ip" | "geo-site" | "mmdb" | "asn" | undefined) {
+  switch (asset) {
+    case "geo-site":
+      return "GeoSite";
+    case "geo-ip":
+      return "GeoIP";
+    case "mmdb":
+      return "MMDB";
+    case "asn":
+      return "ASN";
+    default:
+      return "GeoSite/GeoIP/MMDB/ASN";
+  }
+}
+
 const notificationStyles = tv({
   slots: {
     trigger: cx(
@@ -164,6 +180,7 @@ function NotificationPublicationController({
       ? profiles.snapshot.activation.failureEndpoint
       : null;
   const activationEvidence = profiles?.snapshot?.activation.evidence;
+  const geodataAsset = geodataAssetName(activationEvidence?.asset);
   const geodataPreparing =
     profiles?.snapshot?.activation.phase === "pending" &&
     activationEvidence?.kind === "geodata-preparing";
@@ -271,9 +288,9 @@ function NotificationPublicationController({
       duration: Number.POSITIVE_INFINITY,
       id: geodataProgressNotificationId,
       level: "info",
-      message: LL.profiles.geodataPreparing(),
+      message: LL.profiles.geodataPreparing({ asset: geodataAsset }),
     });
-  }, [LL, geodataPreparing, publish, retire]);
+  }, [LL, geodataAsset, geodataPreparing, publish, retire]);
   useEffect(() => {
     if (!eventsContext?.snapshot) return;
     const events = eventsContext.events.filter(
@@ -300,8 +317,8 @@ function NotificationPublicationController({
             message = LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict });
           } else if (event.notificationKind === "profile-activation-geodata") {
             message = event.message.includes("timed out")
-              ? LL.profiles.geodataTimeout()
-              : LL.profiles.geodataFailed();
+              ? LL.profiles.geodataTimeout({ asset: geodataAsset })
+              : LL.profiles.geodataFailed({ asset: geodataAsset });
           } else if (
             isCurrent &&
             event.notificationKind === "settings-failure" &&
@@ -345,6 +362,7 @@ function NotificationPublicationController({
     driftActions,
     eventsContext?.events,
     eventsContext?.snapshot,
+    geodataAsset,
     managedListenerActions,
     managedListenerConflict,
     reconcileExternalNotifications,

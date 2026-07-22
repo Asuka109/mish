@@ -214,7 +214,7 @@ describe("authoritative notification delivery", () => {
         detail: "The first download may take a few minutes.",
         duration: Number.POSITIVE_INFINITY,
         id: geodataProgressNotificationId,
-        message: "Preparing geographic rule data before activation…",
+        message: "Preparing GeoSite before activation…",
       });
     });
     act(() => delivery?.dismiss(geodataProgressNotificationId));
@@ -265,7 +265,7 @@ describe("authoritative notification delivery", () => {
       expect(delivery?.entries).toHaveLength(1);
       expect(delivery?.entries[0]).toMatchObject({
         detail: "Check your network connection and retry activation.",
-        message: "Mihomo could not prepare the geographic rule data required by this profile.",
+        message: "Mihomo could not prepare GeoSite required by this profile.",
         source: "event",
       });
     });
@@ -317,7 +317,7 @@ describe("authoritative notification delivery", () => {
     await vi.waitFor(() => {
       expect(delivery?.entries.filter(({ source }) => source === "event")).toHaveLength(2);
       expect(delivery?.entries[0]?.message).toBe(
-        "Geographic rule data was not ready before the activation deadline.",
+        "MMDB was not ready before the activation deadline.",
       );
       expect(delivery?.entries.some(({ id }) => id === geodataProgressNotificationId)).toBe(false);
     });
