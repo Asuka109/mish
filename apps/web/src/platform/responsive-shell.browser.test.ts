@@ -389,6 +389,30 @@ describe("responsive application shell", () => {
     await vi.waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(initialScrollTop));
   });
 
+  test("keeps profile primary actions legible and subscription spacing intact", async () => {
+    await page.viewport(1057, 689);
+    await selectLocale("English");
+    await navigate("/profiles");
+
+    const addSubscription = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Add Subscription",
+    );
+    const subscriptionGrid = document.querySelector<HTMLElement>(".profile-subscription-grid");
+    const subscription = subscriptionGrid?.parentElement;
+    const overwriteNote = subscription?.querySelector<HTMLElement>("p");
+    if (!addSubscription || !subscriptionGrid || !subscription || !overwriteNote) {
+      throw new Error("Missing profile subscription layout");
+    }
+
+    const actionStyle = getComputedStyle(addSubscription);
+    const subscriptionStyle = getComputedStyle(subscription);
+    const overwriteStyle = getComputedStyle(overwriteNote);
+
+    expect(actionStyle.color).not.toBe(actionStyle.backgroundColor);
+    expect(overwriteStyle.marginTop).toBe("9px");
+    expect(subscriptionStyle.paddingBottom).toBe("13px");
+  });
+
   test("opens the service Manage menu with pointer and keyboard input", async () => {
     await page.viewport(800, 600);
     await selectLocale("English");

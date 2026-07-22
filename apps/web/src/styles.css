@@ -90,51 +90,53 @@ body {
   background: transparent;
 }
 
-button,
-input {
-  font: inherit;
-}
+@layer base {
+  button,
+  input {
+    font: inherit;
+  }
 
-button {
-  color: inherit;
-}
+  button {
+    color: inherit;
+  }
 
-button:not(:disabled),
-[role="button"]:not([aria-disabled="true"]),
-a {
-  cursor: pointer;
-}
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a {
+    cursor: pointer;
+  }
 
-button:focus-visible,
-input:focus-visible,
-a:focus-visible,
-[role="menuitem"]:focus-visible,
-[role="option"]:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-focus-accent) 72%, var(--color-canvas));
-  outline-offset: 2px;
-}
+  button:focus-visible,
+  input:focus-visible,
+  a:focus-visible,
+  [role="menuitem"]:focus-visible,
+  [role="option"]:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-focus-accent) 72%, var(--color-canvas));
+    outline-offset: 2px;
+  }
 
-h1,
-h2,
-p {
-  margin: 0;
-}
+  h1,
+  h2,
+  p {
+    margin: 0;
+  }
 
-h1 {
-  font-size: var(--text-title);
-  font-weight: var(--font-weight-heading);
-  letter-spacing: -0.02em;
-  line-height: var(--text-title--line-height);
-}
+  h1 {
+    font-size: var(--text-title);
+    font-weight: var(--font-weight-heading);
+    letter-spacing: -0.02em;
+    line-height: var(--text-title--line-height);
+  }
 
-.workspace-page-scroll h1[tabindex="-1"]:focus {
-  outline: none;
-}
+  .workspace-page-scroll h1[tabindex="-1"]:focus {
+    outline: none;
+  }
 
-h2 {
-  font-size: var(--text-body);
-  font-weight: var(--font-weight-heading);
-  line-height: 20px;
+  h2 {
+    font-size: var(--text-body);
+    font-weight: var(--font-weight-heading);
+    line-height: 20px;
+  }
 }
 
 @utility user-authored-label {
