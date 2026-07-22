@@ -103,8 +103,10 @@ const statusStyles = tv({
       "[&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-traffic-download",
       "data-[direction=upload]:[&>svg]:text-traffic-upload",
     ),
-    trafficCopy:
-      "grid min-w-0 gap-px [&>span]:text-muted-foreground [&>small]:text-caption [&>small]:text-muted-soft",
+    trafficCopy: cx(
+      "grid min-w-0 gap-px [&>span]:text-muted-foreground [&>span]:whitespace-nowrap",
+      "[&>small]:text-caption [&>small]:text-muted-soft [&>small]:whitespace-nowrap",
+    ),
     trafficRate: cx(
       "traffic-rate-value flex min-h-0 min-w-0 flex-1 items-center px-2 text-metadata",
       "font-medium text-muted-foreground whitespace-nowrap",
