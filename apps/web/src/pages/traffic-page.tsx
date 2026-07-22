@@ -43,6 +43,7 @@ import {
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { tv } from "tailwind-variants";
 import { useTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -68,6 +69,25 @@ const connectionSortValues: ConnectionSort[] = [
   "upload-desc",
 ];
 const ruleSortValues: RuleSort[] = ["priority-asc", "type-asc", "target-asc", "hits-desc"];
+
+const trafficStyles = tv({
+  slots: {
+    tabs: "traffic-tabs mt-5",
+    viewButton:
+      "traffic-view-switch-button gap-[7px] px-3 [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center [&_.ui-badge]:px-[5px]",
+    tools: "traffic-tools flex flex-wrap items-center gap-2",
+    searchRow: "traffic-search-row flex min-w-0 items-center gap-2",
+    searchField: "traffic-search-field min-w-[220px] flex-1",
+    searchControl:
+      "traffic-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-[11px] [&>svg]:size-4 [&>svg]:text-(--color-text-muted) [&_.ui-input]:pl-[34px]",
+    destination:
+      "traffic-destination-button grid h-auto min-h-0 w-full justify-start gap-0 rounded-none border-0 bg-transparent p-0 text-left text-(--color-body) hover:bg-transparent [&_small]:text-(--text-metadata) [&_small]:text-(--color-text-muted)",
+    rule: "traffic-rule-cell font-(--font-weight-control)",
+    empty: "traffic-empty mt-4",
+    loadMore:
+      "traffic-load-more flex items-center justify-between gap-3 pt-4 text-(--text-metadata) text-(--color-text-muted)",
+  },
+});
 
 export function TrafficPage() {
   const { LL, locale } = useI18nContext();
@@ -186,7 +206,7 @@ export function TrafficPage() {
           : LL.traffic.closeUnsupported()}
       </p>
 
-      <div className="traffic-tabs">
+      <div className={trafficStyles().tabs()}>
         <ToggleGroup
           aria-label={LL.traffic.title()}
           onValueChange={(values) => {
@@ -199,24 +219,24 @@ export function TrafficPage() {
           value={[tab]}
           variant="segmented"
         >
-          <ToggleGroupItem className="traffic-view-switch-button px-3" value="active">
+          <ToggleGroupItem className={trafficStyles().viewButton()} value="active">
             {LL.traffic.active()} <Badge variant="outline">{activeConnections.length}</Badge>
           </ToggleGroupItem>
-          <ToggleGroupItem className="traffic-view-switch-button px-3" value="closed">
+          <ToggleGroupItem className={trafficStyles().viewButton()} value="closed">
             {LL.traffic.closed()} <Badge variant="outline">{closed.length}</Badge>
           </ToggleGroupItem>
-          <ToggleGroupItem className="traffic-view-switch-button px-3" value="rules">
+          <ToggleGroupItem className={trafficStyles().viewButton()} value="rules">
             {LL.traffic.rules()} <Badge variant="outline">{snapshot?.rules.length ?? 0}</Badge>
           </ToggleGroupItem>
         </ToggleGroup>
 
-        <div className="traffic-tools">
-          <div className="traffic-search-row">
-            <Field className="traffic-search-field">
+        <div className={trafficStyles().tools()}>
+          <div className={trafficStyles().searchRow()}>
+            <Field className={trafficStyles().searchField()}>
               <FieldLabel className="sr-only" htmlFor="traffic-search">
                 {LL.traffic.searchLabel()}
               </FieldLabel>
-              <div className="traffic-search-control">
+              <div className={trafficStyles().searchControl()}>
                 <MagnifyingGlass aria-hidden="true" />
                 <Input
                   autoComplete="off"
@@ -324,7 +344,7 @@ export function TrafficPage() {
       </div>
 
       {total > visibleLimit ? (
-        <div className="traffic-load-more">
+        <div className={trafficStyles().loadMore()}>
           <span>{LL.traffic.showing({ total, visible: visibleLimit })}</span>
           <Button
             onClick={() => setVisibleLimit((current) => current + TRAFFIC_RENDER_BATCH_SIZE)}
@@ -508,7 +528,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
 }: ConnectionPanelProps<T>) {
   if (connections.length === 0) {
     return (
-      <Empty className="traffic-empty">
+      <Empty className={trafficStyles().empty()}>
         <EmptyHeader>
           <EmptyTitle>{emptyTitle}</EmptyTitle>
           <EmptyDescription>{emptyDescription}</EmptyDescription>
@@ -541,7 +561,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
           <TableRow key={connection.id}>
             <TableCell>
               <Button
-                className="traffic-destination-button"
+                className={trafficStyles().destination()}
                 onClick={() => onSelect(connection)}
                 variant="ghost"
               >
@@ -566,7 +586,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
             <TableCell className="tabular">{formatBytes(connection.downloadBytes)}</TableCell>
             <TableCell className="tabular">{formatBytes(connection.uploadBytes)}</TableCell>
             <TableCell>
-              <span className="traffic-rule-cell">{connection.matchedRule.type}</span>
+              <span className={trafficStyles().rule()}>{connection.matchedRule.type}</span>
               <small>{connection.matchedRule.payload || LL.traffic.unavailable()}</small>
             </TableCell>
             <TableCell title={connection.routeChain.join(" → ")}>
@@ -597,7 +617,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
 function RulesPanel({ LL, rules }: { LL: TranslationFunctions; rules: EffectiveRuleDto[] }) {
   if (rules.length === 0) {
     return (
-      <Empty className="traffic-empty">
+      <Empty className={trafficStyles().empty()}>
         <EmptyHeader>
           <EmptyTitle>{LL.traffic.rulesEmpty()}</EmptyTitle>
           <EmptyDescription>{LL.traffic.rulesEmptyDescription()}</EmptyDescription>
