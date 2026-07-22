@@ -345,15 +345,6 @@ h2 {
   text-align: center;
 }
 
-.fixture-error {
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
-  border-radius: var(--radius-md);
-  color: var(--color-error);
-  font-size: var(--text-metadata);
-}
-
 .section-heading {
   display: flex;
   min-height: 44px;
@@ -542,99 +533,6 @@ h2 {
 .dialog-footer-actions {
   display: flex;
   gap: 8px;
-}
-
-.routes-page {
-  min-height: 0;
-}
-
-.routes-workspace {
-  width: min(100%, 1080px);
-  min-height: 100%;
-  margin: 0 auto;
-  padding: 28px 32px 36px;
-}
-
-.routes-header {
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--color-hairline-soft);
-}
-
-.routes-header p {
-  max-width: 680px;
-  margin-top: 6px;
-  color: var(--color-text-muted);
-  line-height: 21px;
-}
-
-.routes-workspace > .fixture-error {
-  margin-top: 16px;
-  margin-bottom: 0;
-}
-
-.routes-search-field {
-  max-width: 520px;
-  margin-top: 20px;
-}
-
-.routes-search-control {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.routes-search-control > svg {
-  position: absolute;
-  left: 11px;
-  width: 16px;
-  height: 16px;
-  color: var(--color-text-muted);
-  pointer-events: none;
-}
-
-.routes-search-control .ui-input {
-  padding-left: 34px;
-}
-
-.routes-graph,
-.routes-empty,
-.routes-graph-error {
-  margin-top: 20px;
-}
-
-.routes-graph-error ul {
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
-.routes-graph-error {
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-hairline));
-  border-radius: var(--radius-md);
-}
-
-.routes-graph-error p,
-.routes-graph-error li {
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-  line-height: 19px;
-}
-
-.routes-graph-error p {
-  margin-top: 5px;
-}
-
-.routes-graph-error ul {
-  display: grid;
-  gap: 3px;
-  margin-top: 10px;
-}
-
-.routes-graph-error li::before {
-  margin-right: 7px;
-  color: var(--color-error);
-  content: "•";
 }
 
 .event-row .ui-button svg {
@@ -1782,8 +1680,7 @@ h2 {
   .destination-page,
   .settings-page,
   .events-page,
-  .profiles-page,
-  .routes-workspace {
+  .profiles-page {
     padding: 24px;
   }
 
@@ -1853,25 +1750,6 @@ h2 {
 
   .runtime-data-badge {
     display: none;
-  }
-
-  .route-group-tools {
-    gap: 6px;
-  }
-
-  .route-sort-tools,
-  .route-delay-tools {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .route-delay-tools > button {
-    align-self: stretch;
-  }
-
-  .route-child-row {
-    padding-left: 36px;
   }
 
   .events-heading,
@@ -2012,8 +1890,7 @@ h2 {
   .destination-page,
   .settings-page,
   .events-page,
-  .profiles-page,
-  .routes-workspace {
+  .profiles-page {
     padding: 18px 16px 24px;
   }
 

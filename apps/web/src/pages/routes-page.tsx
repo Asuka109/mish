@@ -48,10 +48,25 @@ const routeSorts: RouteSort[] = ["configuration", "latency", "label"];
 
 const routeStyles = tv({
   slots: {
+    loading: "grid min-h-full place-content-center gap-2.5 text-center text-(--color-text-muted)",
+    page: "min-h-0",
+    workspace:
+      "mx-auto min-h-full w-[min(100%,1080px)] px-8 pt-7 pb-9 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
+    header:
+      "border-b border-(--color-hairline-soft) pb-5 [&_p]:mt-1.5 [&_p]:max-w-[680px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)",
+    stale:
+      "mt-4 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-error)_30%,var(--color-hairline))] px-3 py-2.5 text-(--text-metadata) text-(--color-error)",
+    searchField: "mt-5 max-w-[520px]",
+    searchControl:
+      "relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-[11px] [&>svg]:size-4 [&>svg]:text-(--color-text-muted) [&_.ui-input]:pl-[34px]",
+    graph: "mt-5",
+    graphEmpty: "mt-5",
+    graphError:
+      "mt-5 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-error)_35%,var(--color-hairline))] p-4 [&_p]:mt-[5px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted) [&_ul]:mt-2.5 [&_ul]:grid [&_ul]:list-none [&_ul]:gap-[3px] [&_ul]:p-0 [&_li]:text-(--text-metadata) [&_li]:leading-[19px] [&_li]:text-(--color-text-muted) [&_li]:before:mr-[7px] [&_li]:before:text-(--color-error) [&_li]:before:content-['•']",
     delayResult: "route-delay-result grid min-w-[74px] text-right text-(--text-metadata)",
     delayTime: "text-[10px] text-(--color-text-subtle)",
     childRow:
-      "route-child-row grid min-h-[52px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-none border-0 bg-(--color-canvas) py-[7px] pr-[14px] pl-11 text-left text-(--color-body)",
+      "route-child-row grid min-h-[52px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-none border-0 bg-(--color-canvas) py-[7px] pr-[14px] pl-11 text-left text-(--color-body) max-[820px]:pl-9",
     childSelectable:
       "route-child-select hover:bg-(--color-accent) hover:text-(--color-ink) aria-pressed:bg-(--color-accent) aria-pressed:text-(--color-ink)",
     childCopy:
@@ -67,6 +82,7 @@ const routeStyles = tv({
     groupToggle:
       "route-group-toggle grid min-h-[58px] min-w-0 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center justify-stretch gap-2.5 rounded-none border-0 bg-transparent px-3 py-2 text-left text-(--color-body)",
     groupToggleInteractive: "hover:bg-(--color-accent) hover:text-(--color-ink)",
+    groupToggleStatic: "[&_.route-group-chevron]:invisible",
     chevron:
       "route-group-chevron grid place-items-center text-(--color-text-muted) [&_svg]:size-[14px]",
     groupCopy: "route-group-copy grid min-w-0 gap-[3px]",
@@ -337,7 +353,7 @@ function RouteGroupReferenceRow({
   );
 
   if (parentGroup.type !== "selector") {
-    return <div className={`${routeStyles().childRow()} route-group-reference`}>{content}</div>;
+    return <div className={routeStyles().childRow()}>{content}</div>;
   }
 
   return (
@@ -345,7 +361,7 @@ function RouteGroupReferenceRow({
       aria-describedby={commandDescriptionId}
       aria-label={LL.routes.selectChild({ child: group.label, group: parentGroup.label })}
       aria-pressed={selected}
-      className={`${routeStyles().childRow()} ${routeStyles().childSelectable()} route-group-reference`}
+      className={`${routeStyles().childRow()} ${routeStyles().childSelectable()}`}
       disabled={commandPending || !commandSupported}
       loading={selectionPending}
       loadingText={LL.common.pending()}
@@ -456,7 +472,7 @@ function RouteGroup({
   );
 
   return (
-    <li className="route-group-item">
+    <li>
       <article className={routeStyles().group()} data-disabled={disabled ? "true" : undefined}>
         <div className={routeStyles().groupHeader()}>
           {hasChildren ? (
@@ -476,9 +492,7 @@ function RouteGroup({
               {headerContent}
             </Button>
           ) : (
-            <div
-              className={`${routeStyles().groupToggle()} route-group-static [&_.route-group-chevron]:invisible`}
-            >
+            <div className={`${routeStyles().groupToggle()} ${routeStyles().groupToggleStatic()}`}>
               {headerContent}
             </div>
           )}
@@ -685,7 +699,7 @@ export function RoutesPage() {
 
   if (isLoading) {
     return (
-      <div className="status-loading">
+      <div className={routeStyles().loading()}>
         {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
       </div>
     );
@@ -693,7 +707,7 @@ export function RoutesPage() {
 
   if (!snapshot) {
     return (
-      <div className="status-loading" role="alert">
+      <div className={routeStyles().loading()} role="alert">
         {error ?? LL.status.desktopUnavailable()}
       </div>
     );
@@ -754,21 +768,21 @@ export function RoutesPage() {
   }
 
   return (
-    <div className="routes-page">
-      <div className="routes-workspace">
-        <header className="routes-header">
+    <div className={routeStyles().page()}>
+      <div className={routeStyles().workspace()}>
+        <header className={routeStyles().header()}>
           <h1>{LL.routes.title()}</h1>
           <p>{LL.routes.description()}</p>
         </header>
 
         {snapshot.adapterKind !== "fixture" && connection.stale ? (
-          <p className="fixture-error" role="status">
+          <p className={routeStyles().stale()} role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
-        <Field className="routes-search-field">
+        <Field className={routeStyles().searchField()}>
           <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
-          <span className="routes-search-control">
+          <span className={routeStyles().searchControl()}>
             <MagnifyingGlass aria-hidden="true" />
             <Input
               autoComplete="off"
@@ -784,7 +798,7 @@ export function RoutesPage() {
         </Field>
 
         {graph.errors.length > 0 ? (
-          <section className="routes-graph-error" role="alert">
+          <section className={routeStyles().graphError()} role="alert">
             <h2>{LL.routes.graphErrorTitle()}</h2>
             <p>{LL.routes.graphErrorDescription()}</p>
             <ul>
@@ -796,21 +810,21 @@ export function RoutesPage() {
             </ul>
           </section>
         ) : groups.length === 0 ? (
-          <Empty className="routes-empty">
+          <Empty className={routeStyles().graphEmpty()}>
             <EmptyHeader>
               <EmptyTitle>{LL.routes.noGroupsTitle()}</EmptyTitle>
               <EmptyDescription>{LL.routes.noGroupsDescription()}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : visibleGroupIds.length === 0 ? (
-          <Empty className="routes-empty">
+          <Empty className={routeStyles().graphEmpty()}>
             <EmptyHeader>
               <EmptyTitle>{LL.routes.noMatchesTitle()}</EmptyTitle>
               <EmptyDescription>{LL.routes.noMatchesDescription()}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
-          <section aria-label={LL.routes.title()} className="routes-graph">
+          <section aria-label={LL.routes.title()} className={routeStyles().graph()}>
             <ul className={routeStyles().rootList()}>
               {visibleGroupIds.map((groupId) => {
                 const group = graph.groupById.get(groupId);
