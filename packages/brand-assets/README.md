@@ -11,11 +11,17 @@ This package is the single source of truth for Mish production image assets.
 - `public/onboarding/` contains centralized non-brand artwork. Vite serves the
   entire `public/` directory as the Web app's public directory.
 
-The desktop status bar reads generated 36 px raw RGBA data directly from this
-package and displays it at the native 18 pt menu-bar size on Retina screens.
-macOS recolors that monochrome template for light and dark menu bars.
-The explicit light and dark status bar SVG and PNG files remain available for
-previewing and non-template consumers.
+The desktop status bar reads generated 36 px raw RGBA template masks directly
+from this package and displays them at the native 18 pt menu-bar size on Retina
+screens. `mish-status-bar-active.rgba` is full alpha; the inactive mask uses a
+documented 45% alpha while preserving the same geometry. Both masks have only
+black RGB data and transparent alpha, so macOS recolors them for light, dark,
+and highlighted menu-bar appearances. The black template input is internal and
+is not a public appearance asset.
+
+Public previews use unambiguous names: `mish-status-bar-full` is white at full
+prominence, and `mish-status-bar-inactive` is gray. Each is generated as SVG
+and 18 px / 36 px (`@2x`) PNG output for previewing or non-template consumers.
 
 Android launcher files under `apps/mobile/src-tauri/gen/android/` are the only
 production image copies outside this package. Gradle requires those paths, so

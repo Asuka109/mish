@@ -18,6 +18,15 @@ it reads the private route-activity summary and the most recent authoritative
 `StatusSnapshot` Traffic rates. Pending and failed aggregate operations remain
 explicit and are never converted into a local success.
 
+The tray icon is also a projection of that same reconciled `StatusSnapshot`:
+it uses a subdued 45%-alpha monochrome template mask only when both System Proxy
+and TUN are authoritatively inactive, and switches to the full-alpha mask when
+either is enabled. The tray handle is retained with the menu item handles, and
+only this aggregate boolean edge replaces the icon; traffic updates, pending
+commands, Core state, and remembered capture preference do not. Both masks stay
+macOS templates, so the operating system supplies contrast for light, dark, and
+highlighted menu-bar appearances.
+
 ## Menu surface
 
 The implemented compact surface has four separator-delimited sections:
