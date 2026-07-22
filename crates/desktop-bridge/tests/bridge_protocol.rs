@@ -563,7 +563,7 @@ async fn authoritative_application_notifications_reach_every_events_client() {
 }
 
 #[tokio::test]
-async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
+async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
     let mut bridge_config = config();
     bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
     bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
@@ -572,18 +572,20 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
         .await
         .unwrap();
     let browser = bridge.browser_client().expect("browser client handle");
-    let nonce = "a".repeat(64);
-    let launch_url = browser.issue_launch_url(nonce.clone()).unwrap();
-    assert_eq!(
-        launch_url,
-        format!("http://{}/#mish-browser-pin={nonce}", bridge.address)
+    let launch_url = browser.issue_launch_url().unwrap();
+    let launch_token = launch_url
+        .strip_prefix(&format!("http://{}/#mish-browser-launch=", bridge.address))
+        .expect("launch URL prefix")
+        .to_owned();
+    assert_eq!(launch_token.len(), 43);
+    assert!(
+        launch_token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     );
     assert!(!launch_url.contains(TOKEN));
-    let second_nonce = "b".repeat(64);
-    assert_eq!(
-        browser.issue_launch_url(second_nonce.clone()).unwrap(),
-        format!("http://{}/#mish-browser-pin={second_nonce}", bridge.address)
-    );
+    let second_launch_url = browser.issue_launch_url().unwrap();
+    assert_ne!(launch_url, second_launch_url);
 
     let client = reqwest::Client::new();
     let root = client
@@ -595,7 +597,7 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     assert_eq!(
         root.headers()["content-security-policy"],
         format!(
-            "default-src 'self'; connect-src 'self' ws://{}/rpc; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+            "default-src 'self'; connect-src 'self' ws://{}/rpc http://127.0.0.1:*; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
             bridge.address
         )
     );
@@ -625,7 +627,10 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let bootstrap_url = format!("http://{}/browser-bootstrap", bridge.address);
     let rejected_origin = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", "https://attacker.example")
         .send()
@@ -633,9 +638,25 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
         .unwrap();
     assert_eq!(rejected_origin.status(), reqwest::StatusCode::FORBIDDEN);
 
+    let rejected_token = client
+        .post(&bootstrap_url)
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {}", "!".repeat(43)),
+        )
+        .header("X-Mish-Browser-Proof", "b".repeat(64))
+        .header("Origin", format!("http://{}", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected_token.status(), reqwest::StatusCode::UNAUTHORIZED);
+
     let accepted = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
@@ -675,7 +696,10 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
 
     let replay = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
@@ -695,6 +719,135 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let refreshed_payload: Value = serde_json::from_str(&refreshed.text().await.unwrap()).unwrap();
     assert_eq!(refreshed_payload["authToken"], TOKEN);
     bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_discovery_exposes_only_a_loopback_cors_service_marker() {
+    let mut bridge_config = config();
+    bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
+    bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
+    bridge_config.settings_service = Some(settings_service());
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let discovery_url = format!("http://{}/browser-discovery", bridge.address);
+    let client = reqwest::Client::new();
+
+    let same_origin = client.get(&discovery_url).send().await.unwrap();
+    assert_eq!(same_origin.status(), reqwest::StatusCode::OK);
+    assert_eq!(same_origin.headers()["cache-control"], "no-store");
+    assert_eq!(
+        same_origin.headers()["cross-origin-resource-policy"],
+        "cross-origin"
+    );
+    let payload: Value = serde_json::from_str(&same_origin.text().await.unwrap()).unwrap();
+    assert_eq!(
+        payload,
+        json!({
+            "service": "mish-browser-backend",
+            "schemaVersion": 1,
+            "protocolVersion": 1,
+        })
+    );
+    assert!(!payload.to_string().contains(TOKEN));
+
+    let source_origin = "http://127.0.0.1:6474";
+    let cross_origin = client
+        .get(&discovery_url)
+        .header("Cookie", "mish_browser_session=must-not-matter")
+        .header("Origin", source_origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cross_origin.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        cross_origin.headers()["access-control-allow-origin"],
+        source_origin
+    );
+    assert!(cross_origin.headers().get("set-cookie").is_none());
+
+    for rejected_origin in [
+        "https://127.0.0.1:6474",
+        "http://localhost:6474",
+        "http://127.0.0.1:6473",
+        "https://attacker.example",
+        "null",
+    ] {
+        let rejected = client
+            .get(&discovery_url)
+            .header("Origin", rejected_origin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
+    }
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn restarted_browser_backend_rejects_the_prior_process_session() {
+    let address = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let origin = format!("http://{address}");
+    let proof = "d".repeat(64);
+
+    let mut first_config = config();
+    first_config.bind = address;
+    first_config.browser_assets = Some(Arc::new(BrowserAssets));
+    first_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
+    first_config.settings_service = Some(settings_service());
+    let first = start_loopback_server(first_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let launch_url = first.browser_client().unwrap().issue_launch_url().unwrap();
+    let launch_token = launch_url
+        .split_once("#mish-browser-launch=")
+        .expect("launch token fragment")
+        .1;
+    let client = reqwest::Client::new();
+    let authenticated = client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", &proof)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(authenticated.status(), reqwest::StatusCode::OK);
+    let prior_session = authenticated.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    first.shutdown().await;
+
+    let mut restarted_config = config();
+    restarted_config.bind = address;
+    restarted_config.browser_assets = Some(Arc::new(BrowserAssets));
+    restarted_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
+    restarted_config.settings_service = Some(settings_service());
+    let restarted = start_loopback_server(restarted_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let rejected = client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header("Cookie", prior_session)
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", &proof)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    restarted.shutdown().await;
 }
 
 #[tokio::test]

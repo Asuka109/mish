@@ -4227,6 +4227,64 @@ type RootTranslation = {
 		 */
 		title: string
 	}
+	browserBackendRecovery: {
+		/**
+		 * C​a​n​c​e​l
+		 */
+		cancel: string
+		/**
+		 * B​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.
+		 */
+		cancelled: string
+		/**
+		 * T​h​e​ ​c​o​n​n​e​c​t​e​d​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g​.​ ​A​p​p​l​i​c​a​t​i​o​n​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​h​i​d​d​e​n​ ​u​n​t​i​l​ ​t​h​i​s​ ​b​r​o​w​s​e​r​ ​e​s​t​a​b​l​i​s​h​e​s​ ​a​ ​n​e​w​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​.
+		 */
+		description: string
+		/**
+		 * L​o​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​ ​i​n​t​e​r​r​u​p​t​e​d
+		 */
+		eyebrow: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​ ​b​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​.​ ​T​r​y​ ​a​g​a​i​n​.
+		 */
+		failed: string
+		/**
+		 * F​o​u​n​d​ ​M​i​s​h​ ​o​n​ ​p​o​r​t​ ​{​p​o​r​t​}​.​ ​R​e​c​o​n​n​e​c​t​i​n​g​…
+		 * @param {number} port
+		 */
+		found: RequiredParams<'port'>
+		/**
+		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​ ​a​f​t​e​r​ ​c​h​e​c​k​i​n​g​ ​{​o​c​c​u​p​i​e​d​P​o​r​t​s​}​ ​o​c​c​u​p​i​e​d​ ​a​n​d​ ​{​e​m​p​t​y​P​o​r​t​s​}​ ​e​m​p​t​y​ ​p​o​r​t​s​.
+		 * @param {number} emptyPorts
+		 * @param {number} occupiedPorts
+		 */
+		notFound: RequiredParams<'emptyPorts' | 'occupiedPorts'>
+		/**
+		 * E​n​t​e​r​ ​a​ ​p​o​r​t​ ​f​r​o​m​ ​1​ ​t​o​ ​6​5​5​3​5​.​ ​M​i​s​h​ ​c​h​e​c​k​s​ ​i​t​ ​f​i​r​s​t​,​ ​t​h​e​n​ ​s​c​a​n​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​n​t​i​l​ ​1​0​ ​o​c​c​u​p​i​e​d​ ​o​r​ ​5​ ​e​m​p​t​y​ ​p​o​r​t​s​ ​a​r​e​ ​r​e​a​c​h​e​d​.
+		 */
+		portHint: string
+		/**
+		 * B​a​c​k​e​n​d​ ​p​o​r​t
+		 */
+		portLabel: string
+		/**
+		 * R​e​c​o​n​n​e​c​t
+		 */
+		reconnect: string
+		/**
+		 * T​r​y​ ​a​g​a​i​n
+		 */
+		retry: string
+		/**
+		 * C​h​e​c​k​i​n​g​ ​p​o​r​t​ ​{​p​o​r​t​}​,​ ​t​h​e​n​ ​M​i​s​h​ ​p​o​r​t​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​p​w​a​r​d​…
+		 * @param {number} port
+		 */
+		searching: RequiredParams<'port'>
+		/**
+		 * M​i​s​h​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g
+		 */
+		title: string
+	}
 	errors: {
 		/**
 		 * T​h​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.
@@ -8384,6 +8442,60 @@ export type TranslationFunctions = {
 		requesting: () => LocalizedString
 		/**
 		 * Connect this browser
+		 */
+		title: () => LocalizedString
+	}
+	browserBackendRecovery: {
+		/**
+		 * Cancel
+		 */
+		cancel: () => LocalizedString
+		/**
+		 * Backend discovery was cancelled.
+		 */
+		cancelled: () => LocalizedString
+		/**
+		 * The connected Mish backend stopped responding. Application controls are hidden until this browser establishes a new authenticated connection.
+		 */
+		description: () => LocalizedString
+		/**
+		 * Local connection interrupted
+		 */
+		eyebrow: () => LocalizedString
+		/**
+		 * Mish could not complete backend discovery. Try again.
+		 */
+		failed: () => LocalizedString
+		/**
+		 * Found Mish on port {port}. Reconnecting…
+		 */
+		found: (arg: { port: number }) => LocalizedString
+		/**
+		 * No running Mish backend was found after checking {occupiedPorts} occupied and {emptyPorts} empty ports.
+		 */
+		notFound: (arg: { emptyPorts: number, occupiedPorts: number }) => LocalizedString
+		/**
+		 * Enter a port from 1 to 65535. Mish checks it first, then scans from 6474 until 10 occupied or 5 empty ports are reached.
+		 */
+		portHint: () => LocalizedString
+		/**
+		 * Backend port
+		 */
+		portLabel: () => LocalizedString
+		/**
+		 * Reconnect
+		 */
+		reconnect: () => LocalizedString
+		/**
+		 * Try again
+		 */
+		retry: () => LocalizedString
+		/**
+		 * Checking port {port}, then Mish ports from 6474 upward…
+		 */
+		searching: (arg: { port: number }) => LocalizedString
+		/**
+		 * Mish stopped responding
 		 */
 		title: () => LocalizedString
 	}

@@ -1156,6 +1156,24 @@ const zh = {
     requesting: "正在请求 Mish 显示 PIN 码…",
     title: "连接此浏览器",
   },
+  browserBackendRecovery: {
+    cancel: "取消",
+    cancelled: "已取消查找后端。",
+    description:
+      "当前连接的 Mish 后端已停止响应。此浏览器重新建立经过认证的连接前，应用操作将保持隐藏。",
+    eyebrow: "本机连接已中断",
+    failed: "Mish 无法完成后端查找，请重试。",
+    found: "已在端口 {port} 找到 Mish，正在重新连接…",
+    notFound:
+      "检查了 {occupiedPorts} 个已占用端口和 {emptyPorts} 个空端口后，仍未找到正在运行的 Mish 后端。",
+    portHint:
+      "请输入 1 到 65535 的端口。Mish 会先检查此端口，再从 6474 开始扫描，遇到 10 个已占用端口或 5 个空端口后停止。",
+    portLabel: "后端端口",
+    reconnect: "重新连接",
+    retry: "重试",
+    searching: "正在检查端口 {port}，随后从 6474 起继续查找 Mish…",
+    title: "Mish 已停止响应",
+  },
   errors: {
     command: "操作失败。",
     commandDisconnected: "操作完成前，Mish 已断开连接。请重新连接后再试。",

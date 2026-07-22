@@ -18,6 +18,7 @@ import { EventsProvider } from "./data/events-provider";
 import { SettingsProvider, useSettings } from "./data/settings-provider";
 import { StartupFailure } from "./components/startup-failure";
 import { BrowserAuthentication } from "./components/browser-authentication";
+import { BrowserBackendRecovery } from "./components/browser-backend-recovery";
 import { DesktopWindowFrame } from "./components/desktop-window-frame";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
@@ -112,29 +113,36 @@ async function startApplication() {
         >
           <ConfiguredAppearanceProvider>
             <TypesafeI18n locale={initialLocale}>
-              <BrowserRouter>
-                <NativeNavigationBridge />
-                <ProductProvider client={startup.client}>
-                  <ProfileProvider client={startup.profileClient}>
-                    <TrafficProvider client={startup.trafficClient}>
-                      <EventsProvider
-                        client={startup.eventsClient}
-                        diagnosticsClient={startup.diagnosticsClient}
-                        supportBundleClient={startup.supportBundleClient}
-                      >
-                        <TooltipProvider delay={500}>
-                          <AppRoutes
-                            mobileFixture={startup.mobileFixture}
-                            mobileVpnClient={startup.mobileVpnClient}
-                            mobileVpnSnapshot={startup.mobileVpnSnapshot}
-                          />
-                          <AppearanceToaster />
-                        </TooltipProvider>
-                      </EventsProvider>
-                    </TrafficProvider>
-                  </ProfileProvider>
-                </ProductProvider>
-              </BrowserRouter>
+              <BrowserBackendRecovery
+                backendPort={startup.browserBackendPort}
+                connection={startup.client}
+                onRecoveryRequired={startup.dispose}
+                runtime={runtime}
+              >
+                <BrowserRouter>
+                  <NativeNavigationBridge />
+                  <ProductProvider client={startup.client}>
+                    <ProfileProvider client={startup.profileClient}>
+                      <TrafficProvider client={startup.trafficClient}>
+                        <EventsProvider
+                          client={startup.eventsClient}
+                          diagnosticsClient={startup.diagnosticsClient}
+                          supportBundleClient={startup.supportBundleClient}
+                        >
+                          <TooltipProvider delay={500}>
+                            <AppRoutes
+                              mobileFixture={startup.mobileFixture}
+                              mobileVpnClient={startup.mobileVpnClient}
+                              mobileVpnSnapshot={startup.mobileVpnSnapshot}
+                            />
+                            <AppearanceToaster />
+                          </TooltipProvider>
+                        </EventsProvider>
+                      </TrafficProvider>
+                    </ProfileProvider>
+                  </ProductProvider>
+                </BrowserRouter>
+              </BrowserBackendRecovery>
             </TypesafeI18n>
           </ConfiguredAppearanceProvider>
         </SettingsProvider>
