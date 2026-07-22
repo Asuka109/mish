@@ -17,6 +17,7 @@ import type {
   LocalRestorePreviewDto,
 } from "@mish/contracts";
 import { useState } from "react";
+import { tv } from "tailwind-variants";
 import { useSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 
@@ -27,6 +28,33 @@ const DEFAULT_SCOPE: LocalBackupScopeDto = {
   settings: true,
   sourceLocators: false,
 };
+
+const backupStyles = tv({
+  slots: {
+    control:
+      "local-backup-control grid justify-items-end gap-[5px] @max-[680px]:justify-items-start",
+    result:
+      "local-backup-result max-w-[320px] text-right text-[12px] leading-[17px] text-(--color-text-muted) data-[status=failed]:text-(--color-error) data-[status=exported]:text-(--color-success-text) data-[status=restored]:text-(--color-success-text) @max-[680px]:text-left",
+    dialog:
+      "local-backup-dialog w-[min(680px,calc(100vw_-_32px))] max-h-[min(780px,calc(100vh_-_32px))] [&_.dialog-header]:grid [&_.dialog-header]:content-center",
+    fieldset:
+      "grid gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) p-0 m-4 [&_legend]:w-full [&_legend]:bg-(--color-canvas) [&_legend]:pb-[9px] [&_legend]:text-(--text-metadata) [&_legend]:font-(--font-weight-section)",
+    option:
+      "local-backup-option grid min-h-[52px] grid-cols-[18px_minmax(0,1fr)] items-start gap-[10px] bg-(--color-canvas) px-[11px] py-[9px] has-[input:disabled]:opacity-[0.55] [&_input]:mt-[2px] [&_input]:size-[15px] [&_input]:accent-(--color-brand) [&>span]:grid [&>span]:gap-[2px] [&_strong]:text-(--text-metadata) [&_strong]:font-(--font-weight-control) [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted) data-[sensitive=true]:[&_strong]:text-(--color-warning)",
+    boundary:
+      "local-backup-boundary mx-4 mb-4 text-[12px] leading-[18px] text-(--color-text-muted)",
+    safety:
+      "local-backup-safety mx-4 mb-4 grid grid-cols-[16px_minmax(0,1fr)] gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-[11px] py-[10px] text-[12px] leading-[18px] text-(--color-body) [&_svg]:size-4 [&_svg]:text-(--color-warning)",
+    summary:
+      "local-backup-summary grid grid-cols-[110px_150px_minmax(0,1fr)] gap-px border-y border-(--color-hairline-soft) bg-(--color-hairline-soft) [&>div]:grid [&>div]:content-start [&>div]:gap-1 [&>div]:bg-(--color-canvas) [&>div]:px-3 [&>div]:py-[10px] [&_dt]:text-[12px] [&_dt]:text-(--color-text-muted) [&_dd]:wrap-anywhere [&_dd]:text-(--text-metadata) [&_dd]:text-(--color-body)",
+    restoreScope:
+      "local-restore-scope grid gap-[7px] border-b border-(--color-hairline-soft) px-4 py-3 text-(--text-metadata) text-(--color-body) [&>strong]:font-(--font-weight-section) [&>p]:m-0 [&>p]:text-(--color-text-muted) [&_dl]:grid [&_dl]:gap-1 [&_dl>div]:flex [&_dl>div]:items-baseline [&_dl>div]:justify-between [&_dl>div]:gap-3 [&_dd]:font-(--font-weight-control) [&_dd]:text-(--color-text-muted) [&_[data-included=true]_dd]:text-(--color-warning)",
+    conflicts:
+      "local-restore-conflicts grid gap-[9px] px-4 pt-4 [&>strong]:text-(--text-metadata) [&>strong]:font-(--font-weight-section) [&_ul]:m-0 [&_ul]:grid [&_ul]:list-none [&_ul]:gap-px [&_ul]:rounded-(--radius-md) [&_ul]:bg-(--color-hairline-soft) [&_ul]:p-px [&_li]:flex [&_li]:min-h-10 [&_li]:items-center [&_li]:justify-between [&_li]:gap-3 [&_li]:bg-(--color-canvas) [&_li]:px-[10px] [&_li]:py-[7px] [&_li]:text-(--text-metadata) [&_li]:text-(--color-body)",
+    resolution:
+      "local-restore-resolution mt-1 grid gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) p-0 [&_legend]:w-full [&_legend]:bg-(--color-canvas) [&_legend]:pb-[9px] [&_legend]:text-(--text-metadata) [&_legend]:font-(--font-weight-section) [&_label]:grid [&_label]:min-h-[38px] [&_label]:grid-cols-[18px_minmax(0,1fr)] [&_label]:items-center [&_label]:gap-2 [&_label]:bg-(--color-canvas) [&_label]:px-[10px] [&_label]:py-[7px] [&_label]:text-(--text-metadata) [&_label]:text-(--color-body) [&_input]:mt-[2px] [&_input]:size-[15px] [&_input]:accent-(--color-brand)",
+  },
+});
 
 type OperationResult = "cancelled" | "exported" | "failed" | "idle" | "restored";
 type PendingOperation = "commit-restore" | "choose-restore" | "preview-export" | "save-export";
@@ -117,7 +145,7 @@ export function LocalBackupControl() {
   const pending = pendingOperation !== null;
 
   return (
-    <div className="local-backup-control">
+    <div className={backupStyles().control()}>
       <div className="settings-inline-control">
         <Button
           disabled={!supported || pending}
@@ -145,18 +173,18 @@ export function LocalBackupControl() {
         {!supported ? <Badge variant="outline">{LL.common.unavailable()}</Badge> : null}
       </div>
       {result !== "idle" ? (
-        <span className="local-backup-result" data-status={result} role="status">
+        <span className={backupStyles().result()} data-status={result} role="status">
           {LL.settingsPage.backupFlow.result[result]()}
         </span>
       ) : null}
 
       <Dialog onOpenChange={setExportOpen} open={exportOpen}>
-        <DialogContent className="local-backup-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={backupStyles().dialog()} closeLabel={LL.common.close()}>
           <DialogHeader>
             <DialogTitle>{LL.settingsPage.backupFlow.exportTitle()}</DialogTitle>
             <DialogDescription>{LL.settingsPage.backupFlow.exportDescription()}</DialogDescription>
           </DialogHeader>
-          <fieldset className="local-backup-scope">
+          <fieldset className={backupStyles().fieldset()}>
             <legend>{LL.settingsPage.backupFlow.scope()}</legend>
             <ScopeOption
               checked={scope.settings}
@@ -199,7 +227,9 @@ export function LocalBackupControl() {
               maxBytes={exportPreview.maxBytes}
             />
           ) : (
-            <p className="local-backup-boundary">{LL.settingsPage.backupFlow.exclusionSummary()}</p>
+            <p className={backupStyles().boundary()}>
+              {LL.settingsPage.backupFlow.exclusionSummary()}
+            </p>
           )}
           <DialogFooter>
             <Button
@@ -241,7 +271,7 @@ export function LocalBackupControl() {
         }}
         open={restorePreview !== null}
       >
-        <DialogContent className="local-backup-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={backupStyles().dialog()} closeLabel={LL.common.close()}>
           {restorePreview ? (
             <>
               <DialogHeader>
@@ -257,7 +287,7 @@ export function LocalBackupControl() {
               />
               <RestoreScopeSummary preview={restorePreview} />
               {restorePreview.conflicts.length > 0 ? (
-                <div className="local-restore-conflicts">
+                <div className={backupStyles().conflicts()}>
                   <strong>{LL.settingsPage.backupFlow.conflicts()}</strong>
                   <ul>
                     {restorePreview.conflicts.map((conflict) => (
@@ -269,7 +299,7 @@ export function LocalBackupControl() {
                       </li>
                     ))}
                   </ul>
-                  <fieldset className="local-restore-resolution">
+                  <fieldset className={backupStyles().resolution()}>
                     <legend>{LL.settingsPage.backupFlow.resolution()}</legend>
                     <label>
                       <input
@@ -292,7 +322,7 @@ export function LocalBackupControl() {
                   </fieldset>
                 </div>
               ) : null}
-              <p className="local-backup-safety">
+              <p className={backupStyles().safety()}>
                 <Warning aria-hidden="true" />
                 {LL.settingsPage.backupFlow.restoreSafety()}
               </p>
@@ -339,7 +369,7 @@ function ScopeOption({
   sensitive?: boolean;
 }) {
   return (
-    <label className="local-backup-option" data-sensitive={sensitive}>
+    <label className={backupStyles().option()} data-sensitive={sensitive}>
       <input
         checked={checked}
         disabled={disabled}
@@ -365,7 +395,7 @@ function BackupSummary({
 }) {
   const { LL } = useI18nContext();
   return (
-    <dl className="local-backup-summary">
+    <dl className={backupStyles().summary()}>
       <div>
         <dt>{LL.settingsPage.backupFlow.format()}</dt>
         <dd>JSON · v1</dd>
@@ -402,7 +432,10 @@ function RestoreScopeSummary({ preview }: { preview: LocalRestorePreviewDto }) {
     preview.scope.sourceLocators && LL.settingsPage.backupFlow.locatorsSensitive(),
   ].filter((label) => label !== false);
   return (
-    <section aria-label={LL.settingsPage.backupFlow.restoreScope()} className="local-restore-scope">
+    <section
+      aria-label={LL.settingsPage.backupFlow.restoreScope()}
+      className={backupStyles().restoreScope()}
+    >
       <strong>{LL.settingsPage.backupFlow.restoreScope()}</strong>
       <p>{scopeLabels.join(" · ")}</p>
       <dl>
