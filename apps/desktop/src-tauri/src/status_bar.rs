@@ -32,6 +32,8 @@ const ROUTING_GLOBAL_ID: &str = "status-bar.routing-global";
 const ROUTING_DIRECT_ID: &str = "status-bar.routing-direct";
 const RESTART_CORE_ID: &str = "status-bar.restart-core";
 const QUIT_ID: &str = "status-bar.quit";
+const STATUS_BAR_ICON_RGBA: &[u8] =
+    include_bytes!("../../../../packages/brand-assets/generated/status-bar/mish-status-bar.rgba");
 
 #[derive(Clone)]
 pub(crate) struct StatusBarState {
@@ -495,24 +497,7 @@ fn core_title(phase: RuntimePhase) -> &'static str {
 }
 
 fn status_bar_icon() -> tauri::image::Image<'static> {
-    const SIZE: usize = 18;
-    let mut rgba = vec![0_u8; SIZE * SIZE * 4];
-    let mut set_pixel = |x: usize, y: usize| {
-        rgba[(y * SIZE + x) * 4 + 3] = u8::MAX;
-    };
-    for y in 3..16 {
-        for x in [2, 3, 14, 15] {
-            set_pixel(x, y);
-        }
-    }
-    for (x, y) in [(4, 4), (5, 5), (6, 6), (7, 7), (8, 8), (9, 9)] {
-        set_pixel(x, y);
-        set_pixel(x, y + 1);
-        let mirrored_x = 18 - x;
-        set_pixel(mirrored_x, y);
-        set_pixel(mirrored_x, y + 1);
-    }
-    tauri::image::Image::new_owned(rgba, SIZE as u32, SIZE as u32)
+    tauri::image::Image::new(STATUS_BAR_ICON_RGBA, 36, 36)
 }
 
 fn safe_profile_label(label: &str) -> Option<&str> {
@@ -627,14 +612,15 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_icon_is_a_bounded_monochrome_template() {
+    fn status_bar_icon_is_a_retina_monochrome_template() {
         let icon = status_bar_icon();
-        assert_eq!((icon.width(), icon.height()), (18, 18));
-        assert_eq!(icon.rgba().len(), 18 * 18 * 4);
+        assert_eq!((icon.width(), icon.height()), (36, 36));
+        assert_eq!(icon.rgba().len(), 36 * 36 * 4);
         assert!(
             icon.rgba()
                 .chunks_exact(4)
-                .all(|pixel| { pixel[..3] == [0, 0, 0] && matches!(pixel[3], 0 | u8::MAX) })
+                .all(|pixel| pixel[..3] == [0, 0, 0])
         );
+        assert!(icon.rgba().chunks_exact(4).any(|pixel| pixel[3] > 0));
     }
 }
