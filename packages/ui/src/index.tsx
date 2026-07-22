@@ -242,12 +242,8 @@ export function DialogContent({
 }: DialogContentProps) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Backdrop className="dialog-backdrop" data-window-drag="exclude" />
-      <DialogPrimitive.Popup
-        className={cn("dialog-content", className)}
-        data-window-drag="exclude"
-        {...props}
-      >
+      <DialogPrimitive.Backdrop className="dialog-backdrop" />
+      <DialogPrimitive.Popup className={cn("dialog-content", className)} {...props}>
         {children}
         {showCloseButton ? (
           <DialogPrimitive.Close aria-label={closeLabel} className="dialog-close">
@@ -286,7 +282,6 @@ export function DropdownMenuContent({
         align={align}
         alignOffset={alignOffset}
         className="menu-positioner"
-        data-window-drag="exclude"
         side={side}
         sideOffset={sideOffset}
       >
@@ -359,7 +354,6 @@ export function PopoverContent({
         align={align}
         alignOffset={alignOffset}
         className="popover-positioner"
-        data-window-drag="exclude"
         side={side}
         sideOffset={sideOffset}
       >
@@ -383,10 +377,9 @@ export function AlertDialogContent({
 }: ComponentProps<typeof AlertDialogPrimitive.Popup>) {
   return (
     <AlertDialogPrimitive.Portal>
-      <AlertDialogPrimitive.Backdrop className="dialog-backdrop" data-window-drag="exclude" />
+      <AlertDialogPrimitive.Backdrop className="dialog-backdrop" />
       <AlertDialogPrimitive.Popup
         className={cn("dialog-content alert-dialog-content", className)}
-        data-window-drag="exclude"
         {...props}
       />
     </AlertDialogPrimitive.Portal>
@@ -496,7 +489,6 @@ export function SelectContent({
         align={align}
         alignItemWithTrigger={alignItemWithTrigger}
         className="ui-select-positioner"
-        data-window-drag="exclude"
         side={side}
         sideOffset={sideOffset}
       >
@@ -672,7 +664,7 @@ export interface TooltipContentProps extends ComponentProps<typeof TooltipPrimit
 export function TooltipContent({ className, sideOffset = 6, ...props }: TooltipContentProps) {
   return (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner data-window-drag="exclude" sideOffset={sideOffset}>
+      <TooltipPrimitive.Positioner sideOffset={sideOffset}>
         <TooltipPrimitive.Popup className={cn("tooltip-content", className)} {...props} />
       </TooltipPrimitive.Positioner>
     </TooltipPrimitive.Portal>

@@ -59,7 +59,7 @@ describe("desktop window drag routing", () => {
     const dependencies = createDependencies();
     const handler = createDesktopWindowDragHandler(dependencies);
     const overlay = document.createElement("div");
-    overlay.dataset.windowDrag = "exclude";
+    overlay.dataset.baseUiPortal = "";
     const text = document.createElement("p");
     overlay.append(text);
 

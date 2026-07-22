@@ -14,6 +14,7 @@ const INTERACTIVE_TARGETS = [
   "[role='link']",
   "[role='menuitem']",
   "[role='option']",
+  "[data-base-ui-portal]",
   "[data-window-drag='exclude']",
 ].join(",");
 

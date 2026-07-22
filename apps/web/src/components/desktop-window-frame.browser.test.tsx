@@ -104,7 +104,7 @@ describe("desktop window frame overlay boundaries", () => {
     expect(getComputedStyle(failure).position).toBe("fixed");
   });
 
-  test("marks portal overlay surfaces as excluded from the desktop drag contract", async () => {
+  test("routes every Base UI portal through the shared desktop drag exclusion", async () => {
     root.render(
       <DesktopWindowFrame runtime="desktop">
         <Dialog defaultOpen>
@@ -124,16 +124,20 @@ describe("desktop window frame overlay boundaries", () => {
     await expect.element(page.getByText("Notification center content")).toBeVisible();
     const notificationContent = document
       .querySelector<HTMLElement>(".popover-content")
-      ?.closest<HTMLElement>("[data-window-drag='exclude']");
-    const dialogContent = document.querySelector<HTMLElement>(".dialog-content");
-    const backdrop = document.querySelector<HTMLElement>(".dialog-backdrop");
+      ?.closest<HTMLElement>("[data-base-ui-portal]");
+    const dialogContent = document
+      .querySelector<HTMLElement>(".dialog-content")
+      ?.closest<HTMLElement>("[data-base-ui-portal]");
+    const backdrop = document
+      .querySelector<HTMLElement>(".dialog-backdrop")
+      ?.closest<HTMLElement>("[data-base-ui-portal]");
     if (!notificationContent || !dialogContent || !backdrop) {
       throw new Error("Missing portal overlay surface");
     }
 
-    expect(notificationContent).toHaveAttribute("data-window-drag", "exclude");
-    expect(dialogContent).toHaveAttribute("data-window-drag", "exclude");
-    expect(backdrop).toHaveAttribute("data-window-drag", "exclude");
+    expect(notificationContent).toHaveAttribute("data-base-ui-portal");
+    expect(dialogContent).toHaveAttribute("data-base-ui-portal");
+    expect(backdrop).toHaveAttribute("data-base-ui-portal");
   });
 
   test("does not route notification popover content into native drag or zoom", async () => {
