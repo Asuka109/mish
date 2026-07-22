@@ -168,7 +168,7 @@ const inputRecipe = tv({
 
 const spinnerRecipe = tv({
   base: cx(
-    "ui-spinner size-3.5 shrink-0 animate-spin rounded-full border-spinner border-current",
+    "ui-spinner spinner-border size-3.5 shrink-0 animate-spin rounded-full border-current",
     "border-r-transparent motion-reduce:animate-spinner-reduced",
   ),
 });

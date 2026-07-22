@@ -30,6 +30,11 @@ literals into readable lines. `cx()` only concatenates those groups; the TV
 recipe remains the single `tailwind-merge` boundary, including the final caller
 `className` override.
 
+Semantic custom utilities are used when a valid theme-generated class belongs
+to an ambiguous `tailwind-merge` group. For example, `spinner-border` consumes
+the named spinner border-width token without being mistaken for a border color
+and removed next to `border-current`.
+
 `pnpm check:styles` enforces those boundaries. It rejects interpolation inside
 recipes or Tailwind class fragments, requires every package that imports
 `tailwind-variants` to have an explicit `@source` entry, and verifies that every
@@ -70,8 +75,8 @@ semantics with visual-only state.
 - startup failure markup that must render before React can mount;
 - document roots, resets, default focus treatment, and native material root
   transparency;
-- the route focus manager's heading reset and the static
-  `user-authored-label` utility;
+- the route focus manager's heading reset and the static `user-authored-label`
+  and `spinner-border` utilities;
 - reduced-motion, browser/desktop text selection, WebKit drag suppression, and
   desktop cursor/pressed feedback policies that intentionally cross component
   boundaries; and

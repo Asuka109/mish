@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { Button, Toggle } from "@mish/ui";
+import { Button, Spinner, Toggle } from "@mish/ui";
 import { describe, expect, it } from "vitest";
 
 function deferred() {
@@ -13,6 +13,14 @@ function deferred() {
 }
 
 describe("Button promise loading", () => {
+  it("keeps the semantic spinner width through the shared merge boundary", () => {
+    render(<Spinner />);
+
+    const spinner = document.querySelector(".ui-spinner");
+    expect(spinner).toHaveClass("spinner-border", "border-current", "border-r-transparent");
+    expect(spinner).not.toHaveClass("border-spinner");
+  });
+
   it("lets a caller override conflicting recipe utilities at the shared TV merge boundary", () => {
     render(
       <Button className="h-12 bg-red-500 px-6" variant="outline">

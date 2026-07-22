@@ -143,6 +143,10 @@ body {
   filter: saturate(0.4);
 }
 
+@utility spinner-border {
+  border-width: var(--border-width-spinner);
+}
+
 .section-heading {
   display: flex;
   min-height: 44px;
