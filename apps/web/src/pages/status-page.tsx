@@ -30,17 +30,49 @@ import type { Locales } from "../i18n/i18n-types";
 
 const statusStyles = tv({
   slots: {
-    page: "status-page",
-    controls: "status-controls",
-    controlCell: "status-control-cell flex min-h-[54px] items-center gap-6 px-[14px]",
-    controlLabel:
-      "status-control-label text-(--color-body) font-(--font-weight-control) whitespace-nowrap",
-    contentGrid: "content-grid grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 mt-6",
-    heading: "section-heading flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5",
+    page: "mx-auto min-h-full w-[min(100%,1080px)] px-8 pt-6 pb-8 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
+    loading: "grid min-h-full place-content-center gap-2.5 text-center text-(--color-text-muted)",
+    error:
+      "mb-3 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-error)_30%,var(--color-hairline))] px-3 py-2.5 text-(--text-metadata) text-(--color-error)",
+    diagnostics:
+      "my-2 inline-flex text-(--text-metadata) font-(--font-weight-control) text-(--color-brand) no-underline hover:underline",
+    controls: "pb-4",
+    controlCell:
+      "flex min-h-[54px] items-center gap-6 px-[14px] first:rounded-t-[7px] last:rounded-b-[7px] max-[820px]:gap-4 max-[600px]:min-h-0 max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-2 max-[600px]:p-3",
+    controlLabel: "font-(--font-weight-control) text-(--color-body) whitespace-nowrap",
+    routingItem: "px-3",
+    contentGrid:
+      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 max-[1060px]:gap-8 max-[900px]:grid-cols-1",
+    section: "min-w-0",
+    sessionSection: "min-w-0 @container/session",
+    heading: "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-[600px]:items-start",
     headingCopy:
-      "section-heading-copy flex min-w-0 items-baseline gap-2 [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted) [&_p]:whitespace-nowrap",
+      "flex min-w-0 flex-1 items-baseline gap-2 [&_h2]:shrink-0 [&_p]:min-w-0 [&_p]:truncate [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted) max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-0.5 max-[600px]:[&_p]:overflow-visible max-[600px]:[&_p]:text-clip max-[600px]:[&_p]:whitespace-normal max-[600px]:[&_p]:[overflow-wrap:anywhere]",
+    action:
+      "inline-flex shrink-0 items-center gap-1 rounded-(--radius-sm) p-1 text-(--text-metadata) leading-[18px] text-(--color-body) no-underline whitespace-nowrap hover:text-(--color-ink) hover:underline [&_svg]:size-[13px] [&_svg]:shrink-0",
+    sessionList:
+      "[--section-grid-columns:2] [&>:first-child]:rounded-t-[7px] [&>:nth-last-child(2)]:rounded-bl-[7px] [&>:last-child]:rounded-br-[7px]",
+    trafficRow:
+      "grid min-h-16 grid-cols-[auto_max-content_minmax(72px,1fr)] items-center gap-3 px-3 @max-[320px]/session:grid-cols-[minmax(0,1fr)_auto]",
+    trafficLabel:
+      "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-(--text-metadata) text-(--color-muted-soft) [&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-(--color-traffic-download) data-[direction=upload]:[&>svg]:text-(--color-traffic-upload)",
+    trafficCopy:
+      "grid min-w-0 gap-px [&>span]:text-(--color-text-muted) [&>small]:text-[12px] [&>small]:text-(--color-muted-soft)",
+    trafficRate:
+      "text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) whitespace-nowrap",
+    metric:
+      "grid min-h-[52px] content-center gap-0.5 px-3 py-[7px] [&>span]:text-(--text-metadata) [&>span]:text-(--color-text-muted) [&>strong]:truncate [&>strong]:text-(--text-metadata) [&>strong]:font-(--font-weight-control)",
+    policyList:
+      "gap-0 bg-(--color-canvas) [&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-(--color-hairline-soft) [&>:first-child]:rounded-t-[7px] [&>:last-child]:rounded-b-[7px]",
     policyRow:
-      "policy-group-row flex min-h-[52px] items-center justify-between gap-3 px-[14px] text-(--color-body) hover:bg-(--color-accent)",
+      "flex min-h-[50px] w-full items-center justify-between gap-2.5 rounded-none border-0 bg-transparent py-0 pr-3 pl-2.5 text-left text-(--color-body) hover:bg-(--color-accent) hover:text-(--color-ink-active)",
+    policyLeading: "flex min-w-0 items-center gap-2.5",
+    policyTrailing:
+      "flex shrink-0 items-center gap-2.5 [&>svg]:size-[13px] [&>svg]:text-(--color-muted-soft)",
+    policyRank: "text-center text-[12px] text-(--color-muted-soft)",
+    policyCopy: "grid min-w-0 gap-0.5",
+    policyPrimary: "truncate text-(--text-body) font-(--font-weight-control)",
+    policySecondary: "truncate text-(--text-metadata) text-(--color-text-muted)",
   },
 });
 
@@ -112,7 +144,7 @@ export function StatusPage() {
 
   if (isLoading) {
     return (
-      <div className="status-loading">
+      <div className={statusStyles().loading()}>
         {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
       </div>
     );
@@ -120,7 +152,7 @@ export function StatusPage() {
 
   if (!snapshot) {
     return (
-      <div className="status-loading" role="alert">
+      <div className={statusStyles().loading()} role="alert">
         {error ??
           (connection.phase === "fixture"
             ? LL.status.fixtureUnavailable()
@@ -201,7 +233,7 @@ export function StatusPage() {
       <div className={statusStyles().page()}>
         <h1 className="sr-only">{LL.navigation.status()}</h1>
         {snapshot.adapterKind !== "fixture" && connection.stale ? (
-          <p className="fixture-error" role="status">
+          <p className={statusStyles().error()} role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
@@ -210,18 +242,17 @@ export function StatusPage() {
           connection.stale ||
           snapshot.runtime.phase === "error" ||
           snapshot.runtime.systemProxy.phase === "drift") ? (
-          <Link className="status-diagnostics-link" to="/events?diagnostics=1">
+          <Link className={statusStyles().diagnostics()} to="/events?diagnostics=1">
             {LL.diagnostics.open()}
           </Link>
         ) : null}
         <div className={statusStyles().controls()}>
-          <SectionGrid className="status-control-card">
+          <SectionGrid>
             <SectionGridItem className={statusStyles().controlCell()}>
               <span className={statusStyles().controlLabel()}>{LL.status.routingMode()}</span>
               <ToggleGroup
                 aria-label={LL.status.routingMode()}
                 aria-describedby={routingDescriptionId}
-                className="routing-mode-group"
                 onValueChange={(values) => {
                   if (!routingSupported) return;
                   const nextMode = values[0] as RoutingMode | undefined;
@@ -229,13 +260,13 @@ export function StatusPage() {
                 }}
                 spacing={0}
                 value={[snapshot.routingMode]}
-                variant="outline"
+                variant="segmented"
               >
                 {(Object.keys(modeLabels) as RoutingMode[]).map((mode) => (
                   <ToggleGroupItem
                     aria-busy={routingPending && optimisticRoutingMode === mode}
                     aria-describedby={routingDescriptionId}
-                    className="routing-mode-button"
+                    className={statusStyles().routingItem()}
                     disabled={routingPending || !routingSupported}
                     key={mode}
                     value={mode}
@@ -291,7 +322,7 @@ export function StatusPage() {
         <div className={statusStyles().contentGrid()}>
           <section
             aria-label={LL.status.currentSessionAria()}
-            className="flat-section session-section"
+            className={statusStyles().sessionSection()}
           >
             <div className={statusStyles().heading()}>
               <div className={statusStyles().headingCopy()}>
@@ -300,25 +331,25 @@ export function StatusPage() {
               </div>
               <Link
                 aria-label={LL.status.openLiveTrafficAria()}
-                className="text-link"
+                className={statusStyles().action()}
                 to="/traffic"
               >
-                <span className="section-heading-action-label">{LL.status.openLiveTraffic()}</span>
+                <span>{LL.status.openLiveTraffic()}</span>
                 <CaretRight aria-hidden="true" />
               </Link>
             </div>
-            <SectionGrid className="session-list" columns={2}>
-              <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
-                <span className="traffic-session-label" data-direction="download">
+            <SectionGrid className={statusStyles().sessionList()} columns={2}>
+              <SectionGridItem className={statusStyles().trafficRow()} columnSpan={2}>
+                <span className={statusStyles().trafficLabel()} data-direction="download">
                   <ArrowDown aria-hidden="true" />
-                  <span className="traffic-session-copy">
+                  <span className={statusStyles().trafficCopy()}>
                     <span>{LL.status.downloaded()}</span>
                     <small>
                       {hasTrafficData ? formatBytes(snapshot.traffic.downloadedBytes, locale) : "-"}
                     </small>
                   </span>
                 </span>
-                <strong className="traffic-rate-value tabular">
+                <strong className={`${statusStyles().trafficRate()} tabular`}>
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.downloadBytesPerSecond, locale)
                     : "- B/s"}
@@ -329,17 +360,17 @@ export function StatusPage() {
                   id="download"
                 />
               </SectionGridItem>
-              <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
-                <span className="traffic-session-label" data-direction="upload">
+              <SectionGridItem className={statusStyles().trafficRow()} columnSpan={2}>
+                <span className={statusStyles().trafficLabel()} data-direction="upload">
                   <ArrowUp aria-hidden="true" />
-                  <span className="traffic-session-copy">
+                  <span className={statusStyles().trafficCopy()}>
                     <span>{LL.status.uploaded()}</span>
                     <small>
                       {hasTrafficData ? formatBytes(snapshot.traffic.uploadedBytes, locale) : "-"}
                     </small>
                   </span>
                 </span>
-                <strong className="traffic-rate-value tabular">
+                <strong className={`${statusStyles().trafficRate()} tabular`}>
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.uploadBytesPerSecond, locale)
                     : "- B/s"}
@@ -350,13 +381,13 @@ export function StatusPage() {
                   id="upload"
                 />
               </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.connections()}</span>
                 <strong className="tabular">
                   {hasMetricsData ? snapshot.metrics.activeConnections : "-"}
                 </strong>
               </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.activeRules()}</span>
                 <strong className="tabular">
                   {hasMetricsData
@@ -366,13 +397,13 @@ export function StatusPage() {
                     : "-"}
                 </strong>
               </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.memory()}</span>
                 <strong className="tabular">
                   {hasMetricsData ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
                 </strong>
               </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.uptime()}</span>
                 <strong className="tabular">
                   {captureActive && hasMetricsData
@@ -383,19 +414,23 @@ export function StatusPage() {
             </SectionGrid>
           </section>
 
-          <section aria-label={LL.status.groupsAria()} className="flat-section">
+          <section aria-label={LL.status.groupsAria()} className={statusStyles().section()}>
             <div className={statusStyles().heading()}>
               <div className={statusStyles().headingCopy()}>
                 <h2>{LL.status.groups()}</h2>
                 <p title={LL.status.usedFirst()}>{LL.status.usedFirst()}</p>
               </div>
-              <Link aria-label={LL.status.viewAllGroupsAria()} className="text-link" to="/routes">
-                <span className="section-heading-action-label">{LL.status.viewAll()}</span>
+              <Link
+                aria-label={LL.status.viewAllGroupsAria()}
+                className={statusStyles().action()}
+                to="/routes"
+              >
+                <span>{LL.status.viewAll()}</span>
                 <CaretRight aria-hidden="true" />
               </Link>
             </div>
             {frequentGroups.length > 0 ? (
-              <SectionGrid className="policy-group-list">
+              <SectionGrid className={statusStyles().policyList()}>
                 {frequentGroups.map((group, index) => {
                   const pendingSelectionId = pendingGroupSelections.get(group.id);
                   const displayedChildId = pendingSelectionId ?? group.selectedChildId;
@@ -405,13 +440,19 @@ export function StatusPage() {
                   );
                   const rowContent = (
                     <>
-                      <span className="policy-group-leading">
-                        <span className="policy-group-rank tabular">{index + 1}</span>
-                        <span className="policy-group-copy">
-                          <strong className="policy-group-primary user-authored-label">
+                      <span className={statusStyles().policyLeading()}>
+                        <span className={`${statusStyles().policyRank()} tabular`}>
+                          {index + 1}
+                        </span>
+                        <span className={statusStyles().policyCopy()}>
+                          <strong
+                            className={`${statusStyles().policyPrimary()} user-authored-label`}
+                          >
                             {group.label}
                           </strong>
-                          <span className="policy-group-secondary user-authored-label">
+                          <span
+                            className={`${statusStyles().policySecondary()} user-authored-label`}
+                          >
                             {selectedNode?.label ?? selectedGroup?.label ?? LL.status.noSelection()}
                             {selectedNode?.latencyMilliseconds === null ||
                             selectedNode?.latencyMilliseconds === undefined
@@ -420,7 +461,7 @@ export function StatusPage() {
                           </span>
                         </span>
                       </span>
-                      <span className="policy-group-trailing">
+                      <span className={statusStyles().policyTrailing()}>
                         <Badge
                           aria-label={LL.status.availableChildren({ count: group.childIds.length })}
                           variant="outline"
@@ -441,7 +482,7 @@ export function StatusPage() {
                   return (
                     <Button
                       aria-describedby={groupDescriptionId}
-                      className={`${statusStyles().policyRow()} section-grid-item`}
+                      className={statusStyles().policyRow()}
                       disabled={isGroupCommandPending(group.id) || !groupSupported}
                       key={group.id}
                       loading={Boolean(pendingSelectionId)}
@@ -456,7 +497,7 @@ export function StatusPage() {
                 })}
               </SectionGrid>
             ) : (
-              <Empty className="policy-group-empty">
+              <Empty>
                 <EmptyHeader>
                   <EmptyTitle>{LL.status.groupsEmpty()}</EmptyTitle>
                 </EmptyHeader>

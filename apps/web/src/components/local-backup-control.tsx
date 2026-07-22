@@ -40,8 +40,7 @@ const backupStyles = tv({
       "grid gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) p-0 m-4 [&_legend]:w-full [&_legend]:bg-(--color-canvas) [&_legend]:pb-[9px] [&_legend]:text-(--text-metadata) [&_legend]:font-(--font-weight-section)",
     option:
       "grid min-h-[52px] grid-cols-[18px_minmax(0,1fr)] items-start gap-[10px] bg-(--color-canvas) px-[11px] py-[9px] has-[input:disabled]:opacity-[0.55] [&_input]:mt-[2px] [&_input]:size-[15px] [&_input]:accent-(--color-brand) [&>span]:grid [&>span]:gap-[2px] [&_strong]:text-(--text-metadata) [&_strong]:font-(--font-weight-control) [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted) data-[sensitive=true]:[&_strong]:text-(--color-warning)",
-    boundary:
-      "mx-4 mb-4 text-[12px] leading-[18px] text-(--color-text-muted)",
+    boundary: "mx-4 mb-4 text-[12px] leading-[18px] text-(--color-text-muted)",
     safety:
       "mx-4 mb-4 grid grid-cols-[16px_minmax(0,1fr)] gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-[11px] py-[10px] text-[12px] leading-[18px] text-(--color-body) [&_svg]:size-4 [&_svg]:text-(--color-warning)",
     summary:

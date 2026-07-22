@@ -66,6 +66,14 @@ const badgeRecipe = tv({
   defaultVariants: { variant: "default" },
 });
 
+const sectionGridRecipe = tv({
+  base: "section-grid grid grid-cols-[repeat(var(--section-grid-columns,1),minmax(0,1fr))] gap-px overflow-visible rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) p-0",
+});
+
+const sectionGridItemRecipe = tv({
+  base: "section-grid-item col-span-(--section-grid-column-span) row-span-(--section-grid-row-span) min-w-0 overflow-clip bg-(--color-canvas)",
+});
+
 const toggleRecipe = tv({
   base: "ui-toggle inline-flex h-[34px] shrink-0 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[13px] text-(--text-metadata) font-(--font-weight-control) text-(--color-body) whitespace-nowrap outline-none hover:bg-(--color-accent) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) disabled:pointer-events-none disabled:opacity-50",
   variants: {
@@ -75,6 +83,23 @@ const toggleRecipe = tv({
       capture:
         "h-[30px] gap-[7px] px-[10px] text-(--color-text-muted) [&_svg]:size-[15px] data-[capture-state=remembered]:text-(--color-text-muted) data-[capture-state=remembered]:[&_svg]:text-(--color-muted-soft) data-[capture-state=running]:text-(--color-body) data-[capture-state=running]:[&_svg]:text-[color-mix(in_srgb,var(--color-success)_64%,var(--color-muted-soft))]",
       "icon-capture": "size-[30px] p-0 [&_svg]:size-[15px] [&_svg]:text-(--color-muted-soft)",
+    },
+  },
+  defaultVariants: { variant: "default" },
+});
+
+const toggleGroupRecipe = tv({
+  base: "ui-toggle-group inline-flex w-fit items-center",
+});
+
+const toggleGroupItemRecipe = tv({
+  base: "ui-toggle-group-item",
+  variants: {
+    variant: {
+      default: "",
+      outline: "",
+      segmented:
+        "inline-flex h-[30px] items-center justify-center border border-(--color-hairline) bg-(--color-canvas) px-[11px] text-(--text-metadata) text-(--color-text-muted) first:rounded-l-(--radius-md) last:rounded-r-(--radius-md) [&:not(:first-child)]:border-l-0 hover:bg-(--color-accent) hover:text-(--color-body) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-hairline)_56%,transparent)] disabled:cursor-not-allowed disabled:opacity-50",
     },
   },
   defaultVariants: { variant: "default" },
@@ -294,7 +319,7 @@ export interface SectionGridProps extends HTMLAttributes<HTMLDivElement> {
 export function SectionGrid({ className, columns = 1, style, ...props }: SectionGridProps) {
   return (
     <div
-      className={cn("section-grid", className)}
+      className={sectionGridRecipe({ className })}
       style={{ ...style, "--section-grid-columns": columns } as CSSProperties}
       {...props}
     />
@@ -315,7 +340,7 @@ export function SectionGridItem({
 }: SectionGridItemProps) {
   return (
     <div
-      className={cn("section-grid-item", className)}
+      className={sectionGridItemRecipe({ className })}
       style={
         {
           ...style,
@@ -368,7 +393,9 @@ export function ToggleGroup({
 }: ToggleGroupProps) {
   return (
     <ToggleGroupPrimitive
-      className={cn("ui-toggle-group inline-flex w-fit items-center", className)}
+      className={resolveClassName(className, (override) =>
+        toggleGroupRecipe({ className: override }),
+      )}
       data-spacing={spacing}
       data-variant={variant}
       {...props}
@@ -387,11 +414,8 @@ export function ToggleGroupItem({ className, ...props }: ToggleGroupItemProps) {
 
   return (
     <TogglePrimitive
-      className={cn(
-        "ui-toggle-group-item",
-        context.variant === "segmented" &&
-          "inline-flex h-[30px] items-center justify-center border border-(--color-hairline) bg-(--color-canvas) px-[11px] text-(--text-metadata) text-(--color-text-muted) first:rounded-l-(--radius-md) last:rounded-r-(--radius-md) [&:not(:first-child)]:border-l-0 hover:bg-(--color-accent) hover:text-(--color-body) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-hairline)_56%,transparent)] disabled:cursor-not-allowed disabled:opacity-50",
-        className,
+      className={resolveClassName(className, (override) =>
+        toggleGroupItemRecipe({ variant: context.variant, className: override }),
       )}
       data-spacing={context.spacing}
       data-variant={context.variant}

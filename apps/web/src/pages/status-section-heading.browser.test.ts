@@ -27,16 +27,17 @@ function rectsOverlap(first: DOMRect, second: DOMRect): boolean {
 }
 
 function statusHeadings(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(".content-grid .section-heading")].filter(
-    (heading) => heading.querySelector(":scope > .text-link"),
-  );
+  return [...document.querySelectorAll<HTMLElement>("main h2")].flatMap((title) => {
+    const heading = title.parentElement?.parentElement;
+    return heading instanceof HTMLElement && heading.querySelector(":scope > a") ? [heading] : [];
+  });
 }
 
 function measureHeading(heading: HTMLElement): HeadingGeometry {
-  const title = heading.querySelector(".section-heading-copy h2");
-  const subtitle = heading.querySelector(".section-heading-copy p");
-  const action = heading.querySelector(".section-heading-action-label");
-  const chevron = heading.querySelector(":scope > .text-link svg");
+  const title = heading.querySelector("h2");
+  const subtitle = heading.querySelector("p");
+  const action = heading.querySelector(":scope > a span");
+  const chevron = heading.querySelector(":scope > a svg");
 
   if (!title || !subtitle || !action || !chevron) {
     throw new Error("Status section heading is missing a measurable copy or action segment");
@@ -70,7 +71,7 @@ function expectCollisionFree(heading: HTMLElement, context: string): void {
     }
   }
 
-  const chevron = heading.querySelector<SVGElement>(":scope > .text-link svg");
+  const chevron = heading.querySelector<SVGElement>(":scope > a svg");
   expect(chevron, `${context}: chevron exists`).not.toBeNull();
   expect(
     getComputedStyle(chevron as SVGElement).flexShrink,
@@ -87,7 +88,6 @@ async function navigateToStatus(): Promise<void> {
   window.dispatchEvent(new PopStateEvent("popstate"));
 
   await vi.waitFor(() => {
-    expect(document.querySelector(".status-page")).not.toBeNull();
     expect(document.querySelector(".route-loading")).toBeNull();
     expect(statusHeadings()).toHaveLength(2);
   });
@@ -133,9 +133,7 @@ describe("status section-heading containment", () => {
           expectCollisionFree(heading, `${viewport.name} ${viewport.width}px, ${locale}, ${title}`);
         }
 
-        const sessionSubtitle = document.querySelector<HTMLElement>(
-          ".session-section .section-heading-copy p",
-        );
+        const sessionSubtitle = statusHeadings()[0]?.querySelector<HTMLElement>("p");
         expect(sessionSubtitle, `${viewport.name}, ${locale}: session subtitle`).not.toBeNull();
         expect(sessionSubtitle?.title).toBe(sessionSubtitle?.textContent);
       }
@@ -147,10 +145,8 @@ describe("status section-heading containment", () => {
       await page.viewport(viewport.width, viewport.height);
       await selectLocale("English");
 
-      const sessionHeading = document.querySelector<HTMLElement>(
-        ".session-section .section-heading",
-      );
-      const subtitle = sessionHeading?.querySelector<HTMLElement>(".section-heading-copy p");
+      const sessionHeading = statusHeadings()[0];
+      const subtitle = sessionHeading?.querySelector<HTMLElement>("p");
       if (!sessionHeading || !subtitle) throw new Error("Missing Session section heading");
 
       const originalText = subtitle.textContent ?? "";

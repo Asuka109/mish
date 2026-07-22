@@ -21,6 +21,7 @@ interface LayoutMeasurement {
   navigationLabelsClipped: string[];
   outsideControls: OverflowIssue[];
   pageOverflow: number;
+  pageOverflowElements: string[];
   sidebarWidth: number;
   tableHasLocalScroll: boolean | null;
 }
@@ -59,6 +60,23 @@ function measureLayout(): LayoutMeasurement {
     ),
   ];
   const tableContainer = document.querySelector<HTMLElement>(".traffic-table")?.parentElement;
+  const pageRect = pageScroll?.getBoundingClientRect();
+  const pageOverflowElements =
+    pageScroll && pageRect
+      ? [...pageScroll.querySelectorAll<HTMLElement>("*")]
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 1 && rect.right > pageRect.right + 1;
+          })
+          .slice(0, 8)
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            const identity = [element.tagName.toLowerCase(), element.getAttribute("role")]
+              .filter(Boolean)
+              .join("[");
+            return `${identity}${identity.includes("[") ? "]" : ""} right=${Math.round(rect.right)} class=${element.className}`;
+          })
+      : [];
 
   const outsideControls = controls
     .filter((element) => {
@@ -102,6 +120,7 @@ function measureLayout(): LayoutMeasurement {
     navigationLabelsClipped,
     outsideControls,
     pageOverflow: pageScroll ? pageScroll.scrollWidth - pageScroll.clientWidth : Number.NaN,
+    pageOverflowElements,
     sidebarWidth: sidebar ? Math.round(sidebar.getBoundingClientRect().width) : Number.NaN,
     tableHasLocalScroll: tableContainer
       ? (getComputedStyle(tableContainer).overflowX === "auto" ||
@@ -350,7 +369,10 @@ describe("responsive application shell", () => {
           expect(measurement.documentOverflow, `${context}: document overflow`).toBeLessThanOrEqual(
             1,
           );
-          expect(measurement.pageOverflow, `${context}: page overflow`).toBeLessThanOrEqual(1);
+          expect(
+            measurement.pageOverflow,
+            `${context}: page overflow; outside descendants: ${measurement.pageOverflowElements.join(" | ") || "none"}`,
+          ).toBeLessThanOrEqual(1);
           expect(
             document.querySelectorAll("main .workspace-page-scroll"),
             `${context}: one primary page scroller`,

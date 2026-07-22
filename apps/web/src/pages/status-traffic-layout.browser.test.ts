@@ -17,19 +17,23 @@ async function navigateToStatus(): Promise<void> {
   window.dispatchEvent(new PopStateEvent("popstate"));
 
   await vi.waitFor(() => {
-    expect(document.querySelectorAll(".traffic-session-row")).toHaveLength(2);
+    expect(trafficRows()).toHaveLength(2);
   });
   await nextFrame();
 }
 
 function trafficRows(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(".traffic-session-row")];
+  return [
+    ...document.querySelectorAll<HTMLElement>(
+      '[data-direction="download"], [data-direction="upload"]',
+    ),
+  ].flatMap((label) => (label.parentElement instanceof HTMLElement ? [label.parentElement] : []));
 }
 
 function measure(row: HTMLElement): TrafficRowGeometry {
-  const label = row.querySelector<HTMLElement>(".traffic-session-label");
-  const rate = row.querySelector<HTMLElement>(".traffic-rate-value");
-  const sparkline = row.querySelector<HTMLElement>(".traffic-sparkline");
+  const label = row.querySelector<HTMLElement>(":scope > [data-direction]");
+  const rate = row.querySelector<HTMLElement>(":scope > strong");
+  const sparkline = row.querySelector<HTMLElement>(":scope > div[aria-hidden='true']");
 
   if (!label || !rate || !sparkline) {
     throw new Error("Traffic row is missing a label, rate, or sparkline");
@@ -55,10 +59,11 @@ describe("status traffic row layout", () => {
     await nextFrame();
 
     for (const row of trafficRows()) {
-      expect(
-        [...row.children].map((child) => child.className),
-        "reading order keeps the rate beside the cumulative total",
-      ).toEqual(["traffic-session-label", "traffic-rate-value tabular", "traffic-sparkline"]);
+      const children = [...row.children];
+      expect(children, "reading order has label, rate, and graph").toHaveLength(3);
+      expect(children[0]?.hasAttribute("data-direction")).toBe(true);
+      expect(children[1]?.tagName).toBe("STRONG");
+      expect(children[2]?.querySelector("svg")).not.toBeNull();
 
       const { label, rate, sparklineRect } = measure(row);
       expect(rate.left, "rate follows the label").toBeGreaterThanOrEqual(label.right);

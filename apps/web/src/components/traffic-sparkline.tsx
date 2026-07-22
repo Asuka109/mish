@@ -1,12 +1,19 @@
+import { tv } from "tailwind-variants";
+import styles from "./traffic-sparkline.module.css";
+
 interface TrafficSparklineProps {
   color: string;
   data: number[];
   id: string;
 }
 
+const sparklineStyle = tv({
+  base: "h-[34px] min-w-0 w-full opacity-[.82] [&_svg]:size-full [&_svg]:outline-none",
+});
+
 export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
   if (data.length === 0) {
-    return <div aria-hidden="true" className="traffic-sparkline" />;
+    return <div aria-hidden="true" className={sparklineStyle({ className: styles.mask })} />;
   }
 
   const gradientId = `${id}-area-gradient`;
@@ -25,7 +32,7 @@ export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
   const areaPath = `${linePath} L ${width - padding} ${height - padding} L ${padding} ${height - padding} Z`;
 
   return (
-    <div aria-hidden="true" className="traffic-sparkline">
+    <div aria-hidden="true" className={sparklineStyle({ className: styles.mask })}>
       <svg focusable="false" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
