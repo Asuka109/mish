@@ -143,10 +143,10 @@ invariant(
   "Pull requests must use the bounded validation command.",
 );
 const expectedPrValidation =
-  "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:tokens && pnpm check:docs";
+  "pnpm check:android && pnpm check:ci && pnpm check:i18n && pnpm check:lint && pnpm check:styles && pnpm check:format && pnpm check:types:ts && pnpm test:unit && pnpm check:rust:format && pnpm check:tokens && pnpm check:docs";
 invariant(
   packageJson.scripts?.["check:pr"] === expectedPrValidation,
-  "check:pr must stay bounded to fast static, TypeScript, unit, format, token, and documentation checks.",
+  "check:pr must stay bounded to fast static, style-source, TypeScript, unit, format, token, and documentation checks.",
 );
 
 const inspectMain = job("inspect-main");

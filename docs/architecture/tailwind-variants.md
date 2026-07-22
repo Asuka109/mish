@@ -69,3 +69,6 @@ The current exception inventory is deliberately small:
 
 Ordinary layout, spacing, typography, responsive behavior, and component state
 must not be added to those modules.
+
+The migration bundle record, automated evidence, and final hands-on matrix live
+in [`../quality/tailwind-variants-acceptance.md`](../quality/tailwind-variants-acceptance.md).

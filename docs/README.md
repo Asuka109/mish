@@ -64,8 +64,10 @@ of treating an implementation accident as intent.
   build/device procedure and mobile evidence levels.
 - [`quality/production-web-validation.md`](quality/production-web-validation.md),
   [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md),
+  [`quality/tailwind-variants-acceptance.md`](quality/tailwind-variants-acceptance.md),
   and [`quality/prototype-validation.md`](quality/prototype-validation.md) —
-  production Web, native visual, and retained-sketch gates respectively.
+  production Web, native visual, styling migration, and retained-sketch gates
+  respectively.
 
 ## Planning and research
 
