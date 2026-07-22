@@ -295,7 +295,7 @@ export function StatusPage() {
             </div>
             <SectionGrid className="session-list" columns={2}>
               <SectionGridItem className="traffic-session-pair" columnSpan={2}>
-                <div className="traffic-session-row">
+                <div className="traffic-session-column traffic-session-summary-column">
                   <span className="traffic-session-label" data-direction="download">
                     <ArrowDown aria-hidden="true" />
                     <span className="traffic-session-copy">
@@ -305,18 +305,6 @@ export function StatusPage() {
                       </small>
                     </span>
                   </span>
-                  <strong className="traffic-rate-value tabular">
-                    {captureActive
-                      ? formatRate(sessionTraffic.downloadBytesPerSecond, locale)
-                      : "- B/s"}
-                  </strong>
-                  <TrafficSparkline
-                    color="var(--color-traffic-download)"
-                    data={sessionTraffic.downloadSeries}
-                    id="download"
-                  />
-                </div>
-                <div className="traffic-session-row">
                   <span className="traffic-session-label" data-direction="upload">
                     <ArrowUp aria-hidden="true" />
                     <span className="traffic-session-copy">
@@ -326,11 +314,25 @@ export function StatusPage() {
                       </small>
                     </span>
                   </span>
+                </div>
+                <div className="traffic-session-column traffic-session-rate-column">
+                  <strong className="traffic-rate-value tabular">
+                    {captureActive
+                      ? formatRate(sessionTraffic.downloadBytesPerSecond, locale)
+                      : "- B/s"}
+                  </strong>
                   <strong className="traffic-rate-value tabular">
                     {captureActive
                       ? formatRate(sessionTraffic.uploadBytesPerSecond, locale)
                       : "- B/s"}
                   </strong>
+                </div>
+                <div className="traffic-session-column traffic-session-curve-column">
+                  <TrafficSparkline
+                    color="var(--color-traffic-download)"
+                    data={sessionTraffic.downloadSeries}
+                    id="download"
+                  />
                   <TrafficSparkline
                     color="var(--color-traffic-upload)"
                     data={sessionTraffic.uploadSeries}
