@@ -15,11 +15,12 @@ interface TrafficSparklineSeries {
 }
 
 export function createTrafficSparklineData(id: string, data: number[]): TrafficSparklineSeries[] {
+  const visibleData = data.slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES);
+  const firstX = TRAFFIC_SPARKLINE_MAX_SAMPLES - visibleData.length;
+
   return [
     {
-      data: data
-        .slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES)
-        .map((value, index) => ({ x: index, y: value })),
+      data: visibleData.map((value, index) => ({ x: firstX + index, y: value })),
       id,
     },
   ];
@@ -63,7 +64,7 @@ export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
         enablePoints={false}
         isInteractive={false}
         lineWidth={1.35}
-        margin={{ bottom: 2, left: 2, right: 2, top: 2 }}
+        margin={{ bottom: 2, left: 12, right: 12, top: 2 }}
         motionConfig="gentle"
         theme={{ crosshair: { line: { stroke: "transparent" } } }}
         xScale={{ max: TRAFFIC_SPARKLINE_MAX_SAMPLES - 1, min: 0, type: "linear" }}

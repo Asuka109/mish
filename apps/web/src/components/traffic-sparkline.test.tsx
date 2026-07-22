@@ -20,7 +20,17 @@ import {
 } from "./traffic-sparkline";
 
 describe("TrafficSparkline", () => {
-  it("uses Nivo's monotone line data with a strict 60-sample window", () => {
+  it("right-aligns an initially growing series to the end of the 60-sample domain", () => {
+    const data = createTrafficSparklineData("download", [12, 24, 18]);
+
+    expect(data[0].data).toEqual([
+      { x: 57, y: 12 },
+      { x: 58, y: 24 },
+      { x: 59, y: 18 },
+    ]);
+  });
+
+  it("uses Nivo's monotone line data with a strict 60-sample rolling window", () => {
     const data = createTrafficSparklineData(
       "download",
       Array.from({ length: 64 }, (_, index) => index),
@@ -28,6 +38,7 @@ describe("TrafficSparkline", () => {
 
     expect(data[0].data).toHaveLength(TRAFFIC_SPARKLINE_MAX_SAMPLES);
     expect(data[0].data[0]).toMatchObject({ x: 0, y: 4 });
+    expect(data[0].data.at(-1)).toMatchObject({ x: 59, y: 63 });
   });
 
   it("enables Nivo motion normally and renders the sparkline as decorative", () => {

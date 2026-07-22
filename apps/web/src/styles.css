@@ -949,6 +949,20 @@ h2 {
   flex: 1 1 120px;
   min-width: 0;
   overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    #000 16px,
+    #000 calc(100% - 16px),
+    transparent 100%
+  );
 }
 
 .traffic-session-chart-stack {
@@ -1030,12 +1044,6 @@ h2 {
   align-self: center;
   padding-right: 0;
   opacity: 0.82;
-  mask-image: radial-gradient(
-    ellipse 68% 72% at center,
-    #000 30%,
-    rgb(0 0 0 / 86%) 52%,
-    transparent 100%
-  );
 }
 
 .traffic-sparkline > * {
