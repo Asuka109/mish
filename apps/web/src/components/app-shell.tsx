@@ -31,6 +31,7 @@ import {
 } from "@mish/ui";
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
+import { cx, tv } from "@mish/ui/tv";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useCurrentProfileCommand } from "../data/current-profile-command";
@@ -53,6 +54,7 @@ import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
 import { SurfaceScope } from "./surface-scope";
+import styles from "./app-shell.module.css";
 
 const destinations = [
   { icon: Gauge, key: "status", path: "/status" },
@@ -79,6 +81,140 @@ const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Lo
 ];
 
 const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
+
+const shellStyles = tv({
+  slots: {
+    root: cx(
+      "app-shell relative grid h-screen h-dvh min-h-0 w-full grid-cols-[164px_minmax(0,1fr)]",
+      "overflow-hidden bg-surface-soft max-shell-mobile:grid-cols-[minmax(0,1fr)]",
+      "max-shell-mobile:grid-rows-[minmax(0,1fr)_auto]",
+    ),
+    sidebar: cx(
+      "sidebar flex min-w-0 flex-col bg-sidebar-background px-2.5 pt-3.5 pb-2.5 text-fg",
+      "@container/sidebar max-shell-mobile:grid max-shell-mobile:min-h-14",
+      "max-shell-mobile:grid-row-2 max-shell-mobile:grid-cols-[minmax(0,1fr)]",
+      "max-shell-mobile:border-t max-shell-mobile:border-hairline max-shell-mobile:px-2",
+      "max-shell-mobile:pt-1 max-shell-mobile:pb-[max(6px,env(safe-area-inset-bottom))]",
+    ),
+    sidebarHeader:
+      "sidebar-window-header -mt-3.5 -mx-2.5 flex-none select-none pt-3.5 px-2.5 max-shell-mobile:hidden",
+    windowControls: "window-controls-slot flex h-5.5 flex-none items-center select-none",
+    trafficLights:
+      "traffic-lights flex flex-none items-center gap-1.75 pl-1 runtime-desktop:invisible [&_svg]:size-3",
+    brand:
+      "brand-row flex h-12 items-center px-2 font-semibold text-ink [&_img]:h-7.5 [&_img]:w-auto [&_img]:max-w-full",
+    brandLight: "brand-image-light theme-dark:hidden",
+    brandDark: "brand-image-dark hidden theme-dark:block",
+    navList: cx(
+      "nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75 max-shell-mobile:grid",
+      "max-shell-mobile:grid-cols-7 max-shell-mobile:gap-0.5 max-shell-mobile:p-0",
+    ),
+    navItem: cx(
+      "nav-item grid h-sidebar-row-height w-full flex-none",
+      "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
+      "rounded-md border border-transparent px-sidebar-row-inset text-body font-medium",
+      "text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg",
+      "max-shell-mobile:h-11 max-shell-mobile:gap-0.5 max-shell-mobile:text-micro",
+      "max-shell-mobile:leading-3 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis",
+      "[&>span]:whitespace-nowrap max-shell-mobile:[&>span]:block",
+      "max-shell-mobile:[&>span]:max-w-full [&_svg]:col-start-1 [&_svg]:size-sidebar-icon",
+      "[&_svg]:justify-self-center",
+    ),
+    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-0.75 max-shell-mobile:contents",
+    workspace: cx(
+      "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden",
+      "m-2.5 ml-0 rounded-lg border border-hairline bg-canvas shadow-panel",
+      "max-shell-mobile:grid-row-1 max-shell-mobile:mx-1.5 max-shell-mobile:mt-1.5",
+      "max-shell-mobile:mb-0 max-shell-mobile:rounded-compact",
+    ),
+    toolbar: cx(
+      "toolbar flex min-w-0 items-center justify-between border-b border-hairline py-0 pr-4 pl-6",
+      "select-none max-toolbar-compact:pl-4.5 max-shell-mobile:py-0 max-shell-mobile:pr-2",
+      "max-shell-mobile:pl-3",
+    ),
+    toolbarTitle: cx(
+      "toolbar-title font-medium max-shell-mobile:min-w-0 max-shell-mobile:overflow-hidden",
+      "max-shell-mobile:text-ellipsis max-shell-mobile:whitespace-nowrap",
+    ),
+    toolbarHeading: "toolbar-heading flex min-w-0 items-center gap-2",
+    toolbarActions: cx(
+      "toolbar-actions flex min-w-0 flex-initial items-center gap-1.5 max-shell-mobile:flex-none",
+      "max-shell-mobile:gap-0.5",
+    ),
+    toolbarButton: cx(
+      "toolbar-button inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border",
+      "border-transparent bg-transparent px-2.25 text-metadata text-muted-foreground",
+      "hover:border-hairline hover:bg-accent hover:text-fg data-popup-open:border-hairline",
+      "data-popup-open:bg-accent data-popup-open:text-fg [&_svg]:size-3.75",
+    ),
+    appearanceToolbarButton: "appearance-menu-trigger size-8.5 p-0",
+    languageToolbarButton: "language-menu-trigger size-8.5 p-0",
+    profileTrigger: cx(
+      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent max-shell-mobile:w-8.5",
+      "max-shell-mobile:min-w-8.5 max-shell-mobile:p-0 max-shell-mobile:[&>span]:hidden",
+      "[&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden",
+      "[&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
+    ),
+    menuContent: "min-w-39",
+    menuLabel:
+      "profile-menu-label block px-2.25 pt-1.5 pb-1.75 text-metadata text-muted-foreground",
+    runtimeBadge: cx(
+      "runtime-data-badge inline-flex h-6 items-center justify-center gap-1.75 rounded-md border",
+      "border-hairline bg-surface-soft px-2.25 text-caption text-muted-foreground",
+      "max-toolbar-compact:hidden",
+    ),
+    loading: "toolbar-loading text-metadata text-muted-foreground max-shell-mobile:hidden",
+    contentScroll: "workspace-page-scroll min-h-0 min-w-0 overflow-auto",
+  },
+  variants: {
+    active: {
+      true: {
+        navItem:
+          "is-active border-sidebar-item-active-border bg-sidebar-item-active text-ink shadow-sidebar-item-active",
+      },
+      false: {},
+    },
+  },
+});
+
+export const proxyControlStyles = tv({
+  slots: {
+    proxyControl: cx(
+      "proxy-control-button relative flex h-sidebar-row-height w-full items-center overflow-hidden",
+      "rounded-md border border-transparent bg-transparent p-0 text-left text-metadata font-medium",
+      "text-muted-foreground isolate disabled:opacity-100 max-shell-mobile:h-11",
+      "max-shell-mobile:text-micro max-shell-mobile:leading-3",
+      "[&:not([data-status=healthy]):hover]:bg-sidebar-item-hover",
+      "[&:not([data-status=healthy]):hover]:text-fg",
+    ),
+    material: "pointer-events-none absolute inset-0 z-0 rounded-material-inset",
+    state: cx(
+      "proxy-control-state relative z-2 grid w-full min-w-0",
+      "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
+      "px-sidebar-row-inset transition-opacity duration-160 ease-proxy-crossfade",
+      "max-shell-mobile:gap-0.5 max-shell-mobile:px-0 [&>:first-child]:col-start-1",
+      "[&>:first-child]:justify-self-center [&_svg]:size-sidebar-icon",
+    ),
+    defaultState: "proxy-control-default",
+    hoverState: "proxy-control-hover absolute inset-0 opacity-0",
+    label: "proxy-control-label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
+  },
+  variants: {
+    healthy: {
+      true: {
+        proxyControl: cx(
+          "border-status-water-border bg-status-water-base text-brand-foreground shadow-status",
+          "hover:border-status-water-border hover:bg-status-water-base hover:text-brand-foreground",
+          "focus-visible:border-status-water-border focus-visible:bg-status-water-base",
+          "focus-visible:text-brand-foreground",
+          "[&:is(:hover,:focus-visible)_[data-slot=proxy-control-default]]:opacity-0",
+          "[&:is(:hover,:focus-visible)_[data-slot=proxy-control-hover]]:opacity-100",
+        ),
+      },
+      false: {},
+    },
+  },
+});
 
 function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
   if (
@@ -167,6 +303,7 @@ function ProxyControlButton() {
   const actionDescriptionId = snapshot
     ? getAggregateCaptureDescriptionId(snapshot, commandSupported)
     : undefined;
+  const proxyStyles = proxyControlStyles({ healthy: phase === "healthy" });
 
   async function handleToggle() {
     if (!runtime) return;
@@ -193,7 +330,7 @@ function ProxyControlButton() {
               ? LL.proxyControl.enableFixtureAria()
               : LL.proxyControl.enableAria()
       }
-      className="proxy-control-button"
+      className={proxyStyles.proxyControl()}
       data-status={phase}
       disabled={!snapshot || pending || needsAttention || !commandSupported || !captureAvailable}
       onClick={handleToggle}
@@ -210,37 +347,53 @@ function ProxyControlButton() {
       {phase === "healthy" ? (
         <span
           aria-hidden="true"
-          className="proxy-control-material"
+          className={proxyStyles.material({ className: styles.proxyControlMaterial })}
           data-slot="proxy-control-material"
         >
           <StatusShimmer active />
         </span>
       ) : null}
       {pending ? (
-        <span className="proxy-control-state proxy-control-default">
+        <span
+          className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+          data-slot="proxy-control-default"
+        >
           <Spinner data-icon="inline-start" />
-          <span className="proxy-control-label">{LL.common.pending()}</span>
+          <span className={proxyStyles.label()}>{LL.common.pending()}</span>
         </span>
       ) : needsAttention ? (
-        <span className="proxy-control-state proxy-control-default">
+        <span
+          className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+          data-slot="proxy-control-default"
+        >
           <XCircle aria-hidden="true" data-icon="inline-start" />
-          <span className="proxy-control-label">{LL.proxyControl.needsAttention()}</span>
+          <span className={proxyStyles.label()}>{LL.proxyControl.needsAttention()}</span>
         </span>
       ) : active ? (
         <>
-          <span className="proxy-control-state proxy-control-default">
+          <span
+            className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+            data-slot="proxy-control-default"
+          >
             <WifiHigh aria-hidden="true" data-icon="inline-start" weight="bold" />
-            <span className="proxy-control-label">{LL.proxyControl.running()}</span>
+            <span className={proxyStyles.label()}>{LL.proxyControl.running()}</span>
           </span>
-          <span aria-hidden="true" className="proxy-control-state proxy-control-hover">
+          <span
+            aria-hidden="true"
+            className={proxyStyles.state({ className: proxyStyles.hoverState() })}
+            data-slot="proxy-control-hover"
+          >
             <XCircle data-icon="inline-start" />
-            <span className="proxy-control-label">{LL.proxyControl.disable()}</span>
+            <span className={proxyStyles.label()}>{LL.proxyControl.disable()}</span>
           </span>
         </>
       ) : (
-        <span className="proxy-control-state proxy-control-default">
+        <span
+          className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+          data-slot="proxy-control-default"
+        >
           <Power aria-hidden="true" data-icon="inline-start" />
-          <span className="proxy-control-label">{LL.proxyControl.enable()}</span>
+          <span className={proxyStyles.label()}>{LL.proxyControl.enable()}</span>
         </span>
       )}
     </Button>
@@ -254,32 +407,32 @@ function Sidebar() {
     <SurfaceScope
       aria-label={LL.navigation.primary()}
       as="aside"
-      className="sidebar"
+      className={shellStyles().sidebar()}
       data-window-drag-behavior="drag-only"
       data-window-drag-surface="sidebar"
       onMouseDown={handleDesktopWindowDragOnly}
       surfaceRole="window"
     >
-      <div className="sidebar-window-header">
-        <div className="window-controls-slot">
-          <div aria-hidden="true" className="traffic-lights">
+      <div className={shellStyles().sidebarHeader()}>
+        <div className={shellStyles().windowControls()}>
+          <div aria-hidden="true" className={shellStyles().trafficLights()}>
             <Circle color="#ff5f57" weight="fill" />
             <Circle color="#febc2e" weight="fill" />
             <Circle color="#28c840" weight="fill" />
           </div>
         </div>
-        <div aria-label="Mish" className="brand-row">
+        <div aria-label="Mish" className={shellStyles().brand()}>
           <img
             alt=""
             aria-hidden="true"
-            className="brand-image-light"
+            className={shellStyles().brandLight()}
             draggable={false}
             src="/brand/mish-brand.svg"
           />
           <img
             alt=""
             aria-hidden="true"
-            className="brand-image-dark"
+            className={shellStyles().brandDark()}
             draggable={false}
             src="/brand/mish-brand-dark.svg"
           />
@@ -288,13 +441,13 @@ function Sidebar() {
 
       <nav
         aria-label={LL.navigation.sections()}
-        className="nav-list"
+        className={shellStyles().navList()}
         onKeyDown={handleSidebarKeyDown}
       >
         {destinations.map(({ icon: Icon, key, path }) => (
           <NavLink
             aria-label={getNavigationLabel(LL, key)}
-            className={({ isActive }) => `nav-item${isActive ? " is-active" : ""}`}
+            className={({ isActive }) => shellStyles({ active: isActive }).navItem()}
             end
             key={path}
             title={getNavigationLabel(LL, key)}
@@ -304,10 +457,12 @@ function Sidebar() {
             <span>{getNavigationLabel(LL, key)}</span>
           </NavLink>
         ))}
-        <div className="sidebar-bottom-items">
+        <div className={shellStyles().sidebarBottom()}>
           <NavLink
             aria-label={LL.navigation.settings()}
-            className={({ isActive }) => `nav-item settings-link${isActive ? " is-active" : ""}`}
+            className={({ isActive }) =>
+              shellStyles({ active: isActive }).navItem({ className: "settings-link" })
+            }
             title={LL.navigation.settings()}
             to="/settings"
           >
@@ -330,7 +485,7 @@ function ProfileMenu() {
   const { publish } = useNotificationDelivery();
   if (!snapshot) {
     return (
-      <span className="toolbar-loading">
+      <span className={shellStyles().loading()}>
         {connection.phase === "fixture" ? LL.toolbar.loadingFixture() : LL.toolbar.loadingDesktop()}
       </span>
     );
@@ -391,7 +546,7 @@ function ProfileMenu() {
         aria-busy={profilePending}
         aria-describedby={actionDescriptionId}
         aria-label={LL.toolbar.switchProfile({ profile: activeLabel })}
-        className="profile-select-trigger"
+        className={shellStyles().profileTrigger()}
         disabled={profilePending || !profileSupported || managedProfiles.length === 0}
       >
         {profilePending ? <Spinner data-icon="inline-start" /> : <FileText aria-hidden="true" />}
@@ -400,7 +555,15 @@ function ProfileMenu() {
       <SelectContent align="end" className="profile-menu" sideOffset={8}>
         <SelectGroup>
           {managedProfiles.map((profile) => (
-            <SelectItem className="profile-menu-item" key={profile.id} value={profile.id}>
+            <SelectItem
+              className={cx(
+                "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
+                "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
+                "data-highlighted:bg-accent data-highlighted:text-ink",
+              )}
+              key={profile.id}
+              value={profile.id}
+            >
               <span className="user-authored-label">{profile.label}</span>
             </SelectItem>
           ))}
@@ -433,14 +596,16 @@ function LanguageMenu() {
       <DropdownMenuTrigger
         aria-busy={pending}
         aria-label={LL.language.current({ language: currentLanguage })}
-        className="toolbar-button language-menu-trigger"
+        className={shellStyles().toolbarButton({
+          className: shellStyles().languageToolbarButton(),
+        })}
         disabled={pending}
       >
         {pending ? <Spinner data-icon="icon-only" /> : <Translate aria-hidden="true" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="language-menu" sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={(value) => void changeLocale(value)} value={locale}>
-          <DropdownMenuLabel className="profile-menu-label">
+          <DropdownMenuLabel className={shellStyles().menuLabel()}>
             {LL.language.label()}
           </DropdownMenuLabel>
           {languageOptions.map((option) => (
@@ -470,14 +635,16 @@ function AppearanceMenu() {
       <DropdownMenuTrigger
         aria-busy={appearancePending}
         aria-label={LL.appearance.current({ appearance: currentAppearance })}
-        className="toolbar-button appearance-menu-trigger"
+        className={shellStyles().toolbarButton({
+          className: shellStyles().appearanceToolbarButton(),
+        })}
         disabled={appearancePending}
       >
         {appearancePending ? <Spinner /> : <AppearanceIcon aria-hidden="true" />}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="appearance-menu" sideOffset={8}>
+      <DropdownMenuContent align="end" className={shellStyles().menuContent()} sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={changeAppearance} value={preference}>
-          <DropdownMenuLabel className="profile-menu-label">
+          <DropdownMenuLabel className={shellStyles().menuLabel()}>
             {LL.appearance.label()}
           </DropdownMenuLabel>
           {appearanceOptions.map((option) => (
@@ -502,17 +669,19 @@ function Toolbar() {
       : null;
 
   return (
-    <header className="toolbar">
-      <div className="toolbar-heading">
-        <span className="toolbar-title">{title}</span>
+    <header className={shellStyles().toolbar()}>
+      <div className={shellStyles().toolbarHeading()}>
+        <span className={shellStyles().toolbarTitle()}>{title}</span>
         {runtimeBadge ? (
           <Tooltip>
-            <TooltipTrigger className="runtime-data-badge">{runtimeBadge.label}</TooltipTrigger>
+            <TooltipTrigger className={shellStyles().runtimeBadge()}>
+              {runtimeBadge.label}
+            </TooltipTrigger>
             <TooltipContent>{runtimeBadge.description}</TooltipContent>
           </Tooltip>
         ) : null}
       </div>
-      <div className="toolbar-actions">
+      <div className={shellStyles().toolbarActions()}>
         <ProfileMenu />
         <AppearanceMenu />
         <LanguageMenu />
@@ -558,13 +727,13 @@ function StatusActionDescriptions() {
 
 export function AppShell() {
   return (
-    <div className="app-shell">
+    <div className={shellStyles().root()}>
       <StatusActionDescriptions />
       <Sidebar />
-      <SurfaceScope as="main" className="workspace" surfaceRole="content">
+      <SurfaceScope as="main" className={shellStyles().workspace()} surfaceRole="content">
         <RouteFocusManager />
         <Toolbar />
-        <div className="workspace-page-scroll">
+        <div className={shellStyles().contentScroll()}>
           <Outlet />
         </div>
       </SurfaceScope>

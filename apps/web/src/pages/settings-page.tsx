@@ -2,8 +2,10 @@ import { Warning } from "@phosphor-icons/react/Warning";
 import {
   Badge,
   Button,
-  SectionGrid,
-  SectionGridItem,
+  SettingsGroup,
+  SettingsRow as SettingsRowPrimitive,
+  SettingsRowControl,
+  SettingsRowCopy,
   Spinner,
   ToggleGroup,
   ToggleGroupItem,
@@ -30,6 +32,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { cx, tv } from "@mish/ui/tv";
 
 type PendingButtonAction =
   | "language"
@@ -46,6 +49,85 @@ type PromiseButtonAction =
   | "reinstall-helper"
   | "remove-helper"
   | "repair-helper";
+
+const settingsStyles = tv({
+  slots: {
+    page: cx(
+      "@container/settings-page mx-auto w-full max-w-page-narrow px-8 pt-8 pb-12",
+      "max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+      "[&>header+section]:mt-6",
+    ),
+    header: cx(
+      "[&_h1]:text-title [&_h1]:font-semibold [&_h1]:tracking-title-tight [&_p]:mt-1.75",
+      "[&_p]:max-w-175 [&_p]:leading-5.25 [&_p]:text-muted-foreground",
+    ),
+    notice: cx(
+      "mt-6 flex items-start gap-2 rounded-md border border-feedback-warning-border px-3 py-2.5",
+      "text-metadata text-warning [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0",
+    ),
+    section: "mt-7",
+    heading: cx(
+      "px-1 pb-2.5 [&_h2]:text-body [&_h2]:font-semibold [&_p]:mt-0.75 [&_p]:max-w-180",
+      "[&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground",
+    ),
+    control:
+      "[&_.traffic-capture-stack]:items-end @max-settings-compact/settings-page:[&_.traffic-capture-stack]:items-start",
+    inline: cx(
+      "inline-flex items-center gap-2 @max-settings-compact/settings-page:flex-wrap",
+      "@max-settings-compact/settings-page:justify-start [&_label]:inline-grid [&_label]:gap-0.75",
+      "[&_label]:text-start [&_label]:text-label-small [&_label]:leading-3.5",
+      "[&_label]:text-muted-foreground [&_input[type=number]]:min-h-7.5",
+      "[&_input[type=number]]:w-20.5 [&_input[type=number]]:rounded-sm",
+      "[&_input[type=number]]:border [&_input[type=number]]:border-hairline",
+      "[&_input[type=number]]:bg-canvas [&_input[type=number]]:px-1.75 [&_input[type=number]]:py-1",
+      "[&_input[type=number]]:text-fg",
+    ),
+    localProxy: cx(
+      "flex flex-wrap items-center justify-end gap-2",
+      "@max-settings-compact/settings-page:justify-start [&_.ui-button]:min-w-28",
+      "[&_.ui-button[aria-busy=true]:disabled]:opacity-100",
+    ),
+    localProxyEndpoint: "flex flex-wrap items-center gap-2 [&_code]:text-ink [&_code]:tabular-nums",
+    networkList: cx(
+      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg",
+      "data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start",
+    ),
+    networkPrimary: cx(
+      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start [&>strong]:font-medium [&>span]:text-metadata",
+      "[&>span]:text-muted-foreground",
+    ),
+    networkEmpty: "text-metadata text-muted-foreground",
+    networkAddresses: cx(
+      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg",
+      "data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start [&>span]:justify-end",
+      "@max-settings-compact/settings-page:[&>span]:justify-start [&_code]:font-mono",
+      "[&_code]:text-caption [&_code]:text-muted-foreground",
+    ),
+    networkDetail: cx(
+      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg",
+      "data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start [&>span:first-child]:text-metadata",
+      "[&>span:first-child]:text-muted-foreground",
+    ),
+    observedValues: cx(
+      "flex max-w-105 flex-wrap justify-end gap-1 @max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-start [&_code]:max-w-full [&_code]:truncate",
+      "[&_code]:rounded-sm [&_code]:border [&_code]:border-hairline [&_code]:bg-surface-soft",
+      "[&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-caption [&_code]:text-fg",
+    ),
+  },
+});
 
 function AvailabilityBadge({ availability }: { availability: SettingsAvailability }) {
   const { LL } = useI18nContext();
@@ -70,12 +152,12 @@ function SettingsSection({
   title: string;
 }) {
   return (
-    <section aria-labelledby={id} className="settings-section">
-      <div className="settings-section-heading">
+    <section aria-labelledby={id} className={settingsStyles().section()}>
+      <div className={settingsStyles().heading()}>
         <h2 id={id}>{title}</h2>
         <p>{description}</p>
       </div>
-      <SectionGrid className="settings-group">{children}</SectionGrid>
+      <SettingsGroup>{children}</SettingsGroup>
     </section>
   );
 }
@@ -90,20 +172,20 @@ function SettingsRow({
   title: string;
 }) {
   return (
-    <SectionGridItem className="settings-row">
-      <div className="settings-row-copy">
+    <SettingsRowPrimitive>
+      <SettingsRowCopy>
         <strong>{title}</strong>
         <span>{description}</span>
-      </div>
-      <div className="settings-row-control">{children}</div>
-    </SectionGridItem>
+      </SettingsRowCopy>
+      <SettingsRowControl className={settingsStyles().control()}>{children}</SettingsRowControl>
+    </SettingsRowPrimitive>
   );
 }
 
 function ObservedValues({ empty, values }: { empty: string; values: string[] }) {
-  if (values.length === 0) return <span className="network-dns-empty">{empty}</span>;
+  if (values.length === 0) return <span className={settingsStyles().networkEmpty()}>{empty}</span>;
   return (
-    <span className="network-dns-values">
+    <span className={settingsStyles().observedValues()}>
       {values.map((value) => (
         <code key={value}>{value}</code>
       ))}
@@ -329,8 +411,8 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="settings-page">
-      <header className="settings-header">
+    <div className={settingsStyles().page()}>
+      <header className={settingsStyles().header()}>
         <h1>{LL.settingsPage.title()}</h1>
         <p>
           {snapshot.adapterKind === "fixture"
@@ -340,7 +422,7 @@ export function SettingsPage() {
       </header>
 
       {snapshot.storageRecovered ? (
-        <p className="settings-notice" role="status">
+        <p className={settingsStyles().notice()} role="status">
           <Warning aria-hidden="true" />
           {LL.settingsPage.storageRecovered()}
         </p>
@@ -355,7 +437,7 @@ export function SettingsPage() {
           description={LL.settingsPage.managedPortsDescription()}
           title={LL.settingsPage.managedPorts()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <label>
               Proxy
               <input
@@ -465,7 +547,7 @@ export function SettingsPage() {
           title={LL.settingsPage.tunHelper()}
         >
           <div>
-            <div className="settings-inline-control">
+            <div className={settingsStyles().inline()}>
               <Badge
                 variant={
                   helperAvailable
@@ -561,8 +643,8 @@ export function SettingsPage() {
           title={LL.settingsPage.localProxy.title()}
         >
           {product?.adapterKind === "rpc" ? (
-            <div className="local-proxy-control">
-              <span className="local-proxy-endpoint">
+            <div className={settingsStyles().localProxy()}>
+              <span className={settingsStyles().localProxyEndpoint()}>
                 <code>{`${LOCAL_PROXY_HOST}:${LOCAL_PROXY_PORT}`}</code>
               </span>
               <Button
@@ -585,10 +667,9 @@ export function SettingsPage() {
           description={LL.settingsPage.launchProxyWhenMishLaunchesDescription()}
           title={LL.settingsPage.launchProxyWhenMishLaunches()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <ToggleGroup
               aria-label={LL.settingsPage.launchProxyWhenMishLaunches()}
-              className="settings-segmented"
               disabled={!launchProxySupported || settings.pending}
               onValueChange={(values) => {
                 const option = values[0];
@@ -598,7 +679,7 @@ export function SettingsPage() {
               }}
               spacing={0}
               value={[displayedLaunchProxy ? "on" : "off"]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={pendingButtonAction === "proxy-launch" && !displayedLaunchProxy}
@@ -624,10 +705,9 @@ export function SettingsPage() {
           description={LL.settingsPage.launchAtLoginDescription()}
           title={LL.settingsPage.launchAtLogin()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <ToggleGroup
               aria-label={LL.settingsPage.launchAtLogin()}
-              className="settings-segmented"
               disabled={!startupSupported || settings.pending}
               onValueChange={(values) => {
                 const option = values[0];
@@ -637,7 +717,7 @@ export function SettingsPage() {
               }}
               spacing={0}
               value={[displayedStartupOption]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={pendingButtonAction === "startup" && displayedStartupOption === "off"}
@@ -698,7 +778,7 @@ export function SettingsPage() {
           description={networkObservationDescription()}
           title={LL.settingsPage.networkDns.observation()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <Badge
               variant={
                 network.phase === "ready"
@@ -732,9 +812,9 @@ export function SettingsPage() {
           title={LL.settingsPage.networkPolicy()}
         >
           {network.interfaces.length > 0 ? (
-            <span className="network-interface-list" data-phase={network.phase}>
+            <span className={settingsStyles().networkList()} data-phase={network.phase}>
               {network.interfaces.map((interfaceState) => (
-                <span className="network-dns-primary" key={interfaceState.interface}>
+                <span className={settingsStyles().networkPrimary()} key={interfaceState.interface}>
                   <strong>{interfaceState.service ?? LL.common.unavailable()}</strong>
                   <span>
                     {interfaceState.interface} ·{" "}
@@ -744,7 +824,7 @@ export function SettingsPage() {
               ))}
             </span>
           ) : (
-            <span className="network-dns-empty">
+            <span className={settingsStyles().networkEmpty()}>
               {LL.settingsPage.networkDns.noActiveInterfaces()}
             </span>
           )}
@@ -753,10 +833,10 @@ export function SettingsPage() {
           description={LL.settingsPage.networkDns.ipAvailabilityDescription()}
           title={LL.settingsPage.networkDns.ipAvailability()}
         >
-          <span className="network-interface-addresses" data-phase={network.phase}>
+          <span className={settingsStyles().networkAddresses()} data-phase={network.phase}>
             {network.interfaces.length > 0
               ? network.interfaces.map((interfaceState) => (
-                  <span className="settings-inline-control" key={interfaceState.interface}>
+                  <span className={settingsStyles().inline()} key={interfaceState.interface}>
                     <code>{interfaceState.interface}</code>
                     <AddressAvailabilityBadge
                       available={interfaceState.ipv4Available}
@@ -775,7 +855,7 @@ export function SettingsPage() {
           description={LL.settingsPage.networkDns.serversDescription()}
           title={LL.settingsPage.dns()}
         >
-          <div className="network-dns-detail" data-phase={network.phase}>
+          <div className={settingsStyles().networkDetail()} data-phase={network.phase}>
             <span>
               {network.dns
                 ? LL.settingsPage.networkDns.resolverSummary({
@@ -810,10 +890,9 @@ export function SettingsPage() {
           description={LL.settingsPage.closeWindowDescription()}
           title={LL.settingsPage.closeWindow()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <ToggleGroup
               aria-label={LL.settingsPage.closeWindow()}
-              className="settings-segmented"
               disabled={
                 snapshot.adapterKind !== "rpc" ||
                 snapshot.capabilities.windowLifecycle !== "supported" ||
@@ -827,7 +906,7 @@ export function SettingsPage() {
               }}
               spacing={0}
               value={[optimisticWindowClose ?? snapshot.preferences.windowCloseBehavior]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={
@@ -862,12 +941,11 @@ export function SettingsPage() {
         <SettingsRow description={LL.settingsPage.themeDescription()} title={LL.appearance.label()}>
           <ToggleGroup
             aria-label={LL.appearance.label()}
-            className="settings-segmented"
             disabled={appearancePending}
             onValueChange={changeAppearance}
             spacing={0}
             value={[preference]}
-            variant="outline"
+            variant="segmented"
           >
             {(["system", "light", "dark"] as AppearancePreference[]).map((appearance) => (
               <ToggleGroupItem
@@ -894,12 +972,11 @@ export function SettingsPage() {
           >
             <ToggleGroup
               aria-label={LL.settingsPage.windowSurface()}
-              className="settings-segmented"
               disabled={settings.pending || windowSurfacePending}
               onValueChange={changeWindowSurface}
               spacing={0}
               value={[windowSurfacePreference]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={windowSurfacePending && windowSurfacePreference === "opaque"}
@@ -928,12 +1005,11 @@ export function SettingsPage() {
         >
           <ToggleGroup
             aria-label={LL.language.label()}
-            className="settings-segmented"
             disabled={settings.pending}
             onValueChange={(values) => void changeLanguage(values)}
             spacing={0}
             value={[locale satisfies LanguagePreference]}
-            variant="outline"
+            variant="segmented"
           >
             <ToggleGroupItem
               aria-busy={pendingButtonAction === "language" && pendingLanguage === "en"}
@@ -985,7 +1061,7 @@ export function SettingsPage() {
           description={LL.settingsPage.versionDescription()}
           title={LL.settingsPage.version()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <Badge variant="outline">Mish {snapshot.build.appVersion}</Badge>
             <Badge variant="outline">Mihomo {snapshot.build.mihomoVersion}</Badge>
             <Button

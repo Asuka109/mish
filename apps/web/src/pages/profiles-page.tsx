@@ -5,6 +5,7 @@ import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
 import { GlobeHemisphereWest } from "@phosphor-icons/react/GlobeHemisphereWest";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { useMemo, useState, type FormEvent } from "react";
+import { cx, tv } from "@mish/ui/tv";
 import {
   Badge,
   Button,
@@ -47,6 +48,89 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
   "daily",
   "weekly",
 ];
+
+const profileStyles = tv({
+  slots: {
+    page: cx(
+      "mx-auto w-full max-w-page-medium p-8 max-page-compact:p-6 max-shell-mobile:px-4",
+      "max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    ),
+    header: cx(
+      "flex items-start justify-between gap-6 max-page-compact:flex-col",
+      "max-page-compact:items-stretch [&_p]:mt-1.75 [&_p]:max-w-165 [&_p]:leading-5.25",
+      "[&_p]:text-muted-foreground",
+    ),
+    importActions: cx(
+      "flex shrink-0 items-center gap-2 max-page-compact:self-start max-shell-mobile:w-full",
+      "max-shell-mobile:flex-wrap max-shell-mobile:[&>.ui-button]:min-w-0",
+      "max-shell-mobile:[&>.ui-button]:grow max-shell-mobile:[&>.ui-button]:shrink",
+      "max-shell-mobile:[&>.ui-button]:basis-45",
+    ),
+    loading: "mt-2.5 text-caption leading-4.5 text-muted-foreground",
+    empty: "mt-5",
+    cardList: "mt-6 grid gap-3.5",
+    card: cx(
+      "overflow-hidden rounded-lg border border-hairline bg-canvas",
+      "data-[source=subscription]:[&>header]:border-b",
+      "data-[source=subscription]:[&>header]:border-hairline-soft",
+    ),
+    cardHeader:
+      "flex min-h-17 items-center justify-between gap-4 px-4 py-3 max-content-narrow:items-start",
+    cardTitle: "flex min-w-0 flex-1 items-center gap-2",
+    cardActions:
+      "flex shrink-0 items-center gap-2 max-content-narrow:flex-wrap max-content-narrow:justify-end",
+    fileTitle: "min-w-0 overflow-hidden text-ink text-ellipsis whitespace-nowrap font-semibold",
+    extension: "text-muted-foreground font-medium",
+    subscription: "bg-profile-subscription-surface px-4 pt-3.5 pb-3.25",
+    subscriptionGrid: cx(
+      "profile-subscription-grid grid grid-cols-[minmax(260px,1fr)_126px_144px] items-end gap-5",
+      "max-page-compact:grid-cols-[minmax(0,1fr)_112px_132px] max-page-compact:gap-3.5",
+      "max-content-narrow:grid-cols-2",
+    ),
+    subscriptionCell: cx(
+      "grid min-w-0 gap-1 [&>span]:text-caption [&>span]:leading-4 [&>span]:text-muted-foreground",
+      "[&>dt]:text-caption [&>dt]:leading-4 [&>dt]:text-muted-foreground",
+    ),
+    source: cx(
+      "grid min-w-0 gap-1 max-content-narrow:col-span-2 [&>span:first-child]:flex",
+      "[&>span:first-child]:items-center [&>span:first-child]:gap-1.5 [&_svg]:size-3.75",
+    ),
+    url: cx(
+      "profile-subscription-url block min-h-6.5 overflow-hidden text-metadata leading-6.5",
+      "font-medium text-muted-foreground",
+      "text-ellipsis whitespace-nowrap",
+    ),
+    date: cx(
+      "grid gap-1 text-metadata text-muted-foreground [&>strong]:flex [&>strong]:min-h-6.5",
+      "[&>strong]:items-center [&>strong]:truncate [&>strong]:text-metadata [&>strong]:leading-4.5",
+      "[&>strong]:font-medium [&>strong]:text-ink [&>strong]:tabular-nums",
+    ),
+    nextUpdate: "inline-flex w-max max-w-full items-center gap-1",
+    intervalTrigger: cx(
+      "profile-interval-trigger grid size-7 place-items-center rounded-sm border-0 bg-transparent",
+      "text-muted-foreground hover:bg-accent hover:text-ink data-popup-open:bg-accent",
+      "data-popup-open:text-ink focus-visible:bg-accent focus-visible:text-ink disabled:opacity-45",
+      "[&_svg]:size-3.75",
+    ),
+    intervalMenu: "w-47.5",
+    overwrite: cx(
+      "mt-2.25 flex items-center gap-1.75 border-t border-hairline-soft pt-2.25 text-caption",
+      "leading-4.5 text-warning [&_svg]:size-3.75 [&_svg]:shrink-0 [&_span]:text-muted-foreground",
+      "[&_button]:ml-0.75 [&_button]:inline [&_button]:border-0 [&_button]:bg-transparent",
+      "[&_button]:p-0 [&_button]:text-ink [&_button]:underline [&_button]:underline-offset-0.75",
+      "hover:[&_button]:text-brand focus-visible:[&_button]:text-brand",
+    ),
+    importDialog: "w-[min(720px,calc(100vw_-_32px))]",
+    importForm: "p-4",
+    preview: "grid gap-3.5 p-4",
+    previewList: cx(
+      "grid grid-cols-3 overflow-hidden rounded-md border border-hairline [&>div]:grid",
+      "[&>div]:gap-1 [&>div]:p-3 [&>div+div]:border-l [&>div+div]:border-hairline-soft",
+      "[&_dt]:text-caption [&_dt]:text-muted-foreground [&_dd]:text-ink [&_dd]:font-semibold",
+    ),
+    previewMessage: "text-caption text-muted-foreground",
+  },
+});
 
 export function ProfilesPage() {
   const { LL, locale } = useI18nContext();
@@ -196,13 +280,13 @@ export function ProfilesPage() {
   }
 
   return (
-    <div className="profiles-page">
-      <header className="profiles-header">
+    <div className={profileStyles().page()}>
+      <header className={profileStyles().header()}>
         <div>
           <h1>{LL.profiles.title()}</h1>
           <p>{LL.profiles.description()}</p>
         </div>
-        <div className="profiles-import-actions">
+        <div className={profileStyles().importActions()}>
           <Button disabled={!createSupported} onClick={openCreate} variant="outline">
             <FilePlus data-icon="inline-start" />
             {LL.profiles.createProfile()}
@@ -222,10 +306,12 @@ export function ProfilesPage() {
         </div>
       </header>
 
-      {profiles.isLoading ? <p className="profiles-loading">{LL.profiles.loading()}</p> : null}
+      {profiles.isLoading ? (
+        <p className={profileStyles().loading()}>{LL.profiles.loading()}</p>
+      ) : null}
 
       {snapshot && snapshot.profiles.length === 0 ? (
-        <Empty className="profiles-empty">
+        <Empty className={profileStyles().empty()}>
           <EmptyHeader>
             <EmptyTitle>{LL.profiles.emptyTitle()}</EmptyTitle>
             <EmptyDescription>{LL.profiles.emptyDescription()}</EmptyDescription>
@@ -234,7 +320,7 @@ export function ProfilesPage() {
       ) : null}
 
       {snapshot && snapshot.profiles.length > 0 ? (
-        <section aria-label={LL.profiles.profilesAria()} className="profile-card-list">
+        <section aria-label={LL.profiles.profilesAria()} className={profileStyles().cardList()}>
           {snapshot.profiles.map((profile) => (
             <ProfileCard
               LL={LL}
@@ -259,7 +345,7 @@ export function ProfilesPage() {
         onOpenChange={(open) => (open ? setCreateOpen(true) : closeCreate())}
         open={createOpen}
       >
-        <DialogContent className="profile-import-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={profileStyles().importDialog()} closeLabel={LL.common.close()}>
           <DialogHeader>
             <div>
               <DialogTitle className="dialog-title">{LL.profiles.createTitle()}</DialogTitle>
@@ -268,7 +354,11 @@ export function ProfilesPage() {
               </DialogDescription>
             </div>
           </DialogHeader>
-          <form className="profile-import-form" id="profile-create-form" onSubmit={createProfile}>
+          <form
+            className={profileStyles().importForm()}
+            id="profile-create-form"
+            onSubmit={createProfile}
+          >
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="profile-create-file-name">
@@ -311,7 +401,7 @@ export function ProfilesPage() {
         onOpenChange={(open) => (open ? setImportOpen(true) : closeImport())}
         open={importOpen}
       >
-        <DialogContent className="profile-import-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={profileStyles().importDialog()} closeLabel={LL.common.close()}>
           <DialogHeader>
             <div>
               <DialogTitle className="dialog-title">
@@ -328,7 +418,7 @@ export function ProfilesPage() {
             <ProfilePreview LL={LL} preview={preview} />
           ) : (
             <form
-              className="profile-import-form"
+              className={profileStyles().importForm()}
               id="profile-import-form"
               onSubmit={preflightHttps}
             >
@@ -428,13 +518,16 @@ function ProfileCard({
   const lastUpdateAt = profile.refresh.lastSuccessAt ?? profile.lastSuccessAt;
 
   return (
-    <article className="profile-card" data-source={subscription ? "subscription" : "local"}>
-      <header className="profile-card-header">
-        <div className="profile-card-title">
+    <article
+      className={profileStyles().card()}
+      data-source={subscription ? "subscription" : "local"}
+    >
+      <header className={profileStyles().cardHeader()}>
+        <div className={profileStyles().cardTitle()}>
           <FileNameTitle fileName={fileName} />
           {profile.status.active ? <Badge variant="outline">{LL.profiles.active()}</Badge> : null}
         </div>
-        <div className="profile-card-actions">
+        <div className={profileStyles().cardActions()}>
           {subscription ? (
             <Button
               disabled={!refreshSupported || refreshPending}
@@ -465,14 +558,18 @@ function ProfileCard({
         </div>
       </header>
       {subscription ? (
-        <div className="profile-subscription">
-          <div className="profile-subscription-grid">
-            <div className="profile-subscription-source">
+        <div className={profileStyles().subscription()}>
+          <div className={profileStyles().subscriptionGrid()}>
+            <div
+              className={profileStyles().subscriptionCell({
+                className: profileStyles().source(),
+              })}
+            >
               <span>
                 <GlobeHemisphereWest aria-hidden="true" />
                 {LL.profiles.subscriptionAddress()}
               </span>
-              <span className="profile-subscription-url" title={profile.source.display}>
+              <span className={profileStyles().url()} title={profile.source.display}>
                 {profile.source.display}
               </span>
             </div>
@@ -480,9 +577,13 @@ function ProfileCard({
               label={LL.profiles.lastUpdate()}
               value={formatTimestamp(lastUpdateAt, dateFormatter, LL)}
             />
-            <div className="profile-subscription-date">
+            <div
+              className={profileStyles().subscriptionCell({
+                className: profileStyles().date(),
+              })}
+            >
               <span>{LL.profiles.nextUpdate()}</span>
-              <div className="profile-next-update">
+              <div className={profileStyles().nextUpdate()}>
                 <strong>
                   {profile.refresh.policy === "off"
                     ? LL.profiles.automaticRefreshOff()
@@ -491,12 +592,16 @@ function ProfileCard({
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     aria-label={LL.profiles.setUpdateInterval({ profile: fileName })}
-                    className="profile-interval-trigger"
+                    className={profileStyles().intervalTrigger()}
                     disabled={!schedulingSupported || schedulePending}
                   >
                     <Alarm aria-hidden="true" />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="profile-interval-menu" sideOffset={7}>
+                  <DropdownMenuContent
+                    align="end"
+                    className={profileStyles().intervalMenu()}
+                    sideOffset={7}
+                  >
                     <DropdownMenuGroup>
                       <DropdownMenuLabel>{LL.profiles.updateInterval()}</DropdownMenuLabel>
                     </DropdownMenuGroup>
@@ -517,7 +622,7 @@ function ProfileCard({
               </div>
             </div>
           </div>
-          <p className="profile-overwrite-note">
+          <p className={profileStyles().overwrite()}>
             <WarningCircle aria-hidden="true" />
             <span>
               {LL.profiles.subscriptionOverwriteBeforeDetach()}
@@ -539,16 +644,16 @@ function FileNameTitle({ fileName }: { fileName: string }) {
   const name = hasExtension ? fileName.slice(0, extensionStart) : fileName;
   const extension = hasExtension ? fileName.slice(extensionStart) : "";
   return (
-    <strong className="profile-file-title" title={fileName}>
+    <strong className={profileStyles().fileTitle()} title={fileName}>
       <span>{name}</span>
-      {extension ? <span className="profile-file-extension">{extension}</span> : null}
+      {extension ? <span className={profileStyles().extension()}>{extension}</span> : null}
     </strong>
   );
 }
 
 function ProfileDate({ label, value }: { label: string; value: string }) {
   return (
-    <div className="profile-subscription-date">
+    <div className={profileStyles().subscriptionCell({ className: profileStyles().date() })}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -557,9 +662,9 @@ function ProfileDate({ label, value }: { label: string; value: string }) {
 
 function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: ProfilePreviewDto }) {
   return (
-    <div className="profile-preview profile-preview-compact">
+    <div className={profileStyles().preview()}>
       <FileNameTitle fileName={normalizeFileName(preview.label) ?? preview.label} />
-      <dl>
+      <dl className={profileStyles().previewList()}>
         <div>
           <dt>{LL.profiles.proxies()}</dt>
           <dd>{preview.proxyCount}</dd>
@@ -574,7 +679,9 @@ function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: Pr
         </div>
       </dl>
       {preview.warningCodes.length > 0 ? (
-        <p>{LL.profiles.warnings({ count: preview.warningCodes.length })}</p>
+        <p className={profileStyles().previewMessage()}>
+          {LL.profiles.warnings({ count: preview.warningCodes.length })}
+        </p>
       ) : null}
     </div>
   );

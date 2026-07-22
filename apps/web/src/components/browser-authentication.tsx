@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Input, Spinner } from "@mish/ui";
 import { ShieldCheck } from "@phosphor-icons/react";
+import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import {
   BrowserPairingError,
@@ -14,6 +15,29 @@ interface BrowserAuthenticationProps {
   onAuthenticated?: () => void;
   request?: typeof requestBrowserPairing;
 }
+
+const authenticationStyles = tv({
+  slots: {
+    page: "fixed inset-0 flex items-center justify-center bg-surface-soft p-xl font-sans text-ink",
+    card: cx(
+      "w-full max-w-dialog rounded-lg border border-hairline bg-canvas p-xl shadow-panel",
+      "[&_h1]:my-xs [&_h1]:mb-sm [&_h1]:text-title [&_h1]:font-semibold [&_p]:m-0 [&_p]:text-body",
+      "[&_p]:text-fg",
+    ),
+    icon: "flex size-11 items-center justify-center rounded-md bg-accent text-focus-accent mb-md [&_svg]:size-6",
+    eyebrow: "text-metadata! text-muted-foreground!",
+    form: cx(
+      "mt-lg [&_label]:mb-xs [&_label]:block [&_label]:text-body [&_label]:font-semibold",
+      "[&_label]:text-ink [&_.ui-input]:w-full [&_.ui-input]:font-mono [&_.ui-input]:text-2xl",
+      "[&_.ui-input]:tracking-pin [&_.ui-input]:text-center [&_.ui-button]:mt-md",
+      "[&_.ui-button]:w-full",
+    ),
+    status: "mt-lg flex items-center gap-sm text-fg",
+    recovery: "mt-lg [&_.ui-button]:mt-md [&_.ui-button]:w-full",
+    hint: "mt-xs! text-metadata! text-muted-foreground!",
+    error: "mt-sm! text-error!",
+  },
+});
 
 export function BrowserAuthentication({
   complete = completeBrowserPairing,
@@ -66,22 +90,25 @@ export function BrowserAuthentication({
   const errorMessage = error ? LL.browserAuthentication.errors[error]() : null;
 
   return (
-    <main className="browser-authentication">
-      <section aria-labelledby="browser-authentication-title">
-        <div className="browser-authentication__icon" aria-hidden="true">
+    <main className={authenticationStyles().page({ className: "browser-authentication" })}>
+      <section
+        aria-labelledby="browser-authentication-title"
+        className={authenticationStyles().card()}
+      >
+        <div aria-hidden="true" className={authenticationStyles().icon()}>
           <ShieldCheck weight="duotone" />
         </div>
-        <p className="browser-authentication__eyebrow">{LL.browserAuthentication.eyebrow()}</p>
+        <p className={authenticationStyles().eyebrow()}>{LL.browserAuthentication.eyebrow()}</p>
         <h1 id="browser-authentication-title">{LL.browserAuthentication.title()}</h1>
         <p>{LL.browserAuthentication.description()}</p>
 
         {starting ? (
-          <div className="browser-authentication__status" role="status">
+          <div className={authenticationStyles().status()} role="status">
             <Spinner />
             <span>{LL.browserAuthentication.requesting()}</span>
           </div>
         ) : challenge ? (
-          <form onSubmit={submit}>
+          <form className={authenticationStyles().form()} onSubmit={submit}>
             <label htmlFor="browser-pairing-pin">{LL.browserAuthentication.pinLabel()}</label>
             <Input
               id="browser-pairing-pin"
@@ -95,11 +122,11 @@ export function BrowserAuthentication({
               placeholder="000000"
               value={pin}
             />
-            <p className="browser-authentication__hint">
+            <p className={authenticationStyles().hint()}>
               {LL.browserAuthentication.pinHint({ seconds: challenge.expiresInSeconds })}
             </p>
             {errorMessage && !recoverable ? (
-              <p className="browser-authentication__error" role="alert">
+              <p className={authenticationStyles().error()} role="alert">
                 {errorMessage}
               </p>
             ) : null}
@@ -115,9 +142,9 @@ export function BrowserAuthentication({
         ) : null}
 
         {!starting && recoverable ? (
-          <div className="browser-authentication__recovery">
+          <div className={authenticationStyles().recovery()}>
             {errorMessage ? (
-              <p className="browser-authentication__error" role="alert">
+              <p className={authenticationStyles().error()} role="alert">
                 {errorMessage}
               </p>
             ) : null}

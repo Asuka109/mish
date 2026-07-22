@@ -227,9 +227,14 @@ describe("profiles page", () => {
 
     expect(await screen.findByText("studio-route-set")).toBeVisible();
     expect(screen.getByText("home")).toBeVisible();
-    expect(
-      screen.getByText("https://profiles.example/subscriptions/studio-route-set.yaml"),
-    ).toHaveClass("profile-subscription-url");
+    const subscriptionUrl = screen.getByText(
+      "https://profiles.example/subscriptions/studio-route-set.yaml",
+    );
+    expect(subscriptionUrl).toHaveAttribute(
+      "title",
+      "https://profiles.example/subscriptions/studio-route-set.yaml",
+    );
+    expect(subscriptionUrl).toHaveClass("profile-subscription-url");
     expect(screen.getByRole("button", { name: "Update Subscription" })).toBeDisabled();
     expect(screen.getAllByRole("button", { name: "Open Folder" })).toHaveLength(3);
     expect(screen.queryByText("Edit rules and groups")).not.toBeInTheDocument();
@@ -242,7 +247,8 @@ describe("profiles page", () => {
     renderProfiles(client);
     await screen.findByText("studio-route-set");
 
-    expect(screen.getByText(/visible-token/)).toHaveClass("profile-subscription-url");
+    const subscriptionUrl = screen.getByText(/visible-token/);
+    expect(subscriptionUrl).toHaveAttribute("title", subscriptionUrl.textContent);
     await user.click(
       screen.getByRole("button", { name: "Set update interval for studio-route-set.yaml" }),
     );

@@ -1,5 +1,7 @@
 import { page, userEvent } from "vitest/browser";
 import { beforeAll, describe, expect, test, vi } from "vitest";
+import { routePendingClassName } from "../app-routes";
+import { proxyControlStyles } from "../components/app-shell";
 
 const routes = ["/status", "/routes", "/profiles", "/traffic", "/events", "/settings"];
 
@@ -21,6 +23,7 @@ interface LayoutMeasurement {
   navigationLabelsClipped: string[];
   outsideControls: OverflowIssue[];
   pageOverflow: number;
+  pageOverflowElements: string[];
   sidebarWidth: number;
   tableHasLocalScroll: boolean | null;
 }
@@ -49,7 +52,7 @@ function centerOf(element: HTMLElement): Center {
 function appendRoutePending(scroller: HTMLElement) {
   const pending = document.createElement("div");
   pending.ariaBusy = "true";
-  pending.className = "route-loading";
+  pending.className = routePendingClassName;
   pending.innerHTML = '<div class="route-loading-indicator" role="status"></div>';
   scroller.replaceChildren(pending);
 
@@ -85,6 +88,23 @@ function measureLayout(): LayoutMeasurement {
     ),
   ];
   const tableContainer = document.querySelector<HTMLElement>(".traffic-table")?.parentElement;
+  const pageRect = pageScroll?.getBoundingClientRect();
+  const pageOverflowElements =
+    pageScroll && pageRect
+      ? [...pageScroll.querySelectorAll<HTMLElement>("*")]
+          .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 1 && rect.right > pageRect.right + 1;
+          })
+          .slice(0, 8)
+          .map((element) => {
+            const rect = element.getBoundingClientRect();
+            const identity = [element.tagName.toLowerCase(), element.getAttribute("role")]
+              .filter(Boolean)
+              .join("[");
+            return `${identity}${identity.includes("[") ? "]" : ""} right=${Math.round(rect.right)} class=${element.className}`;
+          })
+      : [];
 
   const outsideControls = controls
     .filter((element) => {
@@ -128,6 +148,7 @@ function measureLayout(): LayoutMeasurement {
     navigationLabelsClipped,
     outsideControls,
     pageOverflow: pageScroll ? pageScroll.scrollWidth - pageScroll.clientWidth : Number.NaN,
+    pageOverflowElements,
     sidebarWidth: sidebar ? Math.round(sidebar.getBoundingClientRect().width) : Number.NaN,
     tableHasLocalScroll: tableContainer
       ? (getComputedStyle(tableContainer).overflowX === "auto" ||
@@ -158,20 +179,21 @@ function appendProxyControlFixture(
   status: "inactive" | "connecting" | "error" | "healthy",
   label: string,
 ) {
+  const styles = proxyControlStyles({ healthy: status === "healthy" });
   const button = document.createElement("button");
-  button.className = "ui-button ui-button--ghost ui-button--default proxy-control-button";
+  button.className = `ui-button ui-button--ghost ui-button--default ${styles.proxyControl()}`;
   button.dataset.status = status;
   button.type = "button";
   button.innerHTML = `
-    <span class="proxy-control-state proxy-control-default">
+    <span class="${styles.state({ className: styles.defaultState() })}" data-slot="proxy-control-default">
       <svg aria-hidden="true" viewBox="0 0 18 18"></svg>
-      <span class="proxy-control-label">${label}</span>
+      <span class="${styles.label()}">${label}</span>
     </span>
     ${
       status === "healthy"
-        ? `<span aria-hidden="true" class="proxy-control-state proxy-control-hover">
+        ? `<span aria-hidden="true" class="${styles.state({ className: styles.hoverState() })}" data-slot="proxy-control-hover">
             <svg viewBox="0 0 18 18"></svg>
-            <span class="proxy-control-label">Stop Proxy</span>
+            <span class="${styles.label()}">Stop Proxy</span>
           </span>`
         : ""
     }
@@ -224,6 +246,28 @@ beforeAll(async () => {
 });
 
 describe("responsive application shell", () => {
+  test("keeps the healthy proxy material inside its one-pixel rounded border", async () => {
+    await page.viewport(800, 600);
+    await navigate("/status");
+
+    const button = document.querySelector<HTMLButtonElement>(".proxy-control-button");
+    if (!button) throw new Error("Missing proxy control");
+    if (button.dataset.status !== "healthy") {
+      await page.elementLocator(button).click();
+      await vi.waitFor(() => expect(button.dataset.status).toBe("healthy"));
+    }
+
+    const material = button.querySelector<HTMLElement>('[data-slot="proxy-control-material"]');
+    if (!material) throw new Error("Missing healthy proxy material");
+    const buttonStyle = getComputedStyle(button);
+    const materialStyle = getComputedStyle(material);
+
+    expect(materialStyle.backgroundColor).toBe(buttonStyle.backgroundColor);
+    expect(Number.parseFloat(materialStyle.borderTopLeftRadius)).toBe(
+      Number.parseFloat(buttonStyle.borderTopLeftRadius) - 1,
+    );
+  });
+
   test("uses one desktop grid for destination, Settings, and every proxy-control state", async () => {
     await page.viewport(800, 600);
     const root = document.documentElement;
@@ -320,7 +364,10 @@ describe("responsive application shell", () => {
 
     const workspace = document.querySelector<HTMLElement>("main.workspace");
     const scroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
-    const settings = document.querySelector<HTMLElement>(".settings-page");
+    const settingsHeading = [...document.querySelectorAll<HTMLElement>("main h1")].find(
+      (heading) => heading.textContent?.trim() === "Settings",
+    );
+    const settings = settingsHeading?.parentElement?.parentElement;
     if (!workspace || !scroller || !settings) throw new Error("Missing workspace scroll layout");
 
     const workspaceRect = workspace.getBoundingClientRect();
@@ -340,6 +387,30 @@ describe("responsive application shell", () => {
     const initialScrollTop = scroller.scrollTop;
     await page.elementLocator(scroller).wheel({ delta: { y: 240 } });
     await vi.waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(initialScrollTop));
+  });
+
+  test("keeps profile primary actions legible and subscription spacing intact", async () => {
+    await page.viewport(1057, 689);
+    await selectLocale("English");
+    await navigate("/profiles");
+
+    const addSubscription = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Add Subscription",
+    );
+    const subscriptionGrid = document.querySelector<HTMLElement>(".profile-subscription-grid");
+    const subscription = subscriptionGrid?.parentElement;
+    const overwriteNote = subscription?.querySelector<HTMLElement>("p");
+    if (!addSubscription || !subscriptionGrid || !subscription || !overwriteNote) {
+      throw new Error("Missing profile subscription layout");
+    }
+
+    const actionStyle = getComputedStyle(addSubscription);
+    const subscriptionStyle = getComputedStyle(subscription);
+    const overwriteStyle = getComputedStyle(overwriteNote);
+
+    expect(actionStyle.color).not.toBe(actionStyle.backgroundColor);
+    expect(overwriteStyle.marginTop).toBe("9px");
+    expect(subscriptionStyle.paddingBottom).toBe("13px");
   });
 
   test("opens the service Manage menu with pointer and keyboard input", async () => {
@@ -376,7 +447,10 @@ describe("responsive application shell", () => {
           expect(measurement.documentOverflow, `${context}: document overflow`).toBeLessThanOrEqual(
             1,
           );
-          expect(measurement.pageOverflow, `${context}: page overflow`).toBeLessThanOrEqual(1);
+          expect(
+            measurement.pageOverflow,
+            `${context}: page overflow; outside descendants: ${measurement.pageOverflowElements.join(" | ") || "none"}`,
+          ).toBeLessThanOrEqual(1);
           expect(
             document.querySelectorAll("main .workspace-page-scroll"),
             `${context}: one primary page scroller`,

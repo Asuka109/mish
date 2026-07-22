@@ -11,7 +11,29 @@ import {
   DialogTitle,
 } from "@mish/ui";
 import type { ProxyNodeDto, SelectorPolicyGroupDto } from "@mish/contracts";
+import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
+
+const proxyPickerStyles = tv({
+  slots: {
+    dialog:
+      "max-h-[min(520px,calc(100vh_-_48px))] w-[min(420px,calc(100vw_-_32px))] overflow-hidden",
+    header: "flex min-h-18.5 items-center border-b border-hairline py-3.25 pr-11 pl-4",
+    title: "text-body font-semibold",
+    description: "mt-0.75 text-metadata leading-4.5 text-muted-foreground",
+    option: cx(
+      "grid min-h-14 grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 rounded-none border-0",
+      "border-b border-hairline px-3.5 py-0 pr-3.5 pl-4 text-fg outline-none last:border-b-0",
+      "data-[selected=true]:bg-accent data-[selected=true]:text-ink data-[checked=true]:bg-accent",
+      "data-[checked=true]:text-ink data-[checked=true]:[&_.command-item-check]:opacity-100",
+    ),
+    optionCopy: cx(
+      "grid min-w-0 gap-0.5 [&_strong]:truncate [&_strong]:text-body [&_strong]:font-medium",
+      "[&_span]:text-metadata [&_span]:text-muted-foreground",
+    ),
+    latency: "text-metadata text-success-text",
+  },
+});
 
 interface ProxyPickerDialogProps {
   group: SelectorPolicyGroupDto | null;
@@ -33,18 +55,20 @@ export function ProxyPickerDialog({
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="proxy-picker-dialog" closeLabel={LL.common.close()}>
-        <div className="proxy-picker-header">
+      <DialogContent className={proxyPickerStyles().dialog()} closeLabel={LL.common.close()}>
+        <div className={proxyPickerStyles().header()}>
           <div>
-            <DialogTitle className="proxy-picker-title user-authored-label">
+            <DialogTitle
+              className={proxyPickerStyles().title({ className: "user-authored-label" })}
+            >
               {group.label}
             </DialogTitle>
-            <DialogDescription className="proxy-picker-description">
+            <DialogDescription className={proxyPickerStyles().description()}>
               {LL.proxyPicker.description()}
             </DialogDescription>
           </div>
         </div>
-        <Command className="proxy-picker-command">
+        <Command>
           <CommandInput
             aria-label={LL.proxyPicker.searchAria()}
             placeholder={LL.proxyPicker.searchPlaceholder()}
@@ -56,7 +80,7 @@ export function ProxyPickerDialog({
                 const selected = node.id === group.selectedChildId;
                 return (
                   <CommandItem
-                    className="proxy-picker-option"
+                    className={proxyPickerStyles().option()}
                     data-checked={selected}
                     key={node.id}
                     onSelect={() => {
@@ -65,11 +89,11 @@ export function ProxyPickerDialog({
                     }}
                     value={`${node.label} ${node.protocol}`}
                   >
-                    <span className="proxy-picker-option-copy">
+                    <span className={proxyPickerStyles().optionCopy()}>
                       <strong className="user-authored-label">{node.label}</strong>
                       <span>{node.protocol}</span>
                     </span>
-                    <span className="proxy-picker-latency tabular">
+                    <span className={proxyPickerStyles().latency({ className: "tabular-nums" })}>
                       {node.latencyMilliseconds === null
                         ? LL.common.unavailable()
                         : `${node.latencyMilliseconds} ms`}

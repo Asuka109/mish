@@ -1,5 +1,6 @@
 import Highcharts from "highcharts";
 import { useEffect, useRef, useState } from "react";
+import { cx, tv } from "@mish/ui/tv";
 
 interface TrafficSparklineProps {
   color: string;
@@ -10,6 +11,13 @@ export const TRAFFIC_SPARKLINE_MAX_SAMPLES = 60;
 export const TRAFFIC_SPARKLINE_MIN_SAMPLES = 3;
 export const TRAFFIC_SPARKLINE_WIDTH = 360;
 export const TRAFFIC_SPARKLINE_HEIGHT = 34;
+
+const trafficSparklineStyles = tv({
+  base: cx(
+    "traffic-sparkline h-8.5 w-90 grow-0 shrink-0 basis-90 self-center opacity-82",
+    "[&>*]:block [&>*]:size-full [&>*]:outline-none",
+  ),
+});
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -169,5 +177,5 @@ export function TrafficSparkline({ color, data }: TrafficSparklineProps) {
     [],
   );
 
-  return <div ref={containerRef} aria-hidden="true" className="traffic-sparkline" />;
+  return <div ref={containerRef} aria-hidden="true" className={trafficSparklineStyles()} />;
 }
