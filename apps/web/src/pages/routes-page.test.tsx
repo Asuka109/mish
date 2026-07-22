@@ -212,7 +212,7 @@ describe("Routes workspace", () => {
 
     await user.click(await screen.findByRole("button", { name: /Streaming/ }));
     await user.click(screen.getByText("🇯🇵 NRT-03"));
-    await user.click(screen.getByRole("link", { name: /View all/ }));
+    await user.click(screen.getByRole("link", { name: /View All/ }));
     await user.click(await screen.findByRole("button", { name: "Expand 🎬 Streaming" }));
     expect(
       screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🎬 Streaming" }),
@@ -348,7 +348,7 @@ describe("Routes workspace", () => {
       .closest("article")!;
     expect(within(streaming).getByText(/mihomo-google-204-v1/)).toBeVisible();
     await user.click(
-      within(streaming).getByRole("button", { name: "Start delay test for 🎬 Streaming" }),
+      within(streaming).getByRole("button", { name: "Start Delay Test for 🎬 Streaming" }),
     );
 
     expect(await within(streaming).findByText("Testing 🎬 Streaming")).toBeVisible();
@@ -356,7 +356,7 @@ describe("Routes workspace", () => {
       snapshot.groups.find((group) => group.label === "🎬 Streaming")!.id,
     ]);
     await user.click(
-      within(streaming).getByRole("button", { name: "Cancel delay test for 🎬 Streaming" }),
+      within(streaming).getByRole("button", { name: "Cancel Delay Test for 🎬 Streaming" }),
     );
     expect(await within(streaming).findByText(/Cancelled · 3\/3/)).toBeVisible();
     expect(client.cancelledTestIds).toEqual(["group-delay-ui"]);
@@ -368,7 +368,7 @@ describe("Routes workspace", () => {
     await user.click(await screen.findByRole("button", { name: "Expand 🎬 Streaming" }));
 
     expect(
-      screen.getByRole("button", { name: "Start delay test for 🎬 Streaming" }),
+      screen.getByRole("button", { name: "Start Delay Test for 🎬 Streaming" }),
     ).toBeDisabled();
   });
 

@@ -252,6 +252,21 @@ product UI, and 22px page titles. Use 600 only for page titles and section
 headings; ordinary controls use 500. Use tabular figures for latency, rates,
 counts, and elapsed time.
 
+## English Capitalization
+
+Use Apple-style Title Case for concise visible labels that initiate or navigate
+to an action: buttons, menu commands, actionable menu items, and short action
+or navigation entries. Lowercase articles, coordinating conjunctions, and short
+prepositions unless they are first or last; preserve product spellings and
+acronyms such as Mish, Mihomo, macOS, DNS, URL, IP, TUN, YAML, HTTP, HTTPS,
+SOCKS5, IPv4, and IPv6. Keep headings, setting and field labels, selected
+values, statuses, descriptions, notifications, errors, warnings, confirmations,
+and accessible descriptions in sentence style. Accessible names that mirror a
+visible action use the same Title Case; descriptive phrases remain sentence
+style. Author the source string for its context—never use CSS, runtime,
+translation-layer, or generic capitalization transforms, and never transform
+user-provided content.
+
 ## Layout & Spacing
 
 Use a 4px base rhythm. The navigation is 164px wide: large enough for plain

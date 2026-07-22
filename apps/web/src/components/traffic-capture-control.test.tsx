@@ -69,7 +69,7 @@ describe("TrafficCaptureControl TUN guide", () => {
 
     expect(screen.getByRole("dialog", { name: "Before enabling Virtual Interface" })).toBeVisible();
     expect(onTunChange).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Not now" }));
+    await user.click(screen.getByRole("button", { name: "Not Now" }));
     expect(onTunChange).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
@@ -107,7 +107,7 @@ describe("TrafficCaptureControl TUN guide", () => {
     await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
 
     expect(screen.getByText("Helper setup required")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Review helper setup" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review Helper Setup" })).toBeVisible();
     expect(onTunChange).not.toHaveBeenCalled();
     expect(localStorage.getItem("mish.tun-helper-guide.v2")).toBeNull();
   });
@@ -119,7 +119,7 @@ describe("TrafficCaptureControl TUN guide", () => {
     renderControl(onTunChange, "rpc", "permission-required", install);
 
     await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
-    await user.click(screen.getByRole("button", { name: "Install helper" }));
+    await user.click(screen.getByRole("button", { name: "Install Helper" }));
 
     expect(install).toHaveBeenCalledOnce();
     expect(onTunChange).not.toHaveBeenCalled();
@@ -132,7 +132,7 @@ describe("TrafficCaptureControl TUN guide", () => {
     renderControl(vi.fn(), "rpc", "permission-required", install);
 
     await user.click(screen.getByRole("button", { name: /Virtual Interface, not selected/ }));
-    await user.click(screen.getByRole("button", { name: "Install helper" }));
+    await user.click(screen.getByRole("button", { name: "Install Helper" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Helper preparation failed before macOS authorization",
