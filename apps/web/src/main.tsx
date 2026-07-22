@@ -101,8 +101,7 @@ async function startApplication() {
     const startup =
       runtime === "mobile" ? await resolveMobileStartup() : await resolveStartupStatusClient();
     disposeStartup = startup.dispose;
-    const initialLocale =
-      startup.settingsSnapshot.preferences.language === "zh-CN" ? "zh" : "en";
+    const initialLocale = startup.settingsSnapshot.preferences.language === "zh-CN" ? "zh" : "en";
     applyInitialAppearance(startup.settingsSnapshot.preferences.appearance);
     applyInitialWindowSurface(
       startup.settingsSnapshot.preferences.windowSurface,

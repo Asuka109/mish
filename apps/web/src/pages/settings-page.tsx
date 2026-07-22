@@ -29,7 +29,6 @@ import { useProduct } from "../data/product-provider";
 import { useSettings } from "../data/settings-provider";
 import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useI18nContext } from "../i18n/i18n-react";
-import { isLocale } from "../i18n/i18n-util";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cx, tv } from "@mish/ui/tv";
 
