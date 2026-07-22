@@ -21,6 +21,8 @@ const TrafficPage = lazy(() =>
   import("./pages/traffic-page").then(({ TrafficPage }) => ({ default: TrafficPage })),
 );
 
+export const routePendingClassName = "route-loading grid min-h-full place-items-center";
+
 export function RoutePending() {
   const { LL } = useI18nContext();
   const [visible, setVisible] = useState(false);
@@ -31,7 +33,7 @@ export function RoutePending() {
   }, []);
 
   return (
-    <div aria-busy="true" className="route-loading grid place-items-center">
+    <div aria-busy="true" className={routePendingClassName}>
       {visible ? (
         <div className="grid size-7 place-items-center text-muted-foreground" role="status">
           <Spinner />
