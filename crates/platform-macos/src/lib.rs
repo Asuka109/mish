@@ -182,14 +182,15 @@ mod browser_pairing_panel {
 
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
-    use objc2::{MainThreadOnly, define_class, msg_send, sel};
+    use objc2::{AnyThread, MainThreadOnly, define_class, msg_send, sel};
     use objc2_app_kit::{
-        NSBackingStoreType, NSButton, NSFloatingWindowLevel, NSFont, NSPanel, NSTextField,
+        NSAppearance, NSAppearanceNameDarkAqua, NSBackingStoreType, NSButton,
+        NSFloatingWindowLevel, NSFont, NSImage, NSImageView, NSPanel, NSTextField,
         NSWindowCollectionBehavior, NSWindowDelegate, NSWindowStyleMask,
     };
     use objc2_foundation::{
-        MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
-        NSString,
+        MainThreadMarker, NSArray, NSData, NSNotification, NSObject, NSObjectProtocol, NSPoint,
+        NSRect, NSSize, NSString,
     };
 
     use crate::{
@@ -198,7 +199,15 @@ mod browser_pairing_panel {
     };
 
     const PANEL_WIDTH: f64 = 460.0;
-    const PANEL_HEIGHT: f64 = 190.0;
+    const PANEL_HEIGHT: f64 = 230.0;
+    const BRAND_LIGHT_PNG: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/brand-assets/public/brand/mish-brand.png"
+    ));
+    const BRAND_DARK_PNG: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/brand-assets/public/brand/mish-brand-dark.png"
+    ));
 
     struct BrowserPairingPanel {
         panel: Retained<NSPanel>,
@@ -271,19 +280,25 @@ mod browser_pairing_panel {
             );
 
             let content_view = panel.contentView().expect("panel must have a content view");
+            let wordmark = brand_wordmark();
+            let wordmark_view = NSImageView::imageViewWithImage(&wordmark, mtm);
+            wordmark_view.setFrame(NSRect::new(
+                NSPoint::new(24.0, 162.0),
+                NSSize::new(120.0, 35.0),
+            ));
             let instruction = NSTextField::labelWithString(
                 &NSString::from_str("Enter this PIN in the browser:"),
                 mtm,
             );
             instruction.setFrame(NSRect::new(
-                NSPoint::new(24.0, 112.0),
+                NSPoint::new(24.0, 126.0),
                 NSSize::new(412.0, 20.0),
             ));
 
             let pin_label = NSTextField::labelWithString(&NSString::from_str(pin), mtm);
             pin_label.setFont(Some(&NSFont::systemFontOfSize(28.0)));
             pin_label.setFrame(NSRect::new(
-                NSPoint::new(24.0, 76.0),
+                NSPoint::new(24.0, 90.0),
                 NSSize::new(180.0, 34.0),
             ));
 
@@ -292,7 +307,7 @@ mod browser_pairing_panel {
                 mtm,
             );
             explanation.setFrame(NSRect::new(
-                NSPoint::new(24.0, 47.0),
+                NSPoint::new(24.0, 61.0),
                 NSSize::new(412.0, 20.0),
             ));
 
@@ -307,10 +322,11 @@ mod browser_pairing_panel {
             };
             ok_button.setKeyEquivalent(&NSString::from_str(""));
             ok_button.setFrame(NSRect::new(
-                NSPoint::new(356.0, 14.0),
+                NSPoint::new(356.0, 20.0),
                 NSSize::new(80.0, 32.0),
             ));
 
+            content_view.addSubview(&wordmark_view);
             content_view.addSubview(&instruction);
             content_view.addSubview(&pin_label);
             content_view.addSubview(&explanation);
@@ -330,6 +346,28 @@ mod browser_pairing_panel {
         fn update(&self, pin: &str) {
             self.pin_label.setStringValue(&NSString::from_str(pin));
         }
+    }
+
+    fn brand_wordmark() -> Retained<NSImage> {
+        let bytes = if is_dark_appearance() {
+            BRAND_DARK_PNG
+        } else {
+            BRAND_LIGHT_PNG
+        };
+        let data = unsafe { NSData::dataWithBytes_length(bytes.as_ptr().cast(), bytes.len()) };
+        NSImage::initWithData(NSImage::alloc(), &data)
+            .expect("embedded Mish wordmark must be a valid PNG")
+    }
+
+    fn is_dark_appearance() -> bool {
+        let appearance = NSAppearance::currentDrawingAppearance();
+        // SAFETY: AppKit exposes this process-lifetime appearance-name constant.
+        let dark_aqua = unsafe { NSAppearanceNameDarkAqua };
+        let dark_appearance = NSArray::from_slice(&[dark_aqua]);
+        appearance
+            .bestMatchFromAppearancesWithNames(&dark_appearance)
+            .as_deref()
+            == Some(dark_aqua)
     }
 
     pub(super) fn show(pin: &str) {

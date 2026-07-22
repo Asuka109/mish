@@ -24,8 +24,8 @@ uuid = { version = "1.24.0", features = ["v4"] }
 block2 = "0.6.2"
 core-foundation = "0.10.1"
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSAlert", "NSApplication", "NSButton", "NSControl", "NSFont", "NSGraphics", "NSPanel", "NSResponder", "NSTextField", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["block2", "NSGeometry", "NSNotification", "NSOperation", "NSObject", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSAlert", "NSAppearance", "NSApplication", "NSButton", "NSControl", "NSFont", "NSGraphics", "NSImage", "NSImageView", "NSPanel", "NSResponder", "NSTextField", "NSView", "NSWindow", "NSWorkspace", "objc2-core-foundation"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["block2", "NSArray", "NSData", "NSGeometry", "NSNotification", "NSOperation", "NSObject", "NSString", "NSURL"] }
 objc2-service-management = { version = "0.3.2", default-features = false, features = ["SMAppService", "objc2", "objc2-foundation"] }
 security-framework = "3.7.0"
 system-configuration = "0.7.0"
