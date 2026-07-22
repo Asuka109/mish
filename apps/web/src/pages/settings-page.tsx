@@ -30,6 +30,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { tv } from "tailwind-variants";
 
 type PendingButtonAction =
   | "language"
@@ -46,6 +47,18 @@ type PromiseButtonAction =
   | "reinstall-helper"
   | "remove-helper"
   | "repair-helper";
+
+const settingsStyles = tv({
+  slots: {
+    section: "settings-section mt-7",
+    heading:
+      "settings-section-heading px-1 pb-2.5 [&_h2]:text-(--text-body) [&_h2]:font-(--font-weight-title) [&_p]:mt-[3px] [&_p]:max-w-[720px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted)",
+    row: "settings-row grid min-h-[62px] grid-cols-[minmax(0,1fr)_max-content] items-center gap-5 px-[14px] py-[11px] @max-[680px]/settings-page:grid-cols-[minmax(0,1fr)] @max-[680px]/settings-page:items-start @max-[680px]/settings-page:gap-2.5",
+    copy: "settings-row-copy grid min-w-0 gap-0.5 [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-body) [&_span]:max-w-[590px] [&_span]:text-(--text-metadata) [&_span]:leading-[18px] [&_span]:text-(--color-text-muted)",
+    control:
+      "settings-row-control grid min-w-fit justify-items-end text-end @max-[680px]/settings-page:w-full @max-[680px]/settings-page:min-w-0 @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start",
+  },
+});
 
 function AvailabilityBadge({ availability }: { availability: SettingsAvailability }) {
   const { LL } = useI18nContext();
@@ -70,8 +83,8 @@ function SettingsSection({
   title: string;
 }) {
   return (
-    <section aria-labelledby={id} className="settings-section">
-      <div className="settings-section-heading">
+    <section aria-labelledby={id} className={settingsStyles().section()}>
+      <div className={settingsStyles().heading()}>
         <h2 id={id}>{title}</h2>
         <p>{description}</p>
       </div>
@@ -90,12 +103,12 @@ function SettingsRow({
   title: string;
 }) {
   return (
-    <SectionGridItem className="settings-row">
-      <div className="settings-row-copy">
+    <SectionGridItem className={settingsStyles().row()}>
+      <div className={settingsStyles().copy()}>
         <strong>{title}</strong>
         <span>{description}</span>
       </div>
-      <div className="settings-row-control">{children}</div>
+      <div className={settingsStyles().control()}>{children}</div>
     </SectionGridItem>
   );
 }
