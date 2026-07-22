@@ -254,6 +254,13 @@ class DesktopSettingsClient implements SettingsClient {
     };
     return this.getSnapshot();
   });
+  setLaunchProxyWhenMishLaunches = vi.fn(async (launchProxyWhenMishLaunches: boolean) => {
+    this.snapshot.preferences.startup.launchProxyWhenMishLaunches = launchProxyWhenMishLaunches;
+    return this.getSnapshot();
+  });
+  subscribeSnapshots = vi.fn(
+    (_listener: (snapshot: SettingsSnapshotDto) => void) => () => undefined,
+  );
   setWindowCloseBehavior = vi.fn(async (behavior: "hide-to-status-bar" | "quit") => {
     this.snapshot.preferences.windowCloseBehavior = behavior;
     return this.getSnapshot();
@@ -1068,7 +1075,6 @@ describe("production routes", () => {
       "Network and DNS",
       "Appearance and interaction",
       "Updates and data",
-      "Privacy and access",
       "Advanced and support",
     ]) {
       expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
@@ -1083,6 +1089,10 @@ describe("production routes", () => {
     expect(screen.queryByRole("button", { name: /enable lan/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Window surface")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Native material" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Privacy and access" })).not.toBeInTheDocument();
+    expect(screen.getByText("Mish 0.1.0")).toBeVisible();
+    expect(screen.getByText("Mihomo v1.19.29")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
   });
 
   it("offers a clean helper reinstall when the desktop core is inactive", async () => {
@@ -1175,7 +1185,7 @@ describe("production routes", () => {
     const statusHeading = await screen.findByRole("heading", { name: "Status" });
     await waitFor(() => expect(document.title).toBe("Status — Mish"));
     expect(statusHeading).not.toHaveFocus();
-    const statusScroller = statusHeading.closest<HTMLElement>(".page-scroll");
+    const statusScroller = document.querySelector<HTMLElement>(".workspace-page-scroll");
     expect(statusScroller).not.toBeNull();
     statusScroller!.scrollTop = 180;
     fireEvent.scroll(statusScroller!);
@@ -1185,15 +1195,15 @@ describe("production routes", () => {
     await waitFor(() => expect(routesHeading).toHaveFocus());
     await user.click(screen.getByRole("link", { name: "Status" }));
 
-    const restoredHeading = await screen.findByRole("heading", { name: "Status" });
+    await screen.findByRole("heading", { name: "Status" });
     await waitFor(() =>
-      expect(restoredHeading.closest<HTMLElement>(".page-scroll")?.scrollTop).toBe(180),
+      expect(document.querySelector<HTMLElement>(".workspace-page-scroll")?.scrollTop).toBe(180),
     );
   });
 
   it("keeps compact toolbar menus and proxy control at their intended hierarchy", async () => {
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const theme = screen.getByRole("button", {
       name: "Change theme. Current theme: Follow system",
@@ -1249,7 +1259,7 @@ describe("production routes", () => {
     vi.stubGlobal("fetch", fetch);
 
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     expect(webSocket).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
@@ -1280,8 +1290,8 @@ describe("desktop RPC experience", () => {
     expect(await screen.findByText("127.0.0.1:7890")).toBeVisible();
     expect(screen.getByText(/browser extension or an app-specific proxy/i)).toBeVisible();
     expect(screen.getByText(/does not enable or change macOS System Proxy/i)).toBeVisible();
-    expect(screen.getByText("HTTP")).toBeVisible();
-    expect(screen.getByText("SOCKS5")).toBeVisible();
+    expect(screen.queryByText("HTTP")).not.toBeInTheDocument();
+    expect(screen.queryByText("SOCKS5")).not.toBeInTheDocument();
 
     const testButton = screen.getByRole("button", { name: "Test listener" });
     await user.click(testButton);
@@ -1620,6 +1630,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenCalledWith({
         launchAtLogin: true,
+        launchProxyWhenMishLaunches: false,
         loginLaunchBehavior: "show-window",
       }),
     );
@@ -1628,6 +1639,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
         launchAtLogin: true,
+        launchProxyWhenMishLaunches: false,
         loginLaunchBehavior: "background",
       }),
     );
@@ -1635,9 +1647,43 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
         launchAtLogin: false,
+        launchProxyWhenMishLaunches: false,
         loginLaunchBehavior: "background",
       }),
     );
+  });
+
+  it("persists the automatic proxy launch preference independently in English and Chinese", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    const { unmount } = renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(screen.getByText("Launch proxy when Mish launches")).toBeInTheDocument();
+    expect(screen.getByText(/does not start or stop the proxy now/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Launch proxy when Mish launches: On" }));
+    await waitFor(() =>
+      expect(settingsClient.setLaunchProxyWhenMishLaunches).toHaveBeenCalledWith(true),
+    );
+    expect(settingsClient.setStartup).not.toHaveBeenCalled();
+    unmount();
+
+    renderRoute(
+      "/settings",
+      "zh",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+    expect(screen.getByText("启动应用自动代理")).toBeInTheDocument();
+    expect(screen.getByText(/切换后不会立即启动或停止代理/)).toBeInTheDocument();
   });
 
   it("shows login startup status only when the observed registration needs attention", async () => {
@@ -1890,12 +1936,31 @@ describe("desktop RPC experience", () => {
     snapshot.probeResults = [];
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
     expect(screen.queryByRole("link", { name: "Open diagnostics" })).not.toBeInTheDocument();
 
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: /Google/ });
     expect(within(google).getByText("Pending")).toBeVisible();
+  });
+
+  it("shows the shared proxy loader while a native startup capture transition is pending", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.phase = "connecting";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "disabled",
+      phase: "pending",
+      recoveryActions: [],
+    };
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    const proxyControl = await screen.findByRole("button", { name: "Launch proxy" });
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toBeDisabled();
+    expect(proxyControl).toHaveTextContent("Pending");
   });
 
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
@@ -1908,7 +1973,7 @@ describe("desktop RPC experience", () => {
     });
     renderRoute("/status", "en", client);
 
-    expect(await screen.findByText("Live status from the desktop local service.")).toBeVisible();
+    expect(await screen.findByText("Live desktop traffic")).toBeVisible();
     expect(screen.queryByText("Local service")).not.toBeInTheDocument();
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
@@ -1951,7 +2016,7 @@ describe("desktop RPC experience", () => {
     const setCapture = vi.spyOn(client, "setCapture");
     const setRoutingMode = vi.spyOn(client, "setRoutingMode");
     renderRoute("/status", "en", client);
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
 
     const systemProxy = screen.getByRole("button", { name: /^System Proxy/ });
     expect(systemProxy).toBeDisabled();
@@ -1980,7 +2045,7 @@ describe("desktop RPC experience", () => {
 describe("Status fixture experience", () => {
   it("labels fixture state and renders opaque Unicode labels verbatim", async () => {
     renderRoute("/status");
-    expect(await screen.findByText("Fixture activity at a glance.")).toBeInTheDocument();
+    expect(await screen.findByText("Live demo traffic")).toBeInTheDocument();
     expect(screen.getByText("Demo mode")).toBeInTheDocument();
     expect(screen.getByText("🌐 Proxy")).toBeInTheDocument();
     expect(screen.getByText("Messaging")).toBeInTheDocument();
@@ -2000,7 +2065,7 @@ describe("Status fixture experience", () => {
   it("changes routing and one group child through the typed fixture adapter", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const globalMode = screen.getByRole("button", { name: "Global" });
     await user.click(globalMode);
@@ -2263,7 +2328,7 @@ describe("Status fixture experience", () => {
 
     renderRoute("/status", "en", client);
 
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
@@ -2381,7 +2446,7 @@ describe("Status fixture experience", () => {
     };
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
-    await screen.findByText("Live status from the desktop local service.");
+    await screen.findByText("Live desktop traffic");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -2433,7 +2498,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const client = new DeferredRoutingClient();
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
     const globalMode = screen.getByRole("button", { name: "Global" });
 
     await user.click(globalMode);
@@ -2472,7 +2537,7 @@ describe("Status fixture experience", () => {
     const errorToast = vi.spyOn(toast, "error");
     const successToast = vi.spyOn(toast, "success");
     renderRoute("/status", "en", new FailingServicesClient());
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
@@ -2492,7 +2557,7 @@ describe("Status fixture experience", () => {
     const client = new FixtureStatusClient();
     const setInterval = vi.spyOn(client, "setServiceProbeInterval");
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     expect(await screen.findByRole("menuitemradio", { name: "Every 5 seconds" })).toHaveAttribute(
@@ -2514,7 +2579,7 @@ describe("Status fixture experience", () => {
     const client = new FixtureStatusClient();
     const testService = vi.spyOn(client, "testServiceMonitor");
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Test latency for Google" }));
     await waitFor(() => expect(testService).toHaveBeenCalledWith("google", expect.any(Object)));
@@ -2532,7 +2597,7 @@ describe("Status fixture experience", () => {
   it("lets users replace a service icon with a custom HTTPS image URL", async () => {
     const user = userEvent.setup();
     renderRoute("/status", "en", new FixtureStatusClient());
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
@@ -2554,7 +2619,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const client = new DeferredServiceProbeClient();
     renderRoute("/status", "en", client);
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: "Test latency for Google" });
@@ -2575,7 +2640,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const errorToast = vi.spyOn(toast, "error");
     renderRoute("/status", "en", new FailingServiceProbeClient());
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     const google = screen.getByRole("button", { name: "Test latency for Google" });
     await user.click(google);
@@ -2604,7 +2669,7 @@ describe("Status fixture experience", () => {
   it("switches to Simplified Chinese and persists the locale", async () => {
     const user = userEvent.setup();
     const view = renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
     const authoredLabels = [...view.container.querySelectorAll(".user-authored-label")].map(
       (element) => element.textContent,
     );
@@ -2614,7 +2679,7 @@ describe("Status fixture experience", () => {
     );
     await user.click(await screen.findByRole("menuitemradio", { name: "简体中文" }));
 
-    expect(await screen.findByText("当前演示活动概览。")).toBeInTheDocument();
+    expect(await screen.findByText("当前演示的实时流量")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
     expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
@@ -2629,7 +2694,7 @@ describe("Status fixture experience", () => {
   it("switches appearance manually and persists the preference", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(
       screen.getByRole("button", { name: "Change theme. Current theme: Follow system" }),
@@ -2645,7 +2710,7 @@ describe("Status fixture experience", () => {
   it("defers service validation feedback until a field is edited", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    await screen.findByText("Fixture activity at a glance.");
+    await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
     await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));

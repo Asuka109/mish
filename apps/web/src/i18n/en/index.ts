@@ -28,9 +28,6 @@ const en = {
     advancedSupport: "Advanced and support",
     appearance: "Appearance and interaction",
     appearanceDescription: "Preferences that change Mish without changing network state.",
-    authentication: "Authenticated local RPC",
-    authenticationDescription:
-      "The desktop WebView authenticates before ordinary RPC methods are accepted. Tokens are never displayed here.",
     available: "Available",
     background: "Background",
     backup: "Backup and restore",
@@ -99,41 +96,31 @@ const en = {
     },
     captureStartup: "Capture and startup",
     captureStartupDescription: "Owns durable OS capture intent and how Mish starts at login.",
-    comingLater: "Coming later",
+    comingSoon: "Coming soon",
     closeWindow: "Close window behavior",
-    closeWindowDescription:
-      "By default, closing the main window hides it to the status bar while Mish keeps supervising the core and capture state. Choose Quit to restore Mish-owned System Proxy state and exit instead. This is independent from login launch behavior.",
-    confirmed: "Confirmed",
+    closeWindowDescription: "Choose what happens when the main window closes.",
+    checkForUpdates: "Check for updates",
     description:
       "Settings are sourced from Mish's authenticated desktop bridge and private app data.",
     dns: "DNS resolvers",
-    dnsDescription:
-      "Resolver counts and the locally observed server list. Mish does not change DNS settings.",
-    expert: "Expert configuration",
-    expertDescription:
-      "Raw configuration, directories, developer tools, and reset actions require dedicated validation and scope.",
     fixtureDescription:
       "Demo mode can preview appearance and language only. It cannot perform or confirm native macOS operations.",
-    followsSystem: "Follows system",
     hideToStatusBar: "Hide to status bar",
     installTunHelper: "Install helper",
-    lan: "LAN control",
-    lanDescription:
-      "No LAN listener or enable switch is provided. External control requires a separate security design.",
     languageDescription:
       "Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.",
     launchAtLogin: "Launch at login",
     launchAtLoginDescription:
       "Choose whether Mish starts when you log in and whether an automatic launch shows the main window. Manual launches always show the window.",
+    launchProxyWhenMishLaunches: "Launch proxy when Mish launches",
+    launchProxyWhenMishLaunchesDescription:
+      "Save this preference for the next Mish launch. Changing it does not start or stop the proxy now.",
     loginWindow: "Login launch window",
     loginWindowDescription:
       "Choose one behavior for login launches. Manual launches always show the window.",
-    loopback: "Loopback-only service",
-    loopbackDescription:
-      "The local bridge binds only to IPv4 loopback and exposes no LAN listener.",
     localProxy: {
       description:
-        "Use this HTTP or SOCKS5 endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.",
+        "Use this endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.",
       feedback: {
         coreUnhealthy: "Start the proxy with a valid Profile, then test the listener again.",
         listenerUnavailable:
@@ -146,9 +133,6 @@ const en = {
       test: "Test listener",
       title: "Local-only manual proxy",
     },
-    motion: "Reduced motion",
-    motionDescription:
-      "Non-essential motion follows the operating-system reduced-motion preference.",
     network: "Network and DNS",
     networkDescription:
       "Read-only macOS observations for troubleshooting. No interface, route, or DNS setting can be changed here.",
@@ -179,16 +163,11 @@ const en = {
       observationStale: "The last observation is stale and must not be treated as current.",
       observationUnavailable: "Native Network and DNS observation is unavailable on this platform.",
       observationUnknown: "No current macOS observation is available yet.",
-      primary: "Active networks",
-      primaryDescription:
-        "Active interfaces and matching macOS network services when System Configuration can confirm them.",
       refresh: "Refresh observation",
       resolverSummary: "{resolvers:number} resolvers · {scoped:number} scoped",
       searchDomains: "Search domains",
-      searchDomainsDescription:
-        "Full values stay in this local view and are excluded from events, logs, and support bundles.",
-      serversDescription:
-        "Full values stay in this local view and are excluded from events, logs, and support bundles.",
+      searchDomainsDescription: "Domains macOS appends when resolving unqualified hostnames.",
+      serversDescription: "DNS servers currently configured for the active network service.",
       source: "macOS System Configuration",
       state: {
         failed: "Failed",
@@ -199,15 +178,9 @@ const en = {
       },
     },
     networkPolicy: "Active services and interfaces",
-    networkPolicyDescription: "Read-only service, device, interface type, IPv4, and IPv6 state.",
+    networkPolicyDescription: "Shows the active network service, interface, and device type.",
     off: "Off",
     on: "On",
-    origin: "Origin validation",
-    originDescription:
-      "Only the exact development or packaged WebView origin is accepted by the local bridge.",
-    privacyAccess: "Privacy and access",
-    privacyDescription:
-      "Confirmed trust boundaries are shown without revealing credentials or offering LAN access.",
     registration: "Observed login registration",
     registrationDescription:
       "Desired and observed platform state are compared; a mismatch is never reported as applied.",
@@ -246,7 +219,7 @@ const en = {
     updatesDescription:
       "Versioning and local-data workflows remain explicit about what is not implemented.",
     version: "Version information",
-    versionDescription: "This build does not expose paths, credentials, or sensitive runtime data.",
+    versionDescription: "Versions included in this build.",
     windowSurface: "Window surface",
     windowSurfaceDescription:
       "Choose an opaque color surface or the native macOS Sidebar material independently from the light or dark theme.",
@@ -376,11 +349,11 @@ const en = {
     activeRules: "Active rules",
     connections: "Connections",
     currentSessionAria: "Current session",
-    desktopActivity: "Live status from the desktop local service.",
+    desktopActivity: "Live desktop traffic",
     desktopUnavailable: "Desktop status is unavailable.",
-    deviceActivity: "Live status from this device.",
+    deviceActivity: "Live device traffic",
     downloaded: "Downloaded",
-    fixtureActivity: "Fixture activity at a glance.",
+    fixtureActivity: "Live demo traffic",
     fixtureUnavailable: "Fixture data is unavailable.",
     groups: "Groups",
     groupsAria: "Frequently used policy groups",
@@ -392,7 +365,8 @@ const en = {
     modeGlobal: "Global",
     modeRule: "Rule",
     noSelection: "No selection",
-    openLiveTraffic: "Open live traffic",
+    openLiveTraffic: "Live traffic",
+    openLiveTrafficAria: "Open live traffic details",
     routingMode: "Routing mode",
     reconnecting: "Reconnecting to the Mish background service. Last confirmed data is stale.",
     session: "Session",
@@ -403,6 +377,7 @@ const en = {
     uptime: "Uptime",
     usedFirst: "Most used first.",
     viewAll: "View all",
+    viewAllGroupsAria: "View all policy groups",
     availableChildren: "{count:number} available children",
   },
   capture: {

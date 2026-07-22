@@ -64,7 +64,7 @@ fn replace_native_quit<R: tauri::Runtime, M: tauri::Manager<R>>(
     app_name: &str,
 ) -> tauri::Result<()> {
     let items = app_menu.items()?;
-    let quit_position = items.iter().position(|item| {
+    let quit_position = items.iter().rposition(|item| {
         item.as_predefined_menuitem()
             .and_then(|item| item.text().ok())
             .is_some_and(|text| is_native_quit_label(&text))
@@ -82,7 +82,7 @@ fn replace_native_quit<R: tauri::Runtime, M: tauri::Manager<R>>(
 fn is_native_quit_label(label: &str) -> bool {
     label
         .strip_prefix("Quit ")
-        .is_some_and(|runtime_name| !runtime_name.trim().is_empty())
+        .is_some_and(|name| !name.is_empty())
 }
 
 fn find_submenu<R: tauri::Runtime>(
@@ -108,7 +108,7 @@ mod tests {
         assert!(!is_graceful_exit_menu_command("terminate:"));
         assert!(is_native_quit_label("Quit Mish"));
         assert!(is_native_quit_label("Quit mish-desktop"));
-        assert!(!is_native_quit_label("Quit "));
         assert!(!is_native_quit_label("Hide Mish"));
+        assert!(!is_native_quit_label("Quit "));
     }
 }

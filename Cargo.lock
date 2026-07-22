@@ -2315,6 +2315,7 @@ name = "mish-settings"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "mish-mihomo-controller",
  "mish-runtime",
  "mish-state-authority",
  "serde",

@@ -3,7 +3,7 @@
 ## Ownership
 
 Settings is the durable configuration home for application preferences. It is
-organized into the six outcome sections defined by PRD 04. It does not copy the
+organized into five outcome sections defined by PRD 04. It does not copy the
 Status dashboard or create a second live network-state model.
 
 `crates/settings` owns the transport-neutral preference model, persistence
@@ -19,6 +19,7 @@ Ordinary settings RPC accepts only these bounded commands:
 - set one of `en` or `zh` interface language;
 - set a startup DTO containing `launchAtLogin` and exactly one
   `show-window` or `background` login-launch behavior; or
+- set the independent boolean `launchProxyWhenMishLaunches`; or
 - set one of `hide-to-status-bar` or `quit` as the main-window close behavior.
 
 Protocol version 18 also accepts one closed onboarding welcome transition:
@@ -50,7 +51,7 @@ The file has a numeric schema version, rejects unknown fields, and is bounded to
 atomically rename it over the destination, and flush the parent directory.
 
 Missing storage uses safe defaults: system appearance, English, launch at login
-off, native material as the desired window surface, show the window for any
+off, automatic proxy launch off, native material as the desired window surface, show the window for any
 future login launch, and hide the main window to the status bar on close. It
 also creates and immediately persists exactly one version-2 welcome invitation
 with a stable creation time. The desktop frontend records `promptedAt` when it
@@ -98,6 +99,38 @@ fixed login-startup argument is present: `show-window` reveals and focuses the
 main window, while `background` keeps it hidden. A manual launch always reveals
 the main window.
 
+## Automatic proxy launch preference
+
+`launchProxyWhenMishLaunches` is a separate, default-off application-start
+policy. Toggling it persists only next-launch intent: it does not start or stop
+Core, activate a Profile, register login startup, or change System Proxy or
+TUN in the current process. Every prior storage schema migrates the value to
+`false`, so upgrades cannot change runtime or capture state.
+
+On a later application launch, after the native bridge and status observers are
+installed, the desktop shell asks `ProfileActivationCoordinator` to activate
+the last successfully activated Profile. The coordinator records that durable
+resume target separately from the last failed attempt, so a transient start
+failure never replaces the known-good target. For installations created before
+that resume record existed, it falls back to the most recently validated
+Profile in the private Profile store; no candidate means safe stop. After Core readiness succeeds,
+the same coordinator applies the standard System Proxy capture request. A
+missing valid target or a failed activation leaves the process safely stopped.
+The preference itself never bypasses Profile validation, Core ownership,
+capture rollback, or the shared mutation authority.
+
+The Settings service remains the single authority for the preference. It
+provides a bounded in-process snapshot subscription and authenticated
+`settings.subscribe` / `settings.snapshot` notifications consumed by the Web
+Settings provider. The resulting proxy lifecycle is owned by
+`ProfileActivationCoordinator`: its bounded activation snapshot exposes the
+same pending, success, and failure state to the native status surface and the
+Web sidebar. Native capture transitions are also treated as sidebar pending
+state. A future native status-menu control must invoke the coordinator and
+observe that stream rather than keeping a second loader or polling. Browser and
+mobile fixtures retain unavailable capability and never report native automatic
+launch support.
+
 The implementation boundary was checked against the
 [Tauri 2 autostart plugin](https://v2.tauri.app/plugin/autostart/) and Apple's
 [`SMAppService`](https://developer.apple.com/documentation/servicemanagement/smappservice)
@@ -131,6 +164,15 @@ cross-platform blur promise.
 Language selection changes only localized Mish copy. Profile, group, node, and
 service labels remain opaque user-authored Unicode strings and are never passed
 through translation functions.
+
+## Build versions
+
+The Settings snapshot also carries the Mish application version and the pinned
+Mihomo version. The desktop composition supplies the application version from
+its packaged Cargo build metadata, while `mish-mihomo-controller` supplies the
+single pinned Core version. The UI therefore shows both versions even while
+Core is stopped, without querying nullable runtime state or inventing a
+frontend constant.
 
 ## Window lifecycle
 

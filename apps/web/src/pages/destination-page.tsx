@@ -50,7 +50,7 @@ export function DestinationPage({ destination }: DestinationPageProps) {
   const DestinationIcon = definition.icon;
 
   return (
-    <div className="destination-page page-scroll">
+    <div className="destination-page">
       <section className="destination-intro">
         <div aria-hidden="true" className="destination-icon">
           <DestinationIcon />

@@ -68,6 +68,8 @@ export function useCaptureCommand() {
     pending:
       startingProfile ||
       product.isCommandPending("capture") ||
+      product.snapshot?.runtime.systemProxy.phase === "pending" ||
+      product.snapshot?.runtime.tun.phase === "pending" ||
       (profiles?.isPending("activate") ?? false),
     setCapture,
   };

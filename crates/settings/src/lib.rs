@@ -12,6 +12,7 @@ use std::{
 };
 
 use futures_util::future::BoxFuture;
+use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_runtime::{
     TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperSnapshot,
 };
@@ -20,8 +21,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
+use tokio::sync::broadcast;
 
-const CURRENT_SCHEMA_VERSION: u8 = 6;
+const CURRENT_SCHEMA_VERSION: u8 = 7;
 const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
@@ -69,6 +71,7 @@ pub enum WindowSurfacePreference {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartupPreferences {
+    pub launch_proxy_when_mish_launches: bool,
     pub launch_at_login: bool,
     pub login_launch_behavior: LoginLaunchBehavior,
 }
@@ -222,6 +225,7 @@ pub struct StartupRegistrationSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct SettingsSnapshot {
     pub adapter_kind: SettingsAdapterKind,
+    pub build: SettingsBuildInfo,
     pub capabilities: SettingsCapabilities,
     pub network_dns: NetworkDnsSnapshot,
     pub preferences: SettingsPreferences,
@@ -229,6 +233,23 @@ pub struct SettingsSnapshot {
     pub startup_registration: StartupRegistrationSnapshot,
     pub storage_recovered: bool,
     pub tun_helper: TunHelperSnapshot,
+}
+
+/// Versions shown by Settings come from the packaged application build and the pinned Core.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsBuildInfo {
+    pub app_version: String,
+    pub mihomo_version: String,
+}
+
+impl SettingsBuildInfo {
+    pub fn packaged(app_version: impl Into<String>) -> Self {
+        Self {
+            app_version: app_version.into(),
+            mihomo_version: PINNED_MIHOMO_VERSION.into(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -394,7 +415,9 @@ pub enum SettingsServiceError {
 
 pub struct SettingsService {
     authority: StateMutationAuthority,
+    build: SettingsBuildInfo,
     capabilities: SettingsCapabilities,
+    changes: broadcast::Sender<SettingsSnapshot>,
     network_dns: NetworkDnsCoordinator,
     operation: Mutex<()>,
     repository: Arc<dyn SettingsRepository>,
@@ -555,10 +578,32 @@ impl SettingsService {
         repository: Arc<dyn SettingsRepository>,
         startup_platform: Option<Arc<dyn StartupPlatform>>,
         window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
+        capabilities: SettingsCapabilities,
+        tun_helper: Option<Arc<TunHelperController>>,
+        network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
+        authority: StateMutationAuthority,
+    ) -> Result<Self, SettingsServiceError> {
+        Self::load_with_platforms_and_authority_and_build(
+            repository,
+            startup_platform,
+            window_surface_platform,
+            capabilities,
+            tun_helper,
+            network_dns_platform,
+            authority,
+            SettingsBuildInfo::packaged(env!("CARGO_PKG_VERSION")),
+        )
+    }
+
+    pub fn load_with_platforms_and_authority_and_build(
+        repository: Arc<dyn SettingsRepository>,
+        startup_platform: Option<Arc<dyn StartupPlatform>>,
+        window_surface_platform: Option<Arc<dyn WindowSurfacePlatform>>,
         mut capabilities: SettingsCapabilities,
         tun_helper: Option<Arc<TunHelperController>>,
         network_dns_platform: Option<Arc<dyn NetworkDnsPlatform>>,
         authority: StateMutationAuthority,
+        build: SettingsBuildInfo,
     ) -> Result<Self, SettingsServiceError> {
         if network_dns_platform.is_none() {
             capabilities.network_dns = SettingsAvailability::Unavailable;
@@ -596,7 +641,9 @@ impl SettingsService {
         }
         Ok(Self {
             authority,
+            build,
             capabilities,
+            changes: broadcast::channel(16).0,
             network_dns: NetworkDnsCoordinator::new(network_dns_platform),
             operation: Mutex::new(()),
             repository,
@@ -643,6 +690,7 @@ impl SettingsService {
         };
         SettingsSnapshot {
             adapter_kind,
+            build: self.build.clone(),
             capabilities,
             network_dns: self.network_dns.snapshot(),
             preferences: state.preferences,
@@ -656,6 +704,11 @@ impl SettingsService {
             storage_recovered: state.storage_recovered,
             tun_helper,
         }
+    }
+
+    /// Bounded authoritative snapshots for native surfaces and authenticated RPC subscribers.
+    pub fn subscribe(&self) -> broadcast::Receiver<SettingsSnapshot> {
+        self.changes.subscribe()
     }
 
     pub fn mutation_authority(&self) -> StateMutationAuthority {
@@ -805,6 +858,22 @@ impl SettingsService {
         }
     }
 
+    /// Changes only the next-launch proxy preference. It does not invoke Core,
+    /// activate a Profile, register login startup, or touch System Proxy or TUN.
+    pub fn set_launch_proxy_when_mish_launches(
+        &self,
+        launch_proxy_when_mish_launches: bool,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        self.update(|preferences| {
+            preferences.startup.launch_proxy_when_mish_launches = launch_proxy_when_mish_launches;
+        })
+    }
+
     pub fn set_window_close_behavior(
         &self,
         behavior: WindowCloseBehavior,
@@ -896,6 +965,8 @@ impl SettingsService {
         let mut state = self.state.lock().expect("settings state lock poisoned");
         state.preferences = preferences;
         state.storage_recovered = false;
+        drop(state);
+        let _ = self.changes.send(self.snapshot(SettingsAdapterKind::Rpc));
         Ok(())
     }
 
@@ -918,7 +989,9 @@ impl SettingsService {
         state.preferences = next;
         state.storage_recovered = false;
         drop(state);
-        Ok(self.snapshot(SettingsAdapterKind::Rpc))
+        let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
+        let _ = self.changes.send(snapshot.clone());
+        Ok(snapshot)
     }
 
     fn tun_helper(&self) -> Result<&TunHelperController, SettingsServiceError> {
@@ -962,15 +1035,50 @@ impl FileSettingsRepository {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct StoredSettingsV6 {
+struct StoredSettingsV7 {
     preferences: SettingsPreferences,
     schema_version: u8,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredSettingsV6 {
+    preferences: SettingsPreferencesV6,
+    schema_version: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettingsPreferencesV6 {
+    appearance: AppearancePreference,
+    language: LanguagePreference,
+    onboarding: OnboardingPreferences,
+    startup: StartupPreferencesV6,
+    window_close_behavior: WindowCloseBehavior,
+    window_surface: WindowSurfacePreference,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StartupPreferencesV6 {
+    launch_at_login: bool,
+    login_launch_behavior: LoginLaunchBehavior,
+}
+
+impl From<StartupPreferencesV6> for StartupPreferences {
+    fn from(startup: StartupPreferencesV6) -> Self {
+        Self {
+            launch_proxy_when_mish_launches: false,
+            launch_at_login: startup.launch_at_login,
+            login_launch_behavior: startup.login_launch_behavior,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct StoredSettingsV5 {
-    preferences: SettingsPreferences,
+    preferences: SettingsPreferencesV6,
     schema_version: u8,
 }
 
@@ -987,7 +1095,7 @@ struct SettingsPreferencesV4 {
     appearance: AppearancePreference,
     language: LanguagePreference,
     onboarding: OnboardingPreferencesV4,
-    startup: StartupPreferences,
+    startup: StartupPreferencesV6,
     window_close_behavior: WindowCloseBehavior,
     window_surface: WindowSurfacePreference,
 }
@@ -1010,7 +1118,7 @@ struct StoredSettingsV3 {
 struct SettingsPreferencesV3 {
     appearance: AppearancePreference,
     language: LanguagePreference,
-    startup: StartupPreferences,
+    startup: StartupPreferencesV6,
     window_close_behavior: WindowCloseBehavior,
     window_surface: WindowSurfacePreference,
 }
@@ -1027,7 +1135,7 @@ struct StoredSettingsV2 {
 struct SettingsPreferencesV2 {
     appearance: AppearancePreference,
     language: LanguagePreference,
-    startup: StartupPreferences,
+    startup: StartupPreferencesV6,
     window_close_behavior: WindowCloseBehavior,
 }
 
@@ -1043,7 +1151,7 @@ struct StoredSettingsV1 {
 struct SettingsPreferencesV1 {
     appearance: AppearancePreference,
     language: LanguagePreference,
-    startup: StartupPreferences,
+    startup: StartupPreferencesV6,
 }
 
 #[derive(Deserialize)]
@@ -1077,7 +1185,7 @@ impl SettingsRepository for FileSettingsRepository {
             .and_then(serde_json::Value::as_u64)
         {
             Some(version) if version == u64::from(CURRENT_SCHEMA_VERSION) => {
-                let stored: StoredSettingsV6 =
+                let stored: StoredSettingsV7 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
                 if !valid_onboarding_preferences(stored.preferences.onboarding) {
                     return Err(SettingsRepositoryError::Corrupt);
@@ -1085,6 +1193,30 @@ impl SettingsRepository for FileSettingsRepository {
                 Ok(LoadedSettings {
                     needs_persistence: false,
                     preferences: stored.preferences,
+                })
+            }
+            Some(6) => {
+                let stored: StoredSettingsV6 =
+                    serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if stored.schema_version != 6
+                    || !valid_onboarding_preferences(stored.preferences.onboarding)
+                {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
+                Ok(LoadedSettings {
+                    needs_persistence: true,
+                    preferences: SettingsPreferences {
+                        appearance: stored.preferences.appearance,
+                        language: stored.preferences.language,
+                        onboarding: stored.preferences.onboarding,
+                        startup: StartupPreferences {
+                            launch_proxy_when_mish_launches: false,
+                            launch_at_login: stored.preferences.startup.launch_at_login,
+                            login_launch_behavior: stored.preferences.startup.login_launch_behavior,
+                        },
+                        window_close_behavior: stored.preferences.window_close_behavior,
+                        window_surface: stored.preferences.window_surface,
+                    },
                 })
             }
             Some(5) => {
@@ -1096,12 +1228,16 @@ impl SettingsRepository for FileSettingsRepository {
                 Ok(LoadedSettings {
                     needs_persistence: true,
                     preferences: SettingsPreferences {
+                        appearance: stored.preferences.appearance,
+                        language: stored.preferences.language,
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
                                 observation_time(),
                             )),
                         },
-                        ..stored.preferences
+                        startup: stored.preferences.startup.into(),
+                        window_close_behavior: stored.preferences.window_close_behavior,
+                        window_surface: stored.preferences.window_surface,
                     },
                 })
             }
@@ -1122,7 +1258,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
-                        startup: stored.preferences.startup,
+                        startup: stored.preferences.startup.into(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: stored.preferences.window_surface,
                     },
@@ -1144,7 +1280,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
-                        startup: stored.preferences.startup,
+                        startup: stored.preferences.startup.into(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: stored.preferences.window_surface,
                     },
@@ -1166,7 +1302,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
-                        startup: stored.preferences.startup,
+                        startup: stored.preferences.startup.into(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: WindowSurfacePreference::Material,
                     },
@@ -1188,7 +1324,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
-                        startup: stored.preferences.startup,
+                        startup: stored.preferences.startup.into(),
                         window_close_behavior: WindowCloseBehavior::default(),
                         window_surface: WindowSurfacePreference::Material,
                     },
@@ -1221,7 +1357,7 @@ impl SettingsRepository for FileSettingsRepository {
     }
 
     fn save(&self, preferences: &SettingsPreferences) -> Result<(), SettingsRepositoryError> {
-        let bytes = serde_json::to_vec(&StoredSettingsV6 {
+        let bytes = serde_json::to_vec(&StoredSettingsV7 {
             preferences: *preferences,
             schema_version: CURRENT_SCHEMA_VERSION,
         })
@@ -1439,6 +1575,120 @@ mod tests {
         assert_eq!(invitation.first_opened_at, None);
         assert_eq!(invitation.last_dismissed_at, None);
         assert_eq!(invitation.prompted_at, None);
+        assert!(!loaded.preferences.startup.launch_proxy_when_mish_launches);
+    }
+
+    #[test]
+    fn settings_snapshot_uses_packaged_app_and_pinned_core_versions() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load_with_platforms_and_authority_and_build(
+            repository,
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+            None,
+            None,
+            StateMutationAuthority::new(),
+            SettingsBuildInfo::packaged("9.9.9"),
+        )
+        .expect("settings service");
+
+        assert_eq!(
+            service.snapshot(SettingsAdapterKind::Rpc).build,
+            SettingsBuildInfo {
+                app_version: "9.9.9".into(),
+                mihomo_version: PINNED_MIHOMO_VERSION.into(),
+            }
+        );
+    }
+
+    #[test]
+    fn version_six_migrates_the_proxy_launch_preference_to_safe_off() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":6,"preferences":{"appearance":"system","language":"en","onboarding":{"welcomeInvitation":null},"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background"},"windowCloseBehavior":"hide-to-status-bar","windowSurface":"material"}}"#,
+        )
+        .expect("version six settings");
+
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("migrated settings service");
+
+        let startup = service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .startup;
+        assert!(startup.launch_at_login);
+        assert_eq!(
+            startup.login_launch_behavior,
+            LoginLaunchBehavior::Background
+        );
+        assert!(!startup.launch_proxy_when_mish_launches);
+        assert!(
+            !repository
+                .load()
+                .expect("rewritten settings")
+                .needs_persistence
+        );
+    }
+
+    #[test]
+    fn proxy_launch_preference_persists_without_touching_login_registration() {
+        let (_root, repository) = repository();
+        let platform = Arc::new(FakeStartupPlatform {
+            enabled: AtomicBool::new(false),
+            fail: false,
+            fail_disable: false,
+        });
+        let service = SettingsService::load(
+            repository.clone(),
+            Some(platform.clone()),
+            Some(window_surface_platform()),
+            SettingsCapabilities::macos(true),
+        )
+        .expect("settings service");
+
+        let snapshot = service
+            .set_launch_proxy_when_mish_launches(true)
+            .expect("persisted proxy launch preference");
+        assert!(snapshot.preferences.startup.launch_proxy_when_mish_launches);
+        assert!(!platform.enabled.load(Ordering::SeqCst));
+        assert_eq!(snapshot.startup_registration.observed, Some(false));
+
+        let restarted = SettingsService::load(
+            repository,
+            Some(platform),
+            Some(window_surface_platform()),
+            SettingsCapabilities::macos(true),
+        )
+        .expect("restarted settings service");
+        assert!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .startup
+                .launch_proxy_when_mish_launches
+        );
+    }
+
+    #[test]
+    fn proxy_launch_preference_notifies_authoritative_subscribers() {
+        let (_root, repository) = repository();
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("settings service");
+        let mut changes = service.subscribe();
+
+        service
+            .set_launch_proxy_when_mish_launches(true)
+            .expect("proxy launch preference update");
+        let snapshot = changes.try_recv().expect("settings change notification");
+        assert!(snapshot.preferences.startup.launch_proxy_when_mish_launches);
     }
 
     #[test]
@@ -1635,6 +1885,7 @@ mod tests {
             language: LanguagePreference::Zh,
             onboarding: OnboardingPreferences::default(),
             startup: StartupPreferences {
+                launch_proxy_when_mish_launches: false,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
@@ -1917,6 +2168,7 @@ mod tests {
             language: LanguagePreference::Zh,
             onboarding: OnboardingPreferences::default(),
             startup: StartupPreferences {
+                launch_proxy_when_mish_launches: false,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
@@ -2035,6 +2287,7 @@ mod tests {
         .expect("settings service");
         let snapshot = service
             .set_startup(StartupPreferences {
+                launch_proxy_when_mish_launches: false,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             })
@@ -2078,6 +2331,7 @@ mod tests {
             assert!(
                 service
                     .set_startup(StartupPreferences {
+                        launch_proxy_when_mish_launches: false,
                         launch_at_login: true,
                         login_launch_behavior: LoginLaunchBehavior::Background,
                     })
@@ -2110,6 +2364,7 @@ mod tests {
 
         assert!(matches!(
             service.set_startup(StartupPreferences {
+                launch_proxy_when_mish_launches: false,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             }),
@@ -2142,6 +2397,7 @@ mod tests {
 
         assert!(matches!(
             service.set_startup(StartupPreferences {
+                launch_proxy_when_mish_launches: false,
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             }),

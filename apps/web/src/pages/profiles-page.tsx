@@ -161,7 +161,7 @@ export function ProfilesPage() {
   }
 
   return (
-    <div className="profiles-page page-scroll">
+    <div className="profiles-page">
       <header className="profiles-header">
         <div>
           <h1>{LL.profiles.title()}</h1>

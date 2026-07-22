@@ -104,14 +104,6 @@ type RootTranslation = {
 		 */
 		appearanceDescription: string
 		/**
-		 * A​u​t​h​e​n​t​i​c​a​t​e​d​ ​l​o​c​a​l​ ​R​P​C
-		 */
-		authentication: string
-		/**
-		 * T​h​e​ ​d​e​s​k​t​o​p​ ​W​e​b​V​i​e​w​ ​a​u​t​h​e​n​t​i​c​a​t​e​s​ ​b​e​f​o​r​e​ ​o​r​d​i​n​a​r​y​ ​R​P​C​ ​m​e​t​h​o​d​s​ ​a​r​e​ ​a​c​c​e​p​t​e​d​.​ ​T​o​k​e​n​s​ ​a​r​e​ ​n​e​v​e​r​ ​d​i​s​p​l​a​y​e​d​ ​h​e​r​e​.
-		 */
-		authenticationDescription: string
-		/**
 		 * A​v​a​i​l​a​b​l​e
 		 */
 		available: string
@@ -323,21 +315,21 @@ type RootTranslation = {
 		 */
 		captureStartupDescription: string
 		/**
-		 * C​o​m​i​n​g​ ​l​a​t​e​r
+		 * C​o​m​i​n​g​ ​s​o​o​n
 		 */
-		comingLater: string
+		comingSoon: string
 		/**
 		 * C​l​o​s​e​ ​w​i​n​d​o​w​ ​b​e​h​a​v​i​o​r
 		 */
 		closeWindow: string
 		/**
-		 * B​y​ ​d​e​f​a​u​l​t​,​ ​c​l​o​s​i​n​g​ ​t​h​e​ ​m​a​i​n​ ​w​i​n​d​o​w​ ​h​i​d​e​s​ ​i​t​ ​t​o​ ​t​h​e​ ​s​t​a​t​u​s​ ​b​a​r​ ​w​h​i​l​e​ ​M​i​s​h​ ​k​e​e​p​s​ ​s​u​p​e​r​v​i​s​i​n​g​ ​t​h​e​ ​c​o​r​e​ ​a​n​d​ ​c​a​p​t​u​r​e​ ​s​t​a​t​e​.​ ​C​h​o​o​s​e​ ​Q​u​i​t​ ​t​o​ ​r​e​s​t​o​r​e​ ​M​i​s​h​-​o​w​n​e​d​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​s​t​a​t​e​ ​a​n​d​ ​e​x​i​t​ ​i​n​s​t​e​a​d​.​ ​T​h​i​s​ ​i​s​ ​i​n​d​e​p​e​n​d​e​n​t​ ​f​r​o​m​ ​l​o​g​i​n​ ​l​a​u​n​c​h​ ​b​e​h​a​v​i​o​r​.
+		 * C​h​o​o​s​e​ ​w​h​a​t​ ​h​a​p​p​e​n​s​ ​w​h​e​n​ ​t​h​e​ ​m​a​i​n​ ​w​i​n​d​o​w​ ​c​l​o​s​e​s​.
 		 */
 		closeWindowDescription: string
 		/**
-		 * C​o​n​f​i​r​m​e​d
+		 * C​h​e​c​k​ ​f​o​r​ ​u​p​d​a​t​e​s
 		 */
-		confirmed: string
+		checkForUpdates: string
 		/**
 		 * S​e​t​t​i​n​g​s​ ​a​r​e​ ​s​o​u​r​c​e​d​ ​f​r​o​m​ ​M​i​s​h​'​s​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​d​e​s​k​t​o​p​ ​b​r​i​d​g​e​ ​a​n​d​ ​p​r​i​v​a​t​e​ ​a​p​p​ ​d​a​t​a​.
 		 */
@@ -347,25 +339,9 @@ type RootTranslation = {
 		 */
 		dns: string
 		/**
-		 * R​e​s​o​l​v​e​r​ ​c​o​u​n​t​s​ ​a​n​d​ ​t​h​e​ ​l​o​c​a​l​l​y​ ​o​b​s​e​r​v​e​d​ ​s​e​r​v​e​r​ ​l​i​s​t​.​ ​M​i​s​h​ ​d​o​e​s​ ​n​o​t​ ​c​h​a​n​g​e​ ​D​N​S​ ​s​e​t​t​i​n​g​s​.
-		 */
-		dnsDescription: string
-		/**
-		 * E​x​p​e​r​t​ ​c​o​n​f​i​g​u​r​a​t​i​o​n
-		 */
-		expert: string
-		/**
-		 * R​a​w​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​,​ ​d​i​r​e​c​t​o​r​i​e​s​,​ ​d​e​v​e​l​o​p​e​r​ ​t​o​o​l​s​,​ ​a​n​d​ ​r​e​s​e​t​ ​a​c​t​i​o​n​s​ ​r​e​q​u​i​r​e​ ​d​e​d​i​c​a​t​e​d​ ​v​a​l​i​d​a​t​i​o​n​ ​a​n​d​ ​s​c​o​p​e​.
-		 */
-		expertDescription: string
-		/**
 		 * D​e​m​o​ ​m​o​d​e​ ​c​a​n​ ​p​r​e​v​i​e​w​ ​a​p​p​e​a​r​a​n​c​e​ ​a​n​d​ ​l​a​n​g​u​a​g​e​ ​o​n​l​y​.​ ​I​t​ ​c​a​n​n​o​t​ ​p​e​r​f​o​r​m​ ​o​r​ ​c​o​n​f​i​r​m​ ​n​a​t​i​v​e​ ​m​a​c​O​S​ ​o​p​e​r​a​t​i​o​n​s​.
 		 */
 		fixtureDescription: string
-		/**
-		 * F​o​l​l​o​w​s​ ​s​y​s​t​e​m
-		 */
-		followsSystem: string
 		/**
 		 * H​i​d​e​ ​t​o​ ​s​t​a​t​u​s​ ​b​a​r
 		 */
@@ -374,14 +350,6 @@ type RootTranslation = {
 		 * I​n​s​t​a​l​l​ ​h​e​l​p​e​r
 		 */
 		installTunHelper: string
-		/**
-		 * L​A​N​ ​c​o​n​t​r​o​l
-		 */
-		lan: string
-		/**
-		 * N​o​ ​L​A​N​ ​l​i​s​t​e​n​e​r​ ​o​r​ ​e​n​a​b​l​e​ ​s​w​i​t​c​h​ ​i​s​ ​p​r​o​v​i​d​e​d​.​ ​E​x​t​e​r​n​a​l​ ​c​o​n​t​r​o​l​ ​r​e​q​u​i​r​e​s​ ​a​ ​s​e​p​a​r​a​t​e​ ​s​e​c​u​r​i​t​y​ ​d​e​s​i​g​n​.
-		 */
-		lanDescription: string
 		/**
 		 * C​h​a​n​g​e​s​ ​M​i​s​h​ ​i​n​t​e​r​f​a​c​e​ ​c​o​p​y​ ​o​n​l​y​.​ ​P​r​o​f​i​l​e​,​ ​g​r​o​u​p​,​ ​n​o​d​e​,​ ​a​n​d​ ​s​e​r​v​i​c​e​ ​l​a​b​e​l​s​ ​r​e​m​a​i​n​ ​u​n​c​h​a​n​g​e​d​.
 		 */
@@ -395,6 +363,14 @@ type RootTranslation = {
 		 */
 		launchAtLoginDescription: string
 		/**
+		 * L​a​u​n​c​h​ ​p​r​o​x​y​ ​w​h​e​n​ ​M​i​s​h​ ​l​a​u​n​c​h​e​s
+		 */
+		launchProxyWhenMishLaunches: string
+		/**
+		 * S​a​v​e​ ​t​h​i​s​ ​p​r​e​f​e​r​e​n​c​e​ ​f​o​r​ ​t​h​e​ ​n​e​x​t​ ​M​i​s​h​ ​l​a​u​n​c​h​.​ ​C​h​a​n​g​i​n​g​ ​i​t​ ​d​o​e​s​ ​n​o​t​ ​s​t​a​r​t​ ​o​r​ ​s​t​o​p​ ​t​h​e​ ​p​r​o​x​y​ ​n​o​w​.
+		 */
+		launchProxyWhenMishLaunchesDescription: string
+		/**
 		 * L​o​g​i​n​ ​l​a​u​n​c​h​ ​w​i​n​d​o​w
 		 */
 		loginWindow: string
@@ -402,17 +378,9 @@ type RootTranslation = {
 		 * C​h​o​o​s​e​ ​o​n​e​ ​b​e​h​a​v​i​o​r​ ​f​o​r​ ​l​o​g​i​n​ ​l​a​u​n​c​h​e​s​.​ ​M​a​n​u​a​l​ ​l​a​u​n​c​h​e​s​ ​a​l​w​a​y​s​ ​s​h​o​w​ ​t​h​e​ ​w​i​n​d​o​w​.
 		 */
 		loginWindowDescription: string
-		/**
-		 * L​o​o​p​b​a​c​k​-​o​n​l​y​ ​s​e​r​v​i​c​e
-		 */
-		loopback: string
-		/**
-		 * T​h​e​ ​l​o​c​a​l​ ​b​r​i​d​g​e​ ​b​i​n​d​s​ ​o​n​l​y​ ​t​o​ ​I​P​v​4​ ​l​o​o​p​b​a​c​k​ ​a​n​d​ ​e​x​p​o​s​e​s​ ​n​o​ ​L​A​N​ ​l​i​s​t​e​n​e​r​.
-		 */
-		loopbackDescription: string
 		localProxy: {
 			/**
-			 * U​s​e​ ​t​h​i​s​ ​H​T​T​P​ ​o​r​ ​S​O​C​K​S​5​ ​e​n​d​p​o​i​n​t​ ​i​n​ ​a​ ​b​r​o​w​s​e​r​ ​e​x​t​e​n​s​i​o​n​ ​o​r​ ​a​n​ ​a​p​p​-​s​p​e​c​i​f​i​c​ ​p​r​o​x​y​.​ ​O​n​l​y​ ​t​h​a​t​ ​a​p​p​'​s​ ​t​r​a​f​f​i​c​ ​u​s​e​s​ ​M​i​s​h​;​ ​t​h​i​s​ ​d​o​e​s​ ​n​o​t​ ​e​n​a​b​l​e​ ​o​r​ ​c​h​a​n​g​e​ ​m​a​c​O​S​ ​S​y​s​t​e​m​ ​P​r​o​x​y​.
+			 * U​s​e​ ​t​h​i​s​ ​e​n​d​p​o​i​n​t​ ​i​n​ ​a​ ​b​r​o​w​s​e​r​ ​e​x​t​e​n​s​i​o​n​ ​o​r​ ​a​n​ ​a​p​p​-​s​p​e​c​i​f​i​c​ ​p​r​o​x​y​.​ ​O​n​l​y​ ​t​h​a​t​ ​a​p​p​'​s​ ​t​r​a​f​f​i​c​ ​u​s​e​s​ ​M​i​s​h​;​ ​t​h​i​s​ ​d​o​e​s​ ​n​o​t​ ​e​n​a​b​l​e​ ​o​r​ ​c​h​a​n​g​e​ ​m​a​c​O​S​ ​S​y​s​t​e​m​ ​P​r​o​x​y​.
 			 */
 			description: string
 			feedback: {
@@ -446,14 +414,6 @@ type RootTranslation = {
 			 */
 			title: string
 		}
-		/**
-		 * R​e​d​u​c​e​d​ ​m​o​t​i​o​n
-		 */
-		motion: string
-		/**
-		 * N​o​n​-​e​s​s​e​n​t​i​a​l​ ​m​o​t​i​o​n​ ​f​o​l​l​o​w​s​ ​t​h​e​ ​o​p​e​r​a​t​i​n​g​-​s​y​s​t​e​m​ ​r​e​d​u​c​e​d​-​m​o​t​i​o​n​ ​p​r​e​f​e​r​e​n​c​e​.
-		 */
-		motionDescription: string
 		/**
 		 * N​e​t​w​o​r​k​ ​a​n​d​ ​D​N​S
 		 */
@@ -553,14 +513,6 @@ type RootTranslation = {
 			 */
 			observationUnknown: string
 			/**
-			 * A​c​t​i​v​e​ ​n​e​t​w​o​r​k​s
-			 */
-			primary: string
-			/**
-			 * A​c​t​i​v​e​ ​i​n​t​e​r​f​a​c​e​s​ ​a​n​d​ ​m​a​t​c​h​i​n​g​ ​m​a​c​O​S​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​s​ ​w​h​e​n​ ​S​y​s​t​e​m​ ​C​o​n​f​i​g​u​r​a​t​i​o​n​ ​c​a​n​ ​c​o​n​f​i​r​m​ ​t​h​e​m​.
-			 */
-			primaryDescription: string
-			/**
 			 * R​e​f​r​e​s​h​ ​o​b​s​e​r​v​a​t​i​o​n
 			 */
 			refresh: string
@@ -575,11 +527,11 @@ type RootTranslation = {
 			 */
 			searchDomains: string
 			/**
-			 * F​u​l​l​ ​v​a​l​u​e​s​ ​s​t​a​y​ ​i​n​ ​t​h​i​s​ ​l​o​c​a​l​ ​v​i​e​w​ ​a​n​d​ ​a​r​e​ ​e​x​c​l​u​d​e​d​ ​f​r​o​m​ ​e​v​e​n​t​s​,​ ​l​o​g​s​,​ ​a​n​d​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e​s​.
+			 * D​o​m​a​i​n​s​ ​m​a​c​O​S​ ​a​p​p​e​n​d​s​ ​w​h​e​n​ ​r​e​s​o​l​v​i​n​g​ ​u​n​q​u​a​l​i​f​i​e​d​ ​h​o​s​t​n​a​m​e​s​.
 			 */
 			searchDomainsDescription: string
 			/**
-			 * F​u​l​l​ ​v​a​l​u​e​s​ ​s​t​a​y​ ​i​n​ ​t​h​i​s​ ​l​o​c​a​l​ ​v​i​e​w​ ​a​n​d​ ​a​r​e​ ​e​x​c​l​u​d​e​d​ ​f​r​o​m​ ​e​v​e​n​t​s​,​ ​l​o​g​s​,​ ​a​n​d​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e​s​.
+			 * D​N​S​ ​s​e​r​v​e​r​s​ ​c​u​r​r​e​n​t​l​y​ ​c​o​n​f​i​g​u​r​e​d​ ​f​o​r​ ​t​h​e​ ​a​c​t​i​v​e​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​.
 			 */
 			serversDescription: string
 			/**
@@ -614,7 +566,7 @@ type RootTranslation = {
 		 */
 		networkPolicy: string
 		/**
-		 * R​e​a​d​-​o​n​l​y​ ​s​e​r​v​i​c​e​,​ ​d​e​v​i​c​e​,​ ​i​n​t​e​r​f​a​c​e​ ​t​y​p​e​,​ ​I​P​v​4​,​ ​a​n​d​ ​I​P​v​6​ ​s​t​a​t​e​.
+		 * S​h​o​w​s​ ​t​h​e​ ​a​c​t​i​v​e​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​,​ ​i​n​t​e​r​f​a​c​e​,​ ​a​n​d​ ​d​e​v​i​c​e​ ​t​y​p​e​.
 		 */
 		networkPolicyDescription: string
 		/**
@@ -625,22 +577,6 @@ type RootTranslation = {
 		 * O​n
 		 */
 		on: string
-		/**
-		 * O​r​i​g​i​n​ ​v​a​l​i​d​a​t​i​o​n
-		 */
-		origin: string
-		/**
-		 * O​n​l​y​ ​t​h​e​ ​e​x​a​c​t​ ​d​e​v​e​l​o​p​m​e​n​t​ ​o​r​ ​p​a​c​k​a​g​e​d​ ​W​e​b​V​i​e​w​ ​o​r​i​g​i​n​ ​i​s​ ​a​c​c​e​p​t​e​d​ ​b​y​ ​t​h​e​ ​l​o​c​a​l​ ​b​r​i​d​g​e​.
-		 */
-		originDescription: string
-		/**
-		 * P​r​i​v​a​c​y​ ​a​n​d​ ​a​c​c​e​s​s
-		 */
-		privacyAccess: string
-		/**
-		 * C​o​n​f​i​r​m​e​d​ ​t​r​u​s​t​ ​b​o​u​n​d​a​r​i​e​s​ ​a​r​e​ ​s​h​o​w​n​ ​w​i​t​h​o​u​t​ ​r​e​v​e​a​l​i​n​g​ ​c​r​e​d​e​n​t​i​a​l​s​ ​o​r​ ​o​f​f​e​r​i​n​g​ ​L​A​N​ ​a​c​c​e​s​s​.
-		 */
-		privacyDescription: string
 		/**
 		 * O​b​s​e​r​v​e​d​ ​l​o​g​i​n​ ​r​e​g​i​s​t​r​a​t​i​o​n
 		 */
@@ -765,7 +701,7 @@ type RootTranslation = {
 		 */
 		version: string
 		/**
-		 * T​h​i​s​ ​b​u​i​l​d​ ​d​o​e​s​ ​n​o​t​ ​e​x​p​o​s​e​ ​p​a​t​h​s​,​ ​c​r​e​d​e​n​t​i​a​l​s​,​ ​o​r​ ​s​e​n​s​i​t​i​v​e​ ​r​u​n​t​i​m​e​ ​d​a​t​a​.
+		 * V​e​r​s​i​o​n​s​ ​i​n​c​l​u​d​e​d​ ​i​n​ ​t​h​i​s​ ​b​u​i​l​d​.
 		 */
 		versionDescription: string
 		/**
@@ -1176,7 +1112,7 @@ type RootTranslation = {
 		 */
 		currentSessionAria: string
 		/**
-		 * L​i​v​e​ ​s​t​a​t​u​s​ ​f​r​o​m​ ​t​h​e​ ​d​e​s​k​t​o​p​ ​l​o​c​a​l​ ​s​e​r​v​i​c​e​.
+		 * L​i​v​e​ ​d​e​s​k​t​o​p​ ​t​r​a​f​f​i​c
 		 */
 		desktopActivity: string
 		/**
@@ -1184,7 +1120,7 @@ type RootTranslation = {
 		 */
 		desktopUnavailable: string
 		/**
-		 * L​i​v​e​ ​s​t​a​t​u​s​ ​f​r​o​m​ ​t​h​i​s​ ​d​e​v​i​c​e​.
+		 * L​i​v​e​ ​d​e​v​i​c​e​ ​t​r​a​f​f​i​c
 		 */
 		deviceActivity: string
 		/**
@@ -1192,7 +1128,7 @@ type RootTranslation = {
 		 */
 		downloaded: string
 		/**
-		 * F​i​x​t​u​r​e​ ​a​c​t​i​v​i​t​y​ ​a​t​ ​a​ ​g​l​a​n​c​e​.
+		 * L​i​v​e​ ​d​e​m​o​ ​t​r​a​f​f​i​c
 		 */
 		fixtureActivity: string
 		/**
@@ -1240,9 +1176,13 @@ type RootTranslation = {
 		 */
 		noSelection: string
 		/**
-		 * O​p​e​n​ ​l​i​v​e​ ​t​r​a​f​f​i​c
+		 * L​i​v​e​ ​t​r​a​f​f​i​c
 		 */
 		openLiveTraffic: string
+		/**
+		 * O​p​e​n​ ​l​i​v​e​ ​t​r​a​f​f​i​c​ ​d​e​t​a​i​l​s
+		 */
+		openLiveTrafficAria: string
 		/**
 		 * R​o​u​t​i​n​g​ ​m​o​d​e
 		 */
@@ -1283,6 +1223,10 @@ type RootTranslation = {
 		 * V​i​e​w​ ​a​l​l
 		 */
 		viewAll: string
+		/**
+		 * V​i​e​w​ ​a​l​l​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s
+		 */
+		viewAllGroupsAria: string
 		/**
 		 * {​c​o​u​n​t​}​ ​a​v​a​i​l​a​b​l​e​ ​c​h​i​l​d​r​e​n
 		 * @param {number} count
@@ -4374,14 +4318,6 @@ export type TranslationFunctions = {
 		 */
 		appearanceDescription: () => LocalizedString
 		/**
-		 * Authenticated local RPC
-		 */
-		authentication: () => LocalizedString
-		/**
-		 * The desktop WebView authenticates before ordinary RPC methods are accepted. Tokens are never displayed here.
-		 */
-		authenticationDescription: () => LocalizedString
-		/**
 		 * Available
 		 */
 		available: () => LocalizedString
@@ -4589,21 +4525,21 @@ export type TranslationFunctions = {
 		 */
 		captureStartupDescription: () => LocalizedString
 		/**
-		 * Coming later
+		 * Coming soon
 		 */
-		comingLater: () => LocalizedString
+		comingSoon: () => LocalizedString
 		/**
 		 * Close window behavior
 		 */
 		closeWindow: () => LocalizedString
 		/**
-		 * By default, closing the main window hides it to the status bar while Mish keeps supervising the core and capture state. Choose Quit to restore Mish-owned System Proxy state and exit instead. This is independent from login launch behavior.
+		 * Choose what happens when the main window closes.
 		 */
 		closeWindowDescription: () => LocalizedString
 		/**
-		 * Confirmed
+		 * Check for updates
 		 */
-		confirmed: () => LocalizedString
+		checkForUpdates: () => LocalizedString
 		/**
 		 * Settings are sourced from Mish's authenticated desktop bridge and private app data.
 		 */
@@ -4613,25 +4549,9 @@ export type TranslationFunctions = {
 		 */
 		dns: () => LocalizedString
 		/**
-		 * Resolver counts and the locally observed server list. Mish does not change DNS settings.
-		 */
-		dnsDescription: () => LocalizedString
-		/**
-		 * Expert configuration
-		 */
-		expert: () => LocalizedString
-		/**
-		 * Raw configuration, directories, developer tools, and reset actions require dedicated validation and scope.
-		 */
-		expertDescription: () => LocalizedString
-		/**
 		 * Demo mode can preview appearance and language only. It cannot perform or confirm native macOS operations.
 		 */
 		fixtureDescription: () => LocalizedString
-		/**
-		 * Follows system
-		 */
-		followsSystem: () => LocalizedString
 		/**
 		 * Hide to status bar
 		 */
@@ -4640,14 +4560,6 @@ export type TranslationFunctions = {
 		 * Install helper
 		 */
 		installTunHelper: () => LocalizedString
-		/**
-		 * LAN control
-		 */
-		lan: () => LocalizedString
-		/**
-		 * No LAN listener or enable switch is provided. External control requires a separate security design.
-		 */
-		lanDescription: () => LocalizedString
 		/**
 		 * Changes Mish interface copy only. Profile, group, node, and service labels remain unchanged.
 		 */
@@ -4661,6 +4573,14 @@ export type TranslationFunctions = {
 		 */
 		launchAtLoginDescription: () => LocalizedString
 		/**
+		 * Launch proxy when Mish launches
+		 */
+		launchProxyWhenMishLaunches: () => LocalizedString
+		/**
+		 * Save this preference for the next Mish launch. Changing it does not start or stop the proxy now.
+		 */
+		launchProxyWhenMishLaunchesDescription: () => LocalizedString
+		/**
 		 * Login launch window
 		 */
 		loginWindow: () => LocalizedString
@@ -4668,17 +4588,9 @@ export type TranslationFunctions = {
 		 * Choose one behavior for login launches. Manual launches always show the window.
 		 */
 		loginWindowDescription: () => LocalizedString
-		/**
-		 * Loopback-only service
-		 */
-		loopback: () => LocalizedString
-		/**
-		 * The local bridge binds only to IPv4 loopback and exposes no LAN listener.
-		 */
-		loopbackDescription: () => LocalizedString
 		localProxy: {
 			/**
-			 * Use this HTTP or SOCKS5 endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.
+			 * Use this endpoint in a browser extension or an app-specific proxy. Only that app's traffic uses Mish; this does not enable or change macOS System Proxy.
 			 */
 			description: () => LocalizedString
 			feedback: {
@@ -4712,14 +4624,6 @@ export type TranslationFunctions = {
 			 */
 			title: () => LocalizedString
 		}
-		/**
-		 * Reduced motion
-		 */
-		motion: () => LocalizedString
-		/**
-		 * Non-essential motion follows the operating-system reduced-motion preference.
-		 */
-		motionDescription: () => LocalizedString
 		/**
 		 * Network and DNS
 		 */
@@ -4818,14 +4722,6 @@ export type TranslationFunctions = {
 			 */
 			observationUnknown: () => LocalizedString
 			/**
-			 * Active networks
-			 */
-			primary: () => LocalizedString
-			/**
-			 * Active interfaces and matching macOS network services when System Configuration can confirm them.
-			 */
-			primaryDescription: () => LocalizedString
-			/**
 			 * Refresh observation
 			 */
 			refresh: () => LocalizedString
@@ -4838,11 +4734,11 @@ export type TranslationFunctions = {
 			 */
 			searchDomains: () => LocalizedString
 			/**
-			 * Full values stay in this local view and are excluded from events, logs, and support bundles.
+			 * Domains macOS appends when resolving unqualified hostnames.
 			 */
 			searchDomainsDescription: () => LocalizedString
 			/**
-			 * Full values stay in this local view and are excluded from events, logs, and support bundles.
+			 * DNS servers currently configured for the active network service.
 			 */
 			serversDescription: () => LocalizedString
 			/**
@@ -4877,7 +4773,7 @@ export type TranslationFunctions = {
 		 */
 		networkPolicy: () => LocalizedString
 		/**
-		 * Read-only service, device, interface type, IPv4, and IPv6 state.
+		 * Shows the active network service, interface, and device type.
 		 */
 		networkPolicyDescription: () => LocalizedString
 		/**
@@ -4888,22 +4784,6 @@ export type TranslationFunctions = {
 		 * On
 		 */
 		on: () => LocalizedString
-		/**
-		 * Origin validation
-		 */
-		origin: () => LocalizedString
-		/**
-		 * Only the exact development or packaged WebView origin is accepted by the local bridge.
-		 */
-		originDescription: () => LocalizedString
-		/**
-		 * Privacy and access
-		 */
-		privacyAccess: () => LocalizedString
-		/**
-		 * Confirmed trust boundaries are shown without revealing credentials or offering LAN access.
-		 */
-		privacyDescription: () => LocalizedString
 		/**
 		 * Observed login registration
 		 */
@@ -5027,7 +4907,7 @@ export type TranslationFunctions = {
 		 */
 		version: () => LocalizedString
 		/**
-		 * This build does not expose paths, credentials, or sensitive runtime data.
+		 * Versions included in this build.
 		 */
 		versionDescription: () => LocalizedString
 		/**
@@ -5431,7 +5311,7 @@ export type TranslationFunctions = {
 		 */
 		currentSessionAria: () => LocalizedString
 		/**
-		 * Live status from the desktop local service.
+		 * Live desktop traffic
 		 */
 		desktopActivity: () => LocalizedString
 		/**
@@ -5439,7 +5319,7 @@ export type TranslationFunctions = {
 		 */
 		desktopUnavailable: () => LocalizedString
 		/**
-		 * Live status from this device.
+		 * Live device traffic
 		 */
 		deviceActivity: () => LocalizedString
 		/**
@@ -5447,7 +5327,7 @@ export type TranslationFunctions = {
 		 */
 		downloaded: () => LocalizedString
 		/**
-		 * Fixture activity at a glance.
+		 * Live demo traffic
 		 */
 		fixtureActivity: () => LocalizedString
 		/**
@@ -5495,9 +5375,13 @@ export type TranslationFunctions = {
 		 */
 		noSelection: () => LocalizedString
 		/**
-		 * Open live traffic
+		 * Live traffic
 		 */
 		openLiveTraffic: () => LocalizedString
+		/**
+		 * Open live traffic details
+		 */
+		openLiveTrafficAria: () => LocalizedString
 		/**
 		 * Routing mode
 		 */
@@ -5538,6 +5422,10 @@ export type TranslationFunctions = {
 		 * View all
 		 */
 		viewAll: () => LocalizedString
+		/**
+		 * View all policy groups
+		 */
+		viewAllGroupsAria: () => LocalizedString
 		/**
 		 * {count} available children
 		 */

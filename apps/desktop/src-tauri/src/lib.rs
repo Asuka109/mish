@@ -30,14 +30,15 @@ use mish_platform_macos::{
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
-    CaptureAuditReason, CaptureReconciler, LoopbackProxyEndpoint, PlatformLifecycleEventSource,
+    CaptureAuditReason, CaptureReconciler, CaptureRequest, CaptureSelection, LoopbackProxyEndpoint,
+    PlatformLifecycleEventSource, StatusAdapterKind as RuntimeStatusAdapterKind,
     TunHelperController,
 };
 use mish_settings::{
     FileSettingsRepository, LoginLaunchBehavior, SettingsAdapterKind, SettingsAvailability,
-    SettingsCapabilities, SettingsService, SettingsServiceError, SettingsSnapshot, StartupPlatform,
-    StartupPlatformError, WindowSurfacePlatform, WindowSurfacePlatformError,
-    WindowSurfacePreference,
+    SettingsBuildInfo, SettingsCapabilities, SettingsService, SettingsServiceError,
+    SettingsSnapshot, StartupPlatform, StartupPlatformError, WindowSurfacePlatform,
+    WindowSurfacePlatformError, WindowSurfacePreference,
 };
 use mish_state_authority::StateMutationAuthority;
 use serde::Serialize;
@@ -51,6 +52,7 @@ use uuid::Uuid;
 
 mod graceful_exit;
 mod native_menu;
+mod route_activity_summary;
 mod status_bar;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
@@ -741,7 +743,7 @@ fn initialize(
         },
     }));
     let settings_service = Arc::new(
-        SettingsService::load_with_platforms_and_authority(
+        SettingsService::load_with_platforms_and_authority_and_build(
             Arc::new(FileSettingsRepository::new(
                 profile_root.join("settings.json"),
             )),
@@ -754,6 +756,7 @@ fn initialize(
                     as Arc<dyn mish_settings::NetworkDnsPlatform>
             }),
             mutation_authority.clone(),
+            SettingsBuildInfo::packaged(env!("CARGO_PKG_VERSION")),
         )
         .map_err(settings_initialization_error)?,
     );
@@ -927,10 +930,14 @@ fn initialize(
         service: support_bundle,
     });
     app.manage(LocalBackupState {
-        activation,
+        activation: activation.clone(),
         pending_export: Arc::new(Mutex::new(None)),
         pending_restore: Arc::new(Mutex::new(None)),
-        service: LocalBackupService::new(profile_root, settings_service, env!("CARGO_PKG_VERSION")),
+        service: LocalBackupService::new(
+            profile_root,
+            settings_service.clone(),
+            env!("CARGO_PKG_VERSION"),
+        ),
     });
     *app.state::<BridgeState>()
         .0
@@ -940,7 +947,61 @@ fn initialize(
         native_menu::install(app)?;
         status_bar::initialize(app, status_bar_state)?;
     }
+    if settings_service
+        .snapshot(SettingsAdapterKind::Rpc)
+        .preferences
+        .startup
+        .launch_proxy_when_mish_launches
+    {
+        launch_proxy_on_application_start(activation);
+    }
     Ok(())
+}
+
+/// Starts the previously used Profile only after all native observers have been installed.
+/// The coordinator publishes the pending activation snapshot before the Core process is started,
+/// so the WebView and native status UI observe one lifecycle instead of maintaining local loaders.
+fn launch_proxy_on_application_start(activation: Arc<ProfileActivationCoordinator>) {
+    tauri::async_runtime::spawn(async move {
+        let command_id = Uuid::new_v4().to_string();
+        let mut updates = activation.subscribe();
+        let pending = match activation
+            .activate_last_successful_profile(&command_id)
+            .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(_) => return,
+        };
+        if pending.phase != mish_bridge::ProfileActivationPhase::Pending {
+            return;
+        }
+
+        loop {
+            let Ok(snapshot) = updates.recv().await else {
+                return;
+            };
+            if snapshot.command_id.as_deref() != Some(command_id.as_str())
+                || snapshot.phase == mish_bridge::ProfileActivationPhase::Pending
+            {
+                continue;
+            }
+            if snapshot.phase == mish_bridge::ProfileActivationPhase::Success {
+                let _ = activation
+                    .set_capture(
+                        CaptureRequest {
+                            active: true,
+                            selection: CaptureSelection {
+                                system_proxy: true,
+                                tun: false,
+                            },
+                        },
+                        RuntimeStatusAdapterKind::Rpc,
+                    )
+                    .await;
+            }
+            return;
+        }
+    });
 }
 
 fn production_team_identifier() -> Option<&'static str> {

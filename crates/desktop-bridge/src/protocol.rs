@@ -219,6 +219,12 @@ struct SetStartupParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetLaunchProxyWhenMishLaunchesParams {
+    launch_proxy_when_mish_launches: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetWindowCloseBehaviorParams {
     behavior: WindowCloseBehavior,
 }
@@ -234,6 +240,8 @@ struct SocketSubscriptions {
     event_updates: broadcast::Receiver<()>,
     profile_ids: HashSet<String>,
     profile_updates: broadcast::Receiver<crate::ProfileActivationSnapshot>,
+    settings_ids: HashSet<String>,
+    settings_updates: broadcast::Receiver<mish_settings::SettingsSnapshot>,
     status_ids: HashSet<String>,
     status_updates: broadcast::Receiver<CoreStatus>,
     traffic_ids: HashSet<String>,
@@ -299,12 +307,21 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         .as_ref()
         .map(crate::service_probes::ServiceProbeService::subscribe)
         .unwrap_or(inactive_service_receiver);
+    let (inactive_settings_updates, inactive_settings_receiver) = broadcast::channel(1);
+    let _inactive_settings_updates = inactive_settings_updates;
+    let settings_updates = state
+        .settings_service
+        .as_ref()
+        .map(|service| service.subscribe())
+        .unwrap_or(inactive_settings_receiver);
     let mut authenticated = false;
     let mut subscriptions = SocketSubscriptions {
         event_ids: HashSet::new(),
         event_updates,
         profile_ids: HashSet::new(),
         profile_updates,
+        settings_ids: HashSet::new(),
+        settings_updates,
         status_ids: HashSet::new(),
         status_updates,
         traffic_ids: HashSet::new(),
@@ -452,6 +469,19 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                         "jsonrpc": "2.0",
                         "method": "profiles.snapshot",
                         "params": { "snapshot": profile_snapshot, "subscriptionId": subscription_id },
+                    });
+                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            update = subscriptions.settings_updates.recv(), if authenticated && !subscriptions.settings_ids.is_empty() => {
+                let Ok(snapshot) = update else { continue };
+                for subscription_id in &subscriptions.settings_ids {
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "settings.snapshot",
+                        "params": { "snapshot": snapshot, "subscriptionId": subscription_id },
                     });
                     if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
                         return;
@@ -1380,6 +1410,57 @@ async fn handle_message(
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
                 Err(error) => return Some(settings_error_response(id, error)),
             }
+        }
+        "settings.setLaunchProxyWhenMishLaunches" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetLaunchProxyWhenMishLaunchesParams =
+                match serde_json::from_value(request.params) {
+                    Ok(params) => params,
+                    Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match service
+                .set_launch_proxy_when_mish_launches(params.launch_proxy_when_mish_launches)
+            {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.subscribe" => {
+            if subscription_count(
+                &subscriptions.event_ids,
+                &subscriptions.profile_ids,
+                &subscriptions.status_ids,
+                &subscriptions.traffic_ids,
+            ) + subscriptions.settings_ids.len()
+                >= 16
+            {
+                return Some(error_response(
+                    id,
+                    -32030,
+                    "Subscription limit reached",
+                    None,
+                ));
+            }
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            subscriptions.settings_updates = service.subscribe();
+            let subscription_id = format!(
+                "settings-{}",
+                NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
+            );
+            subscriptions.settings_ids.insert(subscription_id.clone());
+            json!({"snapshot": service.snapshot(SettingsAdapterKind::Rpc), "subscriptionId": subscription_id})
+        }
+        "settings.unsubscribe" => {
+            let Some(subscription_id) =
+                request.params.get("subscriptionId").and_then(Value::as_str)
+            else {
+                return Some(error_response(id, -32602, "Invalid params", None));
+            };
+            json!(subscriptions.settings_ids.remove(subscription_id))
         }
         "settings.setWindowCloseBehavior" => {
             let Some(service) = &state.settings_service else {

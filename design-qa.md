@@ -67,6 +67,48 @@ The full-view reference contains empty runtime data while the browser harness us
 
 final result: passed
 
+## Settings simplification and packaged versions
+
+### Evidence
+
+- Source visual truth: the eight annotated Settings captures supplied for this review, especially `/var/folders/5z/wjdqjxyn66n_69rwycgmdz1c0000gn/T/codex-clipboard-f9355fd3-5cb1-4c40-b279-3fd8a1120d99.png` through `/var/folders/5z/wjdqjxyn66n_69rwycgmdz1c0000gn/T/codex-clipboard-473c91d7-7d27-4531-bcc0-c51a28dbde04.png`.
+- In-app Browser implementation captures: `/tmp/mish-settings-zh-light-wide.png`, `/tmp/mish-settings-en-dark-narrow-bottom.png`, and `/tmp/mish-settings-zh-light-narrow-bottom.png`.
+- Focused comparison: `/tmp/mish-settings-version-comparison.png` combines the annotated version-information source with the rendered narrow Settings region.
+- Viewports: wide 1280 × 720 and 1900 × 900 CSS pixels; narrow 390 × 844 CSS pixels; device scale factor 1.
+- State: the local demo fixture intentionally reports native Settings capabilities as unavailable. This verifies the browser fixture remains truthful while English/Chinese copy, light/dark appearance, grouping, responsive layout, and disabled controls render.
+
+### Full-view and focused comparison
+
+The rendered Settings page removes the annotated HTTP/SOCKS5 badges, reduced-motion row, privacy-and-access section, and expert-configuration row. It keeps the automatic proxy preference independently visible in Capture and startup. The focused version comparison confirms that the rendered Advanced and support row replaces the previous sensitive-data description and single hard-coded version with two compact version badges plus a disabled, labelled update action.
+
+The source annotation and rendered capture use different viewport widths because the focused source is a wide, annotated crop while the implementation capture validates the required narrow-width behavior. Their content region, light Chinese state, and version-row intent are normalized for comparison; browser verification separately covered wide Chinese light, wide English dark, narrow English dark, and narrow Chinese light states.
+
+### Findings and comparison history
+
+1. Initial annotated findings: redundant protocol badges and availability words, excessive close-window copy, a non-configurable motion row, duplicate privacy/expert presentation, ambiguous DNS copy, and hard-coded single-version presentation.
+2. Fixes: removed the indicated rows and badges; made address-family badges iconically concise but retained localized screen-reader/title semantics; shortened the requested copy; changed visible capability copy to Coming soon / 即将支持; added build-sourced Mish and pinned Mihomo badges; added an explicitly unavailable update button.
+3. Post-fix evidence: the in-app Browser captures show no horizontal overflow at 390 CSS pixels, no text collision in the version control row, and correct disabled-state affordance. The focused comparison shows no remaining P0, P1, or P2 mismatch in the annotated Advanced and support surface.
+
+### Required fidelity surfaces
+
+- Fonts and typography: existing system font tokens, hierarchy, and compact metadata treatment are retained. The shortened copy reduces wrapping without changing typographic scale.
+- Spacing and layout rhythm: removed rows collapse their section spacing cleanly; narrow captures keep controls beneath or beside their labels without overlap. The version badges and disabled button wrap within the row rather than overflow.
+- Colors and visual tokens: existing success/outline badge tokens communicate IP availability; disabled and Coming soon treatments retain existing neutral contrast in light and dark themes.
+- Image quality and asset fidelity: no image or brand asset changed; existing Mish asset and icon library usage remains intact.
+- Copy and content: English and Chinese supplied wording is present for close behavior, network/DNS descriptions, Coming soon, and update availability. Browser fixture wording remains truthful about unavailable native controls.
+- Accessibility and interaction: IPv4/IPv6 badges retain localized availability in `aria-label`, `title`, and screen-reader text; the disabled update button references its Coming soon explanation. The automatic proxy preference remains disabled in the browser fixture rather than claiming native availability.
+
+### Verification
+
+- In-app Browser: Settings rendered in English/Chinese, light/dark, and wide/narrow states; 390-pixel checks reported `scrollWidth === clientWidth`.
+- Focused browser test: 12 passed, including Chinese narrow layout, address badge semantics/width, and disabled update control.
+- Web unit tests: 264 passed.
+- Rust settings tests: 26 passed, including packaged app/pinned Core version source.
+- Desktop bridge protocol tests: 22 passed.
+- Typecheck, generated i18n check, lint, formatting, design/token/doc checks, desktop production Web build, Rust formatting, and `git diff --check` passed.
+
+final result: passed
+
 ## Onboarding welcome
 
 ## Evidence
@@ -127,5 +169,26 @@ No actionable P0, P1, or P2 findings remain.
 ## Follow-up Polish
 
 No P3 follow-up is required for the requested annotation changes.
+
+final result: passed
+
+## Automatic proxy launch lifecycle synchronization
+
+### Evidence
+
+- Source intent: the annotated Settings capture showing the enabled `启动应用自动代理` preference and the lower-left `启动代理` control.
+- Runtime contract: automatic startup is issued after native status observers are installed and publishes through the existing `ProfileActivationCoordinator` snapshot.
+- Automated evidence: `mihomo_activation` verifies that stopping a Core and then resuming uses the last successful Profile rather than a later failed attempt; Web coverage verifies that a native-originated pending System Proxy transition renders the sidebar control busy and disabled.
+
+### Findings
+
+The persisted preference now has an execution path on the next full application launch. It does not mutate the running process when changed. On launch, the shared coordinator first enters `pending`, then either reaches a healthy Core and applies standard System Proxy capture, or exposes a terminal failure while leaving the runtime safely stopped. Legacy installations with no runtime resume record use the newest valid stored Profile as their one-time fallback. The sidebar derives loading from the same activation and capture snapshots that the existing native status surface subscribes to; it has no local-only startup state.
+
+### Verification
+
+- Rust activation integration: 24 passed, including restart after an intervening failed activation.
+- Desktop shell compilation: passed.
+- Web unit: 265 passed, including the native-originated pending sidebar state.
+- Typecheck, lint, i18n generation, formatting, design/token/docs checks, production desktop Web build, Rust format, and `git diff --check`: passed.
 
 final result: passed

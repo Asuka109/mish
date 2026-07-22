@@ -105,6 +105,6 @@ describe("responsive shell CSS", () => {
     expect(chromeSelectionRule).not.toContain('data-runtime="mobile"');
     expect(contentSelectionRule).toContain("[data-native-text-interaction]");
     expect(contentSelectionRule).toContain("user-select: text");
-    expect(styles).toContain('.page-scroll h1[tabindex="-1"]:focus');
+    expect(styles).toContain('.workspace-page-scroll h1[tabindex="-1"]:focus');
   });
 });

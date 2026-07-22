@@ -46,6 +46,7 @@ function storedWindowSurface(): WindowSurfacePreference {
 export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
   return {
     adapterKind: "fixture",
+    build: { appVersion: "0.1.0", mihomoVersion: "v1.19.29" },
     capabilities: {
       backgroundLaunch: "unavailable",
       backupRestore: "coming-later",
@@ -70,7 +71,11 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       appearance: storedAppearance(),
       language: storedLanguage(),
       onboarding: { welcomeInvitation: null },
-      startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" },
+      startup: {
+        launchAtLogin: false,
+        launchProxyWhenMishLaunches: false,
+        loginLaunchBehavior: "show-window",
+      },
       windowCloseBehavior: "hide-to-status-bar",
       windowSurface: storedWindowSurface(),
     },
@@ -133,6 +138,16 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async setStartup(_startup: StartupPreferencesDto): Promise<SettingsSnapshotDto> {
     throw new Error("Native startup operations are unavailable in demo mode");
+  }
+
+  async setLaunchProxyWhenMishLaunches(
+    _launchProxyWhenMishLaunches: boolean,
+  ): Promise<SettingsSnapshotDto> {
+    throw new Error("Native automatic proxy launch is unavailable in demo mode");
+  }
+
+  subscribeSnapshots(_listener: (snapshot: SettingsSnapshotDto) => void) {
+    return () => undefined;
   }
 
   async setWindowCloseBehavior(_behavior: WindowCloseBehavior): Promise<SettingsSnapshotDto> {

@@ -95,6 +95,22 @@ beforeAll(async () => {
 
   const settingsSnapshot = createFixtureSettingsSnapshot();
   settingsSnapshot.adapterKind = "rpc";
+  settingsSnapshot.networkDns = {
+    dns: null,
+    failure: null,
+    interfaces: [
+      {
+        interface: "en0",
+        interfaceKind: "wifi",
+        ipv4Available: true,
+        ipv6Available: false,
+        service: "Wi-Fi",
+      },
+    ],
+    observedAt: null,
+    phase: "unknown",
+    source: null,
+  };
   const settingsClient = new FixtureSettingsClient();
   const container = document.getElementById("local-proxy-browser-root");
   if (!container) throw new Error("Missing browser-test root");
@@ -125,8 +141,23 @@ beforeAll(async () => {
 afterAll(() => root.unmount());
 
 describe("local proxy listener feedback", () => {
+  test("keeps the unavailable Chinese automatic proxy launch row stable at a narrow width", async () => {
+    const title = page.getByText("启动应用自动代理", { exact: true });
+    await expect.element(title).toBeVisible();
+    const automaticRow = Array.from(document.querySelectorAll<HTMLElement>(".settings-row")).find(
+      (candidate) => candidate.textContent?.includes("启动应用自动代理"),
+    );
+    expect(automaticRow).toBeDefined();
+    const off = page.getByRole("button", { exact: true, name: "启动应用自动代理: 关闭" });
+    await expect.element(off).toBeDisabled();
+    expect(automaticRow!.getBoundingClientRect().width).toBeGreaterThan(0);
+    expect(
+      document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ).toBeLessThanOrEqual(1);
+  });
+
   test("keeps the Chinese Settings row stable at a narrow width", async () => {
-    const button = page.getByRole("button", { exact: true, name: "测试监听器" });
+    const button = page.getByRole("button", { exact: true, name: "测试连接" });
     const before = measureLocalProxyGeometry();
 
     await button.click();
@@ -135,7 +166,7 @@ describe("local proxy listener feedback", () => {
 
     client.complete();
 
-    await expect.element(page.getByText("监听器就绪", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("本地代理可用", { exact: true })).toBeVisible();
     const toaster = document.querySelector("[data-sonner-toaster]");
     expect(toaster?.parentElement).toHaveAttribute("aria-live", "polite");
     await expect.element(button).not.toHaveAttribute("aria-busy");
@@ -144,5 +175,19 @@ describe("local proxy listener feedback", () => {
     expect(
       document.documentElement.scrollWidth - document.documentElement.clientWidth,
     ).toBeLessThanOrEqual(1);
+  });
+
+  test("keeps concise address badges and version controls within the narrow Settings width", async () => {
+    const ipv4 = document.querySelector<HTMLElement>('[aria-label="IPv4: 可用"]');
+    const ipv6 = document.querySelector<HTMLElement>('[aria-label="IPv6: 不可用"]');
+    expect(ipv4?.textContent).toBe("IPv4: 可用");
+    expect(ipv6?.textContent).toBe("IPv6: 不可用");
+    expect(ipv4?.getBoundingClientRect().width).toBeLessThan(80);
+    expect(ipv6?.getBoundingClientRect().width).toBeLessThan(80);
+    await expect.element(page.getByText("Mish 0.1.0", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Mihomo v1.19.29", { exact: true })).toBeVisible();
+    const updates = page.getByRole("button", { exact: true, name: "检查更新" });
+    await expect.element(updates).toBeDisabled();
+    await expect.element(updates).toHaveAttribute("title", "即将支持");
   });
 });

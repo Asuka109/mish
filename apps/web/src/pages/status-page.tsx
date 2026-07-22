@@ -132,6 +132,12 @@ export function StatusPage() {
     snapshot.traffic.uploadBytesPerSecond > 0 ||
     snapshot.traffic.uploadedBytes > 0;
   const hasMetricsData = Object.values(snapshot.metrics).some((value) => value > 0);
+  const sessionActivity =
+    snapshot.adapterKind === "fixture"
+      ? LL.status.fixtureActivity()
+      : snapshot.adapterKind === "rpc"
+        ? LL.status.desktopActivity()
+        : LL.status.deviceActivity();
 
   async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureSupported) return;
@@ -174,7 +180,7 @@ export function StatusPage() {
   }
 
   return (
-    <div className="page-scroll">
+    <div>
       <div className="status-page">
         <h1 className="sr-only">{LL.navigation.status()}</h1>
         {snapshot.adapterKind !== "fixture" && connection.stale ? (
@@ -273,16 +279,15 @@ export function StatusPage() {
             <div className="section-heading">
               <div className="section-heading-copy">
                 <h2>{LL.status.session()}</h2>
-                <p>
-                  {snapshot.adapterKind === "fixture"
-                    ? LL.status.fixtureActivity()
-                    : snapshot.adapterKind === "rpc"
-                      ? LL.status.desktopActivity()
-                      : LL.status.deviceActivity()}
-                </p>
+                <p title={sessionActivity}>{sessionActivity}</p>
               </div>
-              <Link className="text-link" to="/traffic">
-                {LL.status.openLiveTraffic()} <CaretRight aria-hidden="true" />
+              <Link
+                aria-label={LL.status.openLiveTrafficAria()}
+                className="text-link"
+                to="/traffic"
+              >
+                <span className="section-heading-action-label">{LL.status.openLiveTraffic()}</span>
+                <CaretRight aria-hidden="true" />
               </Link>
             </div>
             <SectionGrid className="session-list" columns={2}>
@@ -365,10 +370,11 @@ export function StatusPage() {
             <div className="section-heading">
               <div className="section-heading-copy">
                 <h2>{LL.status.groups()}</h2>
-                <p>{LL.status.usedFirst()}</p>
+                <p title={LL.status.usedFirst()}>{LL.status.usedFirst()}</p>
               </div>
-              <Link className="text-link" to="/routes">
-                {LL.status.viewAll()} <CaretRight aria-hidden="true" />
+              <Link aria-label={LL.status.viewAllGroupsAria()} className="text-link" to="/routes">
+                <span className="section-heading-action-label">{LL.status.viewAll()}</span>
+                <CaretRight aria-hidden="true" />
               </Link>
             </div>
             {frequentGroups.length > 0 ? (

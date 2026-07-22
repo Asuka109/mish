@@ -688,7 +688,7 @@ export function RoutesPage() {
   }
 
   return (
-    <div className="routes-page page-scroll">
+    <div className="routes-page">
       <div className="routes-workspace">
         <header className="routes-header">
           <h1>{LL.routes.title()}</h1>
