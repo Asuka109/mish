@@ -43,6 +43,7 @@ import type {
 } from "@mish/contracts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
+import { tv } from "tailwind-variants";
 import { useEvents } from "../data/events-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -50,6 +51,29 @@ import { filterEvents, sortEvents, type EventsOrder } from "./events-model";
 
 const eventLevels: EventLevel[] = ["debug", "info", "warning", "error"];
 const eventSources: EventSource[] = ["application", "core", "platform", "rpc"];
+
+const eventStyles = tv({
+  slots: {
+    page: "events-page mx-auto min-h-full w-[min(100%,1180px)] px-8 pt-7 pb-9",
+    heading:
+      "events-heading flex items-start justify-between gap-6 [&_p]:mt-[5px] [&_p]:max-w-[680px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
+    retention:
+      "events-retention flex-none pt-[5px] text-[12px] text-(--color-text-muted) whitespace-nowrap",
+    status:
+      "events-source-status mt-5 flex min-h-[38px] items-center justify-between gap-4 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-3 py-2 text-(--text-metadata) text-(--color-body) data-[state=stale]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=stale]:text-(--color-warning) data-[state=connecting]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=connecting]:text-(--color-warning) [&>span:last-child]:flex-none [&>span:last-child]:text-[12px] [&>span:last-child]:text-(--color-text-muted)",
+    sources: "events-sources-section mt-4",
+    sourceHeading:
+      "events-source-heading [&_p]:mt-[3px] [&_p]:text-[12px] [&_p]:leading-[17px] [&_p]:text-(--color-text-muted)",
+    sourceGrid:
+      "events-source-grid mt-2 grid grid-cols-4 gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft)",
+    sourceItem:
+      "events-source-item flex min-h-[42px] min-w-0 items-center justify-between gap-[10px] bg-(--color-canvas) px-[10px] py-2 text-(--text-metadata) [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap [&>span]:font-(--font-weight-control)",
+    sourcePhase:
+      "events-source-phase inline-flex flex-none items-center gap-[6px] text-[12px] text-(--color-text-muted) whitespace-nowrap data-[phase=ready]:text-(--color-success-text) data-[phase=stale]:text-(--color-warning)",
+    sourceIndicator:
+      "events-source-indicator size-[7px] flex-none rounded-(--radius-full) bg-(--color-muted-soft) [.events-source-phase[data-phase=ready]_&]:bg-(--color-success) [.events-source-phase[data-phase=stale]_&]:bg-(--color-warning) [.events-source-phase[data-phase=fixture-only]_&]:bg-(--color-brand)",
+  },
+});
 
 export function EventsPage() {
   const {
@@ -174,16 +198,16 @@ export function EventsPage() {
   const hasFilters = Boolean(query || level !== "all" || source !== "all");
 
   return (
-    <div className="events-page">
-      <div className="page-heading events-heading">
+    <div className={eventStyles().page()}>
+      <div className={eventStyles().heading({ className: "page-heading" })}>
         <div>
           <h1>{LL.events.title()}</h1>
           <p>{LL.events.description()}</p>
         </div>
-        <span className="events-retention">{LL.events.retention()}</span>
+        <span className={eventStyles().retention()}>{LL.events.retention()}</span>
       </div>
 
-      <div className="events-source-status" data-state={sourceState.state} role="status">
+      <div className={eventStyles().status()} data-state={sourceState.state} role="status">
         <span>{sourceState.message}</span>
         {snapshot?.sessionId ? (
           <span className="tabular">
@@ -196,17 +220,17 @@ export function EventsPage() {
       </div>
 
       {snapshot ? (
-        <section aria-labelledby="event-sources-title" className="events-sources-section">
-          <div className="events-source-heading">
+        <section aria-labelledby="event-sources-title" className={eventStyles().sources()}>
+          <div className={eventStyles().sourceHeading()}>
             <h2 id="event-sources-title">{LL.events.sourceAvailability()}</h2>
             <p>{LL.events.sourceDescription()}</p>
           </div>
-          <div className="events-source-grid">
+          <div className={eventStyles().sourceGrid()}>
             {snapshot.sourceStatuses.map((status) => (
-              <div className="events-source-item" key={status.source}>
+              <div className={eventStyles().sourceItem()} key={status.source}>
                 <span>{sourceLabel(LL, status.source)}</span>
-                <span className="events-source-phase" data-phase={status.phase}>
-                  <span aria-hidden="true" className="events-source-indicator" />
+                <span className={eventStyles().sourcePhase()} data-phase={status.phase}>
+                  <span aria-hidden="true" className={eventStyles().sourceIndicator()} />
                   {sourcePhaseLabel(LL, status.phase)}
                 </span>
               </div>
