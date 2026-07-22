@@ -9,6 +9,7 @@ import {
   buildBrowserBackendUrl,
   discoverMishBrowserBackend,
   MISH_BROWSER_DISCOVERY_START_PORT,
+  probeMishBrowserBackend,
   type BrowserBackendDiscoveryResult,
 } from "../platform/browser-backend-discovery";
 
@@ -33,6 +34,7 @@ interface BrowserBackendRecoveryProps {
   discover?: typeof discoverMishBrowserBackend;
   navigate?: (origin: string) => Promise<void> | void;
   onRecoveryRequired?: () => void;
+  probe?: typeof probeMishBrowserBackend;
   runtime: "browser" | "desktop" | "mobile";
 }
 
@@ -64,6 +66,7 @@ export function BrowserBackendRecovery({
   discover = discoverMishBrowserBackend,
   navigate = (origin) => window.location.replace(buildBrowserBackendUrl(origin)),
   onRecoveryRequired,
+  probe = probeMishBrowserBackend,
   runtime,
 }: BrowserBackendRecoveryProps) {
   const { LL } = useI18nContext();
@@ -130,7 +133,14 @@ export function BrowserBackendRecovery({
     if (!operationIsCurrent(operation)) return;
     setRecovery({ phase: "connecting", port });
     try {
-      await navigate(`http://127.0.0.1:${port}`);
+      const result = await probe({ port, signal: operation.controller.signal });
+      if (!operationIsCurrent(operation)) return;
+      if (result.phase !== "found") {
+        setRecovery({ phase: "connect-failed", port });
+        finishOperation(operation);
+        return;
+      }
+      await navigate(result.origin);
       // A successful navigation unloads this view. Keep the operation pending until then.
     } catch {
       if (!operationIsCurrent(operation)) return;

@@ -255,10 +255,11 @@ infer demo mode from a missing or failed backend.
    and the editable backend port initially matches the tab's original Mish
    origin.
 3. Enter a known Mish backend port, select **Connect**, and confirm that only
-   the entered port is targeted and no discovery requests are made. Before
-   selecting it, also confirm that an empty or out-of-range manual value leaves
-   the field editable with inline validation and disables Connect without
-   disabling Scan.
+   the entered port is checked and targeted without requests to any other port.
+   With Mish stopped, confirm that Connect reports its exact-port failure on the
+   recovery surface instead of navigating to a browser error page. Also confirm
+   that an empty or out-of-range manual value leaves the field editable with
+   inline validation and disables Connect without disabling Scan.
 4. Start Mish again on a later allowed port, select **Scan**, and confirm that
    the browser starts at port 6474, skips unrelated listeners, writes the first
    valid Mish port into the visible field, and then enters the same Connect

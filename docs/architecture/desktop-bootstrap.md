@@ -157,8 +157,9 @@ After the browser has reached an authenticated RPC connection, exhaustion of
 the bounded WebSocket reconnect policy replaces the application shell with a
 browser-only disconnected surface. The surface shows the validated bootstrap
 port in an editable numeric field and keeps all stale product controls
-unmounted. **Connect** navigates only to the valid port currently shown in the
-field. **Scan** checks IPv4-loopback ports sequentially from 6474, writes the
+unmounted. **Connect** checks the versioned Mish marker on only the valid port
+currently shown in the field and navigates only after that exact-port check
+succeeds. **Scan** checks IPv4-loopback ports sequentially from 6474, writes the
 first securely identified Mish port back to the field, and then invokes the
 same Connect path. The scan stops after 10 occupied non-Mish ports or 5 empty
 ports, whichever occurs first, and retains bounded per-request timeouts and an

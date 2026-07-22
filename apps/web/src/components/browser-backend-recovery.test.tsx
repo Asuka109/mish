@@ -58,6 +58,11 @@ function renderRecovery(
       <BrowserBackendRecovery
         backendPort={6474}
         connection={monitor}
+        probe={async ({ port }) => ({
+          origin: `http://127.0.0.1:${port}`,
+          phase: "found",
+          port,
+        })}
         runtime="browser"
         {...overrides}
       >
@@ -111,7 +116,12 @@ describe("browser backend recovery", () => {
     const discover = vi.fn();
     const navigation = deferred<void>();
     const navigate = vi.fn(() => navigation.promise);
-    renderRecovery(monitor, { discover, navigate });
+    const probe = vi.fn(async ({ port }: { port: number }) => ({
+      origin: `http://127.0.0.1:${port}`,
+      phase: "found" as const,
+      port,
+    }));
+    renderRecovery(monitor, { discover, navigate, probe });
     disconnect(monitor);
 
     const port = screen.getByRole("textbox", { name: "Backend port" });
@@ -121,6 +131,10 @@ describe("browser backend recovery", () => {
     await user.keyboard("{Enter}");
 
     expect(discover).not.toHaveBeenCalled();
+    expect(probe).toHaveBeenCalledOnce();
+    expect(probe).toHaveBeenCalledWith(
+      expect.objectContaining({ port: 80, signal: expect.any(AbortSignal) }),
+    );
     expect(navigate).toHaveBeenCalledOnce();
     expect(navigate).toHaveBeenCalledWith("http://127.0.0.1:80");
     expect(port).toHaveValue("080");
@@ -129,6 +143,32 @@ describe("browser backend recovery", () => {
       "true",
     );
     expect(screen.getByRole("button", { name: "Scan" })).toBeDisabled();
+  });
+
+  it("keeps the recovery page editable when the entered port is offline", async () => {
+    const user = userEvent.setup();
+    const monitor = connectedMonitor();
+    const discover = vi.fn();
+    const navigate = vi.fn();
+    const probe = vi.fn().mockResolvedValue({ phase: "empty" });
+    renderRecovery(monitor, { discover, navigate, probe });
+    disconnect(monitor);
+
+    const port = screen.getByRole("textbox", { name: "Backend port" });
+    await user.clear(port);
+    await user.type(port, "5000");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not connect to Mish on port 5000",
+    );
+    expect(port).toHaveValue("5000");
+    expect(port).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Scan" })).toBeEnabled();
+    expect(probe).toHaveBeenCalledOnce();
+    expect(discover).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("Scan starts at 6474, updates the controlled input, then uses the shared connection path", async () => {

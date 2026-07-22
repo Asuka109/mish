@@ -21,13 +21,38 @@ interface DiscoveryOptions {
   signal: AbortSignal;
 }
 
+interface BrowserBackendProbeOptions {
+  fetch?: typeof fetch;
+  port: number;
+  probeTimeoutMilliseconds?: number;
+  signal: AbortSignal;
+}
+
 export type BrowserBackendDiscoveryResult =
   | { origin: string; phase: "found"; port: number }
   | { emptyPorts: number; occupiedPorts: number; phase: "not-found" };
 
-type BrowserBackendProbeResult =
+export type BrowserBackendProbeResult =
   | { origin: string; phase: "found"; port: number }
   | { phase: "empty" | "occupied" };
+
+export async function probeMishBrowserBackend({
+  fetch: fetchRequest = globalThis.fetch,
+  port,
+  probeTimeoutMilliseconds = DEFAULT_PROBE_TIMEOUT_MILLISECONDS,
+  signal,
+}: BrowserBackendProbeOptions): Promise<BrowserBackendProbeResult> {
+  assertPort(port);
+  throwIfAborted(signal);
+  const result = await probeMishBrowserBackendWithSignals(
+    port,
+    fetchRequest,
+    [signal],
+    probeTimeoutMilliseconds,
+  );
+  throwIfAborted(signal);
+  return result;
+}
 
 export async function discoverMishBrowserBackend({
   fetch: fetchRequest = globalThis.fetch,
@@ -51,7 +76,7 @@ export async function discoverMishBrowserBackend({
   const deadline = new AbortController();
   const deadlineTimer = setTimeout(() => deadline.abort(), scanTimeoutMilliseconds);
   try {
-    const current = await probeMishBrowserBackend(
+    const current = await probeMishBrowserBackendWithSignals(
       preferredPort,
       fetchRequest,
       [signal, deadline.signal],
@@ -65,7 +90,7 @@ export async function discoverMishBrowserBackend({
     let occupiedPorts = 0;
     for (let port = MISH_BROWSER_DISCOVERY_START_PORT; port <= maxPort; port += 1) {
       if (port === preferredPort) continue;
-      const result = await probeMishBrowserBackend(
+      const result = await probeMishBrowserBackendWithSignals(
         port,
         fetchRequest,
         [signal, deadline.signal],
@@ -89,7 +114,7 @@ export async function discoverMishBrowserBackend({
   }
 }
 
-async function probeMishBrowserBackend(
+async function probeMishBrowserBackendWithSignals(
   port: number,
   fetchRequest: typeof fetch,
   cancellationSignals: AbortSignal[],

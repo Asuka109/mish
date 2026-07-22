@@ -8,6 +8,7 @@ import {
   MISH_BROWSER_DISCOVERY_PROTOCOL_VERSION,
   MISH_BROWSER_DISCOVERY_SCHEMA_VERSION,
   MISH_BROWSER_DISCOVERY_SERVICE,
+  probeMishBrowserBackend,
 } from "../platform/browser-backend-discovery";
 import { BrowserBackendRecovery } from "./browser-backend-recovery";
 import "../styles.css";
@@ -52,6 +53,7 @@ beforeAll(async () => {
   const fetchRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const port = Number.parseInt(new URL(String(input)).port, 10);
     if (init?.mode !== "no-cors") visited.push(port);
+    if (port === 5000) throw new TypeError("connection refused");
     if (port === 6474) {
       if (init?.mode === "no-cors") return new Response(null, { status: 204 });
       return new Response(JSON.stringify({ service: "another-listener" }), {
@@ -78,6 +80,7 @@ beforeAll(async () => {
           })
         }
         navigate={navigate}
+        probe={(options) => probeMishBrowserBackend({ ...options, fetch: fetchRequest })}
         runtime="browser"
       >
         <span>Connected application</span>
@@ -110,15 +113,33 @@ describe("browser backend recovery in Chromium", () => {
     expect(scan.scrollWidth).toBeLessThanOrEqual(scan.clientWidth);
   });
 
+  test("keeps the recovery UI when Connect targets an offline port", async () => {
+    const connect = document.querySelector<HTMLButtonElement>("button[type='submit']");
+    const input = document.querySelector<HTMLInputElement>("#browser-backend-recovery-port");
+    if (!connect || !input) throw new Error("Missing recovery controls");
+
+    connect.click();
+
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLElement>("[role='alert']")?.textContent).toContain(
+        "Could not connect to Mish on port 5000",
+      ),
+    );
+    expect(input.value).toBe("5000");
+    expect(input.disabled).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   test("securely scans from 6474, updates the visible port, then enters Connect pending", async () => {
     const scan = document.querySelector<HTMLButtonElement>("button[type='button']");
     const input = document.querySelector<HTMLInputElement>("#browser-backend-recovery-port");
     if (!scan || !input) throw new Error("Missing recovery controls");
 
+    visited.length = 0;
     scan.click();
 
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("http://127.0.0.1:6476"));
-    expect(visited).toEqual([6474, 6475, 6476]);
+    expect(visited).toEqual([6474, 6475, 6476, 6476]);
     expect(input.value).toBe("6476");
     expect(
       document.querySelector<HTMLButtonElement>("button[type='submit']")?.textContent,
