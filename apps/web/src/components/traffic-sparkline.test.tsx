@@ -1,73 +1,47 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-const chartInstances = vi.hoisted(
-  () =>
-    [] as Array<{
-      destroy: ReturnType<typeof vi.fn>;
-      stop: ReturnType<typeof vi.fn>;
-      update: ReturnType<typeof vi.fn>;
-    }>,
-);
-
-vi.mock("chart.js", () => ({
-  Chart: class {
-    static register = vi.fn();
-    data: unknown;
-    destroy = vi.fn();
-    options: unknown;
-    stop = vi.fn();
-    update = vi.fn();
-    constructor(_canvas: HTMLCanvasElement, config: { data: unknown; options: unknown }) {
-      this.data = config.data;
-      this.options = config.options;
-      chartInstances.push(this);
-    }
-  },
-  Filler: class {},
-  LineController: class {},
-  LineElement: class {},
-  LinearScale: class {},
-  PointElement: class {},
+vi.mock("@nivo/line", () => ({
+  ResponsiveLine: ({
+    animate,
+    curve,
+    data,
+  }: {
+    animate: boolean;
+    curve: string;
+    data: unknown[];
+  }) => <div data-animate={String(animate)} data-curve={curve} data-points={data.length} />,
 }));
 
 import {
-  createTrafficSparklineConfig,
+  createTrafficSparklineData,
   TRAFFIC_SPARKLINE_MAX_SAMPLES,
   TrafficSparkline,
 } from "./traffic-sparkline";
 
 describe("TrafficSparkline", () => {
-  it("uses Chart.js monotone curves and its bounded update animation", () => {
-    const config = createTrafficSparklineConfig("#2f6fdc", [2, 8, 4], false);
-    const dataset = config.data.datasets[0];
-
-    expect(dataset.cubicInterpolationMode).toBe("monotone");
-    expect(dataset.pointRadius).toBe(0);
-    expect(config.options?.animation).toEqual({ duration: 180, easing: "easeOutQuart" });
-  });
-
-  it("limits every chart to 60 samples and disables interpolation for reduced motion", () => {
-    const config = createTrafficSparklineConfig(
-      "#2f6fdc",
+  it("uses Nivo's monotone line data with a strict 60-sample window", () => {
+    const data = createTrafficSparklineData(
+      "download",
       Array.from({ length: 64 }, (_, index) => index),
-      true,
     );
 
-    expect(config.data.labels).toHaveLength(TRAFFIC_SPARKLINE_MAX_SAMPLES);
-    expect(config.data.datasets[0].data).toHaveLength(TRAFFIC_SPARKLINE_MAX_SAMPLES);
-    expect(config.options?.animation).toBe(false);
+    expect(data[0].data).toHaveLength(TRAFFIC_SPARKLINE_MAX_SAMPLES);
+    expect(data[0].data[0]).toMatchObject({ x: 0, y: 4 });
   });
 
-  it("reconciles updates through Chart.js and disposes the chart on unmount", () => {
-    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 4]} id="download" />);
-    const instance = chartInstances.at(-1);
-    if (!instance) throw new Error("Chart was not created");
+  it("enables Nivo motion normally and renders the sparkline as decorative", () => {
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 4, 2]} id="download" />);
 
-    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 4, 2]} id="download" />);
-    expect(instance.stop).toHaveBeenCalled();
-    expect(instance.update).toHaveBeenCalledWith("none");
-    view.unmount();
-    expect(instance.destroy).toHaveBeenCalledTimes(1);
+    expect(view.container.querySelector(".traffic-sparkline")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    expect(view.container.querySelector("[data-curve]")).toHaveAttribute("data-curve", "monotoneX");
+  });
+
+  it("renders no chart surface for an empty session series", () => {
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[]} id="upload" />);
+    expect(view.container.querySelector("[data-curve]")).toBeNull();
   });
 });

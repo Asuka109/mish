@@ -994,7 +994,7 @@ h2 {
   );
 }
 
-.traffic-sparkline canvas {
+.traffic-sparkline > * {
   display: block;
   width: 100%;
   height: 100%;

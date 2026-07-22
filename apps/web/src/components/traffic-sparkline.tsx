@@ -1,15 +1,5 @@
-import {
-  Chart,
-  Filler,
-  LineController,
-  LineElement,
-  LinearScale,
-  PointElement,
-  type ChartConfiguration,
-} from "chart.js";
-import { useEffect, useRef, useState } from "react";
-
-Chart.register(LineController, LineElement, PointElement, LinearScale, Filler);
+import { ResponsiveLine } from "@nivo/line";
+import { useEffect, useState } from "react";
 
 interface TrafficSparklineProps {
   color: string;
@@ -19,66 +9,20 @@ interface TrafficSparklineProps {
 
 export const TRAFFIC_SPARKLINE_MAX_SAMPLES = 60;
 
-function resolveColor(canvas: HTMLCanvasElement, color: string) {
-  const variable = color.match(/^var\((--[^)]+)\)$/)?.[1];
-  return variable ? getComputedStyle(canvas).getPropertyValue(variable).trim() : color;
+interface TrafficSparklineSeries {
+  data: Array<{ x: number; y: number }>;
+  id: string;
 }
 
-export function createTrafficSparklineConfig(
-  color: string,
-  data: number[],
-  reducedMotion: boolean,
-): ChartConfiguration<"line", number[], string> {
-  const samples = data.slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES);
-  return {
-    type: "line",
-    data: {
-      labels: samples.map((_, index) => String(index)),
-      datasets: [
-        {
-          backgroundColor: (context) => {
-            const { chart } = context;
-            const gradient = chart.ctx.createLinearGradient(
-              0,
-              chart.chartArea.top,
-              0,
-              chart.chartArea.bottom,
-            );
-            gradient.addColorStop(0, color);
-            gradient.addColorStop(1, "transparent");
-            return gradient;
-          },
-          borderColor: color,
-          borderWidth: 1.35,
-          cubicInterpolationMode: "monotone",
-          data: samples,
-          fill: "start",
-          pointHitRadius: 0,
-          pointHoverRadius: 0,
-          pointRadius: 0,
-        },
-      ],
+export function createTrafficSparklineData(id: string, data: number[]): TrafficSparklineSeries[] {
+  return [
+    {
+      data: data
+        .slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES)
+        .map((value, index) => ({ x: index, y: value })),
+      id,
     },
-    options: {
-      animation: reducedMotion ? false : { duration: 180, easing: "easeOutQuart" },
-      events: [],
-      interaction: { intersect: false },
-      maintainAspectRatio: false,
-      normalized: true,
-      parsing: false,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      responsive: true,
-      scales: {
-        x: { display: false, grid: { display: false }, ticks: { display: false } },
-        y: {
-          beginAtZero: true,
-          display: false,
-          grid: { display: false },
-          ticks: { display: false },
-        },
-      },
-    },
-  };
+  ];
 }
 
 function useReducedMotion() {
@@ -99,46 +43,32 @@ function useReducedMotion() {
 }
 
 export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
-  const canvas = useRef<HTMLCanvasElement | null>(null);
-  const chart = useRef<Chart<"line", number[], string> | null>(null);
   const reducedMotion = useReducedMotion();
-  const samples = data.slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES);
-  const sampleKey = samples.join(",");
-
-  useEffect(() => {
-    return () => {
-      chart.current?.destroy();
-      chart.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const target = canvas.current;
-    if (!target) return;
-    if (samples.length === 0) {
-      chart.current?.destroy();
-      chart.current = null;
-      return;
-    }
-    const config = createTrafficSparklineConfig(
-      resolveColor(target, color),
-      samples,
-      reducedMotion,
-    );
-    if (!chart.current) {
-      chart.current = new Chart(target, config);
-      return;
-    }
-    const instance = chart.current;
-    instance.stop();
-    instance.data = config.data;
-    instance.options = config.options ?? {};
-    instance.update(reducedMotion ? "none" : undefined);
-  }, [color, reducedMotion, sampleKey]);
+  const chartData = createTrafficSparklineData(id, data);
+  if (chartData[0].data.length === 0)
+    return <div aria-hidden="true" className="traffic-sparkline" />;
 
   return (
     <div aria-hidden="true" className="traffic-sparkline">
-      <canvas data-sparkline-id={id} hidden={samples.length === 0} ref={canvas} />
+      <ResponsiveLine
+        animate={!reducedMotion}
+        axisBottom={null}
+        axisLeft={null}
+        colors={[color]}
+        curve="monotoneX"
+        data={chartData}
+        enableArea
+        enableGridX={false}
+        enableGridY={false}
+        enablePoints={false}
+        isInteractive={false}
+        lineWidth={1.35}
+        margin={{ bottom: 2, left: 2, right: 2, top: 2 }}
+        motionConfig="gentle"
+        theme={{ crosshair: { line: { stroke: "transparent" } } }}
+        xScale={{ max: TRAFFIC_SPARKLINE_MAX_SAMPLES - 1, min: 0, type: "linear" }}
+        yScale={{ stacked: false, type: "linear" }}
+      />
     </div>
   );
 }
