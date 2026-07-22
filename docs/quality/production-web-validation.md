@@ -254,16 +254,19 @@ infer demo mode from a missing or failed backend.
    the disconnected surface, the prior controls cannot be focused or invoked,
    and the editable backend port initially matches the tab's original Mish
    origin.
-3. Change the backend port to an unused value such as `5000`, select
-   **Reconnect** while Mish is stopped, and confirm that port is checked first.
-   Confirm that discovery can be cancelled, cancellation leaves a retry action,
-   and an empty-port scan stops after five candidates without restoring stale
-   content.
-4. Start Mish again, select **Try again**, and confirm that the browser checks
-   the entered port before finding the first valid Mish service from port 6474
-   upward. Confirm that it skips unrelated listeners, stops after at most 10
-   occupied non-Mish ports, preserves the current path and query, and performs a
-   replacement navigation without carrying the old fragment.
+3. Enter a known Mish backend port, select **Connect**, and confirm that only
+   the entered port is checked and targeted without requests to any other port.
+   With Mish stopped, confirm that Connect reports its exact-port failure on the
+   recovery surface instead of navigating to a browser error page. Also confirm
+   that an empty or out-of-range manual value leaves the field editable with
+   inline validation and disables Connect without disabling Scan.
+4. Start Mish again on a later allowed port, select **Scan**, and confirm that
+   the browser starts at port 6474, skips unrelated listeners, writes the first
+   valid Mish port into the visible field, and then enters the same Connect
+   path. Confirm that an empty-port scan stops after five candidates, an
+   occupied-port scan stops after at most 10 non-Mish listeners, the current
+   path and query are preserved, and replacement navigation does not carry the
+   old fragment.
 5. Complete the existing six-digit pairing flow when requested. Confirm that no
    prior process session or proof bypasses authentication and that the restored
    route is backed by live RPC state.

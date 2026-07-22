@@ -5,6 +5,7 @@ import {
   MISH_BROWSER_DISCOVERY_PROTOCOL_VERSION,
   MISH_BROWSER_DISCOVERY_SCHEMA_VERSION,
   MISH_BROWSER_DISCOVERY_SERVICE,
+  probeMishBrowserBackend,
 } from "./browser-backend-discovery";
 
 function discoveryResponse(payload: unknown, status = 200) {
@@ -21,6 +22,26 @@ const marker = {
 };
 
 describe("browser backend discovery", () => {
+  it("probes only the requested port for an exact Connect attempt", async () => {
+    const requestedUrls: string[] = [];
+    const fetchRequest = vi.fn(async (input: string | URL | Request) => {
+      requestedUrls.push(String(input));
+      throw new TypeError("connection refused");
+    });
+
+    await expect(
+      probeMishBrowserBackend({
+        port: 5000,
+        fetch: fetchRequest,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ phase: "empty" });
+    expect(requestedUrls).toEqual([
+      "http://127.0.0.1:5000/browser-discovery",
+      "http://127.0.0.1:5000/browser-discovery",
+    ]);
+  });
+
   it("tries the current backend first and uses no browser credentials", async () => {
     const fetchRequest = vi.fn(async () => discoveryResponse(marker));
 

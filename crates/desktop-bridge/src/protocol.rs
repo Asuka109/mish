@@ -1558,13 +1558,14 @@ async fn handle_message(
             let Some(service) = &state.settings_service else {
                 return Some(settings_capability_error(id));
             };
-            subscriptions.settings_updates = service.subscribe();
+            let (updates, snapshot) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
+            subscriptions.settings_updates = updates;
             let subscription_id = format!(
                 "settings-{}",
                 NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
             );
             subscriptions.settings_ids.insert(subscription_id.clone());
-            json!({"snapshot": service.snapshot(SettingsAdapterKind::Rpc), "subscriptionId": subscription_id})
+            json!({"snapshot": snapshot, "subscriptionId": subscription_id})
         }
         "settings.unsubscribe" => {
             let Some(subscription_id) =

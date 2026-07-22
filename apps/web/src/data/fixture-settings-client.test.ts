@@ -8,8 +8,8 @@ describe("browser settings fixture", () => {
       adapterKind: "fixture",
       preferences: { appearance: "dark" },
     });
-    await expect(client.setLanguage("zh")).resolves.toMatchObject({
-      preferences: { language: "zh" },
+    await expect(client.setLanguage("zh-CN")).resolves.toMatchObject({
+      preferences: { language: "zh-CN" },
     });
     await expect(client.setWindowSurface("opaque")).resolves.toMatchObject({
       preferences: { windowSurface: "opaque" },

@@ -244,6 +244,7 @@ describe("desktop runtime bootstrap", () => {
       rpcUrl: "ws://127.0.0.1:43123/rpc",
       settingsSnapshot: {
         ...settingsSnapshot,
+        revision: 0,
         preferences: {
           ...settingsSnapshot.preferences,
           captureSelection: { systemProxy: false, tun: false },

@@ -12,14 +12,17 @@ import {
   type WindowCloseBehavior,
   type WindowSurfacePreference,
 } from "@mish/contracts";
-import type { RpcClient, RpcRequestOptions } from "@mish/rpc-client";
+import type { RpcClient, RpcConnectionState, RpcRequestOptions } from "@mish/rpc-client";
 
 export class RpcSettingsClient implements SettingsClient {
   private readonly snapshotListeners = new Set<(snapshot: SettingsSnapshotDto) => void>();
   private remoteSubscriptionId: string | null = null;
   private subscriptionPromise: Promise<void> | null = null;
+  private subscriptionRetryPending = false;
+  private latestRevision = 0;
   private disposed = false;
   private readonly unsubscribeNotification: () => void;
+  private readonly unsubscribeRpcConnection: () => void;
 
   constructor(
     private readonly rpc: RpcClient<typeof mishRpcMethods>,
@@ -32,6 +35,10 @@ export class RpcSettingsClient implements SettingsClient {
             settingsRpcNotifications["settings.snapshot"],
             (notification) => this.receiveSnapshot(notification),
           )
+        : () => undefined;
+    this.unsubscribeRpcConnection =
+      "subscribeConnection" in rpc
+        ? rpc.subscribeConnection((state) => this.receiveConnectionState(state))
         : () => undefined;
   }
 
@@ -149,7 +156,10 @@ export class RpcSettingsClient implements SettingsClient {
 
   private async ensureRemoteSubscription() {
     if (this.disposed || this.snapshotListeners.size === 0 || this.remoteSubscriptionId) return;
-    if (this.subscriptionPromise) return this.subscriptionPromise;
+    if (this.subscriptionPromise) {
+      this.subscriptionRetryPending = true;
+      return this.subscriptionPromise;
+    }
     this.subscriptionPromise = this.rpc
       .request("settings.subscribe", {})
       .then(({ snapshot, subscriptionId }) => {
@@ -163,6 +173,9 @@ export class RpcSettingsClient implements SettingsClient {
       .catch(() => undefined)
       .finally(() => {
         this.subscriptionPromise = null;
+        if (!this.subscriptionRetryPending) return;
+        this.subscriptionRetryPending = false;
+        void this.ensureRemoteSubscription();
       });
     return this.subscriptionPromise;
   }
@@ -170,6 +183,14 @@ export class RpcSettingsClient implements SettingsClient {
   private receiveSnapshot(notification: SettingsSnapshotNotificationDto) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
     const snapshot = this.normalizeSnapshot(notification.snapshot);
+    if (snapshot.revision < this.latestRevision) return;
+    this.latestRevision = snapshot.revision;
     for (const listener of this.snapshotListeners) listener(snapshot);
+  }
+
+  private receiveConnectionState(state: RpcConnectionState) {
+    if (state.phase !== "connected") return;
+    this.remoteSubscriptionId = null;
+    void this.ensureRemoteSubscription();
   }
 }

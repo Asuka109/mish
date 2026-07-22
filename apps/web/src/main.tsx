@@ -15,14 +15,18 @@ import { ProductProvider } from "./data/product-provider";
 import { ProfileProvider } from "./data/profile-provider";
 import { TrafficProvider } from "./data/traffic-provider";
 import { EventsProvider } from "./data/events-provider";
-import { SettingsProvider, useSettings } from "./data/settings-provider";
+import {
+  SettingsLanguageProjection,
+  SettingsProvider,
+  useSettings,
+} from "./data/settings-provider";
 import { StartupFailure } from "./components/startup-failure";
 import { BrowserAuthentication } from "./components/browser-authentication";
 import { BrowserBackendRecovery } from "./components/browser-backend-recovery";
 import { DesktopWindowFrame } from "./components/desktop-window-frame";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
-import { persistLocale, resolveInitialLocale } from "./i18n/locale";
+import { projectLocale, resolveInitialLocale } from "./i18n/locale";
 import {
   BrowserAuthenticationRequired,
   resolveStartupStatusClient,
@@ -97,13 +101,13 @@ async function startApplication() {
     const startup =
       runtime === "mobile" ? await resolveMobileStartup() : await resolveStartupStatusClient();
     disposeStartup = startup.dispose;
-    const initialLocale = startup.settingsSnapshot.preferences.language ?? resolveInitialLocale();
+    const initialLocale = startup.settingsSnapshot.preferences.language === "zh-CN" ? "zh" : "en";
     applyInitialAppearance(startup.settingsSnapshot.preferences.appearance);
     applyInitialWindowSurface(
       startup.settingsSnapshot.preferences.windowSurface,
       startup.settingsSnapshot.capabilities.nativeSidebarMaterial === "supported",
     );
-    persistLocale(initialLocale);
+    projectLocale(initialLocale);
     renderInitialApplication(
       <StrictMode>
         <SettingsProvider
@@ -112,7 +116,7 @@ async function startApplication() {
           localBackupClient={startup.localBackupClient}
         >
           <ConfiguredAppearanceProvider>
-            <TypesafeI18n locale={initialLocale}>
+            <SettingsLanguageProjection>
               <BrowserBackendRecovery
                 backendPort={startup.browserBackendPort}
                 connection={startup.client}
@@ -143,7 +147,7 @@ async function startApplication() {
                   </ProductProvider>
                 </BrowserRouter>
               </BrowserBackendRecovery>
-            </TypesafeI18n>
+            </SettingsLanguageProjection>
           </ConfiguredAppearanceProvider>
         </SettingsProvider>
       </StrictMode>,
@@ -151,7 +155,7 @@ async function startApplication() {
     );
   } catch (error) {
     const initialLocale = resolveInitialLocale();
-    persistLocale(initialLocale);
+    projectLocale(initialLocale);
     renderInitialApplication(
       <StrictMode>
         <AppearanceProvider>
