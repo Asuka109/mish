@@ -46,10 +46,28 @@ state, invalid-URL, or operating-system open failures display a native warning
 dialog with an accessible message and safe retry instruction; they do not
 silently leave a dead menu command or expose a credential for manual recovery.
 
-The menu never includes node labels, node identifiers, service URLs,
-authentication tokens, filesystem paths, controller addresses, RPC endpoints,
-or private runtime details. Native navigation accepts only a fixed set of
-product destinations.
+The menu never includes node identifiers, service URLs, authentication tokens,
+filesystem paths, controller addresses, RPC endpoints, or private runtime
+details. A later menu item may show one narrowly scoped exception: a bounded,
+trimmed, display-safe **user-authored terminal node label** derived from the
+authoritative typed Traffic snapshot and Status node catalog. The native
+projection counts only each connection's first observation in the current
+profile/session, stores those events in a private bounded rolling observation
+log, and derives the strict trailing 60-second node count from that log using a
+monotonic clock. The log's retention window is longer than the summary window,
+but it contains only the observation time and a resolved safe node-label result;
+it is not a raw Traffic, destination, or process log. A future menu worker
+records authoritative snapshots as they arrive and re-evaluates this in-memory
+projection once per second, so the displayed result expires on the strict
+boundary without polling or duplicating Traffic authority. It exposes no
+connection IDs, route labels, destinations, process data, addresses, profile
+IDs, Controller data, or raw chains. It produces no result for stale,
+unavailable, empty, or unsafe data; resets on profile/session replacement;
+bounds memory; and breaks equal counts by safe label order.
+Labels with URLs, endpoints, paths, controls, addresses, credential-like text,
+or excessive input length are rejected. Otherwise labels are bounded and
+Unicode-safe truncated before display. Native navigation accepts only a fixed
+set of product destinations.
 
 ## Window lifecycle
 
