@@ -121,7 +121,7 @@ type RootTranslation = {
 		backupDescription: string
 		backupFlow: {
 			/**
-			 * R​e​s​t​o​r​e​ ​s​e​l​e​c​t​e​d​ ​d​a​t​a
+			 * R​e​s​t​o​r​e​ ​S​e​l​e​c​t​e​d​ ​D​a​t​a
 			 */
 			commit: string
 			conflict: {
@@ -171,7 +171,7 @@ type RootTranslation = {
 			 */
 			included: string
 			/**
-			 * C​r​e​a​t​e​ ​b​a​c​k​u​p
+			 * C​r​e​a​t​e​ ​B​a​c​k​u​p
 			 */
 			create: string
 			/**
@@ -211,7 +211,7 @@ type RootTranslation = {
 			 */
 			patchesDescription: string
 			/**
-			 * G​e​n​e​r​a​t​e​ ​p​r​e​v​i​e​w
+			 * G​e​n​e​r​a​t​e​ ​P​r​e​v​i​e​w
 			 */
 			preview: string
 			/**
@@ -231,7 +231,7 @@ type RootTranslation = {
 			 */
 			resolution: string
 			/**
-			 * R​e​s​t​o​r​e​ ​b​a​c​k​u​p
+			 * R​e​s​t​o​r​e​ ​B​a​c​k​u​p
 			 */
 			restore: string
 			/**
@@ -274,7 +274,7 @@ type RootTranslation = {
 				restored: string
 			}
 			/**
-			 * C​h​o​o​s​e​ ​l​o​c​a​t​i​o​n​ ​a​n​d​ ​s​a​v​e
+			 * C​h​o​o​s​e​ ​L​o​c​a​t​i​o​n​ ​a​n​d​ ​S​a​v​e
 			 */
 			save: string
 			/**
@@ -327,7 +327,7 @@ type RootTranslation = {
 		 */
 		closeWindowDescription: string
 		/**
-		 * C​h​e​c​k​ ​f​o​r​ ​u​p​d​a​t​e​s
+		 * C​h​e​c​k​ ​f​o​r​ ​U​p​d​a​t​e​s
 		 */
 		checkForUpdates: string
 		/**
@@ -347,7 +347,7 @@ type RootTranslation = {
 		 */
 		hideToStatusBar: string
 		/**
-		 * I​n​s​t​a​l​l​ ​h​e​l​p​e​r
+		 * I​n​s​t​a​l​l​ ​H​e​l​p​e​r
 		 */
 		installTunHelper: string
 		/**
@@ -406,7 +406,7 @@ type RootTranslation = {
 				runtimeTransition: string
 			}
 			/**
-			 * T​e​s​t​ ​l​i​s​t​e​n​e​r
+			 * T​e​s​t​ ​L​i​s​t​e​n​e​r
 			 */
 			test: string
 			/**
@@ -423,11 +423,11 @@ type RootTranslation = {
 		 */
 		managedPortsDescription: string
 		/**
-		 * F​i​n​d​ ​a​v​a​i​l​a​b​l​e​ ​p​o​r​t​s
+		 * F​i​n​d​ ​A​v​a​i​l​a​b​l​e​ ​P​o​r​t​s
 		 */
 		managedPortsFind: string
 		/**
-		 * F​i​n​d​ ​p​o​r​t​s​ ​a​n​d​ ​r​e​t​r​y
+		 * F​i​n​d​ ​P​o​r​t​s​ ​a​n​d​ ​R​e​t​r​y
 		 */
 		managedPortsFindAndRetry: string
 		/**
@@ -436,7 +436,7 @@ type RootTranslation = {
 		 */
 		managedPortsConflict: RequiredParams<'endpoint'>
 		/**
-		 * S​a​v​e​ ​p​o​r​t​s
+		 * S​a​v​e​ ​P​o​r​t​s
 		 */
 		managedPortsSave: string
 		/**
@@ -538,7 +538,7 @@ type RootTranslation = {
 			 */
 			observationUnknown: string
 			/**
-			 * R​e​f​r​e​s​h​ ​o​b​s​e​r​v​a​t​i​o​n
+			 * R​e​f​r​e​s​h​ ​O​b​s​e​r​v​a​t​i​o​n
 			 */
 			refresh: string
 			/**
@@ -629,11 +629,11 @@ type RootTranslation = {
 			unavailable: string
 		}
 		/**
-		 * R​e​m​o​v​e​ ​h​e​l​p​e​r
+		 * R​e​m​o​v​e​ ​H​e​l​p​e​r
 		 */
 		removeTunHelper: string
 		/**
-		 * C​l​e​a​n​ ​r​e​i​n​s​t​a​l​l
+		 * C​l​e​a​n​ ​R​e​i​n​s​t​a​l​l
 		 */
 		reinstallTunHelper: string
 		/**
@@ -641,7 +641,7 @@ type RootTranslation = {
 		 */
 		reinstallTunHelperBlocked: string
 		/**
-		 * R​e​p​a​i​r​ ​h​e​l​p​e​r
+		 * R​e​p​a​i​r​ ​H​e​l​p​e​r
 		 */
 		repairTunHelper: string
 		/**
@@ -649,7 +649,7 @@ type RootTranslation = {
 		 */
 		quitOnClose: string
 		/**
-		 * S​h​o​w​ ​w​i​n​d​o​w
+		 * S​h​o​w​ ​W​i​n​d​o​w
 		 */
 		showWindow: string
 		/**
@@ -841,23 +841,23 @@ type RootTranslation = {
 		 */
 		label: string
 		/**
-		 * R​u​n​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k
+		 * R​u​n​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
 		 */
 		lifecycleAction: string
 		/**
-		 * A​l​l​o​w​ ​s​t​a​t​u​s​ ​n​o​t​i​f​i​c​a​t​i​o​n
+		 * A​l​l​o​w​ ​S​t​a​t​u​s​ ​N​o​t​i​f​i​c​a​t​i​o​n
 		 */
 		notificationAction: string
 		/**
-		 * R​e​v​i​e​w​ ​V​P​N​ ​p​e​r​m​i​s​s​i​o​n
+		 * R​e​v​i​e​w​ ​V​P​N​ ​P​e​r​m​i​s​s​i​o​n
 		 */
 		permissionAction: string
 		/**
-		 * R​e​s​e​t​ ​l​i​f​e​c​y​c​l​e​ ​s​t​a​t​e
+		 * R​e​s​e​t​ ​L​i​f​e​c​y​c​l​e​ ​S​t​a​t​e
 		 */
 		reconcileAction: string
 		/**
-		 * S​t​o​p​ ​l​i​f​e​c​y​c​l​e​ ​c​h​e​c​k
+		 * S​t​o​p​ ​L​i​f​e​c​y​c​l​e​ ​C​h​e​c​k
 		 */
 		stopAction: string
 		/**
@@ -940,7 +940,7 @@ type RootTranslation = {
 		 */
 		trigger: RequiredParams<'count'>
 		/**
-		 * V​i​e​w​ ​a​l​l​ ​e​v​e​n​t​s
+		 * V​i​e​w​ ​A​l​l​ ​E​v​e​n​t​s
 		 */
 		viewAllEvents: string
 	}
@@ -978,7 +978,7 @@ type RootTranslation = {
 		 */
 		completedAnnouncement: string
 		/**
-		 * S​t​a​r​t​ ​u​s​i​n​g​ ​M​i​s​h
+		 * S​t​a​r​t​ ​U​s​i​n​g​ ​M​i​s​h
 		 */
 		completeWelcome: string
 		/**
@@ -986,7 +986,7 @@ type RootTranslation = {
 		 */
 		coverPurpose: string
 		/**
-		 * N​o​t​ ​n​o​w
+		 * N​o​t​ ​N​o​w
 		 */
 		dismissWelcome: string
 		/**
@@ -994,7 +994,7 @@ type RootTranslation = {
 		 */
 		next: string
 		/**
-		 * O​p​e​n​ ​w​e​l​c​o​m​e
+		 * O​p​e​n​ ​W​e​l​c​o​m​e
 		 */
 		notificationAction: string
 		/**
@@ -1072,7 +1072,7 @@ type RootTranslation = {
 		 */
 		source: string
 		/**
-		 * S​h​o​w​ ​m​e​ ​a​r​o​u​n​d
+		 * S​h​o​w​ ​M​e​ ​A​r​o​u​n​d
 		 */
 		startTour: string
 		/**
@@ -1086,32 +1086,32 @@ type RootTranslation = {
 	}
 	proxyControl: {
 		/**
-		 * D​i​s​a​b​l​e​ ​p​r​o​x​y
+		 * D​i​s​a​b​l​e​ ​P​r​o​x​y
 		 */
 		disableAria: string
 		/**
-		 * D​i​s​a​b​l​e​ ​p​r​o​x​y
+		 * D​i​s​a​b​l​e​ ​P​r​o​x​y
 		 */
 		disable: string
 		/**
-		 * D​i​s​a​b​l​e​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
+		 * D​i​s​a​b​l​e​ ​t​h​e​ ​P​r​o​x​y​ ​D​e​m​o​ ​S​t​a​t​e
 		 */
 		disableFixtureAria: string
 		/**
-		 * L​a​u​n​c​h​ ​p​r​o​x​y
+		 * L​a​u​n​c​h​ ​P​r​o​x​y
 		 */
 		enableAria: string
 		/**
-		 * L​a​u​n​c​h​ ​t​h​e​ ​p​r​o​x​y​ ​d​e​m​o​ ​s​t​a​t​e
+		 * L​a​u​n​c​h​ ​t​h​e​ ​P​r​o​x​y​ ​D​e​m​o​ ​S​t​a​t​e
 		 */
 		enableFixtureAria: string
 		/**
-		 * L​a​u​n​c​h​ ​p​r​o​x​y​ ​w​i​t​h​ ​{​m​o​d​e​s​}
+		 * L​a​u​n​c​h​ ​P​r​o​x​y​ ​w​i​t​h​ ​{​m​o​d​e​s​}
 		 * @param {string} modes
 		 */
 		enableWithModes: RequiredParams<'modes'>
 		/**
-		 * L​a​u​n​c​h​ ​p​r​o​x​y
+		 * L​a​u​n​c​h​ ​P​r​o​x​y
 		 */
 		enable: string
 		/**
@@ -1205,11 +1205,11 @@ type RootTranslation = {
 		 */
 		noSelection: string
 		/**
-		 * L​i​v​e​ ​t​r​a​f​f​i​c
+		 * L​i​v​e​ ​T​r​a​f​f​i​c
 		 */
 		openLiveTraffic: string
 		/**
-		 * O​p​e​n​ ​l​i​v​e​ ​t​r​a​f​f​i​c​ ​d​e​t​a​i​l​s
+		 * O​p​e​n​ ​L​i​v​e​ ​T​r​a​f​f​i​c​ ​D​e​t​a​i​l​s
 		 */
 		openLiveTrafficAria: string
 		/**
@@ -1249,11 +1249,11 @@ type RootTranslation = {
 		 */
 		usedFirst: string
 		/**
-		 * V​i​e​w​ ​a​l​l
+		 * V​i​e​w​ ​A​l​l
 		 */
 		viewAll: string
 		/**
-		 * V​i​e​w​ ​a​l​l​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s
+		 * V​i​e​w​ ​A​l​l​ ​P​o​l​i​c​y​ ​G​r​o​u​p​s
 		 */
 		viewAllGroupsAria: string
 		/**
@@ -1264,7 +1264,7 @@ type RootTranslation = {
 	}
 	capture: {
 		/**
-		 * G​o​t​ ​i​t
+		 * G​o​t​ ​I​t
 		 */
 		acknowledge: string
 		/**
@@ -1307,7 +1307,7 @@ type RootTranslation = {
 		 */
 		selected: string
 		/**
-		 * L​e​a​v​e​ ​O​S​ ​s​e​t​t​i​n​g​s​ ​a​s​ ​i​s
+		 * L​e​a​v​e​ ​O​S​ ​S​e​t​t​i​n​g​s​ ​a​s​ ​I​s
 		 */
 		leaveAsIs: string
 		/**
@@ -1440,7 +1440,7 @@ type RootTranslation = {
 			 */
 			installationFailed: string
 			/**
-			 * I​n​s​t​a​l​l​ ​h​e​l​p​e​r
+			 * I​n​s​t​a​l​l​ ​H​e​l​p​e​r
 			 */
 			installHelper: string
 			/**
@@ -1452,7 +1452,7 @@ type RootTranslation = {
 			 */
 			installerUnavailable: string
 			/**
-			 * N​o​t​ ​n​o​w
+			 * N​o​t​ ​N​o​w
 			 */
 			notNow: string
 			/**
@@ -1460,7 +1460,7 @@ type RootTranslation = {
 			 */
 			preparationFailed: string
 			/**
-			 * R​e​v​i​e​w​ ​h​e​l​p​e​r​ ​s​e​t​u​p
+			 * R​e​v​i​e​w​ ​H​e​l​p​e​r​ ​S​e​t​u​p
 			 */
 			reviewSetup: string
 			/**
@@ -1553,7 +1553,7 @@ type RootTranslation = {
 		 */
 		childCount: RequiredParams<'count'>
 		/**
-		 * C​a​n​c​e​l​ ​d​e​l​a​y​ ​t​e​s​t​ ​f​o​r​ ​{​g​r​o​u​p​}
+		 * C​a​n​c​e​l​ ​D​e​l​a​y​ ​T​e​s​t​ ​f​o​r​ ​{​g​r​o​u​p​}
 		 * @param {string} group
 		 */
 		cancelDelay: RequiredParams<'group'>
@@ -1821,7 +1821,7 @@ type RootTranslation = {
 		 */
 		sortChildren: RequiredParams<'group'>
 		/**
-		 * S​t​a​r​t​ ​d​e​l​a​y​ ​t​e​s​t​ ​f​o​r​ ​{​g​r​o​u​p​}
+		 * S​t​a​r​t​ ​D​e​l​a​y​ ​T​e​s​t​ ​f​o​r​ ​{​g​r​o​u​p​}
 		 * @param {string} group
 		 */
 		startDelay: RequiredParams<'group'>
@@ -1844,7 +1844,7 @@ type RootTranslation = {
 		 */
 		patchActivationBlocked: string
 		/**
-		 * A​d​d​ ​p​a​t​c​h
+		 * A​d​d​ ​P​a​t​c​h
 		 */
 		patchAdd: string
 		/**
@@ -1869,7 +1869,7 @@ type RootTranslation = {
 		 */
 		patchDisabled: string
 		/**
-		 * D​i​s​c​a​r​d​ ​c​h​a​n​g​e​s
+		 * D​i​s​c​a​r​d​ ​C​h​a​n​g​e​s
 		 */
 		patchDiscard: string
 		/**
@@ -1881,7 +1881,7 @@ type RootTranslation = {
 		 */
 		patchDiscardTitle: string
 		/**
-		 * E​d​i​t​ ​p​a​t​c​h
+		 * E​d​i​t​ ​P​a​t​c​h
 		 */
 		patchEdit: string
 		/**
@@ -1922,7 +1922,7 @@ type RootTranslation = {
 		 */
 		patchFormDescription: string
 		/**
-		 * A​d​d​ ​s​e​l​e​c​t​o​r​ ​g​r​o​u​p
+		 * A​d​d​ ​S​e​l​e​c​t​o​r​ ​G​r​o​u​p
 		 */
 		patchGroupAdd: string
 		/**
@@ -1930,7 +1930,7 @@ type RootTranslation = {
 		 */
 		patchGroupLabel: string
 		/**
-		 * C​h​a​n​g​e​ ​g​r​o​u​p​ ​m​e​m​b​e​r​s
+		 * C​h​a​n​g​e​ ​G​r​o​u​p​ ​M​e​m​b​e​r​s
 		 */
 		patchGroupMembers: string
 		/**
@@ -1938,7 +1938,7 @@ type RootTranslation = {
 		 */
 		patchGroupOrder: string
 		/**
-		 * O​r​d​e​r​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s
+		 * O​r​d​e​r​ ​P​o​l​i​c​y​ ​G​r​o​u​p​s
 		 */
 		patchGroupReorder: string
 		/**
@@ -1958,11 +1958,11 @@ type RootTranslation = {
 		 */
 		patchMembersDescription: string
 		/**
-		 * M​o​v​e​ ​d​o​w​n
+		 * M​o​v​e​ ​D​o​w​n
 		 */
 		patchMoveDown: string
 		/**
-		 * M​o​v​e​ ​u​p
+		 * M​o​v​e​ ​U​p
 		 */
 		patchMoveUp: string
 		/**
@@ -1978,15 +1978,15 @@ type RootTranslation = {
 		 */
 		patchPrefix: string
 		/**
-		 * R​e​s​e​t​ ​a​l​l
+		 * R​e​s​e​t​ ​A​l​l
 		 */
 		patchReset: string
 		/**
-		 * D​e​l​e​t​e​ ​s​o​u​r​c​e​ ​r​u​l​e
+		 * D​e​l​e​t​e​ ​S​o​u​r​c​e​ ​R​u​l​e
 		 */
 		patchRuleDelete: string
 		/**
-		 * D​i​s​a​b​l​e​ ​s​o​u​r​c​e​ ​r​u​l​e
+		 * D​i​s​a​b​l​e​ ​S​o​u​r​c​e​ ​R​u​l​e
 		 */
 		patchRuleDisable: string
 		/**
@@ -2021,7 +2021,7 @@ type RootTranslation = {
 		 */
 		patchRuleValueDescription: string
 		/**
-		 * S​a​v​e​ ​p​a​t​c​h​e​s
+		 * S​a​v​e​ ​P​a​t​c​h​e​s
 		 */
 		patchSave: string
 		/**
@@ -2066,7 +2066,7 @@ type RootTranslation = {
 		 */
 		patchUnsavedValidation: string
 		/**
-		 * U​p​d​a​t​e​ ​p​a​t​c​h
+		 * U​p​d​a​t​e​ ​P​a​t​c​h
 		 */
 		patchUpdate: string
 		/**
@@ -2163,7 +2163,7 @@ type RootTranslation = {
 		 */
 		binaryMissing: string
 		/**
-		 * C​a​n​c​e​l​ ​a​c​t​i​v​a​t​i​o​n
+		 * C​a​n​c​e​l​ ​A​c​t​i​v​a​t​i​o​n
 		 */
 		cancelActivation: string
 		/**
@@ -2175,7 +2175,7 @@ type RootTranslation = {
 		 */
 		active: string
 		/**
-		 * A​d​d​ ​s​u​b​s​c​r​i​p​t​i​o​n
+		 * A​d​d​ ​S​u​b​s​c​r​i​p​t​i​o​n
 		 */
 		addSubscription: string
 		/**
@@ -2232,7 +2232,7 @@ type RootTranslation = {
 		 */
 		createFailed: string
 		/**
-		 * N​e​w​ ​p​r​o​f​i​l​e
+		 * N​e​w​ ​P​r​o​f​i​l​e
 		 */
 		createProfile: string
 		/**
@@ -2265,7 +2265,7 @@ type RootTranslation = {
 		 */
 		deletedToast: string
 		/**
-		 * d​e​t​a​c​h​ ​t​h​e​ ​s​u​b​s​c​r​i​p​t​i​o​n
+		 * D​e​t​a​c​h​ ​t​h​e​ ​S​u​b​s​c​r​i​p​t​i​o​n
 		 */
 		detachSubscription: string
 		/**
@@ -2281,7 +2281,7 @@ type RootTranslation = {
 		 */
 		desktopDescription: string
 		/**
-		 * E​d​i​t​ ​r​u​l​e​s​ ​a​n​d​ ​g​r​o​u​p​s
+		 * E​d​i​t​ ​R​u​l​e​s​ ​a​n​d​ ​G​r​o​u​p​s
 		 */
 		editRulesAndGroups: string
 		/**
@@ -2325,11 +2325,11 @@ type RootTranslation = {
 		 */
 		importFailed: string
 		/**
-		 * A​d​d​ ​s​u​b​s​c​r​i​p​t​i​o​n
+		 * A​d​d​ ​S​u​b​s​c​r​i​p​t​i​o​n
 		 */
 		importHttps: string
 		/**
-		 * C​h​o​o​s​e​ ​l​o​c​a​l​ ​f​i​l​e
+		 * C​h​o​o​s​e​ ​L​o​c​a​l​ ​F​i​l​e
 		 */
 		importLocal: string
 		/**
@@ -2750,7 +2750,7 @@ type RootTranslation = {
 		 */
 		savedToast: string
 		/**
-		 * S​a​v​e​ ​p​r​o​f​i​l​e
+		 * S​a​v​e​ ​P​r​o​f​i​l​e
 		 */
 		saveProfile: string
 		/**
@@ -2758,7 +2758,7 @@ type RootTranslation = {
 		 */
 		saving: string
 		/**
-		 * S​t​o​p​ ​s​a​f​e​l​y
+		 * S​t​o​p​ ​S​a​f​e​l​y
 		 */
 		stopForDeletion: string
 		/**
@@ -2774,7 +2774,7 @@ type RootTranslation = {
 		 */
 		switchFailed: string
 		/**
-		 * S​w​i​t​c​h​ ​p​r​o​f​i​l​e
+		 * S​w​i​t​c​h​ ​P​r​o​f​i​l​e
 		 */
 		switchProfile: string
 		/**
@@ -2834,7 +2834,7 @@ type RootTranslation = {
 		 */
 		title: string
 		/**
-		 * O​p​e​n​ ​f​o​l​d​e​r
+		 * O​p​e​n​ ​F​o​l​d​e​r
 		 */
 		openConfigDirectory: string
 		/**
@@ -2842,7 +2842,7 @@ type RootTranslation = {
 		 */
 		updateInterval: string
 		/**
-		 * U​p​d​a​t​e​ ​s​u​b​s​c​r​i​p​t​i​o​n
+		 * U​p​d​a​t​e​ ​S​u​b​s​c​r​i​p​t​i​o​n
 		 */
 		updateSubscription: string
 		/**
@@ -2850,15 +2850,15 @@ type RootTranslation = {
 		 */
 		updatingSubscription: string
 		/**
-		 * C​h​e​c​k​ ​a​n​d​ ​s​a​v​e
+		 * C​h​e​c​k​ ​a​n​d​ ​S​a​v​e
 		 */
 		checkAndSave: string
 		/**
-		 * U​p​d​a​t​e​ ​a​l​l​ ​p​r​o​x​y​ ​p​r​o​v​i​d​e​r​s
+		 * U​p​d​a​t​e​ ​A​l​l​ ​P​r​o​x​y​ ​P​r​o​v​i​d​e​r​s
 		 */
 		updateAllProxyProviders: string
 		/**
-		 * U​p​d​a​t​e​ ​a​l​l​ ​r​u​l​e​ ​p​r​o​v​i​d​e​r​s
+		 * U​p​d​a​t​e​ ​A​l​l​ ​R​u​l​e​ ​P​r​o​v​i​d​e​r​s
 		 */
 		updateAllRuleProviders: string
 		/**
@@ -2866,11 +2866,11 @@ type RootTranslation = {
 		 */
 		valid: string
 		/**
-		 * R​e​v​i​e​w​ ​w​a​r​n​i​n​g​s
+		 * R​e​v​i​e​w​ ​W​a​r​n​i​n​g​s
 		 */
 		warning: string
 		/**
-		 * R​e​v​i​e​w​ ​w​a​r​n​i​n​g​s​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
+		 * R​e​v​i​e​w​ ​W​a​r​n​i​n​g​s​ ​f​o​r​ ​{​p​r​o​f​i​l​e​}
 		 * @param {string} profile
 		 */
 		reviewWarnings: RequiredParams<'profile'>
@@ -2921,7 +2921,7 @@ type RootTranslation = {
 	}
 	services: {
 		/**
-		 * A​d​d​ ​s​e​r​v​i​c​e
+		 * A​d​d​ ​S​e​r​v​i​c​e
 		 */
 		add: string
 		/**
@@ -2942,7 +2942,7 @@ type RootTranslation = {
 		 */
 		deleteTitle: RequiredParams<'service'>
 		/**
-		 * E​d​i​t​ ​s​e​r​v​i​c​e
+		 * E​d​i​t​ ​S​e​r​v​i​c​e
 		 */
 		edit: string
 		/**
@@ -2950,7 +2950,7 @@ type RootTranslation = {
 		 */
 		editAria: string
 		/**
-		 * E​d​i​t​ ​s​e​r​v​i​c​e​s​…
+		 * E​d​i​t​ ​S​e​r​v​i​c​e​s​…
 		 */
 		editServices: string
 		/**
@@ -3038,7 +3038,7 @@ type RootTranslation = {
 		 */
 		removedToast: string
 		/**
-		 * R​e​s​t​o​r​e​ ​d​e​f​a​u​l​t​s
+		 * R​e​s​t​o​r​e​ ​D​e​f​a​u​l​t​s
 		 */
 		restoreDefaults: string
 		/**
@@ -3054,7 +3054,7 @@ type RootTranslation = {
 		 */
 		testInterval: string
 		/**
-		 * T​e​s​t​ ​l​a​t​e​n​c​y​ ​f​o​r​ ​{​s​e​r​v​i​c​e​}
+		 * T​e​s​t​ ​L​a​t​e​n​c​y​ ​f​o​r​ ​{​s​e​r​v​i​c​e​}
 		 * @param {string} service
 		 */
 		testAria: RequiredParams<'service'>
@@ -3113,11 +3113,11 @@ type RootTranslation = {
 		 */
 		close: string
 		/**
-		 * C​l​o​s​e​ ​a​l​l​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s
+		 * C​l​o​s​e​ ​A​l​l​ ​A​c​t​i​v​e​ ​C​o​n​n​e​c​t​i​o​n​s
 		 */
 		closeAllActiveConfirm: string
 		/**
-		 * C​l​o​s​e​ ​a​l​l​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s
+		 * C​l​o​s​e​ ​A​l​l​ ​A​c​t​i​v​e​ ​C​o​n​n​e​c​t​i​o​n​s
 		 */
 		closeAllActiveConnections: string
 		/**
@@ -3143,7 +3143,7 @@ type RootTranslation = {
 		 */
 		closeConflict: string
 		/**
-		 * C​l​o​s​e​ ​c​o​n​n​e​c​t​i​o​n
+		 * C​l​o​s​e​ ​C​o​n​n​e​c​t​i​o​n
 		 */
 		closeConnectionConfirm: string
 		/**
@@ -3264,7 +3264,7 @@ type RootTranslation = {
 		 */
 		loadError: string
 		/**
-		 * S​h​o​w​ ​m​o​r​e
+		 * S​h​o​w​ ​M​o​r​e
 		 */
 		loadMore: string
 		/**
@@ -3463,7 +3463,7 @@ type RootTranslation = {
 		 */
 		allSources: string
 		/**
-		 * C​l​e​a​r​ ​l​o​c​a​l
+		 * C​l​e​a​r​ ​L​o​c​a​l
 		 */
 		clearLocal: string
 		/**
@@ -3479,7 +3479,7 @@ type RootTranslation = {
 		 */
 		copied: string
 		/**
-		 * C​o​p​y​ ​s​a​f​e​ ​e​v​e​n​t​ ​t​e​x​t
+		 * C​o​p​y​ ​S​a​f​e​ ​E​v​e​n​t​ ​T​e​x​t
 		 */
 		copyEvent: string
 		/**
@@ -3491,7 +3491,7 @@ type RootTranslation = {
 		 */
 		fixtureNotice: string
 		/**
-		 * F​o​l​l​o​w​ ​l​a​t​e​s​t
+		 * F​o​l​l​o​w​ ​L​a​t​e​s​t
 		 */
 		followLatest: string
 		/**
@@ -3557,7 +3557,7 @@ type RootTranslation = {
 		 */
 		orderLabel: string
 		/**
-		 * P​a​u​s​e​ ​v​i​e​w
+		 * P​a​u​s​e​ ​V​i​e​w
 		 */
 		pause: string
 		/**
@@ -3566,7 +3566,7 @@ type RootTranslation = {
 		 */
 		paused: RequiredParams<'count'>
 		/**
-		 * R​e​s​u​m​e​ ​v​i​e​w
+		 * R​e​s​u​m​e​ ​V​i​e​w
 		 */
 		resume: string
 		/**
@@ -3650,7 +3650,7 @@ type RootTranslation = {
 	}
 	diagnostics: {
 		/**
-		 * C​a​n​c​e​l​ ​r​u​n
+		 * C​a​n​c​e​l​ ​R​u​n
 		 */
 		cancel: string
 		check: {
@@ -3735,7 +3735,7 @@ type RootTranslation = {
 				'redaction-report': string
 			}
 			/**
-			 * C​h​o​o​s​e​ ​l​o​c​a​t​i​o​n​ ​a​n​d​ ​s​a​v​e
+			 * C​h​o​o​s​e​ ​L​o​c​a​t​i​o​n​ ​a​n​d​ ​S​a​v​e
 			 */
 			confirmSave: string
 			/**
@@ -3755,7 +3755,7 @@ type RootTranslation = {
 			 */
 			preparing: string
 			/**
-			 * P​r​e​v​i​e​w​ ​s​u​p​p​o​r​t​ ​b​u​n​d​l​e
+			 * P​r​e​v​i​e​w​ ​S​u​p​p​o​r​t​ ​B​u​n​d​l​e
 			 */
 			preview: string
 			/**
@@ -3872,7 +3872,7 @@ type RootTranslation = {
 		 */
 		observation: string
 		/**
-		 * O​p​e​n​ ​d​i​a​g​n​o​s​t​i​c​s
+		 * O​p​e​n​ ​D​i​a​g​n​o​s​t​i​c​s
 		 */
 		open: string
 		/**
@@ -3888,7 +3888,7 @@ type RootTranslation = {
 		 */
 		route: string
 		/**
-		 * R​u​n​ ​d​i​a​g​n​o​s​t​i​c​s
+		 * R​u​n​ ​D​i​a​g​n​o​s​t​i​c​s
 		 */
 		run: string
 		/**
@@ -4215,7 +4215,7 @@ type RootTranslation = {
 		 */
 		pinLabel: string
 		/**
-		 * R​e​q​u​e​s​t​ ​a​ ​n​e​w​ ​P​I​N
+		 * R​e​q​u​e​s​t​ ​a​ ​N​e​w​ ​P​I​N
 		 */
 		requestAgain: string
 		/**
@@ -4224,6 +4224,64 @@ type RootTranslation = {
 		requesting: string
 		/**
 		 * C​o​n​n​e​c​t​ ​t​h​i​s​ ​b​r​o​w​s​e​r
+		 */
+		title: string
+	}
+	browserBackendRecovery: {
+		/**
+		 * C​a​n​c​e​l
+		 */
+		cancel: string
+		/**
+		 * B​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.
+		 */
+		cancelled: string
+		/**
+		 * T​h​e​ ​c​o​n​n​e​c​t​e​d​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g​.​ ​A​p​p​l​i​c​a​t​i​o​n​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​h​i​d​d​e​n​ ​u​n​t​i​l​ ​t​h​i​s​ ​b​r​o​w​s​e​r​ ​e​s​t​a​b​l​i​s​h​e​s​ ​a​ ​n​e​w​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​.
+		 */
+		description: string
+		/**
+		 * L​o​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​ ​i​n​t​e​r​r​u​p​t​e​d
+		 */
+		eyebrow: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​ ​b​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​.​ ​T​r​y​ ​a​g​a​i​n​.
+		 */
+		failed: string
+		/**
+		 * F​o​u​n​d​ ​M​i​s​h​ ​o​n​ ​p​o​r​t​ ​{​p​o​r​t​}​.​ ​R​e​c​o​n​n​e​c​t​i​n​g​…
+		 * @param {number} port
+		 */
+		found: RequiredParams<'port'>
+		/**
+		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​ ​a​f​t​e​r​ ​c​h​e​c​k​i​n​g​ ​{​o​c​c​u​p​i​e​d​P​o​r​t​s​}​ ​o​c​c​u​p​i​e​d​ ​a​n​d​ ​{​e​m​p​t​y​P​o​r​t​s​}​ ​e​m​p​t​y​ ​p​o​r​t​s​.
+		 * @param {number} emptyPorts
+		 * @param {number} occupiedPorts
+		 */
+		notFound: RequiredParams<'emptyPorts' | 'occupiedPorts'>
+		/**
+		 * E​n​t​e​r​ ​a​ ​p​o​r​t​ ​f​r​o​m​ ​1​ ​t​o​ ​6​5​5​3​5​.​ ​M​i​s​h​ ​c​h​e​c​k​s​ ​i​t​ ​f​i​r​s​t​,​ ​t​h​e​n​ ​s​c​a​n​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​n​t​i​l​ ​1​0​ ​o​c​c​u​p​i​e​d​ ​o​r​ ​5​ ​e​m​p​t​y​ ​p​o​r​t​s​ ​a​r​e​ ​r​e​a​c​h​e​d​.
+		 */
+		portHint: string
+		/**
+		 * B​a​c​k​e​n​d​ ​p​o​r​t
+		 */
+		portLabel: string
+		/**
+		 * R​e​c​o​n​n​e​c​t
+		 */
+		reconnect: string
+		/**
+		 * T​r​y​ ​a​g​a​i​n
+		 */
+		retry: string
+		/**
+		 * C​h​e​c​k​i​n​g​ ​p​o​r​t​ ​{​p​o​r​t​}​,​ ​t​h​e​n​ ​M​i​s​h​ ​p​o​r​t​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​p​w​a​r​d​…
+		 * @param {number} port
+		 */
+		searching: RequiredParams<'port'>
+		/**
+		 * M​i​s​h​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g
 		 */
 		title: string
 	}
@@ -4369,7 +4427,7 @@ export type TranslationFunctions = {
 		backupDescription: () => LocalizedString
 		backupFlow: {
 			/**
-			 * Restore selected data
+			 * Restore Selected Data
 			 */
 			commit: () => LocalizedString
 			conflict: {
@@ -4415,7 +4473,7 @@ export type TranslationFunctions = {
 			 */
 			included: () => LocalizedString
 			/**
-			 * Create backup
+			 * Create Backup
 			 */
 			create: () => LocalizedString
 			/**
@@ -4455,7 +4513,7 @@ export type TranslationFunctions = {
 			 */
 			patchesDescription: () => LocalizedString
 			/**
-			 * Generate preview
+			 * Generate Preview
 			 */
 			preview: () => LocalizedString
 			/**
@@ -4475,7 +4533,7 @@ export type TranslationFunctions = {
 			 */
 			resolution: () => LocalizedString
 			/**
-			 * Restore backup
+			 * Restore Backup
 			 */
 			restore: () => LocalizedString
 			/**
@@ -4518,7 +4576,7 @@ export type TranslationFunctions = {
 				restored: () => LocalizedString
 			}
 			/**
-			 * Choose location and save
+			 * Choose Location and Save
 			 */
 			save: () => LocalizedString
 			/**
@@ -4571,7 +4629,7 @@ export type TranslationFunctions = {
 		 */
 		closeWindowDescription: () => LocalizedString
 		/**
-		 * Check for updates
+		 * Check for Updates
 		 */
 		checkForUpdates: () => LocalizedString
 		/**
@@ -4591,7 +4649,7 @@ export type TranslationFunctions = {
 		 */
 		hideToStatusBar: () => LocalizedString
 		/**
-		 * Install helper
+		 * Install Helper
 		 */
 		installTunHelper: () => LocalizedString
 		/**
@@ -4650,7 +4708,7 @@ export type TranslationFunctions = {
 				runtimeTransition: () => LocalizedString
 			}
 			/**
-			 * Test listener
+			 * Test Listener
 			 */
 			test: () => LocalizedString
 			/**
@@ -4667,11 +4725,11 @@ export type TranslationFunctions = {
 		 */
 		managedPortsDescription: () => LocalizedString
 		/**
-		 * Find available ports
+		 * Find Available Ports
 		 */
 		managedPortsFind: () => LocalizedString
 		/**
-		 * Find ports and retry
+		 * Find Ports and Retry
 		 */
 		managedPortsFindAndRetry: () => LocalizedString
 		/**
@@ -4679,7 +4737,7 @@ export type TranslationFunctions = {
 		 */
 		managedPortsConflict: (arg: { endpoint: unknown }) => LocalizedString
 		/**
-		 * Save ports
+		 * Save Ports
 		 */
 		managedPortsSave: () => LocalizedString
 		/**
@@ -4780,7 +4838,7 @@ export type TranslationFunctions = {
 			 */
 			observationUnknown: () => LocalizedString
 			/**
-			 * Refresh observation
+			 * Refresh Observation
 			 */
 			refresh: () => LocalizedString
 			/**
@@ -4869,11 +4927,11 @@ export type TranslationFunctions = {
 			unavailable: () => LocalizedString
 		}
 		/**
-		 * Remove helper
+		 * Remove Helper
 		 */
 		removeTunHelper: () => LocalizedString
 		/**
-		 * Clean reinstall
+		 * Clean Reinstall
 		 */
 		reinstallTunHelper: () => LocalizedString
 		/**
@@ -4881,7 +4939,7 @@ export type TranslationFunctions = {
 		 */
 		reinstallTunHelperBlocked: () => LocalizedString
 		/**
-		 * Repair helper
+		 * Repair Helper
 		 */
 		repairTunHelper: () => LocalizedString
 		/**
@@ -4889,7 +4947,7 @@ export type TranslationFunctions = {
 		 */
 		quitOnClose: () => LocalizedString
 		/**
-		 * Show window
+		 * Show Window
 		 */
 		showWindow: () => LocalizedString
 		/**
@@ -5079,23 +5137,23 @@ export type TranslationFunctions = {
 		 */
 		label: () => LocalizedString
 		/**
-		 * Run lifecycle check
+		 * Run Lifecycle Check
 		 */
 		lifecycleAction: () => LocalizedString
 		/**
-		 * Allow status notification
+		 * Allow Status Notification
 		 */
 		notificationAction: () => LocalizedString
 		/**
-		 * Review VPN permission
+		 * Review VPN Permission
 		 */
 		permissionAction: () => LocalizedString
 		/**
-		 * Reset lifecycle state
+		 * Reset Lifecycle State
 		 */
 		reconcileAction: () => LocalizedString
 		/**
-		 * Stop lifecycle check
+		 * Stop Lifecycle Check
 		 */
 		stopAction: () => LocalizedString
 		/**
@@ -5175,7 +5233,7 @@ export type TranslationFunctions = {
 		 */
 		trigger: (arg: { count: number }) => LocalizedString
 		/**
-		 * View all events
+		 * View All Events
 		 */
 		viewAllEvents: () => LocalizedString
 	}
@@ -5213,7 +5271,7 @@ export type TranslationFunctions = {
 		 */
 		completedAnnouncement: () => LocalizedString
 		/**
-		 * Start using Mish
+		 * Start Using Mish
 		 */
 		completeWelcome: () => LocalizedString
 		/**
@@ -5221,7 +5279,7 @@ export type TranslationFunctions = {
 		 */
 		coverPurpose: () => LocalizedString
 		/**
-		 * Not now
+		 * Not Now
 		 */
 		dismissWelcome: () => LocalizedString
 		/**
@@ -5229,7 +5287,7 @@ export type TranslationFunctions = {
 		 */
 		next: () => LocalizedString
 		/**
-		 * Open welcome
+		 * Open Welcome
 		 */
 		notificationAction: () => LocalizedString
 		/**
@@ -5305,7 +5363,7 @@ export type TranslationFunctions = {
 		 */
 		source: () => LocalizedString
 		/**
-		 * Show me around
+		 * Show Me Around
 		 */
 		startTour: () => LocalizedString
 		/**
@@ -5319,31 +5377,31 @@ export type TranslationFunctions = {
 	}
 	proxyControl: {
 		/**
-		 * Disable proxy
+		 * Disable Proxy
 		 */
 		disableAria: () => LocalizedString
 		/**
-		 * Disable proxy
+		 * Disable Proxy
 		 */
 		disable: () => LocalizedString
 		/**
-		 * Disable the proxy demo state
+		 * Disable the Proxy Demo State
 		 */
 		disableFixtureAria: () => LocalizedString
 		/**
-		 * Launch proxy
+		 * Launch Proxy
 		 */
 		enableAria: () => LocalizedString
 		/**
-		 * Launch the proxy demo state
+		 * Launch the Proxy Demo State
 		 */
 		enableFixtureAria: () => LocalizedString
 		/**
-		 * Launch proxy with {modes}
+		 * Launch Proxy with {modes}
 		 */
 		enableWithModes: (arg: { modes: string }) => LocalizedString
 		/**
-		 * Launch proxy
+		 * Launch Proxy
 		 */
 		enable: () => LocalizedString
 		/**
@@ -5437,11 +5495,11 @@ export type TranslationFunctions = {
 		 */
 		noSelection: () => LocalizedString
 		/**
-		 * Live traffic
+		 * Live Traffic
 		 */
 		openLiveTraffic: () => LocalizedString
 		/**
-		 * Open live traffic details
+		 * Open Live Traffic Details
 		 */
 		openLiveTrafficAria: () => LocalizedString
 		/**
@@ -5481,11 +5539,11 @@ export type TranslationFunctions = {
 		 */
 		usedFirst: () => LocalizedString
 		/**
-		 * View all
+		 * View All
 		 */
 		viewAll: () => LocalizedString
 		/**
-		 * View all policy groups
+		 * View All Policy Groups
 		 */
 		viewAllGroupsAria: () => LocalizedString
 		/**
@@ -5495,7 +5553,7 @@ export type TranslationFunctions = {
 	}
 	capture: {
 		/**
-		 * Got it
+		 * Got It
 		 */
 		acknowledge: () => LocalizedString
 		/**
@@ -5535,7 +5593,7 @@ export type TranslationFunctions = {
 		 */
 		selected: () => LocalizedString
 		/**
-		 * Leave OS settings as is
+		 * Leave OS Settings as Is
 		 */
 		leaveAsIs: () => LocalizedString
 		/**
@@ -5668,7 +5726,7 @@ export type TranslationFunctions = {
 			 */
 			installationFailed: () => LocalizedString
 			/**
-			 * Install helper
+			 * Install Helper
 			 */
 			installHelper: () => LocalizedString
 			/**
@@ -5680,7 +5738,7 @@ export type TranslationFunctions = {
 			 */
 			installerUnavailable: () => LocalizedString
 			/**
-			 * Not now
+			 * Not Now
 			 */
 			notNow: () => LocalizedString
 			/**
@@ -5688,7 +5746,7 @@ export type TranslationFunctions = {
 			 */
 			preparationFailed: () => LocalizedString
 			/**
-			 * Review helper setup
+			 * Review Helper Setup
 			 */
 			reviewSetup: () => LocalizedString
 			/**
@@ -5779,7 +5837,7 @@ export type TranslationFunctions = {
 		 */
 		childCount: (arg: { count: number }) => LocalizedString
 		/**
-		 * Cancel delay test for {group}
+		 * Cancel Delay Test for {group}
 		 */
 		cancelDelay: (arg: { group: string }) => LocalizedString
 		/**
@@ -6021,7 +6079,7 @@ export type TranslationFunctions = {
 		 */
 		sortChildren: (arg: { group: string }) => LocalizedString
 		/**
-		 * Start delay test for {group}
+		 * Start Delay Test for {group}
 		 */
 		startDelay: (arg: { group: string }) => LocalizedString
 		/**
@@ -6043,7 +6101,7 @@ export type TranslationFunctions = {
 		 */
 		patchActivationBlocked: () => LocalizedString
 		/**
-		 * Add patch
+		 * Add Patch
 		 */
 		patchAdd: () => LocalizedString
 		/**
@@ -6067,7 +6125,7 @@ export type TranslationFunctions = {
 		 */
 		patchDisabled: () => LocalizedString
 		/**
-		 * Discard changes
+		 * Discard Changes
 		 */
 		patchDiscard: () => LocalizedString
 		/**
@@ -6079,7 +6137,7 @@ export type TranslationFunctions = {
 		 */
 		patchDiscardTitle: () => LocalizedString
 		/**
-		 * Edit patch
+		 * Edit Patch
 		 */
 		patchEdit: () => LocalizedString
 		/**
@@ -6119,7 +6177,7 @@ export type TranslationFunctions = {
 		 */
 		patchFormDescription: () => LocalizedString
 		/**
-		 * Add selector group
+		 * Add Selector Group
 		 */
 		patchGroupAdd: () => LocalizedString
 		/**
@@ -6127,7 +6185,7 @@ export type TranslationFunctions = {
 		 */
 		patchGroupLabel: () => LocalizedString
 		/**
-		 * Change group members
+		 * Change Group Members
 		 */
 		patchGroupMembers: () => LocalizedString
 		/**
@@ -6135,7 +6193,7 @@ export type TranslationFunctions = {
 		 */
 		patchGroupOrder: () => LocalizedString
 		/**
-		 * Order policy groups
+		 * Order Policy Groups
 		 */
 		patchGroupReorder: () => LocalizedString
 		/**
@@ -6155,11 +6213,11 @@ export type TranslationFunctions = {
 		 */
 		patchMembersDescription: () => LocalizedString
 		/**
-		 * Move down
+		 * Move Down
 		 */
 		patchMoveDown: () => LocalizedString
 		/**
-		 * Move up
+		 * Move Up
 		 */
 		patchMoveUp: () => LocalizedString
 		/**
@@ -6175,15 +6233,15 @@ export type TranslationFunctions = {
 		 */
 		patchPrefix: () => LocalizedString
 		/**
-		 * Reset all
+		 * Reset All
 		 */
 		patchReset: () => LocalizedString
 		/**
-		 * Delete source rule
+		 * Delete Source Rule
 		 */
 		patchRuleDelete: () => LocalizedString
 		/**
-		 * Disable source rule
+		 * Disable Source Rule
 		 */
 		patchRuleDisable: () => LocalizedString
 		/**
@@ -6215,7 +6273,7 @@ export type TranslationFunctions = {
 		 */
 		patchRuleValueDescription: () => LocalizedString
 		/**
-		 * Save patches
+		 * Save Patches
 		 */
 		patchSave: () => LocalizedString
 		/**
@@ -6259,7 +6317,7 @@ export type TranslationFunctions = {
 		 */
 		patchUnsavedValidation: () => LocalizedString
 		/**
-		 * Update patch
+		 * Update Patch
 		 */
 		patchUpdate: () => LocalizedString
 		/**
@@ -6355,7 +6413,7 @@ export type TranslationFunctions = {
 		 */
 		binaryMissing: () => LocalizedString
 		/**
-		 * Cancel activation
+		 * Cancel Activation
 		 */
 		cancelActivation: () => LocalizedString
 		/**
@@ -6367,7 +6425,7 @@ export type TranslationFunctions = {
 		 */
 		active: () => LocalizedString
 		/**
-		 * Add subscription
+		 * Add Subscription
 		 */
 		addSubscription: () => LocalizedString
 		/**
@@ -6419,7 +6477,7 @@ export type TranslationFunctions = {
 		 */
 		createFailed: () => LocalizedString
 		/**
-		 * New profile
+		 * New Profile
 		 */
 		createProfile: () => LocalizedString
 		/**
@@ -6451,7 +6509,7 @@ export type TranslationFunctions = {
 		 */
 		deletedToast: () => LocalizedString
 		/**
-		 * detach the subscription
+		 * Detach the Subscription
 		 */
 		detachSubscription: () => LocalizedString
 		/**
@@ -6467,7 +6525,7 @@ export type TranslationFunctions = {
 		 */
 		desktopDescription: () => LocalizedString
 		/**
-		 * Edit rules and groups
+		 * Edit Rules and Groups
 		 */
 		editRulesAndGroups: () => LocalizedString
 		/**
@@ -6511,11 +6569,11 @@ export type TranslationFunctions = {
 		 */
 		importFailed: () => LocalizedString
 		/**
-		 * Add subscription
+		 * Add Subscription
 		 */
 		importHttps: () => LocalizedString
 		/**
-		 * Choose local file
+		 * Choose Local File
 		 */
 		importLocal: () => LocalizedString
 		/**
@@ -6931,7 +6989,7 @@ export type TranslationFunctions = {
 		 */
 		savedToast: () => LocalizedString
 		/**
-		 * Save profile
+		 * Save Profile
 		 */
 		saveProfile: () => LocalizedString
 		/**
@@ -6939,7 +6997,7 @@ export type TranslationFunctions = {
 		 */
 		saving: () => LocalizedString
 		/**
-		 * Stop safely
+		 * Stop Safely
 		 */
 		stopForDeletion: () => LocalizedString
 		/**
@@ -6955,7 +7013,7 @@ export type TranslationFunctions = {
 		 */
 		switchFailed: () => LocalizedString
 		/**
-		 * Switch profile
+		 * Switch Profile
 		 */
 		switchProfile: () => LocalizedString
 		/**
@@ -7015,7 +7073,7 @@ export type TranslationFunctions = {
 		 */
 		title: () => LocalizedString
 		/**
-		 * Open folder
+		 * Open Folder
 		 */
 		openConfigDirectory: () => LocalizedString
 		/**
@@ -7023,7 +7081,7 @@ export type TranslationFunctions = {
 		 */
 		updateInterval: () => LocalizedString
 		/**
-		 * Update subscription
+		 * Update Subscription
 		 */
 		updateSubscription: () => LocalizedString
 		/**
@@ -7031,15 +7089,15 @@ export type TranslationFunctions = {
 		 */
 		updatingSubscription: () => LocalizedString
 		/**
-		 * Check and save
+		 * Check and Save
 		 */
 		checkAndSave: () => LocalizedString
 		/**
-		 * Update all proxy providers
+		 * Update All Proxy Providers
 		 */
 		updateAllProxyProviders: () => LocalizedString
 		/**
-		 * Update all rule providers
+		 * Update All Rule Providers
 		 */
 		updateAllRuleProviders: () => LocalizedString
 		/**
@@ -7047,11 +7105,11 @@ export type TranslationFunctions = {
 		 */
 		valid: () => LocalizedString
 		/**
-		 * Review warnings
+		 * Review Warnings
 		 */
 		warning: () => LocalizedString
 		/**
-		 * Review warnings for {profile}
+		 * Review Warnings for {profile}
 		 */
 		reviewWarnings: (arg: { profile: string }) => LocalizedString
 		/**
@@ -7099,7 +7157,7 @@ export type TranslationFunctions = {
 	}
 	services: {
 		/**
-		 * Add service
+		 * Add Service
 		 */
 		add: () => LocalizedString
 		/**
@@ -7119,7 +7177,7 @@ export type TranslationFunctions = {
 		 */
 		deleteTitle: (arg: { service: string }) => LocalizedString
 		/**
-		 * Edit service
+		 * Edit Service
 		 */
 		edit: () => LocalizedString
 		/**
@@ -7127,7 +7185,7 @@ export type TranslationFunctions = {
 		 */
 		editAria: () => LocalizedString
 		/**
-		 * Edit services…
+		 * Edit Services…
 		 */
 		editServices: () => LocalizedString
 		/**
@@ -7215,7 +7273,7 @@ export type TranslationFunctions = {
 		 */
 		removedToast: () => LocalizedString
 		/**
-		 * Restore defaults
+		 * Restore Defaults
 		 */
 		restoreDefaults: () => LocalizedString
 		/**
@@ -7231,7 +7289,7 @@ export type TranslationFunctions = {
 		 */
 		testInterval: () => LocalizedString
 		/**
-		 * Test latency for {service}
+		 * Test Latency for {service}
 		 */
 		testAria: (arg: { service: string }) => LocalizedString
 		/**
@@ -7289,11 +7347,11 @@ export type TranslationFunctions = {
 		 */
 		close: () => LocalizedString
 		/**
-		 * Close all active connections
+		 * Close All Active Connections
 		 */
 		closeAllActiveConfirm: () => LocalizedString
 		/**
-		 * Close all active connections
+		 * Close All Active Connections
 		 */
 		closeAllActiveConnections: () => LocalizedString
 		/**
@@ -7317,7 +7375,7 @@ export type TranslationFunctions = {
 		 */
 		closeConflict: () => LocalizedString
 		/**
-		 * Close connection
+		 * Close Connection
 		 */
 		closeConnectionConfirm: () => LocalizedString
 		/**
@@ -7437,7 +7495,7 @@ export type TranslationFunctions = {
 		 */
 		loadError: () => LocalizedString
 		/**
-		 * Show more
+		 * Show More
 		 */
 		loadMore: () => LocalizedString
 		/**
@@ -7631,7 +7689,7 @@ export type TranslationFunctions = {
 		 */
 		allSources: () => LocalizedString
 		/**
-		 * Clear local
+		 * Clear Local
 		 */
 		clearLocal: () => LocalizedString
 		/**
@@ -7647,7 +7705,7 @@ export type TranslationFunctions = {
 		 */
 		copied: () => LocalizedString
 		/**
-		 * Copy safe event text
+		 * Copy Safe Event Text
 		 */
 		copyEvent: () => LocalizedString
 		/**
@@ -7659,7 +7717,7 @@ export type TranslationFunctions = {
 		 */
 		fixtureNotice: () => LocalizedString
 		/**
-		 * Follow latest
+		 * Follow Latest
 		 */
 		followLatest: () => LocalizedString
 		/**
@@ -7725,7 +7783,7 @@ export type TranslationFunctions = {
 		 */
 		orderLabel: () => LocalizedString
 		/**
-		 * Pause view
+		 * Pause View
 		 */
 		pause: () => LocalizedString
 		/**
@@ -7733,7 +7791,7 @@ export type TranslationFunctions = {
 		 */
 		paused: (arg: { count: number }) => LocalizedString
 		/**
-		 * Resume view
+		 * Resume View
 		 */
 		resume: () => LocalizedString
 		/**
@@ -7815,7 +7873,7 @@ export type TranslationFunctions = {
 	}
 	diagnostics: {
 		/**
-		 * Cancel run
+		 * Cancel Run
 		 */
 		cancel: () => LocalizedString
 		check: {
@@ -7900,7 +7958,7 @@ export type TranslationFunctions = {
 				'redaction-report': () => LocalizedString
 			}
 			/**
-			 * Choose location and save
+			 * Choose Location and Save
 			 */
 			confirmSave: () => LocalizedString
 			/**
@@ -7920,7 +7978,7 @@ export type TranslationFunctions = {
 			 */
 			preparing: () => LocalizedString
 			/**
-			 * Preview support bundle
+			 * Preview Support Bundle
 			 */
 			preview: () => LocalizedString
 			/**
@@ -8037,7 +8095,7 @@ export type TranslationFunctions = {
 		 */
 		observation: () => LocalizedString
 		/**
-		 * Open diagnostics
+		 * Open Diagnostics
 		 */
 		open: () => LocalizedString
 		/**
@@ -8049,7 +8107,7 @@ export type TranslationFunctions = {
 		 */
 		route: () => LocalizedString
 		/**
-		 * Run diagnostics
+		 * Run Diagnostics
 		 */
 		run: () => LocalizedString
 		/**
@@ -8375,7 +8433,7 @@ export type TranslationFunctions = {
 		 */
 		pinLabel: () => LocalizedString
 		/**
-		 * Request a new PIN
+		 * Request a New PIN
 		 */
 		requestAgain: () => LocalizedString
 		/**
@@ -8384,6 +8442,60 @@ export type TranslationFunctions = {
 		requesting: () => LocalizedString
 		/**
 		 * Connect this browser
+		 */
+		title: () => LocalizedString
+	}
+	browserBackendRecovery: {
+		/**
+		 * Cancel
+		 */
+		cancel: () => LocalizedString
+		/**
+		 * Backend discovery was cancelled.
+		 */
+		cancelled: () => LocalizedString
+		/**
+		 * The connected Mish backend stopped responding. Application controls are hidden until this browser establishes a new authenticated connection.
+		 */
+		description: () => LocalizedString
+		/**
+		 * Local connection interrupted
+		 */
+		eyebrow: () => LocalizedString
+		/**
+		 * Mish could not complete backend discovery. Try again.
+		 */
+		failed: () => LocalizedString
+		/**
+		 * Found Mish on port {port}. Reconnecting…
+		 */
+		found: (arg: { port: number }) => LocalizedString
+		/**
+		 * No running Mish backend was found after checking {occupiedPorts} occupied and {emptyPorts} empty ports.
+		 */
+		notFound: (arg: { emptyPorts: number, occupiedPorts: number }) => LocalizedString
+		/**
+		 * Enter a port from 1 to 65535. Mish checks it first, then scans from 6474 until 10 occupied or 5 empty ports are reached.
+		 */
+		portHint: () => LocalizedString
+		/**
+		 * Backend port
+		 */
+		portLabel: () => LocalizedString
+		/**
+		 * Reconnect
+		 */
+		reconnect: () => LocalizedString
+		/**
+		 * Try again
+		 */
+		retry: () => LocalizedString
+		/**
+		 * Checking port {port}, then Mish ports from 6474 upward…
+		 */
+		searching: (arg: { port: number }) => LocalizedString
+		/**
+		 * Mish stopped responding
 		 */
 		title: () => LocalizedString
 	}

@@ -82,22 +82,22 @@ afterAll(() => root.unmount());
 
 describe("service monitor latency colors", () => {
   test("uses success at 1000ms, warning above it, and error before slow latency", async () => {
-    const google = page.getByRole("button", { name: "Test latency for Google" });
-    const github = page.getByRole("button", { name: "Test latency for GitHub" });
-    const cloudflare = page.getByRole("button", { name: "Test latency for Cloudflare" });
+    const google = page.getByRole("button", { name: "Test Latency for Google" });
+    const github = page.getByRole("button", { name: "Test Latency for GitHub" });
+    const cloudflare = page.getByRole("button", { name: "Test Latency for Cloudflare" });
 
     await expect.element(google.getByText("1000 ms")).toBeVisible();
     await expect.element(github.getByText("1001 ms")).toBeVisible();
     await expect.element(cloudflare.getByText("Unreachable")).toBeVisible();
 
     const googleLatency = document.querySelector<HTMLElement>(
-      '[aria-label="Test latency for Google"] .service-monitor-latency',
+      '[aria-label="Test Latency for Google"] .service-monitor-latency',
     );
     const githubLatency = document.querySelector<HTMLElement>(
-      '[aria-label="Test latency for GitHub"] .service-monitor-latency',
+      '[aria-label="Test Latency for GitHub"] .service-monitor-latency',
     );
     const cloudflareLatency = document.querySelector<HTMLElement>(
-      '[aria-label="Test latency for Cloudflare"] .service-monitor-latency',
+      '[aria-label="Test Latency for Cloudflare"] .service-monitor-latency',
     );
     if (!googleLatency || !githubLatency || !cloudflareLatency) {
       throw new Error("Missing service latency elements");

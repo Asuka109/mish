@@ -7,18 +7,18 @@ use `<scope>:<action>[:<variant>]` when they target one product area and
 
 ## Daily commands
 
-| Command             | Purpose                                                      |
-| ------------------- | ------------------------------------------------------------ |
-| `pnpm demo`         | Start the explicit browser demo on the first port from 4173. |
-| `pnpm desktop:demo` | Start the backend-free demo in a native Tauri window.        |
-| `pnpm dev`          | Start the ordinary unauthenticated Web development entry.    |
-| `pnpm desktop:dev`  | Start operational Tauri with an auto-selected Web origin.    |
-| `pnpm sketch:dev`   | Start the retained interaction reference.                    |
-| `pnpm test:watch`   | Run Web unit tests in watch mode.                            |
-| `pnpm test:unit`    | Run all TypeScript unit tests once.                          |
-| `pnpm check`        | Run the fast pull-request-equivalent gate.                   |
-| `pnpm check:all`    | Run the complete non-browser repository inspection.          |
-| `pnpm test:browser` | Run the responsive suite in a real Chromium browser.         |
+| Command             | Purpose                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `pnpm demo`         | Start the explicit browser demo on the first port from 4173.                                                  |
+| `pnpm desktop:demo` | Start the backend-free demo in a native Tauri window.                                                         |
+| `pnpm dev`          | Start the ordinary unauthenticated Web development entry.                                                     |
+| `pnpm desktop:dev`  | Start operational Tauri, print a one-time authorized Browser Client URL, and use an auto-selected Web origin. |
+| `pnpm sketch:dev`   | Start the retained interaction reference.                                                                     |
+| `pnpm test:watch`   | Run Web unit tests in watch mode.                                                                             |
+| `pnpm test:unit`    | Run all TypeScript unit tests once.                                                                           |
+| `pnpm check`        | Run the fast pull-request-equivalent gate.                                                                    |
+| `pnpm check:all`    | Run the complete non-browser repository inspection.                                                           |
+| `pnpm test:browser` | Run the responsive suite in a real Chromium browser.                                                          |
 
 Arguments pass through to the underlying package command. For example:
 

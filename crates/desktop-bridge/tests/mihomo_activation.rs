@@ -38,10 +38,10 @@ use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError,
     LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState, RoutingMode,
-    StatusAdapterKind, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController,
-    TunHelperError, TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
-    TunHelperObservation, TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation,
-    tun_observation_now,
+    StatusAdapterKind, SystemProxyPhase, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability,
+    TunHelperController, TunHelperError, TunHelperHealth, TunHelperLifecycleOperation,
+    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
+    TunNetworkObservation, tun_observation_now,
 };
 use serde_json::json;
 use serde_norway::Value;
@@ -1347,6 +1347,100 @@ async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
     assert_eq!(candidate_count(&root), 0);
 
     controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-pending-handoff-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let replacement = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
+    let repository = FileProfileRepository::new(profile_root.join("profile-store"));
+    repository.save(&record).unwrap();
+    repository.save(&replacement).unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let capture = Arc::new(CaptureReconciler::new(
+        Arc::new(MemoryCapturePlatform::default()),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host,
+        safe_runtime.clone(),
+        move || ManagedRuntimePolicy::new(address, "synthetic-pending-secret"),
+    ));
+    let mut activation_updates = coordinator.subscribe();
+
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), record.metadata.id.as_str())
+        .await
+        .unwrap();
+    while coordinator.activation_snapshot().await.phase == ProfileActivationPhase::Pending {
+        activation_updates.recv().await.unwrap();
+    }
+    assert_eq!(
+        coordinator.activation_snapshot().await.phase,
+        ProfileActivationPhase::Success
+    );
+
+    let mut capture_updates = safe_runtime.subscribe_capture().unwrap();
+    let command_id = Uuid::new_v4().to_string();
+    let launch = coordinator.launch_proxy(
+        &command_id,
+        Some(replacement.metadata.id.as_str()),
+        CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+        StatusAdapterKind::Rpc,
+    );
+    let observe = async {
+        let mut phases = Vec::new();
+        loop {
+            let status = capture_updates.recv().await.unwrap();
+            phases.push(status.system_proxy.phase);
+            if status.system_proxy.phase == SystemProxyPhase::Applied {
+                break phases;
+            }
+        }
+    };
+    let (result, phases) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(launch, observe)
+    })
+    .await
+    .unwrap();
+
+    result.unwrap();
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+
+    assert_eq!(phases.first(), Some(&SystemProxyPhase::Pending));
+    assert_eq!(phases.last(), Some(&SystemProxyPhase::Applied));
+    assert!(
+        !phases.contains(&SystemProxyPhase::Off),
+        "aggregate launch regressed from Pending to Off before Applied: {phases:?}"
+    );
 }
 
 #[tokio::test]

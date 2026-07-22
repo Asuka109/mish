@@ -39,11 +39,21 @@ pub enum EventSource {
     Rpc,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ApplicationNotificationKind {
+    CaptureFailure,
+    ProfileActivationFailure,
+    SettingsFailure,
+    TrafficFailure,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ApplicationDiagnosticEvent {
     detail: Option<&'static str>,
     level: EventLevel,
     message: &'static str,
+    notification_kind: Option<ApplicationNotificationKind>,
 }
 
 impl ApplicationDiagnosticEvent {
@@ -56,46 +66,85 @@ impl ApplicationDiagnosticEvent {
             detail,
             level,
             message,
+            notification_kind: None,
+        }
+    }
+
+    pub const fn notification(
+        level: EventLevel,
+        message: &'static str,
+        detail: Option<&'static str>,
+        notification_kind: ApplicationNotificationKind,
+    ) -> Self {
+        Self {
+            detail,
+            level,
+            message,
+            notification_kind: Some(notification_kind),
         }
     }
 
     pub const fn capture_failure(failure: CaptureFailureKind) -> Self {
         match failure {
-            CaptureFailureKind::InvalidRecovery => Self::new(
+            CaptureFailureKind::InvalidRecovery => Self::notification(
                 EventLevel::Error,
                 "System Proxy recovery record is invalid",
                 Some(
                     "Leave the external proxy unchanged to clear Mish ownership, then retry capture",
                 ),
+                ApplicationNotificationKind::CaptureFailure,
             ),
-            CaptureFailureKind::PersistenceFailed => Self::new(
+            CaptureFailureKind::PersistenceFailed => Self::notification(
                 EventLevel::Error,
                 "System Proxy recovery storage is unavailable",
                 Some("Check Mish application-data permissions before retrying capture"),
+                ApplicationNotificationKind::CaptureFailure,
             ),
-            CaptureFailureKind::CoreUnhealthy => Self::new(
+            CaptureFailureKind::CoreUnhealthy => Self::notification(
                 EventLevel::Warning,
                 "Traffic capture was blocked because Mihomo is not healthy",
                 Some(
                     "Activate a valid profile and wait for healthy Status before enabling capture",
                 ),
+                ApplicationNotificationKind::CaptureFailure,
             ),
-            CaptureFailureKind::ListenerUnavailable => Self::new(
+            CaptureFailureKind::ListenerUnavailable => Self::notification(
                 EventLevel::Error,
                 "Traffic capture was blocked because the managed listener is unavailable",
                 Some("Restart the active profile and retry only after Status is healthy"),
+                ApplicationNotificationKind::CaptureFailure,
             ),
-            CaptureFailureKind::ExternalDrift => Self::new(
+            CaptureFailureKind::ExternalDrift => Self::notification(
                 EventLevel::Warning,
                 "System Proxy changed outside Mish",
                 Some("Choose Repair or Leave as is from the Status recovery controls"),
+                ApplicationNotificationKind::CaptureFailure,
             ),
-            _ => Self::new(
+            _ => Self::notification(
                 EventLevel::Error,
                 "System Proxy reconciliation failed",
                 Some("Review the typed capture state on Status before retrying"),
+                ApplicationNotificationKind::CaptureFailure,
             ),
         }
+    }
+
+    pub const fn settings_failure() -> Self {
+        Self::notification(
+            EventLevel::Error,
+            "Application settings update failed",
+            Some("Review the current Settings snapshot, then retry the requested change"),
+            ApplicationNotificationKind::SettingsFailure,
+        )
+    }
+
+    pub const fn traffic_failure() -> Self {
+        Self::notification(
+            EventLevel::Error,
+            "Traffic operation failed",
+            Some("Refresh Traffic to confirm the remaining connections before retrying"),
+            ApplicationNotificationKind::TrafficFailure,
+        )
     }
 
     pub const fn detail(self) -> Option<&'static str> {
@@ -108,6 +157,10 @@ impl ApplicationDiagnosticEvent {
 
     pub const fn message(self) -> &'static str {
         self.message
+    }
+
+    pub const fn notification_kind(self) -> Option<ApplicationNotificationKind> {
+        self.notification_kind
     }
 }
 
@@ -127,6 +180,7 @@ pub struct EventRecord {
     pub id: String,
     pub level: EventLevel,
     pub message: String,
+    pub notification_kind: Option<ApplicationNotificationKind>,
     pub observed_at: u64,
     pub sequence: u64,
     pub source: EventSource,
@@ -204,6 +258,7 @@ impl ApplicationEventBuffer {
                 && previous.level == event.level()
                 && previous.message == event.message()
                 && previous.detail.as_deref() == event.detail()
+                && previous.notification_kind == event.notification_kind()
         }) {
             return false;
         }
@@ -213,6 +268,7 @@ impl ApplicationEventBuffer {
             id: format!("{}:{}", self.session_id, self.sequence),
             level: event.level(),
             message: event.message().to_owned(),
+            notification_kind: event.notification_kind(),
             observed_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()

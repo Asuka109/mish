@@ -20,6 +20,7 @@ import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
+import { emptyStatusSessionTraffic, useStatusSessionTraffic } from "./status-session";
 import { useCaptureCommand } from "../data/capture-command";
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
@@ -28,6 +29,7 @@ import { getCommandDescriptionId } from "../data/status-capabilities";
 import type { CaptureSelectionDto, RoutingMode, SelectorPolicyGroupDto } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
+import styles from "./status-page.module.css";
 
 const statusStyles = tv({
   slots: {
@@ -71,24 +73,45 @@ const statusStyles = tv({
       "[&_svg]:shrink-0",
     ),
     sessionList: cx(
-      "[--section-grid-columns:2] [&>:first-child]:rounded-t-section-grid-inner",
+      "session-list flex flex-wrap gap-px overflow-visible rounded-md border border-hairline",
+      "bg-hairline-soft p-0 [&>*]:min-w-0 [&>*]:overflow-clip [&>*]:bg-canvas",
+      "[&>:first-child]:rounded-t-section-grid-inner",
       "[&>:nth-last-child(2)]:rounded-bl-section-grid-inner",
       "[&>:last-child]:rounded-br-section-grid-inner",
     ),
-    trafficRow: cx(
-      "grid min-h-16 grid-cols-[auto_max-content_minmax(72px,1fr)] items-center gap-3 px-3",
-      "@max-session-compact/session:grid-cols-[minmax(0,1fr)_auto]",
+    trafficPair: cx(
+      "traffic-session-pair relative flex min-h-32 grow-0 shrink-0 basis-full items-stretch gap-3",
+      "after:pointer-events-none after:absolute after:inset-x-0 after:top-1/2 after:h-px",
+      "after:-translate-y-1/2 after:bg-hairline-soft after:content-['']",
     ),
+    trafficColumn: "traffic-session-column flex min-h-32 flex-col",
+    trafficSummaryColumn: cx(
+      "traffic-session-summary-column w-36 flex-none",
+      "@max-session-compact/session:w-32",
+    ),
+    trafficRateColumn: cx(
+      "traffic-session-rate-column w-24 min-w-24 flex-none",
+      "@max-session-compact/session:w-19 @max-session-compact/session:min-w-19",
+    ),
+    trafficCurveColumn: "traffic-session-curve-column relative min-w-0 flex-1 overflow-hidden",
+    trafficChartStack:
+      "traffic-session-chart-stack absolute top-0 right-0 ml-auto flex h-32 w-90 min-w-90 flex-col",
+    trafficChartCell: "traffic-session-chart-cell flex min-h-0 flex-1 items-center",
     trafficLabel: cx(
-      "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-metadata text-muted-soft",
+      "traffic-session-label flex min-h-0 min-w-0 flex-1 items-center gap-2 pl-3",
+      "text-metadata text-muted-soft",
       "[&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-traffic-download",
       "data-[direction=upload]:[&>svg]:text-traffic-upload",
     ),
     trafficCopy:
       "grid min-w-0 gap-px [&>span]:text-muted-foreground [&>small]:text-caption [&>small]:text-muted-soft",
-    trafficRate: "text-metadata font-medium text-muted-foreground whitespace-nowrap",
+    trafficRate: cx(
+      "traffic-rate-value flex min-h-0 min-w-0 flex-1 items-center px-2 text-metadata",
+      "font-medium text-muted-foreground whitespace-nowrap",
+    ),
     metric: cx(
-      "grid min-h-13 content-center gap-0.5 px-3 py-1.75 [&>span]:text-metadata",
+      "session-metric grid min-h-13 grow shrink basis-[calc(50%_-_0.5px)] content-center",
+      "gap-0.5 px-3 py-1.75 [&>span]:text-metadata",
       "[&>span]:text-muted-foreground [&>strong]:truncate [&>strong]:text-metadata",
       "[&>strong]:font-medium",
     ),
@@ -156,6 +179,13 @@ export function StatusPage() {
   const [pendingGroupSelections, setPendingGroupSelections] = useState<Map<string, string>>(
     () => new Map(),
   );
+  const captureActive = Boolean(
+    snapshot?.runtime.systemProxyEnabled || snapshot?.runtime.tunEnabled,
+  );
+  const sessionTraffic = useStatusSessionTraffic(
+    snapshot?.traffic ?? emptyStatusSessionTraffic,
+    captureActive,
+  );
   const configuredRoutes = useConfiguredRouteCatalog(snapshot);
   const groups = configuredRoutes?.groups ?? snapshot?.groups ?? [];
   const nodes = configuredRoutes?.nodes ?? snapshot?.nodes ?? [];
@@ -208,15 +238,6 @@ export function StatusPage() {
   const routingSupported = isCommandSupported("routing");
   const groupDescriptionId = getCommandDescriptionId(snapshot.adapterKind, groupSupported);
   const routingDescriptionId = getCommandDescriptionId(snapshot.adapterKind, routingSupported);
-  const captureActive = captureRuntime.systemProxyEnabled || captureRuntime.tunEnabled;
-  const hasTrafficData =
-    snapshot.traffic.downloadSeries.length > 0 ||
-    snapshot.traffic.uploadSeries.length > 0 ||
-    snapshot.traffic.downloadBytesPerSecond > 0 ||
-    snapshot.traffic.downloadedBytes > 0 ||
-    snapshot.traffic.uploadBytesPerSecond > 0 ||
-    snapshot.traffic.uploadedBytes > 0;
-  const hasMetricsData = Object.values(snapshot.metrics).some((value) => value > 0);
   const sessionActivity =
     snapshot.adapterKind === "fixture"
       ? LL.status.fixtureActivity()
@@ -374,80 +395,100 @@ export function StatusPage() {
                 <CaretRight aria-hidden="true" />
               </Link>
             </div>
-            <SectionGrid className={statusStyles().sessionList()} columns={2}>
-              <SectionGridItem className={statusStyles().trafficRow()} columnSpan={2}>
-                <span className={statusStyles().trafficLabel()} data-direction="download">
-                  <ArrowDown aria-hidden="true" />
-                  <span className={statusStyles().trafficCopy()}>
-                    <span>{LL.status.downloaded()}</span>
-                    <small>
-                      {hasTrafficData ? formatBytes(snapshot.traffic.downloadedBytes, locale) : "-"}
-                    </small>
+            <div className={statusStyles().sessionList()}>
+              <div className={statusStyles().trafficPair()}>
+                <div
+                  className={statusStyles().trafficColumn({
+                    className: statusStyles().trafficSummaryColumn(),
+                  })}
+                >
+                  <span className={statusStyles().trafficLabel()} data-direction="download">
+                    <ArrowDown aria-hidden="true" />
+                    <span className={statusStyles().trafficCopy()}>
+                      <span>{LL.status.downloaded()}</span>
+                      <small>
+                        {captureActive ? formatBytes(sessionTraffic.downloadedBytes, locale) : "-"}
+                      </small>
+                    </span>
                   </span>
-                </span>
-                <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
-                  {hasTrafficData
-                    ? formatRate(snapshot.traffic.downloadBytesPerSecond, locale)
-                    : "- B/s"}
-                </strong>
-                <TrafficSparkline
-                  color="var(--color-traffic-download)"
-                  data={snapshot.traffic.downloadSeries}
-                  id="download"
-                />
-              </SectionGridItem>
-              <SectionGridItem className={statusStyles().trafficRow()} columnSpan={2}>
-                <span className={statusStyles().trafficLabel()} data-direction="upload">
-                  <ArrowUp aria-hidden="true" />
-                  <span className={statusStyles().trafficCopy()}>
-                    <span>{LL.status.uploaded()}</span>
-                    <small>
-                      {hasTrafficData ? formatBytes(snapshot.traffic.uploadedBytes, locale) : "-"}
-                    </small>
+                  <span className={statusStyles().trafficLabel()} data-direction="upload">
+                    <ArrowUp aria-hidden="true" />
+                    <span className={statusStyles().trafficCopy()}>
+                      <span>{LL.status.uploaded()}</span>
+                      <small>
+                        {captureActive ? formatBytes(sessionTraffic.uploadedBytes, locale) : "-"}
+                      </small>
+                    </span>
                   </span>
-                </span>
-                <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
-                  {hasTrafficData
-                    ? formatRate(snapshot.traffic.uploadBytesPerSecond, locale)
-                    : "- B/s"}
-                </strong>
-                <TrafficSparkline
-                  color="var(--color-traffic-upload)"
-                  data={snapshot.traffic.uploadSeries}
-                  id="upload"
-                />
-              </SectionGridItem>
-              <SectionGridItem className={statusStyles().metric()}>
+                </div>
+                <div
+                  className={statusStyles().trafficColumn({
+                    className: statusStyles().trafficRateColumn(),
+                  })}
+                >
+                  <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
+                    {captureActive
+                      ? formatRate(sessionTraffic.downloadBytesPerSecond, locale)
+                      : "- B/s"}
+                  </strong>
+                  <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
+                    {captureActive
+                      ? formatRate(sessionTraffic.uploadBytesPerSecond, locale)
+                      : "- B/s"}
+                  </strong>
+                </div>
+                <div
+                  className={statusStyles().trafficColumn({
+                    className: statusStyles().trafficCurveColumn({
+                      className: styles.trafficCurveColumn,
+                    }),
+                  })}
+                >
+                  <div className={statusStyles().trafficChartStack()}>
+                    <div className={statusStyles().trafficChartCell()}>
+                      <TrafficSparkline
+                        color="var(--color-traffic-download)"
+                        data={sessionTraffic.downloadSeries}
+                      />
+                    </div>
+                    <div className={statusStyles().trafficChartCell()}>
+                      <TrafficSparkline
+                        color="var(--color-traffic-upload)"
+                        data={sessionTraffic.uploadSeries}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.connections()}</span>
                 <strong className="tabular-nums">
-                  {hasMetricsData ? snapshot.metrics.activeConnections : "-"}
+                  {captureActive ? snapshot.metrics.activeConnections : "-"}
                 </strong>
-              </SectionGridItem>
-              <SectionGridItem className={statusStyles().metric()}>
+              </div>
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.activeRules()}</span>
                 <strong className="tabular-nums">
-                  {hasMetricsData
+                  {captureActive
                     ? new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en").format(
                         snapshot.metrics.effectiveRules,
                       )
                     : "-"}
                 </strong>
-              </SectionGridItem>
-              <SectionGridItem className={statusStyles().metric()}>
+              </div>
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.memory()}</span>
                 <strong className="tabular-nums">
-                  {hasMetricsData ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
+                  {captureActive ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
                 </strong>
-              </SectionGridItem>
-              <SectionGridItem className={statusStyles().metric()}>
+              </div>
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.uptime()}</span>
                 <strong className="tabular-nums">
-                  {captureActive && hasMetricsData
-                    ? formatUptime(snapshot.metrics.uptimeSeconds)
-                    : "-"}
+                  {captureActive ? formatUptime(snapshot.metrics.uptimeSeconds) : "-"}
                 </strong>
-              </SectionGridItem>
-            </SectionGrid>
+              </div>
+            </div>
           </section>
 
           <section aria-label={LL.status.groupsAria()} className={statusStyles().section()}>

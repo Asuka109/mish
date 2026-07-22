@@ -96,7 +96,8 @@ const profileStyles = tv({
       "[&>span:first-child]:items-center [&>span:first-child]:gap-1.5 [&_svg]:size-3.75",
     ),
     url: cx(
-      "block min-h-6.5 overflow-hidden text-metadata leading-6.5 font-medium text-muted-foreground",
+      "profile-subscription-url block min-h-6.5 overflow-hidden text-metadata leading-6.5",
+      "font-medium text-muted-foreground",
       "text-ellipsis whitespace-nowrap",
     ),
     date: cx(

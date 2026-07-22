@@ -82,11 +82,6 @@ const notificationStyles = tv({
     viewAll: "notification-view-all w-full",
   },
 });
-const captureFailureEventMessages = new Set([
-  "Traffic capture was blocked because Mihomo is not healthy",
-  "Traffic capture was blocked because the managed listener is unavailable",
-]);
-
 type LocalProxyFeedback =
   | { id: string; level: "success"; message: string }
   | { id: string; level: "warning" | "error"; message: string };
@@ -159,6 +154,9 @@ function NotificationPublicationController({
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const welcomePromptStarted = useRef(false);
   const sessionId = eventsContext?.snapshot?.sessionId ?? null;
+  const usesAuthoritativeNotifications =
+    eventsContext?.snapshot?.adapterKind === "rpc" ||
+    (snapshot?.adapterKind === "rpc" && eventsContext !== null && eventsContext.snapshot === null);
   const systemProxy = snapshot?.runtime.systemProxy;
   const managedListenerConflict =
     profiles?.snapshot?.activation.failure === "managed-listener-conflict"
@@ -172,15 +170,19 @@ function NotificationPublicationController({
     commandStates.capture.phase === "failure"
       ? [...(eventsContext?.events ?? [])]
           .reverse()
-          .find(
-            (event) =>
-              event.source === "application" && captureFailureEventMessages.has(event.message),
-          )
+          .find((event) => event.notificationKind === "capture-failure")
       : undefined;
+  const latestNotificationIds = new Map<string, string>();
+  for (const event of [...(eventsContext?.events ?? [])].reverse()) {
+    if (event.notificationKind && !latestNotificationIds.has(event.notificationKind)) {
+      latestNotificationIds.set(event.notificationKind, event.id);
+    }
+  }
   // A managed-listener conflict is the authoritative explanation for the same
   // capture attempt even when the status command reports its generic failure
   // before the profile activation snapshot reaches the UI.
   const captureFailureAlreadyExplained =
+    (usesAuthoritativeNotifications && commandStates.capture.phase === "failure") ||
     Boolean(captureFailureEvent) ||
     Boolean(managedListenerConflict) ||
     (commandStates.capture.phase === "failure" && (systemProxyFailed || tunWarning));
@@ -254,34 +256,80 @@ function NotificationPublicationController({
   }
   const managedListenerToastVisible = useRef(false);
   useEffect(() => setSession(sessionId), [sessionId, setSession]);
-  useEffect(
-    () =>
-      ingestExternalEvents(
-        (eventsContext?.events ?? []).filter(
-          (event) =>
-            event.id !== captureFailureEvent?.id &&
-            !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
-        ),
-      ),
-    [
-      LL,
-      captureFailureAlreadyExplained,
-      captureFailureEvent?.id,
-      eventsContext?.events,
-      ingestExternalEvents,
-    ],
-  );
   useEffect(() => {
-    if (!captureFailureEvent) return;
-    publish({
-      detail: captureFailureEvent.detail ?? undefined,
-      id: `capture-failure:${captureFailureEvent.id}`,
-      level: captureFailureEvent.level,
-      message: captureFailureEvent.message,
-      observedAt: captureFailureEvent.observedAt,
-      replaces: ["status-operation-failure"],
-    });
-  }, [captureFailureEvent, publish]);
+    if (!eventsContext?.snapshot) return;
+    const events = eventsContext.events.filter(
+      (event) => !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
+    );
+    ingestExternalEvents(
+      events,
+      events
+        .filter((event) => event.notificationKind !== null && event.notificationKind !== undefined)
+        .map((event) => {
+          let message = event.message;
+          const isCurrent = latestNotificationIds.get(event.notificationKind ?? "") === event.id;
+          if (isCurrent && event.notificationKind === "capture-failure") {
+            if (systemProxyDrift) message = systemProxyDriftMessage;
+            else if (systemProxyFailed && systemProxy) {
+              message = systemProxyStatusMessage(LL, systemProxy);
+            } else if (tunWarning && tun) {
+              message = tunStatusMessage(LL, tun);
+            }
+          } else if (
+            isCurrent &&
+            event.notificationKind === "profile-activation-failure" &&
+            managedListenerConflict
+          ) {
+            message = LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict });
+          } else if (
+            isCurrent &&
+            event.notificationKind === "settings-failure" &&
+            settingsFailure
+          ) {
+            message = settingsFailureMessage;
+          } else if (isCurrent && event.notificationKind === "traffic-failure" && trafficFailure) {
+            message = trafficFailureMessage(LL, trafficFailure);
+          }
+          return {
+            actions:
+              isCurrent && event.notificationKind === "capture-failure" && systemProxyDrift
+                ? driftActions
+                : isCurrent &&
+                    event.notificationKind === "profile-activation-failure" &&
+                    managedListenerConflict
+                  ? managedListenerActions
+                  : [],
+            detail: event.detail ?? undefined,
+            duration:
+              isCurrent && event.notificationKind === "capture-failure" && systemProxyDrift
+                ? Number.POSITIVE_INFINITY
+                : undefined,
+            id: event.id,
+            level: event.level,
+            message,
+            observedAt: event.observedAt,
+          };
+        }),
+    );
+  }, [
+    LL,
+    captureFailureAlreadyExplained,
+    driftActions,
+    eventsContext?.events,
+    eventsContext?.snapshot,
+    ingestExternalEvents,
+    managedListenerActions,
+    managedListenerConflict,
+    settingsFailure,
+    settingsFailureMessage,
+    systemProxy,
+    systemProxyDrift,
+    systemProxyDriftMessage,
+    systemProxyFailed,
+    trafficFailure,
+    tun,
+    tunWarning,
+  ]);
   useEffect(() => {
     if (!welcomeAvailable || !welcomeInvitation) {
       retire(welcomePromptToastId);
@@ -299,7 +347,7 @@ function NotificationPublicationController({
     });
   }, [LL, openWelcomeDialog, record, retire, welcomeAvailable, welcomeInvitation]);
   useEffect(() => {
-    if (!managedListenerConflict) {
+    if (usesAuthoritativeNotifications || !managedListenerConflict) {
       managedListenerToastVisible.current = false;
       retire("managed-listener-conflict");
       return;
@@ -321,6 +369,7 @@ function NotificationPublicationController({
     managedListenerConflictObservedAt,
     publish,
     retire,
+    usesAuthoritativeNotifications,
   ]);
   const driftToastVisible = useRef(false);
   const systemProxyFailureToastVisible = useRef(false);
@@ -386,7 +435,7 @@ function NotificationPublicationController({
   }, [localProxyFailureObservedAt, localProxyResult, publish, retire]);
 
   useEffect(() => {
-    if (!systemProxyDrift) {
+    if (usesAuthoritativeNotifications || !systemProxyDrift) {
       driftToastVisible.current = false;
       retire("system-proxy-drift");
       return;
@@ -402,18 +451,17 @@ function NotificationPublicationController({
       observedAt: driftObservedAt,
     });
   }, [
-    canLeaveSystemProxy,
-    canRepairSystemProxy,
     driftActions,
     driftObservedAt,
     publish,
     retire,
-    systemProxyDriftMessage,
     systemProxyDrift,
+    systemProxyDriftMessage,
+    usesAuthoritativeNotifications,
   ]);
 
   useEffect(() => {
-    if (!systemProxyFailed || !systemProxy) {
+    if (usesAuthoritativeNotifications || !systemProxyFailed || !systemProxy) {
       systemProxyFailureToastVisible.current = false;
       retire("system-proxy-failure");
       return;
@@ -426,10 +474,18 @@ function NotificationPublicationController({
       message: systemProxyStatusMessage(LL, systemProxy),
       observedAt: systemProxyFailureObservedAt,
     });
-  }, [LL, publish, retire, systemProxy, systemProxyFailed, systemProxyFailureObservedAt]);
+  }, [
+    LL,
+    publish,
+    retire,
+    systemProxy,
+    systemProxyFailed,
+    systemProxyFailureObservedAt,
+    usesAuthoritativeNotifications,
+  ]);
 
   useEffect(() => {
-    if (!tunWarning || !tun) {
+    if (usesAuthoritativeNotifications || !tunWarning || !tun) {
       tunWarningToastVisible.current = false;
       retire("tun-drift");
       retire("tun-failed");
@@ -443,7 +499,7 @@ function NotificationPublicationController({
       message: tunStatusMessage(LL, tun),
       observedAt: tunWarningObservedAt,
     });
-  }, [LL, publish, retire, tun, tunWarning, tunWarningObservedAt]);
+  }, [LL, publish, retire, tun, tunWarning, tunWarningObservedAt, usesAuthoritativeNotifications]);
 
   useEffect(() => {
     if (!productFailure || !productError) {
@@ -461,7 +517,7 @@ function NotificationPublicationController({
   }, [productError, productFailure, productFailureObservedAt, publish]);
 
   useEffect(() => {
-    if (!settingsFailure) {
+    if (usesAuthoritativeNotifications || !settingsFailure) {
       settingsFailureToastVisible.current = false;
       return;
     }
@@ -473,10 +529,16 @@ function NotificationPublicationController({
       message: settingsFailureMessage,
       observedAt: settingsFailureObservedAt,
     });
-  }, [publish, settingsFailure, settingsFailureMessage, settingsFailureObservedAt]);
+  }, [
+    publish,
+    settingsFailure,
+    settingsFailureMessage,
+    settingsFailureObservedAt,
+    usesAuthoritativeNotifications,
+  ]);
 
   useEffect(() => {
-    if (!trafficFailure) {
+    if (usesAuthoritativeNotifications || !trafficFailure) {
       trafficFailureToastVisible.current = false;
       return;
     }
@@ -488,7 +550,7 @@ function NotificationPublicationController({
       message: trafficFailureMessage(LL, trafficFailure),
       observedAt: trafficFailureObservedAt,
     });
-  }, [LL, publish, trafficFailure, trafficFailureObservedAt]);
+  }, [LL, publish, trafficFailure, trafficFailureObservedAt, usesAuthoritativeNotifications]);
 
   return settingsContext ? (
     <WelcomeDialog

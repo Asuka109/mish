@@ -58,10 +58,10 @@ Current Profile, Core, System Proxy, Repair, Leave, TUN, Routing Mode, and
 Recover Core are deliberately absent from this native surface. Their product
 functions remain available elsewhere in Mish.
 
-`Open Browser Client` creates a fresh high-entropy one-time launch PIN and opens
-the desktop bridge's bundled-asset origin in the default browser. The PIN is not
-the RPC credential, is consumed by an Origin-validated bootstrap request, and
-is carried in the URL fragment and removed from the address bar immediately. A
+`Open Browser Client` creates a fresh high-entropy one-time launch token and
+opens the desktop bridge's bundled-asset origin in the default browser. The
+token is not the RPC credential, is consumed by an Origin-validated bootstrap
+request, and is carried in the URL fragment and removed from the address bar immediately. A
 scoped HttpOnly session plus an origin-scoped browser proof permits refresh
 without persisting the RPC credential. Full policy-group child selection
 is not duplicated in the native menu in this slice. `Open Routes` remains the

@@ -163,6 +163,18 @@ unconfirmed pending, failed, or drift states cannot extend a session. A Core
 restart does not reset an otherwise continuously confirmed capture session; an
 ordinary proxy stop does, even when the managed Core remains running.
 
+Status treats traffic totals and sparkline samples as presentation-owned session
+telemetry. It renders them only while either capture mode is authoritatively
+applied. When both modes are inactive, Status clears its presentation baseline
+and shows unavailable values without mutating the Controller-backed Traffic
+history. When capture is confirmed again, Status establishes a fresh cumulative
+byte baseline and accepts only samples observed after that boundary, so a
+retained managed Core cannot briefly reveal the prior session's frozen totals or
+curve. The Status chart retains at most 60 post-boundary samples. The detailed
+Traffic workspace deliberately retains its independent Controller session and
+history semantics. Status preserves the chart layout but does not instantiate a
+curve until the fresh presentation session contains at least three samples.
+
 The toolbar profile value is configuration selection, not a Core-health claim.
 It remains visible while the runtime is safely stopped and identifies the
 profile used by the next start. Changing it is a preference mutation only and

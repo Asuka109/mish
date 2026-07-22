@@ -910,12 +910,19 @@ fn initialize(
         )
         .await
         .map_err(io::Error::other)?;
+        let browser_client = bridge
+            .browser_client()
+            .ok_or_else(|| io::Error::other("browser client host is unavailable"))?;
+        if tauri::is_dev() {
+            let launch_url = browser_client
+                .issue_launch_url()
+                .map_err(io::Error::other)?;
+            println!("Mish Browser Client URL: {launch_url}");
+        }
         let status_bar_state = status_bar::StatusBarState::new(
             runtime_host,
             activation.clone(),
-            bridge
-                .browser_client()
-                .ok_or_else(|| io::Error::other("browser client host is unavailable"))?,
+            browser_client,
             settings_service.clone(),
         );
         Ok::<_, io::Error>((bridge, status_bar_state, support_bundle, activation))

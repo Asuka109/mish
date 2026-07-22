@@ -174,9 +174,9 @@ describe("status section-heading containment", () => {
     await page.viewport(1024, 720);
     await selectLocale("English");
     await expect
-      .element(page.getByRole("link", { exact: true, name: "Open live traffic details" }))
+      .element(page.getByRole("link", { exact: true, name: "Open Live Traffic Details" }))
       .toBeVisible();
-    await expect.element(page.getByText("Live traffic", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("Live Traffic", { exact: true })).toBeVisible();
 
     await selectLocale("简体中文");
     await expect

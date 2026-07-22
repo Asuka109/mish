@@ -559,12 +559,21 @@ export type EventsDataPhase = z.infer<typeof EventsDataPhaseSchema>;
 export const EventSourcePhaseSchema = z.enum(["fixture-only", "ready", "stale", "unavailable"]);
 export type EventSourcePhase = z.infer<typeof EventSourcePhaseSchema>;
 
+export const ApplicationNotificationKindSchema = z.enum([
+  "capture-failure",
+  "profile-activation-failure",
+  "settings-failure",
+  "traffic-failure",
+]);
+export type ApplicationNotificationKind = z.infer<typeof ApplicationNotificationKindSchema>;
+
 export const EventRecordSchema = z
   .object({
     detail: BoundedTextSchema.nullable(),
     id: IdentifierSchema,
     level: EventLevelSchema,
     message: BoundedTextSchema,
+    notificationKind: ApplicationNotificationKindSchema.nullable().optional(),
     observedAt: NonNegativeIntegerSchema,
     sequence: NonNegativeIntegerSchema,
     source: EventSourceSchema,

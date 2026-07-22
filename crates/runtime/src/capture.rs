@@ -9,7 +9,7 @@ use std::{
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, broadcast};
 
 use crate::{
     CapabilityAvailability, CaptureSelection, TunHelperAvailability, TunHelperController,
@@ -1482,12 +1482,18 @@ impl TunReconciler {
     }
 }
 
+struct AggregateCaptureState {
+    confirmed: CaptureRuntimeStatus,
+    pending_projection: Option<CaptureRuntimeStatus>,
+}
+
 pub struct CaptureReconciler {
     operation: AsyncMutex<()>,
     runtime_transition: AtomicBool,
-    status: Mutex<CaptureRuntimeStatus>,
+    state: Mutex<AggregateCaptureState>,
     system_proxy: Arc<SystemProxyReconciler>,
     tun: Option<Arc<TunReconciler>>,
+    updates: broadcast::Sender<CaptureRuntimeStatus>,
 }
 
 pub struct CaptureRuntimeTransition {
@@ -1523,12 +1529,17 @@ impl CaptureReconciler {
         if let Some(tun) = &tun {
             status.tun = tun.status();
         }
+        let (updates, _) = broadcast::channel(32);
         Self {
             operation: AsyncMutex::new(()),
             runtime_transition: AtomicBool::new(false),
-            status: Mutex::new(status),
+            state: Mutex::new(AggregateCaptureState {
+                confirmed: status,
+                pending_projection: None,
+            }),
             system_proxy,
             tun,
+            updates,
         }
     }
 
@@ -1544,10 +1555,46 @@ impl CaptureReconciler {
     }
 
     pub fn status(&self) -> CaptureRuntimeStatus {
-        self.status
+        let state = self
+            .state
             .lock()
-            .expect("capture status lock poisoned")
+            .expect("aggregate capture state lock poisoned");
+        state
+            .pending_projection
+            .as_ref()
+            .unwrap_or(&state.confirmed)
             .clone()
+    }
+
+    /// Returns the last state confirmed by the capture platforms, excluding any public pending
+    /// operation projection. Runtime handoff and rollback decisions must use this state so a
+    /// newly requested launch is not mistaken for capture already owned by the previous runtime.
+    pub fn confirmed_status(&self) -> CaptureRuntimeStatus {
+        self.state
+            .lock()
+            .expect("aggregate capture state lock poisoned")
+            .confirmed
+            .clone()
+    }
+
+    /// Publishes every aggregate Capture transition so transports can render the same
+    /// pending, confirmed, and attention phases without inventing local operation state.
+    pub fn subscribe(&self) -> broadcast::Receiver<CaptureRuntimeStatus> {
+        self.updates.subscribe()
+    }
+
+    pub fn publish_pending(&self, request: &CaptureRequest) -> CaptureRuntimeStatus {
+        let previous = self.confirmed_status();
+        self.set_pending(
+            request.selection.clone(),
+            request.active && request.selection.system_proxy,
+            request.active && request.selection.tun,
+        );
+        previous
+    }
+
+    pub fn restore_status(&self, status: CaptureRuntimeStatus) {
+        self.set_status(status);
     }
 
     pub fn availability(&self) -> CapabilityAvailability {
@@ -1609,7 +1656,12 @@ impl CaptureReconciler {
         if self.runtime_transition.load(Ordering::Acquire) {
             return Err(runtime_transition_error());
         }
-        let _operation = self.operation.lock().await;
+        let _operation = self.operation.try_lock().map_err(|_| {
+            CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Another aggregate Capture operation is already in progress",
+            )
+        })?;
         if self.runtime_transition.load(Ordering::Acquire) {
             return Err(runtime_transition_error());
         }
@@ -1636,7 +1688,7 @@ impl CaptureReconciler {
         request: CaptureRequest,
         core_healthy: bool,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
-        let previous = self.status();
+        let previous = self.confirmed_status();
         let system_proxy_desired = request.active && request.selection.system_proxy;
         let tun_desired = request.active && request.selection.tun;
         if tun_desired && self.tun_availability() != CapabilityAvailability::Supported {
@@ -1649,7 +1701,7 @@ impl CaptureReconciler {
             status.tun.desired = true;
             status.tun.failure = Some(failure);
             status.tun.phase = TunPhase::Failed;
-            *self.status.lock().expect("capture status lock poisoned") = status;
+            self.set_status(status);
             return Err(capture_error_from_tun_failure(failure));
         }
         self.set_pending(request.selection.clone(), system_proxy_desired, tun_desired);
@@ -1657,7 +1709,7 @@ impl CaptureReconciler {
         let tun_was_disabled = previous.tun_enabled && !tun_desired;
         if tun_was_disabled && let Err(error) = self.set_tun(false, core_healthy).await {
             let status = self.combined_status(request.selection);
-            *self.status.lock().expect("capture status lock poisoned") = status;
+            self.set_status(status);
             return Err(error);
         }
 
@@ -1669,14 +1721,14 @@ impl CaptureReconciler {
                 let mut status = self.combined_status(request.selection);
                 status.tun.failure = Some(TunFailureKind::RollbackFailed);
                 status.tun.phase = TunPhase::Drift;
-                *self.status.lock().expect("capture status lock poisoned") = status;
+                self.set_status(status);
                 return Err(CaptureTransitionError::new(
                     CaptureFailureKind::RollbackFailed,
                     "Traffic capture failed and the prior TUN state could not be confirmed",
                 ));
             }
             let status = self.combined_status(request.selection);
-            *self.status.lock().expect("capture status lock poisoned") = status;
+            self.set_status(status);
             return Err(error);
         }
 
@@ -1696,7 +1748,7 @@ impl CaptureReconciler {
                 status.system_proxy.phase = SystemProxyPhase::Drift;
                 status.tun.failure = Some(TunFailureKind::RollbackFailed);
                 status.tun.phase = TunPhase::Drift;
-                *self.status.lock().expect("capture status lock poisoned") = status;
+                self.set_status(status);
                 return Err(CaptureTransitionError::new(
                     CaptureFailureKind::RollbackFailed,
                     "Traffic capture failed and the prior state could not be confirmed",
@@ -1705,12 +1757,12 @@ impl CaptureReconciler {
             status.tun.desired = true;
             status.tun.failure = original_tun_failure;
             status.tun.phase = TunPhase::Failed;
-            *self.status.lock().expect("capture status lock poisoned") = status;
+            self.set_status(status);
             return Err(original);
         }
 
         let status = self.combined_status(request.selection);
-        *self.status.lock().expect("capture status lock poisoned") = status.clone();
+        self.set_status(status.clone());
         Ok(status)
     }
 
@@ -1723,14 +1775,14 @@ impl CaptureReconciler {
             return Ok(self.status());
         }
         let _operation = self.operation.lock().await;
-        let selection = self.status().capture_selection;
+        let selection = self.confirmed_status().capture_selection;
         let system_result = self.system_proxy.audit(reason, core_healthy).await;
         let tun_result = match &self.tun {
             Some(tun) => tun.audit(core_healthy).await,
             None => Ok(TunRuntimeStatus::off()),
         };
         let status = self.combined_status(selection);
-        *self.status.lock().expect("capture status lock poisoned") = status.clone();
+        self.set_status(status.clone());
         system_result?;
         tun_result?;
         Ok(status)
@@ -1745,15 +1797,15 @@ impl CaptureReconciler {
             return Err(runtime_transition_error());
         }
         let _operation = self.operation.lock().await;
-        let selection = self.status().capture_selection;
+        let selection = self.confirmed_status().capture_selection;
         self.system_proxy.recover(action, core_healthy).await?;
         let status = self.combined_status(selection);
-        *self.status.lock().expect("capture status lock poisoned") = status.clone();
+        self.set_status(status.clone());
         Ok(status)
     }
 
     fn set_pending(&self, selection: CaptureSelection, system_proxy: bool, tun: bool) {
-        let previous = self.status();
+        let previous = self.confirmed_status();
         let mut status = previous;
         status.capture_selection = selection;
         status.system_proxy.desired = system_proxy;
@@ -1762,7 +1814,26 @@ impl CaptureReconciler {
         status.tun.desired = tun;
         status.tun.failure = None;
         status.tun.phase = TunPhase::Pending;
-        *self.status.lock().expect("capture status lock poisoned") = status;
+        self.set_pending_projection(status);
+    }
+
+    fn set_status(&self, status: CaptureRuntimeStatus) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("aggregate capture state lock poisoned");
+        state.confirmed = status.clone();
+        state.pending_projection = None;
+        drop(state);
+        let _ = self.updates.send(status);
+    }
+
+    fn set_pending_projection(&self, status: CaptureRuntimeStatus) {
+        self.state
+            .lock()
+            .expect("aggregate capture state lock poisoned")
+            .pending_projection = Some(status.clone());
+        let _ = self.updates.send(status);
     }
 
     async fn set_system_proxy(

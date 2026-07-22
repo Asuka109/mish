@@ -18,9 +18,9 @@ use mish_bridge::{
     start_loopback_server, start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
-    CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
-    MishRuntime, NetworkServiceProxyState,
+    ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
+    CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus,
+    LoopbackProxyEndpoint, MishRuntime, NetworkServiceProxyState,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -169,6 +169,49 @@ impl CapturePlatform for MemoryCapturePlatform {
     }
 }
 
+struct SlowCapturePlatform {
+    apply_started: tokio::sync::Notify,
+    apply_release: tokio::sync::Notify,
+    state: std::sync::Mutex<NetworkServiceProxyState>,
+}
+
+impl SlowCapturePlatform {
+    fn new(state: NetworkServiceProxyState) -> Self {
+        Self {
+            apply_started: tokio::sync::Notify::new(),
+            apply_release: tokio::sync::Notify::new(),
+            state: std::sync::Mutex::new(state),
+        }
+    }
+}
+
+impl CapturePlatform for SlowCapturePlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        Box::pin(async move {
+            self.apply_started.notify_one();
+            self.apply_release.notified().await;
+            *self.state.lock().unwrap() = target;
+            Ok(())
+        })
+    }
+}
+
 #[derive(Default)]
 struct MemoryCaptureJournal(std::sync::Mutex<Option<CaptureJournal>>);
 
@@ -298,6 +341,27 @@ fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
             socks: mish_runtime::ManualProxyState::disabled(),
         },
     )));
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap(),
+    ));
+    (
+        MishRuntime::with_capture(Arc::new(RunningCore), capture),
+        platform,
+    )
+}
+
+fn slow_capture_runtime_parts() -> (MishRuntime, Arc<SlowCapturePlatform>) {
+    let platform = Arc::new(SlowCapturePlatform::new(NetworkServiceProxyState {
+        auto_discovery_enabled: false,
+        http: mish_runtime::ManualProxyState::disabled(),
+        https: mish_runtime::ManualProxyState::disabled(),
+        pac_enabled: false,
+        pac_url: "(null)".into(),
+        service_id: "slow-rpc-fixture-service".into(),
+        socks: mish_runtime::ManualProxyState::disabled(),
+    }));
     let capture = Arc::new(CaptureReconciler::new(
         platform.clone(),
         Arc::new(MemoryCaptureJournal::default()),
@@ -447,8 +511,59 @@ async fn authenticate(
     assert_eq!(response["result"]["authenticated"], true);
 }
 
+async fn next_json(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> Value {
+    let Message::Text(message) = timeout(Duration::from_secs(2), socket.next())
+        .await
+        .expect("notification timeout")
+        .expect("socket closed")
+        .expect("websocket failure")
+    else {
+        panic!("expected text notification")
+    };
+    serde_json::from_str(&message).unwrap()
+}
+
 #[tokio::test]
-async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
+async fn authoritative_application_notifications_reach_every_events_client() {
+    let runtime = runtime(no_core());
+    let runtime_host = DesktopRuntimeHost::new(runtime.clone());
+    let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
+        .await
+        .unwrap();
+    let mut first = socket(bridge.address).await;
+    let mut second = socket(bridge.address).await;
+    authenticate(&mut first).await;
+    authenticate(&mut second).await;
+
+    for (id, socket) in [(2, &mut first), (3, &mut second)] {
+        let subscribed = request(
+            socket,
+            json!({"jsonrpc":"2.0", "id":id, "method":"events.subscribe", "params":{}}),
+        )
+        .await;
+        assert!(subscribed["result"]["subscriptionId"].is_string());
+    }
+
+    runtime.record_application_event(ApplicationDiagnosticEvent::settings_failure());
+
+    for socket in [&mut first, &mut second] {
+        let notification = next_json(socket).await;
+        assert_eq!(notification["method"], "events.snapshot");
+        assert_eq!(
+            notification["params"]["snapshot"]["events"][0]["notificationKind"],
+            "settings-failure"
+        );
+    }
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
     let mut bridge_config = config();
     bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
     bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
@@ -457,18 +572,20 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
         .await
         .unwrap();
     let browser = bridge.browser_client().expect("browser client handle");
-    let nonce = "a".repeat(64);
-    let launch_url = browser.issue_launch_url(nonce.clone()).unwrap();
-    assert_eq!(
-        launch_url,
-        format!("http://{}/#mish-browser-pin={nonce}", bridge.address)
+    let launch_url = browser.issue_launch_url().unwrap();
+    let launch_token = launch_url
+        .strip_prefix(&format!("http://{}/#mish-browser-launch=", bridge.address))
+        .expect("launch URL prefix")
+        .to_owned();
+    assert_eq!(launch_token.len(), 43);
+    assert!(
+        launch_token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     );
     assert!(!launch_url.contains(TOKEN));
-    let second_nonce = "b".repeat(64);
-    assert_eq!(
-        browser.issue_launch_url(second_nonce.clone()).unwrap(),
-        format!("http://{}/#mish-browser-pin={second_nonce}", bridge.address)
-    );
+    let second_launch_url = browser.issue_launch_url().unwrap();
+    assert_ne!(launch_url, second_launch_url);
 
     let client = reqwest::Client::new();
     let root = client
@@ -480,7 +597,7 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     assert_eq!(
         root.headers()["content-security-policy"],
         format!(
-            "default-src 'self'; connect-src 'self' ws://{}/rpc; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+            "default-src 'self'; connect-src 'self' ws://{}/rpc http://127.0.0.1:*; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'",
             bridge.address
         )
     );
@@ -510,7 +627,10 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let bootstrap_url = format!("http://{}/browser-bootstrap", bridge.address);
     let rejected_origin = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", "https://attacker.example")
         .send()
@@ -518,9 +638,25 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
         .unwrap();
     assert_eq!(rejected_origin.status(), reqwest::StatusCode::FORBIDDEN);
 
+    let rejected_token = client
+        .post(&bootstrap_url)
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {}", "!".repeat(43)),
+        )
+        .header("X-Mish-Browser-Proof", "b".repeat(64))
+        .header("Origin", format!("http://{}", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected_token.status(), reqwest::StatusCode::UNAUTHORIZED);
+
     let accepted = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
@@ -560,7 +696,10 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
 
     let replay = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
@@ -580,6 +719,135 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let refreshed_payload: Value = serde_json::from_str(&refreshed.text().await.unwrap()).unwrap();
     assert_eq!(refreshed_payload["authToken"], TOKEN);
     bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn browser_discovery_exposes_only_a_loopback_cors_service_marker() {
+    let mut bridge_config = config();
+    bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
+    bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
+    bridge_config.settings_service = Some(settings_service());
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let discovery_url = format!("http://{}/browser-discovery", bridge.address);
+    let client = reqwest::Client::new();
+
+    let same_origin = client.get(&discovery_url).send().await.unwrap();
+    assert_eq!(same_origin.status(), reqwest::StatusCode::OK);
+    assert_eq!(same_origin.headers()["cache-control"], "no-store");
+    assert_eq!(
+        same_origin.headers()["cross-origin-resource-policy"],
+        "cross-origin"
+    );
+    let payload: Value = serde_json::from_str(&same_origin.text().await.unwrap()).unwrap();
+    assert_eq!(
+        payload,
+        json!({
+            "service": "mish-browser-backend",
+            "schemaVersion": 1,
+            "protocolVersion": 1,
+        })
+    );
+    assert!(!payload.to_string().contains(TOKEN));
+
+    let source_origin = "http://127.0.0.1:6474";
+    let cross_origin = client
+        .get(&discovery_url)
+        .header("Cookie", "mish_browser_session=must-not-matter")
+        .header("Origin", source_origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cross_origin.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        cross_origin.headers()["access-control-allow-origin"],
+        source_origin
+    );
+    assert!(cross_origin.headers().get("set-cookie").is_none());
+
+    for rejected_origin in [
+        "https://127.0.0.1:6474",
+        "http://localhost:6474",
+        "http://127.0.0.1:6473",
+        "https://attacker.example",
+        "null",
+    ] {
+        let rejected = client
+            .get(&discovery_url)
+            .header("Origin", rejected_origin)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), reqwest::StatusCode::FORBIDDEN);
+    }
+
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn restarted_browser_backend_rejects_the_prior_process_session() {
+    let address = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .unwrap()
+        .local_addr()
+        .unwrap();
+    let origin = format!("http://{address}");
+    let proof = "d".repeat(64);
+
+    let mut first_config = config();
+    first_config.bind = address;
+    first_config.browser_assets = Some(Arc::new(BrowserAssets));
+    first_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
+    first_config.settings_service = Some(settings_service());
+    let first = start_loopback_server(first_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let launch_url = first.browser_client().unwrap().issue_launch_url().unwrap();
+    let launch_token = launch_url
+        .split_once("#mish-browser-launch=")
+        .expect("launch token fragment")
+        .1;
+    let client = reqwest::Client::new();
+    let authenticated = client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", &proof)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(authenticated.status(), reqwest::StatusCode::OK);
+    let prior_session = authenticated.headers()["set-cookie"]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    first.shutdown().await;
+
+    let mut restarted_config = config();
+    restarted_config.bind = address;
+    restarted_config.browser_assets = Some(Arc::new(BrowserAssets));
+    restarted_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
+    restarted_config.settings_service = Some(settings_service());
+    let restarted = start_loopback_server(restarted_config, runtime(no_core()))
+        .await
+        .unwrap();
+    let rejected = client
+        .post(format!("{origin}/browser-bootstrap"))
+        .header("Cookie", prior_session)
+        .header("Origin", &origin)
+        .header("X-Mish-Browser-Proof", &proof)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    restarted.shutdown().await;
 }
 
 #[tokio::test]
@@ -1108,6 +1376,16 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     )
     .await;
     assert_eq!(ambiguous_ports["error"]["code"], -32041);
+
+    let events = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":14, "method":"events.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        events["result"]["events"][0]["notificationKind"],
+        "settings-failure"
+    );
 
     bridge.shutdown().await;
 }
@@ -1791,6 +2069,87 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
 }
 
 #[tokio::test]
+async fn capture_pending_is_shared_and_rejects_a_second_client_command() {
+    let (runtime, platform) = slow_capture_runtime_parts();
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let mut first = socket(bridge.address).await;
+    let mut second = socket(bridge.address).await;
+    authenticate(&mut first).await;
+    authenticate(&mut second).await;
+    let first_subscription = request(
+        &mut first,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+    let second_subscription = request(
+        &mut second,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+    assert!(first_subscription["result"]["subscriptionId"].is_string());
+    assert!(second_subscription["result"]["subscriptionId"].is_string());
+
+    first
+        .send(Message::Text(
+            json!({
+                "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+                "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    platform.apply_started.notified().await;
+
+    for socket in [&mut first, &mut second] {
+        let Message::Text(message) = socket.next().await.unwrap().unwrap() else {
+            panic!("expected pending status notification")
+        };
+        let notification: Value = serde_json::from_str(&message).unwrap();
+        assert_eq!(
+            notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+            "pending"
+        );
+    }
+
+    let duplicate = request(
+        &mut second,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":true,"tun":false}}
+        }),
+    )
+    .await;
+    assert_eq!(duplicate["error"]["code"], -32050);
+    assert_eq!(duplicate["error"]["data"]["kind"], "runtime-transition");
+
+    platform.apply_release.notify_one();
+    let mut first_applied = false;
+    while !first_applied {
+        let Message::Text(message) = first.next().await.unwrap().unwrap() else {
+            continue;
+        };
+        let value: Value = serde_json::from_str(&message).unwrap();
+        first_applied = value["params"]["snapshot"]["runtime"]["systemProxy"]["phase"] == "applied";
+    }
+    let applied = request(
+        &mut second,
+        json!({"jsonrpc":"2.0","id":4,"method":"status.getSnapshot","params":{}}),
+    )
+    .await;
+    let applied_phase = if applied["method"] == "status.snapshot" {
+        &applied["params"]["snapshot"]["runtime"]["systemProxy"]["phase"]
+    } else {
+        &applied["result"]["runtime"]["systemProxy"]["phase"]
+    };
+    assert_eq!(applied_phase, "applied");
+    drop(first);
+    drop(second);
+    drop(bridge);
+}
+
+#[tokio::test]
 async fn local_proxy_rpc_tests_the_listener_without_changing_system_proxy_state() {
     let (runtime, platform) = capture_runtime_parts();
     let prior = platform.0.lock().unwrap().clone();
@@ -1904,14 +2263,22 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
         enabled["result"]["runtime"]["systemProxy"]["phase"],
         "applied"
     );
+    let Message::Text(pending_notification) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected pending status notification")
+    };
+    let pending_notification: Value = serde_json::from_str(&pending_notification).unwrap();
+    assert_eq!(
+        pending_notification["params"]["subscriptionId"],
+        subscription_id
+    );
+    assert_eq!(
+        pending_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "pending"
+    );
     let Message::Text(applied_notification) = ws.next().await.unwrap().unwrap() else {
         panic!("expected applied status notification")
     };
     let applied_notification: Value = serde_json::from_str(&applied_notification).unwrap();
-    assert_eq!(
-        applied_notification["params"]["subscriptionId"],
-        subscription_id
-    );
     assert_eq!(
         applied_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
         "applied"

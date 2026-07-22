@@ -90,7 +90,7 @@ are not supported.
 
 The current exception inventory is deliberately small:
 
-- `traffic-sparkline.module.css` owns the sparkline's multi-layer mask;
+- `status-page.module.css` owns the traffic curve column's edge-fade mask;
 - `app-shell.module.css` owns the proxy control's multi-layer radial material;
   and
 - `status-shimmer.module.css` owns WebGL canvas containment.

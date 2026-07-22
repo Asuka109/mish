@@ -14,8 +14,8 @@ use mish_profile::{
     RepositoryError,
 };
 use mish_runtime::{
-    CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
-    CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
+    ApplicationDiagnosticEvent, CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction,
+    CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
     ProviderAuthority, ProviderKind, RoutingMode, StatusAdapterKind, StatusCommand,
     StatusCommandError, StatusCommandErrorKind, TrafficCommandAuthority, TrafficCommandOperation,
 };
@@ -24,7 +24,7 @@ use mish_settings::{
     SettingsAdapterKind, SettingsService, SettingsServiceError, StartupPreferences,
     WindowCloseBehavior, WindowSurfacePreference,
 };
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -68,6 +68,23 @@ impl ProtocolState {
             .runtime
             .status_snapshot_typed(StatusAdapterKind::Rpc)
             .await;
+        if let Some(service_probes) = &self.service_probes {
+            service_probes.overlay(&mut snapshot);
+        }
+        serde_json::to_value(snapshot).expect("Status state must serialize")
+    }
+
+    async fn status_snapshot_with_capture(
+        &self,
+        capture_status: mish_runtime::CaptureRuntimeStatus,
+    ) -> Value {
+        let runtime = self.runtime.current();
+        let core = runtime.core_status().await;
+        let mut snapshot = runtime.snapshot_typed_with_capture_status(
+            &core,
+            StatusAdapterKind::Rpc,
+            capture_status,
+        );
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
@@ -251,6 +268,7 @@ struct SocketSubscriptions {
     profile_updates: broadcast::Receiver<crate::ProfileActivationSnapshot>,
     settings_ids: HashSet<String>,
     settings_updates: broadcast::Receiver<mish_settings::SettingsSnapshot>,
+    capture_updates: broadcast::Receiver<mish_runtime::CaptureRuntimeStatus>,
     status_ids: HashSet<String>,
     status_updates: broadcast::Receiver<CoreStatus>,
     traffic_ids: HashSet<String>,
@@ -316,6 +334,11 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         .as_ref()
         .map(crate::service_probes::ServiceProbeService::subscribe)
         .unwrap_or(inactive_service_receiver);
+    let (inactive_capture_updates, inactive_capture_receiver) = broadcast::channel(1);
+    let _inactive_capture_updates = inactive_capture_updates;
+    let capture_updates = initial_runtime
+        .subscribe_capture()
+        .unwrap_or(inactive_capture_receiver);
     let (inactive_settings_updates, inactive_settings_receiver) = broadcast::channel(1);
     let _inactive_settings_updates = inactive_settings_updates;
     let settings_updates = state
@@ -324,6 +347,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         .map(|service| service.subscribe())
         .unwrap_or(inactive_settings_receiver);
     let mut authenticated = false;
+    let (command_responses, mut command_response_updates) = mpsc::unbounded_channel();
     let mut subscriptions = SocketSubscriptions {
         event_ids: HashSet::new(),
         event_updates,
@@ -331,6 +355,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
         profile_updates,
         settings_ids: HashSet::new(),
         settings_updates,
+        capture_updates,
         status_ids: HashSet::new(),
         status_updates,
         traffic_ids: HashSet::new(),
@@ -348,6 +373,9 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 if changed.is_err() { break; }
                 let runtime = runtime_changes.borrow_and_update().clone();
                 subscriptions.status_updates = runtime.subscribe_status();
+                if let Some(capture_updates) = runtime.subscribe_capture() {
+                    subscriptions.capture_updates = capture_updates;
+                }
                 subscriptions.traffic_updates = runtime.subscribe_status();
                 subscriptions.event_updates = runtime.subscribe_events();
                 if authenticated && !subscriptions.status_ids.is_empty() {
@@ -396,6 +424,14 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     if matches!(message, Message::Close(_)) { break; }
                     continue;
                 };
+                if authenticated && aggregate_capture_request(&text) {
+                    let state = state.clone();
+                    let responses = command_responses.clone();
+                    tokio::spawn(async move {
+                        let _ = responses.send(handle_aggregate_capture_request(&text, &state).await);
+                    });
+                    continue;
+                }
                 let response = handle_message(
                     &text,
                     &state,
@@ -408,9 +444,35 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     break;
                 }
             }
+            response = command_response_updates.recv() => {
+                let Some(response) = response else { break };
+                if let Some(response) = response
+                    && sender.send(Message::Text(response.to_string().into())).await.is_err()
+                {
+                    break;
+                }
+            }
             update = subscriptions.status_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
                 let Ok(_) = update else { continue };
                 let status_snapshot = state.status_snapshot().await;
+                for subscription_id in &subscriptions.status_ids {
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "status.snapshot",
+                        "params": { "snapshot": status_snapshot, "subscriptionId": subscription_id },
+                    });
+                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            update = subscriptions.capture_updates.recv(), if authenticated && !subscriptions.status_ids.is_empty() => {
+                let capture_status = match update {
+                    Ok(capture_status) => capture_status,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
+                };
+                let status_snapshot = state.status_snapshot_with_capture(capture_status).await;
                 for subscription_id in &subscriptions.status_ids {
                     let notification = json!({
                         "jsonrpc": "2.0",
@@ -498,6 +560,26 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                 }
             }
         }
+    }
+}
+
+fn aggregate_capture_request(text: &str) -> bool {
+    serde_json::from_str::<Request>(text).is_ok_and(|request| request.method == "status.setCapture")
+}
+
+async fn handle_aggregate_capture_request(text: &str, state: &ProtocolState) -> Option<Value> {
+    let request: Request = match serde_json::from_str(text) {
+        Ok(request) => request,
+        Err(_) => return Some(error_response(Value::Null, -32700, "Parse error", None)),
+    };
+    let id = request.id.unwrap_or(Value::Null);
+    let params: SetCaptureParams = match serde_json::from_value(request.params) {
+        Ok(params) => params,
+        Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+    };
+    match set_aggregate_capture(state, params).await {
+        Ok(_) => Some(json!({"jsonrpc": "2.0", "id": id, "result": state.status_snapshot().await})),
+        Err(error) => Some(capture_error_response(id, error)),
     }
 }
 
@@ -785,6 +867,9 @@ async fn handle_message(
                 ));
             }
             subscriptions.status_updates = state.runtime.current().subscribe_status();
+            if let Some(capture_updates) = state.runtime.current().subscribe_capture() {
+                subscriptions.capture_updates = capture_updates;
+            }
             let subscription_id = format!(
                 "status-{}",
                 NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
@@ -1336,7 +1421,7 @@ async fn handle_message(
             };
             match service.install_tun_helper().await {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.repairTunHelper" => {
@@ -1348,7 +1433,7 @@ async fn handle_message(
             }
             match service.repair_tun_helper().await {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.removeTunHelper" => {
@@ -1360,7 +1445,7 @@ async fn handle_message(
             }
             match service.remove_tun_helper().await {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.setAppearance" => {
@@ -1373,7 +1458,7 @@ async fn handle_message(
             };
             match service.set_appearance(params.appearance) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.setLanguage" => {
@@ -1386,7 +1471,7 @@ async fn handle_message(
             };
             match service.set_language(params.language) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.setOnboardingWelcomeState" => {
@@ -1400,7 +1485,7 @@ async fn handle_message(
                 };
             match service.set_onboarding_welcome_state(params.action) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.setStartup" => {
@@ -1413,7 +1498,7 @@ async fn handle_message(
             };
             match service.set_startup(params.startup) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.setLaunchProxyWhenMishLaunches" => {
@@ -1429,7 +1514,7 @@ async fn handle_message(
                 .set_launch_proxy_when_mish_launches(params.launch_proxy_when_mish_launches)
             {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.setManagedPorts" => {
@@ -1442,7 +1527,7 @@ async fn handle_message(
             };
             match service.set_managed_ports(params.managed_ports) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.findManagedPorts" => {
@@ -1451,7 +1536,7 @@ async fn handle_message(
             };
             match service.find_and_set_managed_ports() {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.subscribe" => {
@@ -1500,7 +1585,7 @@ async fn handle_message(
             };
             match service.set_window_close_behavior(params.behavior) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "settings.setWindowSurface" => {
@@ -1513,7 +1598,7 @@ async fn handle_message(
             };
             match service.set_window_surface(params.surface) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
-                Err(error) => return Some(settings_error_response(id, error)),
+                Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
         "rpc.cancel" => json!(false),
@@ -1739,7 +1824,10 @@ fn settings_capability_error(id: Value) -> Value {
     error_response(id, -32020, "Application settings are unavailable", None)
 }
 
-fn settings_error_response(id: Value, error: SettingsServiceError) -> Value {
+fn settings_error_response(state: &ProtocolState, id: Value, error: SettingsServiceError) -> Value {
+    state
+        .runtime
+        .record_application_event(ApplicationDiagnosticEvent::settings_failure());
     match error {
         SettingsServiceError::CapabilityUnavailable => settings_capability_error(id),
         SettingsServiceError::Persistence => error_response(

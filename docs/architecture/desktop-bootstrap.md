@@ -122,13 +122,16 @@ responses disable storage and referrers, disallow framing and privileged browser
 features, restrict scripts, styles, fonts, images, and WebSocket connections to
 the local application origin, and never depend on a CDN.
 
-Each `Open Browser Client` action creates a fresh 256-bit lowercase hexadecimal
-launch PIN, stores it in a bounded two-minute process-memory queue, and places it in the URL
-fragment. The actual RPC token and endpoint never appear in the URL. Browser
-startup posts the PIN plus a fresh origin proof to `/browser-bootstrap` from the
+Each `Open Browser Client` action creates a fresh 256-bit, 43-character
+base64url launch token, stores it in a bounded two-minute process-memory queue,
+and places it in the URL fragment. The actual RPC token and endpoint never
+appear in the URL. Browser startup posts the launch token plus a fresh origin
+proof to `/browser-bootstrap` from the
 same origin, and the bridge validates the loopback peer, exact Host, exact
-Origin, and PIN in constant time before consuming it. A successful PIN cannot be
-replayed. The response is non-cacheable and contains the RPC bootstrap in its
+Origin, and token in constant time before consuming it. A successful token
+cannot be replayed, and an invalid token does not consume a valid pending token.
+The high-entropy token is not guarded by the low-entropy manual PIN's attempt
+lockout. The response is non-cacheable and contains the RPC bootstrap in its
 body; the Web client clears the fragment immediately and retains the RPC token
 only in memory.
 
@@ -142,13 +145,36 @@ validates the opaque challenge ID and PIN in constant time and consumes the
 challenge before returning the bootstrap.
 
 Both exchanges establish a fresh scoped HttpOnly, SameSite session cookie whose
-value is independently random rather than a launch PIN, manual PIN, or RPC
+value is independently random rather than a launch token, manual PIN, or RPC
 token. The session is accepted only together with a second random proof in
 origin-scoped `localStorage`. This split is required because cookies do not
 isolate ports while browser origins do. The bridge accepts only a bounded set of
 process-local browser sessions and applies the same loopback, Host, Origin,
 cookie, and proof checks to every refresh. If either half is gone, the page
 returns to pairing and cannot claim an authenticated RPC runtime.
+
+After the browser has reached an authenticated RPC connection, exhaustion of
+the bounded WebSocket reconnect policy replaces the application shell with a
+browser-only disconnected surface. The surface shows the validated bootstrap
+port in an editable numeric field and keeps all stale product controls
+unmounted. Reconnect first probes the entered port, then checks IPv4-loopback
+ports sequentially from 6474. The conventional scan stops after 10 occupied
+non-Mish ports or 5 empty ports, whichever occurs first, and retains bounded
+per-request timeouts, an overall deadline, and explicit cancellation.
+
+Browser-hosting bridges expose `GET /browser-discovery` solely as a versioned
+service marker. The marker contains no RPC token, PIN, proof, session, settings,
+or process data. Cross-port reads accept only HTTP origins on
+`127.0.0.1:6474` or above and use no credentials; all authenticated bootstrap
+and RPC routes retain their existing exact Host, Origin, cookie, proof, and
+token checks. If a marker request is blocked by CORS, a credential-free opaque
+request classifies a listener as occupied when browser policy permits; an
+ambiguous network or policy failure counts against the empty-port budget. The
+opaque response can never authenticate or select a listener. Only a matching
+marker causes a fragment-free replacement navigation
+to the discovered origin. Origin-scoped proof storage is not copied, and a new
+or restarted process must pass through the existing pairing flow when its
+process-local session is no longer valid.
 
 The browser client shares the desktop runtime but cannot acquire Tauri-only
 capabilities. Native local-file import, support-bundle export, local backup and

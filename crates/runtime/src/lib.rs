@@ -520,7 +520,6 @@ impl MishRuntime {
         let core = self.core.status().await;
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.reconcile(request, healthy).await;
-        self.publish_status(&core);
         if let Err(error) = result {
             self.record_application_event(ApplicationDiagnosticEvent::capture_failure(error.kind));
             return Err(error);
@@ -559,7 +558,6 @@ impl MishRuntime {
         let core = self.core.status().await;
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.recover(action, healthy).await;
-        self.publish_status(&core);
         if let Err(error) = result {
             self.record_application_event(ApplicationDiagnosticEvent::capture_failure(error.kind));
             return Err(error);
@@ -590,7 +588,6 @@ impl MishRuntime {
                 }
             };
         }
-        self.publish_status(&core);
         match result {
             Ok(_) => Ok(true),
             Err(error) => {
@@ -811,8 +808,44 @@ impl MishRuntime {
         snapshot
     }
 
+    pub fn snapshot_typed_with_capture_status(
+        &self,
+        status: &CoreStatus,
+        adapter_kind: StatusAdapterKind,
+        capture_status: CaptureRuntimeStatus,
+    ) -> StatusSnapshot {
+        let mut snapshot = self.snapshot_typed_from_status(status, adapter_kind);
+        snapshot.runtime.capture_selection = capture_status.capture_selection;
+        snapshot.runtime.system_proxy = capture_status.system_proxy;
+        snapshot.runtime.system_proxy_enabled = capture_status.system_proxy_enabled;
+        snapshot.runtime.tun = capture_status.tun;
+        snapshot.runtime.tun_enabled = capture_status.tun_enabled;
+        snapshot
+    }
+
     pub fn subscribe_status(&self) -> broadcast::Receiver<CoreStatus> {
         self.events.updates.subscribe()
+    }
+
+    /// Capture transitions are published independently from Core lifecycle updates so callers
+    /// can observe Pending before an OS mutation blocks and reconcile every terminal state.
+    pub fn subscribe_capture(&self) -> Option<broadcast::Receiver<CaptureRuntimeStatus>> {
+        self.capture.as_ref().map(|capture| capture.subscribe())
+    }
+
+    pub fn publish_capture_pending(
+        &self,
+        request: &CaptureRequest,
+    ) -> Option<CaptureRuntimeStatus> {
+        self.capture
+            .as_ref()
+            .map(|capture| capture.publish_pending(request))
+    }
+
+    pub fn restore_capture_status(&self, status: CaptureRuntimeStatus) {
+        if let Some(capture) = &self.capture {
+            capture.restore_status(status);
+        }
     }
 
     pub async fn shutdown(&self) -> Result<CoreStatus, RuntimeShutdownFailure> {

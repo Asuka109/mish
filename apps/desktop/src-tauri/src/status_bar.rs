@@ -76,6 +76,27 @@ impl StatusBarState {
             .launch_proxy_when_mish_launches;
         StatusBarModel::new(&status, &activation, launch_on_start)
     }
+
+    async fn model_with_capture(
+        &self,
+        capture: mish_runtime::CaptureRuntimeStatus,
+    ) -> StatusBarModel {
+        let (mut status, traffic) = self.runtime.native_traffic_handoff().await;
+        status.runtime.capture_selection = capture.capture_selection;
+        status.runtime.system_proxy = capture.system_proxy;
+        status.runtime.system_proxy_enabled = capture.system_proxy_enabled;
+        status.runtime.tun = capture.tun;
+        status.runtime.tun_enabled = capture.tun_enabled;
+        self.traffic_observations.observe(&status, &traffic);
+        let activation = self.activation.activation_snapshot().await;
+        let launch_on_start = self
+            .settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .startup
+            .launch_proxy_when_mish_launches;
+        StatusBarModel::new(&status, &activation, launch_on_start)
+    }
 }
 
 /// The sole native handoff from authoritative Traffic into private rolling
@@ -285,11 +306,7 @@ pub(crate) fn is_quit_menu_command(id: &str) -> bool {
 }
 
 fn open_browser_client(state: &StatusBarState) {
-    let Ok(nonce) = super::generate_auth_token() else {
-        show_browser_open_error();
-        return;
-    };
-    let Ok(url) = state.browser_client.issue_launch_url(nonce) else {
+    let Ok(url) = state.browser_client.issue_launch_url() else {
         show_browser_open_error();
         return;
     };
@@ -362,7 +379,7 @@ fn is_status_destination(destination: &str) -> bool {
 
 #[cfg(test)]
 const MENU_SECTIONS: &[&[&str]] = &[
-    &["Launch proxy / Stop proxy"],
+    &["Launch Proxy / Stop Proxy"],
     &[
         "Open Mish",
         "Routes",
@@ -386,6 +403,7 @@ async fn watch_status_menu(
 ) {
     let mut runtime_changes = state.runtime.subscribe_changes();
     let mut status_updates = runtime_changes.borrow_and_update().subscribe_status();
+    let mut capture_updates = runtime_changes.borrow().subscribe_capture();
     let mut activation_updates = state.activation.subscribe();
     let mut settings_updates = state.settings.subscribe();
     let mut refresh = tokio::time::interval(Duration::from_secs(1));
@@ -407,11 +425,35 @@ async fn watch_status_menu(
                     break;
                 }
                 status_updates = runtime_changes.borrow_and_update().subscribe_status();
+                capture_updates = runtime_changes.borrow().subscribe_capture();
             }
             update = status_updates.recv() => {
                 if update.is_err() && status_updates.is_closed() {
                     status_updates = runtime_changes.borrow().subscribe_status();
                 }
+            }
+            update = async { capture_updates.as_mut().expect("capture updates are enabled").recv().await }, if capture_updates.is_some() => {
+                let capture = match update {
+                    Ok(capture) => capture,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        capture_updates = runtime_changes.borrow().subscribe_capture();
+                        continue;
+                    }
+                };
+                let next_model = state.model_with_capture(capture).await;
+                let update = status_bar_update(&current_model, &next_model);
+                if update.menu_changed {
+                    current_model.menu = next_model.menu.clone();
+                    let _ = items.menu.apply(&current_model.menu);
+                }
+                if update.icon_changed {
+                    current_model.icon_active = next_model.icon_active;
+                    let _ = items
+                        .tray
+                        .set_icon_with_as_template(Some(status_bar_icon(current_model.icon_active)), true);
+                }
+                continue;
             }
             update = activation_updates.recv() => {
                 if update.is_err() && activation_updates.is_closed() {
@@ -504,12 +546,12 @@ fn build_menu<M: Manager<tauri::Wry>>(
 
 fn proxy_title(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> &'static str {
     if status.runtime.system_proxy_enabled || status.runtime.tun_enabled {
-        "Stop proxy"
+        "Stop Proxy"
     } else if activation.phase == ProfileActivationPhase::Pending
         || status.runtime.system_proxy.phase == mish_runtime::SystemProxyPhase::Pending
         || status.runtime.tun.phase == mish_runtime::TunPhase::Pending
     {
-        "Launch proxy — Pending"
+        "Launch Proxy — Pending"
     } else if activation.phase == ProfileActivationPhase::Failure
         || matches!(
             status.runtime.system_proxy.phase,
@@ -520,9 +562,9 @@ fn proxy_title(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) 
             mish_runtime::TunPhase::Failed | mish_runtime::TunPhase::Drift
         )
     {
-        "Launch proxy — Failed"
+        "Launch Proxy — Failed"
     } else {
-        "Launch proxy"
+        "Launch Proxy"
     }
 }
 
@@ -730,7 +772,7 @@ mod tests {
         let current = StatusBarModel {
             menu: StatusMenuModel {
                 launch_on_start: false,
-                proxy_title: "Launch proxy",
+                proxy_title: "Launch Proxy",
                 proxy_enabled: true,
             },
             icon_active: false,
@@ -752,7 +794,7 @@ mod tests {
 
         let menu_changed = StatusBarModel {
             menu: StatusMenuModel {
-                proxy_title: "Stop proxy",
+                proxy_title: "Stop Proxy",
                 ..current.menu.clone()
             },
             ..current
@@ -774,25 +816,25 @@ mod tests {
         activation.availability = ProfileActivationAvailability::Available;
         assert_eq!(
             StatusMenuModel::new(&status, &activation, false).proxy_title,
-            "Launch proxy"
+            "Launch Proxy"
         );
         assert!(StatusMenuModel::new(&status, &activation, false).proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Pending;
         let pending = StatusMenuModel::new(&status, &activation, false);
-        assert_eq!(pending.proxy_title, "Launch proxy — Pending");
+        assert_eq!(pending.proxy_title, "Launch Proxy — Pending");
         assert!(!pending.proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Failure;
         let failed = StatusMenuModel::new(&status, &activation, false);
-        assert_eq!(failed.proxy_title, "Launch proxy — Failed");
+        assert_eq!(failed.proxy_title, "Launch Proxy — Failed");
         assert!(failed.proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Idle;
         status.runtime.system_proxy_enabled = true;
         status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
         let active = StatusMenuModel::new(&status, &activation, true);
-        assert_eq!(active.proxy_title, "Stop proxy");
+        assert_eq!(active.proxy_title, "Stop Proxy");
         assert!(active.proxy_enabled);
         assert!(active.launch_on_start);
     }
@@ -802,7 +844,7 @@ mod tests {
         assert_eq!(
             MENU_SECTIONS,
             [
-                ["Launch proxy / Stop proxy"].as_slice(),
+                ["Launch Proxy / Stop Proxy"].as_slice(),
                 [
                     "Open Mish",
                     "Routes",

@@ -78,7 +78,7 @@ describe("MobileShell", () => {
     expect(
       screen.getByText("VPN and embedded Core are not implemented in this test build."),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: "Review VPN permission" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Review VPN Permission" })).toBeVisible();
   });
 
   it("excludes the desktop notification center and welcome invitation", () => {
