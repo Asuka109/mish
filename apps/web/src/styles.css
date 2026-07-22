@@ -637,312 +637,9 @@ h2 {
   content: "•";
 }
 
-.traffic-page {
-  width: 100%;
-  padding: 28px 28px 36px;
-}
-
-.traffic-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.traffic-header p {
-  margin-top: 5px;
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-}
-
-.traffic-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.traffic-source-status {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 20px;
-  padding: 8px 12px;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-soft);
-  color: var(--color-body);
-  font-size: var(--text-metadata);
-}
-
-.traffic-source-status[data-state="stale"] {
-  border-color: color-mix(in srgb, var(--color-warning) 28%, var(--color-hairline));
-  color: var(--color-warning);
-}
-
-.traffic-source-status > span:last-child {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.traffic-tabs {
-  margin-top: 20px;
-}
-
-.traffic-view-switch-button .ui-badge {
-  min-width: 20px;
-  padding: 0 5px;
-}
-
-.traffic-tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 12px 0;
-}
-
-.traffic-search-row {
-  min-width: 240px;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.traffic-search-field {
-  min-width: 0;
-  flex: 1;
-}
-
-.traffic-search-control {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.traffic-search-control > svg {
-  position: absolute;
-  left: 11px;
-  width: 16px;
-  height: 16px;
-  color: var(--color-text-muted);
-  pointer-events: none;
-}
-
-.traffic-search-control .ui-input {
-  padding-left: 34px;
-}
-
-.traffic-search-help-button {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-}
-
-.traffic-search-help-button:hover {
-  color: var(--color-body);
-}
-
-.traffic-search-help-dialog {
-  width: min(520px, calc(100vw - 32px));
-}
-
-.traffic-search-help-content {
-  display: grid;
-  gap: 12px;
-  padding: 4px 16px;
-  color: var(--color-body);
-  font-size: var(--text-metadata);
-  line-height: 20px;
-}
-
-.traffic-search-examples {
-  display: grid;
-  gap: 8px;
-}
-
-.traffic-search-examples code {
-  padding: 8px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface-soft);
-  color: var(--color-body);
-  user-select: text;
-}
-
-.traffic-table {
-  min-width: 1080px;
-  table-layout: fixed;
-}
-
-.traffic-table .ui-table-head:nth-child(1) {
-  width: 178px;
-}
-
-.traffic-table .ui-table-head:nth-child(2) {
-  width: 132px;
-}
-
-.traffic-table .ui-table-head:nth-child(3),
-.traffic-table .ui-table-head:nth-child(4),
-.traffic-table .ui-table-head:nth-child(5),
-.traffic-table .ui-table-head:nth-child(6) {
-  width: 112px;
-}
-
-.traffic-table .ui-table-head:last-child {
-  width: 78px;
-}
-
-.traffic-destination-button {
-  display: inline-flex;
-  width: 100%;
-  height: auto;
-  justify-content: flex-start;
-  gap: 2px;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  color: var(--color-ink);
-}
-
-.traffic-destination-button span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.traffic-destination-button small,
-.traffic-rule-cell + small {
-  color: var(--color-text-muted);
-}
-
-.traffic-rule-cell {
-  display: block;
-  overflow: hidden;
-  color: var(--color-body);
-  text-overflow: ellipsis;
-}
-
-.traffic-rule-cell + small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.traffic-empty {
-  min-height: 220px;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-}
-
-.traffic-load-more {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 12px;
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-}
-
-.rules-table {
-  min-width: 760px;
-}
-
-.rules-table .ui-table-head:nth-child(1),
-.rules-table .ui-table-head:nth-child(5),
-.rules-table .ui-table-head:nth-child(6) {
-  width: 92px;
-}
-
-.rules-table .ui-table-head:nth-child(2) {
-  width: 150px;
-}
-
-.traffic-detail-dialog {
-  width: min(680px, calc(100vw - 32px));
-  max-height: min(760px, calc(100vh - 48px));
-  overflow: auto;
-}
-
-.traffic-detail-body {
-  display: flex;
-  flex-direction: column;
-}
-
-.traffic-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1px;
-  margin: 16px;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  background: var(--color-hairline-soft);
-  overflow: hidden;
-}
-
-.traffic-detail-grid > div {
-  min-width: 0;
-  padding: 10px 12px;
-  background: var(--color-canvas);
-}
-
 .event-row .ui-button svg {
   width: 15px;
   height: 15px;
-}
-
-.traffic-detail-grid dt {
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.traffic-detail-grid dd {
-  margin: 3px 0 0;
-  overflow-wrap: anywhere;
-  color: var(--color-body);
-  font-size: var(--text-metadata);
-}
-
-.traffic-chain-detail {
-  padding: 0 16px 16px;
-}
-
-.traffic-chain-detail ol {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0;
-  margin: 8px 0 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  background: var(--color-hairline-soft);
-  list-style: none;
-  overflow: hidden;
-}
-
-.traffic-chain-detail li {
-  display: grid;
-  min-height: 38px;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  background: var(--color-canvas);
-}
-
-.traffic-chain-detail li span {
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.traffic-chain-detail li strong {
-  overflow: hidden;
-  font-size: var(--text-metadata);
-  font-weight: var(--font-weight-control);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .destination-page {
@@ -2090,10 +1787,6 @@ h2 {
     padding: 24px;
   }
 
-  .traffic-page {
-    padding: 24px 24px 32px;
-  }
-
   .profiles-header,
   .profile-row-title {
     align-items: stretch;
@@ -2179,22 +1872,6 @@ h2 {
 
   .route-child-row {
     padding-left: 36px;
-  }
-
-  .traffic-header,
-  .traffic-tools {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .traffic-actions {
-    align-self: flex-start;
-  }
-
-  .traffic-source-status {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 4px;
   }
 
   .events-heading,
@@ -2336,8 +2013,7 @@ h2 {
   .settings-page,
   .events-page,
   .profiles-page,
-  .routes-workspace,
-  .traffic-page {
+  .routes-workspace {
     padding: 18px 16px 24px;
   }
 
@@ -2381,13 +2057,8 @@ h2 {
     grid-row: 1;
   }
 
-  .traffic-detail-grid,
   .profile-preview-classifications {
     grid-template-columns: 1fr;
-  }
-
-  .traffic-detail-grid {
-    margin: 12px;
   }
 
   .profile-preview-classifications strong {
@@ -2399,8 +2070,7 @@ h2 {
     gap: 6px;
   }
 
-  .events-controls .ui-input,
-  .traffic-search-field {
+  .events-controls .ui-input {
     min-width: 0;
   }
 }
