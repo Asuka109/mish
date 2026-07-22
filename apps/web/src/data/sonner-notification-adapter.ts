@@ -1,26 +1,17 @@
 import { toast } from "sonner";
-import { createElement, useState } from "react";
+import { createElement } from "react";
 import type { DeliveredNotification } from "./notification-delivery";
 
 function ToastActionGroup({
   actions,
   execute,
+  pendingActionId,
 }: {
   actions: DeliveredNotification["actions"];
   execute(actionId: string): Promise<void>;
+  pendingActionId?: string;
 }) {
-  const [pendingActionId, setPendingActionId] = useState<string>();
   const pending = Boolean(pendingActionId);
-
-  async function run(actionId: string) {
-    if (pending) return;
-    setPendingActionId(actionId);
-    try {
-      await execute(actionId);
-    } finally {
-      setPendingActionId(undefined);
-    }
-  }
 
   return createElement(
     "span",
@@ -35,7 +26,7 @@ function ToastActionGroup({
           "data-disabled": pending || undefined,
           disabled: pending,
           key: action.id,
-          onClick: () => void run(action.id),
+          onClick: () => (pending ? undefined : void execute(action.id)),
           style: { marginLeft: 0, marginRight: 0 },
           type: "button",
         },
@@ -64,7 +55,11 @@ export function presentNotificationToast(
     id: notification.id,
     action:
       notification.actions.length > 0
-        ? createElement(ToastActionGroup, { actions: notification.actions, execute })
+        ? createElement(ToastActionGroup, {
+            actions: notification.actions,
+            execute,
+            pendingActionId: notification.pendingActionId,
+          })
         : undefined,
     cancel: undefined,
   };

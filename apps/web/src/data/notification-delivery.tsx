@@ -94,26 +94,35 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
 
   const execute = useCallback(async (id: string, actionId?: string) => {
     let action: NotificationActionDescriptor | undefined;
+    let dismissedToast = false;
     setEntries((current) => {
       const entry = current.find((item) => item.id === id);
       const candidate = entry?.actions.find((item) => item.id === actionId) ?? entry?.actions[0];
       if (!entry || !candidate || entry.pendingActionId) return current;
       action = candidate;
-      return current.map((item) =>
-        item.id === id ? { ...item, pendingActionId: candidate.id } : item,
-      );
+      const pendingEntry = { ...entry, pendingActionId: candidate.id };
+      presentNotificationToast(pendingEntry, (nextActionId) => execute(id, nextActionId));
+      return current.map((item) => (item.id === id ? pendingEntry : item));
     });
     if (!action) return;
     try {
       await action.run();
-      if (action.dismissToastOnSuccess) dismissNotificationToast(id);
+      if (action.dismissToastOnSuccess) {
+        dismissedToast = true;
+        dismissNotificationToast(id);
+      }
     } catch {
       // Application actions deliberately expose only their own localized, safe failures.
     } finally {
       setEntries((current) =>
-        current.map((entry) =>
-          entry.id === id ? { ...entry, pendingActionId: undefined } : entry,
-        ),
+        current.map((entry) => {
+          if (entry.id !== id) return entry;
+          const settledEntry = { ...entry, pendingActionId: undefined };
+          if (!dismissedToast) {
+            presentNotificationToast(settledEntry, (nextActionId) => execute(id, nextActionId));
+          }
+          return settledEntry;
+        }),
       );
     }
   }, []);
