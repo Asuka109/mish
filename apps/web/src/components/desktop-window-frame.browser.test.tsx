@@ -1,4 +1,11 @@
-import { Dialog, DialogContent, DialogTitle } from "@mish/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@mish/ui";
 import { page, userEvent } from "vitest/browser";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
@@ -6,6 +13,7 @@ import { Toaster, toast } from "sonner";
 import { AppearanceProvider } from "../appearance";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
+import { createDesktopWindowDragHandler } from "../platform/desktop-window";
 import { StartupFailure } from "./startup-failure";
 import { DesktopWindowFrame } from "./desktop-window-frame";
 import "../styles.css";
@@ -94,5 +102,98 @@ describe("desktop window frame overlay boundaries", () => {
       frame,
     );
     expect(getComputedStyle(failure).position).toBe("fixed");
+  });
+
+  test("marks portal overlay surfaces as excluded from the desktop drag contract", async () => {
+    root.render(
+      <DesktopWindowFrame runtime="desktop">
+        <Dialog defaultOpen>
+          <DialogContent aria-describedby={undefined} showCloseButton={false}>
+            <DialogTitle>Dialog overlay</DialogTitle>
+          </DialogContent>
+        </Dialog>
+        <Popover defaultOpen>
+          <PopoverTrigger>Notifications</PopoverTrigger>
+          <PopoverContent>
+            <p>Notification center content</p>
+          </PopoverContent>
+        </Popover>
+      </DesktopWindowFrame>,
+    );
+
+    await expect.element(page.getByText("Notification center content")).toBeVisible();
+    const notificationContent = document
+      .querySelector<HTMLElement>(".popover-content")
+      ?.closest<HTMLElement>("[data-window-drag='exclude']");
+    const dialogContent = document.querySelector<HTMLElement>(".dialog-content");
+    const backdrop = document.querySelector<HTMLElement>(".dialog-backdrop");
+    if (!notificationContent || !dialogContent || !backdrop) {
+      throw new Error("Missing portal overlay surface");
+    }
+
+    expect(notificationContent).toHaveAttribute("data-window-drag", "exclude");
+    expect(dialogContent).toHaveAttribute("data-window-drag", "exclude");
+    expect(backdrop).toHaveAttribute("data-window-drag", "exclude");
+  });
+
+  test("does not route notification popover content into native drag or zoom", async () => {
+    const nativeWindow = {
+      isDesktop: () => true,
+      revealMainWindow: vi.fn().mockResolvedValue(undefined),
+      setTheme: vi.fn().mockResolvedValue(undefined),
+      startDragging: vi.fn().mockResolvedValue(undefined),
+      toggleMaximize: vi.fn().mockResolvedValue(undefined),
+    };
+    const routeWindowDrag = createDesktopWindowDragHandler(nativeWindow);
+
+    root.render(
+      <div onMouseDown={routeWindowDrag}>
+        <DesktopWindowFrame runtime="desktop">
+          <Popover defaultOpen>
+            <PopoverTrigger>Notifications</PopoverTrigger>
+            <PopoverContent>
+              <p>Notification center content</p>
+            </PopoverContent>
+          </Popover>
+        </DesktopWindowFrame>
+      </div>,
+    );
+
+    const content = page.getByText("Notification center content");
+    await expect.element(content).toBeVisible();
+    await userEvent.dblClick(content);
+
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  test("does not route dialog content into native drag or zoom", async () => {
+    const nativeWindow = {
+      isDesktop: () => true,
+      revealMainWindow: vi.fn().mockResolvedValue(undefined),
+      setTheme: vi.fn().mockResolvedValue(undefined),
+      startDragging: vi.fn().mockResolvedValue(undefined),
+      toggleMaximize: vi.fn().mockResolvedValue(undefined),
+    };
+    const routeWindowDrag = createDesktopWindowDragHandler(nativeWindow);
+
+    root.render(
+      <div onMouseDown={routeWindowDrag}>
+        <DesktopWindowFrame runtime="desktop">
+          <Dialog defaultOpen>
+            <DialogContent aria-describedby={undefined} showCloseButton={false}>
+              <DialogTitle>Dialog overlay</DialogTitle>
+            </DialogContent>
+          </Dialog>
+        </DesktopWindowFrame>
+      </div>,
+    );
+
+    const content = page.getByText("Dialog overlay");
+    await expect.element(content).toBeVisible();
+    await userEvent.dblClick(content);
+
+    expect(nativeWindow.startDragging).not.toHaveBeenCalled();
+    expect(nativeWindow.toggleMaximize).not.toHaveBeenCalled();
   });
 });
