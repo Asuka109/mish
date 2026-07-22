@@ -67,7 +67,7 @@ fn replace_native_quit<R: tauri::Runtime, M: tauri::Manager<R>>(
     let quit_position = items.iter().position(|item| {
         item.as_predefined_menuitem()
             .and_then(|item| item.text().ok())
-            .is_some_and(|text| is_native_quit_label(&text, app_name))
+            .is_some_and(|text| is_native_quit_label(&text))
     });
     let Some(quit_position) = quit_position else {
         return Err(std::io::Error::other("native Quit menu item is unavailable").into());
@@ -79,8 +79,10 @@ fn replace_native_quit<R: tauri::Runtime, M: tauri::Manager<R>>(
     app_menu.insert(&quit, quit_position)
 }
 
-fn is_native_quit_label(label: &str, app_name: &str) -> bool {
-    label == format!("Quit {app_name}")
+fn is_native_quit_label(label: &str) -> bool {
+    label
+        .strip_prefix("Quit ")
+        .is_some_and(|runtime_name| !runtime_name.trim().is_empty())
 }
 
 fn find_submenu<R: tauri::Runtime>(
@@ -104,7 +106,9 @@ mod tests {
         assert!(is_graceful_exit_menu_command("application.quit"));
         assert!(is_graceful_exit_menu_command("status-bar.quit"));
         assert!(!is_graceful_exit_menu_command("terminate:"));
-        assert!(is_native_quit_label("Quit Mish", "Mish"));
-        assert!(!is_native_quit_label("Hide Mish", "Mish"));
+        assert!(is_native_quit_label("Quit Mish"));
+        assert!(is_native_quit_label("Quit mish-desktop"));
+        assert!(!is_native_quit_label("Quit "));
+        assert!(!is_native_quit_label("Hide Mish"));
     }
 }
