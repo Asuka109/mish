@@ -43,4 +43,31 @@ describe("Status session traffic", () => {
     expect(state.traffic.downloadSeries).toEqual([]);
     expect(state.traffic.downloadedBytes).toBe(0);
   });
+
+  it("retains at most 60 post-boundary samples", () => {
+    let state = reconcileStatusSessionTraffic(
+      {
+        active: false,
+        baseline: null,
+        previousDownloadSeries: [],
+        previousUploadSeries: [],
+        traffic: { ...source },
+      },
+      source,
+      true,
+    );
+    for (let value = 3; value <= 64; value += 1) {
+      state = reconcileStatusSessionTraffic(
+        state,
+        {
+          ...source,
+          downloadSeries: [1, 2, value],
+          uploadSeries: [3, 4, value],
+        },
+        true,
+      );
+    }
+    expect(state.traffic.downloadSeries).toHaveLength(60);
+    expect(state.traffic.uploadSeries).toHaveLength(60);
+  });
 });

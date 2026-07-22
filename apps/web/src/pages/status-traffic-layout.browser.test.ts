@@ -26,6 +26,12 @@ function trafficRows(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>(".traffic-session-row")];
 }
 
+function trafficPair(): HTMLElement {
+  const pair = document.querySelector<HTMLElement>(".traffic-session-pair");
+  if (!pair) throw new Error("Traffic session pair is missing");
+  return pair;
+}
+
 function measure(row: HTMLElement): TrafficRowGeometry {
   const label = row.querySelector<HTMLElement>(".traffic-session-label");
   const rate = row.querySelector<HTMLElement>(".traffic-rate-value");
@@ -50,10 +56,11 @@ beforeAll(async () => {
 });
 
 describe("status traffic row layout", () => {
-  test("places each live rate immediately after its cumulative total before the sparkline", async () => {
+  test("uses one stable three-column grid for both traffic rows", async () => {
     await page.viewport(1024, 720);
     await nextFrame();
 
+    const measurements = trafficRows().map(measure);
     for (const row of trafficRows()) {
       expect(
         [...row.children].map((child) => child.className),
@@ -66,18 +73,51 @@ describe("status traffic row layout", () => {
       expect(Math.abs(rate.top + rate.height / 2 - (label.top + label.height / 2))).toBeLessThan(1);
       expect(sparklineRect.width, "sparkline receives the remaining row width").toBeGreaterThan(72);
     }
+    expect(measurements[0].label.left).toBe(measurements[1].label.left);
+    expect(measurements[0].label.width).toBe(measurements[1].label.width);
+    expect(measurements[0].rate.left).toBe(measurements[1].rate.left);
+    expect(measurements[0].rate.width).toBe(measurements[1].rate.width);
+    expect(measurements[0].sparklineRect.left).toBe(measurements[1].sparklineRect.left);
+    expect(measurements[0].sparklineRect.width).toBe(measurements[1].sparklineRect.width);
   });
 
-  test("keeps the total and rate together when the compact rule hides the graph", async () => {
+  test("keeps the curve track fixed for longer rates and uses one continuous row divider", async () => {
+    await page.viewport(1024, 720);
+    await nextFrame();
+    const before = trafficRows().map(measure);
+    for (const row of trafficRows()) {
+      const rate = row.querySelector<HTMLElement>(".traffic-rate-value");
+      if (!rate) throw new Error("Traffic row is missing its rate");
+      rate.textContent = "999.99 MB/s";
+    }
+    await nextFrame();
+    const after = trafficRows().map(measure);
+    for (const [index, row] of after.entries()) {
+      expect(row.sparklineRect.left).toBe(before[index].sparklineRect.left);
+      expect(row.sparklineRect.width).toBe(before[index].sparklineRect.width);
+    }
+    const pair = trafficPair();
+    const divider = getComputedStyle(pair, "::after");
+    expect(divider.position).toBe("absolute");
+    expect(divider.left).toBe("0px");
+    expect(divider.right).toBe("0px");
+    expect(divider.height).toBe("1px");
+  });
+
+  test("keeps paired columns aligned in the compact layout while hiding the graph", async () => {
     await page.viewport(360, 720);
     await nextFrame();
 
+    const measurements = trafficRows().map(measure);
     for (const row of trafficRows()) {
       const { label, rate, sparkline } = measure(row);
       expect(rate.left, "rate remains beside the label").toBeGreaterThanOrEqual(label.right);
       expect(Math.abs(rate.top + rate.height / 2 - (label.top + label.height / 2))).toBeLessThan(1);
-      expect(getComputedStyle(row).gridTemplateColumns).not.toContain("72px");
       expect(getComputedStyle(sparkline).display).toBe("none");
     }
+    expect(getComputedStyle(trafficPair()).gridTemplateColumns).toMatch(/^\S+ 112px$/);
+    expect(measurements[0].label.left).toBe(measurements[1].label.left);
+    expect(measurements[0].rate.left).toBe(measurements[1].rate.left);
+    expect(measurements[0].rate.width).toBe(measurements[1].rate.width);
   });
 });

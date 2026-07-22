@@ -62,10 +62,10 @@ export function reconcileStatusSessionTraffic(
     previousUploadSeries: source.uploadSeries,
     traffic: {
       downloadBytesPerSecond: source.downloadBytesPerSecond,
-      downloadSeries: [...state.traffic.downloadSeries, ...downloadAdded].slice(-512),
+      downloadSeries: [...state.traffic.downloadSeries, ...downloadAdded].slice(-60),
       downloadedBytes: Math.max(0, source.downloadedBytes - state.baseline.downloadedBytes),
       uploadBytesPerSecond: source.uploadBytesPerSecond,
-      uploadSeries: [...state.traffic.uploadSeries, ...uploadAdded].slice(-512),
+      uploadSeries: [...state.traffic.uploadSeries, ...uploadAdded].slice(-60),
       uploadedBytes: Math.max(0, source.uploadedBytes - state.baseline.uploadedBytes),
     },
   };
