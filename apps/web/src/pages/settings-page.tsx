@@ -588,7 +588,6 @@ export function SettingsPage() {
           <div className="settings-inline-control">
             <ToggleGroup
               aria-label={LL.settingsPage.launchProxyWhenMishLaunches()}
-              className="settings-segmented"
               disabled={!launchProxySupported || settings.pending}
               onValueChange={(values) => {
                 const option = values[0];
@@ -598,7 +597,7 @@ export function SettingsPage() {
               }}
               spacing={0}
               value={[displayedLaunchProxy ? "on" : "off"]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={pendingButtonAction === "proxy-launch" && !displayedLaunchProxy}
@@ -627,7 +626,6 @@ export function SettingsPage() {
           <div className="settings-inline-control">
             <ToggleGroup
               aria-label={LL.settingsPage.launchAtLogin()}
-              className="settings-segmented"
               disabled={!startupSupported || settings.pending}
               onValueChange={(values) => {
                 const option = values[0];
@@ -637,7 +635,7 @@ export function SettingsPage() {
               }}
               spacing={0}
               value={[displayedStartupOption]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={pendingButtonAction === "startup" && displayedStartupOption === "off"}
@@ -813,7 +811,6 @@ export function SettingsPage() {
           <div className="settings-inline-control">
             <ToggleGroup
               aria-label={LL.settingsPage.closeWindow()}
-              className="settings-segmented"
               disabled={
                 snapshot.adapterKind !== "rpc" ||
                 snapshot.capabilities.windowLifecycle !== "supported" ||
@@ -827,7 +824,7 @@ export function SettingsPage() {
               }}
               spacing={0}
               value={[optimisticWindowClose ?? snapshot.preferences.windowCloseBehavior]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={
@@ -862,12 +859,11 @@ export function SettingsPage() {
         <SettingsRow description={LL.settingsPage.themeDescription()} title={LL.appearance.label()}>
           <ToggleGroup
             aria-label={LL.appearance.label()}
-            className="settings-segmented"
             disabled={appearancePending}
             onValueChange={changeAppearance}
             spacing={0}
             value={[preference]}
-            variant="outline"
+            variant="segmented"
           >
             {(["system", "light", "dark"] as AppearancePreference[]).map((appearance) => (
               <ToggleGroupItem
@@ -894,12 +890,11 @@ export function SettingsPage() {
           >
             <ToggleGroup
               aria-label={LL.settingsPage.windowSurface()}
-              className="settings-segmented"
               disabled={settings.pending || windowSurfacePending}
               onValueChange={changeWindowSurface}
               spacing={0}
               value={[windowSurfacePreference]}
-              variant="outline"
+              variant="segmented"
             >
               <ToggleGroupItem
                 aria-busy={windowSurfacePending && windowSurfacePreference === "opaque"}
@@ -928,12 +923,11 @@ export function SettingsPage() {
         >
           <ToggleGroup
             aria-label={LL.language.label()}
-            className="settings-segmented"
             disabled={settings.pending}
             onValueChange={(values) => void changeLanguage(values)}
             spacing={0}
             value={[locale satisfies LanguagePreference]}
-            variant="outline"
+            variant="segmented"
           >
             <ToggleGroupItem
               aria-busy={pendingButtonAction === "language" && pendingLanguage === "en"}

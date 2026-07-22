@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { Button } from "@mish/ui";
+import { Button, Toggle } from "@mish/ui";
 import { describe, expect, it } from "vitest";
 
 function deferred() {
@@ -13,6 +13,31 @@ function deferred() {
 }
 
 describe("Button promise loading", () => {
+  it("lets a caller override conflicting recipe utilities at the shared TV merge boundary", () => {
+    render(
+      <Button className="h-12 bg-red-500 px-6" variant="outline">
+        Override
+      </Button>,
+    );
+
+    const button = screen.getByRole("button", { name: "Override" });
+    expect(button).toHaveClass("h-12", "bg-red-500", "px-6");
+    expect(button.className).not.toContain("h-[34px]");
+  });
+
+  it("keeps Base UI pressed state semantic while the capture recipe styles it", () => {
+    render(
+      <Toggle data-capture-state="running" pressed variant="capture">
+        System proxy
+      </Toggle>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "System proxy" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toHaveAttribute("data-capture-state", "running");
+    expect(toggle).toHaveClass("data-[capture-state=running]:text-(--color-body)");
+  });
+
   it("stays loading until a promise resolves", async () => {
     const operation = deferred();
     render(

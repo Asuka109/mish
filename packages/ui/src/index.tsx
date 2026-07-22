@@ -22,11 +22,123 @@ import {
   type LabelHTMLAttributes,
   type ReactNode,
 } from "react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { cn, tv } from "tailwind-variants";
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+export { cn } from "tailwind-variants";
+
+// Recipes are intentionally the only shared component merge boundary. Consumer
+// className values are passed to tv() last so documented page-level overrides win.
+const buttonRecipe = tv({
+  base: "ui-button inline-flex h-[34px] shrink-0 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-ink) bg-(--color-ink) px-[13px] text-(--text-metadata) font-(--font-weight-control) text-(--color-canvas) whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-[15px] [&_svg]:shrink-0",
+  variants: {
+    variant: {
+      default: "ui-button--default",
+      outline:
+        "ui-button--outline border-(--color-hairline) bg-(--color-canvas) text-(--color-ink) hover:bg-(--color-accent)",
+      ghost:
+        "ui-button--ghost border-transparent bg-transparent text-(--color-body) hover:bg-(--color-accent)",
+      destructive:
+        "ui-button--destructive border-transparent bg-[color-mix(in_srgb,var(--color-error)_10%,transparent)] text-(--color-error)",
+    },
+    size: {
+      default: "ui-button--default",
+      sm: "ui-button--sm",
+      "icon-sm": "ui-button--icon-sm size-[30px] p-0",
+    },
+  },
+  defaultVariants: { variant: "default", size: "default" },
+});
+
+const badgeRecipe = tv({
+  base: "ui-badge inline-flex min-h-5 items-center gap-1 rounded-(--radius-full) border border-(--color-hairline) bg-(--color-canvas) px-2 text-[12px] font-(--font-weight-control) text-(--color-body)",
+  variants: {
+    variant: {
+      default: "",
+      outline: "",
+      success:
+        "border-transparent bg-[color-mix(in_srgb,var(--color-success)_12%,transparent)] text-(--color-success-text)",
+      warning:
+        "border-transparent bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] text-(--color-warning)",
+      destructive:
+        "border-transparent bg-[color-mix(in_srgb,var(--color-error)_12%,transparent)] text-(--color-error)",
+    },
+  },
+  defaultVariants: { variant: "default" },
+});
+
+const toggleRecipe = tv({
+  base: "ui-toggle inline-flex h-[34px] shrink-0 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[13px] text-(--text-metadata) font-(--font-weight-control) text-(--color-body) whitespace-nowrap outline-none hover:bg-(--color-accent) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) disabled:pointer-events-none disabled:opacity-50",
+  variants: {
+    variant: {
+      default: "",
+      outline: "",
+      capture:
+        "h-[30px] gap-[7px] px-[10px] text-(--color-text-muted) [&_svg]:size-[15px] data-[capture-state=remembered]:text-(--color-text-muted) data-[capture-state=remembered]:[&_svg]:text-(--color-muted-soft) data-[capture-state=running]:text-(--color-body) data-[capture-state=running]:[&_svg]:text-[color-mix(in_srgb,var(--color-success)_64%,var(--color-muted-soft))]",
+      "icon-capture": "size-[30px] p-0 [&_svg]:size-[15px] [&_svg]:text-(--color-muted-soft)",
+    },
+  },
+  defaultVariants: { variant: "default" },
+});
+
+const inputRecipe = tv({
+  base: "ui-input h-[38px] w-full rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[10px] text-(--color-ink) outline-none aria-invalid:border-[color-mix(in_srgb,var(--color-error)_52%,var(--color-hairline))]",
+});
+
+const spinnerRecipe = tv({
+  base: "ui-spinner size-[14px] shrink-0 animate-spin rounded-full border-[1.5px] border-current border-r-transparent motion-reduce:[animation-duration:1.5s]",
+});
+
+const tabsRecipe = tv({
+  slots: {
+    root: "ui-tabs flex min-h-0 flex-col",
+    list: "ui-tabs-list inline-flex w-fit items-center gap-0.5 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) p-[3px]",
+    trigger:
+      "ui-tabs-trigger inline-flex h-[30px] items-center gap-[7px] rounded-(--radius-sm) border-0 bg-transparent px-[10px] text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) hover:bg-(--color-accent) hover:text-(--color-body) data-[active]:bg-(--color-accent) data-[active]:text-(--color-ink) data-[active]:shadow-[0_1px_2px_color-mix(in_srgb,var(--color-ink)_6%,transparent)] [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center [&_.ui-badge]:px-[5px]",
+    content: "ui-tabs-content min-h-0 outline-none",
+  },
+});
+
+const selectRecipe = tv({
+  slots: {
+    trigger:
+      "ui-select-trigger inline-flex h-[38px] min-w-[132px] items-center justify-between gap-2 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[10px] text-(--text-metadata) text-(--color-body) disabled:opacity-50",
+    icon: "ui-select-icon size-[14px] text-(--color-text-muted) [&_svg]:size-[14px]",
+    positioner: "ui-select-positioner outline-none",
+    content:
+      "ui-select-content max-h-[min(320px,var(--available-height))] min-w-(--anchor-width) overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) text-(--color-body) shadow-(--shadow-float)",
+    list: "ui-select-list overflow-auto p-1",
+    item: "ui-select-item grid min-h-8 grid-cols-[minmax(0,1fr)_16px] items-center gap-2 rounded-(--radius-sm) px-2 text-(--text-metadata) outline-none data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-ink)",
+    indicator: "ui-select-item-indicator size-[14px] [&_svg]:size-[14px]",
+  },
+});
+
+const tableRecipe = tv({
+  slots: {
+    container:
+      "ui-table-container w-full overflow-auto rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas)",
+    table: "ui-table w-full border-collapse text-(--text-metadata)",
+    head: "ui-table-head h-9 border-b border-(--color-hairline) bg-(--color-surface-soft) px-[10px] text-left text-[12px] font-(--font-weight-control) text-(--color-text-muted) whitespace-nowrap",
+    cell: "ui-table-cell h-12 max-w-[240px] overflow-hidden border-b border-(--color-hairline-soft) px-[10px] py-[6px] text-(--color-body) text-ellipsis whitespace-nowrap",
+    row: "ui-table-row hover:[&_td]:bg-(--color-accent) last:[&_td]:border-b-0",
+  },
+});
+
+const emptyRecipe = tv({
+  slots: {
+    root: "ui-empty flex min-h-[156px] flex-col items-center justify-center gap-[14px] rounded-(--radius-lg) border border-dashed border-(--color-hairline) text-center",
+    header: "ui-empty-header grid gap-[5px]",
+    title: "ui-empty-title font-(--font-weight-control)",
+    description: "ui-empty-description text-(--text-metadata) text-(--color-text-muted)",
+  },
+});
+
+function resolveClassName<State>(
+  className: string | ((state: State) => string | undefined) | undefined,
+  recipe: (override: string | undefined) => string,
+) {
+  return typeof className === "function"
+    ? (state: State) => recipe(className(state))
+    : recipe(className);
 }
 
 export interface ButtonProps extends ComponentProps<typeof ButtonPrimitive> {
@@ -54,7 +166,9 @@ export function Button({
   return (
     <ButtonPrimitive
       aria-busy={loadingPending ? true : ariaBusy}
-      className={cn("ui-button", `ui-button--${variant}`, `ui-button--${size}`, className)}
+      className={resolveClassName(className, (override) =>
+        buttonRecipe({ variant, size, className: override }),
+      )}
       data-loading={loadingPending || undefined}
       data-slot="button"
       disabled={disabled || (disableWhileLoading && loadingPending)}
@@ -99,13 +213,7 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 export function Badge({ className, variant = "default", ...props }: BadgeProps) {
-  return (
-    <span
-      className={cn("ui-badge", `ui-badge--${variant}`, className)}
-      data-slot="badge"
-      {...props}
-    />
-  );
+  return <span className={badgeRecipe({ variant, className })} data-slot="badge" {...props} />;
 }
 
 export interface SectionGridProps extends HTMLAttributes<HTMLDivElement> {
@@ -150,13 +258,15 @@ export function SectionGridItem({
 }
 
 export interface ToggleProps extends ComponentProps<typeof TogglePrimitive> {
-  variant?: "default" | "outline";
+  variant?: "default" | "outline" | "capture" | "icon-capture";
 }
 
 export function Toggle({ className, variant = "default", ...props }: ToggleProps) {
   return (
     <TogglePrimitive
-      className={cn("ui-toggle", `ui-toggle--${variant}`, className)}
+      className={resolveClassName(className, (override) =>
+        toggleRecipe({ variant, className: override }),
+      )}
       data-slot="toggle"
       {...props}
     />
@@ -165,7 +275,7 @@ export function Toggle({ className, variant = "default", ...props }: ToggleProps
 
 interface ToggleGroupContextValue {
   spacing: number;
-  variant: "default" | "outline";
+  variant: "default" | "outline" | "segmented";
 }
 
 const ToggleGroupContext = createContext<ToggleGroupContextValue>({
@@ -175,7 +285,7 @@ const ToggleGroupContext = createContext<ToggleGroupContextValue>({
 
 export interface ToggleGroupProps extends ComponentProps<typeof ToggleGroupPrimitive> {
   spacing?: number;
-  variant?: "default" | "outline";
+  variant?: "default" | "outline" | "segmented";
 }
 
 export function ToggleGroup({
@@ -187,7 +297,7 @@ export function ToggleGroup({
 }: ToggleGroupProps) {
   return (
     <ToggleGroupPrimitive
-      className={cn("ui-toggle-group", className)}
+      className={cn("ui-toggle-group inline-flex w-fit items-center", className)}
       data-spacing={spacing}
       data-variant={variant}
       {...props}
@@ -206,7 +316,12 @@ export function ToggleGroupItem({ className, ...props }: ToggleGroupItemProps) {
 
   return (
     <TogglePrimitive
-      className={cn("ui-toggle-group-item", className)}
+      className={cn(
+        "ui-toggle-group-item",
+        context.variant === "segmented" &&
+          "inline-flex h-[30px] items-center justify-center border border-(--color-hairline) bg-(--color-canvas) px-[11px] text-(--text-metadata) text-(--color-text-muted) first:rounded-l-(--radius-md) last:rounded-r-(--radius-md) [&:not(:first-child)]:border-l-0 hover:bg-(--color-accent) hover:text-(--color-body) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-hairline)_56%,transparent)] disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
       data-spacing={context.spacing}
       data-variant={context.variant}
       {...props}
@@ -407,17 +522,33 @@ export function AlertDialogFooter(props: HTMLAttributes<HTMLDivElement>) {
 }
 
 export function Input({ className, ...props }: ComponentProps<typeof InputPrimitive>) {
-  return <InputPrimitive className={cn("ui-input", className)} data-slot="input" {...props} />;
+  return (
+    <InputPrimitive
+      className={resolveClassName(className, (override) => inputRecipe({ className: override }))}
+      data-slot="input"
+      {...props}
+    />
+  );
 }
 
 export function Tabs({ className, ...props }: ComponentProps<typeof TabsPrimitive.Root>) {
-  return <TabsPrimitive.Root className={cn("ui-tabs", className)} data-slot="tabs" {...props} />;
+  return (
+    <TabsPrimitive.Root
+      className={resolveClassName(className, (override) =>
+        tabsRecipe().root({ className: override }),
+      )}
+      data-slot="tabs"
+      {...props}
+    />
+  );
 }
 
 export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrimitive.List>) {
   return (
     <TabsPrimitive.List
-      className={cn("ui-tabs-list", className)}
+      className={resolveClassName(className, (override) =>
+        tabsRecipe().list({ className: override }),
+      )}
       data-slot="tabs-list"
       {...props}
     />
@@ -427,7 +558,9 @@ export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrim
 export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitive.Tab>) {
   return (
     <TabsPrimitive.Tab
-      className={cn("ui-tabs-trigger", className)}
+      className={resolveClassName(className, (override) =>
+        tabsRecipe().trigger({ className: override }),
+      )}
       data-slot="tabs-trigger"
       {...props}
     />
@@ -437,7 +570,9 @@ export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsP
 export function TabsContent({ className, ...props }: ComponentProps<typeof TabsPrimitive.Panel>) {
   return (
     <TabsPrimitive.Panel
-      className={cn("ui-tabs-content", className)}
+      className={resolveClassName(className, (override) =>
+        tabsRecipe().content({ className: override }),
+      )}
       data-slot="tabs-content"
       {...props}
     />
@@ -455,12 +590,14 @@ export function SelectTrigger({
 }: ComponentProps<typeof SelectPrimitive.Trigger>) {
   return (
     <SelectPrimitive.Trigger
-      className={cn("ui-select-trigger", className)}
+      className={resolveClassName(className, (override) =>
+        selectRecipe().trigger({ className: override }),
+      )}
       data-slot="select-trigger"
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon className="ui-select-icon">
+      <SelectPrimitive.Icon className={selectRecipe().icon()}>
         <ChevronDown aria-hidden="true" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
@@ -488,16 +625,18 @@ export function SelectContent({
       <SelectPrimitive.Positioner
         align={align}
         alignItemWithTrigger={alignItemWithTrigger}
-        className="ui-select-positioner"
+        className={selectRecipe().positioner()}
         side={side}
         sideOffset={sideOffset}
       >
         <SelectPrimitive.Popup
-          className={cn("ui-select-content", className)}
+          className={resolveClassName(className, (override) =>
+            selectRecipe().content({ className: override }),
+          )}
           data-slot="select-content"
           {...props}
         >
-          <SelectPrimitive.List className="ui-select-list">{children}</SelectPrimitive.List>
+          <SelectPrimitive.List className={selectRecipe().list()}>{children}</SelectPrimitive.List>
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>
     </SelectPrimitive.Portal>
@@ -511,12 +650,14 @@ export function SelectItem({
 }: ComponentProps<typeof SelectPrimitive.Item>) {
   return (
     <SelectPrimitive.Item
-      className={cn("ui-select-item", className)}
+      className={resolveClassName(className, (override) =>
+        selectRecipe().item({ className: override }),
+      )}
       data-slot="select-item"
       {...props}
     >
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-      <SelectPrimitive.ItemIndicator className="ui-select-item-indicator">
+      <SelectPrimitive.ItemIndicator className={selectRecipe().indicator()}>
         <Check aria-hidden="true" />
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>
@@ -525,8 +666,8 @@ export function SelectItem({
 
 export function Table({ className, ...props }: ComponentProps<"table">) {
   return (
-    <div className="ui-table-container" data-slot="table-container">
-      <table className={cn("ui-table", className)} data-slot="table" {...props} />
+    <div className={tableRecipe().container()} data-slot="table-container">
+      <table className={tableRecipe().table({ className })} data-slot="table" {...props} />
     </div>
   );
 }
@@ -540,15 +681,15 @@ export function TableBody({ className, ...props }: ComponentProps<"tbody">) {
 }
 
 export function TableRow({ className, ...props }: ComponentProps<"tr">) {
-  return <tr className={cn("ui-table-row", className)} data-slot="table-row" {...props} />;
+  return <tr className={tableRecipe().row({ className })} data-slot="table-row" {...props} />;
 }
 
 export function TableHead({ className, ...props }: ComponentProps<"th">) {
-  return <th className={cn("ui-table-head", className)} data-slot="table-head" {...props} />;
+  return <th className={tableRecipe().head({ className })} data-slot="table-head" {...props} />;
 }
 
 export function TableCell({ className, ...props }: ComponentProps<"td">) {
-  return <td className={cn("ui-table-cell", className)} data-slot="table-cell" {...props} />;
+  return <td className={tableRecipe().cell({ className })} data-slot="table-cell" {...props} />;
 }
 
 export function FieldGroup(props: HTMLAttributes<HTMLDivElement>) {
@@ -587,23 +728,31 @@ export function FieldError(props: HTMLAttributes<HTMLDivElement>) {
 }
 
 export function Empty(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("ui-empty", props.className)} data-slot="empty" />;
+  return (
+    <div
+      {...props}
+      className={emptyRecipe().root({ className: props.className })}
+      data-slot="empty"
+    />
+  );
 }
 
 export function EmptyHeader(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("ui-empty-header", props.className)} />;
+  return <div {...props} className={emptyRecipe().header({ className: props.className })} />;
 }
 
 export function EmptyTitle(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("ui-empty-title", props.className)} />;
+  return <div {...props} className={emptyRecipe().title({ className: props.className })} />;
 }
 
 export function EmptyDescription(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("ui-empty-description", props.className)} />;
+  return <div {...props} className={emptyRecipe().description({ className: props.className })} />;
 }
 
 export function Spinner(props: HTMLAttributes<HTMLSpanElement>) {
-  return <span aria-hidden="true" {...props} className={cn("ui-spinner", props.className)} />;
+  return (
+    <span aria-hidden="true" {...props} className={spinnerRecipe({ className: props.className })} />
+  );
 }
 
 export function Command({ className, ...props }: ComponentProps<typeof CommandPrimitive>) {

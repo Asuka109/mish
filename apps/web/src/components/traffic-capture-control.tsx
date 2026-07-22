@@ -164,8 +164,8 @@ export function TrafficCaptureControl({
 
   return (
     <>
-      <div className="traffic-capture-stack">
-        <div className="capture-control">
+      <div className="traffic-capture-stack flex min-w-0 flex-col items-start gap-1.5 py-2.5">
+        <div className="capture-control inline-flex flex-wrap items-center gap-2">
           <Toggle
             aria-busy={pendingMode === "systemProxy"}
             aria-describedby={getCaptureModeDescriptionId(
@@ -179,12 +179,11 @@ export function TrafficCaptureControl({
               runtime: systemProxyEnabled ? LL.capture.running() : LL.capture.notRunning(),
               selection: systemProxySelected ? LL.capture.selected() : LL.capture.notSelected(),
             })}
-            className="capture-mode-button"
             data-capture-state={getCaptureState(systemProxySelected, systemProxyEnabled)}
             disabled={disabled || !commandSupported || !systemProxyAvailable}
             onPressedChange={onSystemProxyChange}
             pressed={systemProxySelected}
-            variant="outline"
+            variant="capture"
           >
             {pendingMode === "systemProxy" ? (
               <Spinner data-icon="inline-start" />
@@ -206,12 +205,11 @@ export function TrafficCaptureControl({
               runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
               selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
             })}
-            className="capture-mode-button"
             data-capture-state={getCaptureState(tunSelected, tunEnabled)}
             disabled={disabled || !commandSupported || (!tunAvailable && !tunSetupRequired)}
             onPressedChange={requestTunChange}
             pressed={tunSelected}
-            variant="outline"
+            variant="capture"
           >
             {pendingMode === "tun" ? (
               <Spinner data-icon="inline-start" />

@@ -189,7 +189,6 @@ export function TrafficPage() {
       <div className="traffic-tabs">
         <ToggleGroup
           aria-label={LL.traffic.title()}
-          className="traffic-view-switch"
           onValueChange={(values) => {
             const value = values[0];
             if (value !== "active" && value !== "closed" && value !== "rules") return;
@@ -198,15 +197,15 @@ export function TrafficPage() {
           }}
           spacing={0}
           value={[tab]}
-          variant="outline"
+          variant="segmented"
         >
-          <ToggleGroupItem className="traffic-view-switch-button" value="active">
+          <ToggleGroupItem className="traffic-view-switch-button px-3" value="active">
             {LL.traffic.active()} <Badge variant="outline">{activeConnections.length}</Badge>
           </ToggleGroupItem>
-          <ToggleGroupItem className="traffic-view-switch-button" value="closed">
+          <ToggleGroupItem className="traffic-view-switch-button px-3" value="closed">
             {LL.traffic.closed()} <Badge variant="outline">{closed.length}</Badge>
           </ToggleGroupItem>
-          <ToggleGroupItem className="traffic-view-switch-button" value="rules">
+          <ToggleGroupItem className="traffic-view-switch-button px-3" value="rules">
             {LL.traffic.rules()} <Badge variant="outline">{snapshot?.rules.length ?? 0}</Badge>
           </ToggleGroupItem>
         </ToggleGroup>
