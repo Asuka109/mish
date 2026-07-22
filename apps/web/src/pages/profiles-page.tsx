@@ -5,7 +5,6 @@ import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
 import { GlobeHemisphereWest } from "@phosphor-icons/react/GlobeHemisphereWest";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { useMemo, useState, type FormEvent } from "react";
-import { toast } from "sonner";
 import {
   Badge,
   Button,
@@ -37,6 +36,7 @@ import {
 } from "@mish/ui";
 import type { ProfileListItemDto, ProfilePreviewDto, ProfileRefreshPolicy } from "@mish/contracts";
 import { useProfiles } from "../data/profile-provider";
+import { useNotificationDelivery } from "../data/notification-delivery";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 
@@ -51,6 +51,7 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
 export function ProfilesPage() {
   const { LL, locale } = useI18nContext();
   const profiles = useProfiles();
+  const { publish } = useNotificationDelivery();
   const [createOpen, setCreateOpen] = useState(false);
   const [createFileName, setCreateFileName] = useState("");
   const [importOpen, setImportOpen] = useState(false);
@@ -89,10 +90,14 @@ export function ProfilesPage() {
     if (!normalized) return;
     const result = await profiles.createProfile(normalized);
     if (!result.ok) {
-      toast.error(LL.profiles.createFailed());
+      publish({
+        id: "profiles-create-failed",
+        level: "error",
+        message: LL.profiles.createFailed(),
+      });
       return;
     }
-    toast.success(LL.profiles.createdToast());
+    publish({ id: "profiles-created", level: "success", message: LL.profiles.createdToast() });
     closeCreate();
   }
 
@@ -114,7 +119,11 @@ export function ProfilesPage() {
     event.preventDefault();
     const result = await profiles.preflightHttps(url, normalizeFileName(fileName));
     if (!result.ok) {
-      toast.error(LL.profiles.importFailed());
+      publish({
+        id: "profiles-import-failed",
+        level: "error",
+        message: LL.profiles.importFailed(),
+      });
       return;
     }
     setUrl("");
@@ -125,39 +134,65 @@ export function ProfilesPage() {
     if (!preview) return;
     const result = await profiles.savePreview(preview.previewId);
     if (!result.ok) {
-      toast.error(LL.profiles.saveFailed());
+      publish({ id: "profiles-save-failed", level: "error", message: LL.profiles.saveFailed() });
       return;
     }
-    toast.success(LL.profiles.savedToast());
+    publish({ id: "profiles-saved", level: "success", message: LL.profiles.savedToast() });
     closeImport();
   }
 
   async function refreshProfile(profile: ProfileListItemDto) {
     const result = await profiles.refreshProfile(profile.id);
     if (!result.ok) {
-      toast.error(LL.profiles.refreshFailed());
+      publish({
+        id: "profiles-refresh-failed",
+        level: "error",
+        message: LL.profiles.refreshFailed(),
+      });
       return;
     }
-    toast.success(LL.profiles.subscriptionUpdated());
+    publish({
+      id: "profiles-subscription-updated",
+      level: "success",
+      message: LL.profiles.subscriptionUpdated(),
+    });
   }
 
   async function setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy) {
     const result = await profiles.setRefreshPolicy(profileId, policy);
-    if (!result.ok) toast.error(LL.profiles.scheduleFailed());
+    if (!result.ok)
+      publish({
+        id: "profiles-schedule-failed",
+        level: "error",
+        message: LL.profiles.scheduleFailed(),
+      });
   }
 
   async function detachSubscription(profile: ProfileListItemDto) {
     const result = await profiles.detachSubscription(profile.id);
     if (!result.ok) {
-      toast.error(LL.profiles.detachSubscriptionFailed());
+      publish({
+        id: "profiles-detach-subscription-failed",
+        level: "error",
+        message: LL.profiles.detachSubscriptionFailed(),
+      });
       return;
     }
-    toast.success(LL.profiles.subscriptionDetached());
+    publish({
+      id: "profiles-subscription-detached",
+      level: "success",
+      message: LL.profiles.subscriptionDetached(),
+    });
   }
 
   async function openDirectory() {
     const result = await profiles.openProfileDirectory();
-    if (!result.ok) toast.error(LL.profiles.fileActionFailed());
+    if (!result.ok)
+      publish({
+        id: "profiles-file-action-failed",
+        level: "error",
+        message: LL.profiles.fileActionFailed(),
+      });
   }
 
   return (
