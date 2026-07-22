@@ -31,12 +31,11 @@ const DEFAULT_SCOPE: LocalBackupScopeDto = {
 
 const backupStyles = tv({
   slots: {
-    control:
-      "local-backup-control grid justify-items-end gap-[5px] @max-[680px]:justify-items-start",
+    control: "grid justify-items-end gap-[5px] @max-[680px]:justify-items-start",
     result:
-      "local-backup-result max-w-[320px] text-right text-[12px] leading-[17px] text-(--color-text-muted) data-[status=failed]:text-(--color-error) data-[status=exported]:text-(--color-success-text) data-[status=restored]:text-(--color-success-text) @max-[680px]:text-left",
+      "max-w-[320px] text-right text-[12px] leading-[17px] text-(--color-text-muted) data-[status=failed]:text-(--color-error) data-[status=exported]:text-(--color-success-text) data-[status=restored]:text-(--color-success-text) @max-[680px]:text-left",
     dialog:
-      "local-backup-dialog w-[min(680px,calc(100vw_-_32px))] max-h-[min(780px,calc(100vh_-_32px))] [&_.dialog-header]:grid [&_.dialog-header]:content-center",
+      "w-[min(680px,calc(100vw_-_32px))] max-h-[min(780px,calc(100vh_-_32px))] [&_.dialog-header]:grid [&_.dialog-header]:content-center",
     fieldset:
       "grid gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) p-0 m-4 [&_legend]:w-full [&_legend]:bg-(--color-canvas) [&_legend]:pb-[9px] [&_legend]:text-(--text-metadata) [&_legend]:font-(--font-weight-section)",
     option:
