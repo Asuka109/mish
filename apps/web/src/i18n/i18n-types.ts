@@ -4250,11 +4250,9 @@ type RootTranslation = {
 		 */
 		invalidPort: string
 		/**
-		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​ ​a​f​t​e​r​ ​c​h​e​c​k​i​n​g​ ​{​o​c​c​u​p​i​e​d​P​o​r​t​s​}​ ​o​c​c​u​p​i​e​d​ ​a​n​d​ ​{​e​m​p​t​y​P​o​r​t​s​}​ ​e​m​p​t​y​ ​p​o​r​t​s​.
-		 * @param {number} emptyPorts
-		 * @param {number} occupiedPorts
+		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​.
 		 */
-		notFound: RequiredParams<'emptyPorts' | 'occupiedPorts'>
+		notFound: string
 		/**
 		 * B​a​c​k​e​n​d​ ​p​o​r​t
 		 */
@@ -8458,9 +8456,9 @@ export type TranslationFunctions = {
 		 */
 		invalidPort: () => LocalizedString
 		/**
-		 * No running Mish backend was found after checking {occupiedPorts} occupied and {emptyPorts} empty ports.
+		 * No running Mish backend was found.
 		 */
-		notFound: (arg: { emptyPorts: number, occupiedPorts: number }) => LocalizedString
+		notFound: () => LocalizedString
 		/**
 		 * Backend port
 		 */

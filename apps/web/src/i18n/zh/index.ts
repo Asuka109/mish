@@ -1162,8 +1162,7 @@ const zh = {
     connecting: "正在连接…",
     eyebrow: "本机连接已中断",
     invalidPort: "请输入 1 到 65535 之间的端口。",
-    notFound:
-      "检查了 {occupiedPorts} 个已占用端口和 {emptyPorts} 个空端口后，仍未找到正在运行的 Mish 后端。",
+    notFound: "未找到正在运行的 Mish 后端。",
     portLabel: "后端端口",
     scan: "扫描",
     scanFailed: "无法扫描 Mish，请重试。",

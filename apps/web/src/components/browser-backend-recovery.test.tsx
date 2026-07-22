@@ -266,8 +266,10 @@ describe("browser backend recovery", () => {
 
     await user.click(screen.getByRole("button", { name: "Scan" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "checking 2 occupied and 5 empty ports",
+      "No running Mish backend was found.",
     );
+    expect(screen.getByRole("alert")).not.toHaveTextContent("occupied");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("empty ports");
     expect(screen.getByRole("textbox", { name: "Backend port" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Scan" }));
 
@@ -351,6 +353,31 @@ describe("browser backend recovery", () => {
     expect(screen.getByRole("button", { name: "扫描" })).toBeEnabled();
     expect(screen.queryByText(/应用操作将保持隐藏/)).not.toBeInTheDocument();
     expect(screen.queryByText(/从 6474 开始扫描/)).not.toBeInTheDocument();
+  });
+
+  it("places concise Chinese operation errors below the actions", async () => {
+    const user = userEvent.setup();
+    const monitor = connectedMonitor();
+    renderRecovery(
+      monitor,
+      {
+        discover: vi.fn().mockResolvedValue({
+          emptyPorts: 5,
+          occupiedPorts: 0,
+          phase: "not-found",
+        }),
+      },
+      "zh",
+    );
+    disconnect(monitor);
+
+    await user.click(screen.getByRole("button", { name: "扫描" }));
+
+    const error = await screen.findByRole("alert");
+    const actions = screen.getByRole("button", { name: "连接" }).parentElement;
+    expect(error).toHaveTextContent("未找到正在运行的 Mish 后端。");
+    expect(error).not.toHaveTextContent("检查了");
+    expect(actions?.nextElementSibling).toContainElement(error);
   });
 
   it("keeps the two actions in a compact non-wrapping layout", () => {

@@ -111,12 +111,17 @@ describe("browser backend recovery in Chromium", () => {
     expect(getComputedStyle(scan).whiteSpace).toBe("nowrap");
     expect(connect.scrollWidth).toBeLessThanOrEqual(connect.clientWidth);
     expect(scan.scrollWidth).toBeLessThanOrEqual(scan.clientWidth);
+
+    card.style.width = "";
+    card.style.maxWidth = "";
   });
 
   test("keeps the recovery UI when Connect targets an offline port", async () => {
     const connect = document.querySelector<HTMLButtonElement>("button[type='submit']");
     const input = document.querySelector<HTMLInputElement>("#browser-backend-recovery-port");
-    if (!connect || !input) throw new Error("Missing recovery controls");
+    const card = document.querySelector<HTMLElement>(".browser-backend-recovery section");
+    if (!connect || !input || !card) throw new Error("Missing recovery controls");
+    const cardTop = card.getBoundingClientRect().top;
 
     connect.click();
 
@@ -128,6 +133,10 @@ describe("browser backend recovery in Chromium", () => {
     expect(input.value).toBe("5000");
     expect(input.disabled).toBe(false);
     expect(navigate).not.toHaveBeenCalled();
+    const error = document.querySelector<HTMLElement>("[role='alert']");
+    if (!error) throw new Error("Missing offline Connect error");
+    expect(connect.parentElement?.nextElementSibling?.contains(error)).toBe(true);
+    expect(Math.abs(card.getBoundingClientRect().top - cardTop)).toBeLessThan(0.1);
   });
 
   test("securely scans from 6474, updates the visible port, then enters Connect pending", async () => {

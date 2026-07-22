@@ -1266,8 +1266,7 @@ const en = {
     connecting: "Connecting…",
     eyebrow: "Local connection interrupted",
     invalidPort: "Enter a port from 1 to 65535.",
-    notFound:
-      "No running Mish backend was found after checking {occupiedPorts:number} occupied and {emptyPorts:number} empty ports.",
+    notFound: "No running Mish backend was found.",
     portLabel: "Backend port",
     scan: "Scan",
     scanFailed: "Could not scan for Mish. Try again.",

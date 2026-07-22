@@ -54,8 +54,9 @@ const recoveryStyles = tv({
       "[&_label]:text-ink [&_.ui-input]:w-full [&_.ui-input]:font-mono",
     ),
     fieldError: "mt-xs text-metadata text-error",
-    status: "mt-md text-body text-error",
     actions: "mt-lg grid grid-cols-2 gap-sm [&_.ui-button]:w-full",
+    statusRegion: "mt-md min-h-11",
+    status: "text-body text-error",
   },
 });
 
@@ -237,17 +238,6 @@ export function BrowserBackendRecovery({
             ) : null}
           </div>
 
-          {status ? (
-            <div
-              aria-live="assertive"
-              className={recoveryStyles().status()}
-              data-phase={recovery.phase}
-              role="alert"
-            >
-              <span>{status}</span>
-            </div>
-          ) : null}
-
           <div className={recoveryStyles().actions()}>
             <Button
               disabled={pending || requestedBackendPort === null}
@@ -268,6 +258,18 @@ export function BrowserBackendRecovery({
               {LL.browserBackendRecovery.scan()}
             </Button>
           </div>
+          <div className={recoveryStyles().statusRegion()}>
+            {status ? (
+              <div
+                aria-live="assertive"
+                className={recoveryStyles().status()}
+                data-phase={recovery.phase}
+                role="alert"
+              >
+                <span>{status}</span>
+              </div>
+            ) : null}
+          </div>
         </form>
       </section>
     </main>
@@ -277,10 +279,7 @@ export function BrowserBackendRecovery({
 function recoveryStatus(LL: ReturnType<typeof useI18nContext>["LL"], recovery: RecoveryState) {
   switch (recovery.phase) {
     case "not-found":
-      return LL.browserBackendRecovery.notFound({
-        emptyPorts: recovery.emptyPorts,
-        occupiedPorts: recovery.occupiedPorts,
-      });
+      return LL.browserBackendRecovery.notFound();
     case "connect-failed":
       return LL.browserBackendRecovery.connectFailed({ port: recovery.port });
     case "scan-failed":
