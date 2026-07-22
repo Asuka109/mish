@@ -72,6 +72,12 @@ const eventStyles = tv({
       "events-source-phase inline-flex flex-none items-center gap-[6px] text-[12px] text-(--color-text-muted) whitespace-nowrap data-[phase=ready]:text-(--color-success-text) data-[phase=stale]:text-(--color-warning)",
     sourceIndicator:
       "events-source-indicator size-[7px] flex-none rounded-(--radius-full) bg-(--color-muted-soft) [.events-source-phase[data-phase=ready]_&]:bg-(--color-success) [.events-source-phase[data-phase=stale]_&]:bg-(--color-warning) [.events-source-phase[data-phase=fixture-only]_&]:bg-(--color-brand)",
+    controls:
+      "events-controls mt-4 flex flex-wrap items-center gap-2 [&_.ui-input]:min-w-[220px] [&_.ui-input]:flex-[1_1_260px] [&_.ui-select-trigger]:min-w-[132px] [&_.ui-button_svg]:size-[15px]",
+    toolbarLabel: "events-toolbar-button-label hidden",
+    localNote: "events-local-note mt-2 text-[12px] leading-[17px] text-(--color-text-muted)",
+    pausedNote: "events-paused-note mt-2 text-[12px] leading-[17px] text-(--color-warning)",
+    empty: "events-empty mt-4 min-h-[220px] border-solid",
   },
 });
 
@@ -396,7 +402,7 @@ export function EventsPage() {
         </Dialog>
       ) : null}
 
-      <div className="events-controls">
+      <div className={eventStyles().controls()}>
         <Input
           aria-label={LL.events.searchLabel()}
           autoComplete="off"
@@ -452,15 +458,15 @@ export function EventsPage() {
         </EventsToolbarButton>
       </div>
 
-      <p className="events-local-note">{LL.events.clearLocalDescription()}</p>
+      <p className={eventStyles().localNote()}>{LL.events.clearLocalDescription()}</p>
       {viewPaused ? (
-        <p className="events-paused-note" role="status">
+        <p className={eventStyles().pausedNote()} role="status">
           {LL.events.paused({ count: bufferedWhilePaused })}
         </p>
       ) : null}
 
       {filteredEvents.length === 0 ? (
-        <Empty className="events-empty">
+        <Empty className={eventStyles().empty()}>
           <EmptyHeader>
             <EmptyTitle>{hasFilters ? LL.events.noMatches() : LL.events.noEvents()}</EmptyTitle>
             <EmptyDescription>
@@ -531,7 +537,7 @@ function EventsToolbarButton({
         }
       >
         {children}
-        <span className="events-toolbar-button-label">{label}</span>
+        <span className={eventStyles().toolbarLabel()}>{label}</span>
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
