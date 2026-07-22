@@ -907,12 +907,26 @@ h2 {
 }
 
 .session-list {
-  --section-grid-columns: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  overflow: visible;
+  padding: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  background: var(--color-hairline-soft);
+}
+
+.session-list > * {
+  min-width: 0;
+  overflow: clip;
+  background: var(--color-canvas);
 }
 
 .traffic-session-pair {
   position: relative;
   display: flex;
+  flex: 0 0 100%;
   align-items: stretch;
   min-height: 128px;
 }
@@ -1055,6 +1069,7 @@ h2 {
 
 .session-metric {
   display: grid;
+  flex: 1 1 calc(50% - 0.5px);
   min-height: 52px;
   align-content: center;
   gap: 2px;

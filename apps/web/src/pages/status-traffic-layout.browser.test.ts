@@ -28,6 +28,12 @@ function trafficPair(): HTMLElement {
   return pair;
 }
 
+function sessionList(): HTMLElement {
+  const list = document.querySelector<HTMLElement>(".session-list");
+  if (!list) throw new Error("Session list is missing");
+  return list;
+}
+
 function trafficColumns(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>(".traffic-session-column")];
 }
@@ -52,6 +58,25 @@ beforeAll(async () => {
 });
 
 describe("status traffic row layout", () => {
+  test("uses a wrapping flex session container without grid semantics", async () => {
+    await page.viewport(1024, 720);
+    await nextFrame();
+
+    const list = sessionList();
+    const pair = trafficPair();
+    const metrics = [...list.querySelectorAll<HTMLElement>(".session-metric")];
+    expect(list.classList.contains("section-grid")).toBe(false);
+    expect(getComputedStyle(list).display).toBe("flex");
+    expect(getComputedStyle(list).flexWrap).toBe("wrap");
+    expect(Math.abs(pair.getBoundingClientRect().width - list.clientWidth)).toBeLessThan(1);
+    expect(metrics).toHaveLength(4);
+    expect(metrics[0]?.getBoundingClientRect().left).toBe(metrics[2]?.getBoundingClientRect().left);
+    expect(metrics[1]?.getBoundingClientRect().left).toBe(metrics[3]?.getBoundingClientRect().left);
+    expect(metrics[0]?.getBoundingClientRect().width).toBe(
+      metrics[1]?.getBoundingClientRect().width,
+    );
+  });
+
   test("uses three horizontal flex columns with matching top and bottom rows", async () => {
     await page.viewport(1024, 720);
     await nextFrame();

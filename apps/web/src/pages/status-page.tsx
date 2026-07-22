@@ -293,8 +293,8 @@ export function StatusPage() {
                 <CaretRight aria-hidden="true" />
               </Link>
             </div>
-            <SectionGrid className="session-list" columns={2}>
-              <SectionGridItem className="traffic-session-pair" columnSpan={2}>
+            <div className="session-list">
+              <div className="traffic-session-pair">
                 <div className="traffic-session-column traffic-session-summary-column">
                   <span className="traffic-session-label" data-direction="download">
                     <ArrowDown aria-hidden="true" />
@@ -343,14 +343,14 @@ export function StatusPage() {
                     </div>
                   </div>
                 </div>
-              </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              </div>
+              <div className="session-metric">
                 <span>{LL.status.connections()}</span>
                 <strong className="tabular">
                   {captureActive ? snapshot.metrics.activeConnections : "-"}
                 </strong>
-              </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              </div>
+              <div className="session-metric">
                 <span>{LL.status.activeRules()}</span>
                 <strong className="tabular">
                   {captureActive
@@ -359,20 +359,20 @@ export function StatusPage() {
                       )
                     : "-"}
                 </strong>
-              </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              </div>
+              <div className="session-metric">
                 <span>{LL.status.memory()}</span>
                 <strong className="tabular">
                   {captureActive ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
                 </strong>
-              </SectionGridItem>
-              <SectionGridItem className="session-metric">
+              </div>
+              <div className="session-metric">
                 <span>{LL.status.uptime()}</span>
                 <strong className="tabular">
                   {captureActive ? formatUptime(snapshot.metrics.uptimeSeconds) : "-"}
                 </strong>
-              </SectionGridItem>
-            </SectionGrid>
+              </div>
+            </div>
           </section>
 
           <section aria-label={LL.status.groupsAria()} className="flat-section">
