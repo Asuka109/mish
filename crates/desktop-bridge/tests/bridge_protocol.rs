@@ -1,8 +1,8 @@
 use std::{
     env, fs,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener as StdTcpListener},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use futures_util::{
@@ -12,10 +12,10 @@ use futures_util::{
 use mish_bridge::{
     ActivationTiming, BridgeShutdownOutcome, BrowserAsset, BrowserAssetSource,
     BrowserPairingPrompt, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost,
-    LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy, MihomoActivationManager,
-    ProfileActivationCoordinator, ProfileFileActionError, ProfileFileActionPlatform,
-    ProfileFileActions, ReqwestHttpsSourceReader, ServiceProbeConfig, start_loopback_server,
-    start_loopback_server_with_runtime_host,
+    LoopbackPortSelection, LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy,
+    MihomoActivationManager, ProfileActivationCoordinator, ProfileFileActionError,
+    ProfileFileActionPlatform, ProfileFileActions, ReqwestHttpsSourceReader, ServiceProbeConfig,
+    start_loopback_server, start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
@@ -31,7 +31,10 @@ use mish_settings::{
     WindowSurfacePreference,
 };
 use serde_json::{Value, json};
-use tokio::time::{Duration, timeout};
+use tokio::{
+    sync::Mutex as AsyncMutex,
+    time::{Duration, timeout},
+};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 
 const TOKEN: &str = "test-token-123456789";
@@ -311,6 +314,7 @@ fn config() -> LoopbackServerConfig {
         allowed_origins: vec![ORIGIN.into()],
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        port_selection: LoopbackPortSelection::Fixed,
         browser_assets: None,
         browser_pairing_prompt: None,
         max_message_bytes: 1_048_576,
@@ -320,6 +324,73 @@ fn config() -> LoopbackServerConfig {
         service_probes: None,
         settings_service: None,
     }
+}
+
+fn stable_port_test_lock() -> &'static AsyncMutex<()> {
+    static LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| AsyncMutex::new(()))
+}
+
+#[tokio::test]
+async fn sequential_port_selection_starts_at_6474_when_available() {
+    let _lock = stable_port_test_lock().lock().await;
+    let mut bridge_config = config();
+    bridge_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474);
+    bridge_config.port_selection = LoopbackPortSelection::SequentialFallback;
+
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    assert_eq!(
+        bridge.address,
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474)
+    );
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn sequential_port_selection_retains_first_available_listener() {
+    let _lock = stable_port_test_lock().lock().await;
+    let first = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6474)).unwrap();
+    let second = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6475)).unwrap();
+    let mut bridge_config = config();
+    bridge_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6474);
+    bridge_config.port_selection = LoopbackPortSelection::SequentialFallback;
+
+    let bridge = start_loopback_server(bridge_config, runtime(no_core()))
+        .await
+        .unwrap();
+    assert_eq!(
+        bridge.address,
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 6476)
+    );
+    assert!(StdTcpListener::bind((Ipv4Addr::LOCALHOST, 6476)).is_err());
+
+    bridge.shutdown().await;
+    drop(second);
+    drop(first);
+}
+
+#[tokio::test]
+async fn fixed_and_ephemeral_port_selection_preserve_existing_semantics() {
+    let fixed_port = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut fixed_config = config();
+    fixed_config.bind = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), fixed_port);
+    let fixed_bridge = start_loopback_server(fixed_config, runtime(no_core()))
+        .await
+        .unwrap();
+    assert_eq!(fixed_bridge.address.port(), fixed_port);
+    fixed_bridge.shutdown().await;
+
+    let ephemeral_bridge = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
+    assert_ne!(ephemeral_bridge.address.port(), 0);
+    ephemeral_bridge.shutdown().await;
 }
 
 fn runtime(config: DesktopMihomoProcessConfig) -> MishRuntime {

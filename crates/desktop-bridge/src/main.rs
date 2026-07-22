@@ -2,8 +2,8 @@ use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use mish_bridge::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackServerConfig, ServiceProbeConfig,
-    compose_desktop_runtime, start_loopback_server,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, LoopbackPortSelection, LoopbackServerConfig,
+    ServiceProbeConfig, compose_desktop_runtime, start_loopback_server,
 };
 
 #[derive(Parser)]
@@ -43,6 +43,7 @@ async fn main() -> Result<(), String> {
             allowed_origins: arguments.allow_origin,
             auth_token,
             bind: arguments.bind,
+            port_selection: LoopbackPortSelection::Fixed,
             browser_assets: None,
             browser_pairing_prompt: None,
             max_message_bytes: arguments.max_message_bytes,

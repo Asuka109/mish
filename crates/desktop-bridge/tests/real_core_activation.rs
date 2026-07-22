@@ -95,6 +95,7 @@ fn bridge_config() -> LoopbackServerConfig {
         allowed_origins: vec![ORIGIN.into()],
         auth_token: TOKEN.into(),
         bind: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        port_selection: mish_bridge::LoopbackPortSelection::Fixed,
         browser_assets: None,
         browser_pairing_prompt: None,
         max_message_bytes: 1_048_576,

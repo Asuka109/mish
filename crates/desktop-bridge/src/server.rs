@@ -1,5 +1,6 @@
 use std::{
     collections::{HashSet, VecDeque},
+    io::ErrorKind,
     net::{IpAddr, SocketAddr},
     path::Path,
     sync::{Arc, Mutex},
@@ -34,6 +35,7 @@ pub struct LoopbackServerConfig {
     pub allowed_origins: Vec<String>,
     pub auth_token: String,
     pub bind: SocketAddr,
+    pub port_selection: LoopbackPortSelection,
     pub browser_assets: Option<Arc<dyn BrowserAssetSource>>,
     pub browser_pairing_prompt: Option<Arc<dyn BrowserPairingPrompt>>,
     pub max_message_bytes: usize,
@@ -42,6 +44,13 @@ pub struct LoopbackServerConfig {
     pub profile_service: Option<Arc<DesktopProfileService>>,
     pub service_probes: Option<ServiceProbeConfig>,
     pub settings_service: Option<Arc<SettingsService>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LoopbackPortSelection {
+    #[default]
+    Fixed,
+    SequentialFallback,
 }
 
 pub struct BrowserAsset {
@@ -344,9 +353,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     {
         return Err("Profile service and activation must share one mutation authority".into());
     }
-    let listener = TcpListener::bind(config.bind)
-        .await
-        .map_err(|error| error.to_string())?;
+    let listener = bind_loopback_listener(config.bind, config.port_selection).await?;
     let address = listener.local_addr().map_err(|error| error.to_string())?;
     let authority = address.to_string();
     let mut allowed_hosts =
@@ -444,6 +451,36 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         browser_client,
         terminal_failure: None,
     })
+}
+
+async fn bind_loopback_listener(
+    bind: SocketAddr,
+    port_selection: LoopbackPortSelection,
+) -> Result<TcpListener, String> {
+    match port_selection {
+        LoopbackPortSelection::Fixed => TcpListener::bind(bind)
+            .await
+            .map_err(|error| format!("failed to bind Mish desktop bridge at {bind}: {error}")),
+        LoopbackPortSelection::SequentialFallback => {
+            for port in bind.port()..=u16::MAX {
+                let candidate = SocketAddr::new(bind.ip(), port);
+                match TcpListener::bind(candidate).await {
+                    Ok(listener) => return Ok(listener),
+                    Err(error) if error.kind() == ErrorKind::AddrInUse => continue,
+                    Err(error) => {
+                        return Err(format!(
+                            "failed to bind Mish desktop bridge at {candidate}: {error}"
+                        ));
+                    }
+                }
+            }
+            Err(format!(
+                "failed to bind Mish desktop bridge: no port is available from {} through {}",
+                bind.port(),
+                u16::MAX
+            ))
+        }
+    }
 }
 
 async fn browser_bootstrap(
