@@ -391,7 +391,11 @@ function ProfileMenu() {
       <SelectContent align="end" className="profile-menu" sideOffset={8}>
         <SelectGroup>
           {managedProfiles.map((profile) => (
-            <SelectItem className="profile-menu-item" key={profile.id} value={profile.id}>
+            <SelectItem
+              className="profile-menu-item relative flex min-h-[34px] grid-cols-none items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none select-none data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-ink)"
+              key={profile.id}
+              value={profile.id}
+            >
               <span className="user-authored-label">{profile.label}</span>
             </SelectItem>
           ))}

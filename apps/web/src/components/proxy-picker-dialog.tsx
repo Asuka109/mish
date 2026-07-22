@@ -44,7 +44,7 @@ export function ProxyPickerDialog({
             </DialogDescription>
           </div>
         </div>
-        <Command className="proxy-picker-command">
+        <Command>
           <CommandInput
             aria-label={LL.proxyPicker.searchAria()}
             placeholder={LL.proxyPicker.searchPlaceholder()}

@@ -189,7 +189,7 @@ const commandRecipe = tv({
     list: "command-list max-h-[380px] overflow-auto",
     empty: "command-empty px-4 py-7 text-center text-(--color-text-muted)",
     group: "command-group",
-    item: "command-item relative flex min-h-[34px] items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none data-[selected=true]:bg-(--color-accent) data-[selected=true]:text-(--color-ink)",
+    item: "command-item relative flex min-h-[34px] items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none data-[selected=true]:bg-(--color-accent) data-[selected=true]:text-(--color-ink) data-[selected=true]:[&_.command-item-check]:opacity-100",
     check: "command-item-check ml-auto size-[14px] opacity-0 data-[selected=true]:opacity-100",
   },
 });
