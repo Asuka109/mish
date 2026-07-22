@@ -1840,6 +1840,40 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
 }
 
 #[tokio::test]
+async fn managed_listener_collision_is_typed_and_redacted() {
+    let root = tempfile::tempdir().unwrap();
+    let manager = activation_manager(root.path(), Duration::from_secs(2));
+    let controller = FakeController::start("v1.19.29").await;
+    let occupied = std::net::TcpListener::bind("127.0.0.1:7890").unwrap();
+    let candidate =
+        profile_record(b"activation-test-early-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
+    let policy = ManagedRuntimePolicy::new(unused_loopback_address(), "fixture-secret").unwrap();
+
+    let error = manager.activate(&candidate, &policy).await.unwrap_err();
+
+    assert_eq!(
+        error,
+        MihomoActivationError::ManagedListenerConflict("127.0.0.1:7890".parse().unwrap())
+    );
+    assert_eq!(
+        manager
+            .managed_state()
+            .await
+            .last_attempt()
+            .unwrap()
+            .failure(),
+        Some(ActivationFailureKind::ManagedListenerConflict)
+    );
+    drop(occupied);
+
+    let retry = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let retry_policy = ManagedRuntimePolicy::new(controller.address, "fixture-secret").unwrap();
+    assert!(manager.activate(&retry, &retry_policy).await.is_ok());
+    manager.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
 async fn controller_timeout_preserves_the_prior_healthy_core() {
     let controller = FakeController::start("v1.19.29").await;
     let root = std::env::temp_dir().join(format!("mish-timeout-{}", Uuid::new_v4()));

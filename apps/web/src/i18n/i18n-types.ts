@@ -2101,6 +2101,11 @@ type RootTranslation = {
 		 */
 		activationFailed: string
 		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​u​s​e​ ​{​e​n​d​p​o​i​n​t​}​ ​b​e​c​a​u​s​e​ ​a​n​o​t​h​e​r​ ​a​p​p​l​i​c​a​t​i​o​n​ ​o​w​n​s​ ​i​t​.​ ​S​t​o​p​ ​o​r​ ​r​e​c​o​n​f​i​g​u​r​e​ ​t​h​a​t​ ​a​p​p​l​i​c​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+		 * @param {unknown} endpoint
+		 */
+		activationListenerConflict: RequiredParams<'endpoint'>
+		/**
 		 * T​h​e​ ​m​a​n​a​g​e​d​ ​M​i​h​o​m​o​ ​p​r​o​c​e​s​s​ ​c​o​u​l​d​ ​n​o​t​ ​t​r​a​n​s​i​t​i​o​n​ ​s​a​f​e​l​y​.​ ​C​h​e​c​k​ ​f​o​r​ ​a​n​o​t​h​e​r​ ​p​r​o​c​e​s​s​ ​u​s​i​n​g​ ​M​i​s​h​'​s​ ​l​o​o​p​b​a​c​k​ ​p​o​r​t​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
 		 */
 		activationLifecycleFailed: string
@@ -6260,6 +6265,10 @@ export type TranslationFunctions = {
 		 * Activation failed. The previous healthy profile or safe stopped state remains authoritative.
 		 */
 		activationFailed: () => LocalizedString
+		/**
+		 * Mish could not use {endpoint} because another application owns it. Stop or reconfigure that application, then retry.
+		 */
+		activationListenerConflict: (arg: { endpoint: unknown }) => LocalizedString
 		/**
 		 * The managed Mihomo process could not transition safely. Check for another process using Mish's loopback ports, then retry.
 		 */

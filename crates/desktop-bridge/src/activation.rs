@@ -217,6 +217,8 @@ pub enum MihomoActivationError {
     StartFailed,
     #[error("the candidate Mihomo core exited before activation committed")]
     EarlyExit,
+    #[error("a Mish-managed loopback listener is already in use")]
+    ManagedListenerConflict(SocketAddr),
     #[error("the candidate Mihomo Controller reported an unsupported version")]
     VersionMismatch,
     #[error("the candidate Mihomo Controller returned an invalid first snapshot")]
@@ -255,6 +257,7 @@ pub enum ActivationFailureKind {
     Validation,
     Start,
     EarlyExit,
+    ManagedListenerConflict,
     VersionMismatch,
     Controller,
     Timeout,
@@ -1005,6 +1008,11 @@ async fn wait_for_candidate(
             ControllerInitialObservation::Pending => {}
         }
         if !matches!(runtime.core_status().await.phase, CorePhase::Running) {
+            if managed_listener_conflict(proxy_endpoint) {
+                return Err(MihomoActivationError::ManagedListenerConflict(
+                    SocketAddr::from(([127, 0, 0, 1], proxy_endpoint.port())),
+                ));
+            }
             return Err(MihomoActivationError::EarlyExit);
         }
         if Instant::now() >= deadline {
@@ -1019,6 +1027,12 @@ async fn wait_for_candidate(
             _ = tokio::time::sleep(Duration::from_millis(20)) => {}
         }
     }
+}
+
+/// Detect only whether Mish's fixed loopback endpoint can be bound. This does not
+/// inspect arbitrary processes, command lines, configuration, or credentials.
+fn managed_listener_conflict(endpoint: &LoopbackProxyEndpoint) -> bool {
+    std::net::TcpListener::bind((endpoint.host(), endpoint.port())).is_err()
 }
 
 async fn rollback_candidate(candidate: ActiveMihomo) {
@@ -1128,6 +1142,7 @@ impl MihomoActivationError {
             Self::ValidationFailed => ActivationFailureKind::Validation,
             Self::StartFailed => ActivationFailureKind::Start,
             Self::EarlyExit => ActivationFailureKind::EarlyExit,
+            Self::ManagedListenerConflict(_) => ActivationFailureKind::ManagedListenerConflict,
             Self::VersionMismatch => ActivationFailureKind::VersionMismatch,
             Self::ControllerFailure => ActivationFailureKind::Controller,
             Self::ReadinessTimeout => ActivationFailureKind::Timeout,

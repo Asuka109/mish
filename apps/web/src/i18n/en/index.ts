@@ -630,6 +630,8 @@ const en = {
       "Mihomo did not provide a valid Controller readiness snapshot. Review Events, then restart this profile.",
     activationFailed:
       "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
+    activationListenerConflict:
+      "Mish could not use {endpoint} because another application owns it. Stop or reconfigure that application, then retry.",
     activationLifecycleFailed:
       "The managed Mihomo process could not transition safely. Check for another process using Mish's loopback ports, then retry.",
     activationStateFailed:

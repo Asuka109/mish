@@ -299,6 +299,13 @@ owned by the same recorded PID and process identity before commit. Controller
 readiness from a candidate that failed to bind `127.0.0.1:7890` is therefore not
 activation success, even if another process makes that port connectable.
 
+If a candidate exits while the fixed Mish-managed loopback listener cannot be
+bound, activation reports the bounded `managed-listener-conflict` failure with
+only `127.0.0.1:<port>` and the safe remediation to stop or reconfigure the
+competing application. It does not inspect or expose process arguments, paths,
+configuration, credentials, or unrelated process metadata. Other early exits
+remain typed as `early-exit`.
+
 Core lifecycle ownership is durable independently from `activation-state.json`.
 The schema-1 ownership record binds the controlled executable, candidate home,
 candidate configuration, PID when known, process start identity, random launch

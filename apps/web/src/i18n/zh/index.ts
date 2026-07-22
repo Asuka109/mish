@@ -585,6 +585,8 @@ const zh = {
     activationCaptureFailed: "系统代理还没有恢复完成。请先到“状态”页处理，再切换配置。",
     activationControllerFailed: "代理启动后没有正常响应。请到“事件”页查看原因，然后重试。",
     activationFailed: "无法使用此配置，已恢复之前的配置或保持代理关闭。",
+    activationListenerConflict:
+      "Mish 无法使用 {endpoint}，因为其他应用正在占用它。请停止或重新配置该应用，然后重试。",
     activationLifecycleFailed:
       "代理无法重新启动。请检查是否有其他程序占用了 Mish 的本地端口，然后重试。",
     activationStateFailed: "Mish 无法保存切换结果。当前配置不会继续使用，请先到“事件”页查看原因。",
