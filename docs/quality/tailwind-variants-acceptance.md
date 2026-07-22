@@ -7,23 +7,23 @@ retained `sketch/` application or the unmounted `DestinationPage` reference.
 ## Bundle comparison
 
 The baseline was captured from the pre-migration production build. The candidate
-was built at `a2a67e6` after integrating `main` through `1c2c07d`.
+was built at `4ee10ad` after integrating `main` through `83f0bd4`.
 
 | Production artifact    | Baseline raw / gzip | Candidate raw / gzip | Change raw / gzip |
 | ---------------------- | ------------------- | -------------------- | ----------------- |
-| Total emitted CSS      | 118.78 / 20.02 kB   | 121.96 / 20.50 kB    | +3.18 / +0.48 kB  |
-| Primary application JS | 909.55 / 276.99 kB  | 917.04 / 279.12 kB   | +7.49 / +2.13 kB  |
+| Total emitted CSS      | 118.78 / 20.02 kB   | 122.85 / 20.56 kB    | +4.07 / +0.54 kB  |
+| Primary application JS | 909.55 / 276.99 kB  | 917.23 / 279.29 kB   | +7.68 / +2.30 kB  |
 
-Candidate CSS is split into 121.28 kB of generated Tailwind and bounded global
-root CSS and 0.68 kB of CSS Modules. The 2.7% raw and 2.4% gzip increases pay for
-the canonical named theme mappings, exact fractional utilities, and generated
-responsive/container variants that replaced indirect CSS-variable and
-arbitrary-value shorthands.
+Candidate CSS is split into 122.17 kB of generated Tailwind and bounded global
+root CSS and 0.68 kB of CSS Modules. The 3.4% raw and 2.7% gzip increases pay for
+the canonical named theme mappings, exact fractional utilities, named
+root-state variants, and generated responsive/container variants that replaced
+indirect CSS-variable and arbitrary-value shorthands.
 
 The primary JS increase is 0.8% raw and 0.8% gzip. It includes the TV recipes
 and product changes integrated from newer `main`, notably the unified
 notification delivery and configured route catalog. The candidate also emits a
-139.83 kB application-shell chunk, a 3.75 kB notification-delivery chunk, and a
+140.01 kB application-shell chunk, a 3.75 kB notification-delivery chunk, and a
 5.39 kB configured-route-catalog chunk. Those secondary chunks are listed for
 diagnosis but are not compared numerically because the baseline used a different
 chunk graph.
@@ -31,13 +31,18 @@ chunk graph.
 ## Automated evidence
 
 - `pnpm check:styles` confirms complete static utilities, the explicit
-  `packages/ui/src` Tailwind source, and mapped references for all three CSS
-  Modules.
+  `packages/ui/src` Tailwind source, the three named runtime/theme variants, and
+  mapped references for all three CSS Modules.
 - The token audit reports zero production TSX references to raw `--mish-*`
   variables, indirect theme shorthands, or simple fixed-pixel arbitrary
-  utilities. Structural grid templates, viewport `min()`/`calc()` containment,
-  safe areas, Base UI runtime variables, and complex color mixes remain bounded
+  utilities. Exact flex, margin, scrollbar, overflow-wrap, transform-origin,
+  animation-duration, easing, and semantic color-mix values use native utilities
+  or named tokens. Structural grid templates, viewport `min()`/`calc()`
+  containment, safe areas, and Base UI runtime variables remain bounded
   exceptions.
+- Long TV recipes and static class lists are grouped with `cx()` using complete
+  class literals. `cx()` performs concatenation only; the enclosing TV recipe
+  remains the single `tailwind-merge` boundary and caller overrides remain last.
 - `pnpm check:tokens` requires the canonical theme mappings and rejects a color
   and typography token that would generate the same utility name. Production
   CSS verifies that `text-body` owns the body type scale and `text-fg` owns the
