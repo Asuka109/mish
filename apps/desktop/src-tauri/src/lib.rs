@@ -910,6 +910,12 @@ fn initialize(
         )
         .await
         .map_err(io::Error::other)?;
+        if tauri::is_dev() {
+            println!(
+                "Mish Browser Client URL: {}",
+                browser_client_url(bridge.address)
+            );
+        }
         let status_bar_state = status_bar::StatusBarState::new(
             runtime_host,
             activation.clone(),
@@ -1186,6 +1192,10 @@ fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {
             message: "Another Profile or Settings mutation is in progress",
         },
     }
+}
+
+fn browser_client_url(address: SocketAddr) -> String {
+    format!("http://{address}/")
 }
 
 fn allowed_origins(
@@ -1486,10 +1496,11 @@ mod tests {
     use super::{
         AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction,
         PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins,
-        atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
-        generate_auth_token, invalidate_pending, main_window_close_action, managed_mihomo_resolver,
-        read_local_backup, save_support_bundle_selection, should_intercept_exit_request,
-        should_show_main_window, validate_development_mihomo_environment,
+        atomic_write_bounded, atomic_write_support_bundle_with_failure, browser_client_url,
+        desktop_demo_requested, generate_auth_token, invalidate_pending, main_window_close_action,
+        managed_mihomo_resolver, read_local_backup, save_support_bundle_selection,
+        should_intercept_exit_request, should_show_main_window,
+        validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -1510,6 +1521,14 @@ mod tests {
         assert_eq!(
             allowed_origins(true, Some("http://127.0.0.1:4174")).unwrap(),
             ["http://127.0.0.1:4174"]
+        );
+    }
+
+    #[test]
+    fn development_browser_client_url_uses_the_bound_bridge_address() {
+        assert_eq!(
+            browser_client_url("127.0.0.1:6476".parse().unwrap()),
+            "http://127.0.0.1:6476/"
         );
     }
 

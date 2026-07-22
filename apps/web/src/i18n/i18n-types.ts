@@ -4227,6 +4227,57 @@ type RootTranslation = {
 		 */
 		title: string
 	}
+	browserBackendRecovery: {
+		/**
+		 * C​a​n​c​e​l
+		 */
+		cancel: string
+		/**
+		 * B​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.
+		 */
+		cancelled: string
+		/**
+		 * T​h​e​ ​c​o​n​n​e​c​t​e​d​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g​.​ ​A​p​p​l​i​c​a​t​i​o​n​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​h​i​d​d​e​n​ ​u​n​t​i​l​ ​t​h​i​s​ ​b​r​o​w​s​e​r​ ​e​s​t​a​b​l​i​s​h​e​s​ ​a​ ​n​e​w​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​.
+		 */
+		description: string
+		/**
+		 * L​o​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​ ​i​n​t​e​r​r​u​p​t​e​d
+		 */
+		eyebrow: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​ ​b​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​.​ ​T​r​y​ ​a​g​a​i​n​.
+		 */
+		failed: string
+		/**
+		 * F​o​u​n​d​ ​M​i​s​h​ ​o​n​ ​p​o​r​t​ ​{​p​o​r​t​}​.​ ​R​e​c​o​n​n​e​c​t​i​n​g​…
+		 * @param {number} port
+		 */
+		found: RequiredParams<'port'>
+		/**
+		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​.​ ​S​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​t​r​y​ ​a​g​a​i​n​.
+		 */
+		notFound: string
+		/**
+		 * B​a​c​k​e​n​d​ ​p​o​r​t
+		 */
+		portLabel: string
+		/**
+		 * R​e​c​o​n​n​e​c​t
+		 */
+		reconnect: string
+		/**
+		 * T​r​y​ ​a​g​a​i​n
+		 */
+		retry: string
+		/**
+		 * C​h​e​c​k​i​n​g​ ​t​h​i​s​ ​p​o​r​t​,​ ​t​h​e​n​ ​M​i​s​h​ ​p​o​r​t​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​p​w​a​r​d​…
+		 */
+		searching: string
+		/**
+		 * M​i​s​h​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g
+		 */
+		title: string
+	}
 	errors: {
 		/**
 		 * T​h​e​ ​c​o​m​m​a​n​d​ ​f​a​i​l​e​d​.
@@ -8384,6 +8435,56 @@ export type TranslationFunctions = {
 		requesting: () => LocalizedString
 		/**
 		 * Connect this browser
+		 */
+		title: () => LocalizedString
+	}
+	browserBackendRecovery: {
+		/**
+		 * Cancel
+		 */
+		cancel: () => LocalizedString
+		/**
+		 * Backend discovery was cancelled.
+		 */
+		cancelled: () => LocalizedString
+		/**
+		 * The connected Mish backend stopped responding. Application controls are hidden until this browser establishes a new authenticated connection.
+		 */
+		description: () => LocalizedString
+		/**
+		 * Local connection interrupted
+		 */
+		eyebrow: () => LocalizedString
+		/**
+		 * Mish could not complete backend discovery. Try again.
+		 */
+		failed: () => LocalizedString
+		/**
+		 * Found Mish on port {port}. Reconnecting…
+		 */
+		found: (arg: { port: number }) => LocalizedString
+		/**
+		 * No running Mish backend was found. Start Mish, then try again.
+		 */
+		notFound: () => LocalizedString
+		/**
+		 * Backend port
+		 */
+		portLabel: () => LocalizedString
+		/**
+		 * Reconnect
+		 */
+		reconnect: () => LocalizedString
+		/**
+		 * Try again
+		 */
+		retry: () => LocalizedString
+		/**
+		 * Checking this port, then Mish ports from 6474 upward…
+		 */
+		searching: () => LocalizedString
+		/**
+		 * Mish stopped responding
 		 */
 		title: () => LocalizedString
 	}

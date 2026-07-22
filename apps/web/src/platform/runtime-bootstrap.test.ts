@@ -149,6 +149,7 @@ describe("desktop runtime bootstrap", () => {
     expect(clearLaunchPin).toHaveBeenCalledOnce();
     expect(saveProof).toHaveBeenCalledWith("d".repeat(64));
     expect(startup.runtime).toBe("browser");
+    expect(startup.browserBackendPort).toBe(43_123);
     expect(startup.settingsSnapshot.adapterKind).toBe("rpc");
     const request = startup.client?.getSnapshot();
     expect(openWebSocket).toHaveBeenCalledWith("ws://127.0.0.1:43123/rpc");
@@ -224,6 +225,7 @@ describe("desktop runtime bootstrap", () => {
     });
 
     expect(startup.supportBundleClient.availability).toBe("unavailable");
+    expect(startup.browserBackendPort).toBeUndefined();
     startup.dispose();
   });
 

@@ -245,6 +245,27 @@ The explicit source-only `pnpm demo` and `pnpm desktop:demo` targets are outside
 this authentication check; ordinary development and production modes must never
 infer demo mode from a missing or failed backend.
 
+### Browser backend-disconnection recovery
+
+1. Start Mish, open the Browser Client from the status-bar menu, authenticate,
+   and leave a non-default route loaded in the browser tab.
+2. Quit Mish while keeping that tab open. After the bounded WebSocket reconnect
+   attempts finish, confirm that the complete application shell is replaced by
+   the disconnected surface, the prior controls cannot be focused or invoked,
+   and the displayed backend port matches the tab's original Mish origin.
+3. Select **Reconnect** while Mish is stopped. Confirm that discovery can be
+   cancelled, cancellation leaves a retry action, and a completed scan with no
+   backend reports that result without restoring stale content.
+4. Start Mish again, select **Try again**, and confirm that the browser finds the
+   first valid Mish service from port 6474 upward, rejects unrelated listeners,
+   preserves the current path and query, and performs a replacement navigation
+   without carrying the old fragment.
+5. Complete the existing six-digit pairing flow when requested. Confirm that no
+   prior process session or proof bypasses authentication and that the restored
+   route is backed by live RPC state.
+6. Also confirm that stopping or restarting the bridge does not replace the
+   desktop WebView or mobile shell with the Browser Client recovery surface.
+
 ## Desktop-bridge replacement gate
 
 The desktop bootstrap now provides an explicit endpoint and ephemeral secret,

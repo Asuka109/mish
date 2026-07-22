@@ -150,6 +150,24 @@ process-local browser sessions and applies the same loopback, Host, Origin,
 cookie, and proof checks to every refresh. If either half is gone, the page
 returns to pairing and cannot claim an authenticated RPC runtime.
 
+After the browser has reached an authenticated RPC connection, exhaustion of
+the bounded WebSocket reconnect policy replaces the application shell with a
+browser-only disconnected surface. The surface shows the validated bootstrap
+port and keeps all stale product controls unmounted. Reconnect first probes that
+port, then checks IPv4-loopback ports in ascending order from 6474 with bounded
+per-request timeouts, concurrency, an overall deadline, and explicit
+cancellation.
+
+Browser-hosting bridges expose `GET /browser-discovery` solely as a versioned
+service marker. The marker contains no RPC token, PIN, proof, session, settings,
+or process data. Cross-port reads accept only HTTP origins on
+`127.0.0.1:6474` or above and use no credentials; all authenticated bootstrap
+and RPC routes retain their existing exact Host, Origin, cookie, proof, and
+token checks. A matching marker causes a fragment-free replacement navigation
+to the discovered origin. Origin-scoped proof storage is not copied, and a new
+or restarted process must pass through the existing pairing flow when its
+process-local session is no longer valid.
+
 The browser client shares the desktop runtime but cannot acquire Tauri-only
 capabilities. Native local-file import, support-bundle export, local backup and
 restore, native Sidebar material, and native window lifecycle are reported as

@@ -65,6 +65,7 @@ interface BootstrapDependencies {
 }
 
 export interface StartupStatusClient {
+  browserBackendPort?: number;
   client?: StatusClient;
   eventsClient?: EventsClient;
   diagnosticsClient?: DiagnosticsClient;
@@ -176,6 +177,8 @@ function createRpcStartup(
   const settingsClient = new RpcSettingsClient(rpc, runtime === "desktop");
   const settingsSnapshot = bootstrap.settingsSnapshot;
   return {
+    browserBackendPort:
+      runtime === "browser" ? Number.parseInt(new URL(bootstrap.rpcUrl).port, 10) : undefined,
     client,
     eventsClient,
     diagnosticsClient,

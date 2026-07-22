@@ -22,6 +22,7 @@ use serde_json::json;
 use subtle::ConstantTimeEq;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 use crate::lifecycle::spawn_lifecycle_coordination;
 use crate::protocol::{ProtocolState, serve_socket};
@@ -71,6 +72,10 @@ const BROWSER_PAIRING_LIFETIME: Duration = Duration::from_secs(120);
 const BROWSER_PAIRING_LOCKOUT: Duration = Duration::from_secs(60);
 const BROWSER_SESSION_LIMIT: usize = 8;
 const RPC_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const MISH_BROWSER_DISCOVERY_SERVICE: &str = "mish-browser-backend";
+const MISH_BROWSER_DISCOVERY_SCHEMA_VERSION: u8 = 1;
+const MISH_BROWSER_DISCOVERY_PROTOCOL_VERSION: u8 = 1;
+const MISH_BROWSER_FIRST_PORT: u16 = 6474;
 
 struct BrowserPairing {
     attempts_remaining: u8,
@@ -413,6 +418,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     });
     let app = Router::new()
         .route("/health", get(health))
+        .route("/browser-discovery", get(browser_discovery))
         .route("/rpc", get(rpc))
         .route("/browser-pairing", post(start_browser_pairing))
         .route("/browser-pairing/complete", post(complete_browser_pairing))
@@ -866,8 +872,64 @@ fn secure_json_response(value: serde_json::Value, browser_session: Option<&str>)
 
 fn browser_content_security_policy(rpc_url: &str) -> String {
     format!(
-        "default-src 'self'; connect-src 'self' {rpc_url}; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+        "default-src 'self'; connect-src 'self' {rpc_url} http://127.0.0.1:*; font-src 'self'; frame-src 'none'; img-src 'self' data: https:; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'"
     )
+}
+
+async fn browser_discovery(
+    State(state): State<Arc<HttpState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    if !peer.ip().is_loopback() || !valid_host(&state, &headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if state.browser.is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let origin = headers.get(header::ORIGIN);
+    if origin.is_some_and(|value| {
+        value
+            .to_str()
+            .map_or(true, |value| !valid_browser_discovery_origin(value))
+    }) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    let mut response = Json(json!({
+        "service": MISH_BROWSER_DISCOVERY_SERVICE,
+        "schemaVersion": MISH_BROWSER_DISCOVERY_SCHEMA_VERSION,
+        "protocolVersion": MISH_BROWSER_DISCOVERY_PROTOCOL_VERSION,
+    }))
+    .into_response();
+    let response_headers = response.headers_mut();
+    response_headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    response_headers.insert(header::REFERRER_POLICY, "no-referrer".parse().unwrap());
+    response_headers.insert(
+        "cross-origin-resource-policy",
+        "cross-origin".parse().unwrap(),
+    );
+    response_headers.insert("x-content-type-options", "nosniff".parse().unwrap());
+    if let Some(origin) = origin {
+        response_headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
+        response_headers.insert(header::VARY, "Origin".parse().unwrap());
+    }
+    response
+}
+
+fn valid_browser_discovery_origin(value: &str) -> bool {
+    Url::parse(value).is_ok_and(|origin| {
+        origin.scheme() == "http"
+            && origin.host_str() == Some("127.0.0.1")
+            && origin
+                .port()
+                .is_some_and(|port| port >= MISH_BROWSER_FIRST_PORT)
+            && origin.username().is_empty()
+            && origin.password().is_none()
+            && origin.path() == "/"
+            && origin.query().is_none()
+            && origin.fragment().is_none()
+    })
 }
 
 async fn health(

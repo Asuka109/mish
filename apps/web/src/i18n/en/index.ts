@@ -1260,6 +1260,21 @@ const en = {
     requesting: "Asking Mish to show a PIN…",
     title: "Connect this browser",
   },
+  browserBackendRecovery: {
+    cancel: "Cancel",
+    cancelled: "Backend discovery was cancelled.",
+    description:
+      "The connected Mish backend stopped responding. Application controls are hidden until this browser establishes a new authenticated connection.",
+    eyebrow: "Local connection interrupted",
+    failed: "Mish could not complete backend discovery. Try again.",
+    found: "Found Mish on port {port:number}. Reconnecting…",
+    notFound: "No running Mish backend was found. Start Mish, then try again.",
+    portLabel: "Backend port",
+    reconnect: "Reconnect",
+    retry: "Try again",
+    searching: "Checking this port, then Mish ports from 6474 upward…",
+    title: "Mish stopped responding",
+  },
   errors: {
     command: "The command failed.",
     commandDisconnected: "The local service disconnected before the command could be confirmed.",
