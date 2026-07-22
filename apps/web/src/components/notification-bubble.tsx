@@ -40,7 +40,7 @@ const notificationStyles = tv({
     trigger:
       "toolbar-button notification-trigger relative inline-flex h-[34px] items-center justify-center gap-[7px] rounded-(--radius-md) border border-transparent bg-transparent px-[9px] text-(--text-metadata) text-(--color-text-muted) hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-body) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-body)",
     count:
-      "notification-count tabular absolute -top-1 -right-[5px] h-[17px] min-w-[17px] pointer-events-none px-1 text-[10px] leading-none",
+      "notification-count absolute -top-1 -right-[5px] h-[17px] min-w-[17px] pointer-events-none px-1 text-[10px] leading-none tabular-nums",
     popover: "notification-popover w-[min(360px,calc(100vw_-_24px))]",
     header:
       "notification-header flex items-start justify-between gap-3 px-[14px] pt-[14px] pb-[12px] [&_.ui-button]:flex-none",
@@ -640,7 +640,7 @@ function NotificationItem({ disabled, LL, locale, notification, onRemove }: Noti
         <Badge variant={levelBadge(notification.level)}>
           {LL.events.level[notification.level]()}
         </Badge>
-        <time className="tabular" dateTime={new Date(notification.observedAt).toISOString()}>
+        <time className="tabular-nums" dateTime={new Date(notification.observedAt).toISOString()}>
           {formatNotificationTime(notification.observedAt, locale)}
         </time>
       </div>

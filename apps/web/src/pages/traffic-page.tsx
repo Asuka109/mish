@@ -517,7 +517,7 @@ function TrafficSourceStatus({
     <div className={trafficStyles().sourceStatus()} data-state={state} role="status">
       <span>{message}</span>
       {snapshot?.sessionId ? (
-        <span className="tabular">
+        <span className="tabular-nums">
           {LL.traffic.reconnect({
             count: snapshot.reconnectCount,
             session: snapshot.sessionId,
@@ -591,16 +591,16 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 variant="ghost"
               >
                 <span>{destinationLabel(connection) || LL.traffic.unavailable()}</span>
-                <small className="tabular">:{connection.destinationPort}</small>
+                <small className="tabular-nums">:{connection.destinationPort}</small>
               </Button>
             </TableCell>
             <TableCell title={connection.processPath ?? undefined}>
               {connection.processName ?? LL.traffic.unavailable()}
             </TableCell>
-            <TableCell className="tabular">
+            <TableCell className="tabular-nums">
               {connection.network.toUpperCase()} · {connection.protocol}
             </TableCell>
-            <TableCell className="tabular">
+            <TableCell className="tabular-nums">
               {formatDate(
                 "closedAt" in connection && typeof connection.closedAt === "string"
                   ? connection.closedAt
@@ -608,8 +608,8 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 locale,
               )}
             </TableCell>
-            <TableCell className="tabular">{formatBytes(connection.downloadBytes)}</TableCell>
-            <TableCell className="tabular">{formatBytes(connection.uploadBytes)}</TableCell>
+            <TableCell className="tabular-nums">{formatBytes(connection.downloadBytes)}</TableCell>
+            <TableCell className="tabular-nums">{formatBytes(connection.uploadBytes)}</TableCell>
             <TableCell>
               <span className={trafficStyles().rule()}>{connection.matchedRule.type}</span>
               <small>{connection.matchedRule.payload || LL.traffic.unavailable()}</small>
@@ -665,7 +665,7 @@ function RulesPanel({ LL, rules }: { LL: TranslationFunctions; rules: EffectiveR
       <TableBody>
         {rules.map((rule) => (
           <TableRow key={`${rule.priority}:${rule.type}:${rule.payload}`}>
-            <TableCell className="tabular">{rule.priority + 1}</TableCell>
+            <TableCell className="tabular-nums">{rule.priority + 1}</TableCell>
             <TableCell>{rule.type}</TableCell>
             <TableCell title={rule.payload}>{rule.payload || LL.traffic.unavailable()}</TableCell>
             <TableCell>{rule.target}</TableCell>
@@ -674,7 +674,9 @@ function RulesPanel({ LL, rules }: { LL: TranslationFunctions; rules: EffectiveR
                 {rule.enabled ? LL.traffic.enabled() : LL.traffic.disabled()}
               </Badge>
             </TableCell>
-            <TableCell className="tabular">{rule.hitCount ?? LL.traffic.unavailable()}</TableCell>
+            <TableCell className="tabular-nums">
+              {rule.hitCount ?? LL.traffic.unavailable()}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -860,7 +862,7 @@ function ConnectionDetailDialog({
                 <ol>
                   {connection.routeChain.map((hop, index) => (
                     <li key={`${index}:${hop}`}>
-                      <span className="tabular">{index + 1}</span>
+                      <span className="tabular-nums">{index + 1}</span>
                       <strong>{hop}</strong>
                     </li>
                   ))}

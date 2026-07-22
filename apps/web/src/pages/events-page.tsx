@@ -54,18 +54,18 @@ const eventSources: EventSource[] = ["application", "core", "platform", "rpc"];
 
 const eventStyles = tv({
   slots: {
-    page: "events-page mx-auto min-h-full w-[min(100%,1180px)] px-8 pt-7 pb-9",
+    page: "events-page mx-auto min-h-full w-[min(100%,1180px)] px-8 pt-7 pb-9 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
     heading:
-      "events-heading flex items-start justify-between gap-6 [&_p]:mt-[5px] [&_p]:max-w-[680px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
+      "events-heading flex items-start justify-between gap-6 max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] [&_p]:mt-[5px] [&_p]:max-w-[680px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
     retention:
       "events-retention flex-none pt-[5px] text-[12px] text-(--color-text-muted) whitespace-nowrap",
     status:
-      "events-source-status mt-5 flex min-h-[38px] items-center justify-between gap-4 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-3 py-2 text-(--text-metadata) text-(--color-body) data-[state=stale]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=stale]:text-(--color-warning) data-[state=connecting]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=connecting]:text-(--color-warning) [&>span:last-child]:flex-none [&>span:last-child]:text-[12px] [&>span:last-child]:text-(--color-text-muted)",
+      "events-source-status mt-5 flex min-h-[38px] items-center justify-between gap-4 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-3 py-2 text-(--text-metadata) text-(--color-body) max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] data-[state=stale]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=stale]:text-(--color-warning) data-[state=connecting]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=connecting]:text-(--color-warning) [&>span:last-child]:flex-none [&>span:last-child]:text-[12px] [&>span:last-child]:text-(--color-text-muted)",
     sources: "events-sources-section mt-4",
     sourceHeading:
       "events-source-heading [&_p]:mt-[3px] [&_p]:text-[12px] [&_p]:leading-[17px] [&_p]:text-(--color-text-muted)",
     sourceGrid:
-      "events-source-grid mt-2 grid grid-cols-4 gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft)",
+      "events-source-grid mt-2 grid grid-cols-4 gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) max-[900px]:grid-cols-2 max-[820px]:grid-cols-1",
     sourceItem:
       "events-source-item flex min-h-[42px] min-w-0 items-center justify-between gap-[10px] bg-(--color-canvas) px-[10px] py-2 text-(--text-metadata) [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap [&>span]:font-(--font-weight-control)",
     sourcePhase:
@@ -73,14 +73,15 @@ const eventStyles = tv({
     sourceIndicator:
       "events-source-indicator size-[7px] flex-none rounded-(--radius-full) bg-(--color-muted-soft) [.events-source-phase[data-phase=ready]_&]:bg-(--color-success) [.events-source-phase[data-phase=stale]_&]:bg-(--color-warning) [.events-source-phase[data-phase=fixture-only]_&]:bg-(--color-brand)",
     controls:
-      "events-controls mt-4 flex flex-wrap items-center gap-2 [&_.ui-input]:min-w-[220px] [&_.ui-input]:flex-[1_1_260px] [&_.ui-select-trigger]:min-w-[132px] [&_.ui-button_svg]:size-[15px]",
-    toolbarLabel: "events-toolbar-button-label hidden",
+      "events-controls mt-4 flex flex-wrap items-center gap-2 [&_.ui-input]:min-w-[220px] [&_.ui-input]:flex-[1_1_260px] max-[600px]:[&_.ui-input]:min-w-0 [&_.ui-select-trigger]:min-w-[132px] [&_.ui-button_svg]:size-[15px]",
+    toolbarButton: "events-toolbar-button max-[900px]:w-auto max-[900px]:px-[13px]",
+    toolbarLabel: "events-toolbar-button-label hidden max-[900px]:inline",
     localNote: "events-local-note mt-2 text-[12px] leading-[17px] text-(--color-text-muted)",
     pausedNote: "events-paused-note mt-2 text-[12px] leading-[17px] text-(--color-warning)",
     empty: "events-empty mt-4 min-h-[220px] border-solid",
     list: "events-list mt-4 min-h-[220px] max-h-[min(560px,calc(100vh_-_430px))] list-none overflow-auto overscroll-contain rounded-(--radius-md) border border-(--color-hairline) p-0",
-    row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-[10px] border-b border-(--color-hairline-soft) px-[10px] py-[9px] last:border-b-0 [&>time]:pt-[3px] [&>time]:text-[12px] [&>time]:text-(--color-text-muted) [&_.ui-badge]:justify-self-start [&_.ui-button_svg]:size-[15px]",
-    source: "event-source pt-[3px] text-[12px] text-(--color-text-muted)",
+    row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-[10px] border-b border-(--color-hairline-soft) px-[10px] py-[9px] last:border-b-0 max-[900px]:grid-cols-[76px_76px_92px_minmax(140px,1fr)_32px] max-[900px]:gap-[7px] max-[820px]:grid-cols-[74px_76px_minmax(0,1fr)_32px] max-[600px]:grid-cols-[62px_68px_minmax(0,1fr)_32px] max-[600px]:gap-[6px] [&>time]:pt-[3px] [&>time]:text-[12px] [&>time]:text-(--color-text-muted) [&_.ui-badge]:justify-self-start [&_.ui-button_svg]:size-[15px]",
+    source: "event-source pt-[3px] text-[12px] text-(--color-text-muted) max-[820px]:hidden",
     copy: "event-copy grid min-w-0 gap-[3px] [&_strong]:wrap-anywhere [&_strong]:text-(--text-metadata) [&_strong]:leading-[19px] [&_strong]:font-(--font-weight-control) [&_small]:wrap-anywhere [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted)",
     diagnostics:
       "diagnostics-section mt-6 scroll-mt-4 outline-none focus-visible:rounded-(--radius-md) focus-visible:shadow-[0_0_0_2px_var(--color-accent)]",
@@ -257,7 +258,7 @@ export function EventsPage() {
       <div className={eventStyles().status()} data-state={sourceState.state} role="status">
         <span>{sourceState.message}</span>
         {snapshot?.sessionId ? (
-          <span className="tabular">
+          <span className="tabular-nums">
             {LL.events.session({
               count: snapshot.reconnectCount,
               session: snapshot.sessionId,
@@ -421,7 +422,7 @@ export function EventsPage() {
                     {supportBundlePreview.categories.map(({ category, itemCount }) => (
                       <SectionGridItem className={eventStyles().supportCategory()} key={category}>
                         <span>{supportBundleCategoryLabel(LL, category)}</span>
-                        <strong className="tabular">{itemCount}</strong>
+                        <strong className="tabular-nums">{itemCount}</strong>
                       </SectionGridItem>
                     ))}
                   </SectionGrid>
@@ -529,7 +530,7 @@ export function EventsPage() {
         <ol className={eventStyles().list()} onScroll={observeScroll} ref={listRef}>
           {filteredEvents.map((event) => (
             <li className={eventStyles().row()} data-level={event.level} key={event.id}>
-              <time className="tabular" dateTime={new Date(event.observedAt).toISOString()}>
+              <time className="tabular-nums" dateTime={new Date(event.observedAt).toISOString()}>
                 {formatEventTime(event.observedAt, locale)}
               </time>
               <Badge variant={levelBadge(event.level)}>{levelLabel(LL, event.level)}</Badge>
@@ -579,7 +580,7 @@ function EventsToolbarButton({
         render={
           <Button
             aria-label={label}
-            className="events-toolbar-button"
+            className={eventStyles().toolbarButton()}
             disabled={disabled}
             onClick={onClick}
             size="icon-sm"
@@ -608,7 +609,7 @@ function DiagnosticRun({
     <div className={eventStyles().diagnosticRun()} data-status={run.status}>
       <div className={eventStyles().diagnosticSummary()}>
         <Badge variant={runBadge(run)}>{LL.diagnostics.status[run.status]()}</Badge>
-        <span className="tabular">{formatEventTime(run.startedAt, locale)}</span>
+        <span className="tabular-nums">{formatEventTime(run.startedAt, locale)}</span>
         <span>
           {LL.diagnostics.policy({
             endpoint: run.policy.endpointLabel,

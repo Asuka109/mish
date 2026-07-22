@@ -272,7 +272,7 @@ function RouteNodeRow({
         {delayResult ? (
           <DelayResult result={delayResult} />
         ) : (
-          <span className={`${routeStyles().latency()} tabular`}>
+          <span className={`${routeStyles().latency()} tabular-nums`}>
             {node.latencyMilliseconds === null
               ? LL.routes.latencyUnavailable()
               : LL.routes.latencyMilliseconds({ latency: node.latencyMilliseconds })}

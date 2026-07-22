@@ -86,7 +86,7 @@ export function ProxyPickerDialog({
                       <strong className="user-authored-label">{node.label}</strong>
                       <span>{node.protocol}</span>
                     </span>
-                    <span className={`${proxyPickerStyles().latency()} tabular`}>
+                    <span className={`${proxyPickerStyles().latency()} tabular-nums`}>
                       {node.latencyMilliseconds === null
                         ? LL.common.unavailable()
                         : `${node.latencyMilliseconds} ms`}

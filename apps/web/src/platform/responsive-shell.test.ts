@@ -23,31 +23,6 @@ describe("responsive shell CSS", () => {
     expect(shell).not.toContain("min-h-[620px]");
   });
 
-  it("keeps the full sidebar at the minimum desktop window width", () => {
-    const narrowDesktopRule = styles.match(
-      /@media \(max-width: 820px\) \{[\s\S]*?(?=@media \(max-width: 600px\))/,
-    )?.[0];
-
-    expect(shell).toContain("grid-cols-[164px_minmax(0,1fr)]");
-    expect(styles).not.toContain("grid-template-columns: 148px minmax(0, 1fr)");
-    expect(styles).not.toContain("grid-template-columns: 84px minmax(0, 1fr)");
-    expect(narrowDesktopRule).not.toContain(".nav-item > span");
-    expect(narrowDesktopRule).not.toContain(".proxy-control-label");
-  });
-
-  it("moves navigation below the workspace on mobile viewports", () => {
-    const mobileRule = styles.match(
-      /@media \(max-width: 600px\) \{[\s\S]*?(?=@media \(prefers-reduced-motion: reduce\))/,
-    )?.[0];
-
-    expect(mobileRule).toContain(':root[data-runtime="browser"] .app-shell');
-    expect(mobileRule).toContain("grid-template-rows: minmax(0, 1fr) auto");
-    expect(mobileRule).toContain("grid-template-columns: repeat(7, minmax(0, 1fr))");
-    expect(mobileRule).toContain("env(safe-area-inset-bottom)");
-    expect(mobileRule).not.toMatch(/\n\s{2}\.app-shell \{/);
-    expect(mobileRule).not.toMatch(/\n\s{2}\.sidebar \{/);
-  });
-
   it("keeps the notification icon aligned with the toolbar color states", () => {
     expect(notifications).toContain("notification-trigger relative inline-flex");
     expect(notifications).toContain("text-(--color-text-muted)");

@@ -42,7 +42,7 @@ const statusStyles = tv({
     controlLabel: "font-(--font-weight-control) text-(--color-body) whitespace-nowrap",
     routingItem: "px-3",
     contentGrid:
-      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 max-[1060px]:gap-8 max-[900px]:grid-cols-1",
+      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 max-[1060px]:gap-8 max-[900px]:grid-cols-1 [html[data-runtime=mobile]_&]:grid-cols-1 [html[data-runtime=mobile]_&]:gap-6",
     section: "min-w-0",
     sessionSection: "min-w-0 @container/session",
     heading: "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-[600px]:items-start",
@@ -349,7 +349,7 @@ export function StatusPage() {
                     </small>
                   </span>
                 </span>
-                <strong className={`${statusStyles().trafficRate()} tabular`}>
+                <strong className={`${statusStyles().trafficRate()} tabular-nums`}>
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.downloadBytesPerSecond, locale)
                     : "- B/s"}
@@ -370,7 +370,7 @@ export function StatusPage() {
                     </small>
                   </span>
                 </span>
-                <strong className={`${statusStyles().trafficRate()} tabular`}>
+                <strong className={`${statusStyles().trafficRate()} tabular-nums`}>
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.uploadBytesPerSecond, locale)
                     : "- B/s"}
@@ -383,13 +383,13 @@ export function StatusPage() {
               </SectionGridItem>
               <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.connections()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {hasMetricsData ? snapshot.metrics.activeConnections : "-"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.activeRules()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {hasMetricsData
                     ? new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en").format(
                         snapshot.metrics.effectiveRules,
@@ -399,13 +399,13 @@ export function StatusPage() {
               </SectionGridItem>
               <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.memory()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {hasMetricsData ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
                 </strong>
               </SectionGridItem>
               <SectionGridItem className={statusStyles().metric()}>
                 <span>{LL.status.uptime()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {captureActive && hasMetricsData
                     ? formatUptime(snapshot.metrics.uptimeSeconds)
                     : "-"}
@@ -441,7 +441,7 @@ export function StatusPage() {
                   const rowContent = (
                     <>
                       <span className={statusStyles().policyLeading()}>
-                        <span className={`${statusStyles().policyRank()} tabular`}>
+                        <span className={`${statusStyles().policyRank()} tabular-nums`}>
                           {index + 1}
                         </span>
                         <span className={statusStyles().policyCopy()}>

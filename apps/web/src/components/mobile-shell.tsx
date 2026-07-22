@@ -7,10 +7,10 @@ import { Pulse } from "@phosphor-icons/react/Pulse";
 import { Spinner } from "@mish/ui";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useEffect, useState } from "react";
+import { tv } from "tailwind-variants";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import type { MobileVpnClient } from "../platform/mobile-vpn-client";
-import "../mobile-styles.css";
 
 const destinations = [
   { icon: House, key: "home", path: "/status" },
@@ -19,6 +19,45 @@ const destinations = [
   { icon: Pulse, key: "activity", path: "/traffic" },
   { icon: GearSix, key: "settings", path: "/settings" },
 ] as const;
+
+const mobileShellStyles = tv({
+  slots: {
+    root: "mobile-shell grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-(--color-canvas)",
+    chrome: "mobile-chrome z-10 border-b border-(--color-hairline) bg-(--color-canvas)",
+    topBar:
+      "mobile-top-app-bar flex min-h-[calc(56px+env(safe-area-inset-top))] items-center gap-[11px] px-4 pt-[env(safe-area-inset-top)] [&_img]:size-7",
+    brandLight: "brand-image-light [html[data-theme=dark]_&]:hidden",
+    brandDark: "brand-image-dark hidden [html[data-theme=dark]_&]:block",
+    title: "text-xl leading-7 font-(--font-weight-heading)",
+    fixtureBanner:
+      "mobile-fixture-banner mx-4 mb-2.5 flex flex-wrap items-center justify-between gap-0.5 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-warning)_7%,var(--color-canvas))] px-[11px] py-[9px] text-xs leading-[17px] text-(--color-body)",
+    fixtureCopy: "grid min-w-0 gap-0.5",
+    fixtureLabel: "font-(--font-weight-control) text-(--color-warning)",
+    fixtureAction:
+      "mobile-fixture-action ml-auto min-h-11 min-w-max rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_45%,var(--color-hairline))] bg-(--color-canvas) px-3 text-(--color-ink) font-(--font-weight-control) disabled:opacity-55",
+    activityNavigation:
+      "mobile-activity-navigation flex min-w-0 gap-1 overflow-x-auto px-3 pb-2 [scrollbar-width:none]",
+    activityLink:
+      "inline-flex min-h-9 min-w-max items-center rounded-(--radius-full) px-3 text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) no-underline",
+    main: "mobile-main min-h-0 min-w-0 overflow-hidden bg-(--color-canvas) [&>*]:h-full",
+    bottomNavigation:
+      "mobile-bottom-navigation z-10 grid min-h-[calc(64px+env(safe-area-inset-bottom))] grid-cols-5 border-t border-(--color-hairline) bg-(--color-surface-soft) px-1 pt-1 pb-[env(safe-area-inset-bottom)]",
+    destination:
+      "mobile-destination flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-(--radius-md) text-[11px] leading-[14px] font-(--font-weight-control) text-(--color-text-muted) no-underline",
+    destinationIcon:
+      "mobile-destination-icon grid h-[30px] w-[54px] place-items-center rounded-(--radius-full) [&_svg]:size-[22px]",
+  },
+  variants: {
+    selected: {
+      true: {
+        activityLink: "is-active bg-(--color-accent) text-(--color-ink)",
+        destination: "is-active text-(--color-ink)",
+        destinationIcon: "bg-(--color-accent) text-(--color-brand)",
+      },
+      false: {},
+    },
+  },
+});
 
 interface MobileShellProps {
   fixture: MobileFixtureBootstrapDto;
@@ -82,28 +121,30 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
   }
 
   return (
-    <div className="mobile-shell" data-platform={fixture.platform}>
-      <div className="mobile-chrome">
-        <header className="mobile-top-app-bar">
+    <div className={mobileShellStyles().root()} data-platform={fixture.platform}>
+      <div className={mobileShellStyles().chrome()}>
+        <header className={mobileShellStyles().topBar()}>
           <img
             alt=""
             aria-hidden="true"
-            className="brand-image-light"
+            className={mobileShellStyles().brandLight()}
             draggable={false}
             src="/brand/mish-icon-outline.svg"
           />
           <img
             alt=""
             aria-hidden="true"
-            className="brand-image-dark"
+            className={mobileShellStyles().brandDark()}
             draggable={false}
             src="/brand/mish-icon-outline-dark.svg"
           />
-          <h1>{getTitle(LL, location.pathname)}</h1>
+          <h1 className={mobileShellStyles().title()}>{getTitle(LL, location.pathname)}</h1>
         </header>
-        <div className="mobile-fixture-banner">
-          <div role="status">
-            <strong>{LL.mobileFixture.label()}</strong>
+        <div className={mobileShellStyles().fixtureBanner()}>
+          <div className={mobileShellStyles().fixtureCopy()} role="status">
+            <strong className={mobileShellStyles().fixtureLabel()}>
+              {LL.mobileFixture.label()}
+            </strong>
             <span>
               {snapshot.coreAvailability === "available" && snapshot.coreVersion
                 ? LL.mobileFixture.coreReady({ version: snapshot.coreVersion })
@@ -114,7 +155,7 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
           {fixture.platform === "android" ? (
             <button
               aria-busy={commandPending}
-              className="mobile-fixture-action"
+              className={mobileShellStyles().fixtureAction()}
               disabled={
                 commandPending || snapshot.phase === "starting" || snapshot.phase === "stopping"
               }
@@ -127,48 +168,62 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
           ) : null}
         </div>
         {activity ? (
-          <nav aria-label={LL.mobileNavigation.activity()} className="mobile-activity-navigation">
+          <nav
+            aria-label={LL.mobileNavigation.activity()}
+            className={mobileShellStyles().activityNavigation()}
+          >
             <NavLink
-              className={!rules && location.pathname === "/traffic" ? "is-active" : ""}
+              className={mobileShellStyles({
+                selected: !rules && location.pathname === "/traffic",
+              }).activityLink()}
               to="/traffic?tab=active"
             >
               {LL.mobileNavigation.connections()}
             </NavLink>
-            <NavLink className={rules ? "is-active" : ""} to="/traffic?tab=rules">
+            <NavLink
+              className={mobileShellStyles({ selected: rules }).activityLink()}
+              to="/traffic?tab=rules"
+            >
               {LL.mobileNavigation.rules()}
             </NavLink>
             <NavLink
-              className={location.pathname === "/events" && !diagnostics ? "is-active" : ""}
+              className={mobileShellStyles({
+                selected: location.pathname === "/events" && !diagnostics,
+              }).activityLink()}
               to="/events"
             >
               {LL.mobileNavigation.events()}
             </NavLink>
-            <NavLink className={diagnostics ? "is-active" : ""} to="/events?diagnostics=1">
+            <NavLink
+              className={mobileShellStyles({ selected: diagnostics }).activityLink()}
+              to="/events?diagnostics=1"
+            >
               {LL.mobileNavigation.diagnostics()}
             </NavLink>
           </nav>
         ) : null}
       </div>
 
-      <main className="mobile-main">
+      <main className={mobileShellStyles().main()}>
         <Outlet />
       </main>
 
-      <nav aria-label={LL.mobileNavigation.primary()} className="mobile-bottom-navigation">
+      <nav
+        aria-label={LL.mobileNavigation.primary()}
+        className={mobileShellStyles().bottomNavigation()}
+      >
         {destinations.map(({ icon: Icon, key, path }) => {
           const label = LL.mobileNavigation[key]();
+          const selected = key === "activity" ? activity : location.pathname === path;
           return (
             <NavLink
               aria-label={label}
-              className={({ isActive }) => {
-                const selected = key === "activity" ? activity : isActive;
-                return `mobile-destination${selected ? " is-active" : ""}`;
-              }}
+              className={mobileShellStyles({ selected }).destination()}
               end={key !== "activity"}
               key={path}
               to={path}
             >
-              <span className="mobile-destination-icon">
+              <span className={mobileShellStyles({ selected }).destinationIcon()}>
                 <Icon
                   aria-hidden="true"
                   weight={key === "activity" && activity ? "fill" : "regular"}

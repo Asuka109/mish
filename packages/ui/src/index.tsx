@@ -175,7 +175,8 @@ const emptyRecipe = tv({
 
 const dialogRecipe = tv({
   slots: {
-    backdrop: "dialog-backdrop fixed inset-0 z-[70] bg-[rgb(17_24_39_/_18%)] backdrop-blur-[2px]",
+    backdrop:
+      "dialog-backdrop fixed inset-0 z-[70] bg-[rgb(17_24_39_/_18%)] backdrop-blur-[2px] [html[data-theme=dark]_&]:bg-[rgb(0_0_0_/_45%)]",
     content:
       "dialog-content fixed top-1/2 left-1/2 z-[71] max-h-[min(620px,calc(100vh_-_48px))] w-[min(440px,calc(100vw_-_32px))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) shadow-(--shadow-float) outline-none",
     close:
