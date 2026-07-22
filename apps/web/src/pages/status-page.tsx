@@ -301,16 +301,16 @@ export function StatusPage() {
                     </small>
                   </span>
                 </span>
-                <TrafficSparkline
-                  color="var(--color-traffic-download)"
-                  data={snapshot.traffic.downloadSeries}
-                  id="download"
-                />
                 <strong className="traffic-rate-value tabular">
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.downloadBytesPerSecond, locale)
                     : "- B/s"}
                 </strong>
+                <TrafficSparkline
+                  color="var(--color-traffic-download)"
+                  data={snapshot.traffic.downloadSeries}
+                  id="download"
+                />
               </SectionGridItem>
               <SectionGridItem className="session-row traffic-session-row" columnSpan={2}>
                 <span className="traffic-session-label" data-direction="upload">
@@ -322,16 +322,16 @@ export function StatusPage() {
                     </small>
                   </span>
                 </span>
-                <TrafficSparkline
-                  color="var(--color-traffic-upload)"
-                  data={snapshot.traffic.uploadSeries}
-                  id="upload"
-                />
                 <strong className="traffic-rate-value tabular">
                   {hasTrafficData
                     ? formatRate(snapshot.traffic.uploadBytesPerSecond, locale)
                     : "- B/s"}
                 </strong>
+                <TrafficSparkline
+                  color="var(--color-traffic-upload)"
+                  data={snapshot.traffic.uploadSeries}
+                  id="upload"
+                />
               </SectionGridItem>
               <SectionGridItem className="session-metric">
                 <span>{LL.status.connections()}</span>
