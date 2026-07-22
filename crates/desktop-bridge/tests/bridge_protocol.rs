@@ -923,12 +923,29 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         &mut ws,
         json!({
             "jsonrpc":"2.0", "id":5, "method":"settings.setStartup",
-            "params":{"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background"}}
+            "params":{"startup":{"launchAtLogin":true,"launchProxyWhenMishLaunches":false,"loginLaunchBehavior":"background"}}
         }),
     )
     .await;
     assert_eq!(startup["result"]["startupRegistration"]["phase"], "applied");
     assert_eq!(startup["result"]["startupRegistration"]["observed"], true);
+
+    let proxy_launch = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":23, "method":"settings.setLaunchProxyWhenMishLaunches",
+            "params":{"launchProxyWhenMishLaunches":true}
+        }),
+    )
+    .await;
+    assert_eq!(
+        proxy_launch["result"]["preferences"]["startup"]["launchProxyWhenMishLaunches"],
+        true
+    );
+    assert_eq!(
+        proxy_launch["result"]["startupRegistration"]["observed"],
+        true
+    );
 
     let close_behavior = request(
         &mut ws,
@@ -961,7 +978,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         (
             9,
             "settings.setStartup",
-            json!({"startup":{"launchAtLogin":true,"loginLaunchBehavior":"background","configuration":{}}}),
+            json!({"startup":{"launchAtLogin":true,"launchProxyWhenMishLaunches":false,"loginLaunchBehavior":"background","configuration":{}}}),
         ),
         (
             10,

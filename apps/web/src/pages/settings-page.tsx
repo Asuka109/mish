@@ -1,5 +1,3 @@
-import { CheckCircle } from "@phosphor-icons/react/CheckCircle";
-import { Info } from "@phosphor-icons/react/Info";
 import { Warning } from "@phosphor-icons/react/Warning";
 import {
   Badge,
@@ -13,7 +11,6 @@ import {
 import type {
   AppearancePreference,
   CaptureSelectionDto,
-  ConfirmationState,
   LanguagePreference,
   SettingsAvailability,
   StartupPreferencesDto,
@@ -33,7 +30,7 @@ import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-type PendingButtonAction = "language" | "startup" | "window-close";
+type PendingButtonAction = "language" | "proxy-launch" | "startup" | "window-close";
 
 type StartupOption = "off" | "show-window" | "background";
 
@@ -50,20 +47,9 @@ function AvailabilityBadge({ availability }: { availability: SettingsAvailabilit
     availability === "supported"
       ? LL.settingsPage.available()
       : availability === "coming-later"
-        ? LL.settingsPage.comingLater()
+        ? LL.settingsPage.comingSoon()
         : LL.common.unavailable();
   return <Badge variant={availability === "supported" ? "success" : "outline"}>{label}</Badge>;
-}
-
-function Confirmation({ state }: { state: ConfirmationState }) {
-  const { LL } = useI18nContext();
-  const Icon = state === "confirmed" ? CheckCircle : Info;
-  return (
-    <span className="settings-confirmation" data-confirmed={state === "confirmed"}>
-      <Icon aria-hidden="true" weight="fill" />
-      {state === "confirmed" ? LL.settingsPage.confirmed() : LL.common.unavailable()}
-    </span>
-  );
 }
 
 function SettingsSection({
@@ -119,6 +105,27 @@ function ObservedValues({ empty, values }: { empty: string; values: string[] }) 
   );
 }
 
+function AddressAvailabilityBadge({
+  available,
+  family,
+}: {
+  available: boolean;
+  family: "IPv4" | "IPv6";
+}) {
+  const { LL } = useI18nContext();
+  const status = available ? LL.settingsPage.available() : LL.common.unavailable();
+  return (
+    <Badge
+      aria-label={`${family}: ${status}`}
+      title={`${family}: ${status}`}
+      variant={available ? "success" : "outline"}
+    >
+      {family}
+      <span className="sr-only">: {status}</span>
+    </Badge>
+  );
+}
+
 export function SettingsPage() {
   const {
     appearancePending,
@@ -147,6 +154,7 @@ export function SettingsPage() {
     useState<CaptureSelectionDto | null>(null);
   const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
   const [optimisticStartup, setOptimisticStartup] = useState<StartupPreferencesDto | null>(null);
+  const [optimisticLaunchProxy, setOptimisticLaunchProxy] = useState<boolean | null>(null);
   const [optimisticWindowClose, setOptimisticWindowClose] = useState<WindowCloseBehavior | null>(
     null,
   );
@@ -164,6 +172,9 @@ export function SettingsPage() {
   const captureActive = Boolean(captureRuntime?.systemProxyEnabled || captureRuntime?.tunEnabled);
   const startupSupported =
     snapshot.adapterKind === "rpc" && snapshot.capabilities.launchAtLogin === "supported";
+  const launchProxySupported =
+    snapshot.adapterKind === "rpc" && snapshot.capabilities.backgroundLaunch === "supported";
+  const displayedLaunchProxy = optimisticLaunchProxy ?? startup.launchProxyWhenMishLaunches;
   const helper = snapshot.tunHelper;
   const helperAvailable =
     helper.availability === "available" &&
@@ -224,7 +235,7 @@ export function SettingsPage() {
     const nextStartup: StartupPreferencesDto =
       option === "off"
         ? { ...startup, launchAtLogin: false }
-        : { launchAtLogin: true, loginLaunchBehavior: option };
+        : { ...startup, launchAtLogin: true, loginLaunchBehavior: option };
     setPendingButtonAction("startup");
     setOptimisticStartup(nextStartup);
     try {
@@ -232,6 +243,17 @@ export function SettingsPage() {
     } finally {
       setPendingButtonAction(null);
       setOptimisticStartup(null);
+    }
+  }
+
+  async function changeLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches: boolean) {
+    setPendingButtonAction("proxy-launch");
+    setOptimisticLaunchProxy(launchProxyWhenMishLaunches);
+    try {
+      await settings.setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches);
+    } finally {
+      setPendingButtonAction(null);
+      setOptimisticLaunchProxy(null);
     }
   }
 
@@ -445,8 +467,6 @@ export function SettingsPage() {
             <div className="local-proxy-control">
               <span className="local-proxy-endpoint">
                 <code>{`${LOCAL_PROXY_HOST}:${LOCAL_PROXY_PORT}`}</code>
-                <Badge variant="outline">HTTP</Badge>
-                <Badge variant="outline">SOCKS5</Badge>
               </span>
               <Button
                 disabled={localProxyTest.phase === "pending" || productConnection.stale}
@@ -463,6 +483,45 @@ export function SettingsPage() {
           ) : (
             <AvailabilityBadge availability="unavailable" />
           )}
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.launchProxyWhenMishLaunchesDescription()}
+          title={LL.settingsPage.launchProxyWhenMishLaunches()}
+        >
+          <div className="settings-inline-control">
+            <ToggleGroup
+              aria-label={LL.settingsPage.launchProxyWhenMishLaunches()}
+              className="settings-segmented"
+              disabled={!launchProxySupported || settings.pending}
+              onValueChange={(values) => {
+                const option = values[0];
+                if (option === "off" || option === "on") {
+                  void changeLaunchProxyWhenMishLaunches(option === "on");
+                }
+              }}
+              spacing={0}
+              value={[displayedLaunchProxy ? "on" : "off"]}
+              variant="outline"
+            >
+              <ToggleGroupItem
+                aria-busy={pendingButtonAction === "proxy-launch" && !displayedLaunchProxy}
+                aria-label={`${LL.settingsPage.launchProxyWhenMishLaunches()}: ${LL.settingsPage.off()}`}
+                value="off"
+              >
+                {LL.settingsPage.off()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={pendingButtonAction === "proxy-launch" && displayedLaunchProxy}
+                aria-label={`${LL.settingsPage.launchProxyWhenMishLaunches()}: ${LL.settingsPage.on()}`}
+                value="on"
+              >
+                {LL.settingsPage.on()}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            {snapshot.capabilities.backgroundLaunch !== "supported" ? (
+              <AvailabilityBadge availability={snapshot.capabilities.backgroundLaunch} />
+            ) : null}
+          </div>
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.launchAtLoginDescription()}
@@ -602,18 +661,14 @@ export function SettingsPage() {
               ? network.interfaces.map((interfaceState) => (
                   <span className="settings-inline-control" key={interfaceState.interface}>
                     <code>{interfaceState.interface}</code>
-                    <Badge variant={interfaceState.ipv4Available ? "success" : "outline"}>
-                      IPv4 ·{" "}
-                      {interfaceState.ipv4Available
-                        ? LL.settingsPage.available()
-                        : LL.common.unavailable()}
-                    </Badge>
-                    <Badge variant={interfaceState.ipv6Available ? "success" : "outline"}>
-                      IPv6 ·{" "}
-                      {interfaceState.ipv6Available
-                        ? LL.settingsPage.available()
-                        : LL.common.unavailable()}
-                    </Badge>
+                    <AddressAvailabilityBadge
+                      available={interfaceState.ipv4Available}
+                      family="IPv4"
+                    />
+                    <AddressAvailabilityBadge
+                      available={interfaceState.ipv6Available}
+                      family="IPv6"
+                    />
                   </span>
                 ))
               : LL.settingsPage.networkDns.noActiveInterfaces()}
@@ -702,7 +757,9 @@ export function SettingsPage() {
                 {LL.settingsPage.quitOnClose()}
               </ToggleGroupItem>
             </ToggleGroup>
-            <AvailabilityBadge availability={snapshot.capabilities.windowLifecycle} />
+            {snapshot.capabilities.windowLifecycle !== "supported" ? (
+              <AvailabilityBadge availability={snapshot.capabilities.windowLifecycle} />
+            ) : null}
           </div>
         </SettingsRow>
         <SettingsRow description={LL.settingsPage.themeDescription()} title={LL.appearance.label()}>
@@ -801,12 +858,6 @@ export function SettingsPage() {
             </ToggleGroupItem>
           </ToggleGroup>
         </SettingsRow>
-        <SettingsRow
-          description={LL.settingsPage.motionDescription()}
-          title={LL.settingsPage.motion()}
-        >
-          <Badge variant="outline">{LL.settingsPage.followsSystem()}</Badge>
-        </SettingsRow>
       </SettingsSection>
 
       <SettingsSection
@@ -829,49 +880,31 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SettingsSection
-        description={LL.settingsPage.privacyDescription()}
-        id="settings-privacy"
-        title={LL.settingsPage.privacyAccess()}
-      >
-        <SettingsRow
-          description={LL.settingsPage.loopbackDescription()}
-          title={LL.settingsPage.loopback()}
-        >
-          <Confirmation state={snapshot.privacy.loopbackOnly} />
-        </SettingsRow>
-        <SettingsRow
-          description={LL.settingsPage.authenticationDescription()}
-          title={LL.settingsPage.authentication()}
-        >
-          <Confirmation state={snapshot.privacy.authenticated} />
-        </SettingsRow>
-        <SettingsRow
-          description={LL.settingsPage.originDescription()}
-          title={LL.settingsPage.origin()}
-        >
-          <Confirmation state={snapshot.privacy.originValidated} />
-        </SettingsRow>
-        <SettingsRow description={LL.settingsPage.lanDescription()} title={LL.settingsPage.lan()}>
-          <AvailabilityBadge availability={snapshot.privacy.lanControl} />
-        </SettingsRow>
-      </SettingsSection>
-
-      <SettingsSection
         description={LL.settingsPage.advancedDescription()}
         id="settings-advanced"
         title={LL.settingsPage.advancedSupport()}
       >
         <SettingsRow
-          description={LL.settingsPage.expertDescription()}
-          title={LL.settingsPage.expert()}
-        >
-          <AvailabilityBadge availability={snapshot.capabilities.expertConfiguration} />
-        </SettingsRow>
-        <SettingsRow
           description={LL.settingsPage.versionDescription()}
           title={LL.settingsPage.version()}
         >
-          <span className="settings-version">Mish 0.1.0</span>
+          <div className="settings-inline-control">
+            <Badge variant="outline">Mish {snapshot.build.appVersion}</Badge>
+            <Badge variant="outline">Mihomo {snapshot.build.mihomoVersion}</Badge>
+            <Button
+              aria-describedby="settings-updates-coming-soon"
+              disabled
+              size="sm"
+              title={LL.settingsPage.comingSoon()}
+              type="button"
+              variant="outline"
+            >
+              {LL.settingsPage.checkForUpdates()}
+            </Button>
+            <span className="sr-only" id="settings-updates-coming-soon">
+              {LL.settingsPage.comingSoon()}
+            </span>
+          </div>
         </SettingsRow>
       </SettingsSection>
     </div>

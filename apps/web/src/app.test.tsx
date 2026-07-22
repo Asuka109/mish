@@ -254,6 +254,13 @@ class DesktopSettingsClient implements SettingsClient {
     };
     return this.getSnapshot();
   });
+  setLaunchProxyWhenMishLaunches = vi.fn(async (launchProxyWhenMishLaunches: boolean) => {
+    this.snapshot.preferences.startup.launchProxyWhenMishLaunches = launchProxyWhenMishLaunches;
+    return this.getSnapshot();
+  });
+  subscribeSnapshots = vi.fn(
+    (_listener: (snapshot: SettingsSnapshotDto) => void) => () => undefined,
+  );
   setWindowCloseBehavior = vi.fn(async (behavior: "hide-to-status-bar" | "quit") => {
     this.snapshot.preferences.windowCloseBehavior = behavior;
     return this.getSnapshot();
@@ -1068,7 +1075,6 @@ describe("production routes", () => {
       "Network and DNS",
       "Appearance and interaction",
       "Updates and data",
-      "Privacy and access",
       "Advanced and support",
     ]) {
       expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
@@ -1083,6 +1089,10 @@ describe("production routes", () => {
     expect(screen.queryByRole("button", { name: /enable lan/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Window surface")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Native material" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Privacy and access" })).not.toBeInTheDocument();
+    expect(screen.getByText("Mish 0.1.0")).toBeVisible();
+    expect(screen.getByText("Mihomo v1.19.29")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
   });
 
   it("offers a clean helper reinstall when the desktop core is inactive", async () => {
@@ -1280,8 +1290,8 @@ describe("desktop RPC experience", () => {
     expect(await screen.findByText("127.0.0.1:7890")).toBeVisible();
     expect(screen.getByText(/browser extension or an app-specific proxy/i)).toBeVisible();
     expect(screen.getByText(/does not enable or change macOS System Proxy/i)).toBeVisible();
-    expect(screen.getByText("HTTP")).toBeVisible();
-    expect(screen.getByText("SOCKS5")).toBeVisible();
+    expect(screen.queryByText("HTTP")).not.toBeInTheDocument();
+    expect(screen.queryByText("SOCKS5")).not.toBeInTheDocument();
 
     const testButton = screen.getByRole("button", { name: "Test listener" });
     await user.click(testButton);
@@ -1620,6 +1630,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenCalledWith({
         launchAtLogin: true,
+        launchProxyWhenMishLaunches: false,
         loginLaunchBehavior: "show-window",
       }),
     );
@@ -1628,6 +1639,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
         launchAtLogin: true,
+        launchProxyWhenMishLaunches: false,
         loginLaunchBehavior: "background",
       }),
     );
@@ -1635,9 +1647,43 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(settingsClient.setStartup).toHaveBeenLastCalledWith({
         launchAtLogin: false,
+        launchProxyWhenMishLaunches: false,
         loginLaunchBehavior: "background",
       }),
     );
+  });
+
+  it("persists the automatic proxy launch preference independently in English and Chinese", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    const { unmount } = renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(screen.getByText("Launch proxy when Mish launches")).toBeInTheDocument();
+    expect(screen.getByText(/does not start or stop the proxy now/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Launch proxy when Mish launches: On" }));
+    await waitFor(() =>
+      expect(settingsClient.setLaunchProxyWhenMishLaunches).toHaveBeenCalledWith(true),
+    );
+    expect(settingsClient.setStartup).not.toHaveBeenCalled();
+    unmount();
+
+    renderRoute(
+      "/settings",
+      "zh",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+    expect(screen.getByText("启动应用自动代理")).toBeInTheDocument();
+    expect(screen.getByText(/切换后不会立即启动或停止代理/)).toBeInTheDocument();
   });
 
   it("shows login startup status only when the observed registration needs attention", async () => {
@@ -1896,6 +1942,25 @@ describe("desktop RPC experience", () => {
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: /Google/ });
     expect(within(google).getByText("Pending")).toBeVisible();
+  });
+
+  it("shows the shared proxy loader while a native startup capture transition is pending", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.phase = "connecting";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "disabled",
+      phase: "pending",
+      recoveryActions: [],
+    };
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    const proxyControl = await screen.findByRole("button", { name: "Launch proxy" });
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toBeDisabled();
+    expect(proxyControl).toHaveTextContent("Pending");
   });
 
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {

@@ -35,7 +35,11 @@ describe("RPC settings client", () => {
     await client.setAppearance("dark");
     await client.setLanguage("zh");
     await client.setOnboardingWelcomeState("dismiss");
-    await client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" });
+    await client.setStartup({
+      launchAtLogin: true,
+      launchProxyWhenMishLaunches: false,
+      loginLaunchBehavior: "background",
+    });
     await client.setWindowCloseBehavior("quit");
     await client.setWindowSurface("opaque");
     await client.refreshNetworkDns();
@@ -46,7 +50,13 @@ describe("RPC settings client", () => {
       ["settings.setOnboardingWelcomeState", { action: "dismiss" }],
       [
         "settings.setStartup",
-        { startup: { launchAtLogin: true, loginLaunchBehavior: "background" } },
+        {
+          startup: {
+            launchAtLogin: true,
+            launchProxyWhenMishLaunches: false,
+            loginLaunchBehavior: "background",
+          },
+        },
       ],
       ["settings.setWindowCloseBehavior", { behavior: "quit" }],
       ["settings.setWindowSurface", { surface: "opaque" }],

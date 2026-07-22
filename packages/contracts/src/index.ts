@@ -1272,6 +1272,7 @@ export type OnboardingWelcomeAction = z.infer<typeof OnboardingWelcomeActionSche
 
 export const StartupPreferencesSchema = z
   .object({
+    launchProxyWhenMishLaunches: z.boolean(),
     launchAtLogin: z.boolean(),
     loginLaunchBehavior: LoginLaunchBehaviorSchema,
   })
@@ -1425,6 +1426,12 @@ export interface TunHelperSnapshotDto extends z.infer<typeof TunHelperSnapshotSc
 export const SettingsSnapshotSchema = z
   .object({
     adapterKind: SettingsAdapterKindSchema,
+    build: z
+      .object({
+        appVersion: z.string().min(1).max(64),
+        mihomoVersion: z.string().min(1).max(64),
+      })
+      .strict(),
     capabilities: SettingsCapabilitiesSchema,
     networkDns: z
       .object({
@@ -1483,6 +1490,19 @@ export const RpcSettingsSnapshotSchema = SettingsSnapshotSchema.extend({
   adapterKind: z.literal("rpc"),
 });
 export interface RpcSettingsSnapshotDto extends z.infer<typeof RpcSettingsSnapshotSchema> {}
+
+export const SettingsSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const SettingsSubscriptionSchema = SettingsSubscriptionIdSchema.extend({
+  snapshot: RpcSettingsSnapshotSchema,
+}).strict();
+export interface SettingsSubscriptionDto extends z.infer<typeof SettingsSubscriptionSchema> {}
+
+export const SettingsSnapshotNotificationSchema = z
+  .object({ snapshot: RpcSettingsSnapshotSchema, subscriptionId: IdentifierSchema })
+  .strict();
+export interface SettingsSnapshotNotificationDto extends z.infer<
+  typeof SettingsSnapshotNotificationSchema
+> {}
 
 export const LocalBackupAvailabilitySchema = z.enum(["supported", "unavailable"]);
 export type LocalBackupAvailability = z.infer<typeof LocalBackupAvailabilitySchema>;
@@ -2546,6 +2566,9 @@ export const SetOnboardingWelcomeStateCommandSchema = z
 export const SetStartupPreferencesCommandSchema = z
   .object({ startup: StartupPreferencesSchema })
   .strict();
+export const SetLaunchProxyWhenMishLaunchesCommandSchema = z
+  .object({ launchProxyWhenMishLaunches: z.boolean() })
+  .strict();
 export const SetWindowCloseBehaviorCommandSchema = z
   .object({ behavior: WindowCloseBehaviorSchema })
   .strict();
@@ -2587,6 +2610,12 @@ export const settingsRpcMethods = {
     params: SetStartupPreferencesCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
+  "settings.setLaunchProxyWhenMishLaunches": {
+    params: SetLaunchProxyWhenMishLaunchesCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.subscribe": { params: EmptyCommandSchema, result: SettingsSubscriptionSchema },
+  "settings.unsubscribe": { params: SettingsSubscriptionIdSchema, result: z.boolean() },
   "settings.setWindowCloseBehavior": {
     params: SetWindowCloseBehaviorCommandSchema,
     result: RpcSettingsSnapshotSchema,
@@ -2621,6 +2650,10 @@ export const trafficRpcNotifications = {
 
 export const eventsRpcNotifications = {
   "events.snapshot": EventsSnapshotNotificationSchema,
+} as const;
+
+export const settingsRpcNotifications = {
+  "settings.snapshot": SettingsSnapshotNotificationSchema,
 } as const;
 
 export type StatusConnectionPhase =
@@ -2751,6 +2784,11 @@ export interface SettingsClient {
     startup: StartupPreferencesDto,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
+  setLaunchProxyWhenMishLaunches(
+    launchProxyWhenMishLaunches: boolean,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void): () => void;
   setWindowCloseBehavior(
     behavior: WindowCloseBehavior,
     options?: { signal?: AbortSignal },

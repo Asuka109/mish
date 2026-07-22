@@ -8,6 +8,7 @@ import {
 const token = "0123456789abcdef".repeat(4);
 const settingsSnapshot = {
   adapterKind: "rpc" as const,
+  build: { appVersion: "0.1.0", mihomoVersion: "v1.19.29" },
   capabilities: {
     backgroundLaunch: "supported" as const,
     backupRestore: "coming-later" as const,
@@ -32,7 +33,11 @@ const settingsSnapshot = {
     appearance: "system" as const,
     language: "en" as const,
     onboarding: { welcomeInvitation: null },
-    startup: { launchAtLogin: false, loginLaunchBehavior: "show-window" as const },
+    startup: {
+      launchAtLogin: false,
+      launchProxyWhenMishLaunches: false,
+      loginLaunchBehavior: "show-window" as const,
+    },
     windowCloseBehavior: "hide-to-status-bar" as const,
     windowSurface: "material" as const,
   },

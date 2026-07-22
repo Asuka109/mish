@@ -3735,8 +3735,7 @@ h2 {
   text-align: end;
 }
 
-.settings-inline-control,
-.settings-confirmation {
+.settings-inline-control {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -4076,20 +4075,6 @@ h2 {
   font-size: var(--text-metadata);
 }
 
-.settings-confirmation {
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-}
-
-.settings-confirmation[data-confirmed="true"] {
-  color: var(--color-success-text);
-}
-
-.settings-confirmation > svg {
-  width: 15px;
-  height: 15px;
-}
-
 .settings-segmented > button {
   display: inline-flex;
   height: 30px;
@@ -4137,12 +4122,6 @@ h2 {
 
 .settings-row .traffic-capture-stack {
   align-items: flex-end;
-}
-
-.settings-version {
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-  font-variant-numeric: tabular-nums;
 }
 
 @container settings-page (max-width: 680px) {
