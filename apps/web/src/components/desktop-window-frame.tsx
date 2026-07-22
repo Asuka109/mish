@@ -18,6 +18,7 @@ export function DesktopWindowFrame({ children, runtime }: DesktopWindowFrameProp
         <div
           aria-hidden="true"
           className="desktop-window-drag-surface"
+          data-window-drag-behavior="drag-and-zoom"
           data-window-drag-surface="window-frame"
           onMouseDown={handleWindowFrameMouseDown}
           tabIndex={-1}

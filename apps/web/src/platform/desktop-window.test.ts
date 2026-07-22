@@ -66,6 +66,18 @@ describe("desktop window drag routing", () => {
     expect(dependencies.toggleMaximize).toHaveBeenCalledOnce();
   });
 
+  it("keeps a drag-only surface from toggling native zoom on double click", () => {
+    const dependencies = createDependencies();
+    const handler = createDesktopWindowDragHandler(dependencies, {
+      maximizeOnDoubleClick: false,
+    });
+
+    handler(createEvent(document.createElement("span"), { detail: 2 }));
+
+    expect(dependencies.startDragging).toHaveBeenCalledOnce();
+    expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
+  });
+
   it("does not route non-primary or already-prevented presses to the native window", () => {
     const dependencies = createDependencies();
     const handler = createDesktopWindowDragHandler(dependencies);

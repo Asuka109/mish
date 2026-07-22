@@ -110,6 +110,7 @@
 @source "../../../packages/ui/src";
 
 :root {
+  --desktop-window-frame-height: 34px;
   --layer-window-frame: 1000000000;
   color: var(--color-ink);
   background: var(--color-surface-soft);
@@ -236,7 +237,7 @@ h2 {
   top: 0;
   right: 0;
   left: 0;
-  height: 10px;
+  height: var(--desktop-window-frame-height);
 }
 
 .sidebar {

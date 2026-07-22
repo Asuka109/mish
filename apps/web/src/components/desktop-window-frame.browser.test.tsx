@@ -59,7 +59,7 @@ describe("desktop window frame overlay boundaries", () => {
     if (!frame || !backdrop) throw new Error("Missing desktop frame or dialog backdrop");
 
     expect(frame.getBoundingClientRect().toJSON()).toMatchObject({
-      height: 10,
+      height: 34,
       top: 0,
       width: 1024,
     });

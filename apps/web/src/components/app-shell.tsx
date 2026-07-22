@@ -48,7 +48,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
-import { handleDesktopWindowDrag } from "../platform/desktop-window";
+import { handleDesktopWindowDragOnly } from "../platform/desktop-window";
 import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
@@ -255,8 +255,9 @@ function Sidebar() {
       aria-label={LL.navigation.primary()}
       as="aside"
       className="sidebar"
+      data-window-drag-behavior="drag-only"
       data-window-drag-surface="sidebar"
-      onMouseDown={handleDesktopWindowDrag}
+      onMouseDown={handleDesktopWindowDragOnly}
       surfaceRole="window"
     >
       <div className="sidebar-window-header">

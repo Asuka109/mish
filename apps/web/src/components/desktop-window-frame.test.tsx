@@ -20,6 +20,7 @@ describe("DesktopWindowFrame", () => {
     const frame = container.querySelector<HTMLElement>('[data-window-drag-surface="window-frame"]');
     expect(frame).toHaveAttribute("aria-hidden", "true");
     expect(frame).toHaveAttribute("tabindex", "-1");
+    expect(frame).toHaveAttribute("data-window-drag-behavior", "drag-and-zoom");
     expect(frame).toHaveClass("desktop-window-drag-surface");
   });
 
