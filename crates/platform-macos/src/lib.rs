@@ -58,6 +58,37 @@ const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BrowserPairingPanelPolicy {
+    activates_application: bool,
+    is_modal: bool,
+    retains_keyboard_focus: bool,
+    remains_visible_when_inactive: bool,
+}
+
+const BROWSER_PAIRING_PANEL_POLICY: BrowserPairingPanelPolicy = BrowserPairingPanelPolicy {
+    activates_application: false,
+    is_modal: false,
+    retains_keyboard_focus: false,
+    remains_visible_when_inactive: true,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BrowserPairingPanelPresentation {
+    Create,
+    Reuse,
+}
+
+const fn browser_pairing_panel_presentation(
+    has_retained_panel: bool,
+) -> BrowserPairingPanelPresentation {
+    if has_retained_panel {
+        BrowserPairingPanelPresentation::Reuse
+    } else {
+        BrowserPairingPanelPresentation::Create
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OpenBrowserError {
     InvalidUrl,
     Rejected,
@@ -146,25 +177,255 @@ pub fn show_graceful_exit_error() {
 pub fn show_graceful_exit_error() {}
 
 #[cfg(target_os = "macos")]
-pub fn show_browser_pairing_pin(pin: &str) {
-    use objc2::MainThreadMarker;
-    use objc2_app_kit::{NSAlert, NSAlertStyle};
-    use objc2_foundation::NSString;
+mod browser_pairing_panel {
+    use std::cell::RefCell;
 
-    let Some(mtm) = MainThreadMarker::new() else {
-        return;
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2::{MainThreadOnly, define_class, msg_send, sel};
+    use objc2_app_kit::{
+        NSBackingStoreType, NSButton, NSFloatingWindowLevel, NSFont, NSPanel, NSTextField,
+        NSWindowCollectionBehavior, NSWindowDelegate, NSWindowStyleMask,
     };
-    let alert = NSAlert::new(mtm);
-    alert.setAlertStyle(NSAlertStyle::Informational);
-    alert.setMessageText(&NSString::from_str("Connect this browser to Mish"));
-    alert.setInformativeText(&NSString::from_str(&format!(
-        "Enter PIN {pin} in the browser. This PIN expires in two minutes and can be used only once."
-    )));
-    alert.runModal();
+    use objc2_foundation::{
+        MainThreadMarker, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
+        NSString,
+    };
+
+    use crate::{
+        BROWSER_PAIRING_PANEL_POLICY, BrowserPairingPanelPolicy, BrowserPairingPanelPresentation,
+        browser_pairing_panel_presentation,
+    };
+
+    const PANEL_WIDTH: f64 = 460.0;
+    const PANEL_HEIGHT: f64 = 190.0;
+
+    struct BrowserPairingPanel {
+        panel: Retained<NSPanel>,
+        pin_label: Retained<NSTextField>,
+        _delegate: Retained<PairingPanelDelegate>,
+    }
+
+    thread_local! {
+        static BROWSER_PAIRING_PANEL: RefCell<Option<BrowserPairingPanel>> = const { RefCell::new(None) };
+    }
+
+    #[derive(Debug, Default)]
+    struct PairingPanelDelegateIvars;
+
+    define_class!(
+        // SAFETY: NSObject has no additional subclassing requirements.
+        #[unsafe(super = NSObject)]
+        #[thread_kind = MainThreadOnly]
+        #[ivars = PairingPanelDelegateIvars]
+        struct PairingPanelDelegate;
+
+        // SAFETY: NSObjectProtocol has no safety requirements.
+        unsafe impl NSObjectProtocol for PairingPanelDelegate {}
+
+        // SAFETY: Clearing the retained panel after AppKit starts closing it is safe; AppKit
+        // retains the receiver for the duration of its close operation.
+        unsafe impl NSWindowDelegate for PairingPanelDelegate {
+            #[unsafe(method(windowWillClose:))]
+            fn window_will_close(&self, _notification: &NSNotification) {
+                BROWSER_PAIRING_PANEL.with(|stored| {
+                    stored.take();
+                });
+            }
+        }
+    );
+
+    impl PairingPanelDelegate {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(PairingPanelDelegateIvars);
+            // SAFETY: NSObject's init selector has the declared signature.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    impl BrowserPairingPanel {
+        fn new(pin: &str, mtm: MainThreadMarker) -> Self {
+            let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
+                NSPanel::alloc(mtm),
+                NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(PANEL_WIDTH, PANEL_HEIGHT),
+                ),
+                NSWindowStyleMask::Titled
+                    | NSWindowStyleMask::Closable
+                    | NSWindowStyleMask::NonactivatingPanel,
+                NSBackingStoreType::Buffered,
+                false,
+            );
+            // The panel is retained below, so AppKit must not release it behind Rust's back.
+            unsafe { panel.setReleasedWhenClosed(false) };
+            panel.setTitle(&NSString::from_str("Connect this browser to Mish"));
+            panel.setFloatingPanel(true);
+            panel.setLevel(NSFloatingWindowLevel);
+            panel.setHidesOnDeactivate(false);
+            panel.setBecomesKeyOnlyIfNeeded(true);
+            panel.setCollectionBehavior(
+                NSWindowCollectionBehavior::CanJoinAllSpaces
+                    | NSWindowCollectionBehavior::FullScreenAuxiliary
+                    | NSWindowCollectionBehavior::Transient,
+            );
+
+            let content_view = panel.contentView().expect("panel must have a content view");
+            let instruction = NSTextField::labelWithString(
+                &NSString::from_str("Enter this PIN in the browser:"),
+                mtm,
+            );
+            instruction.setFrame(NSRect::new(
+                NSPoint::new(24.0, 112.0),
+                NSSize::new(412.0, 20.0),
+            ));
+
+            let pin_label = NSTextField::labelWithString(&NSString::from_str(pin), mtm);
+            pin_label.setFont(Some(&NSFont::systemFontOfSize(28.0)));
+            pin_label.setFrame(NSRect::new(
+                NSPoint::new(24.0, 76.0),
+                NSSize::new(180.0, 34.0),
+            ));
+
+            let explanation = NSTextField::labelWithString(
+                &NSString::from_str("This PIN expires in two minutes and can be used only once."),
+                mtm,
+            );
+            explanation.setFrame(NSRect::new(
+                NSPoint::new(24.0, 47.0),
+                NSSize::new(412.0, 20.0),
+            ));
+
+            // A non-key panel must not register Return or Escape while another app is typing.
+            let ok_button = unsafe {
+                NSButton::buttonWithTitle_target_action(
+                    &NSString::from_str("OK"),
+                    Some(panel.as_ref()),
+                    Some(sel!(performClose:)),
+                    mtm,
+                )
+            };
+            ok_button.setKeyEquivalent(&NSString::from_str(""));
+            ok_button.setFrame(NSRect::new(
+                NSPoint::new(356.0, 14.0),
+                NSSize::new(80.0, 32.0),
+            ));
+
+            content_view.addSubview(&instruction);
+            content_view.addSubview(&pin_label);
+            content_view.addSubview(&explanation);
+            content_view.addSubview(&ok_button);
+
+            let delegate = PairingPanelDelegate::new(mtm);
+            panel.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            panel.center();
+
+            Self {
+                panel,
+                pin_label,
+                _delegate: delegate,
+            }
+        }
+
+        fn update(&self, pin: &str) {
+            self.pin_label.setStringValue(&NSString::from_str(pin));
+        }
+    }
+
+    pub(super) fn show(pin: &str) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        debug_assert_eq!(
+            BROWSER_PAIRING_PANEL_POLICY,
+            BrowserPairingPanelPolicy {
+                activates_application: false,
+                is_modal: false,
+                retains_keyboard_focus: false,
+                remains_visible_when_inactive: true,
+            }
+        );
+
+        BROWSER_PAIRING_PANEL.with(|stored| {
+            let mut stored = stored.borrow_mut();
+            match browser_pairing_panel_presentation(stored.is_some()) {
+                BrowserPairingPanelPresentation::Reuse => {
+                    let existing = stored.as_ref().expect("retained panel must exist");
+                    existing.update(pin);
+                    existing.panel.orderFrontRegardless();
+                }
+                BrowserPairingPanelPresentation::Create => {
+                    let pairing_panel = BrowserPairingPanel::new(pin, mtm);
+                    pairing_panel.panel.orderFrontRegardless();
+                    *stored = Some(pairing_panel);
+                }
+            }
+        });
+    }
+
+    pub(super) fn dismiss() {
+        let Some(_mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let panel = BROWSER_PAIRING_PANEL.with(|stored| stored.borrow_mut().take());
+        if let Some(panel) = panel {
+            panel.panel.close();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn show_browser_pairing_pin(pin: &str) {
+    browser_pairing_panel::show(pin);
 }
 
 #[cfg(not(target_os = "macos"))]
 pub fn show_browser_pairing_pin(_pin: &str) {}
+
+#[cfg(target_os = "macos")]
+pub fn dismiss_browser_pairing_pin() {
+    browser_pairing_panel::dismiss();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn dismiss_browser_pairing_pin() {}
+
+#[cfg(test)]
+mod browser_pairing_panel_tests {
+    use super::*;
+
+    #[test]
+    fn pairing_panel_policy_never_activates_or_runs_modally() {
+        assert_eq!(
+            BROWSER_PAIRING_PANEL_POLICY,
+            BrowserPairingPanelPolicy {
+                activates_application: false,
+                is_modal: false,
+                retains_keyboard_focus: false,
+                remains_visible_when_inactive: true,
+            }
+        );
+    }
+
+    #[test]
+    fn repeated_pairing_reuses_the_retained_panel() {
+        assert_eq!(
+            browser_pairing_panel_presentation(false),
+            BrowserPairingPanelPresentation::Create
+        );
+        assert_eq!(
+            browser_pairing_panel_presentation(true),
+            BrowserPairingPanelPresentation::Reuse
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn pairing_panel_is_a_noop_off_macos() {
+        show_browser_pairing_pin("123456");
+        dismiss_browser_pairing_pin();
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MacOsTunHelperBoundary {
