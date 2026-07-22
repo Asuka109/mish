@@ -7,7 +7,7 @@ import { Pulse } from "@phosphor-icons/react/Pulse";
 import { Spinner } from "@mish/ui";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { useEffect, useState } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 import type { MobileVpnClient } from "../platform/mobile-vpn-client";

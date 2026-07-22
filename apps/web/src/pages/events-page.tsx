@@ -43,7 +43,7 @@ import type {
 } from "@mish/contracts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useEvents } from "../data/events-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";

@@ -22,9 +22,9 @@ import {
   type LabelHTMLAttributes,
   type ReactNode,
 } from "react";
-import { cn, cx, tv } from "tailwind-variants";
+import { cn, cx, tv } from "./tv";
 
-export { cn } from "tailwind-variants";
+export { cn, cx, tv } from "./tv";
 
 // Recipes are intentionally the only shared component merge boundary. Consumer
 // className values are passed to tv() last so documented page-level overrides win.

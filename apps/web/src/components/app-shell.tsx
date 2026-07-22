@@ -31,7 +31,7 @@ import {
 } from "@mish/ui";
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useCurrentProfileCommand } from "../data/current-profile-command";

@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { Button, Spinner, Toggle } from "@mish/ui";
+import { Button, cn, Spinner, Toggle } from "@mish/ui";
 import { describe, expect, it } from "vitest";
 
 function deferred() {
@@ -13,6 +13,26 @@ function deferred() {
 }
 
 describe("Button promise loading", () => {
+  it("keeps semantic typography beside a conflicting foreground utility", () => {
+    render(
+      <>
+        <Button>Continue</Button>
+        <Button className="text-caption">Compact</Button>
+        <Button className="text-sm">Native</Button>
+      </>,
+    );
+
+    const button = screen.getByRole("button", { name: "Continue" });
+    const override = screen.getByRole("button", { name: "Compact" });
+    const native = screen.getByRole("button", { name: "Native" });
+    expect(button).toHaveClass("text-metadata", "text-canvas");
+    expect(override).toHaveClass("text-caption", "text-canvas");
+    expect(override).not.toHaveClass("text-metadata");
+    expect(native).toHaveClass("text-sm", "text-canvas");
+    expect(native).not.toHaveClass("text-metadata");
+    expect(cn("text-sm", "text-metadata", "text-fg")).toBe("text-metadata text-fg");
+  });
+
   it("keeps the semantic spinner width through the shared merge boundary", () => {
     render(<Spinner />);
 

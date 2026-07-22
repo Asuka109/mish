@@ -42,7 +42,7 @@ import {
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";

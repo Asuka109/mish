@@ -1,8 +1,13 @@
 # Tailwind Variants styling ownership
 
 Production reusable components use the original `tailwind-variants` build in
-`@mish/ui`. Its default `tailwind-merge` integration is the single merge
-boundary for component recipes and the exported `cn` helper.
+`@mish/ui`. The configured `@mish/ui/tv` entry point is the only direct
+`tailwind-variants` consumer and keeps `tailwind-merge` as the single merge
+boundary for component recipes and the exported `cn` helper. Its font-size
+class group recognizes Mish's semantic `text-title`, `text-body`,
+`text-metadata`, `text-caption`, `text-label-small`, and `text-micro` utilities
+before the broader text-color matcher. Caller typography overrides therefore
+remain last without conflicting with `text-fg` or other foreground colors.
 
 ## Ownership
 
@@ -33,7 +38,9 @@ recipe remains the single `tailwind-merge` boundary, including the final caller
 Semantic custom utilities are used when a valid theme-generated class belongs
 to an ambiguous `tailwind-merge` group. For example, `spinner-border` consumes
 the named spinner border-width token without being mistaken for a border color
-and removed next to `border-current`.
+and removed next to `border-current`. Theme-generated typography utilities keep
+their native Tailwind `text-*` shape because the configured merge entry point
+registers their exact semantic names in the font-size group.
 
 `pnpm check:styles` enforces those boundaries. It rejects interpolation inside
 recipes or Tailwind class fragments, requires every package that imports
@@ -42,9 +49,9 @@ CSS Module class is consumed through its imported mapping.
 
 Recipes consume mapped theme values through named utilities such as
 `bg-canvas`, `text-fg`, `text-muted-foreground`, `rounded-md`, and
-`shadow-float`. Typography and color utilities stay unambiguous: `text-body`
-selects the body type scale, while `text-fg` selects the normal body foreground
-color. Recipes do not bypass the theme with `bg-(--color-canvas)`, raw
+`shadow-float`. Typography and foreground colors both retain Tailwind's native
+`text-*` naming, with their roles disambiguated by the centralized merge
+configuration. Recipes do not bypass the theme with `bg-(--color-canvas)`, raw
 `--mish-*` variables, or
 equivalent indirect shorthands. Surface-scoped values such as the material-aware
 sidebar background are exposed as named theme colors while their runtime CSS
@@ -76,7 +83,9 @@ semantics with visual-only state.
 - document roots, resets, default focus treatment, and native material root
   transparency;
 - the route focus manager's heading reset and the static `user-authored-label`
-  and `spinner-border` utilities;
+  utility;
+- the semantic `spinner-border` utility whose name avoids an ambiguous
+  `tailwind-merge` group;
 - reduced-motion, browser/desktop text selection, WebKit drag suppression, and
   desktop cursor/pressed feedback policies that intentionally cross component
   boundaries; and

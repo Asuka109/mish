@@ -1,5 +1,5 @@
 import type { MouseEventHandler, ReactNode } from "react";
-import { cx } from "tailwind-variants";
+import { cx } from "@mish/ui/tv";
 import { handleDesktopWindowDrag } from "../platform/desktop-window";
 
 interface DesktopWindowFrameProps {

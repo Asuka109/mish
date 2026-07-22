@@ -109,6 +109,15 @@ const sourceFiles = [
   ...filesUnder(webSourceRoot, new Set([".ts", ".tsx"])),
   ...packageEmitters.flatMap((sourceRoot) => filesUnder(sourceRoot, new Set([".ts", ".tsx"]))),
 ];
+const tvEntryPath = resolve(root, "packages/ui/src/tv.ts");
+for (const path of sourceFiles) {
+  if (path === tvEntryPath) continue;
+  if (/from\s+["']tailwind-variants["']/.test(readFileSync(path, "utf8"))) {
+    throw new Error(
+      `${relative(root, path)} bypasses the configured @mish/ui/tv merge entry point.`,
+    );
+  }
+}
 for (const path of sourceFiles) visitSource(path);
 
 const productionSourceFiles = sourceFiles.filter(

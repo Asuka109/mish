@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Input, Spinner } from "@mish/ui";
 import { ShieldCheck } from "@phosphor-icons/react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import {
   BrowserPairingError,

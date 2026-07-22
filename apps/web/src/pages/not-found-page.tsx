@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { cx } from "tailwind-variants";
+import { cx } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 
 export function NotFoundPage() {

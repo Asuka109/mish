@@ -26,7 +26,7 @@ import {
   ToggleGroupItem,
 } from "@mish/ui";
 import { useDeferredValue, useMemo, useState } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";

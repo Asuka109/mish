@@ -15,7 +15,7 @@ import {
 } from "@mish/ui";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
 import { useProduct, type LocalProxyTestState } from "../data/product-provider";
 import { useCaptureCommand } from "../data/capture-command";

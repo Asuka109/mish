@@ -121,6 +121,22 @@ beforeAll(async () => {
 });
 
 describe("status section-heading containment", () => {
+  test("preserves the metadata scale for subtitles and policy details", async () => {
+    await page.viewport(1024, 720);
+    await selectLocale("English");
+
+    const subtitle = statusHeadings()[0]?.querySelector<HTMLElement>("p");
+    const policyPrimary = document.querySelector<HTMLElement>("strong.user-authored-label");
+    const policySecondary = document.querySelector<HTMLElement>("span.user-authored-label");
+    if (!subtitle || !policyPrimary || !policySecondary) {
+      throw new Error("Missing status typography evidence");
+    }
+
+    expect(getComputedStyle(subtitle).fontSize).toBe("13px");
+    expect(getComputedStyle(policyPrimary).fontSize).toBe("14px");
+    expect(getComputedStyle(policySecondary).fontSize).toBe("13px");
+  });
+
   test("keeps localized title, subtitle, action, and chevron collision-free at desktop widths", async () => {
     for (const viewport of desktopViewports) {
       await page.viewport(viewport.width, viewport.height);

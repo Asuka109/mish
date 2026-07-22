@@ -1,6 +1,6 @@
 import Highcharts from "highcharts";
 import { useEffect, useRef, useState } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 
 interface TrafficSparklineProps {
   color: string;

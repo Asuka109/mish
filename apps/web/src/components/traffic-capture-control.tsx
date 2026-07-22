@@ -4,7 +4,7 @@ import { Question } from "@phosphor-icons/react/Question";
 import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import {
   Button,
   Dialog,

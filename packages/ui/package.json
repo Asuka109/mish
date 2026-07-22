@@ -7,6 +7,10 @@
     ".": {
       "types": "./src/index.tsx",
       "import": "./src/index.tsx"
+    },
+    "./tv": {
+      "types": "./src/tv.ts",
+      "import": "./src/tv.ts"
     }
   },
   "scripts": {

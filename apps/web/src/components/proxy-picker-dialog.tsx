@@ -11,7 +11,7 @@ import {
   DialogTitle,
 } from "@mish/ui";
 import type { ProxyNodeDto, SelectorPolicyGroupDto } from "@mish/contracts";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 
 const proxyPickerStyles = tv({

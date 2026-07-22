@@ -15,7 +15,7 @@ import {
 } from "@mish/ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
@@ -104,7 +104,8 @@ const statusStyles = tv({
       "data-[direction=upload]:[&>svg]:text-traffic-upload",
     ),
     trafficCopy: cx(
-      "grid min-w-0 gap-px [&>span]:text-muted-foreground [&>span]:whitespace-nowrap",
+      "traffic-session-copy grid min-w-0 gap-px [&>span]:text-muted-foreground",
+      "[&>span]:whitespace-nowrap",
       "[&>small]:text-caption [&>small]:text-muted-soft [&>small]:whitespace-nowrap",
     ),
     trafficRate: cx(

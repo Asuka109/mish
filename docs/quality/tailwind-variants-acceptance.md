@@ -46,10 +46,14 @@ because the baseline used a different chunk graph.
 - Long TV recipes and static class lists are grouped with `cx()` using complete
   class literals. `cx()` performs concatenation only; the enclosing TV recipe
   remains the single `tailwind-merge` boundary and caller overrides remain last.
-- `pnpm check:tokens` requires the canonical theme mappings and rejects a color
-  and typography token that would generate the same utility name. Production
-  CSS verifies that `text-body` owns the body type scale and `text-fg` owns the
-  normal body foreground color.
+- All production recipes consume the configured `@mish/ui/tv` entry point. Its
+  extended font-size group classifies the exact semantic `text-*` typography
+  levels before the broader text-color matcher. The semantic levels conflict
+  with one another and with native Tailwind font-size utilities, but not with
+  `text-fg` or other foreground colors.
+- `pnpm check:tokens` requires the canonical typography and color theme
+  mappings, while focused merge tests cover semantic colors, semantic font
+  sizes, native `text-sm`, and final caller overrides at the shared boundary.
 - The final selector audit found no ordinary production component or page owner
   in global CSS. The remaining component-shaped rules belong only to the
   pre-mount startup failure and the documented, unmounted `DestinationPage`

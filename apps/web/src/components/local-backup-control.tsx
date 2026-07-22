@@ -17,7 +17,7 @@ import type {
   LocalRestorePreviewDto,
 } from "@mish/contracts";
 import { useState } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 

@@ -32,7 +32,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 
 type PendingButtonAction =
   | "language"

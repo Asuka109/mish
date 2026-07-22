@@ -148,6 +148,17 @@ beforeAll(async () => {
 afterAll(() => root.unmount());
 
 describe("local proxy listener feedback", () => {
+  test("preserves the control and section-description typography scale", () => {
+    const button = [...document.querySelectorAll<HTMLButtonElement>('button[type="button"]')].find(
+      (candidate) => candidate.textContent?.trim() === "测试连接",
+    );
+    const description = document.querySelector<HTMLElement>("section h2 + p");
+    if (!button || !description) throw new Error("Missing Settings typography evidence");
+
+    expect(getComputedStyle(button).fontSize).toBe("13px");
+    expect(getComputedStyle(description).fontSize).toBe("13px");
+  });
+
   test("keeps the unavailable Chinese automatic proxy launch row stable at a narrow width", async () => {
     const title = page.getByText("启动应用自动代理", { exact: true });
     await expect.element(title).toBeVisible();

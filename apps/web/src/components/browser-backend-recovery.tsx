@@ -2,7 +2,7 @@ import type { StatusConnectionState } from "@mish/contracts";
 import { Button, Input, Spinner } from "@mish/ui";
 import { ShieldCheck } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import {
   buildBrowserBackendUrl,

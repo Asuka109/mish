@@ -42,7 +42,7 @@ import {
   Spinner,
 } from "@mish/ui";
 import { useState } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";

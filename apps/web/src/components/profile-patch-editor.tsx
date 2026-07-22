@@ -49,7 +49,7 @@ import type {
   StructuredRuleDto,
 } from "@mish/contracts";
 import { useEffect, useState } from "react";
-import { cx, tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
