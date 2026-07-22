@@ -412,12 +412,10 @@ export function StatusPage() {
                   <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
                     {captureActive
                       ? formatRate(sessionTraffic.downloadBytesPerSecond, locale)
-                      : "- B/s"}
+                      : null}
                   </strong>
                   <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
-                    {captureActive
-                      ? formatRate(sessionTraffic.uploadBytesPerSecond, locale)
-                      : "- B/s"}
+                    {captureActive ? formatRate(sessionTraffic.uploadBytesPerSecond, locale) : null}
                   </strong>
                 </div>
                 <div
