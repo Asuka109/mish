@@ -1007,6 +1007,12 @@ async fn wait_for_candidate(
                 if process.owns_local_proxy(proxy_endpoint).await {
                     return Ok(());
                 }
+                if let Some(endpoint) =
+                    unowned_managed_listener_conflict(process, proxy_endpoint, controller_address)
+                        .await
+                {
+                    return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
+                }
             }
             ControllerInitialObservation::VersionMismatch => {
                 return Err(MihomoActivationError::VersionMismatch);
@@ -1023,6 +1029,11 @@ async fn wait_for_candidate(
             return Err(MihomoActivationError::EarlyExit);
         }
         if Instant::now() >= deadline {
+            if let Some(endpoint) =
+                unowned_managed_listener_conflict(process, proxy_endpoint, controller_address).await
+            {
+                return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
+            }
             return Err(if invalid_snapshot_observed {
                 MihomoActivationError::ControllerFailure
             } else {
@@ -1034,6 +1045,20 @@ async fn wait_for_candidate(
             _ = tokio::time::sleep(Duration::from_millis(20)) => {}
         }
     }
+}
+
+/// A listener collision is actionable only when the live candidate cannot prove
+/// that it owns the endpoint. This avoids converting an unrelated Controller
+/// readiness failure from a correctly bound managed Core into a port-conflict
+/// diagnosis.
+async fn unowned_managed_listener_conflict(
+    process: &DesktopMihomoProcess,
+    proxy_endpoint: &LoopbackProxyEndpoint,
+    controller_address: SocketAddr,
+) -> Option<SocketAddr> {
+    let endpoint = managed_listener_conflict(proxy_endpoint, controller_address)?;
+    let listener = LoopbackProxyEndpoint::new(&endpoint.ip().to_string(), endpoint.port()).ok()?;
+    (!process.owns_local_proxy(&listener).await).then_some(endpoint)
 }
 
 /// Detect only whether Mish's fixed loopback endpoint can be bound. This does not
