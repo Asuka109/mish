@@ -56,6 +56,7 @@ const routeStyles = tv({
       "route-child-select hover:bg-(--color-accent) hover:text-(--color-ink) aria-pressed:bg-(--color-accent) aria-pressed:text-(--color-ink)",
     childCopy:
       "route-child-copy grid min-w-0 gap-0.5 [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap [&_strong]:font-(--font-weight-control) [&_span]:text-(--text-metadata) [&_span]:text-(--color-text-muted)",
+    referenceCopy: "[&>span]:text-(--color-text-subtle)",
     childStatus: "route-child-status inline-flex items-center justify-end gap-[14px]",
     latency: "route-latency text-(--text-metadata) text-(--color-text-muted)",
     selectedStatus:
@@ -64,7 +65,8 @@ const routeStyles = tv({
       "route-group min-w-0 overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) data-[disabled=true]:opacity-[0.55]",
     groupHeader: "route-group-header flex min-h-[58px] min-w-0 items-stretch",
     groupToggle:
-      "route-group-toggle grid min-h-[58px] min-w-0 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center justify-stretch gap-2.5 rounded-none border-0 bg-transparent px-3 py-2 text-left text-(--color-body) hover:bg-(--color-accent) hover:text-(--color-ink)",
+      "route-group-toggle grid min-h-[58px] min-w-0 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center justify-stretch gap-2.5 rounded-none border-0 bg-transparent px-3 py-2 text-left text-(--color-body)",
+    groupToggleInteractive: "hover:bg-(--color-accent) hover:text-(--color-ink)",
     chevron:
       "route-group-chevron grid place-items-center text-(--color-text-muted) [&_svg]:size-[14px]",
     groupCopy: "route-group-copy grid min-w-0 gap-[3px]",
@@ -79,6 +81,9 @@ const routeStyles = tv({
     delayTools: "border-t border-(--color-hairline-soft) pt-[5px]",
     delayCopy:
       "route-delay-copy grid min-w-0 gap-px overflow-hidden text-ellipsis whitespace-nowrap [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-ink) [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:text-(--color-text-muted)",
+    sortGroup: "route-sort-group inline-flex w-fit items-center",
+    sortButton:
+      "route-sort-button inline-flex h-7 items-center justify-center border border-(--color-hairline) bg-(--color-canvas) px-[9px] text-[12px] text-(--color-text-muted) first:rounded-l-(--radius-sm) last:rounded-r-(--radius-sm) [&:not(:first-child)]:border-l-0 hover:bg-(--color-accent) hover:text-(--color-ink) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink)",
     rootList: "route-root-list m-0 flex list-none flex-col gap-3 p-0",
     childrenList:
       "route-children-list m-0 flex list-none flex-col gap-px bg-(--color-hairline-soft) p-0 [&>li]:min-w-0 [&>li]:bg-(--color-canvas)",
@@ -241,7 +246,7 @@ function RouteNodeRow({
   const selected = group.selectedChildId === node.id;
   const content = (
     <>
-      <span className={routeStyles().childCopy()}>
+      <span className={`${routeStyles().childCopy()} ${routeStyles().referenceCopy()}`}>
         <strong className="user-authored-label" title={node.label}>
           {node.label}
         </strong>
@@ -463,7 +468,7 @@ function RouteGroup({
                   ? LL.routes.collapseGroup({ group: group.label })
                   : LL.routes.expandGroup({ group: group.label })
               }
-              className={routeStyles().groupToggle()}
+              className={`${routeStyles().groupToggle()} ${routeStyles().groupToggleInteractive()}`}
               disabled={disabled}
               onClick={() => onToggle(group.id)}
               variant="ghost"
@@ -471,7 +476,9 @@ function RouteGroup({
               {headerContent}
             </Button>
           ) : (
-            <div className={`${routeStyles().groupToggle()} route-group-static`}>
+            <div
+              className={`${routeStyles().groupToggle()} route-group-static [&_.route-group-chevron]:invisible`}
+            >
               {headerContent}
             </div>
           )}
@@ -484,7 +491,7 @@ function RouteGroup({
                 <span>{LL.routes.sortChildren({ group: group.label })}</span>
                 <ToggleGroup
                   aria-label={LL.routes.sortChildren({ group: group.label })}
-                  className="route-sort-group"
+                  className={routeStyles().sortGroup()}
                   onValueChange={(values) => {
                     const nextSort = values[0] as RouteSort | undefined;
                     if (nextSort) onSort(group.id, nextSort);
@@ -494,7 +501,11 @@ function RouteGroup({
                   variant="outline"
                 >
                   {routeSorts.map((option) => (
-                    <ToggleGroupItem className="route-sort-button" key={option} value={option}>
+                    <ToggleGroupItem
+                      className={routeStyles().sortButton()}
+                      key={option}
+                      value={option}
+                    >
                       {getSortLabel(LL, option)}
                     </ToggleGroupItem>
                   ))}
