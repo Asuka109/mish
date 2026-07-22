@@ -20,6 +20,7 @@ import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
 import { useCaptureCommand } from "../data/capture-command";
+import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
@@ -74,6 +75,9 @@ export function StatusPage() {
   const [pendingGroupSelections, setPendingGroupSelections] = useState<Map<string, string>>(
     () => new Map(),
   );
+  const configuredRoutes = useConfiguredRouteCatalog(snapshot);
+  const groups = configuredRoutes?.groups ?? snapshot?.groups ?? [];
+  const nodes = configuredRoutes?.nodes ?? snapshot?.nodes ?? [];
   const modeLabels: Record<RoutingMode, string> = {
     direct: LL.status.modeDirect(),
     global: LL.status.modeGlobal(),
@@ -86,12 +90,12 @@ export function StatusPage() {
     const usageByGroup = new Map(
       snapshot.groupUsage.map((usage) => [usage.groupId, usage.observedConnectionCount]),
     );
-    return snapshot.groups
+    return groups
       .toSorted(
         (first, second) => (usageByGroup.get(second.id) ?? 0) - (usageByGroup.get(first.id) ?? 0),
       )
       .slice(0, 5);
-  }, [snapshot]);
+  }, [groups, snapshot]);
 
   if (isLoading) {
     return (
@@ -112,14 +116,14 @@ export function StatusPage() {
     );
   }
 
-  const pickerGroupCandidate = snapshot.groups.find((group) => group.id === pickerGroupId);
+  const pickerGroupCandidate = groups.find((group) => group.id === pickerGroupId);
   const pickerGroup = pickerGroupCandidate?.type === "selector" ? pickerGroupCandidate : null;
   const pickerNodes = pickerGroup
-    ? snapshot.nodes.filter((node) => pickerGroup.childIds.includes(node.id))
+    ? nodes.filter((node) => pickerGroup.childIds.includes(node.id))
     : [];
   const captureRuntime = snapshot.runtime;
   const captureSupported = isCommandSupported("capture");
-  const groupSupported = isCommandSupported("group");
+  const groupSupported = isCommandSupported("group") && configuredRoutes === null;
   const routingSupported = isCommandSupported("routing");
   const groupDescriptionId = getCommandDescriptionId(snapshot.adapterKind, groupSupported);
   const routingDescriptionId = getCommandDescriptionId(snapshot.adapterKind, routingSupported);
@@ -370,7 +374,9 @@ export function StatusPage() {
             <div className="section-heading">
               <div className="section-heading-copy">
                 <h2>{LL.status.groups()}</h2>
-                <p title={LL.status.usedFirst()}>{LL.status.usedFirst()}</p>
+                <p title={configuredRoutes ? LL.status.configuredOrder() : LL.status.usedFirst()}>
+                  {configuredRoutes ? LL.status.configuredOrder() : LL.status.usedFirst()}
+                </p>
               </div>
               <Link aria-label={LL.status.viewAllGroupsAria()} className="text-link" to="/routes">
                 <span className="section-heading-action-label">{LL.status.viewAll()}</span>
@@ -382,8 +388,8 @@ export function StatusPage() {
                 {frequentGroups.map((group, index) => {
                   const pendingSelectionId = pendingGroupSelections.get(group.id);
                   const displayedChildId = pendingSelectionId ?? group.selectedChildId;
-                  const selectedNode = snapshot.nodes.find((node) => node.id === displayedChildId);
-                  const selectedGroup = snapshot.groups.find(
+                  const selectedNode = nodes.find((node) => node.id === displayedChildId);
+                  const selectedGroup = groups.find(
                     (candidate) => candidate.id === displayedChildId,
                   );
                   const rowContent = (

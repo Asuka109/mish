@@ -62,6 +62,13 @@ pub struct ProfileRouteCatalog {
 pub fn profile_route_catalog(
     record: &ProfileRecord,
 ) -> Result<ProfileRouteCatalog, ProfilePatchError> {
+    profile_route_catalog_with_selections(record, &HashMap::new())
+}
+
+pub fn profile_route_catalog_with_selections(
+    record: &ProfileRecord,
+    selections: &HashMap<String, String>,
+) -> Result<ProfileRouteCatalog, ProfilePatchError> {
     let applied = apply_profile_patches(
         &record.normalized_bytes,
         &record.metadata.revision.id,
@@ -72,7 +79,27 @@ pub fn profile_route_catalog(
         record.metadata.id.as_str(),
         applied.effective_fingerprint.as_str(),
         &applied.bytes,
+        selections,
     )
+}
+
+pub fn profile_store_selected(record: &ProfileRecord) -> Result<bool, ProfilePatchError> {
+    let applied = apply_profile_patches(
+        &record.normalized_bytes,
+        &record.metadata.revision.id,
+        &record.metadata.artifact.fingerprint,
+        &record.patches,
+    )?;
+    let document: Value = serde_norway::from_slice(&applied.bytes)
+        .map_err(|_| ProfilePatchError::GenerationFailed)?;
+    let root = document
+        .as_mapping()
+        .ok_or(ProfilePatchError::GenerationFailed)?;
+    Ok(mapping_value(root, "profile")
+        .and_then(Value::as_mapping)
+        .and_then(|profile| mapping_value(profile, "store-selected"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true))
 }
 
 pub fn configured_policy_group_order(bytes: &[u8]) -> Result<Vec<String>, ProfilePatchError> {
@@ -93,6 +120,7 @@ fn profile_route_catalog_from_bytes(
     profile_id: &str,
     fingerprint: &str,
     bytes: &[u8],
+    selections: &HashMap<String, String>,
 ) -> Result<ProfileRouteCatalog, ProfilePatchError> {
     let document: Value =
         serde_norway::from_slice(bytes).map_err(|_| ProfilePatchError::GenerationFailed)?;
@@ -165,7 +193,18 @@ fn profile_route_catalog_from_bytes(
                     .clone(),
             );
         }
+        let selected_child_id = selections
+            .get(label)
+            .and_then(|selected| {
+                child_labels
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .position(|child| child == selected)
+            })
+            .and_then(|index| child_ids.get(index).cloned())
+            .or_else(|| child_ids.first().cloned());
         groups.push(ProfileRouteGroup {
+            selected_child_id,
             child_ids,
             id: ids_by_label
                 .get(label)
@@ -173,7 +212,6 @@ fn profile_route_catalog_from_bytes(
                 .clone(),
             kind,
             label: label.to_owned(),
-            selected_child_id: None,
             unsupported_type,
         });
     }
@@ -292,6 +330,7 @@ proxy-groups:
     type: url-test
     proxies: [node-a, node-z]
 "#,
+            &HashMap::new(),
         )
         .unwrap();
 
@@ -304,7 +343,10 @@ proxy-groups:
                 .collect::<Vec<_>>(),
             ["Z first", "A second"]
         );
-        assert_eq!(catalog.groups[0].selected_child_id, None);
+        assert_eq!(
+            catalog.groups[0].selected_child_id,
+            Some(scoped_identifier("proxy", "fingerprint-a", "node-z"))
+        );
         let labels_by_id: HashMap<_, _> = catalog
             .nodes
             .iter()
@@ -331,6 +373,7 @@ proxy-groups:
     type: select
     proxies: [provider-node]
 "#,
+            &HashMap::new(),
         )
         .unwrap();
 
@@ -339,6 +382,58 @@ proxy-groups:
                 .nodes
                 .iter()
                 .any(|node| { node.label == "provider-node" && node.protocol == "Configured" })
+        );
+    }
+
+    #[test]
+    fn configured_catalog_prefers_valid_saved_selection() {
+        let selections = HashMap::from([("Select".to_owned(), "node-b".to_owned())]);
+        let catalog = profile_route_catalog_from_bytes(
+            "profile-a",
+            "fingerprint-a",
+            br#"
+proxies:
+  - name: node-a
+    type: ss
+  - name: node-b
+    type: trojan
+proxy-groups:
+  - name: Select
+    type: select
+    proxies: [node-a, node-b]
+"#,
+            &selections,
+        )
+        .unwrap();
+
+        assert_eq!(
+            catalog.groups[0].selected_child_id,
+            Some(scoped_identifier("proxy", "fingerprint-a", "node-b"))
+        );
+    }
+
+    #[test]
+    fn configured_catalog_ignores_stale_saved_selection() {
+        let selections = HashMap::from([("Select".to_owned(), "removed-node".to_owned())]);
+        let catalog = profile_route_catalog_from_bytes(
+            "profile-a",
+            "fingerprint-a",
+            br#"
+proxies:
+  - name: node-a
+    type: ss
+proxy-groups:
+  - name: Select
+    type: select
+    proxies: [node-a]
+"#,
+            &selections,
+        )
+        .unwrap();
+
+        assert_eq!(
+            catalog.groups[0].selected_child_id,
+            Some(scoped_identifier("proxy", "fingerprint-a", "node-a"))
         );
     }
 }

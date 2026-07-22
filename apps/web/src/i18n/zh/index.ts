@@ -330,6 +330,7 @@ const zh = {
     running: "代理运行中",
   },
   status: {
+    configuredOrder: "按配置顺序",
     activeRules: "生效规则",
     connections: "连接数",
     currentSessionAria: "当前会话",
@@ -700,7 +701,7 @@ const zh = {
     provenanceReasonPortable: "保留导入配置中的值",
     provenanceReasonProviderPath: "这个 Provider 路径不在 Mish 管理的数据目录中",
     provenanceReasonRelativeProviderPath: "保留配置中的相对 Provider 路径",
-    provenanceReasonRuntimePersistence: "Mish 不允许 Mihomo 单独保存策略组选择",
+    provenanceReasonRuntimePersistence: "Mish 不允许 Mihomo 单独保存运行时 Fake-IP 映射",
     provenanceReasonUnknown: "Mish 不认识这项设置，但格式有效，因此会原样保留",
     provenanceRejected: "已拒绝",
     provenanceRevisionBinding: "配置版本 {revision} · 内容标识 {fingerprint}",
