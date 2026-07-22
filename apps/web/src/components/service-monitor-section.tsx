@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
   DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +42,7 @@ import {
   Spinner,
 } from "@mish/ui";
 import { useState } from "react";
+import { cx, tv } from "@mish/ui/tv";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
@@ -55,6 +57,90 @@ import { useI18nContext } from "../i18n/i18n-react";
 const serviceProbeIntervals = [0, 5, 10, 30, 60] as const;
 const maximumDisplayedLatency = 9999;
 const defaultServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
+
+const serviceStyles = tv({
+  slots: {
+    section: "service-monitor-section mt-7",
+    heading: "service-monitor-heading flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5",
+    headingCopy: "flex min-w-0 items-baseline gap-2",
+    trigger: cx(
+      "inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border border-transparent",
+      "bg-transparent px-2.25 text-metadata text-muted-foreground hover:border-hairline",
+      "hover:bg-accent hover:text-ink data-popup-open:border-hairline data-popup-open:bg-accent",
+      "data-popup-open:text-ink [&_svg]:size-3",
+    ),
+    unavailable: cx(
+      "service-manage-unavailable block max-w-59 px-2.25 pt-1.5 pb-2 text-caption leading-4.25",
+      "font-normal whitespace-normal text-muted-foreground",
+    ),
+    intervalLabel:
+      "service-interval-label block px-2.25 pt-1.5 pb-0.75 text-caption leading-4.25 font-medium text-muted-foreground",
+    list: cx(
+      "service-monitor-list gap-0 bg-canvas [&>:not(:nth-child(3n))]:border-r",
+      "[&>:not(:nth-child(3n))]:border-hairline-soft [&>:nth-child(n+4)]:border-t",
+      "[&>:nth-child(n+4)]:border-hairline-soft",
+      "[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
+      "[&>.service-monitor-row:nth-child(3)]:rounded-se-section-grid-inner",
+      "[&>.service-monitor-row:nth-child(3n+1):nth-last-child(-n+3)]:rounded-es-section-grid-inner",
+      "[&>.service-monitor-row:last-child:nth-child(3n)]:rounded-ee-section-grid-inner",
+      "max-page-compact:[--section-grid-columns:1] max-page-compact:[&>*]:border-r-0",
+      "max-page-compact:[&>*]:rounded-none",
+      "max-page-compact:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
+      "max-page-compact:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner",
+      "max-page-compact:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner",
+      "max-page-compact:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner",
+      "max-page-compact:[&>:not(:first-child)]:border-t",
+      "max-page-compact:[&>:not(:first-child)]:border-hairline-soft",
+      "runtime-mobile:[--section-grid-columns:1] runtime-mobile:[&>*]:border-r-0",
+      "runtime-mobile:[&>*]:rounded-none",
+      "runtime-mobile:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
+      "runtime-mobile:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner",
+      "runtime-mobile:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner",
+      "runtime-mobile:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner",
+      "runtime-mobile:[&>:not(:first-child)]:border-t",
+      "runtime-mobile:[&>:not(:first-child)]:border-hairline-soft",
+    ),
+    row: cx(
+      "service-monitor-row grid min-h-13 min-w-0",
+      "grid-cols-[minmax(0,1fr)_minmax(74px,144px)_76px_minmax(0,1fr)] items-center gap-2.5",
+      "overflow-clip rounded-none border-0 bg-transparent py-0 pr-3.25 pl-2.75 text-left text-fg",
+      "hover:bg-accent hover:text-ink",
+    ),
+    identity: cx(
+      "service-monitor-identity col-start-2 grid min-w-0 grid-cols-[22px_minmax(0,1fr)]",
+      "items-center gap-2.5 [&_strong]:overflow-hidden [&_strong]:text-left [&_strong]:text-body",
+      "[&_strong]:font-medium [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
+    ),
+    icon: cx(
+      "service-monitor-icon grid size-5.5 place-items-center text-muted-foreground",
+      "theme-dark:[&_[data-monochrome=true]]:invert [&_img]:block [&_img]:size-4.5",
+      "[&_img]:object-contain [&_img]:opacity-75",
+    ),
+    latency: cx(
+      "service-monitor-latency col-start-3 block justify-self-stretch text-right text-metadata",
+      "whitespace-nowrap text-success-text data-[status=error]:text-error",
+      "data-[status=warning]:text-warning [&_.ui-spinner]:size-3.25",
+    ),
+    managerDialog: cx(
+      "service-manager-dialog w-[min(420px,calc(100vw_-_32px))] [&_.dialog-header]:justify-between",
+      "[&_.dialog-header]:gap-md [&_.dialog-header>div]:min-w-0",
+    ),
+    managerList:
+      "service-manager-list max-h-[min(360px,calc(100vh_-_180px))] overflow-auto pt-1 pb-1.5",
+    managerRow: cx(
+      "service-manager-row grid min-h-11.5 w-full grid-cols-[22px_minmax(0,1fr)_16px] items-center",
+      "justify-stretch gap-2.5 rounded-none border-0 px-4 py-0 text-left [&+&]:border-t",
+      "[&+&]:border-hairline-soft [&_strong]:overflow-hidden [&_strong]:text-body",
+      "[&_strong]:font-medium [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
+      "[&>svg]:justify-self-end [&>svg]:text-muted-foreground",
+    ),
+    managerFooter: "service-manager-footer justify-start",
+    editorDialog: "w-[min(460px,calc(100vw_-_32px))]",
+    editorForm: "grid gap-4 px-4 pt-4",
+    editorFooter: "mt-0.5 -mx-4 mb-0 justify-between",
+    footerActions: "flex gap-2",
+  },
+});
 
 function formatLatency(latencyMilliseconds: number) {
   if (latencyMilliseconds > maximumDisplayedLatency) return ">9999ms";
@@ -143,8 +229,8 @@ function ServiceManagerDialog({
 
   return (
     <Dialog onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
-      <DialogContent className="service-manager-dialog" closeLabel={LL.common.close()}>
-        <div className="dialog-header">
+      <DialogContent className={serviceStyles().managerDialog()} closeLabel={LL.common.close()}>
+        <DialogHeader>
           <div>
             <DialogTitle className="dialog-title">{LL.services.editServices()}</DialogTitle>
             <DialogDescription className="dialog-description">
@@ -155,18 +241,18 @@ function ServiceManagerDialog({
             <Plus aria-hidden="true" data-icon="inline-start" />
             {LL.services.add()}
           </Button>
-        </div>
-        <div className="service-manager-list">
+        </DialogHeader>
+        <div className={serviceStyles().managerList()}>
           {services.map((service) => {
             return (
               <Button
-                className="service-manager-row"
+                className={serviceStyles().managerRow()}
                 key={service.id}
                 onClick={() => onEdit(service)}
                 type="button"
                 variant="ghost"
               >
-                <span className="service-monitor-icon">
+                <span className={serviceStyles().icon()}>
                   <ServiceIconImage src={service.icon} />
                 </span>
                 <strong className="user-authored-label">{service.label}</strong>
@@ -175,7 +261,7 @@ function ServiceManagerDialog({
             );
           })}
         </div>
-        <DialogFooter className="service-manager-footer">
+        <DialogFooter className={serviceStyles().managerFooter()}>
           <Button
             aria-busy={restorePending}
             disabled={restorePending}
@@ -245,8 +331,8 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
 
   return (
     <Dialog onOpenChange={(open) => !open && onClose()} open>
-      <DialogContent className="service-editor-dialog" closeLabel={LL.common.close()}>
-        <div className="dialog-header">
+      <DialogContent className={serviceStyles().editorDialog()} closeLabel={LL.common.close()}>
+        <DialogHeader>
           <div>
             <DialogTitle className="dialog-title">
               {existingService ? LL.services.edit() : LL.services.add()}
@@ -257,9 +343,9 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
                 : LL.services.metadataDescription()}
             </DialogDescription>
           </div>
-        </div>
+        </DialogHeader>
         <form
-          className="service-editor-form"
+          className={serviceStyles().editorForm()}
           onSubmit={(event) => {
             event.preventDefault();
             saveService();
@@ -318,7 +404,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
               {showUrlError ? <FieldError>{LL.services.urlError()}</FieldError> : null}
             </Field>
           </FieldGroup>
-          <div className="dialog-footer service-editor-footer">
+          <DialogFooter className={serviceStyles().editorFooter()}>
             {existingService ? (
               <Button
                 disabled={commandPending}
@@ -331,7 +417,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
             ) : (
               <span />
             )}
-            <div className="dialog-footer-actions">
+            <div className={serviceStyles().footerActions()}>
               <DialogClose
                 render={<Button className="secondary-button" type="button" variant="outline" />}
               >
@@ -347,7 +433,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
                 {LL.common.save()}
               </Button>
             </div>
-          </div>
+          </DialogFooter>
         </form>
 
         <AlertDialog onOpenChange={setDeleteConfirmOpen} open={deleteConfirmOpen}>
@@ -429,16 +515,16 @@ export function ServiceMonitorSection() {
   }
 
   return (
-    <section aria-label={LL.services.aria()} className="service-monitor-section">
-      <div className="section-heading service-monitor-heading">
-        <div className="section-heading-copy">
+    <section aria-label={LL.services.aria()} className={serviceStyles().section()}>
+      <div className={serviceStyles().heading()}>
+        <div className={serviceStyles().headingCopy()}>
           <h2>{LL.status.services()}</h2>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-busy={restorePending}
             aria-describedby={actionDescriptionId}
-            className="service-manage-trigger"
+            className={serviceStyles().trigger()}
             disabled={commandPending}
           >
             {restorePending ? <Spinner data-icon="inline-start" /> : null}
@@ -448,7 +534,7 @@ export function ServiceMonitorSection() {
           <DropdownMenuContent align="end" className="service-manage-menu" sideOffset={7}>
             {!commandSupported ? (
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="service-manage-unavailable">
+                <DropdownMenuLabel className={serviceStyles().unavailable()}>
                   {LL.capabilities.localActionUnavailable()}
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
@@ -464,7 +550,7 @@ export function ServiceMonitorSection() {
               }}
               value={String(snapshot.serviceProbePolicy.intervalSeconds)}
             >
-              <DropdownMenuLabel className="service-interval-label">
+              <DropdownMenuLabel className={serviceStyles().intervalLabel()}>
                 {LL.services.testInterval()}
               </DropdownMenuLabel>
               {serviceProbeIntervals.map((interval) => (
@@ -492,7 +578,7 @@ export function ServiceMonitorSection() {
       </div>
 
       {snapshot.services.length > 0 ? (
-        <SectionGrid className="service-monitor-list" columns={3}>
+        <SectionGrid className={serviceStyles().list()} columns={3}>
           {snapshot.services.map((service) => {
             const probePending = isServiceProbePending(service.id);
             const probeFailed = hasServiceProbeFailed(service.id);
@@ -505,15 +591,15 @@ export function ServiceMonitorSection() {
                 aria-busy={probePending}
                 aria-label={LL.services.testAria({ service: service.label })}
                 aria-describedby={actionDescriptionId}
-                className="section-grid-item service-monitor-row"
+                className={serviceStyles().row()}
                 disabled={probePending || commandPending || !commandSupported}
                 key={service.id}
                 onClick={() => void testServiceMonitor(service.id)}
                 type="button"
                 variant="ghost"
               >
-                <span className="service-monitor-identity">
-                  <span className="service-monitor-icon">
+                <span className={serviceStyles().identity()}>
+                  <span className={serviceStyles().icon()}>
                     <ServiceIconImage src={service.icon} />
                   </span>
                   <strong className="user-authored-label" title={service.label}>
@@ -522,7 +608,7 @@ export function ServiceMonitorSection() {
                 </span>
                 <span
                   aria-live="polite"
-                  className="service-monitor-latency tabular"
+                  className={serviceStyles().latency({ className: "tabular-nums" })}
                   data-status={latencyStatus === "success" ? undefined : latencyStatus}
                 >
                   {latencyStatus === "pending" || latencyStatus === "error"

@@ -1,0 +1,22 @@
+.proxyControlMaterial {
+  background-color: var(--color-status-water-base);
+  background-image:
+    radial-gradient(
+      ellipse 64% 118% at 48% 48%,
+      rgb(137 224 250 / 62%) 0%,
+      rgb(84 184 235 / 28%) 42%,
+      transparent 74%
+    ),
+    radial-gradient(
+      ellipse 54% 96% at 18% 26%,
+      rgb(17 78 182 / 68%) 0%,
+      rgb(29 108 203 / 26%) 52%,
+      transparent 80%
+    ),
+    radial-gradient(
+      ellipse 116% 148% at 50% 48%,
+      rgb(98 204 244 / 42%) 0%,
+      rgb(39 139 218 / 18%) 46%,
+      rgb(8 43 126 / 78%) 100%
+    );
+}

@@ -17,6 +17,7 @@ import type {
   LocalRestorePreviewDto,
 } from "@mish/contracts";
 import { useState } from "react";
+import { cx, tv } from "@mish/ui/tv";
 import { useSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 
@@ -27,6 +28,67 @@ const DEFAULT_SCOPE: LocalBackupScopeDto = {
   settings: true,
   sourceLocators: false,
 };
+
+const backupStyles = tv({
+  slots: {
+    control: "grid justify-items-end gap-1.25 @max-settings-compact:justify-items-start",
+    result: cx(
+      "max-w-container-session-compact text-right text-caption leading-4.25 text-muted-foreground",
+      "data-[status=failed]:text-error data-[status=exported]:text-success-text",
+      "data-[status=restored]:text-success-text @max-settings-compact:text-left",
+    ),
+    dialog: cx(
+      "w-[min(680px,calc(100vw_-_32px))] max-h-[min(780px,calc(100vh_-_32px))]",
+      "[&_.dialog-header]:grid [&_.dialog-header]:content-center",
+    ),
+    fieldset: cx(
+      "grid gap-px overflow-hidden rounded-md border border-hairline bg-hairline-soft p-0 m-4",
+      "[&_legend]:w-full [&_legend]:bg-canvas [&_legend]:pb-2.25 [&_legend]:text-metadata",
+      "[&_legend]:font-semibold",
+    ),
+    option: cx(
+      "grid min-h-13 grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 bg-canvas px-2.75 py-2.25",
+      "has-disabled:opacity-55 [&_input]:mt-0.5 [&_input]:size-3.75 [&_input]:accent-brand",
+      "[&>span]:grid [&>span]:gap-0.5 [&_strong]:text-metadata [&_strong]:font-medium",
+      "[&_small]:text-caption [&_small]:leading-4.25 [&_small]:text-muted-foreground",
+      "data-[sensitive=true]:[&_strong]:text-warning",
+    ),
+    boundary: "mx-4 mb-4 text-caption leading-4.5 text-muted-foreground",
+    safety: cx(
+      "mx-4 mb-4 grid grid-cols-[16px_minmax(0,1fr)] gap-2 rounded-md border",
+      "border-feedback-warning-border px-2.75 py-2.5 text-caption leading-4.5 text-fg",
+      "[&_svg]:size-4 [&_svg]:text-warning",
+    ),
+    summary: cx(
+      "local-backup-summary grid grid-cols-[110px_150px_minmax(0,1fr)] gap-px border-y",
+      "border-hairline-soft bg-hairline-soft [&>div]:grid [&>div]:content-start [&>div]:gap-1",
+      "[&>div]:bg-canvas [&>div]:px-3 [&>div]:py-2.5 [&_dt]:text-caption",
+      "[&_dt]:text-muted-foreground [&_dd]:wrap-anywhere [&_dd]:text-metadata [&_dd]:text-fg",
+    ),
+    restoreScope: cx(
+      "local-restore-scope grid gap-1.75 border-b border-hairline-soft px-4 py-3 text-metadata",
+      "text-fg [&>strong]:font-semibold [&>p]:m-0 [&>p]:text-muted-foreground [&_dl]:grid",
+      "[&_dl]:gap-1 [&_dl>div]:flex [&_dl>div]:items-baseline [&_dl>div]:justify-between",
+      "[&_dl>div]:gap-3 [&_dd]:font-medium [&_dd]:text-muted-foreground",
+      "[&_[data-included=true]_dd]:text-warning",
+    ),
+    conflicts: cx(
+      "local-restore-conflicts grid gap-2.25 px-4 pt-4 [&>strong]:text-metadata",
+      "[&>strong]:font-semibold [&_ul]:m-0 [&_ul]:grid [&_ul]:list-none [&_ul]:gap-px",
+      "[&_ul]:rounded-md [&_ul]:bg-hairline-soft [&_ul]:p-px [&_li]:flex [&_li]:min-h-10",
+      "[&_li]:items-center [&_li]:justify-between [&_li]:gap-3 [&_li]:bg-canvas [&_li]:px-2.5",
+      "[&_li]:py-1.75 [&_li]:text-metadata [&_li]:text-fg",
+    ),
+    resolution: cx(
+      "local-restore-resolution mt-1 grid gap-px overflow-hidden rounded-md border border-hairline",
+      "bg-hairline-soft p-0 [&_legend]:w-full [&_legend]:bg-canvas [&_legend]:pb-2.25",
+      "[&_legend]:text-metadata [&_legend]:font-semibold [&_label]:grid [&_label]:min-h-9.5",
+      "[&_label]:grid-cols-[18px_minmax(0,1fr)] [&_label]:items-center [&_label]:gap-2",
+      "[&_label]:bg-canvas [&_label]:px-2.5 [&_label]:py-1.75 [&_label]:text-metadata",
+      "[&_label]:text-fg [&_input]:mt-0.5 [&_input]:size-3.75 [&_input]:accent-brand",
+    ),
+  },
+});
 
 type OperationResult = "cancelled" | "exported" | "failed" | "idle" | "restored";
 type PendingOperation = "commit-restore" | "choose-restore" | "preview-export" | "save-export";
@@ -117,7 +179,7 @@ export function LocalBackupControl() {
   const pending = pendingOperation !== null;
 
   return (
-    <div className="local-backup-control">
+    <div className={backupStyles().control()}>
       <div className="settings-inline-control">
         <Button
           disabled={!supported || pending}
@@ -145,18 +207,18 @@ export function LocalBackupControl() {
         {!supported ? <Badge variant="outline">{LL.common.unavailable()}</Badge> : null}
       </div>
       {result !== "idle" ? (
-        <span className="local-backup-result" data-status={result} role="status">
+        <span className={backupStyles().result()} data-status={result} role="status">
           {LL.settingsPage.backupFlow.result[result]()}
         </span>
       ) : null}
 
       <Dialog onOpenChange={setExportOpen} open={exportOpen}>
-        <DialogContent className="local-backup-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={backupStyles().dialog()} closeLabel={LL.common.close()}>
           <DialogHeader>
             <DialogTitle>{LL.settingsPage.backupFlow.exportTitle()}</DialogTitle>
             <DialogDescription>{LL.settingsPage.backupFlow.exportDescription()}</DialogDescription>
           </DialogHeader>
-          <fieldset className="local-backup-scope">
+          <fieldset className={backupStyles().fieldset()}>
             <legend>{LL.settingsPage.backupFlow.scope()}</legend>
             <ScopeOption
               checked={scope.settings}
@@ -199,7 +261,9 @@ export function LocalBackupControl() {
               maxBytes={exportPreview.maxBytes}
             />
           ) : (
-            <p className="local-backup-boundary">{LL.settingsPage.backupFlow.exclusionSummary()}</p>
+            <p className={backupStyles().boundary()}>
+              {LL.settingsPage.backupFlow.exclusionSummary()}
+            </p>
           )}
           <DialogFooter>
             <Button
@@ -241,7 +305,7 @@ export function LocalBackupControl() {
         }}
         open={restorePreview !== null}
       >
-        <DialogContent className="local-backup-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={backupStyles().dialog()} closeLabel={LL.common.close()}>
           {restorePreview ? (
             <>
               <DialogHeader>
@@ -257,7 +321,7 @@ export function LocalBackupControl() {
               />
               <RestoreScopeSummary preview={restorePreview} />
               {restorePreview.conflicts.length > 0 ? (
-                <div className="local-restore-conflicts">
+                <div className={backupStyles().conflicts()}>
                   <strong>{LL.settingsPage.backupFlow.conflicts()}</strong>
                   <ul>
                     {restorePreview.conflicts.map((conflict) => (
@@ -269,7 +333,7 @@ export function LocalBackupControl() {
                       </li>
                     ))}
                   </ul>
-                  <fieldset className="local-restore-resolution">
+                  <fieldset className={backupStyles().resolution()}>
                     <legend>{LL.settingsPage.backupFlow.resolution()}</legend>
                     <label>
                       <input
@@ -292,7 +356,7 @@ export function LocalBackupControl() {
                   </fieldset>
                 </div>
               ) : null}
-              <p className="local-backup-safety">
+              <p className={backupStyles().safety()}>
                 <Warning aria-hidden="true" />
                 {LL.settingsPage.backupFlow.restoreSafety()}
               </p>
@@ -339,7 +403,7 @@ function ScopeOption({
   sensitive?: boolean;
 }) {
   return (
-    <label className="local-backup-option" data-sensitive={sensitive}>
+    <label className={backupStyles().option()} data-sensitive={sensitive}>
       <input
         checked={checked}
         disabled={disabled}
@@ -365,7 +429,7 @@ function BackupSummary({
 }) {
   const { LL } = useI18nContext();
   return (
-    <dl className="local-backup-summary">
+    <dl className={backupStyles().summary()}>
       <div>
         <dt>{LL.settingsPage.backupFlow.format()}</dt>
         <dd>JSON · v1</dd>
@@ -402,7 +466,10 @@ function RestoreScopeSummary({ preview }: { preview: LocalRestorePreviewDto }) {
     preview.scope.sourceLocators && LL.settingsPage.backupFlow.locatorsSensitive(),
   ].filter((label) => label !== false);
   return (
-    <section aria-label={LL.settingsPage.backupFlow.restoreScope()} className="local-restore-scope">
+    <section
+      aria-label={LL.settingsPage.backupFlow.restoreScope()}
+      className={backupStyles().restoreScope()}
+    >
       <strong>{LL.settingsPage.backupFlow.restoreScope()}</strong>
       <p>{scopeLabels.join(" · ")}</p>
       <dl>

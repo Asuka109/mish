@@ -39,9 +39,26 @@ typography:
     fontSize: "13px"
     fontWeight: 400
     lineHeight: 1.4
+  caption:
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, Helvetica Neue, Arial, sans-serif"
+    fontSize: "12px"
+    fontWeight: 400
+    lineHeight: 1.4
+  label-small:
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, Helvetica Neue, Arial, sans-serif"
+    fontSize: "11px"
+    fontWeight: 400
+    lineHeight: 1.27
+  micro:
+    fontFamily: "-apple-system, BlinkMacSystemFont, SF Pro Text, Helvetica Neue, Arial, sans-serif"
+    fontSize: "10px"
+    fontWeight: 400
+    lineHeight: 1.2
 rounded:
   sm: "6px"
   md: "8px"
+  section-grid-inner: "7px"
+  compact: "10px"
   lg: "12px"
   full: "999px"
 spacing:
@@ -247,10 +264,13 @@ rather than showing a disabled or permanently falling-back control.
 
 ## Typography
 
-Use the macOS system font stack. Keep the visible scale to 13px metadata, 14px
-product UI, and 22px page titles. Use 600 only for page titles and section
-headings; ordinary controls use 500. Use tabular figures for latency, rates,
-counts, and elapsed time.
+Use the macOS system font stack. The primary visible scale is 13px metadata,
+14px product UI, and 22px page titles. A 12px caption is reserved for compact
+badges, table metadata, and explanatory labels. The 11px small label and 10px
+micro label are restricted to space-constrained mobile navigation or dense
+diagnostic annotations. Use 600 only for page titles and section headings;
+ordinary controls use 500. Use tabular figures for latency, rates, counts, and
+elapsed time.
 
 ## English Capitalization
 
@@ -269,7 +289,12 @@ user-provided content.
 
 ## Layout & Spacing
 
-Use a 4px base rhythm. The navigation is 164px wide: large enough for plain
+Use a 4px base rhythm. Tailwind utilities use exact fractional multiples of
+that base where the preserved geometry falls between whole steps: for example,
+`h-5.5` is 22px and `gap-1.75` is 7px. Do not round an existing value merely to
+avoid a decimal utility. Repeated component semantics, surface-dependent colors,
+and responsive thresholds use named theme tokens instead of raw CSS-variable or
+arbitrary-value utilities. The navigation is 164px wide: large enough for plain
 task labels but much smaller than a proxy-dashboard sidebar. Navigation rows
 are 36px high. Inset the foreground workspace 10px from the top, right, and
 bottom. Content gutters are 24–32px. Keep the Status page below 1080px wide so
@@ -353,9 +378,12 @@ native window is transparent.
 
 ## Shapes
 
-Use 12px for the foreground workspace, status surface, and popovers; 8px for
-navigation, fields, buttons, and grouped controls; 6px for selected segments
-and tooltips. Full rounding is limited to switches and status dots.
+Use 12px for the foreground workspace, status surface, and popovers; 10px for
+compact shell and menu surfaces that sit between panels and controls; 8px for
+navigation, fields, buttons, and grouped controls; and 6px for selected segments
+and tooltips. A grouped surface uses a 7px inner corner where its 8px outer
+radius is reduced by the 1px hairline. Full rounding is limited to switches and
+status dots.
 
 ## Components
 

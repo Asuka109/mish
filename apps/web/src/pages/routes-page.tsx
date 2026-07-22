@@ -18,6 +18,7 @@ import {
   FieldLabel,
   Input,
 } from "@mish/ui";
+import { cx, tv } from "@mish/ui/tv";
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import {
@@ -49,6 +50,63 @@ import {
 } from "./routes-model";
 
 const routeSorts: RouteSort[] = ["configuration", "latency", "label"];
+
+const routeStyles = tv({
+  slots: {
+    loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
+    page: "routes-page min-h-0",
+    workspace: cx(
+      "routes-workspace mx-auto min-h-full w-full max-w-page px-8 pt-7 pb-9 max-page-compact:p-6",
+      "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    ),
+    header: cx(
+      "routes-header border-b border-hairline-soft pb-5 [&_p]:mt-1.5 [&_p]:max-w-170",
+      "[&_p]:leading-5.25 [&_p]:text-muted-foreground",
+    ),
+    back: cx(
+      "mb-1.5 inline-flex min-h-7.5 items-center text-metadata text-muted-foreground",
+      "no-underline hover:text-ink hover:underline",
+    ),
+    stale:
+      "mt-4 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
+    readOnly: cx(
+      "mt-3 rounded-md border border-hairline bg-surface-soft px-3 py-2.5",
+      "text-metadata leading-4.75 text-muted-foreground",
+    ),
+    searchField: "routes-search-field mt-5 max-w-130",
+    searchControl: cx(
+      "routes-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
+      "[&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5",
+    ),
+    graph: "routes-graph mt-5",
+    graphError: cx(
+      "routes-graph-error mt-5 rounded-md border border-route-graph-error-border p-4 [&_p]:mt-1.25",
+      "[&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground",
+      "[&_ul]:mt-2.5 [&_ul]:grid [&_ul]:list-none [&_ul]:gap-0.75 [&_ul]:p-0",
+      "[&_li]:text-metadata [&_li]:leading-4.75 [&_li]:text-muted-foreground",
+      "[&_li]:before:mr-1.75 [&_li]:before:text-error [&_li]:before:content-['•']",
+    ),
+    rootList: "route-root-list m-0 flex list-none flex-col gap-3 p-0 max-shell-mobile:gap-2",
+    groupItem: "route-group-item min-w-0",
+    group:
+      "route-group min-w-0 overflow-hidden rounded-md border border-hairline bg-canvas data-[disabled=true]:opacity-55",
+    groupHeader: "route-group-header flex min-h-14.5 min-w-0 items-stretch",
+    groupToggle: cx(
+      "route-group-toggle grid min-h-14.5 min-w-0 w-full grid-cols-[18px_minmax(0,1fr)] items-center",
+      "justify-stretch gap-2.5 rounded-none border-0 bg-transparent p-0 text-left text-fg",
+      "hover:bg-accent hover:text-ink max-shell-mobile:hidden",
+    ),
+    chevron: "route-group-chevron grid place-items-center text-muted-foreground [&_svg]:size-3.5",
+    mobileLink:
+      "route-group-mobile-link hidden w-full text-inherit no-underline max-shell-mobile:block",
+    groupBody: "route-group-body border-t border-hairline bg-surface-soft",
+    detail: "policy-group-detail min-w-0",
+    groupEmpty:
+      "route-group-empty border-t border-hairline-soft bg-canvas px-3.5 py-4.5 text-center text-metadata text-muted-foreground",
+    empty: "mt-5",
+    singleGroup: "routes-single-group mt-4 overflow-hidden rounded-md border border-hairline",
+  },
+});
 
 function getGroupTypeLabel(LL: TranslationFunctions, group: PolicyGroupDto) {
   if (group.type === "unsupported") {
@@ -233,7 +291,7 @@ export function PolicyGroupDetail({
           });
 
   return (
-    <div className="policy-group-detail">
+    <div className={routeStyles().detail()}>
       <PolicyBrowserToolbar
         cancelAriaLabel={LL.routes.cancelDelay({ group: group.label })}
         cancelLabel={LL.routes.cancelDelayButton()}
@@ -261,7 +319,7 @@ export function PolicyGroupDetail({
         {LL.routes.searchResultCount({ count: visibleChildIds.length })}
       </span>
       <BoundedEntityList
-        empty={<p className="route-group-empty">{LL.routes.noChildren()}</p>}
+        empty={<p className={routeStyles().groupEmpty()}>{LL.routes.noChildren()}</p>}
         ids={visibleChildIds}
         key={`${group.id}:${showSearch ? query : search?.queryActive ? query : "all"}`}
         loadedAnnouncement={(added, total) => LL.routes.loadedMore({ added, total })}
@@ -364,9 +422,9 @@ function RouteGroup({
     getRouteChildLatency(graph, group.selectedChildId ?? ""),
   );
   return (
-    <li className="route-group-item">
-      <article className="route-group" data-disabled={disabled ? "true" : undefined}>
-        <div className="route-group-header">
+    <li className={routeStyles().groupItem()}>
+      <article className={routeStyles().group()} data-disabled={disabled ? "true" : undefined}>
+        <div className={routeStyles().groupHeader()}>
           <Button
             aria-controls={`route-group-${encodeURIComponent(group.id)}`}
             aria-expanded={expanded}
@@ -375,14 +433,14 @@ function RouteGroup({
                 ? LL.routes.collapseGroup({ group: group.label })
                 : LL.routes.expandGroup({ group: group.label })
             }
-            className="route-group-toggle route-group-desktop-toggle"
+            className={routeStyles().groupToggle({ className: "route-group-desktop-toggle" })}
             data-policy-row-primary
             disabled={disabled || !hasChildren}
             onClick={() => onToggle(group.id)}
             type="button"
             variant="ghost"
           >
-            <span className="route-group-chevron">
+            <span className={routeStyles().chevron()}>
               {expanded ? <CaretDown aria-hidden="true" /> : <CaretRight aria-hidden="true" />}
             </span>
             <PolicyGroupSummaryRow
@@ -392,7 +450,7 @@ function RouteGroup({
               group={group}
               latency={
                 latency === null ? null : (
-                  <span className="policy-browser-summary-latency tabular"> · {latency} ms</span>
+                  <span className="text-success-text tabular-nums"> · {latency} ms</span>
                 )
               }
               typeLabel={getGroupTypeLabel(LL, group)}
@@ -400,7 +458,7 @@ function RouteGroup({
           </Button>
           <Link
             aria-label={LL.routes.browseGroup({ group: group.label })}
-            className="route-group-mobile-link"
+            className={routeStyles().mobileLink()}
             to={`/routes/${encodeURIComponent(group.id)}`}
           >
             <PolicyGroupSummaryRow
@@ -411,7 +469,7 @@ function RouteGroup({
               group={group}
               latency={
                 latency === null ? null : (
-                  <span className="policy-browser-summary-latency tabular"> · {latency} ms</span>
+                  <span className="text-success-text tabular-nums"> · {latency} ms</span>
                 )
               }
               typeLabel={getGroupTypeLabel(LL, group)}
@@ -419,7 +477,10 @@ function RouteGroup({
           </Link>
         </div>
         {expanded ? (
-          <div className="route-group-body" id={`route-group-${encodeURIComponent(group.id)}`}>
+          <div
+            className={routeStyles().groupBody()}
+            id={`route-group-${encodeURIComponent(group.id)}`}
+          >
             <PolicyGroupDetail
               {...detailProps}
               graph={graph}
@@ -437,7 +498,7 @@ function RouteGroup({
 function GraphError({ children }: { children: ReactNode }) {
   const { LL } = useI18nContext();
   return (
-    <section className="routes-graph-error" role="alert">
+    <section className={routeStyles().graphError()} role="alert">
       <h2>{LL.routes.graphErrorTitle()}</h2>
       <p>{LL.routes.graphErrorDescription()}</p>
       {children}
@@ -537,7 +598,7 @@ export function RoutesPage() {
 
   if (isLoading) {
     return (
-      <div className="status-loading">
+      <div className={routeStyles().loading()}>
         {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
       </div>
     );
@@ -545,7 +606,7 @@ export function RoutesPage() {
 
   if (!snapshot) {
     return (
-      <div className="status-loading" role="alert">
+      <div className={routeStyles().loading()} role="alert">
         {error ?? LL.status.desktopUnavailable()}
       </div>
     );
@@ -651,11 +712,11 @@ export function RoutesPage() {
   };
 
   return (
-    <div className="routes-page">
-      <div className="routes-workspace">
-        <header className="routes-header">
+    <div className={routeStyles().page()}>
+      <div className={routeStyles().workspace()}>
+        <header className={routeStyles().header()}>
           {standaloneGroup ? (
-            <Link className="routes-back-link" to="/routes">
+            <Link className={routeStyles().back()} to="/routes">
               {LL.routes.backToRoutes()}
             </Link>
           ) : null}
@@ -670,20 +731,20 @@ export function RoutesPage() {
         </header>
 
         {connection.stale && snapshot.adapterKind !== "fixture" ? (
-          <p className="fixture-error" role="status">
+          <p className={routeStyles().stale()} role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
         {configuredRoutesActive ? (
-          <p className="policy-browser-read-only" role="status">
+          <p className={routeStyles().readOnly()} role="status">
             {LL.routes.configuredReadOnly()}
           </p>
         ) : null}
 
         {!standaloneGroup ? (
-          <Field className="routes-search-field">
+          <Field className={routeStyles().searchField()}>
             <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
-            <span className="routes-search-control">
+            <span className={routeStyles().searchControl()}>
               <MagnifyingGlass aria-hidden="true" />
               <Input
                 autoComplete="off"
@@ -714,14 +775,14 @@ export function RoutesPage() {
             </ul>
           </GraphError>
         ) : groups.length === 0 ? (
-          <Empty className="routes-empty">
+          <Empty className={routeStyles().empty()}>
             <EmptyHeader>
               <EmptyTitle>{LL.routes.noGroupsTitle()}</EmptyTitle>
               <EmptyDescription>{LL.routes.noGroupsDescription()}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : standaloneGroup ? (
-          <section aria-label={standaloneGroup.label} className="routes-single-group">
+          <section aria-label={standaloneGroup.label} className={routeStyles().singleGroup()}>
             <PolicyGroupDetail
               {...sharedDetailProps}
               commandSupported={liveCommandSupported && standaloneGroup.type === "selector"}
@@ -734,22 +795,22 @@ export function RoutesPage() {
             />
           </section>
         ) : decodedRouteGroupId ? (
-          <Empty className="routes-empty">
+          <Empty className={routeStyles().empty()}>
             <EmptyHeader>
               <EmptyTitle>{LL.routes.groupNotFoundTitle()}</EmptyTitle>
               <EmptyDescription>{LL.routes.groupNotFoundDescription()}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : visibleGroupIds.length === 0 ? (
-          <Empty className="routes-empty">
+          <Empty className={routeStyles().empty()}>
             <EmptyHeader>
               <EmptyTitle>{LL.routes.noMatchesTitle()}</EmptyTitle>
               <EmptyDescription>{LL.routes.noMatchesDescription()}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
-          <section aria-label={LL.routes.title()} className="routes-graph">
-            <ul className="route-root-list" onKeyDown={handlePolicyPeerNavigation}>
+          <section aria-label={LL.routes.title()} className={routeStyles().graph()}>
+            <ul className={routeStyles().rootList()} onKeyDown={handlePolicyPeerNavigation}>
               {visibleGroupIds.map((groupId) => {
                 const group = graph.groupById.get(groupId);
                 if (!group) return null;

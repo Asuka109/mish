@@ -22,6 +22,20 @@ async function navigateToStatus(): Promise<void> {
   await nextFrame();
 }
 
+async function selectLocale(name: "English" | "简体中文"): Promise<void> {
+  const trigger = document.querySelector(".language-menu-trigger");
+  if (!trigger) throw new Error("Missing language menu trigger");
+
+  await page.elementLocator(trigger).click();
+  await page.getByRole("menuitemradio", { exact: true, name }).click();
+  await vi.waitFor(() => {
+    expect(
+      document.querySelector(".language-menu-trigger")?.getAttribute("aria-expanded"),
+    ).not.toBe("true");
+  });
+  await nextFrame();
+}
+
 function trafficPair(): HTMLElement {
   const pair = document.querySelector<HTMLElement>(".traffic-session-pair");
   if (!pair) throw new Error("Traffic session pair is missing");
@@ -148,5 +162,36 @@ describe("status traffic row layout", () => {
     expect(getComputedStyle(curve).display).toBe("flex");
     expect(getComputedStyle(curve).overflowX).toBe("hidden");
     expect(curve.getBoundingClientRect().width).toBeLessThan(360);
+  });
+
+  test("keeps Chinese summary labels and totals on one line in a compact desktop session", async () => {
+    await page.viewport(924, 720);
+    await selectLocale("简体中文");
+
+    const summaryLines = [
+      ...document.querySelectorAll<HTMLElement>(
+        ".traffic-session-copy > span, .traffic-session-copy > small",
+      ),
+    ];
+    expect([summaryLines[0].textContent, summaryLines[2].textContent]).toEqual([
+      "已下载",
+      "已上传",
+    ]);
+    summaryLines[1].textContent = "76.5 KB";
+    summaryLines[3].textContent = "106.2 KB";
+    await nextFrame();
+
+    const rateColumn = trafficColumns()[1].getBoundingClientRect();
+    for (const line of summaryLines) {
+      const style = getComputedStyle(line);
+      const range = document.createRange();
+      range.selectNodeContents(line);
+      expect(style.whiteSpace).toBe("nowrap");
+      expect(style.overflowX).toBe("visible");
+      expect(style.textOverflow).toBe("clip");
+      expect(style.userSelect).toBe("none");
+      expect(range.getClientRects()).toHaveLength(1);
+      expect(range.getBoundingClientRect().right).toBeLessThanOrEqual(rateColumn.left);
+    }
   });
 });

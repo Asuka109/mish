@@ -2,6 +2,7 @@ import type { StatusConnectionState } from "@mish/contracts";
 import { Button, Input, Spinner } from "@mish/ui";
 import { ShieldCheck } from "@phosphor-icons/react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { cx, tv } from "@mish/ui/tv";
 import { useI18nContext } from "../i18n/i18n-react";
 import {
   buildBrowserBackendUrl,
@@ -29,6 +30,31 @@ interface BrowserBackendRecoveryProps {
   onRecoveryRequired?: () => void;
   runtime: "browser" | "desktop" | "mobile";
 }
+
+const recoveryStyles = tv({
+  slots: {
+    root: cx(
+      "browser-backend-recovery fixed inset-0 flex items-center justify-center bg-surface-soft",
+      "p-xl font-sans text-ink",
+    ),
+    card: "w-full max-w-dialog rounded-lg border border-hairline bg-canvas p-xl shadow-panel",
+    icon: "mb-md flex size-11 items-center justify-center rounded-md bg-accent text-focus-accent [&_svg]:size-6",
+    eyebrow: "text-metadata text-muted-foreground",
+    title: "my-xs mb-sm text-title font-semibold",
+    description: "text-body text-fg",
+    form: "mt-lg",
+    portField: cx(
+      "[&_label]:mb-xs [&_label]:block [&_label]:text-body [&_label]:font-semibold",
+      "[&_label]:text-ink [&_.ui-input]:w-full [&_.ui-input]:font-mono",
+    ),
+    hint: "mt-xs text-metadata text-muted-foreground",
+    status: cx(
+      "mt-md flex items-center gap-sm text-fg",
+      "data-[phase=failed]:text-error data-[phase=not-found]:text-error",
+    ),
+    actions: "mt-lg [&_.ui-button]:w-full",
+  },
+});
 
 export function BrowserBackendRecovery({
   backendPort,
@@ -119,21 +145,27 @@ export function BrowserBackendRecovery({
   };
 
   return (
-    <main className="browser-backend-recovery">
+    <main className={recoveryStyles().root()}>
       <section
         aria-busy={recovery.phase === "searching"}
         aria-labelledby="browser-backend-recovery-title"
+        className={recoveryStyles().card()}
       >
-        <div className="browser-backend-recovery__icon" aria-hidden="true">
+        <div className={recoveryStyles().icon()} aria-hidden="true">
           <ShieldCheck weight="duotone" />
         </div>
-        <p className="browser-backend-recovery__eyebrow">{LL.browserBackendRecovery.eyebrow()}</p>
-        <h1 id="browser-backend-recovery-title" ref={heading} tabIndex={-1}>
+        <p className={recoveryStyles().eyebrow()}>{LL.browserBackendRecovery.eyebrow()}</p>
+        <h1
+          className={recoveryStyles().title()}
+          id="browser-backend-recovery-title"
+          ref={heading}
+          tabIndex={-1}
+        >
           {LL.browserBackendRecovery.title()}
         </h1>
-        <p>{LL.browserBackendRecovery.description()}</p>
-        <form onSubmit={submit}>
-          <div className="browser-backend-recovery__port-field">
+        <p className={recoveryStyles().description()}>{LL.browserBackendRecovery.description()}</p>
+        <form className={recoveryStyles().form()} onSubmit={submit}>
+          <div className={recoveryStyles().portField()}>
             <label htmlFor="browser-backend-recovery-port">
               {LL.browserBackendRecovery.portLabel()}
             </label>
@@ -153,7 +185,7 @@ export function BrowserBackendRecovery({
               pattern="[0-9]{1,5}"
               value={requestedPort}
             />
-            <p id="browser-backend-recovery-port-hint" className="browser-backend-recovery__hint">
+            <p id="browser-backend-recovery-port-hint" className={recoveryStyles().hint()}>
               {LL.browserBackendRecovery.portHint()}
             </p>
           </div>
@@ -161,7 +193,8 @@ export function BrowserBackendRecovery({
           {status ? (
             <div
               aria-live="polite"
-              className={`browser-backend-recovery__status browser-backend-recovery__status--${recovery.phase}`}
+              className={recoveryStyles().status()}
+              data-phase={recovery.phase}
               role={
                 recovery.phase === "failed" || recovery.phase === "not-found" ? "alert" : "status"
               }
@@ -171,7 +204,7 @@ export function BrowserBackendRecovery({
             </div>
           ) : null}
 
-          <div className="browser-backend-recovery__actions">
+          <div className={recoveryStyles().actions()}>
             {recovery.phase === "searching" ? (
               <Button onClick={cancel} type="button" variant="outline">
                 {LL.browserBackendRecovery.cancel()}

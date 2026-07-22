@@ -13,6 +13,7 @@ import {
 } from "@mish/ui";
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
+import { cx, tv } from "@mish/ui/tv";
 import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
 import { PolicyGroupSummaryRow } from "../components/policy-browser";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
@@ -28,6 +29,111 @@ import type { CaptureSelectionDto, RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 import { buildRouteGraph, getRouteChildLatency, normalizeMeasuredLatency } from "./routes-model";
+import styles from "./status-page.module.css";
+
+const statusStyles = tv({
+  slots: {
+    page: cx(
+      "mx-auto min-h-full w-full max-w-page px-8 pt-6 pb-8 max-page-compact:p-6",
+      "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    ),
+    loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
+    error:
+      "mb-3 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
+    diagnostics:
+      "my-2 inline-flex text-metadata font-medium text-brand no-underline hover:underline",
+    controls: "pb-4",
+    controlCell: cx(
+      "flex min-h-13.5 items-center gap-6 px-3.5 first:rounded-t-section-grid-inner",
+      "last:rounded-b-section-grid-inner max-toolbar-compact:gap-4 max-shell-mobile:min-h-0",
+      "max-shell-mobile:flex-col max-shell-mobile:items-start max-shell-mobile:gap-2",
+      "max-shell-mobile:p-3",
+    ),
+    controlLabel: "font-medium text-fg whitespace-nowrap",
+    routingItem: "px-3",
+    contentGrid: cx(
+      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12",
+      "max-profile-stack:gap-8 max-page-compact:grid-cols-1 runtime-mobile:grid-cols-1",
+      "runtime-mobile:gap-6",
+    ),
+    section: "min-w-0",
+    sessionSection: "min-w-0 @container/session",
+    heading:
+      "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-shell-mobile:items-start",
+    headingCopy: cx(
+      "flex min-w-0 flex-1 items-baseline gap-2 [&_h2]:shrink-0 [&_p]:min-w-0 [&_p]:truncate",
+      "[&_p]:text-metadata [&_p]:text-muted-foreground max-shell-mobile:flex-col",
+      "max-shell-mobile:items-start max-shell-mobile:gap-0.5",
+      "max-shell-mobile:[&_p]:overflow-visible max-shell-mobile:[&_p]:text-clip",
+      "max-shell-mobile:[&_p]:whitespace-normal max-shell-mobile:[&_p]:wrap-anywhere",
+    ),
+    action: cx(
+      "inline-flex shrink-0 items-center gap-1 rounded-sm p-1 text-metadata leading-4.5 text-fg",
+      "no-underline whitespace-nowrap hover:text-ink hover:underline [&_svg]:size-3.25",
+      "[&_svg]:shrink-0",
+    ),
+    sessionList: cx(
+      "session-list flex flex-wrap gap-px overflow-visible rounded-md border border-hairline",
+      "bg-hairline-soft p-0 [&>*]:min-w-0 [&>*]:overflow-clip [&>*]:bg-canvas",
+      "[&>:first-child]:rounded-t-section-grid-inner",
+      "[&>:nth-last-child(2)]:rounded-bl-section-grid-inner",
+      "[&>:last-child]:rounded-br-section-grid-inner",
+    ),
+    trafficPair: cx(
+      "traffic-session-pair relative flex min-h-32 grow-0 shrink-0 basis-full items-stretch gap-3",
+      "after:pointer-events-none after:absolute after:inset-x-0 after:top-1/2 after:h-px",
+      "after:-translate-y-1/2 after:bg-hairline-soft after:content-['']",
+    ),
+    trafficColumn: "traffic-session-column flex min-h-32 flex-col",
+    trafficSummaryColumn: cx(
+      "traffic-session-summary-column w-36 flex-none",
+      "@max-session-compact/session:w-32",
+    ),
+    trafficRateColumn: cx(
+      "traffic-session-rate-column w-24 min-w-24 flex-none",
+      "@max-session-compact/session:w-19 @max-session-compact/session:min-w-19",
+    ),
+    trafficCurveColumn: "traffic-session-curve-column relative min-w-0 flex-1 overflow-hidden",
+    trafficChartStack:
+      "traffic-session-chart-stack absolute top-0 right-0 ml-auto flex h-32 w-90 min-w-90 flex-col",
+    trafficChartCell: "traffic-session-chart-cell flex min-h-0 flex-1 items-center",
+    trafficLabel: cx(
+      "traffic-session-label flex min-h-0 min-w-0 flex-1 items-center gap-2 pl-3",
+      "text-metadata text-muted-soft",
+      "[&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-traffic-download",
+      "data-[direction=upload]:[&>svg]:text-traffic-upload",
+    ),
+    trafficCopy: cx(
+      "traffic-session-copy grid min-w-0 gap-px [&>span]:text-muted-foreground",
+      "[&>span]:whitespace-nowrap",
+      "[&>small]:text-caption [&>small]:text-muted-soft [&>small]:whitespace-nowrap",
+    ),
+    trafficRate: cx(
+      "traffic-rate-value flex min-h-0 min-w-0 flex-1 items-center px-2 text-metadata",
+      "font-medium text-muted-foreground whitespace-nowrap",
+    ),
+    metric: cx(
+      "session-metric grid min-h-13 grow shrink basis-[calc(50%_-_0.5px)] content-center",
+      "gap-0.5 px-3 py-1.75 [&>span]:text-metadata",
+      "[&>span]:text-muted-foreground [&>strong]:truncate [&>strong]:text-metadata",
+      "[&>strong]:font-medium",
+    ),
+    policyList: cx(
+      "policy-group-list gap-0 bg-canvas [&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-hairline-soft",
+      "[&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
+    ),
+    policyRow: cx(
+      "flex min-h-12.5 w-full items-center justify-between gap-2.5 rounded-none border-0",
+      "bg-transparent py-0 pr-3 pl-2.5 text-left text-fg hover:bg-accent hover:text-ink-active",
+    ),
+    policyLeading: "flex min-w-0 items-center gap-2.5",
+    policyTrailing: "flex shrink-0 items-center gap-2.5 [&>svg]:size-3.25 [&>svg]:text-muted-soft",
+    policyRank: "text-center text-caption text-muted-soft",
+    policyCopy: "grid min-w-0 gap-0.5",
+    policyPrimary: "truncate text-body font-medium",
+    policySecondary: "truncate text-metadata text-muted-foreground",
+  },
+});
 
 function formatBytes(value: number, locale: Locales) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -104,7 +210,7 @@ export function StatusPage() {
 
   if (isLoading) {
     return (
-      <div className="status-loading">
+      <div className={statusStyles().loading()}>
         {connection.phase === "fixture" ? LL.status.loadingFixture() : LL.status.loadingDesktop()}
       </div>
     );
@@ -112,7 +218,7 @@ export function StatusPage() {
 
   if (!snapshot) {
     return (
-      <div className="status-loading" role="alert">
+      <div className={statusStyles().loading()} role="alert">
         {error ??
           (connection.phase === "fixture"
             ? LL.status.fixtureUnavailable()
@@ -164,10 +270,10 @@ export function StatusPage() {
 
   return (
     <div>
-      <div className="status-page">
+      <div className={statusStyles().page()}>
         <h1 className="sr-only">{LL.navigation.status()}</h1>
         {snapshot.adapterKind !== "fixture" && connection.stale ? (
-          <p className="fixture-error" role="status">
+          <p className={statusStyles().error()} role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
@@ -176,18 +282,17 @@ export function StatusPage() {
           connection.stale ||
           snapshot.runtime.phase === "error" ||
           snapshot.runtime.systemProxy.phase === "drift") ? (
-          <Link className="status-diagnostics-link" to="/events?diagnostics=1">
+          <Link className={statusStyles().diagnostics()} to="/events?diagnostics=1">
             {LL.diagnostics.open()}
           </Link>
         ) : null}
-        <div className="status-controls">
-          <SectionGrid className="status-control-card">
-            <SectionGridItem className="status-control-cell">
-              <span className="status-control-label">{LL.status.routingMode()}</span>
+        <div className={statusStyles().controls()}>
+          <SectionGrid>
+            <SectionGridItem className={statusStyles().controlCell()}>
+              <span className={statusStyles().controlLabel()}>{LL.status.routingMode()}</span>
               <ToggleGroup
                 aria-label={LL.status.routingMode()}
                 aria-describedby={routingDescriptionId}
-                className="routing-mode-group"
                 onValueChange={(values) => {
                   if (!routingSupported) return;
                   const nextMode = values[0] as RoutingMode | undefined;
@@ -195,13 +300,13 @@ export function StatusPage() {
                 }}
                 spacing={0}
                 value={[snapshot.routingMode]}
-                variant="outline"
+                variant="segmented"
               >
                 {(Object.keys(modeLabels) as RoutingMode[]).map((mode) => (
                   <ToggleGroupItem
                     aria-busy={routingPending && optimisticRoutingMode === mode}
                     aria-describedby={routingDescriptionId}
-                    className="routing-mode-button"
+                    className={statusStyles().routingItem()}
                     disabled={routingPending || !routingSupported}
                     key={mode}
                     value={mode}
@@ -214,8 +319,8 @@ export function StatusPage() {
                 ))}
               </ToggleGroup>
             </SectionGridItem>
-            <SectionGridItem className="status-control-cell">
-              <span className="status-control-label">{LL.status.trafficCapture()}</span>
+            <SectionGridItem className={statusStyles().controlCell()}>
+              <span className={statusStyles().controlLabel()}>{LL.status.trafficCapture()}</span>
               <TrafficCaptureControl
                 adapterKind={snapshot.adapterKind}
                 capabilities={snapshot.capabilities}
@@ -254,40 +359,44 @@ export function StatusPage() {
           </SectionGrid>
         </div>
 
-        <div className="content-grid">
+        <div className={statusStyles().contentGrid()}>
           <section
             aria-label={LL.status.currentSessionAria()}
-            className="flat-section session-section"
+            className={statusStyles().sessionSection()}
           >
-            <div className="section-heading">
-              <div className="section-heading-copy">
+            <div className={statusStyles().heading()}>
+              <div className={statusStyles().headingCopy()}>
                 <h2>{LL.status.session()}</h2>
                 <p title={sessionActivity}>{sessionActivity}</p>
               </div>
               <Link
                 aria-label={LL.status.openLiveTrafficAria()}
-                className="text-link"
+                className={statusStyles().action()}
                 to="/traffic"
               >
-                <span className="section-heading-action-label">{LL.status.openLiveTraffic()}</span>
+                <span>{LL.status.openLiveTraffic()}</span>
                 <CaretRight aria-hidden="true" />
               </Link>
             </div>
-            <div className="session-list">
-              <div className="traffic-session-pair">
-                <div className="traffic-session-column traffic-session-summary-column">
-                  <span className="traffic-session-label" data-direction="download">
+            <div className={statusStyles().sessionList()}>
+              <div className={statusStyles().trafficPair()}>
+                <div
+                  className={statusStyles().trafficColumn({
+                    className: statusStyles().trafficSummaryColumn(),
+                  })}
+                >
+                  <span className={statusStyles().trafficLabel()} data-direction="download">
                     <ArrowDown aria-hidden="true" />
-                    <span className="traffic-session-copy">
+                    <span className={statusStyles().trafficCopy()}>
                       <span>{LL.status.downloaded()}</span>
                       <small>
                         {captureActive ? formatBytes(sessionTraffic.downloadedBytes, locale) : "-"}
                       </small>
                     </span>
                   </span>
-                  <span className="traffic-session-label" data-direction="upload">
+                  <span className={statusStyles().trafficLabel()} data-direction="upload">
                     <ArrowUp aria-hidden="true" />
-                    <span className="traffic-session-copy">
+                    <span className={statusStyles().trafficCopy()}>
                       <span>{LL.status.uploaded()}</span>
                       <small>
                         {captureActive ? formatBytes(sessionTraffic.uploadedBytes, locale) : "-"}
@@ -295,27 +404,37 @@ export function StatusPage() {
                     </span>
                   </span>
                 </div>
-                <div className="traffic-session-column traffic-session-rate-column">
-                  <strong className="traffic-rate-value tabular">
+                <div
+                  className={statusStyles().trafficColumn({
+                    className: statusStyles().trafficRateColumn(),
+                  })}
+                >
+                  <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
                     {captureActive
                       ? formatRate(sessionTraffic.downloadBytesPerSecond, locale)
                       : "- B/s"}
                   </strong>
-                  <strong className="traffic-rate-value tabular">
+                  <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
                     {captureActive
                       ? formatRate(sessionTraffic.uploadBytesPerSecond, locale)
                       : "- B/s"}
                   </strong>
                 </div>
-                <div className="traffic-session-column traffic-session-curve-column">
-                  <div className="traffic-session-chart-stack">
-                    <div className="traffic-session-chart-cell">
+                <div
+                  className={statusStyles().trafficColumn({
+                    className: statusStyles().trafficCurveColumn({
+                      className: styles.trafficCurveColumn,
+                    }),
+                  })}
+                >
+                  <div className={statusStyles().trafficChartStack()}>
+                    <div className={statusStyles().trafficChartCell()}>
                       <TrafficSparkline
                         color="var(--color-traffic-download)"
                         data={sessionTraffic.downloadSeries}
                       />
                     </div>
-                    <div className="traffic-session-chart-cell">
+                    <div className={statusStyles().trafficChartCell()}>
                       <TrafficSparkline
                         color="var(--color-traffic-upload)"
                         data={sessionTraffic.uploadSeries}
@@ -324,15 +443,15 @@ export function StatusPage() {
                   </div>
                 </div>
               </div>
-              <div className="session-metric">
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.connections()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {captureActive ? snapshot.metrics.activeConnections : "-"}
                 </strong>
               </div>
-              <div className="session-metric">
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.activeRules()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {captureActive
                     ? new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en").format(
                         snapshot.metrics.effectiveRules,
@@ -340,40 +459,47 @@ export function StatusPage() {
                     : "-"}
                 </strong>
               </div>
-              <div className="session-metric">
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.memory()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {captureActive ? formatBytes(snapshot.metrics.memoryBytes, locale) : "-"}
                 </strong>
               </div>
-              <div className="session-metric">
+              <div className={statusStyles().metric()}>
                 <span>{LL.status.uptime()}</span>
-                <strong className="tabular">
+                <strong className="tabular-nums">
                   {captureActive ? formatUptime(snapshot.metrics.uptimeSeconds) : "-"}
                 </strong>
               </div>
             </div>
           </section>
 
-          <section aria-label={LL.status.groupsAria()} className="flat-section">
-            <div className="section-heading">
-              <div className="section-heading-copy">
+          <section aria-label={LL.status.groupsAria()} className={statusStyles().section()}>
+            <div className={statusStyles().heading()}>
+              <div className={statusStyles().headingCopy()}>
                 <h2>{LL.status.groups()}</h2>
                 <p title={configuredRoutes ? LL.status.configuredOrder() : LL.status.usedFirst()}>
                   {configuredRoutes ? LL.status.configuredOrder() : LL.status.usedFirst()}
                 </p>
               </div>
-              <Link aria-label={LL.status.viewAllGroupsAria()} className="text-link" to="/routes">
-                <span className="section-heading-action-label">{LL.status.viewAll()}</span>
+              <Link
+                aria-label={LL.status.viewAllGroupsAria()}
+                className={statusStyles().action()}
+                to="/routes"
+              >
+                <span>{LL.status.viewAll()}</span>
                 <CaretRight aria-hidden="true" />
               </Link>
             </div>
             {routeGraph.errors.length > 0 ? (
-              <p className="policy-browser-read-only" role="alert">
+              <p
+                className="rounded-md border border-hairline bg-surface-soft p-3 text-metadata text-muted-foreground"
+                role="alert"
+              >
                 {LL.routes.graphErrorTitle()}
               </p>
             ) : frequentGroups.length > 0 ? (
-              <SectionGrid className="policy-group-list">
+              <SectionGrid className={statusStyles().policyList()}>
                 {frequentGroups.map((group, index) => {
                   const selectedLabel = group.selectedChildId
                     ? (routeGraph.nodeById.get(group.selectedChildId)?.label ??
@@ -389,15 +515,12 @@ export function StatusPage() {
                         childCountLabel={LL.status.availableChildren({
                           count: group.childIds.length,
                         })}
-                        density="compact"
                         currentLabel={selectedLabel ?? LL.status.noSelection()}
+                        density="compact"
                         group={group}
                         latency={
                           latency === null ? null : (
-                            <span className="policy-browser-summary-latency tabular">
-                              {" "}
-                              · {latency} ms
-                            </span>
+                            <span className="text-success-text tabular-nums"> · {latency} ms</span>
                           )
                         }
                         onOpen={group.childIds.length > 0 ? () => openPicker(group.id) : undefined}
@@ -408,7 +531,7 @@ export function StatusPage() {
                 })}
               </SectionGrid>
             ) : (
-              <Empty className="policy-group-empty">
+              <Empty>
                 <EmptyHeader>
                   <EmptyTitle>{LL.status.groupsEmpty()}</EmptyTitle>
                 </EmptyHeader>

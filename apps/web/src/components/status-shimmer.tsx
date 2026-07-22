@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import styles from "./status-shimmer.module.css";
 
 const vertexShaderSource = `
 attribute vec2 a_position;
@@ -377,5 +378,5 @@ export function StatusShimmer({ active }: StatusShimmerProps) {
     };
   }, [active]);
 
-  return <canvas aria-hidden="true" className="sidebar-status-shimmer" ref={canvasRef} />;
+  return <canvas aria-hidden="true" className={styles.canvas} ref={canvasRef} />;
 }

@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { Button } from "@mish/ui";
+import { Button, cn, Spinner, Toggle } from "@mish/ui";
 import { describe, expect, it } from "vitest";
 
 function deferred() {
@@ -13,6 +13,59 @@ function deferred() {
 }
 
 describe("Button promise loading", () => {
+  it("keeps semantic typography beside a conflicting foreground utility", () => {
+    render(
+      <>
+        <Button>Continue</Button>
+        <Button className="text-caption">Compact</Button>
+        <Button className="text-sm">Native</Button>
+      </>,
+    );
+
+    const button = screen.getByRole("button", { name: "Continue" });
+    const override = screen.getByRole("button", { name: "Compact" });
+    const native = screen.getByRole("button", { name: "Native" });
+    expect(button).toHaveClass("text-metadata", "text-canvas");
+    expect(override).toHaveClass("text-caption", "text-canvas");
+    expect(override).not.toHaveClass("text-metadata");
+    expect(native).toHaveClass("text-sm", "text-canvas");
+    expect(native).not.toHaveClass("text-metadata");
+    expect(cn("text-sm", "text-metadata", "text-fg")).toBe("text-metadata text-fg");
+  });
+
+  it("keeps the semantic spinner width through the shared merge boundary", () => {
+    render(<Spinner />);
+
+    const spinner = document.querySelector(".ui-spinner");
+    expect(spinner).toHaveClass("spinner-border", "border-current", "border-r-transparent");
+    expect(spinner).not.toHaveClass("border-spinner");
+  });
+
+  it("lets a caller override conflicting recipe utilities at the shared TV merge boundary", () => {
+    render(
+      <Button className="h-12 bg-red-500 px-6" variant="outline">
+        Override
+      </Button>,
+    );
+
+    const button = screen.getByRole("button", { name: "Override" });
+    expect(button).toHaveClass("h-12", "bg-red-500", "px-6");
+    expect(button.className).not.toContain("h-8.5");
+  });
+
+  it("keeps Base UI pressed state semantic while the capture recipe styles it", () => {
+    render(
+      <Toggle data-capture-state="running" pressed variant="capture">
+        System proxy
+      </Toggle>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "System proxy" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toHaveAttribute("data-capture-state", "running");
+    expect(toggle).toHaveClass("data-[capture-state=running]:text-fg");
+  });
+
   it("stays loading until a promise resolves", async () => {
     const operation = deferred();
     render(

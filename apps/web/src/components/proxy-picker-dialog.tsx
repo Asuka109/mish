@@ -1,6 +1,7 @@
 import { ArrowLeft } from "@phosphor-icons/react/ArrowLeft";
 import type { GroupDelayChildResultDto } from "@mish/contracts";
 import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from "@mish/ui";
+import { cx, tv } from "@mish/ui/tv";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
@@ -22,6 +23,28 @@ import {
 } from "../pages/routes-model";
 
 const routeSorts: RouteSort[] = ["configuration", "latency", "label"];
+
+const pickerStyles = tv({
+  slots: {
+    dialog: cx(
+      "policy-picker-dialog max-h-[min(680px,calc(100vh_-_32px))]",
+      "w-[min(560px,calc(100vw_-_32px))] overflow-hidden overscroll-contain",
+      "max-shell-mobile:max-h-[calc(100vh_-_12px)] max-shell-mobile:w-[calc(100vw_-_12px)]",
+    ),
+    header:
+      "policy-picker-header flex min-h-18.5 items-center gap-2 border-b border-hairline py-3.25 pr-11 pl-4",
+    title: "text-body font-semibold",
+    description: "mt-0.75 text-metadata leading-4.5 text-muted-foreground",
+    back: "shrink-0",
+    breadcrumb: "mt-1 max-w-110 truncate text-micro text-muted-soft",
+    readOnly: cx(
+      "m-3 rounded-md border border-hairline bg-surface-soft px-3 py-2.5",
+      "text-metadata leading-4.75 text-muted-foreground",
+    ),
+    list: "min-h-0 overflow-auto overscroll-contain",
+    empty: "px-4 py-7 text-center text-metadata text-muted-foreground",
+  },
+});
 
 function sortLabel(LL: TranslationFunctions, sort: RouteSort) {
   if (sort === "configuration") return LL.routes.configurationOrder();
@@ -244,16 +267,16 @@ export function PolicyPickerDialog({
       open={open}
     >
       <DialogContent
-        className="proxy-picker-dialog policy-picker-dialog"
+        className={pickerStyles().dialog()}
         closeLabel={LL.common.close()}
         onKeyDownCapture={handleDialogKeys}
         ref={dialogRef}
       >
-        <div className="proxy-picker-header policy-picker-header">
+        <div className={pickerStyles().header()}>
           {navigationStack.length > 1 ? (
             <Button
               aria-label={LL.routes.backToGroup({ group: pathLabels.at(-2) ?? "" })}
-              className="policy-picker-back"
+              className={pickerStyles().back()}
               onClick={navigateBack}
               size="icon-sm"
               type="button"
@@ -263,19 +286,19 @@ export function PolicyPickerDialog({
             </Button>
           ) : null}
           <div>
-            <DialogTitle className="proxy-picker-title user-authored-label">
+            <DialogTitle className={pickerStyles().title({ className: "user-authored-label" })}>
               {group.label}
             </DialogTitle>
-            <DialogDescription className="proxy-picker-description">
+            <DialogDescription className={pickerStyles().description()}>
               {LL.proxyPicker.description()}
             </DialogDescription>
-            <div aria-label={LL.routes.currentPath()} className="policy-picker-breadcrumb">
+            <div aria-label={LL.routes.currentPath()} className={pickerStyles().breadcrumb()}>
               {pathLabels.join(" / ")}
             </div>
           </div>
         </div>
         {readOnly ? (
-          <p className="policy-browser-read-only" role="status">
+          <p className={pickerStyles().readOnly()} role="status">
             {LL.routes.configuredReadOnly()}
           </p>
         ) : null}
@@ -306,9 +329,9 @@ export function PolicyPickerDialog({
         <span aria-live="polite" className="sr-only" role="status">
           {LL.routes.searchResultCount({ count: directChildIds.length })}
         </span>
-        <div className="policy-picker-list">
+        <div className={pickerStyles().list()}>
           <BoundedEntityList
-            empty={<p className="command-empty">{LL.proxyPicker.empty()}</p>}
+            empty={<p className={pickerStyles().empty()}>{LL.proxyPicker.empty()}</p>}
             ids={directChildIds}
             key={`${group.id}:${query}`}
             loadedAnnouncement={(added, total) => LL.routes.loadedMore({ added, total })}

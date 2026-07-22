@@ -16,7 +16,7 @@ import {
 } from "@mish/ui";
 import { useId, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "@mish/ui/tv";
 import { normalizeMeasuredLatency, POLICY_ENTITY_BATCH_SIZE } from "../pages/routes-model";
 
 export type PolicyBrowserDensity = "default" | "compact";
@@ -25,26 +25,53 @@ export type PolicySelectionState = "current" | "pending" | "unselected" | "read-
 export type PolicyLatencyState = "measured" | "unknown" | "testing" | "failed" | "cancelled";
 
 const policyGroupSummaryRecipe = tv({
-  base: "policy-browser-group-summary",
+  base: cx(
+    "policy-browser-group-summary grid w-full min-w-0 items-center justify-stretch gap-2.5",
+    "rounded-none border-0 bg-transparent text-left text-fg",
+    "[&>.ui-badge]:shrink-0 [&>svg]:size-3.25 [&>svg]:text-muted-soft",
+  ),
   variants: {
     density: {
-      compact: "policy-browser-group-summary--compact",
-      default: "policy-browser-group-summary--default",
+      compact: "policy-browser-group-summary--compact min-h-11 px-2.5 py-1.5",
+      default: "policy-browser-group-summary--default min-h-14.5 px-3 py-2",
     },
     interactive: {
       false: "policy-browser-group-summary--static",
-      true: "policy-browser-group-summary--interactive",
+      true: "policy-browser-group-summary--interactive hover:bg-accent hover:text-ink focus-visible:bg-accent focus-visible:text-ink",
+    },
+    ranked: {
+      false: "grid-cols-[minmax(0,1fr)_auto_auto]",
+      true: "grid-cols-[20px_minmax(0,1fr)_auto_auto]",
     },
   },
-  defaultVariants: { density: "default", interactive: true },
+  defaultVariants: { density: "default", interactive: true, ranked: false },
 });
 
 const policyEntityRowRecipe = tv({
-  base: "policy-browser-entity-row",
+  base: cx(
+    "policy-browser-entity-row grid min-w-0 grid-cols-[minmax(0,1fr)_auto] bg-canvas",
+    "[&_.policy-browser-entity-primary]:grid [&_.policy-browser-entity-primary]:h-auto",
+    "[&_.policy-browser-entity-primary]:w-full [&_.policy-browser-entity-primary]:min-w-0",
+    "[&_.policy-browser-entity-primary]:grid-cols-[minmax(0,1fr)_auto]",
+    "[&_.policy-browser-entity-primary]:items-center [&_.policy-browser-entity-primary]:justify-stretch",
+    "[&_.policy-browser-entity-primary]:gap-4 [&_.policy-browser-entity-primary]:rounded-none",
+    "[&_.policy-browser-entity-primary]:border-0 [&_.policy-browser-entity-primary]:bg-transparent",
+    "[&_.policy-browser-entity-primary]:text-left [&_.policy-browser-entity-primary]:text-fg",
+    "max-shell-mobile:[&_.policy-browser-entity-primary]:grid-cols-1",
+    "max-shell-mobile:[&_.policy-browser-entity-primary]:gap-1",
+  ),
   variants: {
     density: {
-      compact: "policy-browser-entity-row--compact",
-      default: "policy-browser-entity-row--default",
+      compact: cx(
+        "policy-browser-entity-row--compact [&_.policy-browser-entity-primary]:min-h-11",
+        "[&_.policy-browser-entity-primary]:px-2.5 [&_.policy-browser-entity-primary]:py-1.5",
+        "[&_.policy-browser-entity-primary]:pl-4",
+      ),
+      default: cx(
+        "policy-browser-entity-row--default [&_.policy-browser-entity-primary]:min-h-13",
+        "[&_.policy-browser-entity-primary]:py-1.75 [&_.policy-browser-entity-primary]:pr-3",
+        "[&_.policy-browser-entity-primary]:pl-11",
+      ),
     },
     entityKind: {
       group: "policy-browser-entity-row--group",
@@ -52,12 +79,19 @@ const policyEntityRowRecipe = tv({
     },
     interactive: {
       false: "policy-browser-entity-row--static",
-      true: "policy-browser-entity-row--interactive",
+      true: cx(
+        "policy-browser-entity-row--interactive",
+        "[&_.policy-browser-entity-primary:hover]:bg-accent",
+        "[&_.policy-browser-entity-primary:hover]:text-ink",
+        "[&_.policy-browser-entity-primary:focus-visible]:bg-accent",
+        "[&_.policy-browser-entity-primary:focus-visible]:text-ink",
+      ),
     },
     selectionState: {
-      current: "policy-browser-entity-row--current",
-      pending: "policy-browser-entity-row--pending",
-      "read-only": "policy-browser-entity-row--read-only",
+      current: "policy-browser-entity-row--current bg-accent",
+      pending: "policy-browser-entity-row--pending bg-accent",
+      "read-only":
+        "policy-browser-entity-row--read-only [&_.policy-browser-entity-primary]:text-muted-foreground",
       unselected: "policy-browser-entity-row--unselected",
     },
   },
@@ -70,12 +104,16 @@ const policyEntityRowRecipe = tv({
 });
 
 const latencyStatusRecipe = tv({
-  base: "policy-browser-latency tabular",
+  base: cx(
+    "policy-browser-latency grid min-w-19 text-right text-metadata text-muted-foreground tabular-nums",
+    "[&_time]:text-micro [&_time]:text-muted-soft max-shell-mobile:min-w-0",
+    "max-shell-mobile:text-left",
+  ),
   variants: {
     latencyState: {
-      cancelled: "policy-browser-latency--cancelled",
-      failed: "policy-browser-latency--failed",
-      measured: "policy-browser-latency--measured",
+      cancelled: "policy-browser-latency--cancelled text-error",
+      failed: "policy-browser-latency--failed text-error",
+      measured: "policy-browser-latency--measured text-success-text",
       testing: "policy-browser-latency--testing",
       unknown: "policy-browser-latency--unknown",
     },
@@ -84,11 +122,14 @@ const latencyStatusRecipe = tv({
 });
 
 const selectionStatusRecipe = tv({
-  base: "policy-browser-selection",
+  base: cx(
+    "policy-browser-selection inline-flex items-center gap-1.25 text-caption",
+    "text-muted-foreground whitespace-nowrap [&_svg]:size-3.25",
+  ),
   variants: {
     selectionState: {
-      current: "policy-browser-selection--current",
-      pending: "policy-browser-selection--pending",
+      current: "policy-browser-selection--current text-success-text",
+      pending: "policy-browser-selection--pending text-warning",
       "read-only": "policy-browser-selection--read-only",
       unselected: "policy-browser-selection--unselected",
     },
@@ -234,15 +275,22 @@ export function PolicyGroupSummaryRow({
 }: PolicyGroupSummaryRowProps) {
   const content = (
     <>
-      {rank === undefined ? null : <span className="policy-browser-rank tabular">{rank}</span>}
-      <span className="policy-browser-summary-copy">
-        <span className="policy-browser-summary-title-line">
-          <strong className="user-authored-label" title={group.label}>
+      {rank === undefined ? null : (
+        <span className="policy-browser-rank text-center text-caption text-muted-soft tabular-nums">
+          {rank}
+        </span>
+      )}
+      <span className="policy-browser-summary-copy grid min-w-0 gap-0.5">
+        <span className="policy-browser-summary-title-line flex min-w-0 items-center gap-2 [&_.ui-badge]:h-5 [&_.ui-badge]:shrink-0 [&_.ui-badge]:rounded-sm [&_.ui-badge]:bg-transparent [&_.ui-badge]:font-normal">
+          <strong
+            className="user-authored-label min-w-0 truncate text-body font-medium"
+            title={group.label}
+          >
             {group.label}
           </strong>
           {typeLabel ? <Badge variant="outline">{typeLabel}</Badge> : null}
         </span>
-        <span className="policy-browser-summary-current user-authored-label">
+        <span className="policy-browser-summary-current user-authored-label truncate text-metadata text-muted-foreground">
           {currentLabel}
           {latency}
         </span>
@@ -255,13 +303,25 @@ export function PolicyGroupSummaryRow({
   );
   if (!onOpen) {
     return (
-      <div className={policyGroupSummaryRecipe({ density, interactive: false })}>{content}</div>
+      <div
+        className={policyGroupSummaryRecipe({
+          density,
+          interactive: false,
+          ranked: rank !== undefined,
+        })}
+      >
+        {content}
+      </div>
     );
   }
   return (
     <Button
       aria-busy={pending || undefined}
-      className={policyGroupSummaryRecipe({ density, interactive: true })}
+      className={policyGroupSummaryRecipe({
+        density,
+        interactive: true,
+        ranked: rank !== undefined,
+      })}
       data-policy-row-primary
       onClick={onOpen}
       type="button"
@@ -318,13 +378,13 @@ export function PolicyEntityRow({
         : "read-only";
   const content = (
     <>
-      <span className="policy-browser-entity-copy">
-        <strong className="user-authored-label" title={entity.label}>
+      <span className="policy-browser-entity-copy grid min-w-0 gap-0.5 [&>*]:truncate">
+        <strong className="user-authored-label min-w-0 font-medium" title={entity.label}>
           {entity.label}
         </strong>
-        <span>{metadata}</span>
+        <span className="text-metadata text-muted-foreground">{metadata}</span>
       </span>
-      <span className="policy-browser-entity-status">
+      <span className="policy-browser-entity-status inline-flex min-w-0 items-center justify-end gap-3 max-shell-mobile:justify-between">
         {latency}
         <SelectionStatus
           currentLabel={currentLabel}
@@ -365,13 +425,17 @@ export function PolicyEntityRow({
         </div>
       )}
       {browseTo ? (
-        <Link aria-label={browseLabel} className="policy-browser-browse" to={browseTo}>
+        <Link
+          aria-label={browseLabel}
+          className="policy-browser-browse grid min-h-11 w-11 min-w-11 place-items-center self-stretch rounded-none border-0 border-l border-hairline-soft bg-transparent text-muted-foreground no-underline touch-manipulation hover:bg-accent hover:text-ink focus-visible:bg-accent focus-visible:text-ink"
+          to={browseTo}
+        >
           <CaretRight aria-hidden="true" />
         </Link>
       ) : onBrowse ? (
         <Button
           aria-label={browseLabel}
-          className="policy-browser-browse"
+          className="policy-browser-browse grid min-h-11 w-11 min-w-11 place-items-center self-stretch rounded-none border-0 border-l border-hairline-soft bg-transparent text-muted-foreground touch-manipulation hover:bg-accent hover:text-ink focus-visible:bg-accent focus-visible:text-ink"
           onClick={onBrowse}
           size="icon-sm"
           type="button"
@@ -433,13 +497,13 @@ export function PolicyBrowserToolbar<Sort extends string>({
 }: PolicyBrowserToolbarProps<Sort>) {
   const searchId = useId();
   return (
-    <div className="policy-browser-toolbar">
+    <div className="policy-browser-toolbar grid min-w-0 grid-cols-[minmax(180px,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-hairline-soft bg-surface-soft px-3 py-2.5 max-shell-mobile:grid-cols-1">
       {showSearch ? (
-        <Field className="policy-browser-search-field">
+        <Field className="policy-browser-search-field min-w-0">
           <FieldLabel className="sr-only" htmlFor={searchId}>
             {searchLabel}
           </FieldLabel>
-          <span className="policy-browser-search-control">
+          <span className="policy-browser-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75 [&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5">
             <MagnifyingGlass aria-hidden="true" />
             <Input
               aria-label={searchLabel}
@@ -456,10 +520,15 @@ export function PolicyBrowserToolbar<Sort extends string>({
           </span>
         </Field>
       ) : null}
-      <div className="policy-browser-toolbar-actions">
+      <div
+        className={cx(
+          "policy-browser-toolbar-actions flex items-center justify-end gap-2 max-shell-mobile:col-start-1 max-shell-mobile:row-auto max-shell-mobile:justify-between",
+          !showSearch && "col-start-2 row-start-1",
+        )}
+      >
         <ToggleGroup
           aria-label={sortLabel}
-          className="policy-browser-sort"
+          className="policy-browser-sort inline-flex max-shell-mobile:min-w-0 max-shell-mobile:flex-1"
           onValueChange={(values) => {
             const next = values[0] as Sort | undefined;
             if (next) onSortChange(next);
@@ -470,7 +539,7 @@ export function PolicyBrowserToolbar<Sort extends string>({
         >
           {sorts.map((option) => (
             <ToggleGroupItem
-              className="policy-browser-sort-option"
+              className="policy-browser-sort-option inline-flex h-7.5 items-center justify-center rounded-none border border-hairline bg-canvas px-2.5 text-caption text-muted-foreground first:rounded-l-sm last:rounded-r-sm [&:not(:first-child)]:border-l-0 hover:bg-accent hover:text-ink data-pressed:bg-accent data-pressed:text-ink max-shell-mobile:min-w-0 max-shell-mobile:flex-1 max-shell-mobile:px-1 max-shell-mobile:text-micro"
               disabled={sortDisabled}
               key={option}
               value={option}
@@ -498,7 +567,14 @@ export function PolicyBrowserToolbar<Sort extends string>({
           {delayActive ? cancelLabel : testLabel}
         </Button>
       </div>
-      <div aria-live="polite" className="policy-browser-progress" role="status">
+      <div
+        aria-live="polite"
+        className={cx(
+          "policy-browser-progress min-w-0 truncate text-caption text-muted-foreground max-shell-mobile:col-start-1 max-shell-mobile:row-auto max-shell-mobile:min-h-4.5 max-shell-mobile:whitespace-normal",
+          !showSearch && "col-start-1 row-start-1",
+        )}
+        role="status"
+      >
         {delayProgress}
       </div>
     </div>
@@ -529,12 +605,15 @@ export function BoundedEntityList({
   if (ids.length === 0) return <>{empty}</>;
   return (
     <>
-      <ul className="policy-browser-entity-list" onKeyDown={onKeyDown}>
+      <ul
+        className="policy-browser-entity-list m-0 flex list-none flex-col gap-px bg-hairline-soft p-0 [&>li]:min-w-0 [&>li]:bg-canvas [&>li]:[contain-intrinsic-size:auto_52px] [&>li]:[content-visibility:auto]"
+        onKeyDown={onKeyDown}
+      >
         {children(visibleIds)}
       </ul>
       {remaining > 0 ? (
         <Button
-          className="policy-browser-show-more"
+          className="policy-browser-show-more h-11 w-full rounded-none border-x-0 border-b-0 border-t border-hairline-soft"
           onClick={() => {
             const added = Math.min(POLICY_ENTITY_BATCH_SIZE, remaining);
             setVisibleLimit((current) => current + POLICY_ENTITY_BATCH_SIZE);

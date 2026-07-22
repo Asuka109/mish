@@ -9,17 +9,17 @@ of treating an implementation accident as intent.
 
 ## Start by task
 
-| Task                      | Read first                                                                                       | Then, only if needed                                                                                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Product behavior or copy  | [`../PRODUCT.md`](../PRODUCT.md)                                                                 | [`product/status-experience.md`](product/status-experience.md), [`product/prds/`](product/prds/)                                                                                                                         |
-| Visual/UI work            | [`../DESIGN.md`](../DESIGN.md)                                                                   | [`design/component-patterns.md`](design/component-patterns.md), [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md)                                                                       |
-| Local development         | [`../development.md`](../development.md)                                                         | [`operations/development-commands.md`](operations/development-commands.md), [`../bootstrap.md`](../bootstrap.md)                                                                                                         |
-| Web/desktop boundary      | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                                                                                                                                                 |
-| Mihomo lifecycle/API      | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) | Status, Traffic, Events, or Diagnostics contract below                                                                                                                                                                   |
-| Profiles and settings     | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                               |
-| macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     | TUN, packaging, network/DNS, or sidebar document below                                                                                                                                                                   |
-| Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md) |
-| Validation/release claims | The target-specific quality document                                                             | [`quality/prototype-validation.md`](quality/prototype-validation.md) only for `sketch/` changes                                                                                                                          |
+| Task                      | Read first                                                                                       | Then, only if needed                                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product behavior or copy  | [`../PRODUCT.md`](../PRODUCT.md)                                                                 | [`product/status-experience.md`](product/status-experience.md), [`product/prds/`](product/prds/)                                                                                                                             |
+| Visual/UI work            | [`../DESIGN.md`](../DESIGN.md)                                                                   | [`architecture/tailwind-variants.md`](architecture/tailwind-variants.md), [`design/component-patterns.md`](design/component-patterns.md), [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md) |
+| Local development         | [`../development.md`](../development.md)                                                         | [`operations/development-commands.md`](operations/development-commands.md), [`../bootstrap.md`](../bootstrap.md)                                                                                                             |
+| Web/desktop boundary      | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                                                                                                                                                     |
+| Mihomo lifecycle/API      | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) | Status, Traffic, Events, or Diagnostics contract below                                                                                                                                                                       |
+| Profiles and settings     | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                                   |
+| macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     | TUN, packaging, network/DNS, or sidebar document below                                                                                                                                                                       |
+| Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
+| Validation/release claims | The target-specific quality document                                                             | [`quality/prototype-validation.md`](quality/prototype-validation.md) only for `sketch/` changes                                                                                                                              |
 
 ## Contract index
 
@@ -27,6 +27,8 @@ of treating an implementation accident as intent.
 
 - [`frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md) —
   ownership across Web, RPC, desktop bridge, Tauri, and native layers.
+- [`tailwind-variants.md`](architecture/tailwind-variants.md) — production
+  styling ownership, merge/source rules, and bounded CSS exceptions.
 - [`desktop-bootstrap.md`](architecture/desktop-bootstrap.md) — offline assets,
   local origin, browser launch, authentication, and threat model.
 - [`mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md)
@@ -62,8 +64,10 @@ of treating an implementation accident as intent.
   build/device procedure and mobile evidence levels.
 - [`quality/production-web-validation.md`](quality/production-web-validation.md),
   [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md),
+  [`quality/tailwind-variants-acceptance.md`](quality/tailwind-variants-acceptance.md),
   and [`quality/prototype-validation.md`](quality/prototype-validation.md) —
-  production Web, native visual, and retained-sketch gates respectively.
+  production Web, native visual, styling migration, and retained-sketch gates
+  respectively.
 
 ## Planning and research
 

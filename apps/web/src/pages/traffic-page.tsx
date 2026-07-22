@@ -42,6 +42,7 @@ import {
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { cx, tv } from "@mish/ui/tv";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -68,6 +69,89 @@ const connectionSortValues: ConnectionSort[] = [
   "upload-desc",
 ];
 const ruleSortValues: RuleSort[] = ["priority-asc", "type-asc", "target-asc", "hits-desc"];
+
+const trafficStyles = tv({
+  slots: {
+    page: cx(
+      "traffic-page w-full px-7 pt-7 pb-9 max-page-compact:px-6 max-page-compact:pt-6",
+      "max-page-compact:pb-8 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    ),
+    header: cx(
+      "flex items-start justify-between gap-6 max-toolbar-compact:flex-col",
+      "max-toolbar-compact:items-stretch [&_p]:mt-1.25 [&_p]:text-metadata",
+      "[&_p]:text-muted-foreground",
+    ),
+    actions: "flex gap-2 max-toolbar-compact:self-start",
+    sourceStatus: cx(
+      "mt-5 flex min-h-9.5 items-center justify-between gap-4 rounded-md border border-hairline",
+      "bg-surface-soft px-3 py-2 text-metadata text-fg",
+      "data-[state=stale]:border-feedback-warning-border data-[state=stale]:text-warning",
+      "[&>span:last-child]:shrink-0 [&>span:last-child]:text-caption",
+      "[&>span:last-child]:text-muted-foreground max-toolbar-compact:flex-col",
+      "max-toolbar-compact:items-start max-toolbar-compact:gap-1",
+    ),
+    tabs: "mt-5",
+    viewButton: cx(
+      "traffic-view-switch-button gap-1.75 px-3 [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center",
+      "[&_.ui-badge]:px-1.25",
+    ),
+    tools:
+      "my-3 flex flex-wrap items-center gap-2 max-toolbar-compact:flex-col max-toolbar-compact:items-stretch",
+    searchRow: "flex min-w-60 flex-1 items-center gap-2 max-shell-mobile:min-w-0",
+    searchField: "min-w-0 flex-1",
+    searchControl: cx(
+      "relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
+      "[&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5",
+    ),
+    searchHelp: "shrink-0 text-muted-foreground hover:text-fg",
+    searchHelpDialog: "w-[min(520px,calc(100vw_-_32px))]",
+    searchHelpContent: "grid gap-3 px-4 py-1 text-metadata leading-5 text-fg",
+    searchExamples: cx(
+      "grid gap-2 [&_code]:select-text [&_code]:rounded-sm [&_code]:border [&_code]:border-border",
+      "[&_code]:bg-surface-soft [&_code]:px-2.5 [&_code]:py-2 [&_code]:text-fg",
+    ),
+    connectionTable: cx(
+      "traffic-table min-w-270 table-fixed [&_.ui-table-head:nth-child(1)]:w-44.5",
+      "[&_.ui-table-head:nth-child(2)]:w-33 [&_.ui-table-head:nth-child(3)]:w-28",
+      "[&_.ui-table-head:nth-child(4)]:w-28 [&_.ui-table-head:nth-child(5)]:w-28",
+      "[&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-19.5",
+    ),
+    rulesTable: cx(
+      "traffic-table min-w-190 table-fixed [&_.ui-table-head:nth-child(1)]:w-23",
+      "[&_.ui-table-head:nth-child(2)]:w-37.5 [&_.ui-table-head:nth-child(5)]:w-23",
+      "[&_.ui-table-head:nth-child(6)]:w-23 [&_.ui-table-head:last-child]:w-23",
+    ),
+    destination: cx(
+      "inline-flex h-auto min-h-0 w-full justify-start gap-0.5 overflow-hidden rounded-none",
+      "border-0 bg-transparent p-0 text-left text-ink hover:bg-transparent [&_span]:truncate",
+      "[&_small]:text-metadata [&_small]:text-muted-foreground",
+    ),
+    rule: cx(
+      "block overflow-hidden text-ellipsis font-medium text-fg [&+small]:block",
+      "[&+small]:overflow-hidden [&+small]:text-ellipsis [&+small]:text-muted-foreground",
+    ),
+    empty: "mt-4 min-h-55 rounded-md border border-hairline",
+    loadMore: "mt-3 flex items-center justify-end gap-3 pt-4 text-metadata text-muted-foreground",
+    detailDialog:
+      "max-h-[min(760px,calc(100vh_-_48px))] w-[min(680px,calc(100vw_-_32px))] overflow-auto",
+    detailBody: "flex flex-col",
+    detailGrid: cx(
+      "m-4 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-hairline",
+      "bg-hairline-soft max-shell-mobile:m-3 max-shell-mobile:grid-cols-1 [&>div]:min-w-0",
+      "[&>div]:bg-canvas [&>div]:px-3 [&>div]:py-2.5 [&_dt]:text-caption",
+      "[&_dt]:text-muted-foreground [&_dd]:mt-0.75 [&_dd]:wrap-anywhere",
+      "[&_dd]:text-metadata [&_dd]:text-fg",
+    ),
+    chain: cx(
+      "px-4 pb-4 [&_ol]:mt-2 [&_ol]:flex [&_ol]:list-none [&_ol]:flex-col [&_ol]:gap-px",
+      "[&_ol]:overflow-hidden [&_ol]:rounded-md [&_ol]:border [&_ol]:border-hairline",
+      "[&_ol]:bg-hairline-soft [&_ol]:p-0 [&_li]:grid [&_li]:min-h-9.5",
+      "[&_li]:grid-cols-[28px_minmax(0,1fr)] [&_li]:items-center [&_li]:gap-2 [&_li]:bg-canvas",
+      "[&_li]:px-2.5 [&_li>span]:text-caption [&_li>span]:text-muted-foreground",
+      "[&_li>strong]:truncate [&_li>strong]:text-metadata [&_li>strong]:font-medium",
+    ),
+  },
+});
 
 export function TrafficPage() {
   const { publish } = useNotificationDelivery();
@@ -158,13 +242,13 @@ export function TrafficPage() {
   }
 
   return (
-    <div className="traffic-page">
-      <header className="traffic-header">
+    <div className={trafficStyles().page()}>
+      <header className={trafficStyles().header()}>
         <div>
           <h1>{LL.traffic.title()}</h1>
           <p>{LL.traffic.retention()}</p>
         </div>
-        <div className="traffic-actions">
+        <div className={trafficStyles().actions()}>
           <Button
             aria-describedby="traffic-close-scope"
             disabled={
@@ -195,10 +279,9 @@ export function TrafficPage() {
           : LL.traffic.closeUnsupported()}
       </p>
 
-      <div className="traffic-tabs">
+      <div className={trafficStyles().tabs()}>
         <ToggleGroup
           aria-label={LL.traffic.title()}
-          className="traffic-view-switch"
           onValueChange={(values) => {
             const value = values[0];
             if (value !== "active" && value !== "closed" && value !== "rules") return;
@@ -207,26 +290,26 @@ export function TrafficPage() {
           }}
           spacing={0}
           value={[tab]}
-          variant="outline"
+          variant="segmented"
         >
-          <ToggleGroupItem className="traffic-view-switch-button" value="active">
+          <ToggleGroupItem className={trafficStyles().viewButton()} value="active">
             {LL.traffic.active()} <Badge variant="outline">{activeConnections.length}</Badge>
           </ToggleGroupItem>
-          <ToggleGroupItem className="traffic-view-switch-button" value="closed">
+          <ToggleGroupItem className={trafficStyles().viewButton()} value="closed">
             {LL.traffic.closed()} <Badge variant="outline">{closed.length}</Badge>
           </ToggleGroupItem>
-          <ToggleGroupItem className="traffic-view-switch-button" value="rules">
+          <ToggleGroupItem className={trafficStyles().viewButton()} value="rules">
             {LL.traffic.rules()} <Badge variant="outline">{snapshot?.rules.length ?? 0}</Badge>
           </ToggleGroupItem>
         </ToggleGroup>
 
-        <div className="traffic-tools">
-          <div className="traffic-search-row">
-            <Field className="traffic-search-field">
+        <div className={trafficStyles().tools()}>
+          <div className={trafficStyles().searchRow()}>
+            <Field className={trafficStyles().searchField()}>
               <FieldLabel className="sr-only" htmlFor="traffic-search">
                 {LL.traffic.searchLabel()}
               </FieldLabel>
-              <div className="traffic-search-control">
+              <div className={trafficStyles().searchControl()}>
                 <MagnifyingGlass aria-hidden="true" />
                 <Input
                   autoComplete="off"
@@ -241,7 +324,7 @@ export function TrafficPage() {
             </Field>
             <Button
               aria-label={LL.traffic.searchHelpAria()}
-              className="traffic-search-help-button"
+              className={trafficStyles().searchHelp()}
               onClick={() => setSearchHelpOpen(true)}
               size="icon-sm"
               type="button"
@@ -334,7 +417,7 @@ export function TrafficPage() {
       </div>
 
       {total > visibleLimit ? (
-        <div className="traffic-load-more">
+        <div className={trafficStyles().loadMore()}>
           <span>{LL.traffic.showing({ total, visible: visibleLimit })}</span>
           <Button
             onClick={() => setVisibleLimit((current) => current + TRAFFIC_RENDER_BATCH_SIZE)}
@@ -358,7 +441,10 @@ export function TrafficPage() {
       />
 
       <Dialog onOpenChange={setSearchHelpOpen} open={searchHelpOpen}>
-        <DialogContent className="traffic-search-help-dialog" closeLabel={LL.common.close()}>
+        <DialogContent
+          className={trafficStyles().searchHelpDialog()}
+          closeLabel={LL.common.close()}
+        >
           <DialogHeader>
             <div>
               <DialogTitle className="dialog-title">{LL.traffic.searchHelpTitle()}</DialogTitle>
@@ -367,9 +453,9 @@ export function TrafficPage() {
               </DialogDescription>
             </div>
           </DialogHeader>
-          <div className="traffic-search-help-content">
+          <div className={trafficStyles().searchHelpContent()}>
             <p>{LL.traffic.searchHelpFields()}</p>
-            <div className="traffic-search-examples">
+            <div className={trafficStyles().searchExamples()}>
               <code>destination:example.com</code>
               <code>process:browser network:tcp</code>
             </div>
@@ -479,10 +565,10 @@ function TrafficSourceStatus({
   }
 
   return (
-    <div className="traffic-source-status" data-state={state} role="status">
+    <div className={trafficStyles().sourceStatus()} data-state={state} role="status">
       <span>{message}</span>
       {snapshot?.sessionId ? (
-        <span className="tabular">
+        <span className="tabular-nums">
           {LL.traffic.reconnect({
             count: snapshot.reconnectCount,
             session: snapshot.sessionId,
@@ -518,7 +604,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
 }: ConnectionPanelProps<T>) {
   if (connections.length === 0) {
     return (
-      <Empty className="traffic-empty">
+      <Empty className={trafficStyles().empty()}>
         <EmptyHeader>
           <EmptyTitle>{emptyTitle}</EmptyTitle>
           <EmptyDescription>{emptyDescription}</EmptyDescription>
@@ -530,7 +616,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
   const showsClosedTime = connections.some((connection) => "closedAt" in connection);
 
   return (
-    <Table className="traffic-table">
+    <Table className={trafficStyles().connectionTable()}>
       <TableHeader>
         <TableRow>
           <TableHead>{LL.traffic.destination()}</TableHead>
@@ -551,21 +637,21 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
           <TableRow key={connection.id}>
             <TableCell>
               <Button
-                className="traffic-destination-button"
+                className={trafficStyles().destination()}
                 onClick={() => onSelect(connection)}
                 variant="ghost"
               >
                 <span>{destinationLabel(connection) || LL.traffic.unavailable()}</span>
-                <small className="tabular">:{connection.destinationPort}</small>
+                <small className="tabular-nums">:{connection.destinationPort}</small>
               </Button>
             </TableCell>
             <TableCell title={connection.processPath ?? undefined}>
               {connection.processName ?? LL.traffic.unavailable()}
             </TableCell>
-            <TableCell className="tabular">
+            <TableCell className="tabular-nums">
               {connection.network.toUpperCase()} · {connection.protocol}
             </TableCell>
-            <TableCell className="tabular">
+            <TableCell className="tabular-nums">
               {formatDate(
                 "closedAt" in connection && typeof connection.closedAt === "string"
                   ? connection.closedAt
@@ -573,10 +659,10 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 locale,
               )}
             </TableCell>
-            <TableCell className="tabular">{formatBytes(connection.downloadBytes)}</TableCell>
-            <TableCell className="tabular">{formatBytes(connection.uploadBytes)}</TableCell>
+            <TableCell className="tabular-nums">{formatBytes(connection.downloadBytes)}</TableCell>
+            <TableCell className="tabular-nums">{formatBytes(connection.uploadBytes)}</TableCell>
             <TableCell>
-              <span className="traffic-rule-cell">{connection.matchedRule.type}</span>
+              <span className={trafficStyles().rule()}>{connection.matchedRule.type}</span>
               <small>{connection.matchedRule.payload || LL.traffic.unavailable()}</small>
             </TableCell>
             <TableCell title={connection.routeChain.join(" → ")}>
@@ -607,7 +693,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
 function RulesPanel({ LL, rules }: { LL: TranslationFunctions; rules: EffectiveRuleDto[] }) {
   if (rules.length === 0) {
     return (
-      <Empty className="traffic-empty">
+      <Empty className={trafficStyles().empty()}>
         <EmptyHeader>
           <EmptyTitle>{LL.traffic.rulesEmpty()}</EmptyTitle>
           <EmptyDescription>{LL.traffic.rulesEmptyDescription()}</EmptyDescription>
@@ -616,7 +702,7 @@ function RulesPanel({ LL, rules }: { LL: TranslationFunctions; rules: EffectiveR
     );
   }
   return (
-    <Table className="traffic-table rules-table">
+    <Table className={trafficStyles().rulesTable()}>
       <TableHeader>
         <TableRow>
           <TableHead>{LL.traffic.priority()}</TableHead>
@@ -630,7 +716,7 @@ function RulesPanel({ LL, rules }: { LL: TranslationFunctions; rules: EffectiveR
       <TableBody>
         {rules.map((rule) => (
           <TableRow key={`${rule.priority}:${rule.type}:${rule.payload}`}>
-            <TableCell className="tabular">{rule.priority + 1}</TableCell>
+            <TableCell className="tabular-nums">{rule.priority + 1}</TableCell>
             <TableCell>{rule.type}</TableCell>
             <TableCell title={rule.payload}>{rule.payload || LL.traffic.unavailable()}</TableCell>
             <TableCell>{rule.target}</TableCell>
@@ -639,7 +725,9 @@ function RulesPanel({ LL, rules }: { LL: TranslationFunctions; rules: EffectiveR
                 {rule.enabled ? LL.traffic.enabled() : LL.traffic.disabled()}
               </Badge>
             </TableCell>
-            <TableCell className="tabular">{rule.hitCount ?? LL.traffic.unavailable()}</TableCell>
+            <TableCell className="tabular-nums">
+              {rule.hitCount ?? LL.traffic.unavailable()}
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -741,18 +829,18 @@ function ConnectionDetailDialog({
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={connection !== null}>
-      <DialogContent className="traffic-detail-dialog" closeLabel={LL.common.close()}>
-        <div className="dialog-header">
+      <DialogContent className={trafficStyles().detailDialog()} closeLabel={LL.common.close()}>
+        <DialogHeader>
           <div>
             <DialogTitle className="dialog-title">{LL.traffic.connectionDetails()}</DialogTitle>
             <DialogDescription className="dialog-description">
               {LL.traffic.detailDescription()}
             </DialogDescription>
           </div>
-        </div>
+        </DialogHeader>
         {connection ? (
-          <div className="traffic-detail-body">
-            <dl className="traffic-detail-grid">
+          <div className={trafficStyles().detailBody()}>
+            <dl className={trafficStyles().detailGrid()}>
               <Detail
                 label={LL.traffic.destinationHost()}
                 value={connection.destinationHost}
@@ -819,13 +907,13 @@ function ConnectionDetailDialog({
                 LL={LL}
               />
             </dl>
-            <section className="traffic-chain-detail">
+            <section className={trafficStyles().chain()}>
               <h2>{LL.traffic.orderedChain()}</h2>
               {connection.routeChain.length > 0 ? (
                 <ol>
                   {connection.routeChain.map((hop, index) => (
                     <li key={`${index}:${hop}`}>
-                      <span className="tabular">{index + 1}</span>
+                      <span className="tabular-nums">{index + 1}</span>
                       <strong>{hop}</strong>
                     </li>
                   ))}
@@ -834,7 +922,7 @@ function ConnectionDetailDialog({
                 <p>{LL.traffic.unavailable()}</p>
               )}
             </section>
-            <div className="dialog-footer">
+            <DialogFooter>
               {!("closedAt" in connection) ? (
                 <Button
                   aria-describedby={canClose ? undefined : "traffic-close-scope"}
@@ -847,7 +935,7 @@ function ConnectionDetailDialog({
                   {LL.traffic.close()}
                 </Button>
               ) : null}
-            </div>
+            </DialogFooter>
           </div>
         ) : null}
       </DialogContent>

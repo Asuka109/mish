@@ -4,6 +4,7 @@ import { Question } from "@phosphor-icons/react/Question";
 import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
 import { useState } from "react";
 import { useNavigate } from "react-router";
+import { cx, tv } from "@mish/ui/tv";
 import {
   Button,
   Dialog,
@@ -34,6 +35,21 @@ import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 
 const legacyTunGuideStorageKey = "mish.tun-helper-guide.v1";
 const tunGuideStorageKey = "mish.tun-helper-guide.v2";
+
+const captureStyles = tv({
+  slots: {
+    stack: "traffic-capture-stack flex min-w-0 flex-col items-start gap-1.5 py-2.5",
+    control: "inline-flex flex-wrap items-center gap-2",
+    dialogHeader: "border-0",
+    explanations: "px-4 py-1.5",
+    explanation: cx(
+      "grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 py-3.5 [&>svg]:mt-px [&>svg]:size-4.5",
+      "[&>svg]:text-muted-foreground [&_p]:mt-1 [&_p]:text-metadata [&_p]:leading-5",
+      "[&_p]:text-muted-foreground",
+    ),
+    dialogFooter: "border-0",
+  },
+});
 
 function completedTunGuideIdentity() {
   try {
@@ -164,8 +180,8 @@ export function TrafficCaptureControl({
 
   return (
     <>
-      <div className="traffic-capture-stack">
-        <div className="capture-control">
+      <div className={captureStyles().stack()}>
+        <div className={captureStyles().control()}>
           <Toggle
             aria-busy={pendingMode === "systemProxy"}
             aria-describedby={getCaptureModeDescriptionId(
@@ -179,12 +195,11 @@ export function TrafficCaptureControl({
               runtime: systemProxyEnabled ? LL.capture.running() : LL.capture.notRunning(),
               selection: systemProxySelected ? LL.capture.selected() : LL.capture.notSelected(),
             })}
-            className="capture-mode-button"
             data-capture-state={getCaptureState(systemProxySelected, systemProxyEnabled)}
             disabled={disabled || !commandSupported || !systemProxyAvailable}
             onPressedChange={onSystemProxyChange}
             pressed={systemProxySelected}
-            variant="outline"
+            variant="capture"
           >
             {pendingMode === "systemProxy" ? (
               <Spinner data-icon="inline-start" />
@@ -206,12 +221,11 @@ export function TrafficCaptureControl({
               runtime: tunEnabled ? LL.capture.running() : LL.capture.notRunning(),
               selection: tunSelected ? LL.capture.selected() : LL.capture.notSelected(),
             })}
-            className="capture-mode-button"
             data-capture-state={getCaptureState(tunSelected, tunEnabled)}
             disabled={disabled || !commandSupported || (!tunAvailable && !tunSetupRequired)}
             onPressedChange={requestTunChange}
             pressed={tunSelected}
-            variant="outline"
+            variant="capture"
           >
             {pendingMode === "tun" ? (
               <Spinner data-icon="inline-start" />
@@ -222,7 +236,7 @@ export function TrafficCaptureControl({
           </Toggle>
           <Button
             aria-label={LL.capture.helpAria()}
-            className="capture-help-button"
+            className="[&_svg]:text-muted-soft"
             onClick={() => setHelpOpen(true)}
             size="icon-sm"
             type="button"
@@ -240,8 +254,8 @@ export function TrafficCaptureControl({
       </div>
 
       <Dialog onOpenChange={setHelpOpen} open={helpOpen}>
-        <DialogContent className="info-dialog" closeLabel={LL.common.close()}>
-          <div className="dialog-header">
+        <DialogContent closeLabel={LL.common.close()}>
+          <DialogHeader className={captureStyles().dialogHeader()}>
             <div>
               <DialogTitle className="dialog-title">{LL.capture.title()}</DialogTitle>
               <DialogDescription className="dialog-description">
@@ -252,16 +266,16 @@ export function TrafficCaptureControl({
                     : LL.capture.deviceDescription()}
               </DialogDescription>
             </div>
-          </div>
-          <div className="capture-explanations">
-            <section className="capture-explanation">
+          </DialogHeader>
+          <div className={captureStyles().explanations()}>
+            <section className={captureStyles().explanation()}>
               <Desktop aria-hidden="true" />
               <div>
                 <h2>{LL.capture.systemProxy()}</h2>
                 <p>{getHelpDescription("systemProxy", capabilities.systemProxy)}</p>
               </div>
             </section>
-            <section className="capture-explanation">
+            <section className={captureStyles().explanation()}>
               <ShieldCheck aria-hidden="true" />
               <div>
                 <h2>{LL.capture.tun()}</h2>
@@ -269,26 +283,24 @@ export function TrafficCaptureControl({
               </div>
             </section>
           </div>
-          <div className="dialog-footer">
-            <DialogClose
-              render={<Button className="secondary-button" type="button" variant="outline" />}
-            >
+          <DialogFooter className={captureStyles().dialogFooter()}>
+            <DialogClose render={<Button type="button" variant="outline" />}>
               {LL.capture.acknowledge()}
             </DialogClose>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog onOpenChange={setTunGuideOpen} open={tunGuideOpen}>
-        <DialogContent className="info-dialog tun-guide-dialog" closeLabel={LL.common.close()}>
-          <DialogHeader>
+        <DialogContent closeLabel={LL.common.close()}>
+          <DialogHeader className={captureStyles().dialogHeader()}>
             <DialogTitle className="dialog-title">{LL.capture.tunGuide.title()}</DialogTitle>
             <DialogDescription className="dialog-description">
               {LL.capture.tunGuide.description()}
             </DialogDescription>
           </DialogHeader>
-          <div className="capture-explanations">
-            <section className="capture-explanation">
+          <div className={captureStyles().explanations()}>
+            <section className={captureStyles().explanation()}>
               <ShieldCheck aria-hidden="true" />
               <div>
                 <h2>
@@ -303,7 +315,7 @@ export function TrafficCaptureControl({
                 </p>
               </div>
             </section>
-            <section className="capture-explanation">
+            <section className={captureStyles().explanation()}>
               <ArrowsClockwise aria-hidden="true" />
               <div>
                 <h2>{LL.capture.tunGuide.restartTitle()}</h2>
@@ -311,7 +323,7 @@ export function TrafficCaptureControl({
               </div>
             </section>
           </div>
-          <DialogFooter>
+          <DialogFooter className={captureStyles().dialogFooter()}>
             {tunInstallFailure !== undefined ? (
               <p className="dialog-error" role="alert">
                 {tunHelperFailureMessage(LL, tunInstallFailure)}
