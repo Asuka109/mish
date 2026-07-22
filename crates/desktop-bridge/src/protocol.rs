@@ -1653,7 +1653,7 @@ fn capture_capability_available(
         (
             StatusAdapterKind::Native,
             CapabilityAvailability::FixtureOnly
-        ) | (StatusAdapterKind::Rpc, CapabilityAvailability::Supported)
+        ) | (_, CapabilityAvailability::Supported)
     )
 }
 
