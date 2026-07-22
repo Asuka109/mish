@@ -52,6 +52,24 @@ function trafficColumns(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>(".traffic-session-column")];
 }
 
+function clickProxyControl(name: string): void {
+  const control = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (candidate) => candidate.getAttribute("aria-label") === name,
+  );
+  if (!control) throw new Error(`Missing proxy control: ${name}`);
+  control.click();
+}
+
+function rectTuple(element: Element): [number, number, number, number] {
+  const { height, width, x, y } = element.getBoundingClientRect();
+  return [x, y, width, height].map((value) => Math.round(value * 100) / 100) as [
+    number,
+    number,
+    number,
+    number,
+  ];
+}
+
 function measure(index: number): TrafficRowGeometry {
   const label = document.querySelectorAll<HTMLElement>(".traffic-session-label")[index];
   const rate = document.querySelectorAll<HTMLElement>(".traffic-rate-value")[index];
@@ -193,5 +211,71 @@ describe("status traffic row layout", () => {
       expect(range.getClientRects()).toHaveLength(1);
       expect(range.getBoundingClientRect().right).toBeLessThanOrEqual(rateColumn.left);
     }
+  });
+
+  test("keeps stopped Chinese rate cells empty without changing their geometry through launch and stop", async () => {
+    await page.viewport(360, 720);
+    await selectLocale("简体中文");
+
+    clickProxyControl("启动代理演示状态");
+    await vi.waitFor(() => {
+      const rates = [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")].map(
+        (rate) => rate.textContent,
+      );
+      expect(rates.every(Boolean)).toBe(true);
+      expect(rates).not.toContain("- B/s");
+    });
+    await vi.waitFor(() =>
+      expect(
+        [...document.querySelectorAll<HTMLButtonElement>("button")].some(
+          (candidate) => candidate.getAttribute("aria-label") === "关闭代理演示状态",
+        ),
+      ).toBe(true),
+    );
+    clickProxyControl("关闭代理演示状态");
+    await vi.waitFor(() => {
+      expect(
+        [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")].map(
+          (rate) => rate.textContent,
+        ),
+      ).toEqual(["", ""]);
+    });
+
+    const stoppedColumns = trafficColumns().map(rectTuple);
+    const stoppedRates = [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")];
+    const stoppedRateGeometry = stoppedRates.map(rectTuple);
+    expect(stoppedRates.map((rate) => rate.textContent)).toEqual(["", ""]);
+    expect(document.body.textContent).not.toContain("- B/s");
+
+    clickProxyControl("启动代理演示状态");
+    await vi.waitFor(() => {
+      const rates = [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")].map(
+        (rate) => rate.textContent,
+      );
+      expect(rates.every(Boolean)).toBe(true);
+      expect(rates).not.toContain("- B/s");
+    });
+    await vi.waitFor(() =>
+      expect(
+        [...document.querySelectorAll<HTMLButtonElement>("button")].some(
+          (candidate) => candidate.getAttribute("aria-label") === "关闭代理演示状态",
+        ),
+      ).toBe(true),
+    );
+    expect(trafficColumns().map(rectTuple)).toEqual(stoppedColumns);
+    expect(
+      [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")].map(rectTuple),
+    ).toEqual(stoppedRateGeometry);
+
+    clickProxyControl("关闭代理演示状态");
+    await vi.waitFor(() => {
+      expect(
+        [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")].map(
+          (rate) => rate.textContent,
+        ),
+      ).toEqual(["", ""]);
+    });
+    expect(document.body.textContent).not.toContain("- B/s");
+    expect(trafficColumns().map(rectTuple)).toEqual(stoppedColumns);
   });
 });

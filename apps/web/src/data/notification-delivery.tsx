@@ -1,4 +1,4 @@
-import type { EventLevel, EventRecordDto } from "@mish/contracts";
+import type { EventLevel } from "@mish/contracts";
 import { createContext, use, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { presentNotificationToast, dismissNotificationToast } from "./sonner-notification-adapter";
 
@@ -27,6 +27,8 @@ export interface NotificationEnvelope {
   observedAt?: number;
   duration?: number;
   actions?: readonly NotificationActionDescriptor[];
+  /** Controls toast presentation while retaining the same entry in Notifications. */
+  toast?: "present" | "dismiss";
   /**
    * Canonical IDs made obsolete by this more specific publication. This is
    * session-local and removes only the retained/toast projections, never
@@ -58,10 +60,7 @@ export interface NotificationDeliveryContextValue {
   markRead(ids: readonly string[]): void;
   readIds: ReadonlySet<string>;
   remove(id: string): void;
-  ingestExternalEvents(
-    events: readonly EventRecordDto[],
-    notifications?: readonly NotificationEnvelope[],
-  ): void;
+  reconcileExternalNotifications(notifications: readonly NotificationEnvelope[]): void;
   retire(id: string): void;
   setSession(sessionId: string | null): void;
 }
@@ -92,9 +91,9 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
   const [readIds, setReadIds] = useState<ReadonlySet<string>>(new Set());
   const [removedIds, setRemovedIds] = useState<ReadonlySet<string>>(new Set());
   const sessionId = useRef<string | null>(null);
-  const externalEventsInitialized = useRef(false);
-  const seenExternalEventIds = useRef<ReadonlySet<string>>(new Set());
-  const presentedExternalEvents = useRef<ReadonlyMap<string, string>>(new Map());
+  const externalNotificationsInitialized = useRef(false);
+  const seenExternalNotificationIds = useRef<ReadonlySet<string>>(new Set());
+  const presentedExternalNotifications = useRef<ReadonlyMap<string, string>>(new Map());
 
   const dismiss = useCallback((id: string) => dismissNotificationToast(id), []);
 
@@ -143,7 +142,8 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
           entry,
         ].toSorted((left, right) => right.observedAt - left.observedAt);
         for (const replacedId of replacedIds) dismissNotificationToast(replacedId);
-        presentNotificationToast(entry, (actionId) => execute(entry.id, actionId));
+        if (envelope.toast === "dismiss") dismissNotificationToast(entry.id);
+        else presentNotificationToast(entry, (actionId) => execute(entry.id, actionId));
         return next;
       });
     },
@@ -185,52 +185,57 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
     dismissNotificationToast(id);
   }, []);
 
-  const ingestExternalEvents = useCallback(
-    (events: readonly EventRecordDto[], notifications: readonly NotificationEnvelope[] = []) => {
-      const notificationById = new Map(
-        notifications.map((notification) => [notification.id, notification]),
-      );
-      const history = events
-        .filter((event) => event.level === "warning" || event.level === "error")
-        .map<DeliveredNotification>((event) => {
-          const projected = notificationById.get(event.id);
-          return {
-            actions: (projected?.actions ?? []).slice(0, maxActions),
-            detail: bounded(projected?.detail ?? event.detail ?? undefined),
-            duration: projected?.duration,
-            id: event.id,
-            level: projected?.level ?? event.level,
-            message: bounded(projected?.message ?? event.message) ?? "",
-            observedAt: event.observedAt,
-            source: "event",
-            title: bounded(projected?.title),
-          };
-        });
-      if (externalEventsInitialized.current) {
-        const presented = new Map(presentedExternalEvents.current);
-        for (const entry of history) {
-          if (!notificationById.has(entry.id)) continue;
+  const reconcileExternalNotifications = useCallback(
+    (notifications: readonly NotificationEnvelope[]) => {
+      const replacementObservedAt = new Map<string, number>();
+      for (const notification of notifications) {
+        for (const replacedId of notification.replaces ?? []) {
+          replacementObservedAt.set(
+            replacedId,
+            Math.max(replacementObservedAt.get(replacedId) ?? 0, notification.observedAt ?? 0),
+          );
+        }
+      }
+      const history = notifications.map<DeliveredNotification>((notification) => ({
+        ...normalize(notification),
+        source: "event",
+      }));
+      if (externalNotificationsInitialized.current) {
+        const presented = new Map(presentedExternalNotifications.current);
+        for (const [index, entry] of history.entries()) {
+          const notification = notifications[index]!;
           const presentation = JSON.stringify({
             actions: entry.actions.map(({ id }) => id),
             detail: entry.detail,
+            level: entry.level,
             message: entry.message,
             title: entry.title,
+            toast: notification.toast,
           });
           const previousPresentation = presented.get(entry.id);
-          if (
-            !seenExternalEventIds.current.has(entry.id) ||
+          if (notification.toast === "dismiss") {
+            dismissNotificationToast(entry.id);
+            presented.set(entry.id, presentation);
+          } else if (
+            !seenExternalNotificationIds.current.has(entry.id) ||
             (previousPresentation !== undefined && previousPresentation !== presentation)
           ) {
             presentNotificationToast(entry, (actionId) => execute(entry.id, actionId));
             presented.set(entry.id, presentation);
           }
         }
-        presentedExternalEvents.current = presented;
+        presentedExternalNotifications.current = presented;
       }
-      seenExternalEventIds.current = new Set(events.map(({ id }) => id));
-      externalEventsInitialized.current = true;
+      seenExternalNotificationIds.current = new Set(notifications.map(({ id }) => id));
+      externalNotificationsInitialized.current = true;
       setEntries((current) => {
-        const applications = current.filter((entry) => entry.source === "application");
+        const applications = current.filter((entry) => {
+          if (entry.source !== "application") return false;
+          const replacement = replacementObservedAt.get(entry.id);
+          if (replacement === undefined || entry.observedAt > replacement) return true;
+          dismissNotificationToast(entry.id);
+          return false;
+        });
         const next = [...applications, ...history].toSorted(
           (left, right) => right.observedAt - left.observedAt,
         );
@@ -267,9 +272,9 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
       setReadIds(new Set());
       setRemovedIds(new Set());
     }
-    externalEventsInitialized.current = false;
-    seenExternalEventIds.current = new Set();
-    presentedExternalEvents.current = new Map();
+    externalNotificationsInitialized.current = false;
+    seenExternalNotificationIds.current = new Set();
+    presentedExternalNotifications.current = new Map();
     sessionId.current = nextSessionId;
   }, []);
 
@@ -279,7 +284,7 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
       entries: entries.filter(({ id }) => !removedIds.has(id)),
       execute: (id, actionId) => execute(id, actionId),
       markRead,
-      ingestExternalEvents,
+      reconcileExternalNotifications,
       publish,
       record,
       readIds,
@@ -291,10 +296,10 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
       dismiss,
       entries,
       execute,
-      ingestExternalEvents,
       markRead,
       publish,
       readIds,
+      reconcileExternalNotifications,
       record,
       removedIds,
       remove,

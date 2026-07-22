@@ -29,8 +29,6 @@ import { useProduct } from "../data/product-provider";
 import { useSettings } from "../data/settings-provider";
 import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useI18nContext } from "../i18n/i18n-react";
-import { isLocale } from "../i18n/i18n-util";
-import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cx, tv } from "@mish/ui/tv";
 
@@ -249,7 +247,7 @@ export function SettingsPage() {
   const [pendingLanguage, setPendingLanguage] = useState<LanguagePreference | null>(null);
   const [managedPorts, setManagedPorts] = useState<ManagedPortPreferencesDto | null>(null);
   const networkAutoRefreshStarted = useRef(false);
-  const { LL, locale, setLocale } = useI18nContext();
+  const { LL, locale } = useI18nContext();
   const snapshot = settings.snapshot;
   const startup = snapshot.preferences.startup;
   const displayedManagedPorts = managedPorts ?? snapshot.preferences.managedPorts;
@@ -308,13 +306,11 @@ export function SettingsPage() {
 
   async function changeLanguage(values: string[]) {
     const language = values[0];
-    if (!language || !isLocale(language)) return;
+    if (language !== "en" && language !== "zh-CN") return;
     setPendingButtonAction("language");
     setPendingLanguage(language);
     try {
-      if (!(await settings.setLanguage(language))) return;
-      persistLocale(language);
-      setLocale(language);
+      await settings.setLanguage(language);
     } finally {
       setPendingButtonAction(null);
       setPendingLanguage(null);
@@ -1008,7 +1004,7 @@ export function SettingsPage() {
             disabled={settings.pending}
             onValueChange={(values) => void changeLanguage(values)}
             spacing={0}
-            value={[locale satisfies LanguagePreference]}
+            value={[settings.snapshot.preferences.language]}
             variant="segmented"
           >
             <ToggleGroupItem
@@ -1021,10 +1017,10 @@ export function SettingsPage() {
               {LL.language.english()}
             </ToggleGroupItem>
             <ToggleGroupItem
-              aria-busy={pendingButtonAction === "language" && pendingLanguage === "zh"}
-              value="zh"
+              aria-busy={pendingButtonAction === "language" && pendingLanguage === "zh-CN"}
+              value="zh-CN"
             >
-              {pendingButtonAction === "language" && pendingLanguage === "zh" ? (
+              {pendingButtonAction === "language" && pendingLanguage === "zh-CN" ? (
                 <Spinner data-icon="inline-start" />
               ) : null}
               {LL.language.simplifiedChinese()}

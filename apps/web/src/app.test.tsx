@@ -632,6 +632,13 @@ class DeferredCaptureClient extends SnapshotStatusClient {
     return new Promise(() => undefined);
   }
 
+  emitInactiveSnapshotDuringCapture() {
+    this.currentSnapshot.runtime.phase = "inactive";
+    this.currentSnapshot.runtime.systemProxy.phase = "off";
+    this.currentSnapshot.runtime.tun.phase = "off";
+    for (const listener of this.listeners) listener(structuredClone(this.currentSnapshot));
+  }
+
   override supportsCommand(command: StatusCommand) {
     return command === "capture";
   }
@@ -782,12 +789,12 @@ describe("production routes", () => {
     expect(container.querySelector("[data-window-drag-surface='workspace-top']")).toBeNull();
   });
 
-  it("marks current notifications read on open, retains them, and removes only one item", async () => {
+  it("retains explicit application notifications and excludes raw core diagnostics", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
     const notificationTrigger = await screen.findByRole("button", {
-      name: "Notifications, 2 unread",
+      name: "Notifications, 1 unread",
     });
     await user.click(notificationTrigger);
 
@@ -800,15 +807,13 @@ describe("production routes", () => {
     expect(routeMessage).toHaveClass("notification-message");
     expect(routeMessage).toHaveAttribute("data-native-text-interaction");
     expect(
-      within(notificationCenter).getByText(
+      within(notificationCenter).queryByText(
         "Synthetic DNS lookup timed out for api.fixture.invalid",
       ),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     const notificationItems = within(notificationCenter).getAllByRole("listitem");
+    expect(notificationItems).toHaveLength(1);
     expect(notificationItems[0]).toHaveTextContent("Synthetic route check failed");
-    expect(notificationItems[1]).toHaveTextContent(
-      "Synthetic DNS lookup timed out for api.fixture.invalid",
-    );
     expect(within(notificationCenter).queryByText("Platform")).not.toBeInTheDocument();
     expect(within(notificationCenter).queryByText("Mihomo core")).not.toBeInTheDocument();
 
@@ -821,11 +826,7 @@ describe("production routes", () => {
     await user.click(removeRouteNotification);
 
     expect(routeMessage).not.toBeInTheDocument();
-    expect(
-      within(notificationCenter).getByText(
-        "Synthetic DNS lookup timed out for api.fixture.invalid",
-      ),
-    ).toBeInTheDocument();
+    expect(within(notificationCenter).queryAllByRole("listitem")).toHaveLength(0);
     expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
 
     await user.click(notificationTrigger);
@@ -838,8 +839,8 @@ describe("production routes", () => {
       within(reopenedCenter).queryByText("Synthetic route check failed"),
     ).not.toBeInTheDocument();
     expect(
-      within(reopenedCenter).getByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
-    ).toBeInTheDocument();
+      within(reopenedCenter).queryByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
+    ).not.toBeInTheDocument();
   });
 
   it("proactively prompts an unprompted onboarding invitation only once", async () => {
@@ -2190,6 +2191,13 @@ describe("desktop RPC experience", () => {
     expect(proxyControl).toHaveAttribute("aria-busy", "true");
     expect(proxyControl).toBeDisabled();
     expect(proxyControl).toHaveTextContent("Pending");
+    expect(
+      [
+        ...screen
+          .getByRole("region", { name: "Current session" })
+          .querySelectorAll(".traffic-rate-value"),
+      ].map((value) => value.textContent),
+    ).toEqual(["", ""]);
   });
 
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
@@ -2207,6 +2215,13 @@ describe("desktop RPC experience", () => {
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
     expect(screen.getByText(/Reconnecting to the Mish background service/i)).toBeInTheDocument();
+    expect(
+      [
+        ...screen
+          .getByRole("region", { name: "Current session" })
+          .querySelectorAll(".traffic-rate-value"),
+      ].map((value) => value.textContent),
+    ).toEqual(["", ""]);
 
     const proxyControl = screen.getByRole("button", { name: "Launch Proxy" });
     expect(proxyControl).toBeDisabled();
@@ -2260,11 +2275,41 @@ describe("desktop RPC experience", () => {
     const group = screen.getByRole("button", { name: /🌐 Proxy/ });
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: /Google/ });
-    for (const control of [globalMode, group, google]) {
+    for (const control of [globalMode, google]) {
       expect(control).toBeDisabled();
       expect(control).toHaveAccessibleDescription(/not supported by the current local service/i);
       await user.click(control);
     }
+    expect(group).toBeEnabled();
+    await user.click(group);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByText(
+        "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+      ),
+    ).not.toBeInTheDocument();
+    const disabledSelections = within(dialog).getAllByRole("button", { name: /^Select / });
+    expect(disabledSelections.length).toBeGreaterThan(0);
+    disabledSelections.forEach((selection) => {
+      expect(selection).toBeDisabled();
+      expect(selection).not.toHaveTextContent("Read-only");
+      const row = selection.closest<HTMLElement>("[data-entity-id]");
+      expect(row).toHaveAttribute("data-muted", "true");
+      expect(row).toHaveClass("opacity-55");
+    });
+    const currentSelection = disabledSelections.find(
+      (selection) => selection.getAttribute("aria-pressed") === "true",
+    );
+    expect(currentSelection?.closest("[data-entity-id]")).not.toHaveClass("bg-accent");
+    const automaticGroup = within(dialog)
+      .getByText("⚡ 自动选择・Auto")
+      .closest<HTMLElement>("[data-entity-id]")!;
+    expect(automaticGroup).toHaveAttribute("data-disabled", "true");
+    expect(automaticGroup).toHaveAttribute("data-muted", "true");
+    expect(within(automaticGroup).getByText("Auto-select")).toBeVisible();
+    expect(within(automaticGroup).queryByText("Read-only")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Latency unavailable")).not.toBeInTheDocument();
+    expect(within(dialog).getAllByText("Read-only").length).toBeGreaterThan(0);
 
     expect(setCapture).not.toHaveBeenCalled();
     expect(setRoutingMode).not.toHaveBeenCalled();
@@ -2278,30 +2323,41 @@ describe("Status fixture experience", () => {
     const session = await screen.findByLabelText("Current session");
 
     expect([...session.querySelectorAll("strong")].map((value) => value.textContent)).toEqual([
-      "- B/s",
-      "- B/s",
+      "",
+      "",
       "-",
       "-",
       "-",
       "-",
     ]);
+    expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
     await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
     await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
+    expect(
+      [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
+    ).toEqual(["0 B/s", "0 B/s"]);
+    await act(() => client.setRoutingMode("global"));
+    await waitFor(() =>
+      expect(
+        [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
+      ).toEqual(["2.45 MB/s", "1.18 MB/s"]),
+    );
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
     await act(() => client.setCapture({ systemProxy: true, tun: false }, false));
     await waitFor(() =>
       expect([...session.querySelectorAll("strong")].map((value) => value.textContent)).toEqual([
-        "- B/s",
-        "- B/s",
+        "",
+        "",
         "-",
         "-",
         "-",
         "-",
       ]),
     );
+    expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
     await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
@@ -2322,7 +2378,10 @@ describe("Status fixture experience", () => {
 
     expect(await screen.findByText("No policy groups available.")).toBeInTheDocument();
     const session = screen.getByRole("region", { name: "Current session" });
-    expect(within(session).getAllByText("- B/s")).toHaveLength(2);
+    expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
+    expect(
+      [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
+    ).toEqual(["", ""]);
     expect(within(session).getAllByText("-")).toHaveLength(6);
     expect(within(session).queryByText("0 B/s")).not.toBeInTheDocument();
     expect(within(session).queryByText("00:00:00")).not.toBeInTheDocument();
@@ -2344,7 +2403,20 @@ describe("Status fixture experience", () => {
     expect(within(groups).getByText("Configured group 5")).toBeVisible();
     expect(within(groups).queryByText("Configured group 6")).not.toBeInTheDocument();
     expect(within(groups).queryByText("No policy groups available.")).not.toBeInTheDocument();
-    expect(within(groups).getByRole("button", { name: /Configured group 1/ })).toBeDisabled();
+    const configuredGroup = within(groups).getByRole("button", { name: /Configured group 1/ });
+    expect(configuredGroup).toBeEnabled();
+    await userEvent.setup().click(configuredGroup);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByText(
+        "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+      ),
+    ).not.toBeInTheDocument();
+    const configuredNode = within(dialog).getByRole("button", {
+      name: "Select Configured node 1 in Configured group 1",
+    });
+    expect(configuredNode).toBeDisabled();
+    expect(configuredNode).not.toHaveTextContent("Read-only");
     expect(profileClient.getRoutes).toHaveBeenCalledWith("fixture-profile-studio");
   });
 
@@ -2359,7 +2431,7 @@ describe("Status fixture experience", () => {
 
     await user.click(screen.getByRole("button", { name: /🌐 Proxy/ }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    await user.click(screen.getByText("🇯🇵 NRT-03"));
+    await user.click(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /🌐 Proxy/ })).toHaveTextContent(
@@ -2372,14 +2444,40 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
     await user.click(await screen.findByRole("button", { name: /🌐 Proxy/ }));
-    await user.click(await screen.findByText("🇯🇵 NRT-03"));
+    await user.click(await screen.findByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
     await user.click(screen.getByRole("link", { name: "Routes" }));
-    await user.click(await screen.findByRole("button", { name: "Expand 🌐 Proxy" }));
+    await user.click(await screen.findByRole("button", { name: "Browse 🌐 Proxy" }));
 
     expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
+  });
+
+  it("keeps picker search on direct choices without nested navigation and restores focus", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+    const trigger = await screen.findByRole("button", { name: /🌐 Proxy/ });
+    await user.click(trigger);
+
+    const dialog = await screen.findByRole("dialog");
+    const search = within(dialog).getByRole("searchbox", { name: "Search available nodes" });
+    await user.type(search, "開発 🚄");
+    expect(within(dialog).getByText("No matching nodes.")).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(search).toHaveValue("");
+
+    const automaticGroup = within(dialog).getByText("⚡ 自动选择・Auto").closest("li");
+    expect(automaticGroup).not.toBeNull();
+    expect(automaticGroup).toHaveTextContent("Policy group · URL test");
+    expect(
+      within(dialog).queryByRole("button", { name: "Browse ⚡ 自动选择・Auto" }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Current policy-group path")).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("keeps capture actions explicitly described as fixture-only", async () => {
@@ -2739,6 +2837,25 @@ describe("Status fixture experience", () => {
     );
   });
 
+  it("keeps Launch Proxy pending when an inactive snapshot arrives before capture completes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    const client = new DeferredCaptureClient(snapshot);
+    renderRoute("/status", "en", client);
+
+    const proxyControl = await screen.findByRole("button", { name: "Launch Proxy" });
+    await user.click(proxyControl);
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toHaveTextContent("Pending");
+
+    act(() => client.emitInactiveSnapshotDuringCapture());
+
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toBeDisabled();
+    expect(proxyControl).toHaveTextContent("Pending");
+  });
+
   it("describes a typed permission failure without claiming success", async () => {
     const errorToast = vi.spyOn(toast, "error");
     const snapshot = await createRpcSnapshot();
@@ -2984,9 +3101,10 @@ describe("Status fixture experience", () => {
     expect(within(service).getByText(google.label)).toHaveAttribute("title", google.label);
   });
 
-  it("switches to Simplified Chinese and persists the locale", async () => {
+  it("switches to Simplified Chinese from the authoritative Settings snapshot", async () => {
     const user = userEvent.setup();
-    const view = renderRoute("/status");
+    const settingsClient = new FixtureSettingsClient();
+    const view = renderRoute("/status", "en", undefined, undefined, settingsClient);
     await screen.findByText("Live demo traffic");
     const authoredLabels = [...view.container.querySelectorAll(".user-authored-label")].map(
       (element) => element.textContent,
@@ -2997,11 +3115,12 @@ describe("Status fixture experience", () => {
     );
     await user.click(await screen.findByRole("menuitemradio", { name: "简体中文" }));
 
-    expect(await screen.findByText("当前演示的实时流量")).toBeInTheDocument();
+    await expect(settingsClient.getSnapshot()).resolves.toMatchObject({
+      preferences: { language: "zh-CN" },
+    });
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "路由" })).toBeInTheDocument();
-    expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
-    expect(localStorage.getItem("mish.locale")).toBe("zh");
+    expect(screen.getByRole("link", { name: "Routes" })).toBeInTheDocument();
+    expect(localStorage.getItem("mish.locale")).toBeNull();
     expect(
       [...view.container.querySelectorAll(".user-authored-label")].map(
         (element) => element.textContent,

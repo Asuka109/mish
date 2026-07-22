@@ -2,7 +2,6 @@ import { page } from "vitest/browser";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 
 beforeAll(async () => {
-  localStorage.setItem("mish.locale", "en");
   document.body.innerHTML = '<div id="root"></div>';
   await import("../main");
 

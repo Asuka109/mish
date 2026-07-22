@@ -562,6 +562,7 @@ export type EventSourcePhase = z.infer<typeof EventSourcePhaseSchema>;
 export const ApplicationNotificationKindSchema = z.enum([
   "capture-failure",
   "profile-activation-failure",
+  "profile-activation-geodata",
   "settings-failure",
   "traffic-failure",
 ]);
@@ -1001,7 +1002,23 @@ export const GroupDelayChildResultSchema = z
 export interface GroupDelayChildResultDto extends z.infer<typeof GroupDelayChildResultSchema> {}
 
 export const GroupDelayPolicySchema = z
-  .object({ id: IdentifierSchema, timeoutMilliseconds: z.number().int().nonnegative().max(32_767) })
+  .object({
+    id: IdentifierSchema,
+    timeoutMilliseconds: z.number().int().nonnegative().max(32_767),
+    url: z
+      .string()
+      .max(2_048)
+      .refine((value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === "https:" && url.username === "" && url.password === "";
+        } catch {
+          return false;
+        }
+      })
+      .nullable()
+      .default(null),
+  })
   .strict();
 export interface GroupDelayPolicyDto extends z.infer<typeof GroupDelayPolicySchema> {}
 
@@ -1172,7 +1189,7 @@ export interface PlatformCapabilitiesDto extends z.infer<typeof PlatformCapabili
 export const AppearancePreferenceSchema = z.enum(["system", "light", "dark"]);
 export type AppearancePreference = z.infer<typeof AppearancePreferenceSchema>;
 
-export const LanguagePreferenceSchema = z.enum(["en", "zh"]);
+export const LanguagePreferenceSchema = z.enum(["en", "zh-CN"]);
 export type LanguagePreference = z.infer<typeof LanguagePreferenceSchema>;
 
 export const LoginLaunchBehaviorSchema = z.enum(["show-window", "background"]);
@@ -1499,6 +1516,7 @@ export const SettingsSnapshotSchema = z
       .strict(),
     preferences: SettingsPreferencesSchema,
     privacy: PrivacyAccessSnapshotSchema,
+    revision: z.number().int().nonnegative().default(0),
     startupRegistration: StartupRegistrationSnapshotSchema,
     storageRecovered: z.boolean(),
     tunHelper: TunHelperSnapshotSchema,
@@ -1997,6 +2015,8 @@ export const ProfileActivationFailureSchema = z.enum([
   "unsafe-runtime",
   "staging",
   "validation",
+  "geodata-failed",
+  "geodata-timeout",
   "start",
   "early-exit",
   "managed-listener-conflict",
@@ -2010,6 +2030,14 @@ export const ProfileActivationFailureSchema = z.enum([
 ]);
 export type ProfileActivationFailure = z.infer<typeof ProfileActivationFailureSchema>;
 
+export const ProfileActivationEvidenceSchema = z
+  .object({
+    asset: z.enum(["geo-ip", "geo-site", "mmdb", "asn"]),
+    kind: z.enum(["geodata-preparing", "geodata-failed", "geodata-timeout"]),
+  })
+  .strict();
+export type ProfileActivationEvidence = z.infer<typeof ProfileActivationEvidenceSchema>;
+
 export const ProfileActivationSnapshotSchema = z
   .object({
     activeFingerprint: ProfileFingerprintSchema.nullable(),
@@ -2017,6 +2045,7 @@ export const ProfileActivationSnapshotSchema = z
     attemptedAt: NonNegativeIntegerSchema.nullable(),
     availability: ProfileActivationAvailabilitySchema,
     commandId: IdentifierSchema.nullable(),
+    evidence: ProfileActivationEvidenceSchema.nullable().optional(),
     failure: ProfileActivationFailureSchema.nullable(),
     failureEndpoint: z.string().max(64).nullable().optional(),
     operation: ProfileActivationOperationSchema.nullable(),

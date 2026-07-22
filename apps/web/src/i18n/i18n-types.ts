@@ -1537,7 +1537,7 @@ type RootTranslation = {
 		 */
 		searchAria: string
 		/**
-		 * S​e​a​r​c​h​ ​n​o​d​e​s
+		 * S​e​a​r​c​h​ ​n​o​d​e​s​…
 		 */
 		searchPlaceholder: string
 	}
@@ -1547,6 +1547,24 @@ type RootTranslation = {
 		 * @param {string} profile
 		 */
 		activeProfile: RequiredParams<'profile'>
+		/**
+		 * A​u​t​o​-​s​e​l​e​c​t
+		 */
+		automaticSelection: string
+		/**
+		 * B​a​c​k​ ​t​o​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		backToGroup: RequiredParams<'group'>
+		/**
+		 * A​l​l​ ​R​o​u​t​e​s
+		 */
+		backToRoutes: string
+		/**
+		 * B​r​o​w​s​e​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		browseGroup: RequiredParams<'group'>
 		/**
 		 * {​c​o​u​n​t​}​ ​c​h​i​l​d​r​e​n
 		 * @param {number} count
@@ -1571,12 +1589,21 @@ type RootTranslation = {
 		 */
 		configurationOrder: string
 		/**
+		 * B​r​o​w​s​e​,​ ​s​o​r​t​,​ ​t​e​s​t​,​ ​a​n​d​ ​s​e​l​e​c​t​ ​t​h​e​ ​d​i​r​e​c​t​ ​c​h​i​l​d​r​e​n​ ​o​f​ ​{​g​r​o​u​p​}​.
+		 * @param {string} group
+		 */
+		currentGroupDescription: RequiredParams<'group'>
+		/**
+		 * C​u​r​r​e​n​t​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​p​a​t​h
+		 */
+		currentPath: string
+		/**
 		 * C​u​r​r​e​n​t​:​ ​{​c​h​i​l​d​}
 		 * @param {string} child
 		 */
 		currentChild: RequiredParams<'child'>
 		/**
-		 * B​r​o​w​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​'​s​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​.​ ​E​x​p​a​n​d​i​n​g​ ​a​ ​g​r​o​u​p​ ​s​h​o​w​s​ ​i​t​s​ ​d​i​r​e​c​t​ ​c​h​o​i​c​e​s​,​ ​a​n​d​ ​e​a​c​h​ ​s​e​l​e​c​t​i​o​n​ ​c​h​a​n​g​e​s​ ​o​n​l​y​ ​t​h​a​t​ ​g​r​o​u​p​.
+		 * B​r​o​w​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​'​s​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​.​ ​O​p​e​n​i​n​g​ ​a​ ​g​r​o​u​p​ ​s​h​o​w​s​ ​i​t​s​ ​d​i​r​e​c​t​ ​c​h​o​i​c​e​s​,​ ​a​n​d​ ​e​a​c​h​ ​s​e​l​e​c​t​i​o​n​ ​c​h​a​n​g​e​s​ ​o​n​l​y​ ​t​h​a​t​ ​g​r​o​u​p​.
 		 */
 		description: string
 		/**
@@ -1624,11 +1651,10 @@ type RootTranslation = {
 		 */
 		delayPhaseProgress: string
 		/**
-		 * P​o​l​i​c​y​ ​{​p​o​l​i​c​y​}​ ​·​ ​{​s​e​c​o​n​d​s​}​ ​s​ ​t​i​m​e​o​u​t
-		 * @param {string} policy
-		 * @param {number} seconds
+		 * {​u​r​l​}
+		 * @param {string} url
 		 */
-		delayPolicy: RequiredParams<'policy' | 'seconds'>
+		delayPolicy: RequiredParams<'url'>
 		/**
 		 * N​o​ ​l​o​n​g​e​r​ ​i​n​ ​g​r​o​u​p
 		 */
@@ -1688,6 +1714,14 @@ type RootTranslation = {
 		 * @param {string} type
 		 */
 		groupReferenceType: RequiredParams<'type'>
+		/**
+		 * T​h​e​ ​r​e​q​u​e​s​t​e​d​ ​p​o​l​i​c​y​ ​g​r​o​u​p​ ​i​s​ ​n​o​ ​l​o​n​g​e​r​ ​i​n​ ​t​h​e​ ​c​o​n​f​i​r​m​e​d​ ​g​r​a​p​h​.
+		 */
+		groupNotFoundDescription: string
+		/**
+		 * P​o​l​i​c​y​ ​g​r​o​u​p​ ​n​o​t​ ​f​o​u​n​d
+		 */
+		groupNotFoundTitle: string
 		groupType: {
 			/**
 			 * D​i​r​e​c​t
@@ -1774,6 +1808,12 @@ type RootTranslation = {
 		 */
 		labelOrder: string
 		/**
+		 * L​o​a​d​e​d​ ​{​a​d​d​e​d​}​ ​m​o​r​e​ ​c​h​i​l​d​r​e​n​,​ ​{​t​o​t​a​l​}​ ​s​h​o​w​n​ ​i​n​ ​t​o​t​a​l​.
+		 * @param {number} added
+		 * @param {number} total
+		 */
+		loadedMore: RequiredParams<'added' | 'total'>
+		/**
 		 * T​h​i​s​ ​g​r​o​u​p​ ​h​a​s​ ​n​o​ ​c​h​i​l​d​r​e​n​.
 		 */
 		noChildren: string
@@ -1798,13 +1838,36 @@ type RootTranslation = {
 		 */
 		noMatchesTitle: string
 		/**
+		 * P​a​t​h​ ​·​ ​{​p​a​t​h​}
+		 * @param {string} path
+		 */
+		ownedByPath: RequiredParams<'path'>
+		/**
+		 * R​e​a​d​-​o​n​l​y
+		 */
+		readOnly: string
+		/**
 		 * S​e​a​r​c​h​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​a​n​d​ ​c​h​i​l​d​r​e​n
 		 */
 		searchLabel: string
 		/**
-		 * S​e​a​r​c​h​ ​c​o​m​p​l​e​t​e​ ​l​a​b​e​l​s
+		 * S​e​a​r​c​h​ ​c​o​m​p​l​e​t​e​ ​l​a​b​e​l​s​…
 		 */
 		searchPlaceholder: string
+		/**
+		 * S​e​a​r​c​h​ ​d​i​r​e​c​t​ ​c​h​i​l​d​r​e​n​ ​o​f​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		searchCurrentGroup: RequiredParams<'group'>
+		/**
+		 * S​e​a​r​c​h​ ​t​h​i​s​ ​g​r​o​u​p​…
+		 */
+		searchCurrentGroupPlaceholder: string
+		/**
+		 * {​c​o​u​n​t​}​ ​m​a​t​c​h​i​n​g​ ​i​t​e​m​s
+		 * @param {number} count
+		 */
+		searchResultCount: RequiredParams<'count'>
 		/**
 		 * S​e​l​e​c​t​ ​{​c​h​i​l​d​}​ ​i​n​ ​{​g​r​o​u​p​}
 		 * @param {string} child
@@ -1812,9 +1875,23 @@ type RootTranslation = {
 		 */
 		selectChild: RequiredParams<'child' | 'group'>
 		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​w​i​t​c​h​ ​t​o​ ​{​c​h​i​l​d​}​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​s​e​l​e​c​t​i​o​n​ ​r​e​m​a​i​n​s​ ​c​u​r​r​e​n​t​.
+		 * @param {string} child
+		 */
+		selectionFailed: RequiredParams<'child'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​n​o​t​ ​c​o​n​f​i​r​m​e​d
+		 */
+		selectionFailedTitle: string
+		/**
 		 * S​e​l​e​c​t​e​d
 		 */
 		selected: string
+		/**
+		 * S​h​o​w​ ​{​c​o​u​n​t​}​ ​M​o​r​e
+		 * @param {number} count
+		 */
+		showMore: RequiredParams<'count'>
 		/**
 		 * S​o​r​t​ ​c​h​i​l​d​r​e​n​ ​i​n​ ​{​g​r​o​u​p​}
 		 * @param {string} group
@@ -1829,6 +1906,10 @@ type RootTranslation = {
 		 * T​e​s​t
 		 */
 		startDelayButton: string
+		/**
+		 * S​w​i​t​c​h​i​n​g
+		 */
+		switching: string
 		/**
 		 * R​o​u​t​e​s
 		 */
@@ -2129,6 +2210,29 @@ type RootTranslation = {
 		 * A​c​t​i​v​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​a​l​t​h​y​ ​p​r​o​f​i​l​e​ ​o​r​ ​s​a​f​e​ ​s​t​o​p​p​e​d​ ​s​t​a​t​e​ ​r​e​m​a​i​n​s​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​.
 		 */
 		activationFailed: string
+		/**
+		 * P​r​e​p​a​r​i​n​g​ ​{​a​s​s​e​t​}​ ​b​e​f​o​r​e​ ​a​c​t​i​v​a​t​i​o​n​…
+		 * @param {string} asset
+		 */
+		geodataPreparing: RequiredParams<'asset'>
+		/**
+		 * T​h​e​ ​f​i​r​s​t​ ​d​o​w​n​l​o​a​d​ ​m​a​y​ ​t​a​k​e​ ​a​ ​f​e​w​ ​m​i​n​u​t​e​s​.
+		 */
+		geodataPreparingDetail: string
+		/**
+		 * M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​{​a​s​s​e​t​}​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
+		 * @param {string} asset
+		 */
+		geodataFailed: RequiredParams<'asset'>
+		/**
+		 * {​a​s​s​e​t​}​ ​w​a​s​ ​n​o​t​ ​r​e​a​d​y​ ​b​e​f​o​r​e​ ​t​h​e​ ​a​c​t​i​v​a​t​i​o​n​ ​d​e​a​d​l​i​n​e​.
+		 * @param {string} asset
+		 */
+		geodataTimeout: RequiredParams<'asset'>
+		/**
+		 * C​h​e​c​k​ ​y​o​u​r​ ​n​e​t​w​o​r​k​ ​c​o​n​n​e​c​t​i​o​n​ ​a​n​d​ ​r​e​t​r​y​ ​a​c​t​i​v​a​t​i​o​n​.
+		 */
+		geodataRetry: string
 		/**
 		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​u​s​e​ ​{​e​n​d​p​o​i​n​t​}​ ​b​e​c​a​u​s​e​ ​a​n​o​t​h​e​r​ ​a​p​p​l​i​c​a​t​i​o​n​ ​o​w​n​s​ ​i​t​.​ ​S​t​o​p​ ​o​r​ ​r​e​c​o​n​f​i​g​u​r​e​ ​t​h​a​t​ ​a​p​p​l​i​c​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​t​r​y​.
 		 * @param {unknown} endpoint
@@ -4229,57 +4333,46 @@ type RootTranslation = {
 	}
 	browserBackendRecovery: {
 		/**
-		 * C​a​n​c​e​l
+		 * C​o​n​n​e​c​t
 		 */
-		cancel: string
+		connect: string
 		/**
-		 * B​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​ ​w​a​s​ ​c​a​n​c​e​l​l​e​d​.
+		 * C​o​u​l​d​ ​n​o​t​ ​c​o​n​n​e​c​t​ ​t​o​ ​M​i​s​h​ ​o​n​ ​p​o​r​t​ ​{​p​o​r​t​}​.​ ​C​h​e​c​k​ ​M​i​s​h​ ​a​n​d​ ​t​r​y​ ​a​g​a​i​n​.
+		 * @param {number} port
 		 */
-		cancelled: string
+		connectFailed: RequiredParams<'port'>
 		/**
-		 * T​h​e​ ​c​o​n​n​e​c​t​e​d​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g​.​ ​A​p​p​l​i​c​a​t​i​o​n​ ​c​o​n​t​r​o​l​s​ ​a​r​e​ ​h​i​d​d​e​n​ ​u​n​t​i​l​ ​t​h​i​s​ ​b​r​o​w​s​e​r​ ​e​s​t​a​b​l​i​s​h​e​s​ ​a​ ​n​e​w​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​.
+		 * C​o​n​n​e​c​t​i​n​g​…
 		 */
-		description: string
+		connecting: string
 		/**
 		 * L​o​c​a​l​ ​c​o​n​n​e​c​t​i​o​n​ ​i​n​t​e​r​r​u​p​t​e​d
 		 */
 		eyebrow: string
 		/**
-		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​c​o​m​p​l​e​t​e​ ​b​a​c​k​e​n​d​ ​d​i​s​c​o​v​e​r​y​.​ ​T​r​y​ ​a​g​a​i​n​.
+		 * E​n​t​e​r​ ​a​ ​p​o​r​t​ ​f​r​o​m​ ​1​ ​t​o​ ​6​5​5​3​5​.
 		 */
-		failed: string
+		invalidPort: string
 		/**
-		 * F​o​u​n​d​ ​M​i​s​h​ ​o​n​ ​p​o​r​t​ ​{​p​o​r​t​}​.​ ​R​e​c​o​n​n​e​c​t​i​n​g​…
-		 * @param {number} port
+		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​.
 		 */
-		found: RequiredParams<'port'>
-		/**
-		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​ ​a​f​t​e​r​ ​c​h​e​c​k​i​n​g​ ​{​o​c​c​u​p​i​e​d​P​o​r​t​s​}​ ​o​c​c​u​p​i​e​d​ ​a​n​d​ ​{​e​m​p​t​y​P​o​r​t​s​}​ ​e​m​p​t​y​ ​p​o​r​t​s​.
-		 * @param {number} emptyPorts
-		 * @param {number} occupiedPorts
-		 */
-		notFound: RequiredParams<'emptyPorts' | 'occupiedPorts'>
-		/**
-		 * E​n​t​e​r​ ​a​ ​p​o​r​t​ ​f​r​o​m​ ​1​ ​t​o​ ​6​5​5​3​5​.​ ​M​i​s​h​ ​c​h​e​c​k​s​ ​i​t​ ​f​i​r​s​t​,​ ​t​h​e​n​ ​s​c​a​n​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​n​t​i​l​ ​1​0​ ​o​c​c​u​p​i​e​d​ ​o​r​ ​5​ ​e​m​p​t​y​ ​p​o​r​t​s​ ​a​r​e​ ​r​e​a​c​h​e​d​.
-		 */
-		portHint: string
+		notFound: string
 		/**
 		 * B​a​c​k​e​n​d​ ​p​o​r​t
 		 */
 		portLabel: string
 		/**
-		 * R​e​c​o​n​n​e​c​t
+		 * S​c​a​n
 		 */
-		reconnect: string
+		scan: string
 		/**
-		 * T​r​y​ ​a​g​a​i​n
+		 * C​o​u​l​d​ ​n​o​t​ ​s​c​a​n​ ​f​o​r​ ​M​i​s​h​.​ ​T​r​y​ ​a​g​a​i​n​.
 		 */
-		retry: string
+		scanFailed: string
 		/**
-		 * C​h​e​c​k​i​n​g​ ​p​o​r​t​ ​{​p​o​r​t​}​,​ ​t​h​e​n​ ​M​i​s​h​ ​p​o​r​t​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​p​w​a​r​d​…
-		 * @param {number} port
+		 * S​c​a​n​n​i​n​g​…
 		 */
-		searching: RequiredParams<'port'>
+		scanning: string
 		/**
 		 * M​i​s​h​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g
 		 */
@@ -5823,7 +5916,7 @@ export type TranslationFunctions = {
 		 */
 		searchAria: () => LocalizedString
 		/**
-		 * Search nodes
+		 * Search nodes…
 		 */
 		searchPlaceholder: () => LocalizedString
 	}
@@ -5832,6 +5925,22 @@ export type TranslationFunctions = {
 		 * Active profile: {profile}
 		 */
 		activeProfile: (arg: { profile: string }) => LocalizedString
+		/**
+		 * Auto-select
+		 */
+		automaticSelection: () => LocalizedString
+		/**
+		 * Back to {group}
+		 */
+		backToGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * All Routes
+		 */
+		backToRoutes: () => LocalizedString
+		/**
+		 * Browse {group}
+		 */
+		browseGroup: (arg: { group: string }) => LocalizedString
 		/**
 		 * {count} children
 		 */
@@ -5853,11 +5962,19 @@ export type TranslationFunctions = {
 		 */
 		configurationOrder: () => LocalizedString
 		/**
+		 * Browse, sort, test, and select the direct children of {group}.
+		 */
+		currentGroupDescription: (arg: { group: string }) => LocalizedString
+		/**
+		 * Current policy-group path
+		 */
+		currentPath: () => LocalizedString
+		/**
 		 * Current: {child}
 		 */
 		currentChild: (arg: { child: string }) => LocalizedString
 		/**
-		 * Browse the active profile's policy groups independently. Expanding a group shows its direct choices, and each selection changes only that group.
+		 * Browse the active profile's policy groups independently. Opening a group shows its direct choices, and each selection changes only that group.
 		 */
 		description: () => LocalizedString
 		/**
@@ -5905,9 +6022,9 @@ export type TranslationFunctions = {
 		 */
 		delayPhaseProgress: () => LocalizedString
 		/**
-		 * Policy {policy} · {seconds} s timeout
+		 * {url}
 		 */
-		delayPolicy: (arg: { policy: string, seconds: number }) => LocalizedString
+		delayPolicy: (arg: { url: string }) => LocalizedString
 		/**
 		 * No longer in group
 		 */
@@ -5960,6 +6077,14 @@ export type TranslationFunctions = {
 		 * Policy group · {type}
 		 */
 		groupReferenceType: (arg: { type: string }) => LocalizedString
+		/**
+		 * The requested policy group is no longer in the confirmed graph.
+		 */
+		groupNotFoundDescription: () => LocalizedString
+		/**
+		 * Policy group not found
+		 */
+		groupNotFoundTitle: () => LocalizedString
 		groupType: {
 			/**
 			 * Direct
@@ -6035,6 +6160,10 @@ export type TranslationFunctions = {
 		 */
 		labelOrder: () => LocalizedString
 		/**
+		 * Loaded {added} more children, {total} shown in total.
+		 */
+		loadedMore: (arg: { added: number, total: number }) => LocalizedString
+		/**
 		 * This group has no children.
 		 */
 		noChildren: () => LocalizedString
@@ -6059,21 +6188,53 @@ export type TranslationFunctions = {
 		 */
 		noMatchesTitle: () => LocalizedString
 		/**
+		 * Path · {path}
+		 */
+		ownedByPath: (arg: { path: string }) => LocalizedString
+		/**
+		 * Read-only
+		 */
+		readOnly: () => LocalizedString
+		/**
 		 * Search policy groups and children
 		 */
 		searchLabel: () => LocalizedString
 		/**
-		 * Search complete labels
+		 * Search complete labels…
 		 */
 		searchPlaceholder: () => LocalizedString
+		/**
+		 * Search direct children of {group}
+		 */
+		searchCurrentGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Search this group…
+		 */
+		searchCurrentGroupPlaceholder: () => LocalizedString
+		/**
+		 * {count} matching items
+		 */
+		searchResultCount: (arg: { count: number }) => LocalizedString
 		/**
 		 * Select {child} in {group}
 		 */
 		selectChild: (arg: { child: string, group: string }) => LocalizedString
 		/**
+		 * Mish could not switch to {child}. The previous selection remains current.
+		 */
+		selectionFailed: (arg: { child: string }) => LocalizedString
+		/**
+		 * Selection not confirmed
+		 */
+		selectionFailedTitle: () => LocalizedString
+		/**
 		 * Selected
 		 */
 		selected: () => LocalizedString
+		/**
+		 * Show {count} More
+		 */
+		showMore: (arg: { count: number }) => LocalizedString
 		/**
 		 * Sort children in {group}
 		 */
@@ -6086,6 +6247,10 @@ export type TranslationFunctions = {
 		 * Test
 		 */
 		startDelayButton: () => LocalizedString
+		/**
+		 * Switching
+		 */
+		switching: () => LocalizedString
 		/**
 		 * Routes
 		 */
@@ -6380,6 +6545,26 @@ export type TranslationFunctions = {
 		 * Activation failed. The previous healthy profile or safe stopped state remains authoritative.
 		 */
 		activationFailed: () => LocalizedString
+		/**
+		 * Preparing {asset} before activation…
+		 */
+		geodataPreparing: (arg: { asset: string }) => LocalizedString
+		/**
+		 * The first download may take a few minutes.
+		 */
+		geodataPreparingDetail: () => LocalizedString
+		/**
+		 * Mihomo could not prepare {asset} required by this profile.
+		 */
+		geodataFailed: (arg: { asset: string }) => LocalizedString
+		/**
+		 * {asset} was not ready before the activation deadline.
+		 */
+		geodataTimeout: (arg: { asset: string }) => LocalizedString
+		/**
+		 * Check your network connection and retry activation.
+		 */
+		geodataRetry: () => LocalizedString
 		/**
 		 * Mish could not use {endpoint} because another application owns it. Stop or reconfigure that application, then retry.
 		 */
@@ -8447,53 +8632,45 @@ export type TranslationFunctions = {
 	}
 	browserBackendRecovery: {
 		/**
-		 * Cancel
+		 * Connect
 		 */
-		cancel: () => LocalizedString
+		connect: () => LocalizedString
 		/**
-		 * Backend discovery was cancelled.
+		 * Could not connect to Mish on port {port}. Check Mish and try again.
 		 */
-		cancelled: () => LocalizedString
+		connectFailed: (arg: { port: number }) => LocalizedString
 		/**
-		 * The connected Mish backend stopped responding. Application controls are hidden until this browser establishes a new authenticated connection.
+		 * Connecting…
 		 */
-		description: () => LocalizedString
+		connecting: () => LocalizedString
 		/**
 		 * Local connection interrupted
 		 */
 		eyebrow: () => LocalizedString
 		/**
-		 * Mish could not complete backend discovery. Try again.
+		 * Enter a port from 1 to 65535.
 		 */
-		failed: () => LocalizedString
+		invalidPort: () => LocalizedString
 		/**
-		 * Found Mish on port {port}. Reconnecting…
+		 * No running Mish backend was found.
 		 */
-		found: (arg: { port: number }) => LocalizedString
-		/**
-		 * No running Mish backend was found after checking {occupiedPorts} occupied and {emptyPorts} empty ports.
-		 */
-		notFound: (arg: { emptyPorts: number, occupiedPorts: number }) => LocalizedString
-		/**
-		 * Enter a port from 1 to 65535. Mish checks it first, then scans from 6474 until 10 occupied or 5 empty ports are reached.
-		 */
-		portHint: () => LocalizedString
+		notFound: () => LocalizedString
 		/**
 		 * Backend port
 		 */
 		portLabel: () => LocalizedString
 		/**
-		 * Reconnect
+		 * Scan
 		 */
-		reconnect: () => LocalizedString
+		scan: () => LocalizedString
 		/**
-		 * Try again
+		 * Could not scan for Mish. Try again.
 		 */
-		retry: () => LocalizedString
+		scanFailed: () => LocalizedString
 		/**
-		 * Checking port {port}, then Mish ports from 6474 upward…
+		 * Scanning…
 		 */
-		searching: (arg: { port: number }) => LocalizedString
+		scanning: () => LocalizedString
 		/**
 		 * Mish stopped responding
 		 */

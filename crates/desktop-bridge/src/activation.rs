@@ -26,9 +26,9 @@ use uuid::Uuid;
 
 use crate::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreOwnership,
-    ManagedCoreRecoveryOutcome, ManagedProcessValidationError, PrivilegedCoreHost,
-    ProfileMappingContext,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, GeodataValidationObserver,
+    ManagedCoreOwnership, ManagedCoreRecoveryOutcome, ManagedProcessValidationError,
+    PrivilegedCoreHost, ProfileMappingContext,
 };
 
 enum ManagedBinaryLocation {
@@ -171,6 +171,7 @@ fn create_private_directory(path: &Path) -> Result<(), MihomoResolveError> {
 #[derive(Clone, Copy, Debug)]
 pub struct ActivationTiming {
     pub config_validation_timeout: Duration,
+    pub geodata_preparation_timeout: Duration,
     pub controller_connect_timeout: Duration,
     pub controller_request_timeout: Duration,
     pub readiness_timeout: Duration,
@@ -182,6 +183,7 @@ impl Default for ActivationTiming {
     fn default() -> Self {
         Self {
             config_validation_timeout: Duration::from_secs(10),
+            geodata_preparation_timeout: Duration::from_secs(5 * 60),
             controller_connect_timeout: Duration::from_secs(2),
             controller_request_timeout: Duration::from_secs(2),
             readiness_timeout: Duration::from_secs(15),
@@ -194,6 +196,7 @@ impl Default for ActivationTiming {
 impl ActivationTiming {
     fn valid(self) -> bool {
         !self.config_validation_timeout.is_zero()
+            && !self.geodata_preparation_timeout.is_zero()
             && !self.controller_connect_timeout.is_zero()
             && !self.controller_request_timeout.is_zero()
             && !self.readiness_timeout.is_zero()
@@ -214,6 +217,10 @@ pub enum MihomoActivationError {
     StagingFailed,
     #[error("the pinned Mihomo core rejected the candidate configuration")]
     ValidationFailed,
+    #[error("the pinned Mihomo core could not prepare required geodata")]
+    GeodataFailed(crate::GeodataAsset),
+    #[error("the pinned Mihomo core did not prepare required geodata before the deadline")]
+    GeodataTimeout(crate::GeodataAsset),
     #[error("the candidate Mihomo core could not be started")]
     StartFailed,
     #[error("the candidate Mihomo core exited before activation committed")]
@@ -256,6 +263,8 @@ pub enum ActivationFailureKind {
     Resolve,
     Staging,
     Validation,
+    GeodataFailed,
+    GeodataTimeout,
     Start,
     EarlyExit,
     ManagedListenerConflict,
@@ -517,6 +526,17 @@ impl MihomoActivationManager {
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
+        self.activate_cancellable_observed(record, policy, cancellation, None)
+            .await
+    }
+
+    pub async fn activate_cancellable_observed(
+        &self,
+        record: &ProfileRecord,
+        policy: &ManagedRuntimePolicy,
+        cancellation: CancellationToken,
+        observer: Option<GeodataValidationObserver>,
+    ) -> Result<ActivationCommit, MihomoActivationError> {
         self.recover_startup().await?;
         if !self.timing.valid() {
             return Err(MihomoActivationError::InvalidTiming);
@@ -525,7 +545,7 @@ impl MihomoActivationManager {
         let resolved = self.resolver.resolve()?;
         let mut state = self.state.lock().await;
         let candidate = match self
-            .stage_candidate(&resolved, record, policy, cancellation.clone())
+            .stage_candidate(&resolved, record, policy, cancellation.clone(), observer)
             .await
         {
             Ok(candidate) => candidate,
@@ -785,6 +805,7 @@ impl MihomoActivationManager {
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
+        observer: Option<GeodataValidationObserver>,
     ) -> Result<ActiveMihomo, MihomoActivationError> {
         let candidate_id = Uuid::new_v4().to_string();
         let candidates_root = resolved.runtime_root().join("candidates");
@@ -815,15 +836,32 @@ impl MihomoActivationManager {
             },
             PINNED_MIHOMO_VERSION,
         );
-        let validation = tokio::select! {
-            _ = cancellation.cancelled() => Err(MihomoActivationError::Cancelled),
-            result = staging_process.validate_config(self.timing.config_validation_timeout) => {
-                result.map_err(|error| match error {
-                    ManagedProcessValidationError::VersionMismatch => MihomoActivationError::VersionMismatch,
-                    _ => MihomoActivationError::ValidationFailed,
-                })
-            }
-        };
+        let validation = staging_process
+            .validate_config_observed(
+                self.timing.config_validation_timeout,
+                self.timing.geodata_preparation_timeout,
+                cancellation.clone(),
+                observer,
+            )
+            .await
+            .map_err(|error| {
+                if cancellation.is_cancelled() {
+                    MihomoActivationError::Cancelled
+                } else {
+                    match error {
+                        ManagedProcessValidationError::VersionMismatch => {
+                            MihomoActivationError::VersionMismatch
+                        }
+                        ManagedProcessValidationError::GeodataFailed(asset) => {
+                            MihomoActivationError::GeodataFailed(asset)
+                        }
+                        ManagedProcessValidationError::GeodataTimeout(asset) => {
+                            MihomoActivationError::GeodataTimeout(asset)
+                        }
+                        _ => MihomoActivationError::ValidationFailed,
+                    }
+                }
+            });
         validation?;
 
         let candidate_root = candidates_root.join(&candidate_id);
@@ -1449,6 +1487,8 @@ impl MihomoActivationError {
             Self::Resolve(_) => ActivationFailureKind::Resolve,
             Self::StagingFailed => ActivationFailureKind::Staging,
             Self::ValidationFailed => ActivationFailureKind::Validation,
+            Self::GeodataFailed(_) => ActivationFailureKind::GeodataFailed,
+            Self::GeodataTimeout(_) => ActivationFailureKind::GeodataTimeout,
             Self::StartFailed => ActivationFailureKind::Start,
             Self::EarlyExit => ActivationFailureKind::EarlyExit,
             Self::ManagedListenerConflict(_) => ActivationFailureKind::ManagedListenerConflict,

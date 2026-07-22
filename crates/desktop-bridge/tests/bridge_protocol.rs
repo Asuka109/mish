@@ -878,6 +878,21 @@ async fn browser_client_pairs_with_a_short_lived_pin_and_port_scoped_proof() {
     assert_eq!(pin.len(), 6);
     assert!(pin.bytes().all(|byte| byte.is_ascii_digit()));
 
+    let refreshed_pairing = client
+        .post(format!("{origin}/browser-pairing"))
+        .header("Origin", &origin)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refreshed_pairing.status(), reqwest::StatusCode::OK);
+    let refreshed_challenge: Value =
+        serde_json::from_str(&refreshed_pairing.text().await.unwrap()).unwrap();
+    assert_eq!(refreshed_challenge["challengeId"], challenge_id);
+    assert_eq!(
+        prompt.0.lock().unwrap().as_slice(),
+        [pin.clone(), pin.clone()]
+    );
+
     let proof = "c".repeat(64);
     let wrong_pin = if pin == "999999" { "000000" } else { "999999" };
     let wrong = client
@@ -1336,7 +1351,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         (
             8,
             "settings.setLanguage",
-            json!({"language":"zh", "command":"open"}),
+            json!({"language":"zh-CN", "command":"open"}),
         ),
         (
             9,

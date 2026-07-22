@@ -575,7 +575,7 @@ async fn start_browser_pairing(
             *pending = None;
         }
         if let Some(pairing) = pending.as_ref() {
-            (pairing.challenge_id.clone(), false, pairing.pin.clone())
+            (pairing.challenge_id.clone(), true, pairing.pin.clone())
         } else {
             let Ok(pin) = generate_pairing_pin() else {
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();

@@ -179,7 +179,7 @@ export class FixtureProfileClient implements ProfileClient {
     return { attempt: 0, phase: "fixture", stale: false } as const;
   }
 
-  async getSnapshot(options?: { signal?: AbortSignal }) {
+  async getSnapshot(options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto> {
     if (options?.signal?.aborted) throw cancelled();
     return structuredClone(fixtureSnapshot);
   }
@@ -293,7 +293,7 @@ export class FixtureProfileClient implements ProfileClient {
     return () => undefined;
   }
 
-  subscribeSnapshots(_listener: (snapshot: ProfileSnapshotDto) => void) {
+  subscribeSnapshots(_listener: (snapshot: ProfileSnapshotDto) => void): () => void {
     return () => undefined;
   }
 }
