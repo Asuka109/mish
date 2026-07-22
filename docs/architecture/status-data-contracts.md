@@ -29,7 +29,7 @@ non-fixture adapter.
 | ------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `RuntimeStatusDto`        | Core lifecycle, capture selection, confirmed System Proxy and TUN state, error or transition | Local bridge plus platform adapter           |
 | `TrafficSnapshotDto`      | Current up/down rates and cumulative up/down bytes                                           | Mihomo traffic stream                        |
-| `RuntimeMetricsDto`       | Memory in use, uptime, active connections, effective rules                                   | Mihomo observations plus local-bridge uptime |
+| `RuntimeMetricsDto`       | Memory in use, proxy-session uptime, active connections, effective rules                     | Mihomo observations plus local-bridge derivation |
 | `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local bridge persistence                     |
 | `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations    |
 | `GroupDelayPolicyDto`     | Visible application policy ID and bounded timeout                                            | Local bridge application policy              |
@@ -153,6 +153,15 @@ state. The capture command carries the complete selection plus an aggregate
 active flag. Stopping may therefore disable both runtime paths without erasing
 the selection, while starting can restore the complete remembered combination.
 The default selection is off, and profile activation does not mutate it.
+
+`RuntimeMetricsDto.uptimeSeconds` measures the current aggregate proxy session,
+not the managed Mihomo Core process lifetime. The shared runtime starts the
+timer when an authoritative snapshot first confirms either System Proxy or TUN
+as applied, continues it while either remains confirmed, and clears it as soon
+as neither is confirmed. Remembered capture selection, optimistic commands, and
+unconfirmed pending, failed, or drift states cannot extend a session. A Core
+restart does not reset an otherwise continuously confirmed capture session; an
+ordinary proxy stop does, even when the managed Core remains running.
 
 The toolbar profile value is configuration selection, not a Core-health claim.
 It remains visible while the runtime is safely stopped and identifies the

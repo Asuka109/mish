@@ -4,7 +4,7 @@ use std::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use futures_util::{StreamExt, future::BoxFuture};
@@ -118,7 +118,6 @@ struct SourceState {
     event_session_number: u64,
     events: VecDeque<EventRecord>,
     group_delay_test: GroupDelayTest,
-    running_since: Option<Instant>,
     traffic_reconnect_count: u64,
     traffic_sequence: u64,
     traffic_session_id: Option<String>,
@@ -139,21 +138,10 @@ impl SourceState {
             event_session_number: 0,
             events: VecDeque::with_capacity(EVENTS_BUFFER_LIMIT),
             group_delay_test: GroupDelayTest::idle(),
-            running_since: None,
             traffic_reconnect_count: 0,
             traffic_sequence: 0,
             traffic_session_id: None,
             traffic_session_number: 0,
-        }
-    }
-
-    fn uptime_seconds(&mut self, core: &CoreStatus) -> u64 {
-        if matches!(core.phase, CorePhase::Running) {
-            let started = self.running_since.get_or_insert_with(Instant::now);
-            started.elapsed().as_secs()
-        } else {
-            self.running_since = None;
-            0
         }
     }
 }
@@ -164,7 +152,6 @@ fn invalidate_source_state(inner: &SourceInner, reason: RuntimeObservationPauseR
         .lock()
         .expect("controller source state poisoned");
     state.group_delay_test = GroupDelayTest::idle();
-    state.running_since = None;
 
     match reason {
         RuntimeObservationPauseReason::Sleep => {
@@ -420,15 +407,14 @@ impl StatusDataSource for ControllerStatusSource {
     }
 
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
-        let mut state = self
+        let state = self
             .inner
             .state
             .lock()
             .expect("controller source state poisoned");
-        let uptime_seconds = state.uptime_seconds(core);
         let mut snapshot = match &state.mapper {
             Some(mapper) => mapper
-                .snapshot(core, adapter_kind, uptime_seconds)
+                .snapshot(core, adapter_kind, 0)
                 .expect("stored controller mapper has the required observations"),
             None => pending_snapshot(&self.inner.profile, core, adapter_kind),
         };

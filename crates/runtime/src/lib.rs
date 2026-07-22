@@ -1,6 +1,7 @@
 use std::{
     fmt,
     sync::{Arc, Mutex, Weak},
+    time::Instant,
 };
 
 use futures_util::future::BoxFuture;
@@ -67,6 +68,25 @@ pub enum RuntimeShutdownFailure {
 
 struct RuntimeStatusEvents {
     updates: broadcast::Sender<CoreStatus>,
+}
+
+/// Tracks elapsed time only while at least one capture mode is authoritatively applied.
+struct ProxySessionUptime {
+    started_at: Option<Instant>,
+}
+
+impl ProxySessionUptime {
+    fn observe(&mut self, capture: Option<&CaptureRuntimeStatus>, now: Instant) -> u64 {
+        let active =
+            capture.is_some_and(|status| status.system_proxy_enabled || status.tun_enabled);
+        if active {
+            let started_at = self.started_at.get_or_insert(now);
+            now.saturating_duration_since(*started_at).as_secs()
+        } else {
+            self.started_at = None;
+            0
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -352,6 +372,7 @@ pub struct MishRuntime {
     events_source: Arc<dyn EventsDataSource>,
     status_source: Arc<dyn StatusDataSource>,
     traffic_source: Arc<dyn TrafficDataSource>,
+    uptime: Arc<Mutex<ProxySessionUptime>>,
     identity: Arc<()>,
 }
 
@@ -451,6 +472,7 @@ impl MishRuntime {
             events_source,
             status_source,
             traffic_source,
+            uptime: Arc::new(Mutex::new(ProxySessionUptime { started_at: None })),
             identity: Arc::new(()),
         }
     }
@@ -767,6 +789,11 @@ impl MishRuntime {
         let mut snapshot = self.status_source.snapshot(status, adapter_kind);
         if let Some(capture) = &self.capture {
             let capture_status = capture.status();
+            snapshot.metrics.uptime_seconds = self
+                .uptime
+                .lock()
+                .expect("proxy session uptime state poisoned")
+                .observe(Some(&capture_status), Instant::now());
             snapshot.capabilities.system_proxy = capture.availability();
             snapshot.capabilities.tun = capture.tun_availability();
             snapshot.runtime.capture_selection = capture_status.capture_selection;
@@ -774,6 +801,12 @@ impl MishRuntime {
             snapshot.runtime.system_proxy_enabled = capture_status.system_proxy_enabled;
             snapshot.runtime.tun = capture_status.tun;
             snapshot.runtime.tun_enabled = capture_status.tun_enabled;
+        } else {
+            snapshot.metrics.uptime_seconds = self
+                .uptime
+                .lock()
+                .expect("proxy session uptime state poisoned")
+                .observe(None, Instant::now());
         }
         snapshot
     }
@@ -804,5 +837,121 @@ impl MishRuntime {
 
     fn publish_status(&self, status: &CoreStatus) {
         let _ = self.events.updates.send(status.clone());
+    }
+}
+
+#[cfg(test)]
+mod proxy_session_uptime_tests {
+    use std::time::{Duration, Instant};
+
+    use super::{
+        CaptureRuntimeStatus, CaptureSelection, ProxySessionUptime, SystemProxyObservedState,
+        SystemProxyPhase, SystemProxyRuntimeStatus, TunRuntimeStatus,
+    };
+
+    fn capture(system_proxy_enabled: bool, tun_enabled: bool) -> CaptureRuntimeStatus {
+        CaptureRuntimeStatus {
+            capture_selection: CaptureSelection {
+                system_proxy: true,
+                tun: true,
+            },
+            system_proxy: SystemProxyRuntimeStatus {
+                desired: system_proxy_enabled,
+                failure: None,
+                observed: if system_proxy_enabled {
+                    SystemProxyObservedState::Mish
+                } else {
+                    SystemProxyObservedState::Disabled
+                },
+                phase: if system_proxy_enabled {
+                    SystemProxyPhase::Applied
+                } else {
+                    SystemProxyPhase::Off
+                },
+                recovery_actions: Vec::new(),
+            },
+            system_proxy_enabled,
+            tun: TunRuntimeStatus::off(),
+            tun_enabled,
+        }
+    }
+
+    #[test]
+    fn proxy_session_uptime_starts_on_first_confirmed_capture_activation() {
+        let base = Instant::now();
+        let mut uptime = ProxySessionUptime { started_at: None };
+
+        assert_eq!(uptime.observe(Some(&capture(false, false)), base), 0);
+        assert_eq!(uptime.observe(Some(&capture(true, false)), base), 0);
+        assert_eq!(
+            uptime.observe(Some(&capture(true, false)), base + Duration::from_secs(17)),
+            17
+        );
+    }
+
+    #[test]
+    fn proxy_session_uptime_continues_while_either_capture_mode_is_confirmed() {
+        let base = Instant::now();
+        let mut uptime = ProxySessionUptime { started_at: None };
+
+        assert_eq!(uptime.observe(Some(&capture(true, true)), base), 0);
+        assert_eq!(
+            uptime.observe(Some(&capture(false, true)), base + Duration::from_secs(11)),
+            11
+        );
+        assert_eq!(
+            uptime.observe(Some(&capture(true, false)), base + Duration::from_secs(19)),
+            19
+        );
+    }
+
+    #[test]
+    fn proxy_session_uptime_resets_across_stop_idle_and_relaunch_when_core_remains_running() {
+        let base = Instant::now();
+        let mut uptime = ProxySessionUptime { started_at: None };
+
+        assert_eq!(uptime.observe(Some(&capture(true, false)), base), 0);
+        assert_eq!(
+            uptime.observe(Some(&capture(true, false)), base + Duration::from_secs(23)),
+            23
+        );
+        assert_eq!(
+            uptime.observe(Some(&capture(false, false)), base + Duration::from_secs(24),),
+            0
+        );
+        assert_eq!(
+            uptime.observe(
+                Some(&capture(false, false)),
+                base + Duration::from_secs(3_624),
+            ),
+            0
+        );
+        assert_eq!(
+            uptime.observe(
+                Some(&capture(false, true)),
+                base + Duration::from_secs(3_624)
+            ),
+            0
+        );
+        assert_eq!(
+            uptime.observe(
+                Some(&capture(false, true)),
+                base + Duration::from_secs(3_631)
+            ),
+            7
+        );
+    }
+
+    #[test]
+    fn proxy_session_uptime_resets_when_no_capture_mode_is_authoritatively_applied() {
+        let base = Instant::now();
+        let mut uptime = ProxySessionUptime { started_at: None };
+
+        assert_eq!(uptime.observe(Some(&capture(true, false)), base), 0);
+        assert_eq!(uptime.observe(None, base + Duration::from_secs(8)), 0);
+        assert_eq!(
+            uptime.observe(Some(&capture(false, false)), base + Duration::from_secs(9)),
+            0
+        );
     }
 }
