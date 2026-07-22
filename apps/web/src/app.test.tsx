@@ -2392,7 +2392,7 @@ describe("Status fixture experience", () => {
     );
   });
 
-  it("scopes picker search to the current group and restores nested and trigger focus", async () => {
+  it("keeps picker search on direct choices without nested navigation and restores focus", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
     const trigger = await screen.findByRole("button", { name: /🌐 Proxy/ });
@@ -2405,26 +2405,12 @@ describe("Status fixture experience", () => {
     await user.keyboard("{Escape}");
     expect(search).toHaveValue("");
 
-    const browseAutomatic = within(dialog).getByRole("button", {
-      name: "Browse ⚡ 自动选择・Auto",
-    });
-    await user.click(browseAutomatic);
-    expect(within(dialog).getByLabelText("Current policy-group path")).toHaveTextContent(
-      "🌐 Proxy / ⚡ 自动选择・Auto",
-    );
-    expect(within(dialog).getByText("台北・開発 🚄")).toBeVisible();
+    expect(within(dialog).getByText("⚡ 自动选择・Auto")).toBeVisible();
     expect(
-      within(dialog).queryByRole("button", {
-        name: "Select 台北・開発 🚄 in ⚡ 自动选择・Auto",
-      }),
+      within(dialog).queryByRole("button", { name: "Browse ⚡ 自动选择・Auto" }),
     ).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Current policy-group path")).not.toBeInTheDocument();
 
-    await user.keyboard("{Escape}");
-    await waitFor(() =>
-      expect(
-        within(dialog).getByRole("button", { name: "Browse ⚡ 自动选择・Auto" }),
-      ).toHaveFocus(),
-    );
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(trigger).toHaveFocus());

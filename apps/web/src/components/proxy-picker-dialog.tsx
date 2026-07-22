@@ -1,6 +1,5 @@
-import { ArrowLeft } from "@phosphor-icons/react/ArrowLeft";
 import type { GroupDelayChildResultDto } from "@mish/contracts";
-import { Button, Dialog, DialogContent, DialogDescription, DialogTitle } from "@mish/ui";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useNotificationDelivery } from "../data/notification-delivery";
@@ -35,8 +34,6 @@ const pickerStyles = tv({
       "policy-picker-header flex min-h-18.5 items-center gap-2 border-b border-hairline py-3.25 pr-11 pl-4",
     title: "text-body font-semibold",
     description: "mt-0.75 text-metadata leading-4.5 text-muted-foreground",
-    back: "shrink-0",
-    breadcrumb: "mt-1 max-w-110 truncate text-micro text-muted-soft",
     readOnly: cx(
       "m-3 rounded-md border border-hairline bg-surface-soft px-3 py-2.5",
       "text-metadata leading-4.75 text-muted-foreground",
@@ -97,7 +94,6 @@ export function PolicyPickerDialog({
   } = useProduct();
   const { publish } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
-  const [navigationStack, setNavigationStack] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [sortByGroupId, setSortByGroupId] = useState<Map<string, RouteSort>>(() => new Map());
   const [pendingSelectionId, setPendingSelectionId] = useState<string | null>(null);
@@ -113,7 +109,6 @@ export function PolicyPickerDialog({
 
   useEffect(() => {
     if (!open || !groupId) return;
-    setNavigationStack([groupId]);
     setQuery("");
     setPendingSelectionId(null);
     setFrozenDelayOrder(null);
@@ -124,11 +119,10 @@ export function PolicyPickerDialog({
     if (phase !== "pending" && phase !== "progress") setFrozenDelayOrder(null);
   }, [snapshot?.groupDelayTest.phase]);
 
-  const currentGroupId = navigationStack.at(-1) ?? groupId;
-  const group = currentGroupId ? graph.groupById.get(currentGroupId) : undefined;
+  const group = groupId ? graph.groupById.get(groupId) : undefined;
   const language = locale === "zh" ? "zh-CN" : "en";
-  const sort: RouteSort = currentGroupId
-    ? (sortByGroupId.get(currentGroupId) ?? "configuration")
+  const sort: RouteSort = groupId
+    ? (sortByGroupId.get(groupId) ?? "configuration")
     : "configuration";
   const directChildIds = useMemo(() => {
     if (!group) return [];
@@ -158,29 +152,6 @@ export function PolicyPickerDialog({
   const groupCommandsSupported = isCommandSupported("group") && !readOnly;
   const groupSelectionPending = isGroupCommandPending(group.id);
   const delaySupported = isCommandSupported("group-delay") && !readOnly;
-  const pathLabels = navigationStack.map(
-    (pathGroupId) => graph.groupById.get(pathGroupId)?.label ?? pathGroupId,
-  );
-
-  function navigateBack() {
-    if (navigationStack.length <= 1) return;
-    const returningGroupId = navigationStack.at(-1)!;
-    setNavigationStack((current) => current.slice(0, -1));
-    setQuery("");
-    requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(`[data-entity-id="${CSS.escape(returningGroupId)}"]`)
-        ?.querySelector<HTMLElement>("[data-policy-row-primary], .policy-browser-browse")
-        ?.focus({ preventScroll: true });
-    });
-  }
-
-  function browseGroup(childGroupId: string) {
-    setNavigationStack((current) => [...current, childGroupId]);
-    setQuery("");
-    requestAnimationFrame(focusSearch);
-  }
-
   async function selectChild(childId: string) {
     if (isGroupCommandPending(activeGroupId) || !groupCommandsSupported) return;
     setPendingSelectionId(childId);
@@ -256,11 +227,6 @@ export function PolicyPickerDialog({
             setQuery("");
             return;
           }
-          if (navigationStack.length > 1) {
-            details.cancel();
-            navigateBack();
-            return;
-          }
         }
         onOpenChange(nextOpen);
       }}
@@ -273,18 +239,6 @@ export function PolicyPickerDialog({
         ref={dialogRef}
       >
         <div className={pickerStyles().header()}>
-          {navigationStack.length > 1 ? (
-            <Button
-              aria-label={LL.routes.backToGroup({ group: pathLabels.at(-2) ?? "" })}
-              className={pickerStyles().back()}
-              onClick={navigateBack}
-              size="icon-sm"
-              type="button"
-              variant="ghost"
-            >
-              <ArrowLeft aria-hidden="true" />
-            </Button>
-          ) : null}
           <div>
             <DialogTitle className={pickerStyles().title({ className: "user-authored-label" })}>
               {group.label}
@@ -292,9 +246,6 @@ export function PolicyPickerDialog({
             <DialogDescription className={pickerStyles().description()}>
               {LL.proxyPicker.description()}
             </DialogDescription>
-            <div aria-label={LL.routes.currentPath()} className={pickerStyles().breadcrumb()}>
-              {pathLabels.join(" / ")}
-            </div>
           </div>
         </div>
         {readOnly ? (
@@ -350,9 +301,6 @@ export function PolicyPickerDialog({
                 return (
                   <li key={childId}>
                     <PolicyEntityRow
-                      browseLabel={
-                        childGroup ? LL.routes.browseGroup({ group: childGroup.label }) : undefined
-                      }
                       currentLabel={LL.routes.selected()}
                       density="compact"
                       disabled={groupSelectionPending}
@@ -380,7 +328,6 @@ export function PolicyPickerDialog({
                               : (childGroup?.type ?? ""),
                         })
                       }
-                      onBrowse={childGroup ? () => browseGroup(childGroup.id) : undefined}
                       onSelect={
                         canSelectNode || canSelectGroup
                           ? () => void selectChild(childId)

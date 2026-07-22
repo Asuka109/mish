@@ -81,6 +81,7 @@ describe("unified policy browser", () => {
     await expect
       .element(page.getByRole("button", { name: "Start Delay Test for 🌐 Proxy" }))
       .toBeVisible();
+    expect(document.querySelector(".policy-picker-dialog .policy-browser-browse")).toBeNull();
     expect(
       document.querySelector<HTMLElement>(".policy-picker-dialog")?.getBoundingClientRect().width,
     ).toBeLessThanOrEqual(560);

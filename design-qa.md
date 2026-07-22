@@ -210,7 +210,15 @@ Status: passed.
 - Verified dedicated Routes group views at 320 × 700 and 390 × 700 without horizontal overflow.
 - Verified multiple desktop groups can remain expanded and retain their independent controls.
 - Verified compact rows keep effective 44 px targets and retain latency, current state, and counts.
-- Verified picker search, nested browsing, explicit group selection, keyboard Escape hierarchy, and focus restoration.
+- Verified picker search, direct selection, keyboard Escape clearing/close behavior, and focus restoration.
+
+### Annotation follow-up: single-level picker
+
+- Compared the annotated 971 × 689 dark Chinese picker state with the updated implementation at the same viewport, theme, locale, and open-dialog state.
+- Removed the trailing browse disclosure, nested navigation stack, breadcrumb, and back action from the picker. Policy-group children now remain direct selectable or explicitly read-only rows in the current group.
+- Kept hierarchy and multi-group exploration in Routes, where the extra navigation context is visible and expected.
+- The updated dialog keeps the existing row density, latency, selection, protocol/group-type, search, sort, test, and read-only treatments without leaving a dead trailing column.
+- The in-app Browser accessibility snapshot contains no nested browse action or current-path control, and the focused unit/browser coverage confirms Escape closes after clearing search and restores focus to the Status summary trigger.
 
 ### Content and state checks
 
