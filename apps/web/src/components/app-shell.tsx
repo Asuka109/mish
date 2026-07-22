@@ -31,10 +31,10 @@ import {
 } from "@mish/ui";
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
-import { toast } from "sonner";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useCurrentProfileCommand } from "../data/current-profile-command";
+import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { useOptionalProfiles } from "../data/profile-provider";
 import { useOptionalSettings } from "../data/settings-provider";
@@ -48,7 +48,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
-import { handleDesktopWindowDrag } from "../platform/desktop-window";
+import { handleDesktopWindowDragOnly } from "../platform/desktop-window";
 import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
@@ -255,16 +255,18 @@ function Sidebar() {
       aria-label={LL.navigation.primary()}
       as="aside"
       className="sidebar"
+      data-window-drag-behavior="drag-only"
+      data-window-drag-surface="sidebar"
+      onMouseDown={handleDesktopWindowDragOnly}
       surfaceRole="window"
     >
-      <div className="sidebar-window-header" data-tauri-drag-region="deep">
+      <div className="sidebar-window-header">
         <div className="window-controls-slot">
           <div aria-hidden="true" className="traffic-lights">
             <Circle color="#ff5f57" weight="fill" />
             <Circle color="#febc2e" weight="fill" />
             <Circle color="#28c840" weight="fill" />
           </div>
-          <div aria-hidden="true" className="window-drag-region" />
         </div>
         <div aria-label="Mish" className="brand-row">
           <img
@@ -325,6 +327,7 @@ function ProfileMenu() {
   const profiles = useOptionalProfiles();
   const { pending: currentProfilePending, selectCurrentProfile } = useCurrentProfileCommand();
   const { LL } = useI18nContext();
+  const { publish } = useNotificationDelivery();
   if (!snapshot) {
     return (
       <span className="toolbar-loading">
@@ -365,7 +368,13 @@ function ProfileMenu() {
   async function selectProfile(profileId: string) {
     if (useSavedProfiles) {
       const result = await selectCurrentProfile(profileId);
-      if (!result.ok) toast.error(LL.profiles.switchFailed());
+      if (!result.ok) {
+        publish({
+          id: "profiles-switch-failed",
+          level: "error",
+          message: LL.profiles.switchFailed(),
+        });
+      }
     } else if (fixtureSelectionSupported) {
       await setActiveProfile(profileId);
     }
@@ -493,7 +502,7 @@ function Toolbar() {
       : null;
 
   return (
-    <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
+    <header className="toolbar">
       <div className="toolbar-heading">
         <span className="toolbar-title">{title}</span>
         {runtimeBadge ? (
@@ -551,12 +560,6 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <StatusActionDescriptions />
-      <div
-        aria-hidden="true"
-        className="workspace-top-window-drag-region"
-        data-window-drag-surface="workspace-top"
-        onMouseDown={handleDesktopWindowDrag}
-      />
       <Sidebar />
       <SurfaceScope as="main" className="workspace" surfaceRole="content">
         <RouteFocusManager />

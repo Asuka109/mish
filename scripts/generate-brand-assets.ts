@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { Resvg } from "@resvg/resvg-js";
 
 const BLUE = "#2F6FDC";
+const INACTIVE_STATUS_BAR_ALPHA = 0.45;
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const brandDirectory = join(repositoryRoot, "packages/brand-assets/public/brand");
 const outlineSvgPath = join(brandDirectory, "mish-icon-outline.svg");
@@ -67,13 +68,10 @@ function appIconSvg({ dark }: { dark: boolean }) {
 `;
 }
 
-function statusBarSvg({ dark }: { dark: boolean }) {
-  const suffix = dark ? " (dark)" : "";
-  const color = dark ? "#FFFFFF" : "#000000";
-
+function statusBarSvg({ color, title }: { color: string; title: string }) {
   return `<?xml version="1.0" encoding="utf-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
-  <title id="title">Mish status bar icon${suffix}</title>
+  <title id="title">${title}</title>
   ${markPath({ color })}
 </svg>
 `;
@@ -98,6 +96,19 @@ function renderSvg(filename: string, outputFilename: string, width: number) {
   }).render();
   writeFileSync(join(brandDirectory, outputFilename), rendered.asPng());
   return rendered.pixels;
+}
+
+function statusBarTemplatePixels(opacity: number) {
+  const rendered = new Resvg(
+    statusBarSvg({ color: "#000000", title: "Mish internal status bar template mask" }),
+    { fitTo: { mode: "width", value: 36 } },
+  ).render().pixels;
+  const mask = new Uint8Array(rendered.length);
+  for (let index = 0; index < rendered.length; index += 4) {
+    const alpha = rendered[index + 3];
+    mask[index + 3] = alpha === 0 ? 0 : Math.max(1, Math.round(alpha * opacity));
+  }
+  return mask;
 }
 
 function generateTauriIcons(extraArguments: string[] = []) {
@@ -147,8 +158,14 @@ writeFileSync(
 );
 writeFileSync(join(brandDirectory, "mish-app-icon.svg"), appIconSvg({ dark: false }));
 writeFileSync(join(brandDirectory, "mish-app-icon-dark.svg"), appIconSvg({ dark: true }));
-writeFileSync(join(brandDirectory, "mish-status-bar.svg"), statusBarSvg({ dark: false }));
-writeFileSync(join(brandDirectory, "mish-status-bar-dark.svg"), statusBarSvg({ dark: true }));
+writeFileSync(
+  join(brandDirectory, "mish-status-bar-full.svg"),
+  statusBarSvg({ color: "#FFFFFF", title: "Mish status bar icon (full prominence)" }),
+);
+writeFileSync(
+  join(brandDirectory, "mish-status-bar-inactive.svg"),
+  statusBarSvg({ color: "#8A8A8A", title: "Mish status bar icon (inactive)" }),
+);
 
 syncWordmarkMark("mish-brand.svg");
 syncWordmarkMark("mish-brand-dark.svg");
@@ -167,13 +184,19 @@ for (const size of [32, 180, 192, 512]) {
 
 for (const size of [18, 36]) {
   const suffix = size === 18 ? "" : "@2x";
-  const lightPixels = renderSvg("mish-status-bar.svg", `mish-status-bar${suffix}.png`, size);
-  renderSvg("mish-status-bar-dark.svg", `mish-status-bar-dark${suffix}.png`, size);
-  if (size === 36) {
-    mkdirSync(generatedStatusBarDirectory, { recursive: true });
-    writeFileSync(join(generatedStatusBarDirectory, "mish-status-bar.rgba"), lightPixels);
-  }
+  renderSvg("mish-status-bar-full.svg", `mish-status-bar-full${suffix}.png`, size);
+  renderSvg("mish-status-bar-inactive.svg", `mish-status-bar-inactive${suffix}.png`, size);
 }
+
+mkdirSync(generatedStatusBarDirectory, { recursive: true });
+writeFileSync(
+  join(generatedStatusBarDirectory, "mish-status-bar-active.rgba"),
+  statusBarTemplatePixels(1),
+);
+writeFileSync(
+  join(generatedStatusBarDirectory, "mish-status-bar-inactive.rgba"),
+  statusBarTemplatePixels(INACTIVE_STATUS_BAR_ALPHA),
+);
 
 synchronizeTauriIcons();
 

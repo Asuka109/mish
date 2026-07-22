@@ -14,6 +14,7 @@ const INTERACTIVE_TARGETS = [
   "[role='link']",
   "[role='menuitem']",
   "[role='option']",
+  "[data-base-ui-portal]",
   "[data-window-drag='exclude']",
 ].join(",");
 
@@ -23,6 +24,10 @@ interface DesktopWindowDependencies {
   setTheme(theme: Theme | null): Promise<void>;
   startDragging(): Promise<void>;
   toggleMaximize(): Promise<void>;
+}
+
+interface DesktopWindowDragOptions {
+  maximizeOnDoubleClick?: boolean;
 }
 
 const defaultDependencies: DesktopWindowDependencies = {
@@ -35,6 +40,7 @@ const defaultDependencies: DesktopWindowDependencies = {
 
 export function createDesktopWindowDragHandler(
   dependencies: DesktopWindowDependencies = defaultDependencies,
+  { maximizeOnDoubleClick = true }: DesktopWindowDragOptions = {},
 ) {
   return function handleDesktopWindowDrag(event: ReactMouseEvent<HTMLElement>) {
     if (
@@ -49,12 +55,17 @@ export function createDesktopWindowDragHandler(
 
     event.preventDefault();
     const action =
-      event.detail === 2 ? dependencies.toggleMaximize() : dependencies.startDragging();
+      maximizeOnDoubleClick && event.detail === 2
+        ? dependencies.toggleMaximize()
+        : dependencies.startDragging();
     void action.catch(() => undefined);
   };
 }
 
 export const handleDesktopWindowDrag = createDesktopWindowDragHandler();
+export const handleDesktopWindowDragOnly = createDesktopWindowDragHandler(defaultDependencies, {
+  maximizeOnDoubleClick: false,
+});
 
 export function createDesktopWindowAppearanceSync(
   dependencies: Pick<DesktopWindowDependencies, "isDesktop" | "setTheme"> = defaultDependencies,

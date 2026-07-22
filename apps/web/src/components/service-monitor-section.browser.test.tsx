@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { ProductProvider } from "../data/product-provider";
+import { NotificationDeliveryProvider } from "../data/notification-delivery";
 import { FixtureStatusClient } from "../data/fixture-status-client";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -63,9 +64,11 @@ beforeAll(async () => {
   root.render(
     <TypesafeI18n locale="en">
       <ProductProvider client={new BrowserServiceMonitorClient(snapshot)}>
-        <TooltipProvider>
-          <ServiceMonitorSection />
-        </TooltipProvider>
+        <NotificationDeliveryProvider>
+          <TooltipProvider>
+            <ServiceMonitorSection />
+          </TooltipProvider>
+        </NotificationDeliveryProvider>
       </ProductProvider>
     </TypesafeI18n>,
   );

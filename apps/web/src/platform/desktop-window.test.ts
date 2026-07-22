@@ -6,10 +6,10 @@ import {
   createDesktopWindowReadySignal,
 } from "./desktop-window";
 
-function createEvent(target: Element, detail = 1) {
+function createEvent(target: Element, { button = 0, defaultPrevented = false, detail = 1 } = {}) {
   return {
-    button: 0,
-    defaultPrevented: false,
+    button,
+    defaultPrevented,
     detail,
     preventDefault: vi.fn(),
     target,
@@ -55,15 +55,59 @@ describe("desktop window drag routing", () => {
     expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
   });
 
+  it("keeps portal overlay surfaces out of native drag and double-click routing", () => {
+    const dependencies = createDependencies();
+    const handler = createDesktopWindowDragHandler(dependencies);
+    const overlay = document.createElement("div");
+    overlay.dataset.baseUiPortal = "";
+    const text = document.createElement("p");
+    overlay.append(text);
+
+    const press = createEvent(text);
+    const doubleClick = createEvent(text, { detail: 2 });
+
+    handler(press);
+    handler(doubleClick);
+
+    expect(press.preventDefault).not.toHaveBeenCalled();
+    expect(doubleClick.preventDefault).not.toHaveBeenCalled();
+    expect(dependencies.startDragging).not.toHaveBeenCalled();
+    expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
+  });
+
   it("uses native title-bar zoom behavior for a desktop double click", () => {
     const dependencies = createDependencies();
     const handler = createDesktopWindowDragHandler(dependencies);
-    const event = createEvent(document.createElement("span"), 2);
+    const event = createEvent(document.createElement("span"), { detail: 2 });
 
     handler(event);
 
     expect(dependencies.startDragging).not.toHaveBeenCalled();
     expect(dependencies.toggleMaximize).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a drag-only surface from toggling native zoom on double click", () => {
+    const dependencies = createDependencies();
+    const handler = createDesktopWindowDragHandler(dependencies, {
+      maximizeOnDoubleClick: false,
+    });
+
+    handler(createEvent(document.createElement("span"), { detail: 2 }));
+
+    expect(dependencies.startDragging).toHaveBeenCalledOnce();
+    expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  it("does not route non-primary or already-prevented presses to the native window", () => {
+    const dependencies = createDependencies();
+    const handler = createDesktopWindowDragHandler(dependencies);
+    const target = document.createElement("span");
+
+    handler(createEvent(target, { button: 1 }));
+    handler(createEvent(target, { defaultPrevented: true }));
+
+    expect(dependencies.startDragging).not.toHaveBeenCalled();
+    expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
   });
 
   it("does not intercept the same surfaces in an ordinary browser", () => {
