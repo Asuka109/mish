@@ -104,6 +104,27 @@ pub fn show_browser_open_error() {
 pub fn show_browser_open_error() {}
 
 #[cfg(target_os = "macos")]
+pub fn show_proxy_launch_error() {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSAlert, NSAlertStyle};
+    use objc2_foundation::NSString;
+
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let alert = NSAlert::new(mtm);
+    alert.setAlertStyle(NSAlertStyle::Warning);
+    alert.setMessageText(&NSString::from_str("Mish couldn't launch the proxy"));
+    alert.setInformativeText(&NSString::from_str(
+        "Review Status or Events for the reported issue, then try Launch proxy again.",
+    ));
+    alert.runModal();
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_proxy_launch_error() {}
+
+#[cfg(target_os = "macos")]
 pub fn show_graceful_exit_error() {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSAlert, NSAlertStyle};

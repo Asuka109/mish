@@ -797,7 +797,15 @@ fn initialize(
             Arc::new(FileCaptureJournalStore::new(
                 profile_root.join("system-proxy-journal.json"),
             )),
-            LoopbackProxyEndpoint::managed(),
+            LoopbackProxyEndpoint::new(
+                "127.0.0.1",
+                settings_service
+                    .snapshot(SettingsAdapterKind::Rpc)
+                    .preferences
+                    .managed_ports
+                    .proxy,
+            )
+            .map_err(|_| io::Error::other("managed proxy endpoint is unavailable"))?,
             Some(tun_helper.clone()),
         ));
         let safe_runtime = compose_desktop_runtime_with_capture(
