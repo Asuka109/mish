@@ -165,6 +165,7 @@ impl EventsDataSource for ProfileSource {
                 id: format!("{}:1", self.profile_id),
                 level: EventLevel::Info,
                 message: "runtime replacement boundary".into(),
+                notification_kind: None,
                 observed_at: 1,
                 sequence: 1,
                 source: EventSource::Application,
