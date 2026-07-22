@@ -2227,6 +2227,43 @@ describe("desktop RPC experience", () => {
 });
 
 describe("Status fixture experience", () => {
+  it("clears Status session telemetry when capture stops and establishes a fresh baseline on relaunch", async () => {
+    const client = new FixtureStatusClient();
+    renderRoute("/status", "en", client);
+    const session = await screen.findByLabelText("Current session");
+
+    expect([...session.querySelectorAll("strong")].map((value) => value.textContent)).toEqual([
+      "- B/s",
+      "- B/s",
+      "-",
+      "-",
+      "-",
+      "-",
+    ]);
+    expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
+
+    await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
+    await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
+    expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
+
+    await act(() => client.setCapture({ systemProxy: true, tun: false }, false));
+    await waitFor(() =>
+      expect([...session.querySelectorAll("strong")].map((value) => value.textContent)).toEqual([
+        "- B/s",
+        "- B/s",
+        "-",
+        "-",
+        "-",
+        "-",
+      ]),
+    );
+    expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
+
+    await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
+    await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
+    expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
+  });
+
   it("labels fixture state and renders opaque Unicode labels verbatim", async () => {
     renderRoute("/status");
     expect(await screen.findByText("Live demo traffic")).toBeInTheDocument();
