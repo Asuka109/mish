@@ -50,6 +50,7 @@ import type {
 } from "@mish/contracts";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { tv } from "tailwind-variants";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
@@ -84,6 +85,31 @@ const commonRuleItems: Array<{ label: string; value: CommonRuleType | "match" | 
   { label: "RULE-SET", value: "rule-set" },
   { label: "MATCH", value: "match" },
 ];
+
+const patchStyles = tv({
+  slots: {
+    dialog: "w-[min(760px,calc(100vw_-_32px))] max-h-[min(760px,calc(100vh_-_32px))]",
+    content: "flex flex-col gap-3 p-4",
+    notice:
+      "m-0 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-3 py-[10px] text-(--color-text-muted)",
+    blocked: "text-(--color-error)",
+    toolbar:
+      "flex items-center justify-between gap-3 max-[760px]:flex-col max-[760px]:items-stretch [&>div]:flex [&>div]:items-center [&>div]:gap-2 max-[760px]:[&>div]:flex-wrap [&_span]:text-[13px] [&_span]:text-(--color-text-muted)",
+    scroll:
+      "min-h-40 max-h-[min(430px,50vh)] overflow-auto rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) [&>.ui-empty]:min-h-[158px] [&>.ui-empty]:border-0",
+    loading: "inline-flex items-center gap-2",
+    row: "flex min-w-0 items-center justify-between gap-3 p-3 max-[760px]:flex-col max-[760px]:items-stretch [&+&]:border-t [&+&]:border-(--color-hairline-soft)",
+    summary:
+      "min-w-0 flex-1 [&>div]:flex [&>div]:items-center [&>div]:gap-[6px] [&_p]:my-[2px] [&_p]:mt-1 [&_p]:overflow-hidden [&_p]:text-ellipsis [&_p]:whitespace-nowrap [&_small]:text-[13px] [&_small]:text-(--color-text-muted)",
+    rowActions: "flex items-center gap-[6px] max-[760px]:flex-wrap",
+    dirty: "text-[13px] text-(--color-text-muted)",
+    formDialog:
+      "w-[min(560px,calc(100vw_-_32px))] max-h-[min(720px,calc(100vh_-_32px))] overflow-auto",
+    orderList:
+      "flex flex-col gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) [&>div]:flex [&>div]:min-w-0 [&>div]:min-h-10 [&>div]:items-center [&>div]:gap-1 [&>div]:bg-(--color-canvas) [&>div]:py-1 [&>div]:pr-[6px] [&>div]:pl-[10px] [&_span]:min-w-0 [&_span]:flex-1 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
+    members: "flex max-h-[180px] flex-wrap gap-[6px] overflow-auto p-[2px]",
+  },
+});
 
 export function ProfilePatchEditor({
   canSave,
@@ -210,7 +236,7 @@ export function ProfilePatchEditor({
         }}
         open={open}
       >
-        <DialogContent className="profile-patch-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={patchStyles().dialog()} closeLabel={LL.common.close()}>
           <DialogHeader>
             <div>
               <DialogTitle className="dialog-title">
@@ -222,15 +248,20 @@ export function ProfilePatchEditor({
             </div>
           </DialogHeader>
 
-          <div className="profile-patch-content">
-            {fixture ? <p className="profile-patch-fixture">{LL.profiles.patchFixture()}</p> : null}
+          <div className={patchStyles().content()}>
+            {fixture ? (
+              <p className={patchStyles().notice()}>{LL.profiles.patchFixture()}</p>
+            ) : null}
             {editor?.activationBlocked ? (
-              <p className="profile-patch-blocked" role="alert">
+              <p
+                className={patchStyles().notice({ className: patchStyles().blocked() })}
+                role="alert"
+              >
                 {LL.profiles.patchActivationBlocked()}
               </p>
             ) : null}
 
-            <div className="profile-patch-toolbar">
+            <div className={patchStyles().toolbar()}>
               <div>
                 <strong>{LL.profiles.patches()}</strong>
                 <span>{LL.profiles.patchCount({ count: draft.length })}</span>
@@ -256,9 +287,9 @@ export function ProfilePatchEditor({
               </div>
             </div>
 
-            <div className="profile-patch-scroll" aria-live="polite">
+            <div className={patchStyles().scroll()} aria-live="polite">
               {loading ? (
-                <p className="profile-patch-loading">
+                <p className={patchStyles().loading()}>
                   <Spinner data-icon="inline-start" />
                   {LL.profiles.loading()}
                 </p>
@@ -284,8 +315,8 @@ export function ProfilePatchEditor({
                     : undefined;
                 const status = saved?.status ?? (patch.enabled ? "enabled" : "disabled");
                 return (
-                  <article className="profile-patch-row" key={patch.id}>
-                    <div className="profile-patch-summary">
+                  <article className={patchStyles().row()} key={patch.id}>
+                    <div className={patchStyles().summary()}>
                       <div>
                         <strong>{patchKindLabel(LL, patch.operation.kind)}</strong>
                         <Badge variant={patchBadge(status)}>{patchStatusLabel(LL, status)}</Badge>
@@ -299,7 +330,7 @@ export function ProfilePatchEditor({
                           : LL.profiles.patchUnsavedValidation()}
                       </small>
                     </div>
-                    <div className="profile-patch-row-actions">
+                    <div className={patchStyles().rowActions()}>
                       <Button
                         aria-label={LL.profiles.patchMoveUp()}
                         disabled={index === 0}
@@ -361,7 +392,7 @@ export function ProfilePatchEditor({
           </div>
 
           <DialogFooter>
-            <span className="profile-patch-dirty" aria-live="polite">
+            <span className={patchStyles().dirty()} aria-live="polite">
               {dirty ? LL.profiles.patchUnsavedChanges() : LL.profiles.patchAllSaved()}
             </span>
             <Button onClick={requestClose} variant="outline">
@@ -429,7 +460,7 @@ function PatchFormDialog({ editor, initial, onCommit, onOpenChange, open }: Patc
   const valid = operationIsComplete(operation);
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className="profile-patch-form-dialog" closeLabel={LL.common.close()}>
+      <DialogContent className={patchStyles().formDialog()} closeLabel={LL.common.close()}>
         <DialogHeader>
           <div>
             <DialogTitle className="dialog-title">
@@ -613,7 +644,7 @@ function OperationFields({
   return (
     <Field>
       <FieldLabel>{LL.profiles.patchGroupOrder()}</FieldLabel>
-      <div className="profile-patch-order-list">
+      <div className={patchStyles().orderList()}>
         {operation.groupIds.map((id, index) => {
           const group = editor.catalog.groups.find((candidate) => candidate.id === id);
           return (
@@ -700,7 +731,7 @@ function MemberPicker({
   return (
     <Field data-invalid={memberIds.length === 0 || undefined}>
       <FieldLabel>{LL.profiles.patchMembers()}</FieldLabel>
-      <div className="profile-patch-members">
+      <div className={patchStyles().members()}>
         {editor.catalog.outbounds.map((entity) => {
           const pressed = memberIds.includes(entity.id);
           return (
