@@ -29,6 +29,7 @@ import {
   useNotificationDelivery,
   type DeliveredNotification,
   type NotificationActionDescriptor,
+  type NotificationLevel,
 } from "../data/notification-delivery";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -300,17 +301,28 @@ function NotificationPublicationController({
   useEffect(() => {
     if (!eventsContext?.snapshot) return;
     const events = eventsContext.events.filter(
-      (event) =>
-        !(captureFailureAlreadyExplained && event.message === LL.errors.command()) &&
-        !(captureFailureResolved && event.notificationKind === "capture-failure"),
+      (event) => !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
     );
     reconcileExternalNotifications(
       events
         .filter((event) => event.notificationKind !== null && event.notificationKind !== undefined)
         .map((event) => {
           let message = event.message;
+          let detail = event.detail ?? undefined;
+          let level: NotificationLevel = event.level;
+          let toast: "dismiss" | undefined;
           const isCurrent = latestNotificationIds.get(event.notificationKind ?? "") === event.id;
-          if (isCurrent && event.notificationKind === "capture-failure") {
+          if (event.notificationKind === "capture-failure" && captureFailureResolved) {
+            message =
+              systemProxy?.phase === "applied"
+                ? systemProxyStatusMessage(LL, systemProxy)
+                : tun
+                  ? tunStatusMessage(LL, tun)
+                  : event.message;
+            detail = undefined;
+            level = "success";
+            toast = "dismiss";
+          } else if (isCurrent && event.notificationKind === "capture-failure") {
             if (systemProxyDrift) message = systemProxyDriftMessage;
             else if (systemProxyFailed && systemProxy) {
               message = systemProxyStatusMessage(LL, systemProxy);
@@ -348,19 +360,20 @@ function NotificationPublicationController({
             detail:
               event.notificationKind === "profile-activation-geodata"
                 ? LL.profiles.geodataRetry()
-                : (event.detail ?? undefined),
+                : detail,
             duration:
               isCurrent && event.notificationKind === "capture-failure" && systemProxyDrift
                 ? Number.POSITIVE_INFINITY
                 : undefined,
             id: event.id,
-            level: event.level,
+            level,
             message,
             observedAt: event.observedAt,
             replaces:
               event.notificationKind === "profile-activation-geodata"
                 ? [geodataProgressNotificationId]
                 : undefined,
+            toast,
           };
         }),
     );

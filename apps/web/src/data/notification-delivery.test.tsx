@@ -172,10 +172,9 @@ describe("authoritative notification delivery", () => {
     expect(presentNotificationToast).not.toHaveBeenCalled();
   });
 
-  it("removes a stale capture failure from both projections after capture succeeds", async () => {
+  it("keeps a resolved capture notification in the center after dismissing its toast", async () => {
     loadAllLocales();
     const status = new FixtureStatusClient();
-    await status.setCapture({ systemProxy: true, tun: false }, true);
     const events = createFixtureEventsClient();
     const eventSnapshot = await events.getSnapshot();
     eventSnapshot.events = [
@@ -210,9 +209,29 @@ describe("authoritative notification delivery", () => {
       </TypesafeI18n>,
     );
 
-    await vi.waitFor(() => expect(delivery).not.toBeNull());
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
-    expect(delivery?.entries).toEqual([]);
+    await vi.waitFor(() => {
+      expect(delivery?.entries).toHaveLength(1);
+      expect(delivery?.entries[0]).toMatchObject({
+        id: `${eventSnapshot.sessionId}:1`,
+        level: "error",
+        message: "System Proxy reconciliation failed",
+        source: "event",
+      });
+    });
+    expect(presentNotificationToast).not.toHaveBeenCalled();
+
+    await act(() => status.setCapture({ systemProxy: true, tun: false }, true));
+
+    await vi.waitFor(() => {
+      expect(delivery?.entries).toHaveLength(1);
+      expect(delivery?.entries[0]).toMatchObject({
+        id: `${eventSnapshot.sessionId}:1`,
+        level: "success",
+        message: "System Proxy is applied and confirmed by macOS.",
+        source: "event",
+      });
+    });
+    expect(dismissNotificationToast).toHaveBeenCalledWith(`${eventSnapshot.sessionId}:1`);
     expect(presentNotificationToast).not.toHaveBeenCalled();
   });
 

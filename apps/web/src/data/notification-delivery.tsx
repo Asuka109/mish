@@ -27,6 +27,8 @@ export interface NotificationEnvelope {
   observedAt?: number;
   duration?: number;
   actions?: readonly NotificationActionDescriptor[];
+  /** Controls toast presentation while retaining the same entry in Notifications. */
+  toast?: "present" | "dismiss";
   /**
    * Canonical IDs made obsolete by this more specific publication. This is
    * session-local and removes only the retained/toast projections, never
@@ -140,7 +142,8 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
           entry,
         ].toSorted((left, right) => right.observedAt - left.observedAt);
         for (const replacedId of replacedIds) dismissNotificationToast(replacedId);
-        presentNotificationToast(entry, (actionId) => execute(entry.id, actionId));
+        if (envelope.toast === "dismiss") dismissNotificationToast(entry.id);
+        else presentNotificationToast(entry, (actionId) => execute(entry.id, actionId));
         return next;
       });
     },
@@ -199,15 +202,21 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
       }));
       if (externalNotificationsInitialized.current) {
         const presented = new Map(presentedExternalNotifications.current);
-        for (const entry of history) {
+        for (const [index, entry] of history.entries()) {
+          const notification = notifications[index]!;
           const presentation = JSON.stringify({
             actions: entry.actions.map(({ id }) => id),
             detail: entry.detail,
+            level: entry.level,
             message: entry.message,
             title: entry.title,
+            toast: notification.toast,
           });
           const previousPresentation = presented.get(entry.id);
-          if (
+          if (notification.toast === "dismiss") {
+            dismissNotificationToast(entry.id);
+            presented.set(entry.id, presentation);
+          } else if (
             !seenExternalNotificationIds.current.has(entry.id) ||
             (previousPresentation !== undefined && previousPresentation !== presentation)
           ) {
