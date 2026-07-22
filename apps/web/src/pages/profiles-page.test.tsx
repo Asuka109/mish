@@ -230,8 +230,8 @@ describe("profiles page", () => {
     expect(
       screen.getByText("https://profiles.example/subscriptions/studio-route-set.yaml"),
     ).toHaveClass("profile-subscription-url");
-    expect(screen.getByRole("button", { name: "Update subscription" })).toBeDisabled();
-    expect(screen.getAllByRole("button", { name: "Open folder" })).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Update Subscription" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: "Open Folder" })).toHaveLength(3);
     expect(screen.queryByText("Edit rules and groups")).not.toBeInTheDocument();
     expect(screen.queryByText("Runtime-layer provenance")).not.toBeInTheDocument();
   });
@@ -249,20 +249,20 @@ describe("profiles page", () => {
     await user.click(await screen.findByRole("menuitemradio", { name: "Every 6 hours" }));
     expect(client.setRefreshPolicy).toHaveBeenCalledWith("profile-subscription", "six-hours");
 
-    await user.click(screen.getByRole("button", { name: "Update subscription" }));
+    await user.click(screen.getByRole("button", { name: "Update Subscription" }));
     expect(client.refreshProfile).toHaveBeenCalledWith("profile-subscription");
 
-    const cardFolderButton = screen.getAllByRole("button", { name: "Open folder" })[1];
+    const cardFolderButton = screen.getAllByRole("button", { name: "Open Folder" })[1];
     expect(cardFolderButton).toHaveTextContent("");
     await user.click(cardFolderButton);
     expect(client.openProfileDirectory).toHaveBeenCalledOnce();
 
-    await user.click(screen.getByRole("button", { name: "detach the subscription" }));
+    await user.click(screen.getByRole("button", { name: "Detach the Subscription" }));
     expect(client.detachSubscription).toHaveBeenCalledWith("profile-subscription");
 
     const localCard = screen.getByText("home").closest("article");
     expect(localCard).not.toBeNull();
-    expect(within(localCard!).queryByRole("button", { name: "Update subscription" })).toBeNull();
+    expect(within(localCard!).queryByRole("button", { name: "Update Subscription" })).toBeNull();
   });
 
   it("opens the managed profile directory through the shared client adapter", async () => {
@@ -271,7 +271,7 @@ describe("profiles page", () => {
     renderProfiles(client);
     await screen.findByText("studio-route-set");
 
-    await user.click(screen.getAllByRole("button", { name: "Open folder" })[0]);
+    await user.click(screen.getAllByRole("button", { name: "Open Folder" })[0]);
     expect(client.openProfileDirectory).toHaveBeenCalledOnce();
   });
 
@@ -281,9 +281,9 @@ describe("profiles page", () => {
     renderProfiles(client);
     await screen.findByText("studio-route-set");
 
-    await user.click(screen.getByRole("button", { name: "New profile" }));
+    await user.click(screen.getByRole("button", { name: "New Profile" }));
     await user.type(screen.getByLabelText("Local file name"), "travel.YML");
-    await user.click(screen.getByRole("button", { name: "New profile" }));
+    await user.click(screen.getByRole("button", { name: "New Profile" }));
 
     await waitFor(() => expect(client.createProfile).toHaveBeenCalledWith("travel.yml"));
     await waitFor(() => expect(screen.queryByText("Create local profile")).not.toBeInTheDocument());
@@ -295,12 +295,12 @@ describe("profiles page", () => {
     renderProfiles(client);
     await screen.findByText("studio-route-set");
 
-    await user.click(screen.getByRole("button", { name: "Add subscription" }));
+    await user.click(screen.getByRole("button", { name: "Add Subscription" }));
     const urlInput = screen.getByLabelText("Subscription URL");
     expect(urlInput).toHaveAttribute("type", "url");
     await user.type(screen.getByLabelText("Local file name"), "office-route-set");
     await user.type(urlInput, "https://profiles.example/office?token=visible");
-    await user.click(screen.getByRole("button", { name: "Check and save" }));
+    await user.click(screen.getByRole("button", { name: "Check and Save" }));
 
     await waitFor(() =>
       expect(client.preflightHttps).toHaveBeenCalledWith(
