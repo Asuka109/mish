@@ -6,6 +6,7 @@ import { GlobeHemisphereWest } from "@phosphor-icons/react/GlobeHemisphereWest";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { tv } from "tailwind-variants";
 import {
   Badge,
   Button,
@@ -47,6 +48,37 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
   "daily",
   "weekly",
 ];
+
+const profileStyles = tv({
+  slots: {
+    cardList: "profile-card-list grid gap-3",
+    card: "profile-card overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas)",
+    cardHeader:
+      "profile-card-header flex min-h-[58px] items-center justify-between gap-3 px-4 py-3",
+    cardTitle: "profile-card-title flex min-w-0 items-center gap-2",
+    cardActions: "profile-card-actions flex shrink-0 items-center gap-2",
+    fileTitle:
+      "profile-file-title min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-(--font-weight-control)",
+    extension: "profile-file-extension text-(--color-text-muted)",
+    subscription:
+      "profile-subscription border-t border-(--color-hairline-soft) bg-(--color-surface-soft)",
+    subscriptionGrid:
+      "profile-subscription-grid grid grid-cols-[minmax(0,1fr)_auto_auto] gap-px bg-(--color-hairline-soft)",
+    subscriptionCell: "bg-(--color-canvas) px-4 py-3",
+    source: "profile-subscription-source grid min-w-0 gap-1",
+    url: "profile-subscription-url overflow-hidden text-ellipsis whitespace-nowrap text-(--text-metadata) text-(--color-body)",
+    date: "profile-subscription-date grid gap-1 text-(--text-metadata) text-(--color-text-muted) [&_strong]:text-(--color-body) [&_strong]:font-(--font-weight-control)",
+    nextUpdate: "profile-next-update flex items-center gap-2",
+    intervalTrigger:
+      "profile-interval-trigger grid size-[30px] place-items-center rounded-(--radius-sm) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-accent) hover:text-(--color-ink) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-ink) focus-visible:bg-(--color-accent) focus-visible:text-(--color-ink) disabled:opacity-50 [&_svg]:size-[15px]",
+    overwrite:
+      "profile-overwrite-note flex gap-2 px-4 py-3 text-(--text-metadata) text-(--color-text-muted) [&_svg]:mt-px [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-(--color-warning) [&_button]:text-(--color-body) [&_button]:underline hover:[&_button]:text-(--color-ink) focus-visible:[&_button]:text-(--color-ink)",
+    preview: "profile-preview grid gap-3 p-4",
+    previewCompact: "profile-preview-compact",
+    previewList:
+      "grid grid-cols-3 gap-px overflow-hidden rounded-(--radius-md) bg-(--color-hairline-soft) [&>div]:bg-(--color-canvas) [&>div]:p-3 [&_dt]:text-(--text-metadata) [&_dt]:text-(--color-text-muted) [&_dd]:mt-1 [&_dd]:font-(--font-weight-control)",
+  },
+});
 
 export function ProfilesPage() {
   const { LL, locale } = useI18nContext();
@@ -199,7 +231,7 @@ export function ProfilesPage() {
       ) : null}
 
       {snapshot && snapshot.profiles.length > 0 ? (
-        <section aria-label={LL.profiles.profilesAria()} className="profile-card-list">
+        <section aria-label={LL.profiles.profilesAria()} className={profileStyles().cardList()}>
           {snapshot.profiles.map((profile) => (
             <ProfileCard
               LL={LL}
@@ -393,13 +425,16 @@ function ProfileCard({
   const lastUpdateAt = profile.refresh.lastSuccessAt ?? profile.lastSuccessAt;
 
   return (
-    <article className="profile-card" data-source={subscription ? "subscription" : "local"}>
-      <header className="profile-card-header">
-        <div className="profile-card-title">
+    <article
+      className={profileStyles().card()}
+      data-source={subscription ? "subscription" : "local"}
+    >
+      <header className={profileStyles().cardHeader()}>
+        <div className={profileStyles().cardTitle()}>
           <FileNameTitle fileName={fileName} />
           {profile.status.active ? <Badge variant="outline">{LL.profiles.active()}</Badge> : null}
         </div>
-        <div className="profile-card-actions">
+        <div className={profileStyles().cardActions()}>
           {subscription ? (
             <Button
               disabled={!refreshSupported || refreshPending}
@@ -430,14 +465,14 @@ function ProfileCard({
         </div>
       </header>
       {subscription ? (
-        <div className="profile-subscription">
-          <div className="profile-subscription-grid">
-            <div className="profile-subscription-source">
+        <div className={profileStyles().subscription()}>
+          <div className={profileStyles().subscriptionGrid()}>
+            <div className={`${profileStyles().subscriptionCell()} ${profileStyles().source()}`}>
               <span>
                 <GlobeHemisphereWest aria-hidden="true" />
                 {LL.profiles.subscriptionAddress()}
               </span>
-              <span className="profile-subscription-url" title={profile.source.display}>
+              <span className={profileStyles().url()} title={profile.source.display}>
                 {profile.source.display}
               </span>
             </div>
@@ -445,9 +480,9 @@ function ProfileCard({
               label={LL.profiles.lastUpdate()}
               value={formatTimestamp(lastUpdateAt, dateFormatter, LL)}
             />
-            <div className="profile-subscription-date">
+            <div className={`${profileStyles().subscriptionCell()} ${profileStyles().date()}`}>
               <span>{LL.profiles.nextUpdate()}</span>
-              <div className="profile-next-update">
+              <div className={profileStyles().nextUpdate()}>
                 <strong>
                   {profile.refresh.policy === "off"
                     ? LL.profiles.automaticRefreshOff()
@@ -456,7 +491,7 @@ function ProfileCard({
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     aria-label={LL.profiles.setUpdateInterval({ profile: fileName })}
-                    className="profile-interval-trigger"
+                    className={profileStyles().intervalTrigger()}
                     disabled={!schedulingSupported || schedulePending}
                   >
                     <Alarm aria-hidden="true" />
@@ -482,7 +517,7 @@ function ProfileCard({
               </div>
             </div>
           </div>
-          <p className="profile-overwrite-note">
+          <p className={profileStyles().overwrite()}>
             <WarningCircle aria-hidden="true" />
             <span>
               {LL.profiles.subscriptionOverwriteBeforeDetach()}
@@ -504,16 +539,16 @@ function FileNameTitle({ fileName }: { fileName: string }) {
   const name = hasExtension ? fileName.slice(0, extensionStart) : fileName;
   const extension = hasExtension ? fileName.slice(extensionStart) : "";
   return (
-    <strong className="profile-file-title" title={fileName}>
+    <strong className={profileStyles().fileTitle()} title={fileName}>
       <span>{name}</span>
-      {extension ? <span className="profile-file-extension">{extension}</span> : null}
+      {extension ? <span className={profileStyles().extension()}>{extension}</span> : null}
     </strong>
   );
 }
 
 function ProfileDate({ label, value }: { label: string; value: string }) {
   return (
-    <div className="profile-subscription-date">
+    <div className={`${profileStyles().subscriptionCell()} ${profileStyles().date()}`}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -522,9 +557,9 @@ function ProfileDate({ label, value }: { label: string; value: string }) {
 
 function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: ProfilePreviewDto }) {
   return (
-    <div className="profile-preview profile-preview-compact">
+    <div className={`${profileStyles().preview()} ${profileStyles().previewCompact()}`}>
       <FileNameTitle fileName={normalizeFileName(preview.label) ?? preview.label} />
-      <dl>
+      <dl className={profileStyles().previewList()}>
         <div>
           <dt>{LL.profiles.proxies()}</dt>
           <dd>{preview.proxyCount}</dd>
