@@ -54,23 +54,24 @@ const profileStyles = tv({
     cardList: "profile-card-list grid gap-3",
     card: "profile-card overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas)",
     cardHeader:
-      "profile-card-header flex min-h-[58px] items-center justify-between gap-3 px-4 py-3",
+      "profile-card-header flex min-h-[58px] items-center justify-between gap-3 px-4 py-3 max-[680px]:items-start",
     cardTitle: "profile-card-title flex min-w-0 items-center gap-2",
-    cardActions: "profile-card-actions flex shrink-0 items-center gap-2",
+    cardActions:
+      "profile-card-actions flex shrink-0 items-center gap-2 max-[680px]:flex-wrap max-[680px]:justify-end",
     fileTitle:
       "profile-file-title min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-(--font-weight-control)",
     extension: "profile-file-extension text-(--color-text-muted)",
     subscription:
       "profile-subscription border-t border-(--color-hairline-soft) bg-(--color-surface-soft)",
     subscriptionGrid:
-      "profile-subscription-grid grid grid-cols-[minmax(0,1fr)_auto_auto] gap-px bg-(--color-hairline-soft)",
-    subscriptionCell: "bg-(--color-canvas) px-4 py-3",
-    source: "profile-subscription-source grid min-w-0 gap-1",
+      "profile-subscription-grid grid grid-cols-[minmax(260px,1fr)_126px_144px] items-end gap-5 max-[900px]:grid-cols-[minmax(0,1fr)_112px_132px] max-[900px]:gap-[14px] max-[680px]:grid-cols-2",
+    subscriptionCell: "grid min-w-0 gap-1",
+    source: "profile-subscription-source grid min-w-0 gap-1 max-[680px]:col-span-2",
     url: "profile-subscription-url overflow-hidden text-ellipsis whitespace-nowrap text-(--text-metadata) text-(--color-body)",
     date: "profile-subscription-date grid gap-1 text-(--text-metadata) text-(--color-text-muted) [&_strong]:text-(--color-body) [&_strong]:font-(--font-weight-control)",
     nextUpdate: "profile-next-update flex items-center gap-2",
     intervalTrigger:
-      "profile-interval-trigger grid size-[30px] place-items-center rounded-(--radius-sm) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-accent) hover:text-(--color-ink) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-ink) focus-visible:bg-(--color-accent) focus-visible:text-(--color-ink) disabled:opacity-50 [&_svg]:size-[15px]",
+      "profile-interval-trigger grid size-7 place-items-center rounded-(--radius-sm) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-interactive) hover:text-(--color-ink) data-[popup-open]:bg-(--color-interactive) data-[popup-open]:text-(--color-ink) focus-visible:bg-(--color-interactive) focus-visible:text-(--color-ink) disabled:opacity-[0.45] [&_svg]:size-[15px]",
     overwrite:
       "profile-overwrite-note flex gap-2 px-4 py-3 text-(--text-metadata) text-(--color-text-muted) [&_svg]:mt-px [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-(--color-warning) [&_button]:text-(--color-body) [&_button]:underline hover:[&_button]:text-(--color-ink) focus-visible:[&_button]:text-(--color-ink)",
     preview: "profile-preview grid gap-3 p-4",
