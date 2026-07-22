@@ -271,20 +271,21 @@ impl DesktopMihomoProcess {
         &self,
         deadline: Duration,
     ) -> Result<(), ManagedProcessValidationError> {
-        self.validate_config_observed(deadline, CancellationToken::new(), None)
+        self.validate_config_observed(deadline, deadline, CancellationToken::new(), None)
             .await
     }
 
     pub async fn validate_config_observed(
         &self,
-        deadline: Duration,
+        validation_timeout: Duration,
+        geodata_timeout: Duration,
         cancellation: CancellationToken,
         observer: Option<GeodataValidationObserver>,
     ) -> Result<(), ManagedProcessValidationError> {
         if !self.configured() {
             return Err(ManagedProcessValidationError::NotConfigured);
         }
-        self.checked_version(deadline).await?;
+        self.checked_version(validation_timeout).await?;
         let mut command = self.command();
         command
             .arg("-t")
@@ -305,15 +306,43 @@ impl DesktopMihomoProcess {
         ));
         let stderr_reader = tokio::spawn(drain_validation_output(stderr, events, observer));
 
-        let outcome = tokio::select! {
-            _ = cancellation.cancelled() => Err(ManagedProcessValidationError::ExecutionFailed),
-            result = timeout(deadline, child.wait()) => match result {
-                Err(_) => Err(ManagedProcessValidationError::Timeout),
-                Ok(Err(_)) => Err(ManagedProcessValidationError::ExecutionFailed),
-                Ok(Ok(status)) if !status.success() => Err(ManagedProcessValidationError::ConfigurationRejected),
-                Ok(Ok(_)) => Ok(()),
-            },
+        let mut preparing = None;
+        let mut failed = None;
+        let mut deadline = tokio::time::Instant::now() + validation_timeout;
+        let mut events_open = true;
+        let mut child_wait = Box::pin(child.wait());
+        let outcome = loop {
+            tokio::select! {
+                _ = cancellation.cancelled() => {
+                    break Err(ManagedProcessValidationError::ExecutionFailed);
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    break Err(match preparing {
+                        Some(asset) => ManagedProcessValidationError::GeodataTimeout(asset),
+                        None => ManagedProcessValidationError::Timeout,
+                    });
+                }
+                event = received.recv(), if events_open => match event {
+                    Some(GeodataValidationEvent::Preparing(asset)) => {
+                        if preparing.is_none() {
+                            preparing = Some(asset);
+                            deadline = tokio::time::Instant::now() + geodata_timeout;
+                        }
+                    }
+                    Some(GeodataValidationEvent::Failed(asset)) => {
+                        failed = Some(asset);
+                        break Err(ManagedProcessValidationError::GeodataFailed(asset));
+                    }
+                    None => events_open = false,
+                },
+                result = &mut child_wait => break match result {
+                    Err(_) => Err(ManagedProcessValidationError::ExecutionFailed),
+                    Ok(status) if !status.success() => Err(ManagedProcessValidationError::ConfigurationRejected),
+                    Ok(_) => Ok(()),
+                },
+            }
         };
+        drop(child_wait);
         if outcome.is_err() {
             let _ = child.start_kill();
             let _ = child.wait().await;
@@ -323,8 +352,6 @@ impl DesktopMihomoProcess {
             settle_validation_reader(stderr_reader)
         );
 
-        let mut preparing = None;
-        let mut failed = None;
         while let Ok(event) = received.try_recv() {
             match event {
                 GeodataValidationEvent::Preparing(asset) => preparing.get_or_insert(asset),
@@ -1008,6 +1035,7 @@ mod validation_output_tests {
         success
             .validate_config_observed(
                 Duration::from_secs(3),
+                Duration::from_secs(3),
                 CancellationToken::new(),
                 Some(Arc::new(move |event| captured.lock().unwrap().push(event))),
             )
@@ -1036,7 +1064,7 @@ mod validation_output_tests {
             ))
         );
 
-        let (_timeout_root, timed_out) = fixture_process("geodata-test-timeout: true");
+        let (timeout_root, timed_out) = fixture_process("geodata-test-timeout: true");
         let started = tokio::time::Instant::now();
         assert_eq!(
             timed_out.validate_config(Duration::from_millis(500)).await,
@@ -1045,6 +1073,16 @@ mod validation_output_tests {
             ))
         );
         assert!(started.elapsed() < Duration::from_secs(2));
+        #[cfg(unix)]
+        {
+            let pid =
+                std::fs::read_to_string(timeout_root.path().join("config.yaml.validation-pid"))
+                    .unwrap()
+                    .trim()
+                    .parse::<i32>()
+                    .unwrap();
+            assert_eq!(unsafe { libc::kill(pid, 0) }, -1);
+        }
     }
 
     fn fixture_process(marker: &str) -> (tempfile::TempDir, DesktopMihomoProcess) {

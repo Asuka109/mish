@@ -171,6 +171,7 @@ fn create_private_directory(path: &Path) -> Result<(), MihomoResolveError> {
 #[derive(Clone, Copy, Debug)]
 pub struct ActivationTiming {
     pub config_validation_timeout: Duration,
+    pub geodata_preparation_timeout: Duration,
     pub controller_connect_timeout: Duration,
     pub controller_request_timeout: Duration,
     pub readiness_timeout: Duration,
@@ -182,6 +183,7 @@ impl Default for ActivationTiming {
     fn default() -> Self {
         Self {
             config_validation_timeout: Duration::from_secs(10),
+            geodata_preparation_timeout: Duration::from_secs(5 * 60),
             controller_connect_timeout: Duration::from_secs(2),
             controller_request_timeout: Duration::from_secs(2),
             readiness_timeout: Duration::from_secs(15),
@@ -194,6 +196,7 @@ impl Default for ActivationTiming {
 impl ActivationTiming {
     fn valid(self) -> bool {
         !self.config_validation_timeout.is_zero()
+            && !self.geodata_preparation_timeout.is_zero()
             && !self.controller_connect_timeout.is_zero()
             && !self.controller_request_timeout.is_zero()
             && !self.readiness_timeout.is_zero()
@@ -836,6 +839,7 @@ impl MihomoActivationManager {
         let validation = staging_process
             .validate_config_observed(
                 self.timing.config_validation_timeout,
+                self.timing.geodata_preparation_timeout,
                 cancellation.clone(),
                 observer,
             )

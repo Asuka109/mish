@@ -33,10 +33,13 @@ if [ "$validate" != true ]; then
   done
 fi
 
+echo "$$" > "${config_file}.validation-pid"
+
 mode=""
 while IFS= read -r line; do
   case "$line" in
     *"geodata-test-unknown: true"*) mode="unknown" ;;
+    *"geodata-test-slow-success: true"*) mode="slow-success" ;;
     *"geodata-test-success: true"*) mode="success" ;;
     *"geodata-test-failure: true"*) mode="failure" ;;
     *"geodata-test-timeout: true"*) mode="timeout" ;;
@@ -57,6 +60,13 @@ if [ "$mode" = "success" ]; then
   sleep 0.05
   printf "Site.dat, start download\n"
   sleep 0.05
+  echo "[info] Download GeoSite.dat finish"
+  exit 0
+fi
+
+if [ "$mode" = "slow-success" ]; then
+  echo "[info] Can't find GeoSite.dat, start download"
+  sleep 2
   echo "[info] Download GeoSite.dat finish"
   exit 0
 fi

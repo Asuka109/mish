@@ -39,6 +39,7 @@ async fn activates_the_pinned_core_and_confirms_modes_through_authenticated_rpc(
         ManagedMihomoResolver::development(binary, runtime_root),
         ActivationTiming {
             config_validation_timeout: Duration::from_secs(5),
+            geodata_preparation_timeout: Duration::from_secs(5 * 60),
             controller_connect_timeout: Duration::from_secs(1),
             controller_request_timeout: Duration::from_secs(2),
             readiness_timeout: Duration::from_secs(10),

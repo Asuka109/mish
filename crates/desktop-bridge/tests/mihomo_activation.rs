@@ -57,9 +57,35 @@ struct HealthyTunPlatform {
 }
 
 #[tokio::test]
+async fn recognized_geodata_preparation_does_not_use_the_short_validation_deadline() {
+    let (coordinator, _host, controller, profile_id) = geodata_coordinator(
+        "geodata-test-slow-success: true",
+        Duration::from_millis(800),
+        Duration::from_secs(3),
+    )
+    .await;
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &profile_id)
+        .await
+        .unwrap();
+
+    let completed = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(completed.phase, ProfileActivationPhase::Success);
+    assert_eq!(completed.failure, None);
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
 async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancellation() {
-    let (success, success_controller, success_id) =
-        geodata_coordinator("geodata-test-success: true", Duration::from_secs(3)).await;
+    let (success, _success_host, success_controller, success_id) = geodata_coordinator(
+        "geodata-test-success: true",
+        Duration::from_secs(3),
+        Duration::from_secs(3),
+    )
+    .await;
     let mut updates = success.subscribe();
     success
         .activate(&Uuid::new_v4().to_string(), &success_id)
@@ -80,8 +106,12 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     success.shutdown().await.unwrap();
     success_controller.shutdown().await;
 
-    let (failed, failed_controller, failed_id) =
-        geodata_coordinator("geodata-test-failure: true", Duration::from_secs(3)).await;
+    let (failed, _failed_host, failed_controller, failed_id) = geodata_coordinator(
+        "geodata-test-failure: true",
+        Duration::from_secs(3),
+        Duration::from_secs(3),
+    )
+    .await;
     let mut updates = failed.subscribe();
     failed
         .activate(&Uuid::new_v4().to_string(), &failed_id)
@@ -120,8 +150,12 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     failed.shutdown().await.unwrap();
     failed_controller.shutdown().await;
 
-    let (timed_out, timeout_controller, timeout_id) =
-        geodata_coordinator("geodata-test-timeout: true", Duration::from_millis(1500)).await;
+    let (timed_out, timeout_host, timeout_controller, timeout_id) = geodata_coordinator(
+        "geodata-test-timeout: true",
+        Duration::from_millis(800),
+        Duration::from_millis(500),
+    )
+    .await;
     let mut updates = timed_out.subscribe();
     timed_out
         .activate(&Uuid::new_v4().to_string(), &timeout_id)
@@ -136,11 +170,34 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
         completed.evidence.unwrap().kind,
         ProfileActivationEvidenceKind::GeodataTimeout
     );
+    assert!(completed.safe_stopped);
+    assert!(completed.active_profile_id.is_none());
+    let status = timeout_host
+        .current()
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await;
+    assert!(status.groups.is_empty());
+    assert!(status.nodes.is_empty());
+    assert_eq!(status.metrics.active_connections, 0);
+    assert!(
+        timed_out
+            .profile_snapshot()
+            .await
+            .unwrap()
+            .profiles
+            .iter()
+            .all(|profile| !profile.status.active)
+    );
     timed_out.shutdown().await.unwrap();
     timeout_controller.shutdown().await;
 
-    let (cancelled, cancellation_controller, cancellation_id) =
-        geodata_coordinator("geodata-test-timeout: true", Duration::from_secs(5)).await;
+    let (cancelled, _cancellation_host, cancellation_controller, cancellation_id) =
+        geodata_coordinator(
+            "geodata-test-timeout: true",
+            Duration::from_secs(3),
+            Duration::from_secs(5),
+        )
+        .await;
     let mut updates = cancelled.subscribe();
     let cancellation_command = Uuid::new_v4().to_string();
     cancelled
@@ -1156,6 +1213,7 @@ async fn activation_commits_only_after_controller_readiness_and_first_snapshot()
         ManagedMihomoResolver::development(binary, root.join("runtime")),
         ActivationTiming {
             config_validation_timeout: Duration::from_secs(3),
+            geodata_preparation_timeout: Duration::from_secs(3),
             controller_connect_timeout: Duration::from_millis(250),
             controller_request_timeout: Duration::from_millis(250),
             readiness_timeout: Duration::from_secs(2),
@@ -1928,6 +1986,7 @@ async fn invalid_candidate_preserves_prior_core_and_records_a_redacted_attempt()
         ),
         ActivationTiming {
             config_validation_timeout: Duration::from_secs(3),
+            geodata_preparation_timeout: Duration::from_secs(3),
             controller_connect_timeout: Duration::from_millis(250),
             controller_request_timeout: Duration::from_millis(250),
             readiness_timeout: Duration::from_secs(2),
@@ -2022,6 +2081,7 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
         ),
         ActivationTiming {
             config_validation_timeout: Duration::from_secs(3),
+            geodata_preparation_timeout: Duration::from_secs(3),
             controller_connect_timeout: Duration::from_millis(100),
             controller_request_timeout: Duration::from_millis(100),
             readiness_timeout: Duration::from_secs(2),
@@ -2346,6 +2406,7 @@ fn activation_manager(
 fn activation_timing(readiness_timeout: Duration) -> ActivationTiming {
     ActivationTiming {
         config_validation_timeout: Duration::from_secs(3),
+        geodata_preparation_timeout: Duration::from_secs(3),
         controller_connect_timeout: Duration::from_millis(100),
         controller_request_timeout: Duration::from_millis(100),
         readiness_timeout,
@@ -2357,7 +2418,13 @@ fn activation_timing(readiness_timeout: Duration) -> ActivationTiming {
 async fn geodata_coordinator(
     marker: &str,
     validation_timeout: Duration,
-) -> (Arc<ProfileActivationCoordinator>, FakeController, String) {
+    geodata_timeout: Duration,
+) -> (
+    Arc<ProfileActivationCoordinator>,
+    DesktopRuntimeHost,
+    FakeController,
+    String,
+) {
     let root = tempfile::tempdir().unwrap().keep();
     let profile_root = root.join("profiles");
     let record =
@@ -2370,6 +2437,7 @@ async fn geodata_coordinator(
     let controller = FakeController::start("v1.19.29").await;
     let timing = ActivationTiming {
         config_validation_timeout: validation_timeout,
+        geodata_preparation_timeout: geodata_timeout,
         ..activation_timing(Duration::from_secs(2))
     };
     let manager = Arc::new(MihomoActivationManager::new(
@@ -2387,14 +2455,15 @@ async fn geodata_coordinator(
         },
     )));
     let address = controller.address;
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
         profiles,
         manager,
-        DesktopRuntimeHost::new(safe_runtime.clone()),
+        host.clone(),
         safe_runtime,
         move || ManagedRuntimePolicy::new(address, "geodata-test-secret"),
     ));
-    (coordinator, controller, profile_id)
+    (coordinator, host, controller, profile_id)
 }
 
 async fn wait_for_evidence(
