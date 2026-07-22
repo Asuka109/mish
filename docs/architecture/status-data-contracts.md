@@ -41,7 +41,7 @@ non-fixture adapter.
 
 User-authored Mihomo labels are opaque Unicode strings. Production code must
 not split, normalize, reorder, or infer structured emoji and text fields. The
-current sketch keeps separate fixture properties only for convenient mock
+demo fixtures may keep separate properties only for convenient mock
 construction; that shape is not a production contract.
 
 Service icon URLs are also user-authored metadata. Defaults use version-pinned
@@ -408,10 +408,10 @@ policy rejection rather than converting all failures to a synthetic latency.
 
 ## Mock boundary
 
-The current `sketch/` values, profile names, labels, connection counts, traffic,
-memory, rules, latencies, and service results are fixtures. UI interactions may
-change local React state, but they do not call Mihomo. Production work must
-replace fixtures at a DTO boundary rather than importing core response objects
+The `pnpm demo` values, profile names, labels, connection counts, traffic,
+memory, rules, latencies, and service results are fixtures. Demo interactions may
+change local React state, but they do not call Mihomo. Production work must keep
+fixtures behind a DTO boundary rather than importing core response objects
 directly into components.
 
 `packages/mock-bridge` is a separate contract-test implementation. Unlike the

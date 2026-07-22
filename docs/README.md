@@ -19,7 +19,7 @@ of treating an implementation accident as intent.
 | Profiles and settings     | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                                   |
 | macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     | TUN, packaging, network/DNS, or sidebar document below                                                                                                                                                                       |
 | Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
-| Validation/release claims | The target-specific quality document                                                             | [`quality/prototype-validation.md`](quality/prototype-validation.md) only for `sketch/` changes                                                                                                                              |
+| Validation/release claims | The target-specific quality document                                                             | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                               |
 
 ## Contract index
 
@@ -65,8 +65,8 @@ of treating an implementation accident as intent.
 - [`quality/production-web-validation.md`](quality/production-web-validation.md),
   [`quality/native-sidebar-validation.md`](quality/native-sidebar-validation.md),
   [`quality/tailwind-variants-acceptance.md`](quality/tailwind-variants-acceptance.md),
-  and [`quality/prototype-validation.md`](quality/prototype-validation.md) —
-  production Web, native visual, styling migration, and retained-sketch gates
+  and [`quality/demo-validation.md`](quality/demo-validation.md) — production
+  Web, native visual, styling migration, and fixture-backed model/visual gates
   respectively.
 
 ## Planning and research
@@ -78,8 +78,8 @@ of treating an implementation accident as intent.
   only when its upstream evidence or rationale is needed.
 - [`../.claude/plans/development-plan.md`](../.claude/plans/development-plan.md)
   is a superseded high-level plan retained as a short historical record.
-- [`../sketch/`](../sketch/) is an interaction reference; its fixture data is not
-  a runtime contract.
+- `pnpm demo` is the shared fixture-backed interaction reference; its data is
+  not a runtime contract.
 
 ## Maintenance
 

@@ -13,7 +13,6 @@ use `<scope>:<action>[:<variant>]` when they target one product area and
 | `pnpm desktop:demo` | Start the backend-free demo in a native Tauri window.                                                         |
 | `pnpm dev`          | Start the ordinary unauthenticated Web development entry.                                                     |
 | `pnpm desktop:dev`  | Start operational Tauri, print a one-time authorized Browser Client URL, and use an auto-selected Web origin. |
-| `pnpm sketch:dev`   | Start the retained interaction reference.                                                                     |
 | `pnpm test:watch`   | Run Web unit tests in watch mode.                                                                             |
 | `pnpm test:unit`    | Run all TypeScript unit tests once.                                                                           |
 | `pnpm check`        | Run the fast pull-request-equivalent gate.                                                                    |
@@ -24,7 +23,7 @@ Arguments pass through to the underlying package command. For example:
 
 ```sh
 pnpm web:dev -- --port 4173
-pnpm sketch:dev -- --port 4173
+pnpm demo -- --port 4173
 pnpm web:test:run -- src/path/to/example.test.ts
 ```
 
@@ -34,11 +33,10 @@ pnpm web:test:run -- src/path/to/example.test.ts
 | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Web     | `web:demo`, `web:dev`, `web:build`, `web:preview`, `web:test`, `web:test:run`                                                    |
 | Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:bundle:macos`, `desktop:bundle:verify:macos`                            |
-| Sketch  | `sketch:dev`, `sketch:build`, `sketch:preview`                                                                                   |
 | Android | `mobile:android:init`, `mobile:android:configure`, `mobile:android:prepare-tests`, `mobile:android:test`, `mobile:android:build` |
 
-`sketch/` remains an independent pnpm workspace. Its root commands use
-`pnpm --dir sketch`, so callers do not need to change directories.
+`pnpm demo` starts the fixture-backed production Web composition used for model,
+visual, and interaction validation without contacting a desktop backend.
 
 Web servers and backend-free desktop demos from separate worktrees can run
 concurrently because each process falls back to its own available port. An

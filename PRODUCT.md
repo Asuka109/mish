@@ -56,8 +56,9 @@ The macOS-first Status experience and its interaction rules are specified in
 production React app implements the six desktop destinations. A browser must
 authenticate with the running desktop app before those destinations render;
 fixture adapters remain test-only. The Tauri composition supplies confirmed
-native and Mihomo-backed capabilities. The retained [`sketch/`](sketch/) is only
-an interaction reference. Exact Web implementation claims live in
+native and Mihomo-backed capabilities. The fixture-backed `pnpm demo` entry is
+the shared model and visual-validation surface, not runtime evidence. Exact Web
+implementation claims live in
 [`docs/quality/production-web-validation.md`](docs/quality/production-web-validation.md);
 native readiness uses the target-specific quality documents.
 
