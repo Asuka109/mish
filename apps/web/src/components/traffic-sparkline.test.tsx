@@ -1,76 +1,73 @@
 import { render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const chartInstances = vi.hoisted(
+  () =>
+    [] as Array<{
+      destroy: ReturnType<typeof vi.fn>;
+      stop: ReturnType<typeof vi.fn>;
+      update: ReturnType<typeof vi.fn>;
+    }>,
+);
+
+vi.mock("chart.js", () => ({
+  Chart: class {
+    static register = vi.fn();
+    data: unknown;
+    destroy = vi.fn();
+    options: unknown;
+    stop = vi.fn();
+    update = vi.fn();
+    constructor(_canvas: HTMLCanvasElement, config: { data: unknown; options: unknown }) {
+      this.data = config.data;
+      this.options = config.options;
+      chartInstances.push(this);
+    }
+  },
+  Filler: class {},
+  LineController: class {},
+  LineElement: class {},
+  LinearScale: class {},
+  PointElement: class {},
+}));
+
 import {
-  createSmoothSparklinePath,
-  createSmoothSparklinePaths,
+  createTrafficSparklineConfig,
+  TRAFFIC_SPARKLINE_MAX_SAMPLES,
   TrafficSparkline,
 } from "./traffic-sparkline";
 
-function installMatchMedia(reduced = false) {
-  vi.stubGlobal(
-    "matchMedia",
-    vi.fn().mockReturnValue({
-      addEventListener: vi.fn(),
-      matches: reduced,
-      removeEventListener: vi.fn(),
-    }),
-  );
-}
-
-afterEach(() => vi.unstubAllGlobals());
-
 describe("TrafficSparkline", () => {
-  it("creates bounded monotone cubic paths on a 60-sample grid", () => {
-    const growing = createSmoothSparklinePaths([2, 8, 4]);
-    const rolling = createSmoothSparklinePaths(Array.from({ length: 64 }, (_, index) => index));
+  it("uses Chart.js monotone curves and its bounded update animation", () => {
+    const config = createTrafficSparklineConfig("#2f6fdc", [2, 8, 4], false);
+    const dataset = config.data.datasets[0];
 
-    expect(growing.linePath).toContain(" C ");
-    expect(createSmoothSparklinePath(growing.points)).not.toContain(" L ");
-    expect(rolling.points).toHaveLength(60);
-    for (const point of [...growing.points, ...rolling.points]) {
-      expect(point.y).toBeGreaterThanOrEqual(2);
-      expect(point.y).toBeLessThanOrEqual(32);
-    }
+    expect(dataset.cubicInterpolationMode).toBe("monotone");
+    expect(dataset.pointRadius).toBe(0);
+    expect(config.options?.animation).toEqual({ duration: 180, easing: "easeOutQuart" });
   });
 
-  it("keeps the existing path fixed and animates only the incoming tail segment", () => {
-    installMatchMedia();
-    const cancel = vi.fn();
-    const animate = vi.fn(() => ({ cancel }));
-    Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate });
+  it("limits every chart to 60 samples and disables interpolation for reduced motion", () => {
+    const config = createTrafficSparklineConfig(
+      "#2f6fdc",
+      Array.from({ length: 64 }, (_, index) => index),
+      true,
+    );
 
-    const view = render(<TrafficSparkline color="blue" data={[1, 4]} id="download" />);
-    const initialPaths = view.container.querySelectorAll("path[stroke]");
-    const initialPath = initialPaths[initialPaths.length - 1]?.getAttribute("d");
-    view.rerender(<TrafficSparkline color="blue" data={[1, 4, 2]} id="download" />);
-
-    const paths = view.container.querySelectorAll("path[stroke]");
-    expect(paths).toHaveLength(2);
-    expect(paths[0]).toHaveAttribute("d", initialPath ?? "");
-    expect(animate).toHaveBeenCalledTimes(1);
-    expect(paths[1]).toHaveAttribute("pathLength", "1");
+    expect(config.data.labels).toHaveLength(TRAFFIC_SPARKLINE_MAX_SAMPLES);
+    expect(config.data.datasets[0].data).toHaveLength(TRAFFIC_SPARKLINE_MAX_SAMPLES);
+    expect(config.options?.animation).toBe(false);
   });
 
-  it("cancels an interrupted tail animation and skips animation for reduced motion", () => {
-    installMatchMedia();
-    const cancel = vi.fn();
-    const animate = vi.fn(() => ({ cancel }));
-    Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate });
-    const view = render(<TrafficSparkline color="blue" data={[1, 4]} id="download" />);
-    view.rerender(<TrafficSparkline color="blue" data={[1, 4, 2]} id="download" />);
-    view.rerender(<TrafficSparkline color="blue" data={[1, 4, 2, 5]} id="download" />);
+  it("reconciles updates through Chart.js and disposes the chart on unmount", () => {
+    const view = render(<TrafficSparkline color="#2f6fdc" data={[1, 4]} id="download" />);
+    const instance = chartInstances.at(-1);
+    if (!instance) throw new Error("Chart was not created");
+
+    view.rerender(<TrafficSparkline color="#2f6fdc" data={[1, 4, 2]} id="download" />);
+    expect(instance.stop).toHaveBeenCalled();
+    expect(instance.update).toHaveBeenCalledWith("none");
     view.unmount();
-    expect(cancel).toHaveBeenCalledTimes(2);
-
-    vi.unstubAllGlobals();
-    installMatchMedia(true);
-    const reducedAnimate = vi.fn();
-    Object.defineProperty(Element.prototype, "animate", {
-      configurable: true,
-      value: reducedAnimate,
-    });
-    const reduced = render(<TrafficSparkline color="blue" data={[1, 4]} id="upload" />);
-    reduced.rerender(<TrafficSparkline color="blue" data={[1, 4, 2]} id="upload" />);
-    expect(reducedAnimate).not.toHaveBeenCalled();
+    expect(instance.destroy).toHaveBeenCalledTimes(1);
   });
 });
