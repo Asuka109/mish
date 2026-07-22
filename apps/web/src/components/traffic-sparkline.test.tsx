@@ -137,6 +137,8 @@ describe("TrafficSparkline", () => {
 
     await waitFor(() => expect(highchartsMocks.chart).toHaveBeenCalledOnce());
     const options = highchartsMocks.charts[0]?.options as {
+      chart: { margin: number[] };
+      plotOptions: { areaspline: { clip: boolean } };
       series: Array<{ data: Array<[number, number]>; type: string }>;
       xAxis: { max: number; min: number };
       yAxis: { min: number };
@@ -147,6 +149,8 @@ describe("TrafficSparkline", () => {
       [58, 24],
       [59, 18],
     ]);
+    expect(options.chart.margin).toEqual([1, 0, 3, 0]);
+    expect(options.plotOptions.areaspline.clip).toBe(false);
     expect(options.xAxis).toMatchObject({ min: 0, max: 59 });
     expect(options.yAxis.min).toBe(0);
   });

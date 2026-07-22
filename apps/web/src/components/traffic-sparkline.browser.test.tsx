@@ -37,6 +37,8 @@ describe("TrafficSparkline Highcharts integration", () => {
     await renderSparkline([1, 2, 3]);
     await vi.waitFor(() => expect(renderedChart()).toBeDefined());
     const chart = renderedChart();
+    expect(chart?.options.chart?.margin).toEqual([1, 0, 3, 0]);
+    expect(chart?.options.plotOptions?.areaspline?.clip).toBe(false);
     expect(chart?.series[0]?.data.map(({ x }) => x)).toEqual([57, 58, 59]);
     expect(container.querySelector(".highcharts-graph")).not.toBeNull();
 

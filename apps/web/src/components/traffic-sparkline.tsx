@@ -90,7 +90,7 @@ export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
           animation: false,
           backgroundColor: "transparent",
           height: TRAFFIC_SPARKLINE_HEIGHT,
-          margin: [1, 0, 1, 0],
+          margin: [1, 0, 3, 0],
           reflow: false,
           spacing: [0, 0, 0, 0],
           type: "areaspline",
@@ -101,6 +101,7 @@ export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
         plotOptions: {
           areaspline: {
             animation: false,
+            clip: false,
             enableMouseTracking: false,
             fillOpacity: 0,
             lineWidth: 1.35,
