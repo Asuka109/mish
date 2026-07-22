@@ -2130,6 +2130,29 @@ type RootTranslation = {
 		 */
 		activationFailed: string
 		/**
+		 * P​r​e​p​a​r​i​n​g​ ​{​a​s​s​e​t​}​ ​b​e​f​o​r​e​ ​a​c​t​i​v​a​t​i​o​n​…
+		 * @param {string} asset
+		 */
+		geodataPreparing: RequiredParams<'asset'>
+		/**
+		 * T​h​e​ ​f​i​r​s​t​ ​d​o​w​n​l​o​a​d​ ​m​a​y​ ​t​a​k​e​ ​a​ ​f​e​w​ ​m​i​n​u​t​e​s​.
+		 */
+		geodataPreparingDetail: string
+		/**
+		 * M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​{​a​s​s​e​t​}​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
+		 * @param {string} asset
+		 */
+		geodataFailed: RequiredParams<'asset'>
+		/**
+		 * {​a​s​s​e​t​}​ ​w​a​s​ ​n​o​t​ ​r​e​a​d​y​ ​b​e​f​o​r​e​ ​t​h​e​ ​a​c​t​i​v​a​t​i​o​n​ ​d​e​a​d​l​i​n​e​.
+		 * @param {string} asset
+		 */
+		geodataTimeout: RequiredParams<'asset'>
+		/**
+		 * C​h​e​c​k​ ​y​o​u​r​ ​n​e​t​w​o​r​k​ ​c​o​n​n​e​c​t​i​o​n​ ​a​n​d​ ​r​e​t​r​y​ ​a​c​t​i​v​a​t​i​o​n​.
+		 */
+		geodataRetry: string
+		/**
 		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​u​s​e​ ​{​e​n​d​p​o​i​n​t​}​ ​b​e​c​a​u​s​e​ ​a​n​o​t​h​e​r​ ​a​p​p​l​i​c​a​t​i​o​n​ ​o​w​n​s​ ​i​t​.​ ​S​t​o​p​ ​o​r​ ​r​e​c​o​n​f​i​g​u​r​e​ ​t​h​a​t​ ​a​p​p​l​i​c​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​t​r​y​.
 		 * @param {unknown} endpoint
 		 */
@@ -6369,6 +6392,26 @@ export type TranslationFunctions = {
 		 * Activation failed. The previous healthy profile or safe stopped state remains authoritative.
 		 */
 		activationFailed: () => LocalizedString
+		/**
+		 * Preparing {asset} before activation…
+		 */
+		geodataPreparing: (arg: { asset: string }) => LocalizedString
+		/**
+		 * The first download may take a few minutes.
+		 */
+		geodataPreparingDetail: () => LocalizedString
+		/**
+		 * Mihomo could not prepare {asset} required by this profile.
+		 */
+		geodataFailed: (arg: { asset: string }) => LocalizedString
+		/**
+		 * {asset} was not ready before the activation deadline.
+		 */
+		geodataTimeout: (arg: { asset: string }) => LocalizedString
+		/**
+		 * Check your network connection and retry activation.
+		 */
+		geodataRetry: () => LocalizedString
 		/**
 		 * Mish could not use {endpoint} because another application owns it. Stop or reconfigure that application, then retry.
 		 */

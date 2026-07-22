@@ -44,6 +44,7 @@ pub enum EventSource {
 pub enum ApplicationNotificationKind {
     CaptureFailure,
     ProfileActivationFailure,
+    ProfileActivationGeodata,
     SettingsFailure,
     TrafficFailure,
 }

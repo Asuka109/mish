@@ -632,6 +632,13 @@ class DeferredCaptureClient extends SnapshotStatusClient {
     return new Promise(() => undefined);
   }
 
+  emitInactiveSnapshotDuringCapture() {
+    this.currentSnapshot.runtime.phase = "inactive";
+    this.currentSnapshot.runtime.systemProxy.phase = "off";
+    this.currentSnapshot.runtime.tun.phase = "off";
+    for (const listener of this.listeners) listener(structuredClone(this.currentSnapshot));
+  }
+
   override supportsCommand(command: StatusCommand) {
     return command === "capture";
   }
@@ -782,12 +789,12 @@ describe("production routes", () => {
     expect(container.querySelector("[data-window-drag-surface='workspace-top']")).toBeNull();
   });
 
-  it("marks current notifications read on open, retains them, and removes only one item", async () => {
+  it("retains explicit application notifications and excludes raw core diagnostics", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
     const notificationTrigger = await screen.findByRole("button", {
-      name: "Notifications, 2 unread",
+      name: "Notifications, 1 unread",
     });
     await user.click(notificationTrigger);
 
@@ -800,15 +807,13 @@ describe("production routes", () => {
     expect(routeMessage).toHaveClass("notification-message");
     expect(routeMessage).toHaveAttribute("data-native-text-interaction");
     expect(
-      within(notificationCenter).getByText(
+      within(notificationCenter).queryByText(
         "Synthetic DNS lookup timed out for api.fixture.invalid",
       ),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     const notificationItems = within(notificationCenter).getAllByRole("listitem");
+    expect(notificationItems).toHaveLength(1);
     expect(notificationItems[0]).toHaveTextContent("Synthetic route check failed");
-    expect(notificationItems[1]).toHaveTextContent(
-      "Synthetic DNS lookup timed out for api.fixture.invalid",
-    );
     expect(within(notificationCenter).queryByText("Platform")).not.toBeInTheDocument();
     expect(within(notificationCenter).queryByText("Mihomo core")).not.toBeInTheDocument();
 
@@ -821,11 +826,7 @@ describe("production routes", () => {
     await user.click(removeRouteNotification);
 
     expect(routeMessage).not.toBeInTheDocument();
-    expect(
-      within(notificationCenter).getByText(
-        "Synthetic DNS lookup timed out for api.fixture.invalid",
-      ),
-    ).toBeInTheDocument();
+    expect(within(notificationCenter).queryAllByRole("listitem")).toHaveLength(0);
     expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
 
     await user.click(notificationTrigger);
@@ -838,8 +839,8 @@ describe("production routes", () => {
       within(reopenedCenter).queryByText("Synthetic route check failed"),
     ).not.toBeInTheDocument();
     expect(
-      within(reopenedCenter).getByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
-    ).toBeInTheDocument();
+      within(reopenedCenter).queryByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
+    ).not.toBeInTheDocument();
   });
 
   it("proactively prompts an unprompted onboarding invitation only once", async () => {
@@ -2765,6 +2766,25 @@ describe("Status fixture experience", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "System Proxy is pending macOS confirmation.",
     );
+  });
+
+  it("keeps Launch Proxy pending when an inactive snapshot arrives before capture completes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    const client = new DeferredCaptureClient(snapshot);
+    renderRoute("/status", "en", client);
+
+    const proxyControl = await screen.findByRole("button", { name: "Launch Proxy" });
+    await user.click(proxyControl);
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toHaveTextContent("Pending");
+
+    act(() => client.emitInactiveSnapshotDuringCapture());
+
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toBeDisabled();
+    expect(proxyControl).toHaveTextContent("Pending");
   });
 
   it("describes a typed permission failure without claiming success", async () => {
