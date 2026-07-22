@@ -236,6 +236,25 @@ impl DesktopRuntimeHost {
         }
     }
 
+    /// Returns the authoritative native Status node catalog and Traffic snapshot
+    /// from the same runtime instance. Native consumers can derive local views
+    /// without polling Controller data or creating another Traffic authority.
+    pub async fn native_traffic_handoff(
+        &self,
+    ) -> (StatusSnapshot, mish_runtime::TrafficDataSnapshot) {
+        loop {
+            let mut changes = self.subscribe_changes();
+            let runtime = changes.borrow_and_update().clone();
+            let status = runtime
+                .status_snapshot_typed(StatusAdapterKind::Native)
+                .await;
+            let traffic = runtime.traffic_snapshot_typed(StatusAdapterKind::Native);
+            if !changes.has_changed().unwrap_or(false) {
+                return (status, traffic);
+            }
+        }
+    }
+
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
         loop {
             let mut changes = self.subscribe_changes();

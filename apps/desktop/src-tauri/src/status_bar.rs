@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use mish_bridge::{
     BrowserClientHandle, DesktopRuntimeHost, ProfileActivationAvailability,
@@ -18,6 +21,8 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 use uuid::Uuid;
+
+use crate::route_activity_summary::RouteActivitySummaryHandle;
 
 const TRAY_ID: &str = "mish-status-bar";
 const OPEN_MISH_ID: &str = "status-bar.open-mish";
@@ -40,6 +45,7 @@ pub(crate) struct StatusBarState {
     activation: Arc<ProfileActivationCoordinator>,
     browser_client: BrowserClientHandle,
     runtime: DesktopRuntimeHost,
+    traffic_observations: NativeTrafficObservations,
 }
 
 impl StatusBarState {
@@ -52,20 +58,51 @@ impl StatusBarState {
             activation,
             browser_client,
             runtime,
+            traffic_observations: NativeTrafficObservations::default(),
         }
     }
 
     async fn model(&self) -> StatusMenuModel {
-        let status = self
-            .runtime
-            .status_snapshot_typed(StatusAdapterKind::Native)
-            .await;
+        let (status, traffic) = self.runtime.native_traffic_handoff().await;
+        self.traffic_observations.observe(&status, &traffic);
         let activation = self.activation.activation_snapshot().await;
         StatusMenuModel::new(
             &status,
             &activation,
             self.runtime.supports_status_command(StatusCommand::Routing),
         )
+    }
+}
+
+/// The sole native handoff from authoritative Traffic into private rolling
+/// observations. Querying the handle is local and never fetches Traffic again.
+#[derive(Clone)]
+struct NativeTrafficObservations {
+    handle: RouteActivitySummaryHandle,
+    origin: Instant,
+}
+
+impl Default for NativeTrafficObservations {
+    fn default() -> Self {
+        Self {
+            handle: RouteActivitySummaryHandle::default(),
+            origin: Instant::now(),
+        }
+    }
+}
+
+impl NativeTrafficObservations {
+    fn observe(&self, status: &StatusSnapshot, traffic: &mish_runtime::TrafficDataSnapshot) {
+        self.observe_at(status, traffic, self.origin.elapsed());
+    }
+
+    fn observe_at(
+        &self,
+        status: &StatusSnapshot,
+        traffic: &mish_runtime::TrafficDataSnapshot,
+        observed_at: Duration,
+    ) {
+        self.handle.observe(traffic, &status.nodes, observed_at);
     }
 }
 
@@ -523,15 +560,94 @@ fn safe_profile_label(label: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        StatusMenuModel, accept_changed_menu_model, core_title, is_quit_menu_command,
-        safe_profile_label, status_bar_icon, system_proxy_title, tun_title,
+        NativeTrafficObservations, StatusMenuModel, accept_changed_menu_model, core_title,
+        is_quit_menu_command, safe_profile_label, status_bar_icon, system_proxy_title, tun_title,
     };
-    use mish_runtime::{RuntimePhase, SystemProxyPhase, TunPhase};
+    use mish_runtime::{
+        CorePhase, CoreStatus, ProxyNode, RuntimePhase, StatusAdapterKind, StatusSnapshot,
+        SystemProxyPhase, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
+        TrafficMatchedRule, TunPhase,
+    };
+    use std::time::Duration;
+
+    fn authoritative_status() -> StatusSnapshot {
+        let mut status = StatusSnapshot::lifecycle_only(
+            &CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: Some(1),
+                version: None,
+            },
+            StatusAdapterKind::Native,
+        );
+        status.nodes.push(ProxyNode {
+            id: "private-node".into(),
+            label: "Tokyo".into(),
+            latency_milliseconds: None,
+            protocol: "ss".into(),
+        });
+        status
+    }
+
+    fn authoritative_traffic() -> TrafficDataSnapshot {
+        TrafficDataSnapshot {
+            active_connections: vec![TrafficConnection {
+                destination_host: Some("private.example".into()),
+                destination_ip: None,
+                destination_port: 443,
+                download_bytes: "0".into(),
+                id: "private-connection".into(),
+                matched_rule: TrafficMatchedRule {
+                    payload: "MATCH".into(),
+                    kind: "MATCH".into(),
+                },
+                network: "tcp".into(),
+                process_name: None,
+                process_path: None,
+                protocol: "tcp".into(),
+                provider_chain: Vec::new(),
+                remote_destination: None,
+                route_chain: vec!["Tokyo".into()],
+                sniff_host: None,
+                source_ip: None,
+                source_port: 0,
+                started_at: "2026-01-01T00:00:00Z".into(),
+                upload_bytes: "0".into(),
+            }],
+            adapter_kind: StatusAdapterKind::Native,
+            phase: TrafficDataPhase::Ready,
+            profile_id: "private-profile".into(),
+            reconnect_count: 0,
+            rules: Vec::new(),
+            sequence: 1,
+            session_id: Some("traffic-session".into()),
+        }
+    }
 
     #[test]
     fn status_bar_quit_routes_to_the_shared_quit_command() {
         assert!(is_quit_menu_command("status-bar.quit"));
         assert!(!is_quit_menu_command("status-bar.restart-core"));
+    }
+
+    #[test]
+    fn production_native_traffic_handoff_records_once_and_queries_without_refetching() {
+        let observations = NativeTrafficObservations::default();
+        let status = authoritative_status();
+        let traffic = authoritative_traffic();
+        observations.observe_at(&status, &traffic, Duration::ZERO);
+        assert_eq!(
+            observations
+                .handle
+                .summary_at(Duration::ZERO)
+                .map(|summary| summary.label),
+            Some("Tokyo".into())
+        );
+        // The query uses only the retained private handle; no runtime or Controller input is accepted.
+        assert_eq!(
+            observations.handle.summary_at(Duration::from_secs(60)),
+            None
+        );
     }
 
     #[test]
