@@ -13,7 +13,7 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@mish/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
 import { useProduct, type LocalProxyTestState } from "../data/product-provider";
@@ -82,37 +82,30 @@ function localProxyFeedback(
   }
 }
 
-export function NotificationBubble() {
+interface NotificationPublicationControllerProps {
+  notificationTriggerRef: RefObject<HTMLButtonElement | null>;
+}
+
+/** Publishes domain notifications; the center itself only renders the delivery store. */
+function NotificationPublicationController({
+  notificationTriggerRef,
+}: NotificationPublicationControllerProps) {
   const eventsContext = useOptionalEvents();
   const settingsContext = useOptionalSettings();
   const trafficContext = useOptionalTraffic();
   const {
     commandStates,
     error: productError,
-    isCommandPending,
     localProxyTest,
     recoverSystemProxy,
     snapshot,
   } = useProduct();
   const profiles = useOptionalProfiles();
   const { setCapture } = useCaptureCommand();
-  const { LL, locale } = useI18nContext();
-  const {
-    dismiss,
-    entries,
-    execute,
-    ingestExternalEvents,
-    markRead,
-    publish,
-    readIds,
-    record,
-    remove,
-    retire,
-    setSession,
-  } = useNotificationDelivery();
-  const [open, setOpen] = useState(false);
+  const { LL } = useI18nContext();
+  const { dismiss, ingestExternalEvents, publish, record, retire, setSession } =
+    useNotificationDelivery();
   const [welcomeOpen, setWelcomeOpen] = useState(false);
-  const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   const welcomePromptStarted = useRef(false);
   const sessionId = eventsContext?.snapshot?.sessionId ?? null;
   const systemProxy = snapshot?.runtime.systemProxy;
@@ -154,7 +147,6 @@ export function NotificationBubble() {
     const opened = await settingsContext.setOnboardingWelcomeState("open");
     if (!opened) return;
     dismiss(welcomePromptToastId);
-    setOpen(false);
     setWelcomeOpen(true);
   }, [dismiss, settingsContext]);
   const repairRequiresCore =
@@ -418,97 +410,108 @@ export function NotificationBubble() {
     });
   }, [LL, publish, trafficFailure, trafficFailureObservedAt]);
 
-  const notificationsByTime = entries.toSorted((left, right) => right.observedAt - left.observedAt);
-  const retainedNotifications = notificationsByTime;
+  return settingsContext ? (
+    <WelcomeDialog
+      onOpenChange={setWelcomeOpen}
+      open={welcomeOpen}
+      returnFocusRef={notificationTriggerRef}
+    />
+  ) : null;
+}
+
+export function NotificationBubble() {
+  const notificationTriggerRef = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <NotificationPublicationController notificationTriggerRef={notificationTriggerRef} />
+      <NotificationCenter notificationTriggerRef={notificationTriggerRef} />
+    </>
+  );
+}
+
+function NotificationCenter({ notificationTriggerRef }: NotificationPublicationControllerProps) {
+  const { isCommandPending } = useProduct();
+  const settingsContext = useOptionalSettings();
+  const { LL, locale } = useI18nContext();
+  const { entries, execute, markRead, readIds, remove } = useNotificationDelivery();
+  const [open, setOpen] = useState(false);
+  const retainedNotifications = entries.toSorted(
+    (left, right) => right.observedAt - left.observedAt,
+  );
   const unreadCount = retainedNotifications.filter(
     (notification) => !readIds.has(notification.id),
   ).length;
   const visibleNotifications = retainedNotifications.slice(0, visibleNotificationLimit);
 
   function handleOpenChange(nextOpen: boolean) {
-    if (nextOpen) {
-      markRead(retainedNotifications.map(({ id }) => id));
-    }
+    if (nextOpen) markRead(retainedNotifications.map(({ id }) => id));
     setOpen(nextOpen);
   }
 
-  const removeNotification = remove;
-
   return (
-    <>
-      <Popover onOpenChange={handleOpenChange} open={open}>
-        <PopoverTrigger
-          render={
-            <Button
-              aria-label={LL.notifications.trigger({ count: unreadCount })}
-              className="toolbar-button notification-trigger"
-              ref={notificationTriggerRef}
-              size="icon-sm"
-              variant="ghost"
-            />
-          }
-        >
-          <Bell aria-hidden="true" />
-          {unreadCount > 0 ? (
-            <Badge className="notification-count tabular" variant="destructive">
-              {formatUnreadCount(unreadCount)}
-            </Badge>
-          ) : null}
-        </PopoverTrigger>
-        <PopoverContent align="end" className="notification-popover" sideOffset={8}>
-          <div className="notification-header">
-            <div>
-              <PopoverTitle className="notification-title">{LL.notifications.title()}</PopoverTitle>
-              <PopoverDescription className="notification-description">
-                {LL.notifications.description()}
-              </PopoverDescription>
-            </div>
+    <Popover onOpenChange={handleOpenChange} open={open}>
+      <PopoverTrigger
+        render={
+          <Button
+            aria-label={LL.notifications.trigger({ count: unreadCount })}
+            className="toolbar-button notification-trigger"
+            ref={notificationTriggerRef}
+            size="icon-sm"
+            variant="ghost"
+          />
+        }
+      >
+        <Bell aria-hidden="true" />
+        {unreadCount > 0 ? (
+          <Badge className="notification-count tabular" variant="destructive">
+            {formatUnreadCount(unreadCount)}
+          </Badge>
+        ) : null}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="notification-popover" sideOffset={8}>
+        <div className="notification-header">
+          <div>
+            <PopoverTitle className="notification-title">{LL.notifications.title()}</PopoverTitle>
+            <PopoverDescription className="notification-description">
+              {LL.notifications.description()}
+            </PopoverDescription>
           </div>
-
-          {visibleNotifications.length > 0 ? (
-            <ol className="notification-list">
-              {visibleNotifications.map((notification) => (
-                <NotificationItem
-                  disabled={isCommandPending("capture") || Boolean(settingsContext?.pending)}
-                  key={notification.id}
-                  LL={LL}
-                  locale={locale}
-                  notification={notification}
-                  onExecute={execute}
-                  onRemove={removeNotification}
-                />
-              ))}
-            </ol>
-          ) : (
-            <Empty className="notification-empty">
-              <EmptyHeader>
-                <EmptyTitle>{LL.notifications.emptyTitle()}</EmptyTitle>
-                <EmptyDescription>{LL.notifications.emptyDescription()}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-
-          <div className="notification-footer">
-            <Button
-              className="notification-view-all"
-              nativeButton={false}
-              render={<Link onClick={() => setOpen(false)} to="/events" />}
-              size="sm"
-              variant="outline"
-            >
-              {LL.notifications.viewAllEvents()}
-            </Button>
-          </div>
-        </PopoverContent>
-      </Popover>
-      {settingsContext ? (
-        <WelcomeDialog
-          onOpenChange={setWelcomeOpen}
-          open={welcomeOpen}
-          returnFocusRef={notificationTriggerRef}
-        />
-      ) : null}
-    </>
+        </div>
+        {visibleNotifications.length > 0 ? (
+          <ol className="notification-list">
+            {visibleNotifications.map((notification) => (
+              <NotificationItem
+                disabled={isCommandPending("capture") || Boolean(settingsContext?.pending)}
+                key={notification.id}
+                LL={LL}
+                locale={locale}
+                notification={notification}
+                onExecute={execute}
+                onRemove={remove}
+              />
+            ))}
+          </ol>
+        ) : (
+          <Empty className="notification-empty">
+            <EmptyHeader>
+              <EmptyTitle>{LL.notifications.emptyTitle()}</EmptyTitle>
+              <EmptyDescription>{LL.notifications.emptyDescription()}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+        <div className="notification-footer">
+          <Button
+            className="notification-view-all"
+            nativeButton={false}
+            render={<Link onClick={() => setOpen(false)} to="/events" />}
+            size="sm"
+            variant="outline"
+          >
+            {LL.notifications.viewAllEvents()}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
