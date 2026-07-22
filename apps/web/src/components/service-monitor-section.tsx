@@ -42,6 +42,7 @@ import {
 } from "@mish/ui";
 import { useState } from "react";
 import { toast } from "sonner";
+import { tv } from "tailwind-variants";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import {
@@ -55,6 +56,33 @@ import { useI18nContext } from "../i18n/i18n-react";
 const serviceProbeIntervals = [0, 5, 10, 30, 60] as const;
 const maximumDisplayedLatency = 9999;
 const defaultServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
+
+const serviceStyles = tv({
+  slots: {
+    section: "service-monitor-section mt-7",
+    heading: "service-monitor-heading section-heading pb-[9px]",
+    trigger:
+      "service-manage-trigger border-transparent hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-ink) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-ink) [&_svg]:size-3",
+    unavailable:
+      "service-manage-unavailable block max-w-[236px] px-[9px] pt-[6px] pb-2 text-[12px] leading-[17px] whitespace-normal text-(--color-text-muted)",
+    intervalLabel:
+      "service-interval-label block px-[9px] pt-[6px] pb-[3px] text-[12px] leading-[17px] font-(--font-weight-control) text-(--color-text-muted)",
+    list: "service-monitor-list gap-0 bg-(--color-canvas)",
+    row: "service-monitor-row grid min-h-[52px] grid-cols-[minmax(0,1fr)_minmax(74px,144px)_76px_minmax(0,1fr)] items-center gap-[10px] rounded-none border-0 bg-transparent py-0 pr-[13px] pl-[11px] text-left text-(--color-body) hover:bg-(--color-accent) hover:text-(--color-ink)",
+    identity:
+      "service-monitor-identity col-start-2 grid min-w-0 grid-cols-[22px_minmax(0,1fr)] items-center gap-[10px] [&_strong]:overflow-hidden [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-control) [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
+    icon: "service-monitor-icon grid size-[22px] place-items-center text-(--color-text-muted) [&_img]:block [&_img]:size-[18px] [&_img]:object-contain [&_img]:opacity-75",
+    latency:
+      "service-monitor-latency col-start-3 block justify-self-stretch text-right text-(--text-metadata) whitespace-nowrap text-(--color-success-text) data-[status=error]:text-(--color-error) data-[status=warning]:text-(--color-warning) [&_.ui-spinner]:size-[13px]",
+    managerDialog:
+      "service-manager-dialog w-[min(420px,calc(100vw_-_32px))] [&_.dialog-header]:justify-between [&_.dialog-header]:gap-(--mish-spacing-md) [&_.dialog-header>div]:min-w-0",
+    managerList:
+      "service-manager-list max-h-[min(360px,calc(100vh_-_180px))] overflow-auto pt-1 pb-[6px]",
+    managerRow:
+      "service-manager-row grid min-h-[46px] w-full grid-cols-[22px_minmax(0,1fr)_16px] items-center justify-stretch gap-[10px] rounded-none border-0 px-4 py-0 text-left [&+&]:border-t [&+&]:border-(--color-hairline-soft) [&_strong]:overflow-hidden [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-control) [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&>svg]:justify-self-end [&>svg]:text-(--color-text-muted)",
+    managerFooter: "service-manager-footer justify-start",
+  },
+});
 
 function formatLatency(latencyMilliseconds: number) {
   if (latencyMilliseconds > maximumDisplayedLatency) return ">9999ms";
@@ -143,7 +171,7 @@ function ServiceManagerDialog({
 
   return (
     <Dialog onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
-      <DialogContent className="service-manager-dialog" closeLabel={LL.common.close()}>
+      <DialogContent className={serviceStyles().managerDialog()} closeLabel={LL.common.close()}>
         <div className="dialog-header">
           <div>
             <DialogTitle className="dialog-title">{LL.services.editServices()}</DialogTitle>
@@ -156,17 +184,17 @@ function ServiceManagerDialog({
             {LL.services.add()}
           </Button>
         </div>
-        <div className="service-manager-list">
+        <div className={serviceStyles().managerList()}>
           {services.map((service) => {
             return (
               <Button
-                className="service-manager-row"
+                className={serviceStyles().managerRow()}
                 key={service.id}
                 onClick={() => onEdit(service)}
                 type="button"
                 variant="ghost"
               >
-                <span className="service-monitor-icon">
+                <span className={serviceStyles().icon()}>
                   <ServiceIconImage src={service.icon} />
                 </span>
                 <strong className="user-authored-label">{service.label}</strong>
@@ -175,7 +203,7 @@ function ServiceManagerDialog({
             );
           })}
         </div>
-        <DialogFooter className="service-manager-footer">
+        <DialogFooter className={serviceStyles().managerFooter()}>
           <Button
             aria-busy={restorePending}
             disabled={restorePending}
@@ -418,8 +446,8 @@ export function ServiceMonitorSection() {
   }
 
   return (
-    <section aria-label={LL.services.aria()} className="service-monitor-section">
-      <div className="section-heading service-monitor-heading">
+    <section aria-label={LL.services.aria()} className={serviceStyles().section()}>
+      <div className={serviceStyles().heading()}>
         <div className="section-heading-copy">
           <h2>{LL.status.services()}</h2>
         </div>
@@ -427,7 +455,7 @@ export function ServiceMonitorSection() {
           <DropdownMenuTrigger
             aria-busy={restorePending}
             aria-describedby={actionDescriptionId}
-            className="service-manage-trigger"
+            className={serviceStyles().trigger()}
             disabled={commandPending}
           >
             {restorePending ? <Spinner data-icon="inline-start" /> : null}
@@ -437,7 +465,7 @@ export function ServiceMonitorSection() {
           <DropdownMenuContent align="end" className="service-manage-menu" sideOffset={7}>
             {!commandSupported ? (
               <DropdownMenuGroup>
-                <DropdownMenuLabel className="service-manage-unavailable">
+                <DropdownMenuLabel className={serviceStyles().unavailable()}>
                   {LL.capabilities.localActionUnavailable()}
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
@@ -453,7 +481,7 @@ export function ServiceMonitorSection() {
               }}
               value={String(snapshot.serviceProbePolicy.intervalSeconds)}
             >
-              <DropdownMenuLabel className="service-interval-label">
+              <DropdownMenuLabel className={serviceStyles().intervalLabel()}>
                 {LL.services.testInterval()}
               </DropdownMenuLabel>
               {serviceProbeIntervals.map((interval) => (
@@ -481,7 +509,7 @@ export function ServiceMonitorSection() {
       </div>
 
       {snapshot.services.length > 0 ? (
-        <SectionGrid className="service-monitor-list" columns={3}>
+        <SectionGrid className={serviceStyles().list()} columns={3}>
           {snapshot.services.map((service) => {
             const probePending = isServiceProbePending(service.id);
             const probeFailed = hasServiceProbeFailed(service.id);
@@ -494,15 +522,15 @@ export function ServiceMonitorSection() {
                 aria-busy={probePending}
                 aria-label={LL.services.testAria({ service: service.label })}
                 aria-describedby={actionDescriptionId}
-                className="section-grid-item service-monitor-row"
+                className={serviceStyles().row({ className: "section-grid-item" })}
                 disabled={probePending || commandPending || !commandSupported}
                 key={service.id}
                 onClick={() => void testServiceMonitor(service.id)}
                 type="button"
                 variant="ghost"
               >
-                <span className="service-monitor-identity">
-                  <span className="service-monitor-icon">
+                <span className={serviceStyles().identity()}>
+                  <span className={serviceStyles().icon()}>
                     <ServiceIconImage src={service.icon} />
                   </span>
                   <strong className="user-authored-label" title={service.label}>
@@ -511,7 +539,7 @@ export function ServiceMonitorSection() {
                 </span>
                 <span
                   aria-live="polite"
-                  className="service-monitor-latency tabular"
+                  className={serviceStyles().latency({ className: "tabular" })}
                   data-status={latencyStatus === "success" ? undefined : latencyStatus}
                 >
                   {latencyStatus === "pending" || latencyStatus === "error"
