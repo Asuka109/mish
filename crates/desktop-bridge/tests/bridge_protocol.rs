@@ -1336,7 +1336,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         (
             8,
             "settings.setLanguage",
-            json!({"language":"zh", "command":"open"}),
+            json!({"language":"zh-CN", "command":"open"}),
         ),
         (
             9,

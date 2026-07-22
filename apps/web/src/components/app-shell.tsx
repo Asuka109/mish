@@ -48,7 +48,6 @@ import {
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
-import { persistLocale } from "../i18n/locale";
 import { handleDesktopWindowDragOnly } from "../platform/desktop-window";
 import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
@@ -574,7 +573,7 @@ function ProfileMenu() {
 }
 
 function LanguageMenu() {
-  const { LL, locale, setLocale } = useI18nContext();
+  const { LL, locale } = useI18nContext();
   const settings = useOptionalSettings();
   const [pending, setPending] = useState(false);
   const currentLanguage = locale === "zh" ? LL.language.simplifiedChinese() : LL.language.english();
@@ -583,9 +582,7 @@ function LanguageMenu() {
     if (!isLocale(value)) return;
     setPending(true);
     try {
-      if (settings && !(await settings.setLanguage(value))) return;
-      persistLocale(value);
-      setLocale(value);
+      if (settings && !(await settings.setLanguage(value === "zh" ? "zh-CN" : "en"))) return;
     } finally {
       setPending(false);
     }
