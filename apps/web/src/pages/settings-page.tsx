@@ -342,8 +342,8 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="settings-page">
-      <header className="settings-header">
+    <div className="settings-page [container-name:settings-page] [container-type:inline-size] mx-auto w-[min(100%,960px)] px-8 pt-8 pb-12">
+      <header className="settings-header [&_h1]:text-(--text-title) [&_h1]:font-(--font-weight-title) [&_h1]:leading-[1.3] [&_h1]:tracking-[-0.012em] [&_p]:mt-[7px] [&_p]:max-w-[700px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)">
         <h1>{LL.settingsPage.title()}</h1>
         <p>
           {snapshot.adapterKind === "fixture"
@@ -353,7 +353,10 @@ export function SettingsPage() {
       </header>
 
       {snapshot.storageRecovered ? (
-        <p className="settings-notice" role="status">
+        <p
+          className="settings-notice mt-6 flex items-start gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-3 py-[10px] text-(--text-metadata) text-(--color-warning) [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0"
+          role="status"
+        >
           <Warning aria-hidden="true" />
           {LL.settingsPage.storageRecovered()}
         </p>
