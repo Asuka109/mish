@@ -426,11 +426,15 @@ export interface SectionGridProps extends HTMLAttributes<HTMLDivElement> {
   columns?: number;
 }
 
-export function SectionGrid({ className, columns = 1, style, ...props }: SectionGridProps) {
+export function SectionGrid({ className, columns, style, ...props }: SectionGridProps) {
   return (
     <div
       className={sectionGridRecipe({ className })}
-      style={{ ...style, "--section-grid-columns": columns } as CSSProperties}
+      style={
+        columns === undefined
+          ? style
+          : ({ ...style, "--section-grid-columns": columns } as CSSProperties)
+      }
       {...props}
     />
   );

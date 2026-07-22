@@ -404,6 +404,7 @@
   --breakpoint-toolbar-compact: 820px;
   --breakpoint-page-compact: 900px;
   --breakpoint-profile-stack: 1060px;
+  --breakpoint-service-grid-wide: 1280px;
 
   --border-width-spinner: var(--mish-border-width-spinner);
   --blur-dialog-backdrop: var(--mish-blur-dialog-backdrop);

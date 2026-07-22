@@ -57,6 +57,7 @@ beforeAll(async () => {
   byId("google").latencyMilliseconds = 1000;
   byId("github").latencyMilliseconds = 1001;
   Object.assign(byId("cloudflare"), { latencyMilliseconds: 1001, status: "error" as const });
+  snapshot.services = snapshot.services.slice(0, 5);
 
   const container = document.getElementById("service-monitor-browser-root");
   if (!container) throw new Error("Missing browser-test root");
@@ -81,6 +82,23 @@ beforeAll(async () => {
 afterAll(() => root.unmount());
 
 describe("service monitor latency colors", () => {
+  test("declares one, three, and four-column breakpoints with complete final rows", () => {
+    const list = document.querySelector<HTMLElement>(".service-monitor-list");
+    if (!list) throw new Error("Missing service monitor list");
+
+    expect(list.style.getPropertyValue("--section-grid-columns")).toBe("");
+    expect(list.className).toContain("[--section-grid-columns:3]");
+    expect(list.className).toContain("service-grid-wide:[--section-grid-columns:4]");
+    expect(list.className).toContain("max-page-compact:[--section-grid-columns:1]");
+    expect(list.querySelectorAll(".service-monitor-row")).toHaveLength(5);
+    expect(
+      list.querySelectorAll('.service-monitor-placeholder-medium[aria-hidden="true"]'),
+    ).toHaveLength(1);
+    expect(
+      list.querySelectorAll('.service-monitor-placeholder-wide[aria-hidden="true"]'),
+    ).toHaveLength(3);
+  });
+
   test("uses success at 1000ms, warning above it, and error before slow latency", async () => {
     const google = page.getByRole("button", { name: "Test Latency for Google" });
     const github = page.getByRole("button", { name: "Test Latency for GitHub" });

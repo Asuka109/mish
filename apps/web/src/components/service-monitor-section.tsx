@@ -55,6 +55,8 @@ import {
 import { useI18nContext } from "../i18n/i18n-react";
 
 const serviceProbeIntervals = [0, 5, 10, 30, 60] as const;
+const serviceMonitorMediumColumnCount = 3;
+const serviceMonitorWideColumnCount = 4;
 const maximumDisplayedLatency = 9999;
 const defaultServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
 
@@ -76,36 +78,18 @@ const serviceStyles = tv({
     intervalLabel:
       "service-interval-label block px-2.25 pt-1.5 pb-0.75 text-caption leading-4.25 font-medium text-muted-foreground",
     list: cx(
-      "service-monitor-list gap-0 bg-canvas [&>:not(:nth-child(3n))]:border-r",
-      "[&>:not(:nth-child(3n))]:border-hairline-soft [&>:nth-child(n+4)]:border-t",
-      "[&>:nth-child(n+4)]:border-hairline-soft",
-      "[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
-      "[&>.service-monitor-row:nth-child(3)]:rounded-se-section-grid-inner",
-      "[&>.service-monitor-row:nth-child(3n+1):nth-last-child(-n+3)]:rounded-es-section-grid-inner",
-      "[&>.service-monitor-row:last-child:nth-child(3n)]:rounded-ee-section-grid-inner",
-      "max-page-compact:[--section-grid-columns:1] max-page-compact:[&>*]:border-r-0",
-      "max-page-compact:[&>*]:rounded-none",
-      "max-page-compact:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
-      "max-page-compact:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner",
-      "max-page-compact:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner",
-      "max-page-compact:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner",
-      "max-page-compact:[&>:not(:first-child)]:border-t",
-      "max-page-compact:[&>:not(:first-child)]:border-hairline-soft",
-      "runtime-mobile:[--section-grid-columns:1] runtime-mobile:[&>*]:border-r-0",
-      "runtime-mobile:[&>*]:rounded-none",
-      "runtime-mobile:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
-      "runtime-mobile:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner",
-      "runtime-mobile:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner",
-      "runtime-mobile:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner",
-      "runtime-mobile:[&>:not(:first-child)]:border-t",
-      "runtime-mobile:[&>:not(:first-child)]:border-hairline-soft",
+      "service-monitor-list [--section-grid-columns:3] bg-hairline-soft",
+      "service-grid-wide:[--section-grid-columns:4]",
+      "max-page-compact:[--section-grid-columns:1]",
+      "runtime-mobile:[--section-grid-columns:1]",
     ),
     row: cx(
-      "service-monitor-row grid min-h-13 min-w-0",
+      "service-monitor-cell service-monitor-row grid min-h-13 min-w-0",
       "grid-cols-[minmax(0,1fr)_minmax(74px,144px)_76px_minmax(0,1fr)] items-center gap-2.5",
-      "overflow-clip rounded-none border-0 bg-transparent py-0 pr-3.25 pl-2.75 text-left text-fg",
+      "overflow-clip rounded-none border-0 bg-canvas py-0 pr-3.25 pl-2.75 text-left text-fg",
       "hover:bg-accent hover:text-ink",
     ),
+    placeholder: "service-monitor-cell service-monitor-placeholder min-h-13 border-0 bg-canvas",
     identity: cx(
       "service-monitor-identity col-start-2 grid min-w-0 grid-cols-[22px_minmax(0,1fr)]",
       "items-center gap-2.5 [&_strong]:overflow-hidden [&_strong]:text-left [&_strong]:text-body",
@@ -141,6 +125,37 @@ const serviceStyles = tv({
     footerActions: "flex gap-2",
   },
 });
+
+function serviceMonitorCellCorners(index: number, serviceCount: number) {
+  const mediumCellCount =
+    Math.ceil(serviceCount / serviceMonitorMediumColumnCount) * serviceMonitorMediumColumnCount;
+  const wideCellCount =
+    Math.ceil(serviceCount / serviceMonitorWideColumnCount) * serviceMonitorWideColumnCount;
+
+  return cx(
+    index === 0 && "rounded-ss-section-grid-inner",
+    index === serviceMonitorMediumColumnCount - 1 && "rounded-se-section-grid-inner",
+    index === mediumCellCount - serviceMonitorMediumColumnCount && "rounded-es-section-grid-inner",
+    index === mediumCellCount - 1 && "rounded-ee-section-grid-inner",
+    "service-grid-wide:rounded-none",
+    index === 0 && "service-grid-wide:rounded-ss-section-grid-inner",
+    index === serviceMonitorWideColumnCount - 1 &&
+      "service-grid-wide:rounded-se-section-grid-inner",
+    index === wideCellCount - serviceMonitorWideColumnCount &&
+      "service-grid-wide:rounded-es-section-grid-inner",
+    index === wideCellCount - 1 && "service-grid-wide:rounded-ee-section-grid-inner",
+    "max-page-compact:rounded-none",
+    index === 0 &&
+      "max-page-compact:rounded-ss-section-grid-inner max-page-compact:rounded-se-section-grid-inner",
+    index === serviceCount - 1 &&
+      "max-page-compact:rounded-es-section-grid-inner max-page-compact:rounded-ee-section-grid-inner",
+    "runtime-mobile:rounded-none",
+    index === 0 &&
+      "runtime-mobile:rounded-ss-section-grid-inner runtime-mobile:rounded-se-section-grid-inner",
+    index === serviceCount - 1 &&
+      "runtime-mobile:rounded-es-section-grid-inner runtime-mobile:rounded-ee-section-grid-inner",
+  );
+}
 
 function formatLatency(latencyMilliseconds: number) {
   if (latencyMilliseconds > maximumDisplayedLatency) return ">9999ms";
@@ -578,8 +593,8 @@ export function ServiceMonitorSection() {
       </div>
 
       {snapshot.services.length > 0 ? (
-        <SectionGrid className={serviceStyles().list()} columns={3}>
-          {snapshot.services.map((service) => {
+        <SectionGrid className={serviceStyles().list()}>
+          {snapshot.services.map((service, index) => {
             const probePending = isServiceProbePending(service.id);
             const probeFailed = hasServiceProbeFailed(service.id);
             const result = snapshot.probeResults.find(
@@ -591,7 +606,9 @@ export function ServiceMonitorSection() {
                 aria-busy={probePending}
                 aria-label={LL.services.testAria({ service: service.label })}
                 aria-describedby={actionDescriptionId}
-                className={serviceStyles().row()}
+                className={serviceStyles().row({
+                  className: serviceMonitorCellCorners(index, snapshot.services.length),
+                })}
                 disabled={probePending || commandPending || !commandSupported}
                 key={service.id}
                 onClick={() => void testServiceMonitor(service.id)}
@@ -620,6 +637,46 @@ export function ServiceMonitorSection() {
               </Button>
             );
           })}
+          {Array.from({
+            length:
+              (serviceMonitorMediumColumnCount -
+                (snapshot.services.length % serviceMonitorMediumColumnCount)) %
+              serviceMonitorMediumColumnCount,
+          }).map((_, offset) => (
+            <div
+              aria-hidden="true"
+              className={serviceStyles().placeholder({
+                className: cx(
+                  serviceMonitorCellCorners(
+                    snapshot.services.length + offset,
+                    snapshot.services.length,
+                  ),
+                  "service-monitor-placeholder-medium service-grid-wide:hidden max-page-compact:hidden runtime-mobile:hidden",
+                ),
+              })}
+              key={`service-monitor-medium-placeholder-${offset}`}
+            />
+          ))}
+          {Array.from({
+            length:
+              (serviceMonitorWideColumnCount -
+                (snapshot.services.length % serviceMonitorWideColumnCount)) %
+              serviceMonitorWideColumnCount,
+          }).map((_, offset) => (
+            <div
+              aria-hidden="true"
+              className={serviceStyles().placeholder({
+                className: cx(
+                  serviceMonitorCellCorners(
+                    snapshot.services.length + offset,
+                    snapshot.services.length,
+                  ),
+                  "service-monitor-placeholder-wide hidden service-grid-wide:block max-page-compact:hidden runtime-mobile:hidden",
+                ),
+              })}
+              key={`service-monitor-wide-placeholder-${offset}`}
+            />
+          ))}
         </SectionGrid>
       ) : (
         <Empty className="service-monitor-empty">
