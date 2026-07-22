@@ -157,3 +157,35 @@ Browser fixtures use only reserved `.invalid` names, documentation address
 ranges, synthetic process names, and `/synthetic/` paths. Fixtures perform no
 network or system operation, advertise both close commands as unsupported, and
 must never be described as Controller success.
+
+## Native private connection observation log
+
+The native shell may derive one consumer-neutral route-activity summary from
+the same typed `TrafficDataSnapshot`; it does not poll Controller data and does
+not create another Traffic authority. The log is scoped to the active
+`profileId` and `sessionId`, and resets on stale, unavailable, missing-session,
+profile replacement, or Traffic-session replacement. A ready empty snapshot is
+authoritative for current-active tracking but retains recent observations for a
+requested rolling query.
+
+Each first-seen connection contributes one private event containing only its
+monotonic observation time and an already-resolved, display-safe terminal-node
+label. Destination, address, process, route chain, profile, Controller data,
+and raw connection ID are never exposed to native-menu consumers. Raw IDs are
+reduced to private session-only fingerprints for deduplication; no event or
+query returns an ID. Labels resembling endpoints, paths, URLs, credentials, or
+controls are rejected, and accepted Unicode labels are bounded before display.
+There is no persistence, export, telemetry upload, or raw native-menu
+presentation in this slice.
+
+The production ring retains 8,192 events oldest-first. Its conservative
+10 MiB accounting is 8,192 × 512 B for rich event allocation (4 MiB), 131,072
+× 32 B for the fingerprint index (4 MiB), plus 1,114,112 B for ring/index
+containers, allocator rounding, and safety margin: 9,502,720 B total. Explicit
+telemetry reports retained count, capacity, eviction count, distinct-ID count,
+dedupe capacity/overflow, and current-active count. The fingerprint index is
+larger than the ring so ring overflow does not make long-lived connections new
+again. If its fixed session capacity is exhausted, new IDs are deliberately not
+recorded and telemetry exposes the overflow; this bounded residual limit is
+preferable to violating the 10 MiB privacy-memory cap. The ring promises a
+capacity, never a time duration.
