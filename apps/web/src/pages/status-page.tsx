@@ -230,7 +230,6 @@ export function StatusPage() {
   const pickerGroup = pickerGroupId ? routeGraph.groupById.get(pickerGroupId) : null;
   const captureRuntime = snapshot.runtime;
   const captureSupported = isCommandSupported("capture");
-  const groupSupported = isCommandSupported("group") && configuredRoutes === null;
   const routingSupported = isCommandSupported("routing");
   const routingDescriptionId = getCommandDescriptionId(snapshot.adapterKind, routingSupported);
   const sessionActivity =
@@ -542,7 +541,7 @@ export function StatusPage() {
       </div>
 
       <ProxyPickerDialog
-        commandsDisabled={!groupSupported || configuredRoutes !== null || connection.stale}
+        commandsDisabled={configuredRoutes !== null || connection.stale}
         graph={routeGraph}
         groupId={pickerGroup?.id ?? null}
         onOpenChange={(open) => {

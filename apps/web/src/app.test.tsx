@@ -2467,7 +2467,9 @@ describe("Status fixture experience", () => {
     await user.keyboard("{Escape}");
     expect(search).toHaveValue("");
 
-    expect(within(dialog).getByText("⚡ 自动选择・Auto")).toBeVisible();
+    const automaticGroup = within(dialog).getByText("⚡ 自动选择・Auto").closest("li");
+    expect(automaticGroup).not.toBeNull();
+    expect(automaticGroup).toHaveTextContent("Policy group · URL test");
     expect(
       within(dialog).queryByRole("button", { name: "Browse ⚡ 自动选择・Auto" }),
     ).not.toBeInTheDocument();

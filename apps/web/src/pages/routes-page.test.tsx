@@ -198,7 +198,7 @@ describe("Routes workspace", () => {
     const proxy = await screen.findByRole("dialog", { name: "🌐 Proxy" });
     const referencedGroup = within(proxy).getByText("⚡ 自动选择・Auto").closest("li");
     expect(referencedGroup).not.toBeNull();
-    expect(referencedGroup).toHaveTextContent("Policy group · url-test");
+    expect(referencedGroup).toHaveTextContent("Policy group · URL test");
     expect(
       within(referencedGroup!).queryByRole("button", {
         name: "Select ⚡ 自动选择・Auto in 🌐 Proxy",
@@ -270,6 +270,12 @@ describe("Routes workspace", () => {
     expect(search).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(search).not.toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
+    expect(screen.getByRole("heading", { name: "🌐 Proxy" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("searches complete Unicode child labels and keeps their nested path visible", async () => {
@@ -292,7 +298,7 @@ describe("Routes workspace", () => {
     const user = userEvent.setup();
     renderRoutes();
     await user.click(await screen.findByRole("button", { name: "Browse 🎬 Streaming" }));
-    const streaming = await screen.findByRole("dialog", { name: "🎬 Streaming" });
+    let streaming = await screen.findByRole("dialog", { name: "🎬 Streaming" });
 
     await user.click(
       within(streaming).getByRole("combobox", { name: "Sort children in 🎬 Streaming" }),
@@ -300,6 +306,19 @@ describe("Routes workspace", () => {
     await user.click(await screen.findByRole("option", { name: "Latency" }));
     const rows = within(streaming).getAllByRole("button", { name: /^Select / });
     expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+      "Select 🇭🇰 HKG-02 in 🎬 Streaming",
+      "Select 🇯🇵 NRT-03 in 🎬 Streaming",
+      "Select 🇸🇬 SIN-01 in 🎬 Streaming",
+    ]);
+
+    await user.click(within(streaming).getByRole("button", { name: "Close" }));
+    await user.click(screen.getByRole("button", { name: "Browse 🎬 Streaming" }));
+    streaming = await screen.findByRole("dialog", { name: "🎬 Streaming" });
+    expect(
+      within(streaming)
+        .getAllByRole("button", { name: /^Select / })
+        .map((row) => row.getAttribute("aria-label")),
+    ).toEqual([
       "Select 🇭🇰 HKG-02 in 🎬 Streaming",
       "Select 🇯🇵 NRT-03 in 🎬 Streaming",
       "Select 🇸🇬 SIN-01 in 🎬 Streaming",
