@@ -7,26 +7,28 @@ retained `sketch/` application or the unmounted `DestinationPage` reference.
 ## Bundle comparison
 
 The baseline was captured from the pre-migration production build. The candidate
-was built at `4ee10ad` after integrating `main` through `83f0bd4`.
+was built at `7cac386` after integrating `main` through `d55782e`.
 
 | Production artifact    | Baseline raw / gzip | Candidate raw / gzip | Change raw / gzip |
 | ---------------------- | ------------------- | -------------------- | ----------------- |
-| Total emitted CSS      | 118.78 / 20.02 kB   | 122.85 / 20.56 kB    | +4.07 / +0.54 kB  |
-| Primary application JS | 909.55 / 276.99 kB  | 917.23 / 279.29 kB   | +7.68 / +2.30 kB  |
+| Total emitted CSS      | 118.78 / 20.02 kB   | 124.50 / 20.84 kB    | +5.72 / +0.82 kB  |
+| Primary application JS | 909.55 / 276.99 kB  | 926.46 / 282.25 kB   | +16.91 / +5.26 kB |
 
-Candidate CSS is split into 122.17 kB of generated Tailwind and bounded global
-root CSS and 0.68 kB of CSS Modules. The 3.4% raw and 2.7% gzip increases pay for
+Candidate CSS is split into 123.85 kB of generated Tailwind and bounded global
+root CSS and 0.65 kB of CSS Modules. The 4.8% raw and 4.1% gzip increases pay for
 the canonical named theme mappings, exact fractional utilities, named
 root-state variants, and generated responsive/container variants that replaced
 indirect CSS-variable and arbitrary-value shorthands.
 
-The primary JS increase is 0.8% raw and 0.8% gzip. It includes the TV recipes
-and product changes integrated from newer `main`, notably the unified
-notification delivery and configured route catalog. The candidate also emits a
-140.01 kB application-shell chunk, a 3.75 kB notification-delivery chunk, and a
-5.39 kB configured-route-catalog chunk. Those secondary chunks are listed for
-diagnosis but are not compared numerically because the baseline used a different
-chunk graph.
+The primary JS increase is 1.9% raw and 1.9% gzip. It includes the TV recipes
+and product changes integrated from newer `main`, notably authoritative
+notification events, browser backend recovery, the configured route catalog,
+and Highcharts-based status session curves. The candidate also emits a
+423.07 kB application-shell chunk, a 4.52 kB notification-delivery chunk, and a
+5.39 kB configured-route-catalog chunk. The application-shell increase is
+primarily attributable to the upstream Highcharts session implementation. These
+secondary chunks are listed for diagnosis but are not compared numerically
+because the baseline used a different chunk graph.
 
 ## Automated evidence
 
@@ -52,8 +54,8 @@ chunk graph.
   pre-mount startup failure and the documented, unmounted `DestinationPage`
   reference.
 - TypeScript, lint, format, design-token, documentation, unit, browser, and
-  production-build gates cover the candidate. The 41-file/279-test Web unit
-  suite and 8-file/22-test Chromium suite exercise desktop, compact browser,
+  production-build gates cover the candidate. The 47-file/310-test Web unit
+  suite and 9-file/27-test Chromium suite exercise desktop, compact browser,
   and mobile-sized browser layouts.
 - Browser computed-style evidence covers container layout, proxy material and
   override merging, notification wrapping/removal/focus behavior, service
