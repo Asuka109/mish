@@ -146,6 +146,11 @@ const dialogRecipe = tv({
       "dialog-description mt-[3px] text-(--text-metadata) leading-[18px] text-(--color-text-muted)",
     footer:
       "dialog-footer flex min-h-[62px] items-center justify-end gap-2 border-t border-(--color-hairline) px-4 py-[10px]",
+    alertContent: "alert-dialog-content w-[min(380px,calc(100vw_-_32px))] p-4 pb-0",
+    alertHeader: "alert-dialog-header grid gap-[6px] pb-4",
+    alertTitle: "text-(--text-body) font-(--font-weight-heading)",
+    alertDescription: "text-(--text-metadata) leading-[19px] text-(--color-text-muted)",
+    alertFooter: "alert-dialog-footer -mx-4",
   },
 });
 
@@ -598,8 +603,34 @@ export function PopoverContent({
 }
 
 export const AlertDialog = AlertDialogPrimitive.Root;
-export const AlertDialogTitle = AlertDialogPrimitive.Title;
-export const AlertDialogDescription = AlertDialogPrimitive.Description;
+
+export function AlertDialogTitle({
+  className,
+  ...props
+}: ComponentProps<typeof AlertDialogPrimitive.Title>) {
+  return (
+    <AlertDialogPrimitive.Title
+      {...props}
+      className={resolveClassName(className, (override) =>
+        dialogRecipe().alertTitle({ className: override }),
+      )}
+    />
+  );
+}
+
+export function AlertDialogDescription({
+  className,
+  ...props
+}: ComponentProps<typeof AlertDialogPrimitive.Description>) {
+  return (
+    <AlertDialogPrimitive.Description
+      {...props}
+      className={resolveClassName(className, (override) =>
+        dialogRecipe().alertDescription({ className: override }),
+      )}
+    />
+  );
+}
 
 export function AlertDialogContent({
   className,
@@ -609,7 +640,12 @@ export function AlertDialogContent({
     <AlertDialogPrimitive.Portal>
       <AlertDialogPrimitive.Backdrop className={dialogRecipe().backdrop()} />
       <AlertDialogPrimitive.Popup
-        className={dialogRecipe().content({ className: cn("alert-dialog-content", className) })}
+        className={resolveClassName(
+          className,
+          (override) =>
+            cn(dialogRecipe().content(), dialogRecipe().alertContent({ className: override })) ??
+            "",
+        )}
         {...props}
       />
     </AlertDialogPrimitive.Portal>
@@ -629,11 +665,11 @@ export function AlertDialogCancel({ children }: { children: ReactNode }) {
 }
 
 export function AlertDialogHeader(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("alert-dialog-header", props.className)} />;
+  return <div {...props} className={dialogRecipe().alertHeader({ className: props.className })} />;
 }
 
 export function AlertDialogFooter(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("alert-dialog-footer", props.className)} />;
+  return <div {...props} className={dialogRecipe().alertFooter({ className: props.className })} />;
 }
 
 export function Input({ className, ...props }: ComponentProps<typeof InputPrimitive>) {

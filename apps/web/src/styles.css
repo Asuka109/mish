@@ -1774,31 +1774,6 @@ h2 {
   gap: 8px;
 }
 
-.alert-dialog-content {
-  width: min(380px, calc(100vw - 32px));
-  padding: 16px 16px 0;
-}
-
-.alert-dialog-header {
-  display: grid;
-  gap: 6px;
-  padding-bottom: 16px;
-}
-
-.alert-dialog-header [data-slot="alert-dialog-title"] {
-  font-weight: var(--font-weight-heading);
-}
-
-.alert-dialog-header [data-slot="alert-dialog-description"] {
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-  line-height: 19px;
-}
-
-.alert-dialog-footer {
-  margin: 0 -16px;
-}
-
 .routes-page {
   min-height: 0;
 }
