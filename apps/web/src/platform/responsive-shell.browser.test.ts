@@ -32,6 +32,32 @@ interface SidebarRowGeometry {
   left: number;
 }
 
+interface Center {
+  x: number;
+  y: number;
+}
+
+function centerOf(element: HTMLElement): Center {
+  const rect = element.getBoundingClientRect();
+
+  return {
+    x: rect.left + element.clientLeft + element.clientWidth / 2,
+    y: rect.top + element.clientTop + element.clientHeight / 2,
+  };
+}
+
+function appendRoutePending(scroller: HTMLElement) {
+  const pending = document.createElement("div");
+  pending.ariaBusy = "true";
+  pending.className = "route-loading";
+  pending.innerHTML = '<div class="route-loading-indicator" role="status"></div>';
+  scroller.replaceChildren(pending);
+
+  const indicator = pending.querySelector<HTMLElement>(".route-loading-indicator");
+  if (!indicator) throw new Error("Missing route loading indicator");
+  return indicator;
+}
+
 function hasLocalHorizontalScroller(element: Element): boolean {
   let ancestor = element.parentElement;
 
@@ -379,6 +405,51 @@ describe("responsive application shell", () => {
           }
         }
       }
+    }
+  });
+
+  test("centers deferred route loading in the visible workspace scroller", async () => {
+    await page.viewport(1440, 900);
+    await navigate("/settings");
+
+    const scroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
+    if (!scroller) throw new Error("Missing workspace scroller");
+
+    scroller.scrollTop = 180;
+    await vi.waitFor(() => expect(scroller.scrollTop, "nonzero scroll precondition").toBe(180));
+
+    const indicator = appendRoutePending(scroller);
+
+    for (const viewport of [
+      { height: 900, name: "wide desktop", width: 1440 },
+      { height: 600, name: "narrow desktop", width: 800 },
+    ]) {
+      await page.viewport(viewport.width, viewport.height);
+      await vi.waitFor(() => {
+        const indicatorCenter = centerOf(indicator);
+        const scrollerCenter = centerOf(scroller);
+
+        expect(indicatorCenter.x, `${viewport.name}: horizontal center`).toBeCloseTo(
+          scrollerCenter.x,
+          0,
+        );
+        expect(indicatorCenter.y, `${viewport.name}: vertical center`).toBeCloseTo(
+          scrollerCenter.y,
+          0,
+        );
+      });
+
+      expect(
+        document.querySelectorAll("main .workspace-page-scroll"),
+        `${viewport.name}: scroller`,
+      ).toHaveLength(1);
+      expect(getComputedStyle(scroller).overflowY, `${viewport.name}: scroller overflow`).toMatch(
+        /auto|scroll/,
+      );
+      expect(
+        document.querySelectorAll("main .page-scroll"),
+        `${viewport.name}: nested scroller`,
+      ).toHaveLength(0);
     }
   });
 });
