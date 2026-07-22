@@ -157,10 +157,13 @@ After the browser has reached an authenticated RPC connection, exhaustion of
 the bounded WebSocket reconnect policy replaces the application shell with a
 browser-only disconnected surface. The surface shows the validated bootstrap
 port in an editable numeric field and keeps all stale product controls
-unmounted. Reconnect first probes the entered port, then checks IPv4-loopback
-ports sequentially from 6474. The conventional scan stops after 10 occupied
-non-Mish ports or 5 empty ports, whichever occurs first, and retains bounded
-per-request timeouts, an overall deadline, and explicit cancellation.
+unmounted. **Connect** checks the versioned Mish marker on only the valid port
+currently shown in the field and navigates only after that exact-port check
+succeeds. **Scan** checks IPv4-loopback ports sequentially from 6474, writes the
+first securely identified Mish port back to the field, and then invokes the
+same Connect path. The scan stops after 10 occupied non-Mish ports or 5 empty
+ports, whichever occurs first, and retains bounded per-request timeouts and an
+overall deadline.
 
 Browser-hosting bridges expose `GET /browser-discovery` solely as a versioned
 service marker. The marker contains no RPC token, PIN, proof, session, settings,
