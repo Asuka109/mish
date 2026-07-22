@@ -1053,33 +1053,6 @@ h2 {
   outline: none;
 }
 
-.traffic-sparkline-line {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.35px;
-  vector-effect: non-scaling-stroke;
-}
-
-.traffic-sparkline-tail-clip {
-  transform-box: fill-box;
-  transform-origin: left center;
-}
-
-.traffic-sparkline-tail-clip.is-animated {
-  animation: traffic-sparkline-tail-reveal 240ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes traffic-sparkline-tail-reveal {
-  from {
-    transform: scaleX(0);
-  }
-
-  to {
-    transform: scaleX(1);
-  }
-}
-
 .session-metric {
   display: grid;
   min-height: 52px;

@@ -150,9 +150,10 @@ is not otherwise available.
 ## Sparklines
 
 Traffic sparklines are decorative area lines with no background, axes, grid,
-markers, application role, or focus outline. Use a low-opacity fill down to the
-baseline and fade all four edges into the row. Hide the chart before it compresses
-labels or rates. The adjacent text value is always authoritative.
+markers, application role, or focus outline. Keep the fixed chart viewport empty
+until three session samples are available, retain at most 60 samples, and fade
+the horizontal edges into the row. Hide the chart before it compresses labels or
+rates. The adjacent text value is always authoritative.
 
 ## Responsive composition
 

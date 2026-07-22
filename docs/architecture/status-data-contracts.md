@@ -172,7 +172,8 @@ byte baseline and accepts only samples observed after that boundary, so a
 retained managed Core cannot briefly reveal the prior session's frozen totals or
 curve. The Status chart retains at most 60 post-boundary samples. The detailed
 Traffic workspace deliberately retains its independent Controller session and
-history semantics.
+history semantics. Status preserves the chart layout but does not instantiate a
+curve until the fresh presentation session contains at least three samples.
 
 The toolbar profile value is configuration selection, not a Core-health claim.
 It remains visible while the runtime is safely stopped and identifies the

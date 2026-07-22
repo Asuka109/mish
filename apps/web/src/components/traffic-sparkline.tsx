@@ -1,5 +1,5 @@
-import { curveMonotoneX, line } from "d3-shape";
-import { useEffect, useId, useState } from "react";
+import Highcharts from "highcharts";
+import { useEffect, useRef, useState } from "react";
 
 interface TrafficSparklineProps {
   color: string;
@@ -8,63 +8,9 @@ interface TrafficSparklineProps {
 }
 
 export const TRAFFIC_SPARKLINE_MAX_SAMPLES = 60;
+export const TRAFFIC_SPARKLINE_MIN_SAMPLES = 3;
 export const TRAFFIC_SPARKLINE_WIDTH = 360;
 export const TRAFFIC_SPARKLINE_HEIGHT = 34;
-
-const HORIZONTAL_INSET = 12;
-const VERTICAL_INSET = 2;
-
-interface TrafficSparklineDatum {
-  x: number;
-  y: number;
-}
-
-interface TrafficSparklineSeries {
-  data: TrafficSparklineDatum[];
-  id: string;
-}
-
-interface TrafficSparklineGeometry {
-  path: string;
-  points: TrafficSparklineDatum[];
-  tailStartX: number | null;
-}
-
-export function createTrafficSparklineData(id: string, data: number[]): TrafficSparklineSeries[] {
-  const visibleData = data.slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES);
-  const firstX = TRAFFIC_SPARKLINE_MAX_SAMPLES - visibleData.length;
-
-  return [
-    {
-      data: visibleData.map((value, index) => ({ x: firstX + index, y: Math.max(0, value) })),
-      id,
-    },
-  ];
-}
-
-export function createTrafficSparklineGeometry(data: number[]): TrafficSparklineGeometry {
-  const values = createTrafficSparklineData("sparkline", data)[0].data;
-  if (values.length === 0) return { path: "", points: [], tailStartX: null };
-
-  const maximum = Math.max(1, ...values.map(({ y }) => y));
-  const drawableWidth = TRAFFIC_SPARKLINE_WIDTH - HORIZONTAL_INSET * 2;
-  const drawableHeight = TRAFFIC_SPARKLINE_HEIGHT - VERTICAL_INSET * 2;
-  const points = values.map(({ x, y }) => ({
-    x: HORIZONTAL_INSET + (x / (TRAFFIC_SPARKLINE_MAX_SAMPLES - 1)) * drawableWidth,
-    y: TRAFFIC_SPARKLINE_HEIGHT - VERTICAL_INSET - (y / maximum) * drawableHeight,
-  }));
-  const path =
-    line<TrafficSparklineDatum>()
-      .x(({ x }) => x)
-      .y(({ y }) => y)
-      .curve(curveMonotoneX)(points) ?? "";
-
-  return {
-    path,
-    points,
-    tailStartX: points.length > 1 ? (points.at(-2)?.x ?? null) : null,
-  };
-}
 
 function useReducedMotion() {
   const [reduced, setReduced] = useState(
@@ -83,65 +29,147 @@ function useReducedMotion() {
   return reduced;
 }
 
+function createHighchartsData(data: number[]): [number, number][] {
+  const visibleData = data.slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES);
+  const firstX = TRAFFIC_SPARKLINE_MAX_SAMPLES - visibleData.length;
+  return visibleData.map((value, index) => [firstX + index, Math.max(0, value)]);
+}
+
+function isAppendedSample(previous: number[], current: number[]): boolean {
+  if (current.length === previous.length + 1) {
+    return previous.every((value, index) => current[index] === value);
+  }
+  if (
+    current.length === TRAFFIC_SPARKLINE_MAX_SAMPLES &&
+    previous.length === TRAFFIC_SPARKLINE_MAX_SAMPLES
+  ) {
+    return previous.slice(1).every((value, index) => current[index] === value);
+  }
+  return false;
+}
+
+function hasSameSamples(previous: number[], current: number[]): boolean {
+  return (
+    previous.length === current.length && previous.every((value, index) => current[index] === value)
+  );
+}
+
+function paddedMaximum(data: number[]): number {
+  return Math.max(1, Math.round(Math.max(1, ...data.map((value) => Math.max(0, value))) * 1.12));
+}
+
 export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {
   const reducedMotion = useReducedMotion();
-  const reactId = useId().replaceAll(":", "");
-  const geometry = createTrafficSparklineGeometry(data);
-  if (geometry.points.length === 0) return <div aria-hidden="true" className="traffic-sparkline" />;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<Highcharts.Chart | null>(null);
+  const previousDataRef = useRef<number[]>([]);
+  const latestXRef = useRef(TRAFFIC_SPARKLINE_MAX_SAMPLES - 1);
+  const sessionMaximumRef = useRef(1);
 
-  const latestPoint = geometry.points.at(-1);
-  const tailKey = `${geometry.points.length}-${data.at(-2) ?? "start"}-${data.at(-1)}`;
-  const baseClipId = `traffic-sparkline-base-${reactId}`;
-  const tailClipId = `traffic-sparkline-tail-${reactId}`;
-  const tailStartX = geometry.tailStartX;
+  useEffect(() => {
+    if (data.length < TRAFFIC_SPARKLINE_MIN_SAMPLES) {
+      chartRef.current?.destroy();
+      chartRef.current = null;
+      previousDataRef.current = data;
+      latestXRef.current = TRAFFIC_SPARKLINE_MAX_SAMPLES - 1;
+      sessionMaximumRef.current = 1;
+      return;
+    }
+
+    const visibleData = data.slice(-TRAFFIC_SPARKLINE_MAX_SAMPLES);
+    const chartData = createHighchartsData(visibleData);
+    const container = containerRef.current;
+    if (!container) return;
+
+    if (!chartRef.current) {
+      sessionMaximumRef.current = paddedMaximum(visibleData);
+      latestXRef.current = TRAFFIC_SPARKLINE_MAX_SAMPLES - 1;
+      chartRef.current = Highcharts.chart(container, {
+        accessibility: { enabled: false },
+        chart: {
+          animation: false,
+          backgroundColor: "transparent",
+          height: TRAFFIC_SPARKLINE_HEIGHT,
+          margin: [1, 0, 1, 0],
+          reflow: false,
+          spacing: [0, 0, 0, 0],
+          type: "areaspline",
+          width: TRAFFIC_SPARKLINE_WIDTH,
+        },
+        credits: { enabled: false },
+        legend: { enabled: false },
+        plotOptions: {
+          areaspline: {
+            animation: false,
+            enableMouseTracking: false,
+            fillOpacity: 0,
+            lineWidth: 1.35,
+            marker: { enabled: false },
+            states: { hover: { enabled: false }, inactive: { enabled: false } },
+            threshold: 0,
+          },
+        },
+        series: [{ animation: false, color, data: chartData, type: "areaspline" }],
+        title: { text: undefined },
+        tooltip: { enabled: false },
+        xAxis: {
+          endOnTick: false,
+          max: TRAFFIC_SPARKLINE_MAX_SAMPLES - 1,
+          min: 0,
+          startOnTick: false,
+          visible: false,
+        },
+        yAxis: {
+          endOnTick: false,
+          max: sessionMaximumRef.current,
+          min: 0,
+          startOnTick: false,
+          title: { text: undefined },
+          visible: false,
+        },
+      });
+      previousDataRef.current = visibleData;
+      return;
+    }
+
+    const previousData = previousDataRef.current;
+    const chart = chartRef.current;
+    if (hasSameSamples(previousData, visibleData)) return;
+    if (isAppendedSample(previousData, visibleData)) {
+      const latestValue = Math.max(0, visibleData.at(-1) ?? 0);
+      const nextX = latestXRef.current + 1;
+      const nextMaximum = paddedMaximum([latestValue]);
+      if (nextMaximum > sessionMaximumRef.current) {
+        sessionMaximumRef.current = nextMaximum;
+        chart.yAxis[0]?.update({ max: nextMaximum }, false);
+      }
+      chart.xAxis[0]?.setExtremes(nextX - (TRAFFIC_SPARKLINE_MAX_SAMPLES - 1), nextX, false, false);
+      chart.series[0]?.addPoint(
+        [nextX, latestValue],
+        true,
+        previousData.length >= TRAFFIC_SPARKLINE_MAX_SAMPLES,
+        reducedMotion ? false : { duration: 400, easing: "linear" },
+      );
+      latestXRef.current = nextX;
+    } else {
+      sessionMaximumRef.current = paddedMaximum(visibleData);
+      latestXRef.current = TRAFFIC_SPARKLINE_MAX_SAMPLES - 1;
+      chart.yAxis[0]?.update({ max: sessionMaximumRef.current }, false);
+      chart.xAxis[0]?.setExtremes(0, TRAFFIC_SPARKLINE_MAX_SAMPLES - 1, false, false);
+      chart.series[0]?.setData(chartData, true, false, false);
+    }
+    previousDataRef.current = visibleData;
+  }, [color, data, reducedMotion]);
+
+  useEffect(
+    () => () => {
+      chartRef.current?.destroy();
+      chartRef.current = null;
+    },
+    [],
+  );
 
   return (
-    <div aria-hidden="true" className="traffic-sparkline" data-series={id}>
-      <svg
-        className="traffic-sparkline-svg"
-        preserveAspectRatio="none"
-        viewBox={`0 0 ${TRAFFIC_SPARKLINE_WIDTH} ${TRAFFIC_SPARKLINE_HEIGHT}`}
-      >
-        {tailStartX === null ? (
-          latestPoint ? (
-            <circle cx={latestPoint.x} cy={latestPoint.y} fill={color} r="1" />
-          ) : null
-        ) : (
-          <>
-            <defs>
-              <clipPath id={baseClipId}>
-                <rect height={TRAFFIC_SPARKLINE_HEIGHT} width={tailStartX} x="0" y="0" />
-              </clipPath>
-              <clipPath id={tailClipId}>
-                <rect
-                  className={
-                    reducedMotion
-                      ? "traffic-sparkline-tail-clip"
-                      : "traffic-sparkline-tail-clip is-animated"
-                  }
-                  height={TRAFFIC_SPARKLINE_HEIGHT}
-                  width={TRAFFIC_SPARKLINE_WIDTH - tailStartX}
-                  x={tailStartX}
-                  y="0"
-                />
-              </clipPath>
-            </defs>
-            <path
-              className="traffic-sparkline-line"
-              clipPath={`url(#${baseClipId})`}
-              d={geometry.path}
-              stroke={color}
-            />
-            <path
-              key={tailKey}
-              className="traffic-sparkline-line traffic-sparkline-tail"
-              clipPath={`url(#${tailClipId})`}
-              d={geometry.path}
-              stroke={color}
-            />
-          </>
-        )}
-      </svg>
-    </div>
+    <div ref={containerRef} aria-hidden="true" className="traffic-sparkline" data-series={id} />
   );
 }

@@ -43,3 +43,8 @@ Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
   configurable: true,
   value: vi.fn(),
 });
+
+Object.defineProperty(globalThis.CSS, "supports", {
+  configurable: true,
+  value: vi.fn(() => false),
+});
