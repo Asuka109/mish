@@ -65,9 +65,9 @@ pub use profiles::{DesktopProfileService, ReqwestHttpsSourceReader};
 pub use runtime_host::DesktopRuntimeHost;
 pub use server::{
     BridgeShutdownFailure, BridgeShutdownOutcome, BridgeShutdownReport, BrowserAsset,
-    BrowserAssetSource, BrowserClientHandle, BrowserPairingPrompt, LoopbackServerConfig,
-    LoopbackServerHandle, start_loopback_server, start_loopback_server_with_runtime_host,
-    start_loopback_server_with_runtime_host_and_lifecycle,
+    BrowserAssetSource, BrowserClientHandle, BrowserPairingPrompt, LoopbackPortSelection,
+    LoopbackServerConfig, LoopbackServerHandle, start_loopback_server,
+    start_loopback_server_with_runtime_host, start_loopback_server_with_runtime_host_and_lifecycle,
 };
 pub use service_probes::ServiceProbeConfig;
 pub use support_bundle::{
