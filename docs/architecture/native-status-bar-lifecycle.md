@@ -29,18 +29,21 @@ The implemented compact surface has four separator-delimited sections:
    capture inactive. Native code does not recreate capture sequencing. Pending
    is disabled and labelled accordingly; failures are labelled as failed but
    remain retryable when the coordinator is available.
-2. Three disabled, read-only live labels: **Most active node**, **Download**,
+2. Fixed native navigation: **Open Mish** (the Status destination), **Routes**,
+   **Profiles**, **Traffic**, **Events**, and **Settings**. Routes has no node
+   activity suffix. Navigation accepts only this allowlist and shows,
+   unminimizes, and focuses the existing WebView.
+3. Three disabled, read-only live labels immediately below navigation: **Most active node**, **Download**,
    and **Upload**. The node label is the existing bounded, redacted trailing
    60-second summary. Download and Upload use `StatusSnapshot.traffic` rates
    and the established binary byte-rate convention. Missing or non-ready
    Traffic is **Unavailable**; a ready snapshot with no qualifying route is
    **Idle**. These handles update in place once per second and never replace
    the tray menu.
-3. Fixed native navigation: **Open Mish** (the Status destination), **Routes**,
-   **Profiles**, **Traffic**, **Events**, and **Settings**. Routes has no node
-   activity suffix. Navigation accepts only this allowlist and shows,
-   unminimizes, and focuses the existing WebView.
-4. **Open Browser Client** immediately above **Quit Mish**.
+4. **Open Browser Client**, followed by a checked **Launch proxy when Mish
+   launches** preference and then **Quit Mish**. The preference writes only the
+   existing next-launch setting; it does not launch a Profile or mutate capture
+   immediately.
 
 Current Profile, Core, System Proxy, Repair, Leave, TUN, Routing Mode, and
 Recover Core are deliberately absent from this native surface. Their product

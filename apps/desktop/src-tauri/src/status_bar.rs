@@ -11,9 +11,10 @@ use mish_platform_macos::{open_browser_url, show_browser_open_error};
 use mish_runtime::{
     CaptureRequest, StatusAdapterKind, StatusSnapshot, TrafficDataPhase, TrafficSnapshot,
 };
+use mish_settings::{SettingsAdapterKind, SettingsService};
 use tauri::{
     Emitter, Manager,
-    menu::{Menu, MenuBuilder, MenuItem, MenuItemBuilder},
+    menu::{CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder},
     tray::TrayIconBuilder,
 };
 use uuid::Uuid;
@@ -29,6 +30,7 @@ const OPEN_TRAFFIC_ID: &str = "status-bar.open-traffic";
 const OPEN_EVENTS_ID: &str = "status-bar.open-events";
 const OPEN_SETTINGS_ID: &str = "status-bar.open-settings";
 const TOGGLE_PROXY_ID: &str = "status-bar.toggle-proxy";
+const TOGGLE_LAUNCH_ON_START_ID: &str = "status-bar.toggle-launch-on-start";
 const QUIT_ID: &str = "status-bar.quit";
 const STATUS_BAR_ICON_RGBA: &[u8] =
     include_bytes!("../../../../packages/brand-assets/generated/status-bar/mish-status-bar.rgba");
@@ -38,6 +40,7 @@ pub(crate) struct StatusBarState {
     activation: Arc<ProfileActivationCoordinator>,
     browser_client: BrowserClientHandle,
     runtime: DesktopRuntimeHost,
+    settings: Arc<SettingsService>,
     traffic_observations: NativeTrafficObservations,
 }
 
@@ -46,11 +49,13 @@ impl StatusBarState {
         runtime: DesktopRuntimeHost,
         activation: Arc<ProfileActivationCoordinator>,
         browser_client: BrowserClientHandle,
+        settings: Arc<SettingsService>,
     ) -> Self {
         Self {
             activation,
             browser_client,
             runtime,
+            settings,
             traffic_observations: NativeTrafficObservations::default(),
         }
     }
@@ -59,7 +64,13 @@ impl StatusBarState {
         let (status, traffic) = self.runtime.native_traffic_handoff().await;
         self.traffic_observations.observe(&status, &traffic);
         let activation = self.activation.activation_snapshot().await;
-        StatusMenuModel::new(&status, &activation)
+        let launch_on_start = self
+            .settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .startup
+            .launch_proxy_when_mish_launches;
+        StatusMenuModel::new(&status, &activation, launch_on_start)
     }
 }
 
@@ -133,6 +144,7 @@ impl NativeTrafficObservations {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct StatusMenuModel {
+    launch_on_start: bool,
     proxy_enabled: bool,
     proxy_title: &'static str,
 }
@@ -142,13 +154,15 @@ struct StatusMenuItems {
     proxy: MenuItem<tauri::Wry>,
     most_active_node: MenuItem<tauri::Wry>,
     download: MenuItem<tauri::Wry>,
+    launch_on_start: CheckMenuItem<tauri::Wry>,
     upload: MenuItem<tauri::Wry>,
 }
 
 impl StatusMenuItems {
     fn apply(&self, model: &StatusMenuModel) -> tauri::Result<()> {
         self.proxy.set_text(model.proxy_title)?;
-        self.proxy.set_enabled(model.proxy_enabled)
+        self.proxy.set_enabled(model.proxy_enabled)?;
+        self.launch_on_start.set_checked(model.launch_on_start)
     }
 
     fn apply_live_status(&self, model: &LiveStatusModel) -> tauri::Result<()> {
@@ -159,8 +173,13 @@ impl StatusMenuItems {
 }
 
 impl StatusMenuModel {
-    fn new(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> Self {
+    fn new(
+        status: &StatusSnapshot,
+        activation: &ProfileActivationSnapshot,
+        launch_on_start: bool,
+    ) -> Self {
         Self {
+            launch_on_start,
             proxy_title: proxy_title(status, activation),
             proxy_enabled: proxy_enabled(status, activation),
         }
@@ -204,6 +223,17 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
         OPEN_TRAFFIC_ID => show_main_window(app, Some("/traffic")),
         OPEN_EVENTS_ID => show_main_window(app, Some("/events")),
         OPEN_SETTINGS_ID => show_main_window(app, Some("/settings")),
+        TOGGLE_LAUNCH_ON_START_ID => {
+            let settings = state.settings.clone();
+            tauri::async_runtime::spawn(async move {
+                let enabled = !settings
+                    .snapshot(SettingsAdapterKind::Rpc)
+                    .preferences
+                    .startup
+                    .launch_proxy_when_mish_launches;
+                let _ = settings.set_launch_proxy_when_mish_launches(enabled);
+            });
+        }
         TOGGLE_PROXY_ID => {
             let id = id.to_owned();
             tauri::async_runtime::spawn(async move {
@@ -288,7 +318,6 @@ fn is_status_destination(destination: &str) -> bool {
 #[cfg(test)]
 const MENU_SECTIONS: &[&[&str]] = &[
     &["Launch proxy / Stop proxy"],
-    &["Most active node", "Download", "Upload"],
     &[
         "Open Mish",
         "Routes",
@@ -297,7 +326,12 @@ const MENU_SECTIONS: &[&[&str]] = &[
         "Events",
         "Settings",
     ],
-    &["Open Browser Client", "Quit Mish"],
+    &["Most active node", "Download", "Upload"],
+    &[
+        "Open Browser Client",
+        "Launch proxy when Mish launches",
+        "Quit Mish",
+    ],
 ];
 
 async fn watch_status_menu(
@@ -308,6 +342,7 @@ async fn watch_status_menu(
     let mut runtime_changes = state.runtime.subscribe_changes();
     let mut status_updates = runtime_changes.borrow_and_update().subscribe_status();
     let mut activation_updates = state.activation.subscribe();
+    let mut settings_updates = state.settings.subscribe();
     let mut refresh = tokio::time::interval(Duration::from_secs(1));
     let mut current_live = state.traffic_observations.live_status_at(Duration::ZERO);
     let _ = menu.apply_live_status(&current_live);
@@ -335,6 +370,11 @@ async fn watch_status_menu(
             }
             update = activation_updates.recv() => {
                 if update.is_err() && activation_updates.is_closed() {
+                    break;
+                }
+            }
+            update = settings_updates.recv() => {
+                if update.is_err() && settings_updates.is_closed() {
                     break;
                 }
             }
@@ -385,22 +425,27 @@ fn build_menu<M: Manager<tauri::Wry>>(
     let settings = MenuItemBuilder::with_id(OPEN_SETTINGS_ID, "Settings").build(manager)?;
     let browser =
         MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client").build(manager)?;
+    let launch_on_start =
+        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, "Launch proxy when Mish launches")
+            .checked(model.launch_on_start)
+            .build(manager)?;
     let quit = MenuItemBuilder::with_id(QUIT_ID, "Quit Mish").build(manager)?;
 
     let menu = MenuBuilder::new(manager)
         .item(&proxy)
         .separator()
-        .items(&[&most_active_node, &download, &upload])
-        .separator()
         .items(&[&open, &routes, &profiles, &traffic, &events, &settings])
         .separator()
-        .items(&[&browser, &quit])
+        .items(&[&most_active_node, &download, &upload])
+        .separator()
+        .items(&[&browser, &launch_on_start, &quit])
         .build()?;
     Ok(StatusMenuItems {
         menu,
         proxy,
         most_active_node,
         download,
+        launch_on_start,
         upload,
     })
 }
@@ -625,6 +670,7 @@ mod tests {
     #[test]
     fn status_menu_is_not_rebuilt_for_unchanged_runtime_updates() {
         let mut current = StatusMenuModel {
+            launch_on_start: false,
             proxy_title: "Launch proxy",
             proxy_enabled: true,
         };
@@ -644,27 +690,28 @@ mod tests {
         let mut activation = ProfileActivationSnapshot::unavailable();
         activation.availability = ProfileActivationAvailability::Available;
         assert_eq!(
-            StatusMenuModel::new(&status, &activation).proxy_title,
+            StatusMenuModel::new(&status, &activation, false).proxy_title,
             "Launch proxy"
         );
-        assert!(StatusMenuModel::new(&status, &activation).proxy_enabled);
+        assert!(StatusMenuModel::new(&status, &activation, false).proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Pending;
-        let pending = StatusMenuModel::new(&status, &activation);
+        let pending = StatusMenuModel::new(&status, &activation, false);
         assert_eq!(pending.proxy_title, "Launch proxy — Pending");
         assert!(!pending.proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Failure;
-        let failed = StatusMenuModel::new(&status, &activation);
+        let failed = StatusMenuModel::new(&status, &activation, false);
         assert_eq!(failed.proxy_title, "Launch proxy — Failed");
         assert!(failed.proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Idle;
         status.runtime.system_proxy_enabled = true;
         status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
-        let active = StatusMenuModel::new(&status, &activation);
+        let active = StatusMenuModel::new(&status, &activation, true);
         assert_eq!(active.proxy_title, "Stop proxy");
         assert!(active.proxy_enabled);
+        assert!(active.launch_on_start);
     }
 
     #[test]
@@ -673,7 +720,6 @@ mod tests {
             MENU_SECTIONS,
             [
                 ["Launch proxy / Stop proxy"].as_slice(),
-                ["Most active node", "Download", "Upload"].as_slice(),
                 [
                     "Open Mish",
                     "Routes",
@@ -683,7 +729,13 @@ mod tests {
                     "Settings"
                 ]
                 .as_slice(),
-                ["Open Browser Client", "Quit Mish"].as_slice(),
+                ["Most active node", "Download", "Upload"].as_slice(),
+                [
+                    "Open Browser Client",
+                    "Launch proxy when Mish launches",
+                    "Quit Mish"
+                ]
+                .as_slice(),
             ]
         );
         for destination in [
