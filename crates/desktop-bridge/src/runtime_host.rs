@@ -341,6 +341,9 @@ impl DesktopRuntimeHost {
             } else {
                 execution.clone()
             };
+            if execution.failure.is_some() {
+                current.record_application_event(ApplicationDiagnosticEvent::traffic_failure());
+            }
             let result = serde_json::to_value(TrafficCommandResult::new(
                 execution,
                 current.traffic_snapshot_typed(adapter_kind),

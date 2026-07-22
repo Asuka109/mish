@@ -18,9 +18,9 @@ use mish_bridge::{
     start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
-    CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
-    MishRuntime, NetworkServiceProxyState,
+    ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
+    CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus,
+    LoopbackProxyEndpoint, MishRuntime, NetworkServiceProxyState,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -166,6 +166,49 @@ impl CapturePlatform for MemoryCapturePlatform {
     }
 }
 
+struct SlowCapturePlatform {
+    apply_started: tokio::sync::Notify,
+    apply_release: tokio::sync::Notify,
+    state: std::sync::Mutex<NetworkServiceProxyState>,
+}
+
+impl SlowCapturePlatform {
+    fn new(state: NetworkServiceProxyState) -> Self {
+        Self {
+            apply_started: tokio::sync::Notify::new(),
+            apply_release: tokio::sync::Notify::new(),
+            state: std::sync::Mutex::new(state),
+        }
+    }
+}
+
+impl CapturePlatform for SlowCapturePlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        Box::pin(async move {
+            self.apply_started.notify_one();
+            self.apply_release.notified().await;
+            *self.state.lock().unwrap() = target;
+            Ok(())
+        })
+    }
+}
+
 #[derive(Default)]
 struct MemoryCaptureJournal(std::sync::Mutex<Option<CaptureJournal>>);
 
@@ -306,6 +349,27 @@ fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
     )
 }
 
+fn slow_capture_runtime_parts() -> (MishRuntime, Arc<SlowCapturePlatform>) {
+    let platform = Arc::new(SlowCapturePlatform::new(NetworkServiceProxyState {
+        auto_discovery_enabled: false,
+        http: mish_runtime::ManualProxyState::disabled(),
+        https: mish_runtime::ManualProxyState::disabled(),
+        pac_enabled: false,
+        pac_url: "(null)".into(),
+        service_id: "slow-rpc-fixture-service".into(),
+        socks: mish_runtime::ManualProxyState::disabled(),
+    }));
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap(),
+    ));
+    (
+        MishRuntime::with_capture(Arc::new(RunningCore), capture),
+        platform,
+    )
+}
+
 fn config() -> LoopbackServerConfig {
     LoopbackServerConfig {
         allowed_origins: vec![ORIGIN.into()],
@@ -374,6 +438,57 @@ async fn authenticate(
     )
     .await;
     assert_eq!(response["result"]["authenticated"], true);
+}
+
+async fn next_json(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> Value {
+    let Message::Text(message) = timeout(Duration::from_secs(2), socket.next())
+        .await
+        .expect("notification timeout")
+        .expect("socket closed")
+        .expect("websocket failure")
+    else {
+        panic!("expected text notification")
+    };
+    serde_json::from_str(&message).unwrap()
+}
+
+#[tokio::test]
+async fn authoritative_application_notifications_reach_every_events_client() {
+    let runtime = runtime(no_core());
+    let runtime_host = DesktopRuntimeHost::new(runtime.clone());
+    let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
+        .await
+        .unwrap();
+    let mut first = socket(bridge.address).await;
+    let mut second = socket(bridge.address).await;
+    authenticate(&mut first).await;
+    authenticate(&mut second).await;
+
+    for (id, socket) in [(2, &mut first), (3, &mut second)] {
+        let subscribed = request(
+            socket,
+            json!({"jsonrpc":"2.0", "id":id, "method":"events.subscribe", "params":{}}),
+        )
+        .await;
+        assert!(subscribed["result"]["subscriptionId"].is_string());
+    }
+
+    runtime.record_application_event(ApplicationDiagnosticEvent::settings_failure());
+
+    for socket in [&mut first, &mut second] {
+        let notification = next_json(socket).await;
+        assert_eq!(notification["method"], "events.snapshot");
+        assert_eq!(
+            notification["params"]["snapshot"]["events"][0]["notificationKind"],
+            "settings-failure"
+        );
+    }
+
+    bridge.shutdown().await;
 }
 
 #[tokio::test]
@@ -1037,6 +1152,16 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     )
     .await;
     assert_eq!(ambiguous_ports["error"]["code"], -32041);
+
+    let events = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":14, "method":"events.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(
+        events["result"]["events"][0]["notificationKind"],
+        "settings-failure"
+    );
 
     bridge.shutdown().await;
 }
@@ -1720,6 +1845,87 @@ async fn authenticated_capture_rpc_returns_only_confirmed_reconciled_state() {
 }
 
 #[tokio::test]
+async fn capture_pending_is_shared_and_rejects_a_second_client_command() {
+    let (runtime, platform) = slow_capture_runtime_parts();
+    let bridge = start_loopback_server(config(), runtime).await.unwrap();
+    let mut first = socket(bridge.address).await;
+    let mut second = socket(bridge.address).await;
+    authenticate(&mut first).await;
+    authenticate(&mut second).await;
+    let first_subscription = request(
+        &mut first,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+    let second_subscription = request(
+        &mut second,
+        json!({"jsonrpc":"2.0","id":2,"method":"status.subscribe","params":{}}),
+    )
+    .await;
+    assert!(first_subscription["result"]["subscriptionId"].is_string());
+    assert!(second_subscription["result"]["subscriptionId"].is_string());
+
+    first
+        .send(Message::Text(
+            json!({
+                "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+                "params":{"active":true,"selection":{"systemProxy":true,"tun":false}}
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .unwrap();
+    platform.apply_started.notified().await;
+
+    for socket in [&mut first, &mut second] {
+        let Message::Text(message) = socket.next().await.unwrap().unwrap() else {
+            panic!("expected pending status notification")
+        };
+        let notification: Value = serde_json::from_str(&message).unwrap();
+        assert_eq!(
+            notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+            "pending"
+        );
+    }
+
+    let duplicate = request(
+        &mut second,
+        json!({
+            "jsonrpc":"2.0", "id":3, "method":"status.setCapture",
+            "params":{"active":false,"selection":{"systemProxy":true,"tun":false}}
+        }),
+    )
+    .await;
+    assert_eq!(duplicate["error"]["code"], -32050);
+    assert_eq!(duplicate["error"]["data"]["kind"], "runtime-transition");
+
+    platform.apply_release.notify_one();
+    let mut first_applied = false;
+    while !first_applied {
+        let Message::Text(message) = first.next().await.unwrap().unwrap() else {
+            continue;
+        };
+        let value: Value = serde_json::from_str(&message).unwrap();
+        first_applied = value["params"]["snapshot"]["runtime"]["systemProxy"]["phase"] == "applied";
+    }
+    let applied = request(
+        &mut second,
+        json!({"jsonrpc":"2.0","id":4,"method":"status.getSnapshot","params":{}}),
+    )
+    .await;
+    let applied_phase = if applied["method"] == "status.snapshot" {
+        &applied["params"]["snapshot"]["runtime"]["systemProxy"]["phase"]
+    } else {
+        &applied["result"]["runtime"]["systemProxy"]["phase"]
+    };
+    assert_eq!(applied_phase, "applied");
+    drop(first);
+    drop(second);
+    drop(bridge);
+}
+
+#[tokio::test]
 async fn local_proxy_rpc_tests_the_listener_without_changing_system_proxy_state() {
     let (runtime, platform) = capture_runtime_parts();
     let prior = platform.0.lock().unwrap().clone();
@@ -1833,14 +2039,22 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
         enabled["result"]["runtime"]["systemProxy"]["phase"],
         "applied"
     );
+    let Message::Text(pending_notification) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected pending status notification")
+    };
+    let pending_notification: Value = serde_json::from_str(&pending_notification).unwrap();
+    assert_eq!(
+        pending_notification["params"]["subscriptionId"],
+        subscription_id
+    );
+    assert_eq!(
+        pending_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
+        "pending"
+    );
     let Message::Text(applied_notification) = ws.next().await.unwrap().unwrap() else {
         panic!("expected applied status notification")
     };
     let applied_notification: Value = serde_json::from_str(&applied_notification).unwrap();
-    assert_eq!(
-        applied_notification["params"]["subscriptionId"],
-        subscription_id
-    );
     assert_eq!(
         applied_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
         "applied"
