@@ -60,7 +60,10 @@ still fails closed and never selects fixtures.
    Proxy journal with the safe-stopped runtime. A confirmed orphaned Mish proxy is
    restored to its recorded prior state; an unreadable or unconfirmed record
    remains explicit recovery drift and cannot be published as off or applied.
-   The bridge then starts on `127.0.0.1:0`.
+   The Browser Client bridge starts at `127.0.0.1:6474` on every application
+   launch, advancing one port at a time only when the prior loopback address is
+   already in use. It retains the first listener it binds rather than probing
+   and rebinding.
    The bridge-handle slot is created before `run_return`; Tauri's `Ready` setup
    hook fills it before the WebView can invoke bootstrap, and the exit path later
    takes the same handle for ordered shutdown.

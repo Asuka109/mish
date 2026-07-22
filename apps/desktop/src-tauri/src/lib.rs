@@ -14,13 +14,13 @@ use mish_bridge::{
     BrowserPairingPrompt, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopProfileService,
     DesktopRuntimeHost, LOCAL_BACKUP_MAX_BYTES, LocalBackupError, LocalBackupPreview,
     LocalBackupScope, LocalBackupService, LocalRestoreConflictResolution, LocalRestorePreview,
-    LocalRestoreResult, LoopbackServerConfig, LoopbackServerHandle, ManagedCoreOwnership,
-    ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy, MihomoActivationManager,
-    PreparedLocalBackup, PreparedLocalRestore, PreparedSupportBundle, PrivilegedCoreHost,
-    ProfileActivationCoordinator, ProfileFileActions, RealManagedProcessPlatform,
-    ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,
-    SupportBundlePreview, SupportBundleService, compose_desktop_runtime_with_capture,
-    start_loopback_server_with_runtime_host_and_lifecycle,
+    LocalRestoreResult, LoopbackPortSelection, LoopbackServerConfig, LoopbackServerHandle,
+    ManagedCoreOwnership, ManagedMihomoResolver, ManagedRuntimeLease, ManagedRuntimePolicy,
+    MihomoActivationManager, PreparedLocalBackup, PreparedLocalRestore, PreparedSupportBundle,
+    PrivilegedCoreHost, ProfileActivationCoordinator, ProfileFileActions,
+    RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
+    SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
+    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
     DEV_TUN_SERVICE_CORE_PATH, DevelopmentTunStartup, FileCaptureJournalStore,
@@ -888,7 +888,8 @@ fn initialize(
                 )
                 .map_err(io::Error::other)?,
                 auth_token: auth_token.clone(),
-                bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+                bind: SocketAddr::from((Ipv4Addr::LOCALHOST, 6474)),
+                port_selection: LoopbackPortSelection::SequentialFallback,
                 browser_assets: Some(Arc::new(TauriBrowserAssetSource(app.handle().clone()))),
                 browser_pairing_prompt: Some(Arc::new(TauriBrowserPairingPrompt(
                     app.handle().clone(),
