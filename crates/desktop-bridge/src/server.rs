@@ -15,6 +15,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use mish_runtime::{MishRuntime, PlatformLifecycleEventSource, RuntimeShutdownFailure};
 use mish_settings::{SettingsAdapterKind, SettingsAvailability, SettingsService};
 use serde::Deserialize;
@@ -84,9 +85,9 @@ struct BrowserPairing {
     pin: String,
 }
 
-struct PendingLaunchPin {
+struct PendingLaunchToken {
     expires_at: Instant,
-    pin: String,
+    token: String,
 }
 
 struct BrowserSession {
@@ -97,16 +98,15 @@ struct BrowserSession {
 #[derive(Clone)]
 pub struct BrowserClientHandle {
     address: SocketAddr,
-    pending_launch_pins: Arc<Mutex<VecDeque<PendingLaunchPin>>>,
+    pending_launch_tokens: Arc<Mutex<VecDeque<PendingLaunchToken>>>,
 }
 
 impl BrowserClientHandle {
-    pub fn issue_launch_url(&self, pin: String) -> Result<String, String> {
-        if !valid_browser_secret(&pin) {
-            return Err("Browser launch PIN must be 32-byte hexadecimal data".into());
-        }
+    pub fn issue_launch_url(&self) -> Result<String, String> {
+        let token = generate_browser_launch_token()
+            .map_err(|_| "the operating system did not provide entropy")?;
         let mut pending = self
-            .pending_launch_pins
+            .pending_launch_tokens
             .lock()
             .map_err(|_| "Browser launch state is unavailable")?;
         let now = Instant::now();
@@ -114,11 +114,14 @@ impl BrowserClientHandle {
         if pending.len() >= BROWSER_SESSION_LIMIT {
             pending.pop_front();
         }
-        pending.push_back(PendingLaunchPin {
+        pending.push_back(PendingLaunchToken {
             expires_at: now + BROWSER_PAIRING_LIFETIME,
-            pin: pin.clone(),
+            token: token.clone(),
         });
-        Ok(format!("http://{}/#mish-browser-pin={pin}", self.address))
+        Ok(format!(
+            "http://{}/#mish-browser-launch={token}",
+            self.address
+        ))
     }
 }
 
@@ -128,7 +131,7 @@ struct BrowserHttpState {
     pairing: Arc<Mutex<Option<BrowserPairing>>>,
     pairing_lockout: Arc<Mutex<Option<Instant>>>,
     pairing_prompt: Arc<dyn BrowserPairingPrompt>,
-    pending_launch_pins: Arc<Mutex<VecDeque<PendingLaunchPin>>>,
+    pending_launch_tokens: Arc<Mutex<VecDeque<PendingLaunchToken>>>,
     rpc_url: String,
     sessions: Arc<Mutex<VecDeque<BrowserSession>>>,
     settings_service: Arc<SettingsService>,
@@ -379,7 +382,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     if let Some(service_probes) = &service_probes {
         service_probes.start();
     }
-    let pending_launch_pins = Arc::new(Mutex::new(VecDeque::new()));
+    let pending_launch_tokens = Arc::new(Mutex::new(VecDeque::new()));
     let browser = config.browser_assets.map(|assets| BrowserHttpState {
         assets,
         auth_token: config.auth_token.clone(),
@@ -388,7 +391,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
         pairing_prompt: config
             .browser_pairing_prompt
             .expect("browser pairing prompt checked before server startup"),
-        pending_launch_pins: pending_launch_pins.clone(),
+        pending_launch_tokens: pending_launch_tokens.clone(),
         rpc_url: format!("ws://{authority}/rpc"),
         sessions: Arc::new(Mutex::new(VecDeque::new())),
         settings_service: settings_service
@@ -397,7 +400,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
     });
     let browser_client = browser.as_ref().map(|_| BrowserClientHandle {
         address,
-        pending_launch_pins,
+        pending_launch_tokens,
     });
     let socket_shutdown = CancellationToken::new();
     let state = Arc::new(HttpState {
@@ -502,25 +505,25 @@ async fn browser_bootstrap(
         return StatusCode::NOT_FOUND.into_response();
     };
     let proof = browser_proof(&headers);
-    let launch_pin = headers
+    let launch_token = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Mish-Browser-Pin "));
-    let accepted_launch = launch_pin.and_then(|pin| {
+        .and_then(|value| value.strip_prefix("Mish-Browser-Launch "));
+    let accepted_launch = launch_token.and_then(|token| {
         browser
-            .pending_launch_pins
+            .pending_launch_tokens
             .lock()
             .ok()
             .and_then(|mut pending| {
                 let now = Instant::now();
                 pending.retain(|candidate| candidate.expires_at > now);
                 let index = pending.iter().position(|candidate| {
-                    bool::from(candidate.pin.as_bytes().ct_eq(pin.as_bytes()))
+                    bool::from(candidate.token.as_bytes().ct_eq(token.as_bytes()))
                 })?;
-                pending.remove(index).map(|candidate| candidate.pin)
+                pending.remove(index).map(|candidate| candidate.token)
             })
     });
-    if launch_pin.is_some() && accepted_launch.is_none() {
+    if launch_token.is_some() && accepted_launch.is_none() {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     if accepted_launch.is_none() && !has_browser_session(browser, &headers, proof) {
@@ -728,6 +731,12 @@ fn generate_browser_secret() -> Result<String, getrandom::Error> {
     let mut bytes = [0_u8; 32];
     getrandom::fill(&mut bytes)?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn generate_browser_launch_token() -> Result<String, getrandom::Error> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes)?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn valid_pairing_pin(pin: &str) -> bool {

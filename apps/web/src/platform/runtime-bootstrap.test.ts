@@ -110,7 +110,7 @@ describe("desktop runtime bootstrap", () => {
   });
 
   it("connects an explicitly launched browser client to the authenticated desktop RPC", async () => {
-    const clearLaunchPin = vi.fn();
+    const clearLaunchToken = vi.fn();
     const saveProof = vi.fn();
     const fetchBootstrap = vi.fn(async () => ({
       authToken: token,
@@ -130,11 +130,11 @@ describe("desktop runtime bootstrap", () => {
 
     const startup = await resolveStartupStatusClient({
       browserBootstrap: {
-        clearLaunchPin,
+        clearLaunchToken,
         clearProof: vi.fn(),
         createProof: () => "d".repeat(64),
         fetch: fetchBootstrap,
-        launchPin: () => "a".repeat(64),
+        launchToken: () => "a".repeat(43),
         loadProof: () => null,
         saveProof,
       },
@@ -145,8 +145,8 @@ describe("desktop runtime bootstrap", () => {
       openWebSocket,
     });
 
-    expect(fetchBootstrap).toHaveBeenCalledWith("a".repeat(64), "d".repeat(64));
-    expect(clearLaunchPin).toHaveBeenCalledOnce();
+    expect(fetchBootstrap).toHaveBeenCalledWith("a".repeat(43), "d".repeat(64));
+    expect(clearLaunchToken).toHaveBeenCalledOnce();
     expect(saveProof).toHaveBeenCalledWith("d".repeat(64));
     expect(startup.runtime).toBe("browser");
     expect(startup.browserBackendPort).toBe(43_123);
@@ -167,11 +167,11 @@ describe("desktop runtime bootstrap", () => {
     }));
     const startup = await resolveStartupStatusClient({
       browserBootstrap: {
-        clearLaunchPin: vi.fn(),
+        clearLaunchToken: vi.fn(),
         clearProof: vi.fn(),
         createProof: () => "d".repeat(64),
         fetch: fetchBootstrap,
-        launchPin: () => null,
+        launchToken: () => null,
         loadProof: () => "e".repeat(64),
         saveProof: vi.fn(),
       },

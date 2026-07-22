@@ -914,9 +914,8 @@ fn initialize(
             .browser_client()
             .ok_or_else(|| io::Error::other("browser client host is unavailable"))?;
         if tauri::is_dev() {
-            let launch_pin = generate_auth_token().map_err(io::Error::other)?;
             let launch_url = browser_client
-                .issue_launch_url(launch_pin)
+                .issue_launch_url()
                 .map_err(io::Error::other)?;
             println!("Mish Browser Client URL: {launch_url}");
         }

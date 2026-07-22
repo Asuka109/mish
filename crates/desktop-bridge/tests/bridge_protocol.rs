@@ -448,7 +448,7 @@ async fn authenticate(
 }
 
 #[tokio::test]
-async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
+async fn browser_client_serves_spa_assets_and_consumes_one_launch_token() {
     let mut bridge_config = config();
     bridge_config.browser_assets = Some(Arc::new(BrowserAssets));
     bridge_config.browser_pairing_prompt = Some(Arc::new(RecordingPairingPrompt::default()));
@@ -457,18 +457,20 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
         .await
         .unwrap();
     let browser = bridge.browser_client().expect("browser client handle");
-    let nonce = "a".repeat(64);
-    let launch_url = browser.issue_launch_url(nonce.clone()).unwrap();
-    assert_eq!(
-        launch_url,
-        format!("http://{}/#mish-browser-pin={nonce}", bridge.address)
+    let launch_url = browser.issue_launch_url().unwrap();
+    let launch_token = launch_url
+        .strip_prefix(&format!("http://{}/#mish-browser-launch=", bridge.address))
+        .expect("launch URL prefix")
+        .to_owned();
+    assert_eq!(launch_token.len(), 43);
+    assert!(
+        launch_token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     );
     assert!(!launch_url.contains(TOKEN));
-    let second_nonce = "b".repeat(64);
-    assert_eq!(
-        browser.issue_launch_url(second_nonce.clone()).unwrap(),
-        format!("http://{}/#mish-browser-pin={second_nonce}", bridge.address)
-    );
+    let second_launch_url = browser.issue_launch_url().unwrap();
+    assert_ne!(launch_url, second_launch_url);
 
     let client = reqwest::Client::new();
     let root = client
@@ -510,7 +512,10 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
     let bootstrap_url = format!("http://{}/browser-bootstrap", bridge.address);
     let rejected_origin = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", "https://attacker.example")
         .send()
@@ -518,9 +523,25 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
         .unwrap();
     assert_eq!(rejected_origin.status(), reqwest::StatusCode::FORBIDDEN);
 
+    let rejected_token = client
+        .post(&bootstrap_url)
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {}", "!".repeat(43)),
+        )
+        .header("X-Mish-Browser-Proof", "b".repeat(64))
+        .header("Origin", format!("http://{}", bridge.address))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(rejected_token.status(), reqwest::StatusCode::UNAUTHORIZED);
+
     let accepted = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
@@ -560,7 +581,10 @@ async fn browser_client_serves_spa_assets_and_consumes_one_launch_nonce() {
 
     let replay = client
         .post(&bootstrap_url)
-        .header("Authorization", format!("Mish-Browser-Pin {nonce}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("X-Mish-Browser-Proof", "b".repeat(64))
         .header("Origin", format!("http://{}", bridge.address))
         .send()
@@ -654,7 +678,6 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
         .unwrap();
     let origin = format!("http://{address}");
     let proof = "d".repeat(64);
-    let launch_pin = "e".repeat(64);
 
     let mut first_config = config();
     first_config.bind = address;
@@ -664,15 +687,18 @@ async fn restarted_browser_backend_rejects_the_prior_process_session() {
     let first = start_loopback_server(first_config, runtime(no_core()))
         .await
         .unwrap();
-    first
-        .browser_client()
-        .unwrap()
-        .issue_launch_url(launch_pin.clone())
-        .unwrap();
+    let launch_url = first.browser_client().unwrap().issue_launch_url().unwrap();
+    let launch_token = launch_url
+        .split_once("#mish-browser-launch=")
+        .expect("launch token fragment")
+        .1;
     let client = reqwest::Client::new();
     let authenticated = client
         .post(format!("{origin}/browser-bootstrap"))
-        .header("Authorization", format!("Mish-Browser-Pin {launch_pin}"))
+        .header(
+            "Authorization",
+            format!("Mish-Browser-Launch {launch_token}"),
+        )
         .header("Origin", &origin)
         .header("X-Mish-Browser-Proof", &proof)
         .send()

@@ -18,7 +18,7 @@ for explicit composition with an injected `RpcClient`. Runtime schemas reject
 malformed results and notifications before they enter product state. The Tauri
 WebView composes them from the validated process-only desktop bootstrap. A
 browser explicitly launched by the desktop status-bar menu composes the same
-clients after exchanging a high-entropy one-time same-origin launch PIN from the
+clients after exchanging a high-entropy one-time same-origin launch token from the
 URL fragment. A direct bridge URL instead requests a six-digit PIN from the
 desktop app and exchanges it for a random browser session.
 

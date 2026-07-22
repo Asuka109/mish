@@ -37,11 +37,11 @@ interface RuntimeBootstrapPayload {
 }
 
 interface BrowserBootstrapDependencies {
-  clearLaunchPin(): void;
+  clearLaunchToken(): void;
   clearProof(): void;
   createProof(): string;
-  fetch(pin: string | null, proof: string | null): Promise<unknown>;
-  launchPin(): string | null;
+  fetch(token: string | null, proof: string | null): Promise<unknown>;
+  launchToken(): string | null;
   loadProof(): string | null;
   saveProof(proof: string): void;
 }
@@ -84,11 +84,11 @@ export interface StartupStatusClient {
 
 const defaultDependencies: BootstrapDependencies = {
   browserBootstrap: {
-    clearLaunchPin: clearBrowserLaunchPin,
+    clearLaunchToken: clearBrowserLaunchToken,
     clearProof: clearBrowserProof,
     createProof: createBrowserProof,
     fetch: fetchBrowserBootstrap,
-    launchPin: readBrowserLaunchPin,
+    launchToken: readBrowserLaunchToken,
     loadProof: readBrowserProof,
     saveProof: saveBrowserProof,
   },
@@ -118,11 +118,11 @@ export async function resolveStartupStatusClient(
     if (!browser) {
       throw new BrowserAuthenticationRequired();
     }
-    const pin = browser.launchPin();
-    const proof = pin ? browser.createProof() : browser.loadProof();
+    const launchToken = browser.launchToken();
+    const proof = launchToken ? browser.createProof() : browser.loadProof();
     try {
-      const bootstrap = parseRuntimeBootstrap(await browser.fetch(pin, proof));
-      if (pin && proof) browser.saveProof(proof);
+      const bootstrap = parseRuntimeBootstrap(await browser.fetch(launchToken, proof));
+      if (launchToken && proof) browser.saveProof(proof);
       return createRpcStartup(bootstrap, dependencies, "browser", "mish-browser-client");
     } catch (error) {
       browser.clearProof();
@@ -131,7 +131,7 @@ export async function resolveStartupStatusClient(
       }
       throw error;
     } finally {
-      if (pin) browser.clearLaunchPin();
+      if (launchToken) browser.clearLaunchToken();
     }
   }
 
@@ -225,12 +225,12 @@ class BrowserBootstrapUnavailable extends Error {
   }
 }
 
-function readBrowserLaunchPin() {
-  const pin = new URLSearchParams(window.location.hash.slice(1)).get("mish-browser-pin");
-  return pin && /^[a-f0-9]{64}$/.test(pin) ? pin : null;
+function readBrowserLaunchToken() {
+  const token = new URLSearchParams(window.location.hash.slice(1)).get("mish-browser-launch");
+  return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
 }
 
-function clearBrowserLaunchPin() {
+function clearBrowserLaunchToken() {
   const url = new URL(window.location.href);
   url.hash = "";
   window.history.replaceState(null, "", `${url.pathname}${url.search}`);
@@ -268,13 +268,13 @@ function createBrowserProof() {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function fetchBrowserBootstrap(pin: string | null, proof: string | null) {
+async function fetchBrowserBootstrap(token: string | null, proof: string | null) {
   const response = await fetch("/browser-bootstrap", {
     cache: "no-store",
     credentials: "same-origin",
     headers: {
       Accept: "application/json",
-      ...(pin ? { Authorization: `Mish-Browser-Pin ${pin}` } : {}),
+      ...(token ? { Authorization: `Mish-Browser-Launch ${token}` } : {}),
       ...(proof ? { "X-Mish-Browser-Proof": proof } : {}),
     },
     method: "POST",

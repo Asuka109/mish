@@ -285,11 +285,7 @@ pub(crate) fn is_quit_menu_command(id: &str) -> bool {
 }
 
 fn open_browser_client(state: &StatusBarState) {
-    let Ok(nonce) = super::generate_auth_token() else {
-        show_browser_open_error();
-        return;
-    };
-    let Ok(url) = state.browser_client.issue_launch_url(nonce) else {
+    let Ok(url) = state.browser_client.issue_launch_url() else {
         show_browser_open_error();
         return;
     };

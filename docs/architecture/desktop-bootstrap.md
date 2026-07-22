@@ -122,13 +122,16 @@ responses disable storage and referrers, disallow framing and privileged browser
 features, restrict scripts, styles, fonts, images, and WebSocket connections to
 the local application origin, and never depend on a CDN.
 
-Each `Open Browser Client` action creates a fresh 256-bit lowercase hexadecimal
-launch PIN, stores it in a bounded two-minute process-memory queue, and places it in the URL
-fragment. The actual RPC token and endpoint never appear in the URL. Browser
-startup posts the PIN plus a fresh origin proof to `/browser-bootstrap` from the
+Each `Open Browser Client` action creates a fresh 256-bit, 43-character
+base64url launch token, stores it in a bounded two-minute process-memory queue,
+and places it in the URL fragment. The actual RPC token and endpoint never
+appear in the URL. Browser startup posts the launch token plus a fresh origin
+proof to `/browser-bootstrap` from the
 same origin, and the bridge validates the loopback peer, exact Host, exact
-Origin, and PIN in constant time before consuming it. A successful PIN cannot be
-replayed. The response is non-cacheable and contains the RPC bootstrap in its
+Origin, and token in constant time before consuming it. A successful token
+cannot be replayed, and an invalid token does not consume a valid pending token.
+The high-entropy token is not guarded by the low-entropy manual PIN's attempt
+lockout. The response is non-cacheable and contains the RPC bootstrap in its
 body; the Web client clears the fragment immediately and retains the RPC token
 only in memory.
 
@@ -142,7 +145,7 @@ validates the opaque challenge ID and PIN in constant time and consumes the
 challenge before returning the bootstrap.
 
 Both exchanges establish a fresh scoped HttpOnly, SameSite session cookie whose
-value is independently random rather than a launch PIN, manual PIN, or RPC
+value is independently random rather than a launch token, manual PIN, or RPC
 token. The session is accepted only together with a second random proof in
 origin-scoped `localStorage`. This split is required because cookies do not
 isolate ports while browser origins do. The bridge accepts only a bounded set of
