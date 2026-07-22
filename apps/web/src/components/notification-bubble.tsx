@@ -29,6 +29,7 @@ import {
   useNotificationDelivery,
   type DeliveredNotification,
   type NotificationActionDescriptor,
+  type NotificationLevel,
 } from "../data/notification-delivery";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -36,6 +37,23 @@ import { WelcomeDialog } from "./welcome-dialog";
 
 const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
+export const geodataProgressNotificationId = "profile-activation-geodata-progress";
+
+function geodataAssetName(asset: "geo-ip" | "geo-site" | "mmdb" | "asn" | undefined) {
+  switch (asset) {
+    case "geo-site":
+      return "GeoSite";
+    case "geo-ip":
+      return "GeoIP";
+    case "mmdb":
+      return "MMDB";
+    case "asn":
+      return "ASN";
+    default:
+      return "GeoSite/GeoIP/MMDB/ASN";
+  }
+}
+
 const notificationStyles = tv({
   slots: {
     trigger: cx(
@@ -149,7 +167,7 @@ function NotificationPublicationController({
   const profiles = useOptionalProfiles();
   const { setCapture } = useCaptureCommand();
   const { LL } = useI18nContext();
-  const { dismiss, ingestExternalEvents, publish, record, retire, setSession } =
+  const { dismiss, publish, reconcileExternalNotifications, record, retire, setSession } =
     useNotificationDelivery();
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const welcomePromptStarted = useRef(false);
@@ -162,10 +180,21 @@ function NotificationPublicationController({
     profiles?.snapshot?.activation.failure === "managed-listener-conflict"
       ? profiles.snapshot.activation.failureEndpoint
       : null;
+  const activationEvidence = profiles?.snapshot?.activation.evidence;
+  const geodataAsset = geodataAssetName(activationEvidence?.asset);
+  const geodataPreparing =
+    profiles?.snapshot?.activation.phase === "pending" &&
+    activationEvidence?.kind === "geodata-preparing";
   const tun = snapshot?.runtime.tun;
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
   const tunWarning = tun?.phase === "drift" || tun?.phase === "failed";
+  const captureFailureResolved =
+    commandStates.capture.phase !== "failure" &&
+    (systemProxy?.phase === "applied" || tun?.phase === "applied") &&
+    !systemProxyDrift &&
+    !systemProxyFailed &&
+    !tunWarning;
   const captureFailureEvent =
     commandStates.capture.phase === "failure"
       ? [...(eventsContext?.events ?? [])]
@@ -257,18 +286,43 @@ function NotificationPublicationController({
   const managedListenerToastVisible = useRef(false);
   useEffect(() => setSession(sessionId), [sessionId, setSession]);
   useEffect(() => {
+    if (!geodataPreparing) {
+      retire(geodataProgressNotificationId);
+      return;
+    }
+    publish({
+      detail: LL.profiles.geodataPreparingDetail(),
+      duration: Number.POSITIVE_INFINITY,
+      id: geodataProgressNotificationId,
+      level: "info",
+      message: LL.profiles.geodataPreparing({ asset: geodataAsset }),
+    });
+  }, [LL, geodataAsset, geodataPreparing, publish, retire]);
+  useEffect(() => {
     if (!eventsContext?.snapshot) return;
     const events = eventsContext.events.filter(
       (event) => !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
     );
-    ingestExternalEvents(
-      events,
+    reconcileExternalNotifications(
       events
         .filter((event) => event.notificationKind !== null && event.notificationKind !== undefined)
         .map((event) => {
           let message = event.message;
+          let detail = event.detail ?? undefined;
+          let level: NotificationLevel = event.level;
+          let toast: "dismiss" | undefined;
           const isCurrent = latestNotificationIds.get(event.notificationKind ?? "") === event.id;
-          if (isCurrent && event.notificationKind === "capture-failure") {
+          if (event.notificationKind === "capture-failure" && captureFailureResolved) {
+            message =
+              systemProxy?.phase === "applied"
+                ? systemProxyStatusMessage(LL, systemProxy)
+                : tun
+                  ? tunStatusMessage(LL, tun)
+                  : event.message;
+            detail = undefined;
+            level = "success";
+            toast = "dismiss";
+          } else if (isCurrent && event.notificationKind === "capture-failure") {
             if (systemProxyDrift) message = systemProxyDriftMessage;
             else if (systemProxyFailed && systemProxy) {
               message = systemProxyStatusMessage(LL, systemProxy);
@@ -281,6 +335,10 @@ function NotificationPublicationController({
             managedListenerConflict
           ) {
             message = LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict });
+          } else if (event.notificationKind === "profile-activation-geodata") {
+            message = event.message.includes("timed out")
+              ? LL.profiles.geodataTimeout({ asset: geodataAsset })
+              : LL.profiles.geodataFailed({ asset: geodataAsset });
           } else if (
             isCurrent &&
             event.notificationKind === "settings-failure" &&
@@ -299,27 +357,37 @@ function NotificationPublicationController({
                     managedListenerConflict
                   ? managedListenerActions
                   : [],
-            detail: event.detail ?? undefined,
+            detail:
+              event.notificationKind === "profile-activation-geodata"
+                ? LL.profiles.geodataRetry()
+                : detail,
             duration:
               isCurrent && event.notificationKind === "capture-failure" && systemProxyDrift
                 ? Number.POSITIVE_INFINITY
                 : undefined,
             id: event.id,
-            level: event.level,
+            level,
             message,
             observedAt: event.observedAt,
+            replaces:
+              event.notificationKind === "profile-activation-geodata"
+                ? [geodataProgressNotificationId]
+                : undefined,
+            toast,
           };
         }),
     );
   }, [
     LL,
     captureFailureAlreadyExplained,
+    captureFailureResolved,
     driftActions,
     eventsContext?.events,
     eventsContext?.snapshot,
-    ingestExternalEvents,
+    geodataAsset,
     managedListenerActions,
     managedListenerConflict,
+    reconcileExternalNotifications,
     settingsFailure,
     settingsFailureMessage,
     systemProxy,

@@ -562,6 +562,7 @@ export type EventSourcePhase = z.infer<typeof EventSourcePhaseSchema>;
 export const ApplicationNotificationKindSchema = z.enum([
   "capture-failure",
   "profile-activation-failure",
+  "profile-activation-geodata",
   "settings-failure",
   "traffic-failure",
 ]);
@@ -2014,6 +2015,8 @@ export const ProfileActivationFailureSchema = z.enum([
   "unsafe-runtime",
   "staging",
   "validation",
+  "geodata-failed",
+  "geodata-timeout",
   "start",
   "early-exit",
   "managed-listener-conflict",
@@ -2027,6 +2030,14 @@ export const ProfileActivationFailureSchema = z.enum([
 ]);
 export type ProfileActivationFailure = z.infer<typeof ProfileActivationFailureSchema>;
 
+export const ProfileActivationEvidenceSchema = z
+  .object({
+    asset: z.enum(["geo-ip", "geo-site", "mmdb", "asn"]),
+    kind: z.enum(["geodata-preparing", "geodata-failed", "geodata-timeout"]),
+  })
+  .strict();
+export type ProfileActivationEvidence = z.infer<typeof ProfileActivationEvidenceSchema>;
+
 export const ProfileActivationSnapshotSchema = z
   .object({
     activeFingerprint: ProfileFingerprintSchema.nullable(),
@@ -2034,6 +2045,7 @@ export const ProfileActivationSnapshotSchema = z
     attemptedAt: NonNegativeIntegerSchema.nullable(),
     availability: ProfileActivationAvailabilitySchema,
     commandId: IdentifierSchema.nullable(),
+    evidence: ProfileActivationEvidenceSchema.nullable().optional(),
     failure: ProfileActivationFailureSchema.nullable(),
     failureEndpoint: z.string().max(64).nullable().optional(),
     operation: ProfileActivationOperationSchema.nullable(),

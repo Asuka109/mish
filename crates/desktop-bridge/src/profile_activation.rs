@@ -20,7 +20,7 @@ use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::{
-    sync::{Mutex, broadcast},
+    sync::{Mutex, broadcast, mpsc},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -63,6 +63,8 @@ pub enum ProfileActivationFailure {
     UnsafeRuntime,
     Staging,
     Validation,
+    GeodataFailed,
+    GeodataTimeout,
     Start,
     EarlyExit,
     ManagedListenerConflict,
@@ -73,6 +75,21 @@ pub enum ProfileActivationFailure {
     Capture,
     PriorStop,
     StateCommit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProfileActivationEvidenceKind {
+    GeodataPreparing,
+    GeodataFailed,
+    GeodataTimeout,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileActivationEvidence {
+    pub asset: crate::GeodataAsset,
+    pub kind: ProfileActivationEvidenceKind,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -89,6 +106,7 @@ pub struct ProfileActivationSnapshot {
     pub attempted_at: Option<u64>,
     pub availability: ProfileActivationAvailability,
     pub command_id: Option<String>,
+    pub evidence: Option<ProfileActivationEvidence>,
     pub failure: Option<ProfileActivationFailure>,
     pub failure_endpoint: Option<String>,
     pub operation: Option<ProfileActivationOperation>,
@@ -129,6 +147,7 @@ impl ProfileActivationSnapshot {
             attempted_at: None,
             availability: ProfileActivationAvailability::Unavailable,
             command_id: None,
+            evidence: None,
             failure: None,
             failure_endpoint: None,
             operation: None,
@@ -229,6 +248,7 @@ impl ProfileActivationCoordinator {
                     attempted_at: None,
                     availability,
                     command_id: None,
+                    evidence: None,
                     failure: None,
                     failure_endpoint: None,
                     operation: None,
@@ -284,6 +304,7 @@ impl ProfileActivationCoordinator {
             state.snapshot.command_id = Some(command_id.to_owned());
             state.snapshot.attempted_at = Some(now_unix_milliseconds());
             state.snapshot.failure = None;
+            state.snapshot.evidence = None;
             state.snapshot.failure_endpoint = None;
             state.snapshot.operation = Some(ProfileActivationOperation::Activate);
             state.snapshot.phase = ProfileActivationPhase::Pending;
@@ -315,10 +336,24 @@ impl ProfileActivationCoordinator {
         let coordinator = self.clone();
         let command_id = command_id.to_owned();
         tokio::spawn(async move {
+            let (geodata_tx, mut geodata_rx) = mpsc::channel(8);
+            let observer: crate::GeodataValidationObserver = Arc::new(move |event| {
+                let _ = geodata_tx.try_send(event);
+            });
+            let evidence_coordinator = coordinator.clone();
+            let evidence_command_id = command_id.clone();
+            let evidence_task = tokio::spawn(async move {
+                while let Some(event) = geodata_rx.recv().await {
+                    evidence_coordinator
+                        .record_geodata_evidence(&evidence_command_id, event)
+                        .await;
+                }
+            });
             let result = coordinator
                 .manager
-                .activate_cancellable(&record, &policy, cancellation)
+                .activate_cancellable_observed(&record, &policy, cancellation, Some(observer))
                 .await;
+            let _ = evidence_task.await;
             coordinator.finish_activation(&command_id, result).await;
             drop(permit);
         });
@@ -634,6 +669,7 @@ impl ProfileActivationCoordinator {
             state.snapshot.command_id = Some(command_id.to_owned());
             state.snapshot.attempted_at = Some(now_unix_milliseconds());
             state.snapshot.failure = None;
+            state.snapshot.evidence = None;
             state.snapshot.operation = Some(ProfileActivationOperation::Stop);
             state.snapshot.phase = ProfileActivationPhase::Pending;
             state.snapshot.target_profile_id = state.snapshot.active_profile_id.clone();
@@ -947,6 +983,7 @@ impl ProfileActivationCoordinator {
         self.host.replace(self.safe_runtime.clone());
         let mut state = self.state.lock().await;
         state.cancellation = None;
+        state.snapshot.evidence = None;
         state.snapshot.active_profile_id = None;
         state.snapshot.active_fingerprint = None;
         state.snapshot.safe_stopped = true;
@@ -962,6 +999,31 @@ impl ProfileActivationCoordinator {
 
     async fn release_profile(&self, profile_id: &str) {
         self.state.lock().await.busy_profiles.remove(profile_id);
+    }
+
+    async fn record_geodata_evidence(
+        &self,
+        command_id: &str,
+        event: crate::GeodataValidationEvent,
+    ) {
+        let (kind, asset) = match event {
+            crate::GeodataValidationEvent::Preparing(asset) => {
+                (ProfileActivationEvidenceKind::GeodataPreparing, asset)
+            }
+            crate::GeodataValidationEvent::Failed(asset) => {
+                (ProfileActivationEvidenceKind::GeodataFailed, asset)
+            }
+        };
+        let evidence = ProfileActivationEvidence { asset, kind };
+        let mut state = self.state.lock().await;
+        if state.snapshot.command_id.as_deref() != Some(command_id)
+            || state.snapshot.phase != ProfileActivationPhase::Pending
+            || state.snapshot.evidence == Some(evidence)
+        {
+            return;
+        }
+        state.snapshot.evidence = Some(evidence);
+        let _ = self.updates.send(state.snapshot.clone());
     }
 
     async fn finish_preflight_activation(
@@ -1022,6 +1084,7 @@ impl ProfileActivationCoordinator {
                 state.snapshot.active_fingerprint = Some(commit.fingerprint().to_owned());
                 state.snapshot.active_profile_id = Some(commit.profile_id().to_owned());
                 state.snapshot.failure = None;
+                state.snapshot.evidence = None;
                 state.snapshot.failure_endpoint = None;
                 state.snapshot.phase = ProfileActivationPhase::Success;
                 state.snapshot.safe_stopped = false;
@@ -1036,6 +1099,7 @@ impl ProfileActivationCoordinator {
                 state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
                 state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
                 state.snapshot.failure = Some(map_failure(error));
+                state.snapshot.evidence = terminal_geodata_evidence(error);
                 state.snapshot.failure_endpoint = managed_listener_endpoint(error);
                 state.snapshot.phase = ProfileActivationPhase::Failure;
                 state.snapshot.safe_stopped = managed.is_safe_stopped();
@@ -1066,6 +1130,7 @@ impl ProfileActivationCoordinator {
                 state.snapshot.active_fingerprint = None;
                 state.snapshot.active_profile_id = None;
                 state.snapshot.failure = None;
+                state.snapshot.evidence = None;
                 state.snapshot.phase = ProfileActivationPhase::Success;
                 state.snapshot.safe_stopped = true;
             }
@@ -1078,6 +1143,7 @@ impl ProfileActivationCoordinator {
                 state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
                 state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
                 state.snapshot.failure = Some(map_failure(error));
+                state.snapshot.evidence = terminal_geodata_evidence(error);
                 state.snapshot.phase = ProfileActivationPhase::Failure;
                 state.snapshot.safe_stopped = managed.is_safe_stopped();
             }
@@ -1250,6 +1316,8 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::Resolve(_) => ProfileActivationFailure::UnsafeRuntime,
         MihomoActivationError::StagingFailed => ProfileActivationFailure::Staging,
         MihomoActivationError::ValidationFailed => ProfileActivationFailure::Validation,
+        MihomoActivationError::GeodataFailed(_) => ProfileActivationFailure::GeodataFailed,
+        MihomoActivationError::GeodataTimeout(_) => ProfileActivationFailure::GeodataTimeout,
         MihomoActivationError::StartFailed => ProfileActivationFailure::Start,
         MihomoActivationError::EarlyExit => ProfileActivationFailure::EarlyExit,
         MihomoActivationError::ManagedListenerConflict(_) => {
@@ -1275,7 +1343,35 @@ fn managed_listener_endpoint(error: MihomoActivationError) -> Option<String> {
     }
 }
 
+fn terminal_geodata_evidence(error: MihomoActivationError) -> Option<ProfileActivationEvidence> {
+    match error {
+        MihomoActivationError::GeodataFailed(asset) => Some(ProfileActivationEvidence {
+            asset,
+            kind: ProfileActivationEvidenceKind::GeodataFailed,
+        }),
+        MihomoActivationError::GeodataTimeout(asset) => Some(ProfileActivationEvidence {
+            asset,
+            kind: ProfileActivationEvidenceKind::GeodataTimeout,
+        }),
+        _ => None,
+    }
+}
+
 fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnosticEvent {
+    let (message, notification_kind) = match error {
+        MihomoActivationError::GeodataFailed(_) => (
+            "Profile geodata preparation failed",
+            ApplicationNotificationKind::ProfileActivationGeodata,
+        ),
+        MihomoActivationError::GeodataTimeout(_) => (
+            "Profile geodata preparation timed out",
+            ApplicationNotificationKind::ProfileActivationGeodata,
+        ),
+        _ => (
+            "Profile activation failed",
+            ApplicationNotificationKind::ProfileActivationFailure,
+        ),
+    };
     let detail = match error {
         MihomoActivationError::CaptureFailed => {
             "Resolve System Proxy recovery on Status, then retry profile activation"
@@ -1294,6 +1390,9 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
         MihomoActivationError::ValidationFailed | MihomoActivationError::InvalidArtifact => {
             "Refresh or reimport the profile after correcting its validated runtime configuration"
         }
+        MihomoActivationError::GeodataFailed(_) | MihomoActivationError::GeodataTimeout(_) => {
+            "Check network access to Mihomo geodata sources, then retry profile activation"
+        }
         MihomoActivationError::Cancelled => "Retry activation when no lifecycle command is pending",
         MihomoActivationError::PriorStopFailed
         | MihomoActivationError::StateCommitFailed
@@ -1310,8 +1409,8 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
     };
     ApplicationDiagnosticEvent::notification(
         EventLevel::Error,
-        "Profile activation failed",
+        message,
         Some(detail),
-        ApplicationNotificationKind::ProfileActivationFailure,
+        notification_kind,
     )
 }

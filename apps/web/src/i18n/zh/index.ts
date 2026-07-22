@@ -611,6 +611,11 @@ const zh = {
     activationCaptureFailed: "系统代理还没有恢复完成。请先到“状态”页处理，再切换配置。",
     activationControllerFailed: "代理启动后没有正常响应。请到“事件”页查看原因，然后重试。",
     activationFailed: "无法使用此配置，已恢复之前的配置或保持代理关闭。",
+    geodataPreparing: "正在准备启用配置所需的 {asset}…",
+    geodataPreparingDetail: "首次下载可能需要几分钟。",
+    geodataFailed: "Mihomo 无法准备此配置所需的 {asset}。",
+    geodataTimeout: "{asset} 未能在启用配置的截止时间前准备完成。",
+    geodataRetry: "请检查网络连接，然后重新启用配置。",
     activationListenerConflict:
       "Mish 无法使用 {endpoint}，因为其他应用正在占用它。请停止或重新配置该应用，然后重试。",
     activationLifecycleFailed:
