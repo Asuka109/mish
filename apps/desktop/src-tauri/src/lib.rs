@@ -26,7 +26,7 @@ use mish_platform_macos::{
     DEV_TUN_SERVICE_CORE_PATH, DevelopmentTunStartup, FileCaptureJournalStore,
     MacOsLifecycleEventSource, MacOsNetworkDnsPlatform, MacOsProductionTunHelperPlatform,
     MacOsSystemProxyPlatform, MacOsTunHelperBoundary, MacOsTunHelperPlatform,
-    MacOsTunServiceClient, show_browser_pairing_pin,
+    MacOsTunServiceClient, dismiss_browser_pairing_pin, show_browser_pairing_pin,
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
@@ -602,6 +602,7 @@ pub fn run() -> Result<i32, String> {
             _ => {}
         }
     });
+    dismiss_browser_pairing_pin();
     let bridge = bridge_state
         .0
         .lock()
@@ -657,6 +658,7 @@ fn run_demo(context: tauri::Context<tauri::Wry>) -> Result<i32, String> {
             _ => {}
         }
     });
+    dismiss_browser_pairing_pin();
     Ok(exit_code)
 }
 
