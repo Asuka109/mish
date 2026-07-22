@@ -194,7 +194,6 @@ if (relativeLuminance(darkInteractive) <= relativeLuminance(darkCanvas)) {
 
 const consumers = [
   ["apps/web/src/styles.css", '@import "@mish/design-tokens/tokens.css";'],
-  ["sketch/src/styles.css", '@import "../../packages/design-tokens/src/tokens.css";'],
 ] as const;
 for (const [path, expectedImport] of consumers) {
   const source = readFileSync(`${root}/${path}`, "utf8");

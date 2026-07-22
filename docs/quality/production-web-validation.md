@@ -4,8 +4,8 @@
 
 `apps/web/` is the production React entry for an ordinary browser and the future
 desktop WebView. It consumes shared components from `packages/ui/` and CSS
-tokens from `packages/design-tokens/`. It does not import source, fixtures, or
-runtime assets from `sketch/`.
+tokens from `packages/design-tokens/`. Production startup cannot select the demo
+fixture adapters or import demo-only runtime assets.
 
 Browser startup always attempts the same-origin desktop bootstrap. A valid
 HttpOnly session and origin-scoped proof compose the RPC adapters immediately;

@@ -26,8 +26,8 @@ and 18 px / 36 px (`@2x`) PNG output for previewing or non-template consumers.
 Android launcher files under `apps/mobile/src-tauri/gen/android/` are the only
 production image copies outside this package. Gradle requires those paths, so
 the generation script overwrites them from `generated/tauri/`; they must not be
-edited directly. Images in `sketch/` and `.agents/skills/` are design references
-or agent documentation rather than application resources.
+edited directly. Images in `.agents/skills/` are design references or agent
+documentation rather than application resources.
 
 The onboarding cover uses [“Retro beige computer model centered on a minimalist
 background”](https://unsplash.com/photos/SgeRfp8xdfo) by

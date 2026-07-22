@@ -2,7 +2,7 @@
 
 This document records the automated evidence and the final hands-on walkthrough
 for the Issue #138 production styling migration. It does not apply to the
-retained `sketch/` application or the unmounted `DestinationPage` reference.
+fixture-backed demo composition or the unmounted `DestinationPage` reference.
 
 ## Bundle comparison
 

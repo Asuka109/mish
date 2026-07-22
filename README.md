@@ -66,7 +66,6 @@ for the complete command registry.
 | [`crates/profile`](crates/profile)                     | Profile validation, persistence, patches, and activation inputs |
 | [`mobile-core`](mobile-core)                           | Pinned native Core ABI, build, and evidence                     |
 | [`packages`](packages)                                 | Contracts, RPC client, fixtures, UI, tokens, and brand assets   |
-| [`sketch`](sketch)                                     | Retained interaction reference; never runtime evidence          |
 
 ## Non-negotiable boundaries
 

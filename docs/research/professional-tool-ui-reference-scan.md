@@ -4,7 +4,7 @@ Date: 2026-07-15
 
 ## Scope
 
-This scan supports the macOS-first Mish client sketch. It studies restrained
+This scan supports the macOS-first Mish client design. It studies restrained
 professional tools rather than consumer dashboards, with particular attention
 to window structure, hierarchy, borders, shadows, density, navigation, and
 progressive disclosure.

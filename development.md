@@ -111,10 +111,9 @@ pushes publish 14-day macOS and Android test artifacts.
 `node_modules`, `target`, `.scratch`, Gradle outputs, browser attachments, and
 native binaries are disposable. Use `trash`, not permanent recursive deletion.
 Some files under Android `gen/` are tracked source inputs; check `git status` and
-`git ls-files` before cleanup or regeneration.
-
-The [`sketch`](sketch) workspace is a design reference. Its fixtures, behavior,
-and build results are not production evidence.
+`git ls-files` before cleanup or regeneration. The fixture-backed `pnpm demo`
+entry is the model and visual-validation surface; its behavior is not production
+runtime evidence.
 
 ## Handoff
 
