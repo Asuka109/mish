@@ -27,6 +27,7 @@ import {
   ToggleGroupItem,
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { tv } from "tailwind-variants";
 import { useOptionalProfiles } from "../data/profile-provider";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
@@ -44,6 +45,55 @@ import {
 } from "./routes-model";
 
 const routeSorts: RouteSort[] = ["configuration", "latency", "label"];
+
+const routeStyles = tv({
+  slots: {
+    delayResult: "route-delay-result grid min-w-[74px] text-right text-(--text-metadata)",
+    delayTime: "text-[10px] text-(--color-text-subtle)",
+    childRow:
+      "route-child-row grid min-h-[52px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-none border-0 bg-(--color-canvas) py-[7px] pr-[14px] pl-11 text-left text-(--color-body)",
+    childSelectable:
+      "route-child-select hover:bg-(--color-accent) hover:text-(--color-ink) aria-pressed:bg-(--color-accent) aria-pressed:text-(--color-ink)",
+    childCopy:
+      "route-child-copy grid min-w-0 gap-0.5 [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap [&_strong]:font-(--font-weight-control) [&_span]:text-(--text-metadata) [&_span]:text-(--color-text-muted)",
+    childStatus: "route-child-status inline-flex items-center justify-end gap-[14px]",
+    latency: "route-latency text-(--text-metadata) text-(--color-text-muted)",
+    selectedStatus:
+      "route-selected-status inline-flex items-center gap-[5px] text-[12px] text-(--color-success-text) [&_svg]:size-[13px]",
+    group:
+      "route-group min-w-0 overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) data-[disabled=true]:opacity-[0.55]",
+    groupHeader: "route-group-header flex min-h-[58px] min-w-0 items-stretch",
+    groupToggle:
+      "route-group-toggle grid min-h-[58px] min-w-0 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center justify-stretch gap-2.5 rounded-none border-0 bg-transparent px-3 py-2 text-left text-(--color-body) hover:bg-(--color-accent) hover:text-(--color-ink)",
+    chevron:
+      "route-group-chevron grid place-items-center text-(--color-text-muted) [&_svg]:size-[14px]",
+    groupCopy: "route-group-copy grid min-w-0 gap-[3px]",
+    groupTitle:
+      "route-group-title-line flex min-w-0 items-center gap-2 [&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_strong]:font-(--font-weight-control) [&_.ui-badge]:h-5 [&_.ui-badge]:shrink-0 [&_.ui-badge]:rounded-(--radius-sm) [&_.ui-badge]:bg-transparent [&_.ui-badge]:font-normal",
+    groupCurrent:
+      "route-group-current overflow-hidden text-(--text-metadata) text-(--color-text-muted) text-ellipsis whitespace-nowrap",
+    groupBody: "route-group-body border-t border-(--color-hairline) bg-(--color-surface-soft)",
+    groupTools:
+      "route-group-tools grid min-h-[78px] gap-px px-[10px] py-[7px] pl-[14px] text-[12px] text-(--color-text-muted)",
+    toolsRow: "flex min-w-0 items-center justify-between gap-4",
+    delayTools: "border-t border-(--color-hairline-soft) pt-[5px]",
+    delayCopy:
+      "route-delay-copy grid min-w-0 gap-px overflow-hidden text-ellipsis whitespace-nowrap [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-ink) [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:text-(--color-text-muted)",
+    rootList: "route-root-list m-0 flex list-none flex-col gap-3 p-0",
+    childrenList:
+      "route-children-list m-0 flex list-none flex-col gap-px bg-(--color-hairline-soft) p-0 [&>li]:min-w-0 [&>li]:bg-(--color-canvas)",
+    empty:
+      "route-group-empty border-t border-(--color-hairline-soft) bg-(--color-canvas) px-[14px] py-[18px] text-center text-(--text-metadata) text-(--color-text-muted)",
+  },
+  variants: {
+    delayPhase: {
+      pending: "text-(--color-text-muted)",
+      success: "text-(--color-success-text)",
+      failed: "text-(--color-error)",
+      cancelled: "text-(--color-error)",
+    },
+  },
+});
 
 function getGroupTypeLabel(LL: TranslationFunctions, group: PolicyGroupDto) {
   if (group.type === "unsupported") {
@@ -148,10 +198,13 @@ function DelayResult({ result }: { result?: GroupDelayChildResultDto }) {
         ? LL.routes.delayPending()
         : getDelayFailureLabel(LL, result.failure);
   return (
-    <span className={`route-delay-result route-delay-${result.phase}`}>
+    <span className={routeStyles({ delayPhase: result.phase }).delayResult()}>
       <span>{outcome}</span>
       {result.observedAt === null ? null : (
-        <time dateTime={new Date(result.observedAt).toISOString()}>
+        <time
+          className={routeStyles().delayTime()}
+          dateTime={new Date(result.observedAt).toISOString()}
+        >
           {new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en", {
             hour: "2-digit",
             minute: "2-digit",
@@ -188,24 +241,24 @@ function RouteNodeRow({
   const selected = group.selectedChildId === node.id;
   const content = (
     <>
-      <span className="route-child-copy">
+      <span className={routeStyles().childCopy()}>
         <strong className="user-authored-label" title={node.label}>
           {node.label}
         </strong>
         <span>{node.protocol}</span>
       </span>
-      <span className="route-child-status">
+      <span className={routeStyles().childStatus()}>
         {delayResult ? (
           <DelayResult result={delayResult} />
         ) : (
-          <span className="route-latency tabular">
+          <span className={`${routeStyles().latency()} tabular`}>
             {node.latencyMilliseconds === null
               ? LL.routes.latencyUnavailable()
               : LL.routes.latencyMilliseconds({ latency: node.latencyMilliseconds })}
           </span>
         )}
         {selected ? (
-          <span className="route-selected-status">
+          <span className={routeStyles().selectedStatus()}>
             <Check aria-hidden="true" />
             {LL.routes.selected()}
           </span>
@@ -215,7 +268,7 @@ function RouteNodeRow({
   );
 
   if (group.type !== "selector") {
-    return <div className="route-child-row">{content}</div>;
+    return <div className={routeStyles().childRow()}>{content}</div>;
   }
 
   return (
@@ -223,7 +276,7 @@ function RouteNodeRow({
       aria-describedby={commandDescriptionId}
       aria-label={LL.routes.selectChild({ child: node.label, group: group.label })}
       aria-pressed={selected}
-      className="route-child-row route-child-select"
+      className={`${routeStyles().childRow()} ${routeStyles().childSelectable()}`}
       disabled={commandPending || !commandSupported}
       loading={selectionPending}
       loadingText={LL.common.pending()}
@@ -260,16 +313,16 @@ function RouteGroupReferenceRow({
   const selected = parentGroup.selectedChildId === group.id;
   const content = (
     <>
-      <span className="route-child-copy">
+      <span className={routeStyles().childCopy()}>
         <strong className="user-authored-label" title={group.label}>
           {group.label}
         </strong>
         <span>{LL.routes.groupReferenceType({ type: getGroupTypeLabel(LL, group) })}</span>
       </span>
-      <span className="route-child-status">
+      <span className={routeStyles().childStatus()}>
         <DelayResult result={delayResult} />
         {selected ? (
-          <span className="route-selected-status">
+          <span className={routeStyles().selectedStatus()}>
             <Check aria-hidden="true" />
             {LL.routes.selected()}
           </span>
@@ -279,7 +332,7 @@ function RouteGroupReferenceRow({
   );
 
   if (parentGroup.type !== "selector") {
-    return <div className="route-child-row route-group-reference">{content}</div>;
+    return <div className={`${routeStyles().childRow()} route-group-reference`}>{content}</div>;
   }
 
   return (
@@ -287,7 +340,7 @@ function RouteGroupReferenceRow({
       aria-describedby={commandDescriptionId}
       aria-label={LL.routes.selectChild({ child: group.label, group: parentGroup.label })}
       aria-pressed={selected}
-      className="route-child-row route-child-select route-group-reference"
+      className={`${routeStyles().childRow()} ${routeStyles().childSelectable()} route-group-reference`}
       disabled={commandPending || !commandSupported}
       loading={selectionPending}
       loadingText={LL.common.pending()}
@@ -375,17 +428,17 @@ function RouteGroup({
     : sortedChildIds;
   const headerContent = (
     <>
-      <span className="route-group-chevron">
+      <span className={routeStyles().chevron()}>
         {expanded ? <CaretDown aria-hidden="true" /> : <CaretRight aria-hidden="true" />}
       </span>
-      <span className="route-group-copy">
-        <span className="route-group-title-line">
+      <span className={routeStyles().groupCopy()}>
+        <span className={routeStyles().groupTitle()}>
           <strong className="user-authored-label" title={group.label}>
             {group.label}
           </strong>
           <Badge variant="outline">{getGroupTypeLabel(LL, group)}</Badge>
         </span>
-        <span className="route-group-current user-authored-label">
+        <span className={`${routeStyles().groupCurrent()} user-authored-label`}>
           {currentChild
             ? LL.routes.currentChild({ child: currentChild })
             : LL.routes.noCurrentChild()}
@@ -399,8 +452,8 @@ function RouteGroup({
 
   return (
     <li className="route-group-item">
-      <article className="route-group" data-disabled={disabled ? "true" : undefined}>
-        <div className="route-group-header">
+      <article className={routeStyles().group()} data-disabled={disabled ? "true" : undefined}>
+        <div className={routeStyles().groupHeader()}>
           {hasChildren ? (
             <Button
               aria-controls={childrenId}
@@ -410,7 +463,7 @@ function RouteGroup({
                   ? LL.routes.collapseGroup({ group: group.label })
                   : LL.routes.expandGroup({ group: group.label })
               }
-              className="route-group-toggle"
+              className={routeStyles().groupToggle()}
               disabled={disabled}
               onClick={() => onToggle(group.id)}
               variant="ghost"
@@ -418,14 +471,16 @@ function RouteGroup({
               {headerContent}
             </Button>
           ) : (
-            <div className="route-group-toggle route-group-static">{headerContent}</div>
+            <div className={`${routeStyles().groupToggle()} route-group-static`}>
+              {headerContent}
+            </div>
           )}
         </div>
 
         {expanded ? (
-          <div className="route-group-body" id={childrenId}>
-            <div className="route-group-tools">
-              <div className="route-sort-tools">
+          <div className={routeStyles().groupBody()} id={childrenId}>
+            <div className={routeStyles().groupTools()}>
+              <div className={routeStyles().toolsRow()}>
                 <span>{LL.routes.sortChildren({ group: group.label })}</span>
                 <ToggleGroup
                   aria-label={LL.routes.sortChildren({ group: group.label })}
@@ -445,8 +500,8 @@ function RouteGroup({
                   ))}
                 </ToggleGroup>
               </div>
-              <div className="route-delay-tools">
-                <span className="route-delay-copy">
+              <div className={`${routeStyles().toolsRow()} ${routeStyles().delayTools()}`}>
+                <span className={routeStyles().delayCopy()}>
                   <strong className="user-authored-label">
                     {delayMatchesGroup && delayIsActive
                       ? LL.routes.delayTestingGroup({ group: group.label })
@@ -511,7 +566,7 @@ function RouteGroup({
             </div>
 
             {visibleChildIds.length > 0 ? (
-              <ul className="route-children-list">
+              <ul className={routeStyles().childrenList()}>
                 {visibleChildIds.map((childId) => {
                   const childGroup = graph.groupById.get(childId);
                   if (childGroup) {
@@ -549,7 +604,7 @@ function RouteGroup({
                 })}
               </ul>
             ) : (
-              <p className="route-group-empty">{LL.routes.noChildren()}</p>
+              <p className={routeStyles().empty()}>{LL.routes.noChildren()}</p>
             )}
           </div>
         ) : null}
@@ -745,7 +800,7 @@ export function RoutesPage() {
           </Empty>
         ) : (
           <section aria-label={LL.routes.title()} className="routes-graph">
-            <ul className="route-root-list">
+            <ul className={routeStyles().rootList()}>
               {visibleGroupIds.map((groupId) => {
                 const group = graph.groupById.get(groupId);
                 if (!group) return null;
