@@ -172,7 +172,8 @@ for (const [path, expectedImport] of consumers) {
 }
 
 const webStyles = readFileSync(`${root}/apps/web/src/styles.css`, "utf8");
-if (!webStyles.match(/\.sidebar\s*\{[\s\S]*?background:\s*var\(--mish-sidebar-background\);/)) {
+const appShellSource = readFileSync(`${root}/apps/web/src/components/app-shell.tsx`, "utf8");
+if (!appShellSource.includes("bg-(--mish-sidebar-background)")) {
   throw new Error("The sidebar must resolve its background through --mish-sidebar-background.");
 }
 if (
@@ -182,11 +183,7 @@ if (
 ) {
   throw new Error("The material surface scope must make --mish-sidebar-background transparent.");
 }
-if (
-  !webStyles.match(
-    /\.nav-item:hover\s*\{[\s\S]*?background:\s*var\(--mish-sidebar-item-hover-background\);/,
-  )
-) {
+if (!appShellSource.includes("hover:bg-(--mish-sidebar-item-hover-background)")) {
   throw new Error("Sidebar hover must resolve through --mish-sidebar-item-hover-background.");
 }
 
