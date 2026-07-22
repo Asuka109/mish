@@ -41,7 +41,7 @@ import {
   Spinner,
 } from "@mish/ui";
 import { useState } from "react";
-import { toast } from "sonner";
+import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import {
@@ -199,6 +199,7 @@ function ServiceManagerDialog({
 function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEditorDialogProps) {
   const { isCommandPending, removeServiceMonitor, upsertServiceMonitor } = useProduct();
   const { LL } = useI18nContext();
+  const { publish } = useNotificationDelivery();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editedFields, setEditedFields] = useState({ icon: false, label: false, url: false });
   const [pendingAction, setPendingAction] = useState<{
@@ -221,7 +222,11 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
     if (!draft || !canSave) return;
     const promise = upsertServiceMonitor(draft).then((result) => {
       if (!result.ok) return;
-      toast.success(existingService ? LL.services.updatedToast() : LL.services.addedToast());
+      publish({
+        id: "services-saved",
+        level: "success",
+        message: existingService ? LL.services.updatedToast() : LL.services.addedToast(),
+      });
       onClose();
     });
     setPendingAction({ kind: "save", promise });
@@ -231,7 +236,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
     if (!draft?.id) return;
     const promise = removeServiceMonitor(draft.id).then((result) => {
       if (!result.ok) return;
-      toast.success(LL.services.removedToast());
+      publish({ id: "services-removed", level: "success", message: LL.services.removedToast() });
       setDeleteConfirmOpen(false);
       onClose();
     });
@@ -384,6 +389,7 @@ export function ServiceMonitorSection() {
     testServiceMonitor,
   } = useProduct();
   const { LL } = useI18nContext();
+  const { publish } = useNotificationDelivery();
   const [draft, setDraft] = useState<ServiceMonitorDraft | null>(null);
   const [managerOpen, setManagerOpen] = useState(false);
   const [restorePending, setRestorePending] = useState(false);
@@ -411,7 +417,12 @@ export function ServiceMonitorSection() {
     setRestorePending(true);
     try {
       const result = await restoreDefaultServices();
-      if (result.ok) toast.success(LL.services.defaultRestoredToast());
+      if (result.ok)
+        publish({
+          id: "services-defaults-restored",
+          level: "success",
+          message: LL.services.defaultRestoredToast(),
+        });
     } finally {
       setRestorePending(false);
     }

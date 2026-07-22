@@ -31,10 +31,10 @@ import {
 } from "@mish/ui";
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
-import { toast } from "sonner";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useCurrentProfileCommand } from "../data/current-profile-command";
+import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { useOptionalProfiles } from "../data/profile-provider";
 import { useOptionalSettings } from "../data/settings-provider";
@@ -327,6 +327,7 @@ function ProfileMenu() {
   const profiles = useOptionalProfiles();
   const { pending: currentProfilePending, selectCurrentProfile } = useCurrentProfileCommand();
   const { LL } = useI18nContext();
+  const { publish } = useNotificationDelivery();
   if (!snapshot) {
     return (
       <span className="toolbar-loading">
@@ -367,7 +368,13 @@ function ProfileMenu() {
   async function selectProfile(profileId: string) {
     if (useSavedProfiles) {
       const result = await selectCurrentProfile(profileId);
-      if (!result.ok) toast.error(LL.profiles.switchFailed());
+      if (!result.ok) {
+        publish({
+          id: "profiles-switch-failed",
+          level: "error",
+          message: LL.profiles.switchFailed(),
+        });
+      }
     } else if (fixtureSelectionSupported) {
       await setActiveProfile(profileId);
     }

@@ -11,6 +11,7 @@ import {
   createFixtureSettingsSnapshot,
 } from "../data/fixture-settings-client";
 import { ProductProvider } from "../data/product-provider";
+import { NotificationDeliveryProvider } from "../data/notification-delivery";
 import { SettingsProvider } from "../data/settings-provider";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -82,9 +83,11 @@ beforeAll(async () => {
           <MemoryRouter initialEntries={["/status"]}>
             <ProductProvider>
               <EventsProvider client={eventsClient}>
-                <TooltipProvider>
-                  <NotificationBubble />
-                </TooltipProvider>
+                <NotificationDeliveryProvider>
+                  <TooltipProvider>
+                    <NotificationBubble />
+                  </TooltipProvider>
+                </NotificationDeliveryProvider>
               </EventsProvider>
             </ProductProvider>
           </MemoryRouter>

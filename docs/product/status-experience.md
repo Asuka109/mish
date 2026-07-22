@@ -80,9 +80,14 @@ The DOM element owns the fallback blue surface and text contrast.
   in transient notifications and the notification center without shifting the
   routing controls. System Proxy drift offers both repair and keep-current when
   the runtime advertises those actions.
-- The notification center merges runtime feedback and event records strictly by
-  observation time, newest first. Severity and available actions never influence
-  ordering. Opening the center marks the notifications currently shown as read
+- Every application notification is published exactly once through the shared
+  notification-delivery envelope. That one publication records the retained
+  item and projects the identical title, message, detail, and actions to the
+  toast. A specific capture/runtime failure suppresses any generic command
+  failure for the same attempt. Backend Events are center-only external history:
+  they never create a toast and are not deduplicated against application
+  notifications. The center orders both sources strictly by observation time;
+  severity and available actions never influence ordering. Opening the center marks the notifications currently shown as read
   without removing them. Messages wrap naturally and remain selectable, source
   labels are omitted, and each item has an accessible remove control revealed by
   hover or keyboard focus. Item removal affects only the current UI session.
