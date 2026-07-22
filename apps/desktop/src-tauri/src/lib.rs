@@ -51,6 +51,7 @@ use uuid::Uuid;
 
 mod graceful_exit;
 mod native_menu;
+mod route_activity_summary;
 mod status_bar;
 
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
