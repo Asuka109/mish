@@ -3499,6 +3499,10 @@ h2 {
   height: 15px;
 }
 
+.events-toolbar-button-label {
+  display: none;
+}
+
 .events-local-note,
 .events-paused-note {
   margin-top: 8px;
@@ -5219,6 +5223,15 @@ h2 {
 }
 
 @media (max-width: 900px) {
+  .events-toolbar-button.ui-button--icon-sm {
+    width: auto;
+    padding: 0 13px;
+  }
+
+  .events-toolbar-button-label {
+    display: inline;
+  }
+
   .status-page,
   .destination-page,
   .settings-page,
