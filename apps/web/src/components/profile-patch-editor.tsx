@@ -49,8 +49,8 @@ import type {
   StructuredRuleDto,
 } from "@mish/contracts";
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import { tv } from "tailwind-variants";
+import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
@@ -119,6 +119,7 @@ export function ProfilePatchEditor({
   profile,
 }: ProfilePatchEditorProps) {
   const { LL } = useI18nContext();
+  const { publish } = useNotificationDelivery();
   const profiles = useProfiles();
   const { isPending, loadPatches, replacePatches } = profiles;
   const [editor, setEditor] = useState<ProfilePatchEditorDto | null>(null);
@@ -146,7 +147,11 @@ export function ProfilePatchEditor({
       if (cancelled) return;
       setLoading(false);
       if (!result.ok) {
-        toast.error(LL.profiles.patchLoadFailed());
+        publish({
+          id: "profiles-patch-load-failed",
+          level: "error",
+          message: LL.profiles.patchLoadFailed(),
+        });
         return;
       }
       const patches = result.editor.patches.map(({ enabled, id, operation }) => ({
@@ -192,7 +197,11 @@ export function ProfilePatchEditor({
     if (!editor || !canSave) return;
     const result = await replacePatches(editor.authority, draft);
     if (!result.ok) {
-      toast.error(LL.profiles.patchSaveFailed());
+      publish({
+        id: "profiles-patch-save-failed",
+        level: "error",
+        message: LL.profiles.patchSaveFailed(),
+      });
       return;
     }
     const patches = result.editor.patches.map(({ enabled, id, operation }) => ({
@@ -203,7 +212,7 @@ export function ProfilePatchEditor({
     setEditor(result.editor);
     setDraft(patches);
     setBaseline(JSON.stringify(patches));
-    toast.success(LL.profiles.patchSaved());
+    publish({ id: "profiles-patch-saved", level: "success", message: LL.profiles.patchSaved() });
   }
 
   function openNewPatch() {

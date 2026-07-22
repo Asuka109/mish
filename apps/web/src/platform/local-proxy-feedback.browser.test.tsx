@@ -13,6 +13,7 @@ import {
 } from "../data/fixture-settings-client";
 import { FixtureStatusClient } from "../data/fixture-status-client";
 import { ProductProvider } from "../data/product-provider";
+import { NotificationDeliveryProvider } from "../data/notification-delivery";
 import { SettingsProvider } from "../data/settings-provider";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -121,11 +122,13 @@ beforeAll(async () => {
         <TypesafeI18n locale="zh">
           <MemoryRouter initialEntries={["/settings"]}>
             <ProductProvider client={client}>
-              <TooltipProvider>
-                <NotificationBubble />
-                <SettingsPage />
-                <Toaster position="bottom-right" theme="light" />
-              </TooltipProvider>
+              <NotificationDeliveryProvider>
+                <TooltipProvider>
+                  <NotificationBubble />
+                  <SettingsPage />
+                  <Toaster position="bottom-right" theme="light" />
+                </TooltipProvider>
+              </NotificationDeliveryProvider>
             </ProductProvider>
           </MemoryRouter>
         </TypesafeI18n>

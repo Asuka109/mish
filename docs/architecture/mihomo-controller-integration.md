@@ -270,7 +270,10 @@ contains removed keys: the application-owned loopback mixed proxy endpoint is
 enabled, every other proxy ingress port is zero, LAN and custom listeners are
 off, the bind address and Controller are loopback-only, the Controller secret is
 application-owned, mode is Rule, logging is warning, sniffer capture and TUN are
-off, DNS has no listen socket, and selection/fake-IP persistence is disabled.
+off, DNS has no listen socket, Profile-owned selection persistence is preserved,
+and fake-IP persistence is disabled. When selection persistence is enabled, Mish
+copies Mihomo's bounded private `cache.db` between the profile-and-effective-
+fingerprint cache and each short-lived candidate home.
 Relative provider paths remain source-owned but paths that escape the managed
 home are rejected.
 

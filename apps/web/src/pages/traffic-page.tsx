@@ -42,8 +42,8 @@ import {
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
-import { toast } from "sonner";
 import { tv } from "tailwind-variants";
+import { useNotificationDelivery } from "../data/notification-delivery";
 import { useTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -112,6 +112,7 @@ const trafficStyles = tv({
 });
 
 export function TrafficPage() {
+  const { publish } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
   const {
     clearClosed,
@@ -176,7 +177,11 @@ export function TrafficPage() {
     if (!closeTarget) return;
     const result = await closeConnection(closeTarget.id);
     if (result?.status === "success") {
-      toast.success(LL.traffic.closeConnectionSucceeded());
+      publish({
+        id: "traffic-connection-closed",
+        level: "success",
+        message: LL.traffic.closeConnectionSucceeded(),
+      });
       setSelectedConnection(null);
     }
     setCloseTarget(null);
@@ -185,7 +190,11 @@ export function TrafficPage() {
   async function confirmCloseAllActive() {
     const result = await closeAllActive();
     if (result?.status === "success") {
-      toast.success(LL.traffic.closeAllActiveSucceeded({ count: result.targetCount }));
+      publish({
+        id: "traffic-connections-closed",
+        level: "success",
+        message: LL.traffic.closeAllActiveSucceeded({ count: result.targetCount }),
+      });
     }
     setCloseAllConfirmationOpen(false);
   }

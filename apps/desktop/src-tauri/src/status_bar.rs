@@ -15,7 +15,7 @@ use mish_settings::{SettingsAdapterKind, SettingsService};
 use tauri::{
     Emitter, Manager,
     menu::{CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder},
-    tray::TrayIconBuilder,
+    tray::{TrayIcon, TrayIconBuilder},
 };
 use uuid::Uuid;
 
@@ -32,8 +32,12 @@ const OPEN_SETTINGS_ID: &str = "status-bar.open-settings";
 const TOGGLE_PROXY_ID: &str = "status-bar.toggle-proxy";
 const TOGGLE_LAUNCH_ON_START_ID: &str = "status-bar.toggle-launch-on-start";
 const QUIT_ID: &str = "status-bar.quit";
-const STATUS_BAR_ICON_RGBA: &[u8] =
-    include_bytes!("../../../../packages/brand-assets/generated/status-bar/mish-status-bar.rgba");
+const STATUS_BAR_ICON_ACTIVE_RGBA: &[u8] = include_bytes!(
+    "../../../../packages/brand-assets/generated/status-bar/mish-status-bar-active.rgba"
+);
+const STATUS_BAR_ICON_INACTIVE_RGBA: &[u8] = include_bytes!(
+    "../../../../packages/brand-assets/generated/status-bar/mish-status-bar-inactive.rgba"
+);
 
 #[derive(Clone)]
 pub(crate) struct StatusBarState {
@@ -60,7 +64,7 @@ impl StatusBarState {
         }
     }
 
-    async fn model(&self) -> StatusMenuModel {
+    async fn model(&self) -> StatusBarModel {
         let (status, traffic) = self.runtime.native_traffic_handoff().await;
         self.traffic_observations.observe(&status, &traffic);
         let activation = self.activation.activation_snapshot().await;
@@ -70,7 +74,7 @@ impl StatusBarState {
             .preferences
             .startup
             .launch_proxy_when_mish_launches;
-        StatusMenuModel::new(&status, &activation, launch_on_start)
+        StatusBarModel::new(&status, &activation, launch_on_start)
     }
 }
 
@@ -158,6 +162,11 @@ struct StatusMenuItems {
     upload: MenuItem<tauri::Wry>,
 }
 
+struct StatusBarItems {
+    menu: StatusMenuItems,
+    tray: TrayIcon<tauri::Wry>,
+}
+
 impl StatusMenuItems {
     fn apply(&self, model: &StatusMenuModel) -> tauri::Result<()> {
         self.proxy.set_text(model.proxy_title)?;
@@ -186,26 +195,52 @@ impl StatusMenuModel {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StatusBarModel {
+    menu: StatusMenuModel,
+    icon_active: bool,
+}
+
+impl StatusBarModel {
+    fn new(
+        status: &StatusSnapshot,
+        activation: &ProfileActivationSnapshot,
+        launch_on_start: bool,
+    ) -> Self {
+        Self {
+            menu: StatusMenuModel::new(status, activation, launch_on_start),
+            icon_active: status.runtime.system_proxy_enabled || status.runtime.tun_enabled,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct StatusBarUpdate {
+    menu_changed: bool,
+    icon_changed: bool,
+}
+
 pub(crate) fn initialize(
     app: &tauri::App,
     state: StatusBarState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let model = tauri::async_runtime::block_on(state.model());
-    let menu = build_menu(app, &model)?;
+    let menu = build_menu(app, &model.menu)?;
     let handler_state = state.clone();
     let tray = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu.menu)
         .show_menu_on_left_click(true)
         .tooltip("Mish")
-        .icon(status_bar_icon())
+        .icon(status_bar_icon(model.icon_active))
         .icon_as_template(true)
         .on_menu_event(move |app, event| {
             handle_menu_event(app, event.id().as_ref(), handler_state.clone());
         });
-    tray.build(app)?;
+    let tray = tray.build(app)?;
+    let items = StatusBarItems { menu, tray };
 
     tauri::async_runtime::spawn(async move {
-        watch_status_menu(state, model, menu).await;
+        watch_status_menu(state, model, items).await;
     });
     Ok(())
 }
@@ -346,8 +381,8 @@ const MENU_SECTIONS: &[&[&str]] = &[
 
 async fn watch_status_menu(
     state: StatusBarState,
-    mut current_model: StatusMenuModel,
-    menu: StatusMenuItems,
+    mut current_model: StatusBarModel,
+    items: StatusBarItems,
 ) {
     let mut runtime_changes = state.runtime.subscribe_changes();
     let mut status_updates = runtime_changes.borrow_and_update().subscribe_status();
@@ -355,14 +390,14 @@ async fn watch_status_menu(
     let mut settings_updates = state.settings.subscribe();
     let mut refresh = tokio::time::interval(Duration::from_secs(1));
     let mut current_live = state.traffic_observations.live_status_at(Duration::ZERO);
-    let _ = menu.apply_live_status(&current_live);
+    let _ = items.menu.apply_live_status(&current_live);
 
     loop {
         tokio::select! {
             _ = refresh.tick() => {
                 let next_live = state.traffic_observations.live_status_at(state.traffic_observations.origin.elapsed());
                 if next_live != current_live {
-                    let _ = menu.apply_live_status(&next_live);
+                    let _ = items.menu.apply_live_status(&next_live);
                     current_live = next_live;
                 }
                 continue;
@@ -390,25 +425,32 @@ async fn watch_status_menu(
             }
         }
         let next_model = state.model().await;
-        if accept_changed_menu_model(&mut current_model, next_model) {
-            let _ = menu.apply(&current_model);
+        let update = status_bar_update(&current_model, &next_model);
+        if update.menu_changed {
+            current_model.menu = next_model.menu.clone();
+            let _ = items.menu.apply(&current_model.menu);
+        }
+        if update.icon_changed {
+            current_model.icon_active = next_model.icon_active;
+            let _ = items
+                .tray
+                .set_icon_with_as_template(Some(status_bar_icon(current_model.icon_active)), true);
         }
         let next_live = state
             .traffic_observations
             .live_status_at(state.traffic_observations.origin.elapsed());
         if next_live != current_live {
-            let _ = menu.apply_live_status(&next_live);
+            let _ = items.menu.apply_live_status(&next_live);
             current_live = next_live;
         }
     }
 }
 
-fn accept_changed_menu_model(current: &mut StatusMenuModel, next: StatusMenuModel) -> bool {
-    if *current == next {
-        return false;
+fn status_bar_update(current: &StatusBarModel, next: &StatusBarModel) -> StatusBarUpdate {
+    StatusBarUpdate {
+        menu_changed: current.menu != next.menu,
+        icon_changed: current.icon_active != next.icon_active,
     }
-    *current = next;
-    true
 }
 
 fn build_menu<M: Manager<tauri::Wry>>(
@@ -518,15 +560,21 @@ fn format_bytes(bytes: u64) -> String {
     format!("{amount:.precision$} {}", UNITS[unit])
 }
 
-fn status_bar_icon() -> tauri::image::Image<'static> {
-    tauri::image::Image::new(STATUS_BAR_ICON_RGBA, 36, 36)
+fn status_bar_icon(active: bool) -> tauri::image::Image<'static> {
+    let rgba = if active {
+        STATUS_BAR_ICON_ACTIVE_RGBA
+    } else {
+        STATUS_BAR_ICON_INACTIVE_RGBA
+    };
+    tauri::image::Image::new(rgba, 36, 36)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        MENU_SECTIONS, NativeTrafficObservations, StatusMenuModel, accept_changed_menu_model,
-        format_bytes, is_quit_menu_command, is_status_destination, rate_title, status_bar_icon,
+        MENU_SECTIONS, NativeTrafficObservations, StatusBarModel, StatusMenuModel, format_bytes,
+        is_quit_menu_command, is_status_destination, rate_title, status_bar_icon,
+        status_bar_update,
     };
     use futures_util::future::BoxFuture;
     use mish_bridge::{
@@ -678,19 +726,44 @@ mod tests {
     }
 
     #[test]
-    fn status_menu_is_not_rebuilt_for_unchanged_runtime_updates() {
-        let mut current = StatusMenuModel {
-            launch_on_start: false,
-            proxy_title: "Launch proxy",
-            proxy_enabled: true,
+    fn status_bar_updates_only_the_changed_handles() {
+        let current = StatusBarModel {
+            menu: StatusMenuModel {
+                launch_on_start: false,
+                proxy_title: "Launch proxy",
+                proxy_enabled: true,
+            },
+            icon_active: false,
         };
 
-        let unchanged = current.clone();
-        assert!(!accept_changed_menu_model(&mut current, unchanged));
-        let mut changed = current.clone();
-        changed.proxy_title = "Stop proxy";
-        assert!(accept_changed_menu_model(&mut current, changed));
-        assert_eq!(current.proxy_title, "Stop proxy");
+        assert_eq!(status_bar_update(&current, &current), Default::default());
+
+        let icon_changed = StatusBarModel {
+            icon_active: true,
+            ..current.clone()
+        };
+        assert_eq!(
+            status_bar_update(&current, &icon_changed),
+            super::StatusBarUpdate {
+                menu_changed: false,
+                icon_changed: true,
+            }
+        );
+
+        let menu_changed = StatusBarModel {
+            menu: StatusMenuModel {
+                proxy_title: "Stop proxy",
+                ..current.menu.clone()
+            },
+            ..current
+        };
+        assert_eq!(
+            status_bar_update(&icon_changed, &menu_changed),
+            super::StatusBarUpdate {
+                menu_changed: true,
+                icon_changed: true,
+            }
+        );
     }
 
     #[test]
@@ -771,15 +844,59 @@ mod tests {
     }
 
     #[test]
-    fn status_bar_icon_is_a_retina_monochrome_template() {
-        let icon = status_bar_icon();
-        assert_eq!((icon.width(), icon.height()), (36, 36));
-        assert_eq!(icon.rgba().len(), 36 * 36 * 4);
-        assert!(
-            icon.rgba()
+    fn status_bar_icon_templates_are_retina_monochrome_masks() {
+        let inactive = status_bar_icon(false);
+        let active = status_bar_icon(true);
+        assert_eq!((inactive.width(), inactive.height()), (36, 36));
+        assert_eq!((active.width(), active.height()), (36, 36));
+        assert_eq!(inactive.rgba().len(), 36 * 36 * 4);
+        assert_eq!(active.rgba().len(), 36 * 36 * 4);
+        for icon in [&inactive, &active] {
+            assert!(
+                icon.rgba()
+                    .chunks_exact(4)
+                    .all(|pixel| pixel[..3] == [0, 0, 0])
+            );
+            assert!(icon.rgba().chunks_exact(4).any(|pixel| pixel[3] > 0));
+        }
+        assert_eq!(
+            inactive
+                .rgba()
                 .chunks_exact(4)
-                .all(|pixel| pixel[..3] == [0, 0, 0])
+                .map(|pixel| pixel[3] > 0)
+                .collect::<Vec<_>>(),
+            active
+                .rgba()
+                .chunks_exact(4)
+                .map(|pixel| pixel[3] > 0)
+                .collect::<Vec<_>>()
         );
-        assert!(icon.rgba().chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert_eq!(
+            active.rgba().chunks_exact(4).map(|pixel| pixel[3]).max(),
+            Some(255)
+        );
+        assert_eq!(
+            inactive.rgba().chunks_exact(4).map(|pixel| pixel[3]).max(),
+            Some(115)
+        );
+    }
+
+    #[test]
+    fn status_bar_icon_activity_uses_only_authoritative_capture_state() {
+        let core = running_core_status();
+        let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
+        let mut activation = ProfileActivationSnapshot::unavailable();
+        activation.phase = ProfileActivationPhase::Pending;
+        assert!(!StatusBarModel::new(&status, &activation, false).icon_active);
+
+        status.runtime.system_proxy_enabled = true;
+        assert!(StatusBarModel::new(&status, &activation, false).icon_active);
+
+        status.runtime.system_proxy_enabled = false;
+        status.runtime.tun_enabled = true;
+        assert!(StatusBarModel::new(&status, &activation, false).icon_active);
+
+        status.runtime.tun_enabled = false;
+        assert!(!StatusBarModel::new(&status, &activation, false).icon_active);
     }
 }

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fmt, fs,
     net::SocketAddr,
     path::{Path, PathBuf},
@@ -395,6 +396,7 @@ struct ActiveMihomo {
     runtime: MishRuntime,
     runtime_id: String,
     source: Arc<ControllerStatusSource>,
+    store_selected: bool,
 }
 
 #[derive(Default)]
@@ -588,7 +590,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
-                    remove_candidate(&previous.candidate_root);
+                    retire_candidate(resolved.runtime_root(), &previous);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -614,7 +616,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
-                    remove_candidate(&previous.candidate_root);
+                    retire_candidate(resolved.runtime_root(), &previous);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -646,7 +648,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
-                    remove_candidate(&previous.candidate_root);
+                    retire_candidate(resolved.runtime_root(), &previous);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -694,7 +696,7 @@ impl MihomoActivationManager {
             if !restored {
                 if let Some(previous) = state.active.take() {
                     previous.source.close().await;
-                    remove_candidate(&previous.candidate_root);
+                    retire_candidate(resolved.runtime_root(), &previous);
                 }
                 state.managed.active_fingerprint = None;
                 state.managed.active_profile_id = None;
@@ -709,7 +711,7 @@ impl MihomoActivationManager {
         state.managed = committed_state;
         if let Some(previous) = previous {
             previous.source.close().await;
-            remove_candidate(&previous.candidate_root);
+            retire_candidate(resolved.runtime_root(), &previous);
         }
         Ok(ActivationCommit {
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
@@ -729,6 +731,21 @@ impl MihomoActivationManager {
 
     pub async fn managed_state(&self) -> ManagedActivationState {
         self.state.lock().await.managed.clone()
+    }
+
+    pub fn route_selections(&self, record: &ProfileRecord) -> HashMap<String, String> {
+        if !mish_profile::profile_store_selected(record).unwrap_or(false) {
+            return HashMap::new();
+        }
+        read_selection_cache(&selection_cache_path(
+            &self.resolver.runtime_root,
+            record.metadata.id.as_str(),
+            record.effective_fingerprint().as_str(),
+        ))
+    }
+
+    pub fn delete_route_selections(&self, profile_id: &str) {
+        remove_selection_cache_profile(&self.resolver.runtime_root, profile_id);
     }
 
     pub async fn complete_runtime_handoff(&self) {
@@ -753,7 +770,7 @@ impl MihomoActivationManager {
         }
         if let Some(active) = state.active.take() {
             active.source.close().await;
-            remove_candidate(&active.candidate_root);
+            retire_candidate(&self.resolver.runtime_root, &active);
         }
         state.managed.active_fingerprint = None;
         state.managed.active_profile_id = None;
@@ -781,6 +798,11 @@ impl MihomoActivationManager {
         let config_file = staging_root.join("config.yaml");
         let generated = RuntimeConfigGenerator::generate_record(record, policy)
             .map_err(|_| MihomoActivationError::InvalidArtifact)?;
+        let store_selected = mish_profile::profile_store_selected(record)
+            .map_err(|_| MihomoActivationError::InvalidArtifact)?;
+        if store_selected {
+            restore_selection_cache(resolved.runtime_root(), record, &home)?;
+        }
         let policy_group_order = mish_profile::configured_policy_group_order(&generated)
             .map_err(|_| MihomoActivationError::InvalidArtifact)?;
         write_private_file(&config_file, &generated)?;
@@ -862,6 +884,7 @@ impl MihomoActivationManager {
             runtime,
             runtime_id: candidate_id,
             source,
+            store_selected,
         })
     }
 
@@ -1094,6 +1117,237 @@ async fn rollback_candidate(candidate: ActiveMihomo) {
     candidate.source.close().await;
     let _ = candidate.runtime.stop_core().await;
     remove_candidate(&candidate.candidate_root);
+}
+
+const SELECTION_CACHE_SIZE_LIMIT: u64 = 4 * 1024 * 1024;
+const SELECTION_CACHE_ENTRY_LIMIT: usize = 8_192;
+
+fn selection_cache_path(runtime_root: &Path, profile_id: &str, fingerprint: &str) -> PathBuf {
+    runtime_root
+        .join("profile-selection-cache")
+        .join(profile_id)
+        .join(fingerprint)
+        .join("cache.db")
+}
+
+fn restore_selection_cache(
+    runtime_root: &Path,
+    record: &ProfileRecord,
+    candidate_home: &Path,
+) -> Result<(), MihomoActivationError> {
+    restore_selection_cache_file(
+        runtime_root,
+        record.metadata.id.as_str(),
+        record.effective_fingerprint().as_str(),
+        candidate_home,
+    )
+}
+
+fn restore_selection_cache_file(
+    runtime_root: &Path,
+    profile_id: &str,
+    fingerprint: &str,
+    candidate_home: &Path,
+) -> Result<(), MihomoActivationError> {
+    let source = selection_cache_path(runtime_root, profile_id, fingerprint);
+    let Ok(metadata) = fs::symlink_metadata(&source) else {
+        return Ok(());
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > SELECTION_CACHE_SIZE_LIMIT
+    {
+        return Ok(());
+    }
+    let bytes = fs::read(source).map_err(|_| MihomoActivationError::StagingFailed)?;
+    write_private_file(&candidate_home.join("cache.db"), &bytes)
+}
+
+fn persist_selection_cache(runtime_root: &Path, active: &ActiveMihomo) {
+    persist_selection_cache_file(
+        runtime_root,
+        &active.profile_id,
+        &active.fingerprint,
+        active.store_selected,
+        &active.candidate_root,
+    );
+}
+
+fn persist_selection_cache_file(
+    runtime_root: &Path,
+    profile_id: &str,
+    fingerprint: &str,
+    store_selected: bool,
+    candidate_root: &Path,
+) {
+    if !store_selected {
+        return;
+    }
+    let source = candidate_root.join("home/cache.db");
+    let Ok(metadata) = fs::symlink_metadata(&source) else {
+        return;
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > SELECTION_CACHE_SIZE_LIMIT
+    {
+        return;
+    }
+    let Ok(bytes) = fs::read(source) else {
+        return;
+    };
+    let destination = selection_cache_path(runtime_root, profile_id, fingerprint);
+    let Some(parent) = destination.parent() else {
+        return;
+    };
+    if create_private_runtime_directory(parent).is_err() {
+        return;
+    }
+    let temporary = parent.join(format!(".cache-{}", Uuid::new_v4()));
+    if write_private_file(&temporary, &bytes).is_ok() {
+        let _ = fs::rename(&temporary, destination);
+    }
+    let _ = fs::remove_file(temporary);
+}
+
+fn read_selection_cache(path: &Path) -> HashMap<String, String> {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return HashMap::new();
+    };
+    if metadata.file_type().is_symlink()
+        || !metadata.is_file()
+        || metadata.len() > SELECTION_CACHE_SIZE_LIMIT
+    {
+        return HashMap::new();
+    }
+    let Ok(database) = bolt_lite::Bolt::open_ro(path) else {
+        return HashMap::new();
+    };
+    let Ok(transaction) = database.begin() else {
+        return HashMap::new();
+    };
+    let Some(bucket) = transaction.bucket(b"selected") else {
+        return HashMap::new();
+    };
+    let mut selections = HashMap::new();
+    let Ok(cursor) = bucket.cursor() else {
+        return HashMap::new();
+    };
+    for entry in cursor.take(SELECTION_CACHE_ENTRY_LIMIT) {
+        let Ok(group) = String::from_utf8(entry.key) else {
+            continue;
+        };
+        let Ok(selected) = String::from_utf8(entry.value) else {
+            continue;
+        };
+        if !group.is_empty() && group.len() <= 512 && !selected.is_empty() && selected.len() <= 512
+        {
+            selections.insert(group, selected);
+        }
+    }
+    selections
+}
+
+#[cfg(test)]
+mod selection_cache_tests {
+    use bbolt_rs::{Bolt, BucketRwApi, DbRwAPI, TxRwRefApi};
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn reads_mihomo_selected_bucket_from_bolt_cache() {
+        let root = TempDir::new().unwrap();
+        let path = root.path().join("cache.db");
+        let mut database = Bolt::open(&path).unwrap();
+        database
+            .update(|mut transaction| {
+                let mut selected = transaction.create_bucket_if_not_exists("selected")?;
+                selected.put("Default", "Tokyo")?;
+                selected.put("Streaming", "Singapore")?;
+                Ok(())
+            })
+            .unwrap();
+        drop(database);
+
+        let selections = read_selection_cache(&path);
+
+        assert_eq!(selections.get("Default").map(String::as_str), Some("Tokyo"));
+        assert_eq!(
+            selections.get("Streaming").map(String::as_str),
+            Some("Singapore")
+        );
+    }
+
+    #[test]
+    fn invalid_cache_is_treated_as_absent() {
+        let root = TempDir::new().unwrap();
+        let path = root.path().join("cache.db");
+        fs::write(&path, b"not a Bolt database").unwrap();
+
+        assert!(read_selection_cache(&path).is_empty());
+    }
+
+    #[test]
+    fn persists_and_restores_profile_scoped_selection_cache() {
+        let root = TempDir::new().unwrap();
+        let candidate = root.path().join("candidates/source");
+        fs::create_dir_all(candidate.join("home")).unwrap();
+        let source = candidate.join("home/cache.db");
+        let mut database = Bolt::open(&source).unwrap();
+        database
+            .update(|mut transaction| {
+                transaction
+                    .create_bucket_if_not_exists("selected")?
+                    .put("Default", "Tokyo")?;
+                Ok(())
+            })
+            .unwrap();
+        drop(database);
+
+        persist_selection_cache_file(root.path(), "profile-a", "fingerprint-a", true, &candidate);
+        let persisted = selection_cache_path(root.path(), "profile-a", "fingerprint-a");
+        assert_eq!(
+            read_selection_cache(&persisted)
+                .get("Default")
+                .map(String::as_str),
+            Some("Tokyo")
+        );
+
+        let restored_home = root.path().join("candidates/restored/home");
+        fs::create_dir_all(&restored_home).unwrap();
+        restore_selection_cache_file(root.path(), "profile-a", "fingerprint-a", &restored_home)
+            .unwrap();
+        assert_eq!(
+            read_selection_cache(&restored_home.join("cache.db"))
+                .get("Default")
+                .map(String::as_str),
+            Some("Tokyo")
+        );
+    }
+}
+
+fn remove_selection_cache_profile(runtime_root: &Path, profile_id: &str) {
+    if mish_profile::ProfileId::parse(profile_id.to_owned()).is_err() {
+        return;
+    }
+    let root = runtime_root.join("profile-selection-cache");
+    let profile = root.join(profile_id);
+    let Ok(metadata) = fs::symlink_metadata(&profile) else {
+        return;
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return;
+    }
+    let deleting = root.join(format!(".deleting-{}", Uuid::new_v4()));
+    if fs::rename(&profile, &deleting).is_ok() {
+        let _ = fs::remove_dir_all(deleting);
+    }
+}
+
+fn retire_candidate(runtime_root: &Path, active: &ActiveMihomo) {
+    persist_selection_cache(runtime_root, active);
+    remove_candidate(&active.candidate_root);
 }
 
 fn prune_stale_candidates(runtime_root: &Path) {

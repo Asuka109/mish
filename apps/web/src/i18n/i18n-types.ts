@@ -1125,6 +1125,10 @@ type RootTranslation = {
 	}
 	status: {
 		/**
+		 * C​o​n​f​i​g​u​r​e​d​ ​o​r​d​e​r​.
+		 */
+		configuredOrder: string
+		/**
 		 * A​c​t​i​v​e​ ​r​u​l​e​s
 		 */
 		activeRules: string
@@ -2557,7 +2561,7 @@ type RootTranslation = {
 		 */
 		provenanceReasonRelativeProviderPath: string
 		/**
-		 * R​u​n​t​i​m​e​ ​s​e​l​e​c​t​i​o​n​ ​p​e​r​s​i​s​t​e​n​c​e​ ​i​s​ ​d​i​s​a​b​l​e​d
+		 * R​u​n​t​i​m​e​ ​f​a​k​e​-​I​P​ ​p​e​r​s​i​s​t​e​n​c​e​ ​i​s​ ​d​i​s​a​b​l​e​d
 		 */
 		provenanceReasonRuntimePersistence: string
 		/**
@@ -5353,6 +5357,10 @@ export type TranslationFunctions = {
 	}
 	status: {
 		/**
+		 * Configured order.
+		 */
+		configuredOrder: () => LocalizedString
+		/**
 		 * Active rules
 		 */
 		activeRules: () => LocalizedString
@@ -6739,7 +6747,7 @@ export type TranslationFunctions = {
 		 */
 		provenanceReasonRelativeProviderPath: () => LocalizedString
 		/**
-		 * Runtime selection persistence is disabled
+		 * Runtime fake-IP persistence is disabled
 		 */
 		provenanceReasonRuntimePersistence: () => LocalizedString
 		/**

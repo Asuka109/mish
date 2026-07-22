@@ -640,8 +640,21 @@ impl ProfileActivationCoordinator {
         let snapshot =
             self.profiles
                 .delete_authorized(&permit, profile_id, active_profile_id.as_deref())?;
+        self.manager.delete_route_selections(profile_id);
         self.publish().await;
         Ok(snapshot)
+    }
+
+    pub fn route_catalog(
+        &self,
+        profile_id: &str,
+    ) -> Result<mish_profile::ProfileRouteCatalog, ProfileServiceError> {
+        let record = self.profiles.activation_record(profile_id)?;
+        let selections = self.manager.route_selections(&record);
+        Ok(mish_profile::profile_route_catalog_with_selections(
+            &record,
+            &selections,
+        )?)
     }
 
     pub async fn save_profile(

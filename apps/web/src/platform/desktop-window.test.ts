@@ -55,6 +55,26 @@ describe("desktop window drag routing", () => {
     expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
   });
 
+  it("keeps portal overlay surfaces out of native drag and double-click routing", () => {
+    const dependencies = createDependencies();
+    const handler = createDesktopWindowDragHandler(dependencies);
+    const overlay = document.createElement("div");
+    overlay.dataset.baseUiPortal = "";
+    const text = document.createElement("p");
+    overlay.append(text);
+
+    const press = createEvent(text);
+    const doubleClick = createEvent(text, { detail: 2 });
+
+    handler(press);
+    handler(doubleClick);
+
+    expect(press.preventDefault).not.toHaveBeenCalled();
+    expect(doubleClick.preventDefault).not.toHaveBeenCalled();
+    expect(dependencies.startDragging).not.toHaveBeenCalled();
+    expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
+  });
+
   it("uses native title-bar zoom behavior for a desktop double click", () => {
     const dependencies = createDependencies();
     const handler = createDesktopWindowDragHandler(dependencies);

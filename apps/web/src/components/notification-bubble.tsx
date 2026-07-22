@@ -13,10 +13,8 @@ import {
   PopoverTitle,
   PopoverTrigger,
 } from "@mish/ui";
-import type { EventLevel, EventRecordDto } from "@mish/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router";
-import { toast } from "sonner";
 import { tv } from "tailwind-variants";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
 import { useProduct, type LocalProxyTestState } from "../data/product-provider";
@@ -27,14 +25,17 @@ import { useOptionalSettings } from "../data/settings-provider";
 import { trafficFailureMessage } from "../data/traffic-failure-message";
 import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useOptionalTraffic } from "../data/traffic-provider";
+import {
+  useNotificationDelivery,
+  type DeliveredNotification,
+  type NotificationActionDescriptor,
+} from "../data/notification-delivery";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { WelcomeDialog } from "./welcome-dialog";
 
 const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
-const noEvents: EventRecordDto[] = [];
-
 const notificationStyles = tv({
   slots: {
     trigger:
@@ -51,6 +52,8 @@ const notificationStyles = tv({
     item: "notification-item relative flex min-w-0 flex-col gap-[5px] px-[14px] pt-[11px] pb-[12px] [&+&]:border-t [&+&]:border-(--color-hairline-soft)",
     itemHeading:
       "notification-item-heading flex items-center justify-between gap-2 pr-[26px] [&_.ui-badge]:h-5 [&_time]:text-[12px] [&_time]:text-(--color-text-muted)",
+    entryTitle:
+      "notification-entry-title text-(--text-metadata) font-(--font-weight-control) text-(--color-ink)",
     message:
       "notification-message cursor-text wrap-anywhere text-(--text-metadata) leading-[19px] font-(--font-weight-control) text-(--color-body) select-text",
     detail:
@@ -64,26 +67,10 @@ const notificationStyles = tv({
     viewAll: "notification-view-all w-full",
   },
 });
-
-interface NotificationState {
-  readNotificationIds: Set<string>;
-  removedNotificationIds: Set<string>;
-  sessionId: string | null;
-}
-
-interface NotificationAction {
-  label: string;
-  onClick(): Promise<unknown> | void;
-}
-
-interface NotificationEntry {
-  actions?: NotificationAction[];
-  detail?: string;
-  id: string;
-  level: EventLevel;
-  message: string;
-  observedAt: number;
-}
+const captureFailureEventMessages = new Set([
+  "Traffic capture was blocked because Mihomo is not healthy",
+  "Traffic capture was blocked because the managed listener is unavailable",
+]);
 
 type LocalProxyFeedback =
   | { id: string; level: "success"; message: string }
@@ -131,39 +118,32 @@ function localProxyFeedback(
   }
 }
 
-export function NotificationBubble() {
+interface NotificationPublicationControllerProps {
+  notificationTriggerRef: RefObject<HTMLButtonElement | null>;
+}
+
+/** Publishes domain notifications; the center itself only renders the delivery store. */
+function NotificationPublicationController({
+  notificationTriggerRef,
+}: NotificationPublicationControllerProps) {
   const eventsContext = useOptionalEvents();
   const settingsContext = useOptionalSettings();
   const trafficContext = useOptionalTraffic();
   const {
     commandStates,
     error: productError,
-    isCommandPending,
     localProxyTest,
     recoverSystemProxy,
     snapshot,
   } = useProduct();
   const profiles = useOptionalProfiles();
   const { setCapture } = useCaptureCommand();
-  const { LL, locale } = useI18nContext();
-  const [open, setOpen] = useState(false);
+  const { LL } = useI18nContext();
+  const { dismiss, ingestExternalEvents, publish, record, retire, setSession } =
+    useNotificationDelivery();
   const [welcomeOpen, setWelcomeOpen] = useState(false);
-  const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   const welcomePromptStarted = useRef(false);
-  const [notificationState, setNotificationState] = useState<NotificationState>({
-    readNotificationIds: new Set(),
-    removedNotificationIds: new Set(),
-    sessionId: null,
-  });
-  const events = eventsContext?.events ?? noEvents;
   const sessionId = eventsContext?.snapshot?.sessionId ?? null;
-  const importantEvents = useMemo(
-    () =>
-      events
-        .filter((event) => event.level === "warning" || event.level === "error")
-        .toSorted((left, right) => right.sequence - left.sequence),
-    [events],
-  );
   const systemProxy = snapshot?.runtime.systemProxy;
   const managedListenerConflict =
     profiles?.snapshot?.activation.failure === "managed-listener-conflict"
@@ -173,8 +153,22 @@ export function NotificationBubble() {
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
   const tunWarning = tun?.phase === "drift" || tun?.phase === "failed";
+  const captureFailureEvent =
+    commandStates.capture.phase === "failure"
+      ? [...(eventsContext?.events ?? [])]
+          .reverse()
+          .find(
+            (event) =>
+              event.source === "application" && captureFailureEventMessages.has(event.message),
+          )
+      : undefined;
+  // A managed-listener conflict is the authoritative explanation for the same
+  // capture attempt even when the status command reports its generic failure
+  // before the profile activation snapshot reaches the UI.
   const captureFailureAlreadyExplained =
-    commandStates.capture.phase === "failure" && (systemProxyFailed || tunWarning);
+    Boolean(captureFailureEvent) ||
+    Boolean(managedListenerConflict) ||
+    (commandStates.capture.phase === "failure" && (systemProxyFailed || tunWarning));
   const productFailure = Boolean(snapshot && productError && !captureFailureAlreadyExplained);
   const settingsFailure = Boolean(settingsContext?.error);
   const settingsFailureMessage = settingsContext?.tunHelperFailure
@@ -198,10 +192,9 @@ export function NotificationBubble() {
     if (!settingsContext) return;
     const opened = await settingsContext.setOnboardingWelcomeState("open");
     if (!opened) return;
-    toast.dismiss(welcomePromptToastId);
-    setOpen(false);
+    dismiss(welcomePromptToastId);
     setWelcomeOpen(true);
-  }, [settingsContext]);
+  }, [dismiss, settingsContext]);
   const repairRequiresCore =
     Boolean(systemProxy?.recoveryActions.includes("repair")) &&
     snapshot?.runtime.phase !== "healthy";
@@ -213,12 +206,13 @@ export function NotificationBubble() {
     : systemProxy
       ? systemProxyStatusMessage(LL, systemProxy)
       : "";
-  const driftActions: NotificationAction[] = [];
-  const managedListenerActions: NotificationAction[] = [];
+  const driftActions: NotificationActionDescriptor[] = [];
+  const managedListenerActions: NotificationActionDescriptor[] = [];
   if (managedListenerConflict && settingsContext && snapshot) {
     managedListenerActions.push({
+      id: "find-ports-and-retry",
       label: LL.settingsPage.managedPortsFindAndRetry(),
-      onClick: async () => {
+      run: async () => {
         if (!(await settingsContext.findManagedPorts())) return;
         const selection =
           snapshot.runtime.captureSelection.systemProxy || snapshot.runtime.captureSelection.tun
@@ -230,123 +224,89 @@ export function NotificationBubble() {
   }
   if (canRepairSystemProxy) {
     driftActions.push({
+      id: "repair",
       label: LL.capture.repairSystemProxy(),
-      onClick: () => recoverSystemProxy("repair"),
+      run: () => recoverSystemProxy("repair"),
     });
   }
   if (canLeaveSystemProxy) {
     driftActions.push({
+      id: "leave-as-is",
       label: LL.capture.leaveAsIs(),
-      onClick: () => recoverSystemProxy("leave-as-is"),
+      tone: "secondary",
+      run: () => recoverSystemProxy("leave-as-is"),
     });
   }
-  const notifications: NotificationEntry[] = [
-    ...(welcomeAvailable && welcomeInvitation && settingsContext
-      ? [
-          {
-            actions: [
-              {
-                label: LL.onboarding.notificationAction(),
-                onClick: openWelcomeDialog,
-              },
-            ],
-            id: `onboarding-welcome:${welcomeInvitation.version}`,
-            level: "info" as const,
-            message: LL.onboarding.notificationMessage(),
-            observedAt: welcomeInvitation.createdAt,
-          },
-        ]
-      : []),
-    ...(systemProxyDrift
-      ? [
-          {
-            actions: driftActions,
-            id: `system-proxy-drift:${driftObservedAt}`,
-            level: "warning" as const,
-            message: systemProxyDriftMessage,
-            observedAt: driftObservedAt,
-          },
-        ]
-      : []),
-    ...(managedListenerConflict
-      ? [
-          {
-            actions: managedListenerActions,
-            id: `managed-listener-conflict:${managedListenerConflict}`,
-            level: "error" as const,
-            message: LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict }),
-            observedAt: managedListenerConflictObservedAt,
-          },
-        ]
-      : []),
-    ...(systemProxyFailed && systemProxy
-      ? [
-          {
-            id: `system-proxy-failure:${systemProxyFailureObservedAt}`,
-            level: "error" as const,
-            message: systemProxyStatusMessage(LL, systemProxy),
-            observedAt: systemProxyFailureObservedAt,
-          },
-        ]
-      : []),
-    ...(tunWarning && tun
-      ? [
-          {
-            id: `tun-${tun.phase}:${tunWarningObservedAt}`,
-            level: tun.phase === "failed" ? ("error" as const) : ("warning" as const),
-            message: tunStatusMessage(LL, tun),
-            observedAt: tunWarningObservedAt,
-          },
-        ]
-      : []),
-    ...(productFailure && productError
-      ? [
-          {
-            id: `status-operation-failure:${productFailureObservedAt}`,
-            level: "error" as const,
-            message: productError,
-            observedAt: productFailureObservedAt,
-          },
-        ]
-      : []),
-    ...(settingsFailure
-      ? [
-          {
-            id: `settings-operation-failure:${settingsFailureObservedAt}`,
-            level: "error" as const,
-            message: settingsFailureMessage,
-            observedAt: settingsFailureObservedAt,
-          },
-        ]
-      : []),
-    ...(trafficFailure
-      ? [
-          {
-            id: `traffic-operation-failure:${trafficFailureObservedAt}`,
-            level: "error" as const,
-            message: trafficFailureMessage(LL, trafficFailure),
-            observedAt: trafficFailureObservedAt,
-          },
-        ]
-      : []),
-    ...(localProxyFailure
-      ? [
-          {
-            id: `local-proxy-${localProxyFailure.id}:${localProxyFailureObservedAt}`,
-            level: localProxyFailure.level,
-            message: localProxyFailure.message,
-            observedAt: localProxyFailureObservedAt,
-          },
-        ]
-      : []),
-    ...importantEvents.map((event) => ({
-      detail: event.detail ?? undefined,
-      id: event.id,
-      level: event.level as "error" | "warning",
-      message: event.message,
-      observedAt: event.observedAt,
-    })),
-  ];
+  const managedListenerToastVisible = useRef(false);
+  useEffect(() => setSession(sessionId), [sessionId, setSession]);
+  useEffect(
+    () =>
+      ingestExternalEvents(
+        (eventsContext?.events ?? []).filter(
+          (event) =>
+            event.id !== captureFailureEvent?.id &&
+            !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
+        ),
+      ),
+    [
+      LL,
+      captureFailureAlreadyExplained,
+      captureFailureEvent?.id,
+      eventsContext?.events,
+      ingestExternalEvents,
+    ],
+  );
+  useEffect(() => {
+    if (!captureFailureEvent) return;
+    publish({
+      detail: captureFailureEvent.detail ?? undefined,
+      id: `capture-failure:${captureFailureEvent.id}`,
+      level: captureFailureEvent.level,
+      message: captureFailureEvent.message,
+      observedAt: captureFailureEvent.observedAt,
+      replaces: ["status-operation-failure"],
+    });
+  }, [captureFailureEvent, publish]);
+  useEffect(() => {
+    if (!welcomeAvailable || !welcomeInvitation) {
+      retire(welcomePromptToastId);
+      return;
+    }
+    record({
+      actions: [
+        { id: "open-welcome", label: LL.onboarding.notificationAction(), run: openWelcomeDialog },
+      ],
+      id: welcomePromptToastId,
+      level: "info",
+      message: LL.onboarding.notificationMessage(),
+      observedAt: welcomeInvitation.createdAt,
+      title: LL.onboarding.promptTitle(),
+    });
+  }, [LL, openWelcomeDialog, record, retire, welcomeAvailable, welcomeInvitation]);
+  useEffect(() => {
+    if (!managedListenerConflict) {
+      managedListenerToastVisible.current = false;
+      retire("managed-listener-conflict");
+      return;
+    }
+    if (managedListenerToastVisible.current) return;
+    managedListenerToastVisible.current = true;
+    publish({
+      actions: managedListenerActions,
+      id: "managed-listener-conflict",
+      level: "error",
+      message: LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict }),
+      observedAt: managedListenerConflictObservedAt,
+      replaces: ["status-operation-failure"],
+    });
+  }, [
+    LL,
+    managedListenerActions,
+    managedListenerConflict,
+    managedListenerConflictObservedAt,
+    publish,
+    retire,
+  ]);
   const driftToastVisible = useRef(false);
   const systemProxyFailureToastVisible = useRef(false);
   const tunWarningToastVisible = useRef(false);
@@ -367,65 +327,72 @@ export function NotificationBubble() {
     }
     welcomePromptStarted.current = true;
     const promptOperation = settingsContext.setOnboardingWelcomeState("prompt");
-    toast.info(LL.onboarding.promptTitle(), {
-      action: {
-        label: LL.onboarding.notificationAction(),
-        onClick: () => {
-          void promptOperation.then((prompted) => {
-            if (prompted) return openWelcomeDialog();
-          });
+    publish({
+      actions: [
+        {
+          id: "open-welcome",
+          label: LL.onboarding.notificationAction(),
+          run: () =>
+            promptOperation.then((prompted) => {
+              if (prompted) return openWelcomeDialog();
+            }),
         },
-      },
-      description: LL.onboarding.notificationMessage(),
+      ],
       duration: Number.POSITIVE_INFINITY,
       id: welcomePromptToastId,
+      level: "info",
+      message: LL.onboarding.notificationMessage(),
+      observedAt: welcomeInvitation.createdAt,
+      title: LL.onboarding.promptTitle(),
     });
     void promptOperation.then((prompted) => {
       if (!prompted) welcomePromptStarted.current = false;
     });
-  }, [LL, openWelcomeDialog, settingsContext, welcomeInvitation]);
+  }, [LL, openWelcomeDialog, publish, settingsContext, welcomeInvitation]);
 
   useEffect(() => {
     if (!localProxyResult) {
       localProxyToastVisible.current = false;
+      retire("local-proxy-ready");
+      retire("local-proxy-core-unhealthy");
+      retire("local-proxy-runtime-transition");
+      retire("local-proxy-listener-unavailable");
+      retire("local-proxy-rpc-failure");
       return;
     }
     if (localProxyToastVisible.current) return;
     localProxyToastVisible.current = true;
-    if (localProxyResult.level === "success") toast.success(localProxyResult.message);
-    else if (localProxyResult.level === "warning") toast.warning(localProxyResult.message);
-    else toast.error(localProxyResult.message);
-  }, [localProxyResult]);
+    publish({
+      id: `local-proxy-${localProxyResult.id}`,
+      level: localProxyResult.level,
+      message: localProxyResult.message,
+      observedAt: localProxyFailureObservedAt,
+    });
+  }, [localProxyFailureObservedAt, localProxyResult, publish, retire]);
 
   useEffect(() => {
     if (!systemProxyDrift) {
       driftToastVisible.current = false;
-      toast.dismiss("system-proxy-drift");
+      retire("system-proxy-drift");
       return;
     }
     if (driftToastVisible.current) return;
     driftToastVisible.current = true;
-    toast.warning(systemProxyDriftMessage, {
-      action: canRepairSystemProxy
-        ? {
-            label: LL.capture.repairSystemProxy(),
-            onClick: () => void recoverSystemProxy("repair"),
-          }
-        : undefined,
-      cancel: canLeaveSystemProxy
-        ? {
-            label: LL.capture.leaveAsIs(),
-            onClick: () => void recoverSystemProxy("leave-as-is"),
-          }
-        : undefined,
+    publish({
+      actions: driftActions,
       duration: Number.POSITIVE_INFINITY,
       id: "system-proxy-drift",
+      level: "warning",
+      message: systemProxyDriftMessage,
+      observedAt: driftObservedAt,
     });
   }, [
-    LL,
     canLeaveSystemProxy,
     canRepairSystemProxy,
-    recoverSystemProxy,
+    driftActions,
+    driftObservedAt,
+    publish,
+    retire,
     systemProxyDriftMessage,
     systemProxyDrift,
   ]);
@@ -433,24 +400,35 @@ export function NotificationBubble() {
   useEffect(() => {
     if (!systemProxyFailed || !systemProxy) {
       systemProxyFailureToastVisible.current = false;
+      retire("system-proxy-failure");
       return;
     }
     if (systemProxyFailureToastVisible.current) return;
     systemProxyFailureToastVisible.current = true;
-    toast.error(systemProxyStatusMessage(LL, systemProxy));
-  }, [LL, systemProxy, systemProxyFailed]);
+    publish({
+      id: "system-proxy-failure",
+      level: "error",
+      message: systemProxyStatusMessage(LL, systemProxy),
+      observedAt: systemProxyFailureObservedAt,
+    });
+  }, [LL, publish, retire, systemProxy, systemProxyFailed, systemProxyFailureObservedAt]);
 
   useEffect(() => {
     if (!tunWarning || !tun) {
       tunWarningToastVisible.current = false;
+      retire("tun-drift");
+      retire("tun-failed");
       return;
     }
     if (tunWarningToastVisible.current) return;
     tunWarningToastVisible.current = true;
-    const message = tunStatusMessage(LL, tun);
-    if (tun.phase === "failed") toast.error(message);
-    else toast.warning(message);
-  }, [LL, tun, tunWarning]);
+    publish({
+      id: `tun-${tun.phase}`,
+      level: tun.phase === "failed" ? "error" : "warning",
+      message: tunStatusMessage(LL, tun),
+      observedAt: tunWarningObservedAt,
+    });
+  }, [LL, publish, retire, tun, tunWarning, tunWarningObservedAt]);
 
   useEffect(() => {
     if (!productFailure || !productError) {
@@ -459,8 +437,13 @@ export function NotificationBubble() {
     }
     if (productFailureToastVisible.current) return;
     productFailureToastVisible.current = true;
-    toast.error(productError);
-  }, [productError, productFailure]);
+    publish({
+      id: "status-operation-failure",
+      level: "error",
+      message: productError,
+      observedAt: productFailureObservedAt,
+    });
+  }, [productError, productFailure, productFailureObservedAt, publish]);
 
   useEffect(() => {
     if (!settingsFailure) {
@@ -469,8 +452,13 @@ export function NotificationBubble() {
     }
     if (settingsFailureToastVisible.current) return;
     settingsFailureToastVisible.current = true;
-    toast.error(settingsFailureMessage);
-  }, [settingsFailure, settingsFailureMessage]);
+    publish({
+      id: "settings-operation-failure",
+      level: "error",
+      message: settingsFailureMessage,
+      observedAt: settingsFailureObservedAt,
+    });
+  }, [publish, settingsFailure, settingsFailureMessage, settingsFailureObservedAt]);
 
   useEffect(() => {
     if (!trafficFailure) {
@@ -479,130 +467,118 @@ export function NotificationBubble() {
     }
     if (trafficFailureToastVisible.current) return;
     trafficFailureToastVisible.current = true;
-    toast.error(trafficFailureMessage(LL, trafficFailure));
-  }, [LL, trafficFailure]);
+    publish({
+      id: "traffic-operation-failure",
+      level: "error",
+      message: trafficFailureMessage(LL, trafficFailure),
+      observedAt: trafficFailureObservedAt,
+    });
+  }, [LL, publish, trafficFailure, trafficFailureObservedAt]);
 
-  const notificationsByTime = notifications.toSorted(
+  return settingsContext ? (
+    <WelcomeDialog
+      onOpenChange={setWelcomeOpen}
+      open={welcomeOpen}
+      returnFocusRef={notificationTriggerRef}
+    />
+  ) : null;
+}
+
+export function NotificationBubble() {
+  const notificationTriggerRef = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <NotificationPublicationController notificationTriggerRef={notificationTriggerRef} />
+      <NotificationCenter notificationTriggerRef={notificationTriggerRef} />
+    </>
+  );
+}
+
+function NotificationCenter({ notificationTriggerRef }: NotificationPublicationControllerProps) {
+  const { isCommandPending } = useProduct();
+  const settingsContext = useOptionalSettings();
+  const { LL, locale } = useI18nContext();
+  const { entries, execute, markRead, readIds, remove } = useNotificationDelivery();
+  const [open, setOpen] = useState(false);
+  const retainedNotifications = entries.toSorted(
     (left, right) => right.observedAt - left.observedAt,
   );
-  const readNotificationIds =
-    notificationState.sessionId === sessionId
-      ? notificationState.readNotificationIds
-      : new Set<string>();
-  const removedNotificationIds =
-    notificationState.sessionId === sessionId
-      ? notificationState.removedNotificationIds
-      : new Set<string>();
-  const retainedNotifications = notificationsByTime.filter(
-    (notification) => !removedNotificationIds.has(notification.id),
-  );
   const unreadCount = retainedNotifications.filter(
-    (notification) => !readNotificationIds.has(notification.id),
+    (notification) => !readIds.has(notification.id),
   ).length;
   const visibleNotifications = retainedNotifications.slice(0, visibleNotificationLimit);
 
   function handleOpenChange(nextOpen: boolean) {
-    if (nextOpen) {
-      setNotificationState((current) => ({
-        readNotificationIds: new Set(retainedNotifications.map(({ id }) => id)),
-        removedNotificationIds:
-          current.sessionId === sessionId ? current.removedNotificationIds : new Set(),
-        sessionId,
-      }));
-    }
+    if (nextOpen) markRead(retainedNotifications.map(({ id }) => id));
     setOpen(nextOpen);
   }
 
-  function removeNotification(notificationId: string) {
-    setNotificationState((current) => {
-      const sameSession = current.sessionId === sessionId;
-      return {
-        readNotificationIds: sameSession ? current.readNotificationIds : new Set(),
-        removedNotificationIds: new Set([
-          ...(sameSession ? current.removedNotificationIds : []),
-          notificationId,
-        ]),
-        sessionId,
-      };
-    });
-  }
-
   return (
-    <>
-      <Popover onOpenChange={handleOpenChange} open={open}>
-        <PopoverTrigger
-          render={
-            <Button
-              aria-label={LL.notifications.trigger({ count: unreadCount })}
-              className={notificationStyles().trigger()}
-              ref={notificationTriggerRef}
-              size="icon-sm"
-              variant="ghost"
-            />
-          }
-        >
-          <Bell aria-hidden="true" />
-          {unreadCount > 0 ? (
-            <Badge className={notificationStyles().count()} variant="destructive">
-              {formatUnreadCount(unreadCount)}
-            </Badge>
-          ) : null}
-        </PopoverTrigger>
-        <PopoverContent align="end" className={notificationStyles().popover()} sideOffset={8}>
-          <div className={notificationStyles().header()}>
-            <div>
-              <PopoverTitle className={notificationStyles().title()}>
-                {LL.notifications.title()}
-              </PopoverTitle>
-              <PopoverDescription className={notificationStyles().description()}>
-                {LL.notifications.description()}
-              </PopoverDescription>
-            </div>
+    <Popover onOpenChange={handleOpenChange} open={open}>
+      <PopoverTrigger
+        render={
+          <Button
+            aria-label={LL.notifications.trigger({ count: unreadCount })}
+            className={notificationStyles().trigger()}
+            ref={notificationTriggerRef}
+            size="icon-sm"
+            variant="ghost"
+          />
+        }
+      >
+        <Bell aria-hidden="true" />
+        {unreadCount > 0 ? (
+          <Badge className={notificationStyles().count()} variant="destructive">
+            {formatUnreadCount(unreadCount)}
+          </Badge>
+        ) : null}
+      </PopoverTrigger>
+      <PopoverContent align="end" className={notificationStyles().popover()} sideOffset={8}>
+        <div className={notificationStyles().header()}>
+          <div>
+            <PopoverTitle className={notificationStyles().title()}>
+              {LL.notifications.title()}
+            </PopoverTitle>
+            <PopoverDescription className={notificationStyles().description()}>
+              {LL.notifications.description()}
+            </PopoverDescription>
           </div>
-
-          {visibleNotifications.length > 0 ? (
-            <ol className={notificationStyles().list()}>
-              {visibleNotifications.map((notification) => (
-                <NotificationItem
-                  disabled={isCommandPending("capture") || Boolean(settingsContext?.pending)}
-                  key={notification.id}
-                  LL={LL}
-                  locale={locale}
-                  notification={notification}
-                  onRemove={removeNotification}
-                />
-              ))}
-            </ol>
-          ) : (
-            <Empty className={notificationStyles().empty()}>
-              <EmptyHeader>
-                <EmptyTitle>{LL.notifications.emptyTitle()}</EmptyTitle>
-                <EmptyDescription>{LL.notifications.emptyDescription()}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-
-          <div className={notificationStyles().footer()}>
-            <Button
-              className={notificationStyles().viewAll()}
-              nativeButton={false}
-              render={<Link onClick={() => setOpen(false)} to="/events" />}
-              size="sm"
-              variant="outline"
-            >
-              {LL.notifications.viewAllEvents()}
-            </Button>
-          </div>
-        </PopoverContent>
-      </Popover>
-      {settingsContext ? (
-        <WelcomeDialog
-          onOpenChange={setWelcomeOpen}
-          open={welcomeOpen}
-          returnFocusRef={notificationTriggerRef}
-        />
-      ) : null}
-    </>
+        </div>
+        {visibleNotifications.length > 0 ? (
+          <ol className={notificationStyles().list()}>
+            {visibleNotifications.map((notification) => (
+              <NotificationItem
+                disabled={isCommandPending("capture") || Boolean(settingsContext?.pending)}
+                key={notification.id}
+                LL={LL}
+                locale={locale}
+                notification={notification}
+                onExecute={execute}
+                onRemove={remove}
+              />
+            ))}
+          </ol>
+        ) : (
+          <Empty className={notificationStyles().empty()}>
+            <EmptyHeader>
+              <EmptyTitle>{LL.notifications.emptyTitle()}</EmptyTitle>
+              <EmptyDescription>{LL.notifications.emptyDescription()}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+        <div className={notificationStyles().footer()}>
+          <Button
+            className={notificationStyles().viewAll()}
+            nativeButton={false}
+            render={<Link onClick={() => setOpen(false)} to="/events" />}
+            size="sm"
+            variant="outline"
+          >
+            {LL.notifications.viewAllEvents()}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -610,21 +586,19 @@ interface NotificationItemProps {
   disabled: boolean;
   LL: TranslationFunctions;
   locale: Locales;
-  notification: NotificationEntry;
+  notification: DeliveredNotification;
+  onExecute(notificationId: string, actionId: string): Promise<void>;
   onRemove(notificationId: string): void;
 }
 
-function NotificationItem({ disabled, LL, locale, notification, onRemove }: NotificationItemProps) {
-  const [pendingAction, setPendingAction] = useState<{
-    label: string;
-    promise: Promise<unknown>;
-  } | null>(null);
-
-  function runAction(action: NotificationAction) {
-    const promise = Promise.resolve().then(() => action.onClick());
-    setPendingAction({ label: action.label, promise });
-  }
-
+function NotificationItem({
+  disabled,
+  LL,
+  locale,
+  notification,
+  onExecute,
+  onRemove,
+}: NotificationItemProps) {
   return (
     <li className={notificationStyles().item({ className: "group/item" })}>
       <Button
@@ -638,27 +612,30 @@ function NotificationItem({ disabled, LL, locale, notification, onRemove }: Noti
       </Button>
       <div className={notificationStyles().itemHeading()}>
         <Badge variant={levelBadge(notification.level)}>
-          {LL.events.level[notification.level]()}
+          {LL.events.level[notification.level === "success" ? "info" : notification.level]()}
         </Badge>
         <time className="tabular-nums" dateTime={new Date(notification.observedAt).toISOString()}>
           {formatNotificationTime(notification.observedAt, locale)}
         </time>
       </div>
+      {notification.title ? (
+        <p className={notificationStyles().entryTitle()}>{notification.title}</p>
+      ) : null}
       <p className={notificationStyles().message()} data-native-text-interaction>
         {notification.message}
       </p>
       {notification.detail ? (
         <p className={notificationStyles().detail()}>{notification.detail}</p>
       ) : null}
-      {notification.actions && notification.actions.length > 0 ? (
+      {notification.actions.length > 0 ? (
         <div className={notificationStyles().actions()}>
           {notification.actions.map((action) => (
             <Button
-              disabled={disabled}
-              key={action.label}
-              loading={pendingAction?.label === action.label ? pendingAction.promise : false}
+              disabled={disabled || Boolean(notification.pendingActionId)}
+              key={action.id}
+              loading={notification.pendingActionId === action.id}
               loadingText={action.label}
-              onClick={() => runAction(action)}
+              onClick={() => void onExecute(notification.id, action.id)}
               size="sm"
               variant="outline"
             >
@@ -671,7 +648,7 @@ function NotificationItem({ disabled, LL, locale, notification, onRemove }: Noti
   );
 }
 
-function levelBadge(level: EventLevel) {
+function levelBadge(level: DeliveredNotification["level"]) {
   if (level === "error") return "destructive" as const;
   if (level === "warning") return "warning" as const;
   return "outline" as const;
