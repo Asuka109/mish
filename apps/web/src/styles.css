@@ -1382,31 +1382,6 @@ h2 {
   background: var(--color-hairline);
 }
 
-.popover-positioner {
-  outline: none;
-}
-
-.popover-content {
-  max-height: var(--available-height);
-  overflow: hidden;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-lg);
-  background: var(--color-canvas);
-  box-shadow: var(--shadow-float);
-  color: var(--color-ink);
-  outline: none;
-  transform-origin: var(--transform-origin);
-  transition:
-    opacity 120ms ease-out,
-    transform 120ms ease-out;
-}
-
-.popover-content[data-starting-style],
-.popover-content[data-ending-style] {
-  opacity: 0;
-  transform: scale(0.98);
-}
-
 .notification-popover {
   width: min(360px, calc(100vw - 24px));
 }
@@ -1536,56 +1511,8 @@ h2 {
   width: 100%;
 }
 
-.dialog-backdrop {
-  position: fixed;
-  z-index: 70;
-  inset: 0;
-  background: rgb(17 24 39 / 18%);
-  backdrop-filter: blur(2px);
-}
-
 :root[data-theme="dark"] .dialog-backdrop {
   background: rgb(0 0 0 / 45%);
-}
-
-.dialog-content {
-  position: fixed;
-  z-index: 71;
-  top: 50%;
-  left: 50%;
-  width: min(440px, calc(100vw - 32px));
-  max-height: min(620px, calc(100vh - 48px));
-  overflow: auto;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-lg);
-  background: var(--color-canvas);
-  box-shadow: var(--shadow-float);
-  outline: none;
-  transform: translate(-50%, -50%);
-}
-
-.dialog-close {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  display: grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-muted);
-}
-
-.dialog-close:hover {
-  background: var(--color-accent);
-  color: var(--color-ink);
-}
-
-.dialog-close svg {
-  width: 16px;
-  height: 16px;
 }
 
 .dialog-header,
