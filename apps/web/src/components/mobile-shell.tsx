@@ -85,7 +85,20 @@ export function MobileShell({ fixture, vpnClient, vpnSnapshot }: MobileShellProp
     <div className="mobile-shell" data-platform={fixture.platform}>
       <div className="mobile-chrome">
         <header className="mobile-top-app-bar">
-          <img alt="" aria-hidden="true" src="/brand/mish-brand.svg" />
+          <img
+            alt=""
+            aria-hidden="true"
+            className="brand-image-light"
+            draggable={false}
+            src="/brand/mish-icon-outline.svg"
+          />
+          <img
+            alt=""
+            aria-hidden="true"
+            className="brand-image-dark"
+            draggable={false}
+            src="/brand/mish-icon-outline-dark.svg"
+          />
           <h1>{getTitle(LL, location.pathname)}</h1>
         </header>
         <div className="mobile-fixture-banner">
