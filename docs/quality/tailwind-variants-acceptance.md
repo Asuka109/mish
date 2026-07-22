@@ -7,16 +7,16 @@ retained `sketch/` application or the unmounted `DestinationPage` reference.
 ## Bundle comparison
 
 The baseline was captured from the pre-migration production build. The candidate
-was built at `cbde228` after integrating `main` through `d55782e` and resolving
-the Profiles and pending-control hands-on feedback.
+was built at `23e01db` after integrating `main` through `01c3f4b` and resolving
+the Profiles, pending-control, and typography-scale hands-on feedback.
 
 | Production artifact    | Baseline raw / gzip | Candidate raw / gzip | Change raw / gzip |
 | ---------------------- | ------------------- | -------------------- | ----------------- |
-| Total emitted CSS      | 118.78 / 20.02 kB   | 124.56 / 20.87 kB    | +5.78 / +0.85 kB  |
-| Primary application JS | 909.55 / 276.99 kB  | 926.46 / 282.24 kB   | +16.91 / +5.25 kB |
+| Total emitted CSS      | 118.78 / 20.02 kB   | 124.77 / 20.92 kB    | +5.99 / +0.90 kB  |
+| Primary application JS | 909.55 / 276.99 kB  | 926.67 / 282.32 kB   | +17.12 / +5.33 kB |
 
-Candidate CSS is split into 123.91 kB of generated Tailwind and bounded global
-root CSS and 0.65 kB of CSS Modules. The 4.9% raw and 4.2% gzip increases pay for
+Candidate CSS is split into 124.12 kB of generated Tailwind and bounded global
+root CSS and 0.65 kB of CSS Modules. The 5.0% raw and 4.5% gzip increases pay for
 the canonical named theme mappings, exact fractional utilities, named
 root-state variants, and generated responsive/container variants that replaced
 indirect CSS-variable and arbitrary-value shorthands.
@@ -25,7 +25,7 @@ The primary JS increase is 1.9% raw and 1.9% gzip. It includes the TV recipes
 and product changes integrated from newer `main`, notably authoritative
 notification events, browser backend recovery, the configured route catalog,
 and Highcharts-based status session curves. The candidate also emits a
-423.08 kB application-shell chunk, a 4.52 kB notification-delivery chunk, and a
+423.16 kB application-shell chunk, a 4.52 kB notification-delivery chunk, and a
 5.39 kB configured-route-catalog chunk. The application-shell increase is
 primarily attributable to the upstream Highcharts session implementation. These
 secondary chunks are listed for diagnosis but are not compared numerically
@@ -59,8 +59,8 @@ because the baseline used a different chunk graph.
   pre-mount startup failure and the documented, unmounted `DestinationPage`
   reference.
 - TypeScript, lint, format, design-token, documentation, unit, browser, and
-  production-build gates cover the candidate. The 47-file/311-test Web unit
-  suite and 10-file/30-test Chromium suite exercise desktop, compact browser,
+  production-build gates cover the candidate. The 47-file/312-test Web unit
+  suite and 10-file/33-test Chromium suite exercise desktop, compact browser,
   and mobile-sized browser layouts.
 - Browser computed-style evidence covers container layout, proxy material and
   override merging, notification wrapping/removal/focus behavior, service
@@ -68,7 +68,8 @@ because the baseline used a different chunk graph.
   fallback, Profiles primary-action contrast, and subscription-card spacing at
   the reported 1057 × 689 viewport. It also verifies nonzero current-color
   spinner borders in the disabled pending states for both Launch Proxy and
-  System Proxy.
+  System Proxy, 13px Settings controls and descriptions, and the 14px/13px
+  primary/secondary policy-group type scale.
 - Unit and browser behavior retain Base UI `data-*`/ARIA state, keyboard focus,
   disabled/loading/selected/highlighted behavior, reduced-motion shimmer policy,
   and the distinct native mobile shell.
