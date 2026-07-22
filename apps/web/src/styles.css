@@ -1085,6 +1085,11 @@ h2 {
   color: var(--color-text-muted);
 }
 
+.traffic-session-copy > span,
+.traffic-session-copy small {
+  white-space: nowrap;
+}
+
 .traffic-session-copy small {
   color: var(--color-muted-soft);
   font-size: 12px;
