@@ -353,6 +353,7 @@ const en = {
     running: "Proxy running",
   },
   status: {
+    configuredOrder: "Configured order.",
     activeRules: "Active rules",
     connections: "Connections",
     currentSessionAria: "Current session",
@@ -758,7 +759,7 @@ const en = {
     provenanceReasonPortable: "Portable profile policy remains source-owned",
     provenanceReasonProviderPath: "Provider path is device-specific or escapes managed storage",
     provenanceReasonRelativeProviderPath: "Relative provider path remains source-owned",
-    provenanceReasonRuntimePersistence: "Runtime selection persistence is disabled",
+    provenanceReasonRuntimePersistence: "Runtime fake-IP persistence is disabled",
     provenanceReasonUnknown: "Unknown syntactically valid key is preserved semantically",
     provenanceRejected: "Rejected",
     provenanceRevisionBinding: "Revision {revision:string} · artifact {fingerprint:string}",

@@ -98,7 +98,8 @@ schema-2 report without mutating the prior immutable source revision.
 | Ports, LAN bindings, Controller/UI settings, secrets, mode, logs | Application | Overridden     |
 | `tun.enable`, `sniffer.enable`                                   | Platform    | Disabled       |
 | DNS listen                                                       | Platform    | Overridden     |
-| Profile selection/fake-IP persistence                            | Application | Overridden     |
+| Profile selection persistence                                    | Source      | Preserved      |
+| Profile fake-IP persistence                                      | Application | Overridden     |
 | External UI, CORS, TLS, pipe, and Unix controller surfaces       | Application | Overridden     |
 | Listeners, interface/routing marks                               | Platform    | Hard rejected  |
 | Absolute or escaping proxy-provider and rule-provider paths      | Platform    | Hard rejected  |

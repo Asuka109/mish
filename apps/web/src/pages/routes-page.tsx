@@ -10,7 +10,6 @@ import type {
   GroupDelayTestDto,
   PolicyGroupDto,
   PolicyGroupType,
-  ProfileRouteCatalogDto,
   ProxyNodeDto,
 } from "@mish/contracts";
 import {
@@ -26,8 +25,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@mish/ui";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { useOptionalProfiles } from "../data/profile-provider";
+import { useDeferredValue, useMemo, useState } from "react";
+import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -571,7 +570,6 @@ export function RoutesPage() {
     snapshot,
     startGroupDelayTest,
   } = useProduct();
-  const profiles = useOptionalProfiles();
   const { LL, locale } = useI18nContext();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -581,16 +579,8 @@ export function RoutesPage() {
   const [delayPendingAction, setDelayPendingAction] = useState<
     { groupId: string; kind: "start" } | { kind: "cancel"; testId: string } | null
   >(null);
-  const configuredProfileId =
-    snapshot &&
-    snapshot.groups.length === 0 &&
-    snapshot.runtime.phase !== "healthy" &&
-    profiles?.selectedProfileId
-      ? profiles.selectedProfileId
-      : null;
-  const [configuredRoutes, setConfiguredRoutes] = useState<ProfileRouteCatalogDto | null>(null);
-  const configuredRoutesActive =
-    configuredProfileId !== null && configuredRoutes?.profileId === configuredProfileId;
+  const configuredRoutes = useConfiguredRouteCatalog(snapshot);
+  const configuredRoutesActive = configuredRoutes !== null;
   const groups = configuredRoutesActive ? configuredRoutes.groups : (snapshot?.groups ?? []);
   const nodes = configuredRoutesActive ? configuredRoutes.nodes : (snapshot?.nodes ?? []);
   const routingMode = configuredRoutesActive
@@ -601,21 +591,6 @@ export function RoutesPage() {
     () => createRouteSearchState(graph, deferredQuery, locale === "zh" ? "zh-CN" : "en"),
     [deferredQuery, graph, locale],
   );
-
-  useEffect(() => {
-    if (!configuredProfileId || !profiles) {
-      setConfiguredRoutes(null);
-      return;
-    }
-    let cancelled = false;
-    void profiles.loadRoutes(configuredProfileId).then((result) => {
-      if (cancelled || !result.ok) return;
-      setConfiguredRoutes(result.catalog);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [configuredProfileId, profiles]);
 
   if (isLoading) {
     return (

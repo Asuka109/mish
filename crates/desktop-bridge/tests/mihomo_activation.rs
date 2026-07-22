@@ -743,7 +743,7 @@ rules:
     assert!(root["listeners"].as_sequence().unwrap().is_empty());
     assert_eq!(root["tun"]["enable"].as_bool(), Some(false));
     assert_eq!(root["sniffer"]["enable"].as_bool(), Some(false));
-    assert_eq!(root["profile"]["store-selected"].as_bool(), Some(false));
+    assert_eq!(root["profile"]["store-selected"].as_bool(), Some(true));
     assert_eq!(root["profile"]["store-fake-ip"].as_bool(), Some(false));
     assert!(root["dns"].as_mapping().unwrap().get("listen").is_none());
     for removed in [
@@ -796,7 +796,6 @@ rules:
         "external-doh-server",
         "mode",
         "log-level",
-        "profile.store-selected",
         "profile.store-fake-ip",
         "listeners",
         "interface-name",
@@ -810,6 +809,29 @@ rules:
             "missing policy report for {managed}"
         );
     }
+}
+
+#[test]
+fn generated_runtime_config_preserves_disabled_selection_persistence() {
+    let normalized = br#"
+profile:
+  store-selected: false
+proxies:
+  - name: synthetic-node
+    type: direct
+rules:
+  - MATCH,DIRECT
+"#;
+    let policy = ManagedRuntimePolicy::new(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123),
+        "application-controller-secret",
+    )
+    .unwrap();
+
+    let generated = RuntimeConfigGenerator::generate_with_review(normalized, &policy).unwrap();
+    let document: Value = serde_norway::from_slice(&generated.bytes).unwrap();
+
+    assert_eq!(document["profile"]["store-selected"].as_bool(), Some(false));
 }
 
 #[test]
