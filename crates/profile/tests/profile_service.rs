@@ -226,7 +226,10 @@ async fn route_catalog_is_available_without_activating_the_profile() {
     let catalog = service.route_catalog(&profile_id).unwrap();
     assert_eq!(catalog.profile_id, profile_id);
     assert_eq!(catalog.groups[0].label, "Fictional group");
-    assert_eq!(catalog.groups[0].selected_child_id, None);
+    assert_eq!(
+        catalog.groups[0].selected_child_id,
+        Some(catalog.nodes[2].id.clone())
+    );
     assert_eq!(catalog.nodes[2].label, "fictional-node");
 }
 

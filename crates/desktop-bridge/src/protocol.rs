@@ -988,7 +988,11 @@ async fn handle_message(
                     Ok(params) if valid_identifier(&params.profile_id) => params,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
-            match service.route_catalog(&params.profile_id) {
+            let catalog = match &state.profile_activation {
+                Some(activation) => activation.route_catalog(&params.profile_id),
+                None => service.route_catalog(&params.profile_id),
+            };
+            match catalog {
                 Ok(catalog) => serde_json::to_value(catalog).expect("serializable route catalog"),
                 Err(error) => return Some(profile_error_response(id, error)),
             }

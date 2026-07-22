@@ -11,6 +11,7 @@ import {
   type CaptureSelectionDto,
   type EventsClient,
   type ProfileClient,
+  type ProfileRouteCatalogDto,
   type ProfileSnapshotDto,
   type LanguagePreference,
   type LocalBackupClient,
@@ -371,6 +372,29 @@ class EmptyStatusClient extends FixtureStatusClient {
     };
     return snapshot;
   }
+}
+
+class ConfiguredStatusProfileClient extends FixtureProfileClient {
+  readonly getRoutes = vi.fn(
+    async (profileId: string): Promise<ProfileRouteCatalogDto> => ({
+      fingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      groups: Array.from({ length: 6 }, (_, index) => ({
+        childIds: [`configured-node-${index + 1}`],
+        id: `configured-group-${index + 1}`,
+        label: `Configured group ${index + 1}`,
+        selectedChildId: `configured-node-${index + 1}`,
+        type: "selector" as const,
+      })),
+      nodes: Array.from({ length: 6 }, (_, index) => ({
+        id: `configured-node-${index + 1}`,
+        label: `Configured node ${index + 1}`,
+        latencyMilliseconds: null,
+        protocol: "ss",
+      })),
+      profileId,
+      routingMode: "rule",
+    }),
+  );
 }
 
 class SnapshotStatusClient extends FixtureStatusClient {
@@ -2244,6 +2268,26 @@ describe("Status fixture experience", () => {
     expect(within(session).getAllByText("-")).toHaveLength(6);
     expect(within(session).queryByText("0 B/s")).not.toBeInTheDocument();
     expect(within(session).queryByText("00:00:00")).not.toBeInTheDocument();
+  });
+
+  it("shows configured policy groups before Mihomo starts", async () => {
+    const snapshot = await new EmptyStatusClient().getSnapshot();
+    snapshot.adapterKind = "rpc";
+    snapshot.nodes = [];
+    snapshot.runtime.phase = "inactive";
+    const profileClient = new ConfiguredStatusProfileClient();
+
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot), profileClient);
+
+    const groups = await screen.findByRole("region", { name: "Frequently used policy groups" });
+    expect(within(groups).getByText("Configured order.")).toBeVisible();
+    expect(within(groups).getByText("Configured group 1")).toBeVisible();
+    expect(within(groups).getByText("Configured node 1")).toBeVisible();
+    expect(within(groups).getByText("Configured group 5")).toBeVisible();
+    expect(within(groups).queryByText("Configured group 6")).not.toBeInTheDocument();
+    expect(within(groups).queryByText("No policy groups available.")).not.toBeInTheDocument();
+    expect(within(groups).getByRole("button", { name: /Configured group 1/ })).toBeDisabled();
+    expect(profileClient.getRoutes).toHaveBeenCalledWith("fixture-profile-studio");
   });
 
   it("changes routing and one group child through the typed fixture adapter", async () => {

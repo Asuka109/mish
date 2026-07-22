@@ -252,11 +252,6 @@ const APPLICATION_RULES: &[ManagedFieldRule] = &[
         RuleOperation::SetWarning,
     ),
     app_nested(
-        "profile.store-selected",
-        PolicyReason::RuntimePersistenceDisabled,
-        RuleOperation::SetFalse,
-    ),
-    app_nested(
         "profile.store-fake-ip",
         PolicyReason::RuntimePersistenceDisabled,
         RuleOperation::SetFalse,
