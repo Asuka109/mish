@@ -563,64 +563,100 @@ mod tests {
         NativeTrafficObservations, StatusMenuModel, accept_changed_menu_model, core_title,
         is_quit_menu_command, safe_profile_label, status_bar_icon, system_proxy_title, tun_title,
     };
+    use futures_util::future::BoxFuture;
+    use mish_bridge::DesktopRuntimeHost;
     use mish_runtime::{
-        CorePhase, CoreStatus, ProxyNode, RuntimePhase, StatusAdapterKind, StatusSnapshot,
-        SystemProxyPhase, TrafficConnection, TrafficDataPhase, TrafficDataSnapshot,
-        TrafficMatchedRule, TunPhase,
+        CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, ProxyNode, RuntimePhase,
+        StatusAdapterKind, StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficConnection,
+        TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule, TunPhase,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
     };
     use std::time::Duration;
 
-    fn authoritative_status() -> StatusSnapshot {
-        let mut status = StatusSnapshot::lifecycle_only(
-            &CoreStatus {
-                error: None,
-                phase: CorePhase::Running,
-                pid: Some(1),
-                version: None,
-            },
-            StatusAdapterKind::Native,
-        );
-        status.nodes.push(ProxyNode {
-            id: "private-node".into(),
-            label: "Tokyo".into(),
-            latency_milliseconds: None,
-            protocol: "ss".into(),
-        });
-        status
+    struct TestCore;
+
+    impl CoreRuntime for TestCore {
+        fn configured(&self) -> bool {
+            true
+        }
+
+        fn status(&self) -> BoxFuture<'_, CoreStatus> {
+            Box::pin(async { running_core_status() })
+        }
+
+        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { Ok(running_core_status()) })
+        }
+
+        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { Ok(running_core_status()) })
+        }
     }
 
-    fn authoritative_traffic() -> TrafficDataSnapshot {
-        TrafficDataSnapshot {
-            active_connections: vec![TrafficConnection {
-                destination_host: Some("private.example".into()),
-                destination_ip: None,
-                destination_port: 443,
-                download_bytes: "0".into(),
-                id: "private-connection".into(),
-                matched_rule: TrafficMatchedRule {
-                    payload: "MATCH".into(),
-                    kind: "MATCH".into(),
-                },
-                network: "tcp".into(),
-                process_name: None,
-                process_path: None,
-                protocol: "tcp".into(),
-                provider_chain: Vec::new(),
-                remote_destination: None,
-                route_chain: vec!["Tokyo".into()],
-                sniff_host: None,
-                source_ip: None,
-                source_port: 0,
-                started_at: "2026-01-01T00:00:00Z".into(),
-                upload_bytes: "0".into(),
-            }],
-            adapter_kind: StatusAdapterKind::Native,
-            phase: TrafficDataPhase::Ready,
-            profile_id: "private-profile".into(),
-            reconnect_count: 0,
-            rules: Vec::new(),
-            sequence: 1,
-            session_id: Some("traffic-session".into()),
+    fn running_core_status() -> CoreStatus {
+        CoreStatus {
+            error: None,
+            phase: CorePhase::Running,
+            pid: Some(1),
+            version: None,
+        }
+    }
+
+    struct TestStatusSource;
+
+    impl StatusDataSource for TestStatusSource {
+        fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+            let mut status = StatusSnapshot::lifecycle_only(core, adapter_kind);
+            status.nodes.push(ProxyNode {
+                id: "private-node".into(),
+                label: "Tokyo".into(),
+                latency_milliseconds: None,
+                protocol: "ss".into(),
+            });
+            status
+        }
+    }
+
+    struct TestTrafficSource(Arc<AtomicUsize>);
+
+    impl TrafficDataSource for TestTrafficSource {
+        fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            TrafficDataSnapshot {
+                active_connections: vec![TrafficConnection {
+                    destination_host: Some("private.example".into()),
+                    destination_ip: None,
+                    destination_port: 443,
+                    download_bytes: "0".into(),
+                    id: "private-connection".into(),
+                    matched_rule: TrafficMatchedRule {
+                        payload: "MATCH".into(),
+                        kind: "MATCH".into(),
+                    },
+                    network: "tcp".into(),
+                    process_name: None,
+                    process_path: None,
+                    protocol: "tcp".into(),
+                    provider_chain: Vec::new(),
+                    remote_destination: None,
+                    route_chain: vec!["Tokyo".into()],
+                    sniff_host: None,
+                    source_ip: None,
+                    source_port: 0,
+                    started_at: "2026-01-01T00:00:00Z".into(),
+                    upload_bytes: "0".into(),
+                }],
+                adapter_kind,
+                phase: TrafficDataPhase::Ready,
+                profile_id: "private-profile".into(),
+                reconnect_count: 0,
+                rules: Vec::new(),
+                sequence: 1,
+                session_id: Some("traffic-session".into()),
+            }
         }
     }
 
@@ -630,11 +666,17 @@ mod tests {
         assert!(!is_quit_menu_command("status-bar.restart-core"));
     }
 
-    #[test]
-    fn production_native_traffic_handoff_records_once_and_queries_without_refetching() {
+    #[tokio::test]
+    async fn live_native_traffic_handoff_records_once_and_queries_without_refetching() {
+        let traffic_fetches = Arc::new(AtomicUsize::new(0));
+        let host = DesktopRuntimeHost::new(MishRuntime::with_data_sources(
+            Arc::new(TestCore),
+            Arc::new(TestStatusSource),
+            Arc::new(TestTrafficSource(traffic_fetches.clone())),
+        ));
         let observations = NativeTrafficObservations::default();
-        let status = authoritative_status();
-        let traffic = authoritative_traffic();
+        let (status, traffic) = host.native_traffic_handoff().await;
+        assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
         observations.observe_at(&status, &traffic, Duration::ZERO);
         assert_eq!(
             observations
@@ -648,6 +690,7 @@ mod tests {
             observations.handle.summary_at(Duration::from_secs(60)),
             None
         );
+        assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
     }
 
     #[test]
