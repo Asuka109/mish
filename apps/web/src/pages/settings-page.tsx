@@ -2,8 +2,10 @@ import { Warning } from "@phosphor-icons/react/Warning";
 import {
   Badge,
   Button,
-  SectionGrid,
-  SectionGridItem,
+  SettingsGroup,
+  SettingsRow as SettingsRowPrimitive,
+  SettingsRowControl,
+  SettingsRowCopy,
   Spinner,
   ToggleGroup,
   ToggleGroupItem,
@@ -50,13 +52,33 @@ type PromiseButtonAction =
 
 const settingsStyles = tv({
   slots: {
-    section: "settings-section mt-7",
+    page: "@container/settings-page mx-auto w-[min(100%,960px)] px-8 pt-8 pb-12 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6 [&>header+section]:mt-6",
+    header:
+      "[&_h1]:text-(--text-title) [&_h1]:leading-[1.3] [&_h1]:font-(--font-weight-title) [&_h1]:tracking-[-0.012em] [&_p]:mt-[7px] [&_p]:max-w-[700px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)",
+    notice:
+      "mt-6 flex items-start gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-3 py-2.5 text-(--text-metadata) text-(--color-warning) [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0",
+    section: "mt-7",
     heading:
-      "settings-section-heading px-1 pb-2.5 [&_h2]:text-(--text-body) [&_h2]:font-(--font-weight-title) [&_p]:mt-[3px] [&_p]:max-w-[720px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted)",
-    row: "settings-row grid min-h-[62px] grid-cols-[minmax(0,1fr)_max-content] items-center gap-5 px-[14px] py-[11px] @max-[680px]/settings-page:grid-cols-[minmax(0,1fr)] @max-[680px]/settings-page:items-start @max-[680px]/settings-page:gap-2.5",
-    copy: "settings-row-copy grid min-w-0 gap-0.5 [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-body) [&_span]:max-w-[590px] [&_span]:text-(--text-metadata) [&_span]:leading-[18px] [&_span]:text-(--color-text-muted)",
+      "px-1 pb-2.5 [&_h2]:text-(--text-body) [&_h2]:font-(--font-weight-title) [&_p]:mt-[3px] [&_p]:max-w-[720px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted)",
     control:
-      "settings-row-control grid min-w-fit justify-items-end text-end @max-[680px]/settings-page:w-full @max-[680px]/settings-page:min-w-0 @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start",
+      "[&_.traffic-capture-stack]:items-end @max-[680px]/settings-page:[&_.traffic-capture-stack]:items-start",
+    inline:
+      "inline-flex items-center gap-2 @max-[680px]/settings-page:flex-wrap @max-[680px]/settings-page:justify-start [&_label]:inline-grid [&_label]:gap-[3px] [&_label]:text-start [&_label]:text-[11px] [&_label]:leading-[14px] [&_label]:text-(--color-text-muted) [&_input[type=number]]:min-h-[30px] [&_input[type=number]]:w-[82px] [&_input[type=number]]:rounded-[6px] [&_input[type=number]]:border [&_input[type=number]]:border-(--color-hairline) [&_input[type=number]]:bg-(--color-surface) [&_input[type=number]]:px-[7px] [&_input[type=number]]:py-1 [&_input[type=number]]:text-(--color-body)",
+    localProxy:
+      "flex flex-wrap items-center justify-end gap-2 @max-[680px]/settings-page:justify-start [&_.ui-button]:min-w-[112px] [&_.ui-button[aria-busy=true]:disabled]:opacity-100",
+    localProxyEndpoint:
+      "flex flex-wrap items-center gap-2 [&_code]:text-(--color-ink) [&_code]:tabular-nums",
+    networkList:
+      "grid max-w-[360px] justify-items-end gap-2 text-end text-(--text-metadata) text-(--color-body) data-[phase=stale]:opacity-[.68] data-[phase=failed]:opacity-[.68] @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start",
+    networkPrimary:
+      "grid max-w-[360px] justify-items-end gap-[3px] text-end text-(--text-metadata) text-(--color-body) @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start [&>strong]:font-(--font-weight-control) [&>span]:text-(--text-metadata) [&>span]:text-(--color-text-muted)",
+    networkEmpty: "text-(--text-metadata) text-(--color-text-muted)",
+    networkAddresses:
+      "grid max-w-[360px] justify-items-end gap-2 text-end text-(--text-metadata) text-(--color-body) data-[phase=stale]:opacity-[.68] data-[phase=failed]:opacity-[.68] @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start [&>span]:justify-end @max-[680px]/settings-page:[&>span]:justify-start [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-(--color-text-muted)",
+    networkDetail:
+      "grid max-w-[360px] justify-items-end gap-[3px] text-end text-(--text-metadata) text-(--color-body) data-[phase=stale]:opacity-[.68] data-[phase=failed]:opacity-[.68] @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start [&>span:first-child]:text-(--text-metadata) [&>span:first-child]:text-(--color-text-muted)",
+    observedValues:
+      "flex max-w-[420px] flex-wrap justify-end gap-1 @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-start [&_code]:max-w-full [&_code]:truncate [&_code]:rounded-(--radius-sm) [&_code]:border [&_code]:border-(--color-hairline) [&_code]:bg-(--color-surface-soft) [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-(--color-body)",
   },
 });
 
@@ -88,7 +110,7 @@ function SettingsSection({
         <h2 id={id}>{title}</h2>
         <p>{description}</p>
       </div>
-      <SectionGrid className="settings-group">{children}</SectionGrid>
+      <SettingsGroup>{children}</SettingsGroup>
     </section>
   );
 }
@@ -103,20 +125,20 @@ function SettingsRow({
   title: string;
 }) {
   return (
-    <SectionGridItem className={settingsStyles().row()}>
-      <div className={settingsStyles().copy()}>
+    <SettingsRowPrimitive>
+      <SettingsRowCopy>
         <strong>{title}</strong>
         <span>{description}</span>
-      </div>
-      <div className={settingsStyles().control()}>{children}</div>
-    </SectionGridItem>
+      </SettingsRowCopy>
+      <SettingsRowControl className={settingsStyles().control()}>{children}</SettingsRowControl>
+    </SettingsRowPrimitive>
   );
 }
 
 function ObservedValues({ empty, values }: { empty: string; values: string[] }) {
-  if (values.length === 0) return <span className="network-dns-empty">{empty}</span>;
+  if (values.length === 0) return <span className={settingsStyles().networkEmpty()}>{empty}</span>;
   return (
-    <span className="network-dns-values">
+    <span className={settingsStyles().observedValues()}>
       {values.map((value) => (
         <code key={value}>{value}</code>
       ))}
@@ -342,8 +364,8 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="settings-page [container-name:settings-page] [container-type:inline-size] mx-auto w-[min(100%,960px)] px-8 pt-8 pb-12">
-      <header className="settings-header [&_h1]:text-(--text-title) [&_h1]:font-(--font-weight-title) [&_h1]:leading-[1.3] [&_h1]:tracking-[-0.012em] [&_p]:mt-[7px] [&_p]:max-w-[700px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)">
+    <div className={settingsStyles().page()}>
+      <header className={settingsStyles().header()}>
         <h1>{LL.settingsPage.title()}</h1>
         <p>
           {snapshot.adapterKind === "fixture"
@@ -353,10 +375,7 @@ export function SettingsPage() {
       </header>
 
       {snapshot.storageRecovered ? (
-        <p
-          className="settings-notice mt-6 flex items-start gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-3 py-[10px] text-(--text-metadata) text-(--color-warning) [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0"
-          role="status"
-        >
+        <p className={settingsStyles().notice()} role="status">
           <Warning aria-hidden="true" />
           {LL.settingsPage.storageRecovered()}
         </p>
@@ -371,7 +390,7 @@ export function SettingsPage() {
           description={LL.settingsPage.managedPortsDescription()}
           title={LL.settingsPage.managedPorts()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <label>
               Proxy
               <input
@@ -481,7 +500,7 @@ export function SettingsPage() {
           title={LL.settingsPage.tunHelper()}
         >
           <div>
-            <div className="settings-inline-control">
+            <div className={settingsStyles().inline()}>
               <Badge
                 variant={
                   helperAvailable
@@ -577,8 +596,8 @@ export function SettingsPage() {
           title={LL.settingsPage.localProxy.title()}
         >
           {product?.adapterKind === "rpc" ? (
-            <div className="local-proxy-control">
-              <span className="local-proxy-endpoint">
+            <div className={settingsStyles().localProxy()}>
+              <span className={settingsStyles().localProxyEndpoint()}>
                 <code>{`${LOCAL_PROXY_HOST}:${LOCAL_PROXY_PORT}`}</code>
               </span>
               <Button
@@ -601,7 +620,7 @@ export function SettingsPage() {
           description={LL.settingsPage.launchProxyWhenMishLaunchesDescription()}
           title={LL.settingsPage.launchProxyWhenMishLaunches()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <ToggleGroup
               aria-label={LL.settingsPage.launchProxyWhenMishLaunches()}
               disabled={!launchProxySupported || settings.pending}
@@ -639,7 +658,7 @@ export function SettingsPage() {
           description={LL.settingsPage.launchAtLoginDescription()}
           title={LL.settingsPage.launchAtLogin()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <ToggleGroup
               aria-label={LL.settingsPage.launchAtLogin()}
               disabled={!startupSupported || settings.pending}
@@ -712,7 +731,7 @@ export function SettingsPage() {
           description={networkObservationDescription()}
           title={LL.settingsPage.networkDns.observation()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <Badge
               variant={
                 network.phase === "ready"
@@ -746,9 +765,9 @@ export function SettingsPage() {
           title={LL.settingsPage.networkPolicy()}
         >
           {network.interfaces.length > 0 ? (
-            <span className="network-interface-list" data-phase={network.phase}>
+            <span className={settingsStyles().networkList()} data-phase={network.phase}>
               {network.interfaces.map((interfaceState) => (
-                <span className="network-dns-primary" key={interfaceState.interface}>
+                <span className={settingsStyles().networkPrimary()} key={interfaceState.interface}>
                   <strong>{interfaceState.service ?? LL.common.unavailable()}</strong>
                   <span>
                     {interfaceState.interface} ·{" "}
@@ -758,7 +777,7 @@ export function SettingsPage() {
               ))}
             </span>
           ) : (
-            <span className="network-dns-empty">
+            <span className={settingsStyles().networkEmpty()}>
               {LL.settingsPage.networkDns.noActiveInterfaces()}
             </span>
           )}
@@ -767,10 +786,10 @@ export function SettingsPage() {
           description={LL.settingsPage.networkDns.ipAvailabilityDescription()}
           title={LL.settingsPage.networkDns.ipAvailability()}
         >
-          <span className="network-interface-addresses" data-phase={network.phase}>
+          <span className={settingsStyles().networkAddresses()} data-phase={network.phase}>
             {network.interfaces.length > 0
               ? network.interfaces.map((interfaceState) => (
-                  <span className="settings-inline-control" key={interfaceState.interface}>
+                  <span className={settingsStyles().inline()} key={interfaceState.interface}>
                     <code>{interfaceState.interface}</code>
                     <AddressAvailabilityBadge
                       available={interfaceState.ipv4Available}
@@ -789,7 +808,7 @@ export function SettingsPage() {
           description={LL.settingsPage.networkDns.serversDescription()}
           title={LL.settingsPage.dns()}
         >
-          <div className="network-dns-detail" data-phase={network.phase}>
+          <div className={settingsStyles().networkDetail()} data-phase={network.phase}>
             <span>
               {network.dns
                 ? LL.settingsPage.networkDns.resolverSummary({
@@ -824,7 +843,7 @@ export function SettingsPage() {
           description={LL.settingsPage.closeWindowDescription()}
           title={LL.settingsPage.closeWindow()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <ToggleGroup
               aria-label={LL.settingsPage.closeWindow()}
               disabled={
@@ -995,7 +1014,7 @@ export function SettingsPage() {
           description={LL.settingsPage.versionDescription()}
           title={LL.settingsPage.version()}
         >
-          <div className="settings-inline-control">
+          <div className={settingsStyles().inline()}>
             <Badge variant="outline">Mish {snapshot.build.appVersion}</Badge>
             <Badge variant="outline">Mihomo {snapshot.build.mihomoVersion}</Badge>
             <Button

@@ -74,6 +74,22 @@ const sectionGridItemRecipe = tv({
   base: "section-grid-item col-span-(--section-grid-column-span) row-span-(--section-grid-row-span) min-w-0 overflow-clip bg-(--color-canvas)",
 });
 
+const settingsGroupRecipe = tv({
+  base: "settings-group [&>:first-child]:rounded-t-[7px] [&>:last-child]:rounded-b-[7px]",
+});
+
+const settingsRowRecipe = tv({
+  base: "settings-row grid min-h-[62px] grid-cols-[minmax(0,1fr)_max-content] items-center gap-5 px-[14px] py-[11px] @max-[680px]/settings-page:grid-cols-[minmax(0,1fr)] @max-[680px]/settings-page:items-start @max-[680px]/settings-page:gap-2.5",
+});
+
+const settingsRowCopyRecipe = tv({
+  base: "settings-row-copy grid min-w-0 gap-0.5 [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-body) [&_span]:max-w-[590px] [&_span]:text-(--text-metadata) [&_span]:leading-[18px] [&_span]:text-(--color-text-muted)",
+});
+
+const settingsRowControlRecipe = tv({
+  base: "settings-row-control grid min-w-fit justify-items-end text-end @max-[680px]/settings-page:w-full @max-[680px]/settings-page:min-w-0 @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start",
+});
+
 const toggleRecipe = tv({
   base: "ui-toggle inline-flex h-[34px] shrink-0 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[13px] text-(--text-metadata) font-(--font-weight-control) text-(--color-body) whitespace-nowrap outline-none hover:bg-(--color-accent) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) disabled:pointer-events-none disabled:opacity-50",
   variants: {
@@ -348,6 +364,46 @@ export function SectionGridItem({
           "--section-grid-row-span": rowSpan,
         } as CSSProperties
       }
+      {...props}
+    />
+  );
+}
+
+export function SettingsGroup({ className, ...props }: SectionGridProps) {
+  return (
+    <SectionGrid
+      className={settingsGroupRecipe({ className })}
+      data-slot="settings-group"
+      {...props}
+    />
+  );
+}
+
+export function SettingsRow({ className, ...props }: SectionGridItemProps) {
+  return (
+    <SectionGridItem
+      className={settingsRowRecipe({ className })}
+      data-slot="settings-row"
+      {...props}
+    />
+  );
+}
+
+export function SettingsRowCopy({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={settingsRowCopyRecipe({ className })}
+      data-slot="settings-row-copy"
+      {...props}
+    />
+  );
+}
+
+export function SettingsRowControl({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={settingsRowControlRecipe({ className })}
+      data-slot="settings-row-control"
       {...props}
     />
   );

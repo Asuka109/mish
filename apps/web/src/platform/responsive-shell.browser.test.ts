@@ -313,7 +313,10 @@ describe("responsive application shell", () => {
 
     const workspace = document.querySelector<HTMLElement>("main.workspace");
     const scroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
-    const settings = document.querySelector<HTMLElement>(".settings-page");
+    const settingsHeading = [...document.querySelectorAll<HTMLElement>("main h1")].find(
+      (heading) => heading.textContent?.trim() === "Settings",
+    );
+    const settings = settingsHeading?.parentElement?.parentElement;
     if (!workspace || !scroller || !settings) throw new Error("Missing workspace scroll layout");
 
     const workspaceRect = workspace.getBoundingClientRect();
