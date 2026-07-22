@@ -42,6 +42,7 @@ pub enum AppearancePreference {
 pub enum LanguagePreference {
     #[default]
     En,
+    #[serde(rename = "zh-CN")]
     Zh,
 }
 
@@ -267,6 +268,7 @@ pub struct SettingsSnapshot {
     pub network_dns: NetworkDnsSnapshot,
     pub preferences: SettingsPreferences,
     pub privacy: PrivacyAccessSnapshot,
+    pub revision: u64,
     pub startup_registration: StartupRegistrationSnapshot,
     pub storage_recovered: bool,
     pub tun_helper: TunHelperSnapshot,
@@ -467,6 +469,7 @@ pub struct SettingsService {
 #[derive(Clone, Copy)]
 struct SettingsState {
     preferences: SettingsPreferences,
+    revision: u64,
     storage_recovered: bool,
 }
 
@@ -687,6 +690,7 @@ impl SettingsService {
             startup_platform,
             state: Mutex::new(SettingsState {
                 preferences: loaded.preferences,
+                revision: 1,
                 storage_recovered,
             }),
             tun_helper,
@@ -737,6 +741,7 @@ impl SettingsService {
                 loopback_only: ConfirmationState::Confirmed,
                 origin_validated: ConfirmationState::Confirmed,
             },
+            revision: state.revision,
             startup_registration,
             storage_recovered: state.storage_recovered,
             tun_helper,
@@ -746,6 +751,17 @@ impl SettingsService {
     /// Bounded authoritative snapshots for native surfaces and authenticated RPC subscribers.
     pub fn subscribe(&self) -> broadcast::Receiver<SettingsSnapshot> {
         self.changes.subscribe()
+    }
+
+    /// Creates the receiver before reading the current value, so a mutation cannot be lost
+    /// between subscription attachment and the initial authoritative snapshot.
+    pub fn subscribe_with_snapshot(
+        &self,
+        adapter_kind: SettingsAdapterKind,
+    ) -> (broadcast::Receiver<SettingsSnapshot>, SettingsSnapshot) {
+        let receiver = self.changes.subscribe();
+        let snapshot = self.snapshot(adapter_kind);
+        (receiver, snapshot)
     }
 
     pub fn mutation_authority(&self) -> StateMutationAuthority {
@@ -1049,8 +1065,12 @@ impl SettingsService {
             .lock()
             .expect("settings operation lock poisoned");
         let mut state = self.state.lock().expect("settings state lock poisoned");
+        self.repository
+            .save(&preferences)
+            .map_err(|_| SettingsServiceError::Persistence)?;
         state.preferences = preferences;
         state.storage_recovered = false;
+        state.revision = state.revision.saturating_add(1);
         drop(state);
         let _ = self.changes.send(self.snapshot(SettingsAdapterKind::Rpc));
         Ok(())
@@ -1074,6 +1094,7 @@ impl SettingsService {
             .map_err(|_| SettingsServiceError::Persistence)?;
         state.preferences = next;
         state.storage_recovered = false;
+        state.revision = state.revision.saturating_add(1);
         drop(state);
         let snapshot = self.snapshot(SettingsAdapterKind::Rpc);
         let _ = self.changes.send(snapshot.clone());
@@ -2171,7 +2192,7 @@ mod tests {
         let (_root, repository) = repository();
         fs::write(
             &repository.path,
-            br#"{"schemaVersion":0,"theme":"dark","locale":"zh"}"#,
+            br#"{"schemaVersion":0,"theme":"dark","locale":"zh-CN"}"#,
         )
         .expect("legacy settings");
         let platform = Arc::new(FakeStartupPlatform {
@@ -2240,7 +2261,7 @@ mod tests {
         let (_root, repository) = repository();
         fs::write(
             &repository.path,
-            br#"{"schemaVersion":3,"preferences":{"appearance":"dark","language":"zh","startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+            br#"{"schemaVersion":3,"preferences":{"appearance":"dark","language":"zh-CN","startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
         )
         .expect("version three settings");
 
@@ -2269,7 +2290,7 @@ mod tests {
         let (_root, repository) = repository();
         fs::write(
             &repository.path,
-            br#"{"schemaVersion":4,"preferences":{"appearance":"dark","language":"zh","onboarding":{"welcomeInvitation":null},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+            br#"{"schemaVersion":4,"preferences":{"appearance":"dark","language":"zh-CN","onboarding":{"welcomeInvitation":null},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
         )
         .expect("version four settings");
 
@@ -2297,7 +2318,7 @@ mod tests {
         let (_root, repository) = repository();
         fs::write(
             &repository.path,
-            br#"{"schemaVersion":4,"preferences":{"appearance":"dark","language":"zh","onboarding":{"welcomeInvitation":{"completedAt":12,"createdAt":10,"firstOpenedAt":11,"lastDismissedAt":null,"version":1}},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+            br#"{"schemaVersion":4,"preferences":{"appearance":"dark","language":"zh-CN","onboarding":{"welcomeInvitation":{"completedAt":12,"createdAt":10,"firstOpenedAt":11,"lastDismissedAt":null,"version":1}},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
         )
         .expect("version four completed settings");
 
@@ -2322,7 +2343,7 @@ mod tests {
         let (_root, repository) = repository();
         fs::write(
             &repository.path,
-            br#"{"schemaVersion":5,"preferences":{"appearance":"dark","language":"zh","onboarding":{"welcomeInvitation":{"completedAt":12,"createdAt":10,"firstOpenedAt":11,"lastDismissedAt":null,"promptedAt":10,"version":1}},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
+            br#"{"schemaVersion":5,"preferences":{"appearance":"dark","language":"zh-CN","onboarding":{"welcomeInvitation":{"completedAt":12,"createdAt":10,"firstOpenedAt":11,"lastDismissedAt":null,"promptedAt":10,"version":1}},"startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit","windowSurface":"opaque"}}"#,
         )
         .expect("version five completed settings");
 
@@ -2346,7 +2367,7 @@ mod tests {
         let (_root, repository) = repository();
         fs::write(
             &repository.path,
-            br#"{"schemaVersion":2,"preferences":{"appearance":"dark","language":"zh","startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit"}}"#,
+            br#"{"schemaVersion":2,"preferences":{"appearance":"dark","language":"zh-CN","startup":{"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"quit"}}"#,
         )
         .expect("version two settings");
         let service = SettingsService::load(
@@ -2403,6 +2424,69 @@ mod tests {
             *platform.0.lock().expect("window surface lock"),
             WindowSurfacePreference::Opaque
         );
+    }
+
+    #[test]
+    fn language_publication_follows_successful_persistence_and_revisions_are_monotonic() {
+        let (_root, repository) = repository();
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("settings service");
+        let mut updates = service.subscribe();
+        let initial = service.snapshot(SettingsAdapterKind::Rpc);
+        let updated = service
+            .set_language(LanguagePreference::Zh)
+            .expect("persisted language");
+
+        assert_eq!(updated.preferences.language, LanguagePreference::Zh);
+        assert!(updated.revision > initial.revision);
+        assert_eq!(
+            updates.try_recv().expect("published update").revision,
+            updated.revision
+        );
+
+        let failed = SettingsService::load(
+            Arc::new(FailingSaveRepository),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("in-memory load");
+        let mut failed_updates = failed.subscribe();
+        assert!(matches!(
+            failed.set_language(LanguagePreference::Zh),
+            Err(SettingsServiceError::Persistence)
+        ));
+        assert!(matches!(
+            failed_updates.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+        assert_eq!(
+            failed
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .language,
+            LanguagePreference::En
+        );
+    }
+
+    #[test]
+    fn subscription_initial_read_cannot_miss_a_later_language_update() {
+        let (_root, repository) = repository();
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("settings service");
+        let (mut updates, initial) = service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
+        let updated = service
+            .set_language(LanguagePreference::Zh)
+            .expect("persisted language");
+        let delivered = updates
+            .try_recv()
+            .expect("queued update after initial read");
+
+        assert!(delivered.revision > initial.revision);
+        assert_eq!(delivered.revision, updated.revision);
+        assert_eq!(delivered.preferences.language, LanguagePreference::Zh);
     }
 
     #[test]

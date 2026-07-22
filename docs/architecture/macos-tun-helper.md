@@ -41,6 +41,19 @@ pnpm desktop:dev
 
 The install command builds the helper, asks for administrator authorization,
 and installs a root-owned LaunchDaemon, helper, and pinned Mihomo v1.19.29 copy.
+Before it can ask for authorization, the installer resolves the required stable
+Cargo through Rustup. It checks, in order: an explicitly supplied absolute
+`MISH_TUN_RUSTUP` path (for trusted repository/test fixtures), an absolute
+`CARGO_HOME/bin/rustup`, the default `~/.cargo/bin/rustup`, Apple Silicon
+Homebrew (`/opt/homebrew/bin/rustup`), Intel Homebrew (`/usr/local/bin/rustup`),
+then absolute directories in `PATH`. The selected Rustup must return one
+executable absolute Cargo path for `rustup which cargo --toolchain stable`.
+The build inherits only `HOME`, `PATH`, `CARGO_HOME`, `RUSTUP_HOME`, and
+`TMPDIR`; `MISH_TUN_RUSTUP` is discovery-only and is never forwarded. Missing
+Rustup, invalid candidates, an absent stable Cargo, and a failed Cargo build
+produce separate typed preparation results. This remains a non-privileged
+prerequisite: it neither downloads the pinned Core nor installs a service or
+changes network state. Live administrator-operated acceptance remains #95.
 The development app invokes this same bounded installer from the first-TUN
 guide and Settings lifecycle actions. Authorization uses the macOS administrator
 dialog; Mish never accepts or reads the credential. Cancellation remains a

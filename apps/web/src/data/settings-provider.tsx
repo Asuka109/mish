@@ -14,6 +14,8 @@ import type {
 import { TunHelperFailureKindSchema } from "@mish/contracts";
 import { RpcRemoteError } from "@mish/rpc-client";
 import { UnavailableLocalBackupClient } from "../platform/local-backup";
+import TypesafeI18n from "../i18n/i18n-react";
+import { projectLocale } from "../i18n/locale";
 import {
   createContext,
   useCallback,
@@ -66,6 +68,9 @@ export function SettingsProvider({
   localBackupClient?: LocalBackupClient;
 }) {
   const [snapshot, setSnapshot] = useState(initialSnapshot);
+  const acceptSnapshot = useCallback((next: SettingsSnapshotDto) => {
+    setSnapshot((current) => (next.revision < current.revision ? current : next));
+  }, []);
   const [pending, setPending] = useState(false);
   const pendingRef = useRef(false);
   const networkRefreshController = useRef<AbortController | null>(null);
@@ -84,12 +89,12 @@ export function SettingsProvider({
       setPending(true);
       setError(null);
       try {
-        setSnapshot(await operation());
+        acceptSnapshot(await operation());
         return { ok: true } as const;
       } catch (operationError) {
         setError("settings-update-failed");
         try {
-          setSnapshot(await client.getSnapshot());
+          acceptSnapshot(await client.getSnapshot());
         } catch {
           // Keep the last confirmed snapshot when refresh also fails.
         }
@@ -99,7 +104,7 @@ export function SettingsProvider({
         setPending(false);
       }
     },
-    [client],
+    [acceptSnapshot, client],
   );
 
   const refreshNetworkDns = useCallback(async () => {
@@ -123,7 +128,7 @@ export function SettingsProvider({
     [],
   );
 
-  useEffect(() => client.subscribeSnapshots(setSnapshot), [client]);
+  useEffect(() => client.subscribeSnapshots(acceptSnapshot), [acceptSnapshot, client]);
 
   const runTunHelper = useCallback(
     async (operation: () => Promise<SettingsSnapshotDto>): Promise<TunHelperOperationResult> => {
@@ -145,7 +150,7 @@ export function SettingsProvider({
 
   const value = useMemo<SettingsContextValue>(
     () => ({
-      acceptSnapshot: setSnapshot,
+      acceptSnapshot,
       error,
       installTunHelper: () => runTunHelper(() => client.installTunHelper()),
       localBackupClient,
@@ -170,6 +175,7 @@ export function SettingsProvider({
       tunHelperFailure,
     }),
     [
+      acceptSnapshot,
       client,
       error,
       localBackupClient,
@@ -192,4 +198,16 @@ export function useSettings() {
 
 export function useOptionalSettings() {
   return useContext(SettingsContext);
+}
+
+/** Projects the Rust-authoritative language into the shared Web rendering surface. */
+export function SettingsLanguageProjection({ children }: { children: ReactNode }) {
+  const { snapshot } = useSettings();
+  const locale = snapshot.preferences.language === "zh-CN" ? "zh" : "en";
+  projectLocale(locale);
+  return (
+    <TypesafeI18n key={locale} locale={locale}>
+      {children}
+    </TypesafeI18n>
+  );
 }

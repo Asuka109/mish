@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, chmod, constants, mkdir, readFile, writeFile } from "node:fs/promises";
+import { accessSync, constants as syncConstants, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -40,11 +41,120 @@ const installerRoot = path.join(runtimeRoot, "tun-service-installer");
 const plist = path.join(installerRoot, `${label}.plist`);
 const resultReceipt = path.join(installerRoot, "last-result.json");
 
+type ToolchainEnvironment = Record<string, string | undefined>;
+
+export type ToolchainDiscovery = {
+  cargo: string;
+  rustup: string;
+};
+
+export type ToolchainDiscoveryOptions = {
+  environment?: ToolchainEnvironment;
+  homeDirectory?: string;
+  execute?: (executable: string, args: string[], environment: ToolchainEnvironment) => string;
+  isExecutable?: (candidate: string) => boolean;
+};
+
 const action = process.argv[2];
-if (!new Set(["install", "prepare", "repair", "status", "uninstall"]).has(action)) {
-  throw new Error(
-    "Usage: node scripts/manage-macos-tun-service.ts <install|prepare|repair|status|uninstall>",
+
+function installerEnvironment(environment: ToolchainEnvironment): ToolchainEnvironment {
+  const allowed = ["HOME", "PATH", "CARGO_HOME", "RUSTUP_HOME", "TMPDIR"] as const;
+  return Object.fromEntries(
+    allowed.flatMap((name) => {
+      const value = environment[name];
+      return value === undefined ? [] : [[name, value]];
+    }),
   );
+}
+
+function executableFile(candidate: string) {
+  try {
+    return (
+      path.isAbsolute(candidate) &&
+      statSync(candidate).isFile() &&
+      (() => {
+        accessSync(candidate, syncConstants.X_OK);
+        return true;
+      })()
+    );
+  } catch {
+    return false;
+  }
+}
+
+function rustupCandidates(environment: ToolchainEnvironment, homeDirectory: string) {
+  const candidates: Array<{ path: string }> = [];
+  const injected = environment.MISH_TUN_RUSTUP;
+  if (injected !== undefined) candidates.push({ path: injected });
+
+  const cargoHome = environment.CARGO_HOME;
+  if (cargoHome !== undefined && path.isAbsolute(cargoHome)) {
+    candidates.push({ path: path.join(cargoHome, "bin", "rustup") });
+  }
+  candidates.push(
+    { path: path.join(homeDirectory, ".cargo", "bin", "rustup") },
+    { path: "/opt/homebrew/bin/rustup" },
+    { path: "/usr/local/bin/rustup" },
+  );
+  for (const directory of (environment.PATH ?? "").split(path.delimiter)) {
+    if (path.isAbsolute(directory)) {
+      candidates.push({ path: path.join(directory, "rustup") });
+    }
+  }
+  return candidates.filter(
+    (candidate, index, all) => all.findIndex((other) => other.path === candidate.path) === index,
+  );
+}
+
+export function resolveStableCargo(options: ToolchainDiscoveryOptions = {}): ToolchainDiscovery {
+  const environment = options.environment ?? process.env;
+  const commandEnvironment = installerEnvironment(environment);
+  const executable = options.isExecutable ?? executableFile;
+  const execute =
+    options.execute ??
+    ((file, args, env) =>
+      execFileSync(file, args, { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] }));
+  const candidates = rustupCandidates(environment, options.homeDirectory ?? os.homedir());
+  const selected = candidates.find((candidate) => executable(candidate.path));
+  if (!selected) {
+    const injected = environment.MISH_TUN_RUSTUP;
+    if (injected !== undefined) {
+      throw new InstallerFailure("preparation-failed", "rustup", "rustup-candidate-invalid");
+    }
+    throw new InstallerFailure("preparation-failed", "rustup", "rustup-unavailable");
+  }
+
+  let output: string;
+  try {
+    output = execute(
+      selected.path,
+      ["which", "cargo", "--toolchain", "stable"],
+      commandEnvironment,
+    );
+  } catch {
+    throw new InstallerFailure("preparation-failed", "cargo", "stable-cargo-unavailable");
+  }
+  const cargo = output.trim();
+  if (!cargo || cargo.includes("\n") || cargo.includes("\r") || !path.isAbsolute(cargo)) {
+    throw new InstallerFailure("preparation-failed", "cargo", "stable-cargo-invalid");
+  }
+  if (!executable(cargo)) {
+    throw new InstallerFailure("preparation-failed", "cargo", "stable-cargo-invalid");
+  }
+  return { cargo, rustup: selected.path };
+}
+
+function buildHelper(cargo: string, environment: ToolchainEnvironment = process.env) {
+  try {
+    const commandEnvironment = installerEnvironment(environment);
+    commandEnvironment.PATH = `${path.dirname(cargo)}:${commandEnvironment.PATH ?? ""}`;
+    execFileSync(cargo, ["build", "-p", "mish-platform-macos", "--bin", "mish-tun-helper"], {
+      env: commandEnvironment,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    throw new InstallerFailure("preparation-failed", "helper-build", "cargo-build-failed");
+  }
 }
 
 const run = (executable: string, args: string[], options: { allowFailure?: boolean } = {}) => {
@@ -144,23 +254,8 @@ async function prepare(uid: number) {
     throw new InstallerFailure("preparation-failed", "core-artifact", "pinned-core-missing");
   }
 
-  let cargo: string;
-  try {
-    cargo = execFileSync("/opt/homebrew/bin/rustup", ["which", "cargo", "--toolchain", "stable"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-  } catch {
-    throw new InstallerFailure("preparation-failed", "cargo", "stable-cargo-unavailable");
-  }
-  try {
-    execFileSync(cargo, ["build", "-p", "mish-platform-macos", "--bin", "mish-tun-helper"], {
-      env: { ...process.env, PATH: `${path.dirname(cargo)}:${process.env.PATH ?? ""}` },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-  } catch {
-    throw new InstallerFailure("preparation-failed", "helper-build", "cargo-build-failed");
-  }
+  const { cargo } = resolveStableCargo();
+  buildHelper(cargo);
 
   const helperSource = path.resolve("target/debug/mish-tun-helper");
   const escapeXml = (value: string) =>
@@ -292,23 +387,30 @@ async function main() {
   await report({ ok: true, stage: "completed" });
 }
 
-try {
-  await main();
-} catch (error) {
-  if (error instanceof InstallerFailure) {
-    await report({
-      code: error.code,
-      kind: error.kind,
-      ok: false,
-      stage: error.stage,
-    });
-  } else {
-    await report({
-      code: "unexpected-installer-failure",
-      kind: "preparation-failed",
-      ok: false,
-      stage: "installer",
-    });
+if (import.meta.main) {
+  if (!new Set(["install", "prepare", "repair", "status", "uninstall"]).has(action)) {
+    throw new Error(
+      "Usage: node scripts/manage-macos-tun-service.ts <install|prepare|repair|status|uninstall>",
+    );
   }
-  process.exitCode = 1;
+  try {
+    await main();
+  } catch (error) {
+    if (error instanceof InstallerFailure) {
+      await report({
+        code: error.code,
+        kind: error.kind,
+        ok: false,
+        stage: error.stage,
+      });
+    } else {
+      await report({
+        code: "unexpected-installer-failure",
+        kind: "preparation-failed",
+        ok: false,
+        stage: "installer",
+      });
+    }
+    process.exitCode = 1;
+  }
 }

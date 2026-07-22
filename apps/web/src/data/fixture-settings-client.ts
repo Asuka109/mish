@@ -21,16 +21,10 @@ function storedAppearance(): AppearancePreference {
 }
 
 function storedLanguage(): LanguagePreference {
-  try {
-    const value = globalThis.localStorage?.getItem("mish.locale");
-    if (value === "en" || value === "zh") return value;
-  } catch {
-    // Hardened browser contexts may not expose storage.
-  }
   return globalThis.navigator?.languages?.some((language) =>
     language.toLowerCase().startsWith("zh"),
   )
-    ? "zh"
+    ? "zh-CN"
     : "en";
 }
 
@@ -88,6 +82,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       loopbackOnly: "unavailable",
       originValidated: "unavailable",
     },
+    revision: 1,
     startupRegistration: { desired: false, observed: null, phase: "unavailable" },
     storageRecovered: false,
     tunHelper: {
@@ -132,6 +127,7 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async setLanguage(language: LanguagePreference) {
     this.snapshot.preferences.language = language;
+    this.snapshot.revision += 1;
     return this.getSnapshot();
   }
 
