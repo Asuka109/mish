@@ -2213,6 +2213,7 @@ dependencies = [
 name = "mish-desktop"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "getrandom 0.4.3",
  "mish-bridge",
  "mish-platform-macos",
