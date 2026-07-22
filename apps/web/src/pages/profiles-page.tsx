@@ -51,33 +51,44 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
 
 const profileStyles = tv({
   slots: {
-    cardList: "profile-card-list grid gap-3",
-    card: "profile-card overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas)",
+    page: "mx-auto w-[min(100%,1040px)] p-8 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
+    header:
+      "flex items-start justify-between gap-6 max-[900px]:flex-col max-[900px]:items-stretch [&_p]:mt-[7px] [&_p]:max-w-[660px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)",
+    importActions:
+      "flex shrink-0 items-center gap-2 max-[900px]:self-start max-[600px]:w-full max-[600px]:flex-wrap max-[600px]:[&>.ui-button]:min-w-0 max-[600px]:[&>.ui-button]:flex-[1_1_180px]",
+    loading: "mt-2.5 text-[12px] leading-[18px] text-(--color-text-muted)",
+    empty: "mt-5",
+    cardList: "mt-6 grid gap-[14px]",
+    card: "overflow-hidden rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) data-[source=subscription]:[&>header]:border-b data-[source=subscription]:[&>header]:border-(--color-hairline-soft)",
     cardHeader:
-      "profile-card-header flex min-h-[58px] items-center justify-between gap-3 px-4 py-3 max-[680px]:items-start",
-    cardTitle: "profile-card-title flex min-w-0 items-center gap-2",
-    cardActions:
-      "profile-card-actions flex shrink-0 items-center gap-2 max-[680px]:flex-wrap max-[680px]:justify-end",
+      "flex min-h-[68px] items-center justify-between gap-4 px-4 py-3 max-[680px]:items-start",
+    cardTitle: "flex min-w-0 flex-1 items-center gap-2",
+    cardActions: "flex shrink-0 items-center gap-2 max-[680px]:flex-wrap max-[680px]:justify-end",
     fileTitle:
-      "profile-file-title min-w-0 overflow-hidden text-ellipsis whitespace-nowrap font-(--font-weight-control)",
-    extension: "profile-file-extension text-(--color-text-muted)",
+      "min-w-0 overflow-hidden text-(--color-ink) text-ellipsis whitespace-nowrap font-(--font-weight-heading)",
+    extension: "text-(--color-text-muted) font-(--font-weight-control)",
     subscription:
-      "profile-subscription border-t border-(--color-hairline-soft) bg-(--color-surface-soft)",
+      "bg-[color-mix(in_srgb,var(--color-surface-soft)_58%,var(--color-canvas))] px-4 pt-[14px] pb-[13px]",
     subscriptionGrid:
       "profile-subscription-grid grid grid-cols-[minmax(260px,1fr)_126px_144px] items-end gap-5 max-[900px]:grid-cols-[minmax(0,1fr)_112px_132px] max-[900px]:gap-[14px] max-[680px]:grid-cols-2",
-    subscriptionCell: "grid min-w-0 gap-1",
-    source: "profile-subscription-source grid min-w-0 gap-1 max-[680px]:col-span-2",
-    url: "profile-subscription-url overflow-hidden text-ellipsis whitespace-nowrap text-(--text-metadata) text-(--color-body)",
-    date: "profile-subscription-date grid gap-1 text-(--text-metadata) text-(--color-text-muted) [&_strong]:text-(--color-body) [&_strong]:font-(--font-weight-control)",
-    nextUpdate: "profile-next-update flex items-center gap-2",
+    subscriptionCell:
+      "grid min-w-0 gap-1 [&>span]:text-[12px] [&>span]:leading-4 [&>span]:text-(--color-text-muted) [&>dt]:text-[12px] [&>dt]:leading-4 [&>dt]:text-(--color-text-muted)",
+    source:
+      "grid min-w-0 gap-1 max-[680px]:col-span-2 [&>span:first-child]:flex [&>span:first-child]:items-center [&>span:first-child]:gap-1.5 [&_svg]:size-[15px]",
+    url: "block min-h-[26px] overflow-hidden text-(--text-metadata) leading-[26px] font-(--font-weight-control) text-(--color-text-muted) text-ellipsis whitespace-nowrap",
+    date: "grid gap-1 text-(--text-metadata) text-(--color-text-muted) [&>strong]:flex [&>strong]:min-h-[26px] [&>strong]:items-center [&>strong]:truncate [&>strong]:text-(--text-metadata) [&>strong]:leading-[18px] [&>strong]:font-(--font-weight-control) [&>strong]:text-(--color-ink) [&>strong]:tabular-nums",
+    nextUpdate: "inline-flex w-max max-w-full items-center gap-1",
     intervalTrigger:
       "profile-interval-trigger grid size-7 place-items-center rounded-(--radius-sm) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-interactive) hover:text-(--color-ink) data-[popup-open]:bg-(--color-interactive) data-[popup-open]:text-(--color-ink) focus-visible:bg-(--color-interactive) focus-visible:text-(--color-ink) disabled:opacity-[0.45] [&_svg]:size-[15px]",
+    intervalMenu: "w-[190px]",
     overwrite:
-      "profile-overwrite-note flex gap-2 px-4 py-3 text-(--text-metadata) text-(--color-text-muted) [&_svg]:mt-px [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-(--color-warning) [&_button]:text-(--color-body) [&_button]:underline hover:[&_button]:text-(--color-ink) focus-visible:[&_button]:text-(--color-ink)",
-    preview: "profile-preview grid gap-3 p-4",
-    previewCompact: "profile-preview-compact",
+      "mt-[9px] flex items-center gap-[7px] border-t border-(--color-hairline-soft) pt-[9px] text-[12px] leading-[18px] text-(--color-warning) [&_svg]:size-[15px] [&_svg]:shrink-0 [&_span]:text-(--color-text-muted) [&_button]:ml-[3px] [&_button]:inline [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:text-(--color-ink) [&_button]:underline [&_button]:underline-offset-[3px] hover:[&_button]:text-(--color-brand) focus-visible:[&_button]:text-(--color-brand)",
+    importDialog: "w-[min(720px,calc(100vw_-_32px))]",
+    importForm: "p-4",
+    preview: "grid gap-[14px] p-4",
     previewList:
-      "grid grid-cols-3 gap-px overflow-hidden rounded-(--radius-md) bg-(--color-hairline-soft) [&>div]:bg-(--color-canvas) [&>div]:p-3 [&_dt]:text-(--text-metadata) [&_dt]:text-(--color-text-muted) [&_dd]:mt-1 [&_dd]:font-(--font-weight-control)",
+      "grid grid-cols-3 overflow-hidden rounded-(--radius-md) border border-(--color-hairline) [&>div]:grid [&>div]:gap-1 [&>div]:p-3 [&>div+div]:border-l [&>div+div]:border-(--color-hairline-soft) [&_dt]:text-[12px] [&_dt]:text-(--color-text-muted) [&_dd]:text-(--color-ink) [&_dd]:font-(--font-weight-heading)",
+    previewMessage: "text-[12px] text-(--color-text-muted)",
   },
 });
 
@@ -194,13 +205,13 @@ export function ProfilesPage() {
   }
 
   return (
-    <div className="profiles-page">
-      <header className="profiles-header">
+    <div className={profileStyles().page()}>
+      <header className={profileStyles().header()}>
         <div>
           <h1>{LL.profiles.title()}</h1>
           <p>{LL.profiles.description()}</p>
         </div>
-        <div className="profiles-import-actions">
+        <div className={profileStyles().importActions()}>
           <Button disabled={!createSupported} onClick={openCreate} variant="outline">
             <FilePlus data-icon="inline-start" />
             {LL.profiles.createProfile()}
@@ -220,10 +231,12 @@ export function ProfilesPage() {
         </div>
       </header>
 
-      {profiles.isLoading ? <p className="profiles-loading">{LL.profiles.loading()}</p> : null}
+      {profiles.isLoading ? (
+        <p className={profileStyles().loading()}>{LL.profiles.loading()}</p>
+      ) : null}
 
       {snapshot && snapshot.profiles.length === 0 ? (
-        <Empty className="profiles-empty">
+        <Empty className={profileStyles().empty()}>
           <EmptyHeader>
             <EmptyTitle>{LL.profiles.emptyTitle()}</EmptyTitle>
             <EmptyDescription>{LL.profiles.emptyDescription()}</EmptyDescription>
@@ -257,7 +270,7 @@ export function ProfilesPage() {
         onOpenChange={(open) => (open ? setCreateOpen(true) : closeCreate())}
         open={createOpen}
       >
-        <DialogContent className="profile-import-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={profileStyles().importDialog()} closeLabel={LL.common.close()}>
           <DialogHeader>
             <div>
               <DialogTitle className="dialog-title">{LL.profiles.createTitle()}</DialogTitle>
@@ -266,7 +279,11 @@ export function ProfilesPage() {
               </DialogDescription>
             </div>
           </DialogHeader>
-          <form className="profile-import-form" id="profile-create-form" onSubmit={createProfile}>
+          <form
+            className={profileStyles().importForm()}
+            id="profile-create-form"
+            onSubmit={createProfile}
+          >
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="profile-create-file-name">
@@ -309,7 +326,7 @@ export function ProfilesPage() {
         onOpenChange={(open) => (open ? setImportOpen(true) : closeImport())}
         open={importOpen}
       >
-        <DialogContent className="profile-import-dialog" closeLabel={LL.common.close()}>
+        <DialogContent className={profileStyles().importDialog()} closeLabel={LL.common.close()}>
           <DialogHeader>
             <div>
               <DialogTitle className="dialog-title">
@@ -326,7 +343,7 @@ export function ProfilesPage() {
             <ProfilePreview LL={LL} preview={preview} />
           ) : (
             <form
-              className="profile-import-form"
+              className={profileStyles().importForm()}
               id="profile-import-form"
               onSubmit={preflightHttps}
             >
@@ -497,7 +514,11 @@ function ProfileCard({
                   >
                     <Alarm aria-hidden="true" />
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="profile-interval-menu" sideOffset={7}>
+                  <DropdownMenuContent
+                    align="end"
+                    className={profileStyles().intervalMenu()}
+                    sideOffset={7}
+                  >
                     <DropdownMenuGroup>
                       <DropdownMenuLabel>{LL.profiles.updateInterval()}</DropdownMenuLabel>
                     </DropdownMenuGroup>
@@ -558,7 +579,7 @@ function ProfileDate({ label, value }: { label: string; value: string }) {
 
 function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: ProfilePreviewDto }) {
   return (
-    <div className={`${profileStyles().preview()} ${profileStyles().previewCompact()}`}>
+    <div className={profileStyles().preview()}>
       <FileNameTitle fileName={normalizeFileName(preview.label) ?? preview.label} />
       <dl className={profileStyles().previewList()}>
         <div>
@@ -575,7 +596,9 @@ function ProfilePreview({ LL, preview }: { LL: TranslationFunctions; preview: Pr
         </div>
       </dl>
       {preview.warningCodes.length > 0 ? (
-        <p>{LL.profiles.warnings({ count: preview.warningCodes.length })}</p>
+        <p className={profileStyles().previewMessage()}>
+          {LL.profiles.warnings({ count: preview.warningCodes.length })}
+        </p>
       ) : null}
     </div>
   );
