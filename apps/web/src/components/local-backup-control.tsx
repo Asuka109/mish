@@ -41,9 +41,9 @@ const backupStyles = tv({
     option:
       "grid min-h-[52px] grid-cols-[18px_minmax(0,1fr)] items-start gap-[10px] bg-(--color-canvas) px-[11px] py-[9px] has-[input:disabled]:opacity-[0.55] [&_input]:mt-[2px] [&_input]:size-[15px] [&_input]:accent-(--color-brand) [&>span]:grid [&>span]:gap-[2px] [&_strong]:text-(--text-metadata) [&_strong]:font-(--font-weight-control) [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted) data-[sensitive=true]:[&_strong]:text-(--color-warning)",
     boundary:
-      "local-backup-boundary mx-4 mb-4 text-[12px] leading-[18px] text-(--color-text-muted)",
+      "mx-4 mb-4 text-[12px] leading-[18px] text-(--color-text-muted)",
     safety:
-      "local-backup-safety mx-4 mb-4 grid grid-cols-[16px_minmax(0,1fr)] gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-[11px] py-[10px] text-[12px] leading-[18px] text-(--color-body) [&_svg]:size-4 [&_svg]:text-(--color-warning)",
+      "mx-4 mb-4 grid grid-cols-[16px_minmax(0,1fr)] gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-[11px] py-[10px] text-[12px] leading-[18px] text-(--color-body) [&_svg]:size-4 [&_svg]:text-(--color-warning)",
     summary:
       "local-backup-summary grid grid-cols-[110px_150px_minmax(0,1fr)] gap-px border-y border-(--color-hairline-soft) bg-(--color-hairline-soft) [&>div]:grid [&>div]:content-start [&>div]:gap-1 [&>div]:bg-(--color-canvas) [&>div]:px-3 [&>div]:py-[10px] [&_dt]:text-[12px] [&_dt]:text-(--color-text-muted) [&_dd]:wrap-anywhere [&_dd]:text-(--text-metadata) [&_dd]:text-(--color-body)",
     restoreScope:
