@@ -62,7 +62,7 @@ describe("browser backend recovery", () => {
       screen.queryByRole("button", { name: "Stale application control" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Mish stopped responding" })).toHaveFocus();
-    expect(screen.getByText("6474")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Backend port" })).toHaveValue("6474");
     expect(onRecoveryRequired).toHaveBeenCalledOnce();
   });
 
@@ -85,14 +85,20 @@ describe("browser backend recovery", () => {
     const monitor = new ConnectionMonitor({ attempt: 0, phase: "connected", stale: false });
     const discover = vi
       .fn()
-      .mockResolvedValueOnce({ phase: "not-found" })
+      .mockResolvedValueOnce({ emptyPorts: 5, occupiedPorts: 2, phase: "not-found" })
       .mockResolvedValueOnce({ origin: "http://127.0.0.1:6476", phase: "found", port: 6476 });
     const navigate = vi.fn();
     renderRecovery(monitor, { discover, navigate });
     act(() => monitor.emit({ attempt: 5, phase: "disconnected", stale: true }));
 
+    const port = screen.getByRole("textbox", { name: "Backend port" });
+    await user.clear(port);
+    await user.type(port, "5000");
     await user.click(screen.getByRole("button", { name: "Reconnect" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("No running Mish backend");
+    expect(discover).toHaveBeenNthCalledWith(1, expect.objectContaining({ preferredPort: 5000 }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "checking 2 occupied and 5 empty ports",
+    );
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Found Mish on port 6476");
     expect(navigate).not.toHaveBeenCalled();
@@ -104,18 +110,40 @@ describe("browser backend recovery", () => {
     const monitor = new ConnectionMonitor({ attempt: 0, phase: "connected", stale: false });
     const discover = vi.fn(
       ({ signal }: { signal: AbortSignal }) =>
-        new Promise<{ phase: "not-found" }>((resolve) => {
-          signal.addEventListener("abort", () => resolve({ phase: "not-found" }), { once: true });
-        }),
+        new Promise<{ emptyPorts: number; occupiedPorts: number; phase: "not-found" }>(
+          (resolve) => {
+            signal.addEventListener(
+              "abort",
+              () => resolve({ emptyPorts: 0, occupiedPorts: 0, phase: "not-found" }),
+              { once: true },
+            );
+          },
+        ),
     );
     renderRecovery(monitor, { discover });
     act(() => monitor.emit({ attempt: 5, phase: "disconnected", stale: true }));
 
     await user.click(screen.getByRole("button", { name: "Reconnect" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Checking this port");
+    expect(screen.getByRole("status")).toHaveTextContent("Checking port 6474");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(await screen.findByRole("status")).toHaveTextContent("cancelled");
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
+  it("requires an editable valid port before discovery", async () => {
+    const user = userEvent.setup();
+    const monitor = new ConnectionMonitor({ attempt: 0, phase: "connected", stale: false });
+    const discover = vi.fn();
+    renderRecovery(monitor, { discover });
+    act(() => monitor.emit({ attempt: 5, phase: "disconnected", stale: true }));
+
+    const port = screen.getByRole("textbox", { name: "Backend port" });
+    await user.clear(port);
+    expect(screen.getByRole("button", { name: "Reconnect" })).toBeDisabled();
+    await user.type(port, "65536");
+    expect(port).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("button", { name: "Reconnect" })).toBeDisabled();
+    expect(discover).not.toHaveBeenCalled();
   });
 
   it("announces an unexpected discovery failure and keeps retry available", async () => {

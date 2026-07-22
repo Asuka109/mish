@@ -203,7 +203,7 @@ Automated tests cover:
   adapter, including native snapshot identity, lifecycle events, stable typed
   failures, and suppression of false success events;
 - standalone browser isolation from desktop IPC, explicit bridge-launched
-  browser composition, one-time launch-PIN consumption, bounded manual PIN
+  browser composition, one-time launch-token consumption, bounded manual PIN
   exchange, strict Host/Origin and loopback endpoint validation, HttpOnly
   refresh-session plus origin-proof recovery, and separation of both launch
   material and the RPC authentication token from the WebSocket URL;
@@ -252,14 +252,18 @@ infer demo mode from a missing or failed backend.
 2. Quit Mish while keeping that tab open. After the bounded WebSocket reconnect
    attempts finish, confirm that the complete application shell is replaced by
    the disconnected surface, the prior controls cannot be focused or invoked,
-   and the displayed backend port matches the tab's original Mish origin.
-3. Select **Reconnect** while Mish is stopped. Confirm that discovery can be
-   cancelled, cancellation leaves a retry action, and a completed scan with no
-   backend reports that result without restoring stale content.
-4. Start Mish again, select **Try again**, and confirm that the browser finds the
-   first valid Mish service from port 6474 upward, rejects unrelated listeners,
-   preserves the current path and query, and performs a replacement navigation
-   without carrying the old fragment.
+   and the editable backend port initially matches the tab's original Mish
+   origin.
+3. Change the backend port to an unused value such as `5000`, select
+   **Reconnect** while Mish is stopped, and confirm that port is checked first.
+   Confirm that discovery can be cancelled, cancellation leaves a retry action,
+   and an empty-port scan stops after five candidates without restoring stale
+   content.
+4. Start Mish again, select **Try again**, and confirm that the browser checks
+   the entered port before finding the first valid Mish service from port 6474
+   upward. Confirm that it skips unrelated listeners, stops after at most 10
+   occupied non-Mish ports, preserves the current path and query, and performs a
+   replacement navigation without carrying the old fragment.
 5. Complete the existing six-digit pairing flow when requested. Confirm that no
    prior process session or proof bypasses authentication and that the restored
    route is backed by live RPC state.

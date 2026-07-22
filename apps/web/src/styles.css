@@ -112,29 +112,27 @@
   margin-top: var(--mish-spacing-sm);
 }
 
-.browser-backend-recovery__details {
+.browser-backend-recovery form {
   margin: var(--mish-spacing-lg) 0 0;
 }
 
-.browser-backend-recovery__details > div {
-  align-items: center;
-  background: var(--mish-color-surface-soft);
-  border-radius: var(--mish-radius-md);
-  display: flex;
-  justify-content: space-between;
-  padding: var(--mish-spacing-sm) var(--mish-spacing-md);
+.browser-backend-recovery__port-field label {
+  color: var(--mish-color-ink);
+  display: block;
+  font-size: var(--mish-typography-body-font-size);
+  font-weight: 600;
+  margin-bottom: var(--mish-spacing-xs);
 }
 
-.browser-backend-recovery__details dt {
+.browser-backend-recovery__port-field .ui-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  width: 100%;
+}
+
+.browser-backend-recovery .browser-backend-recovery__hint {
   color: var(--mish-color-muted);
   font-size: var(--mish-typography-metadata-font-size);
-}
-
-.browser-backend-recovery__details dd {
-  color: var(--mish-color-ink);
-  font-size: var(--mish-typography-metadata-font-size);
-  font-weight: 600;
-  margin: 0;
+  margin-top: var(--mish-spacing-xs);
 }
 
 .browser-backend-recovery__status {

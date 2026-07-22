@@ -1164,11 +1164,14 @@ const zh = {
     eyebrow: "本机连接已中断",
     failed: "Mish 无法完成后端查找，请重试。",
     found: "已在端口 {port} 找到 Mish，正在重新连接…",
-    notFound: "未找到正在运行的 Mish 后端。请启动 Mish 后重试。",
+    notFound:
+      "检查了 {occupiedPorts} 个已占用端口和 {emptyPorts} 个空端口后，仍未找到正在运行的 Mish 后端。",
+    portHint:
+      "请输入 1 到 65535 的端口。Mish 会先检查此端口，再从 6474 开始扫描，遇到 10 个已占用端口或 5 个空端口后停止。",
     portLabel: "后端端口",
     reconnect: "重新连接",
     retry: "重试",
-    searching: "正在检查当前端口，并从 6474 起继续查找 Mish…",
+    searching: "正在检查端口 {port}，随后从 6474 起继续查找 Mish…",
     title: "Mish 已停止响应",
   },
   errors: {

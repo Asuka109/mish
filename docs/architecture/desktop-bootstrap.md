@@ -156,17 +156,22 @@ returns to pairing and cannot claim an authenticated RPC runtime.
 After the browser has reached an authenticated RPC connection, exhaustion of
 the bounded WebSocket reconnect policy replaces the application shell with a
 browser-only disconnected surface. The surface shows the validated bootstrap
-port and keeps all stale product controls unmounted. Reconnect first probes that
-port, then checks IPv4-loopback ports in ascending order from 6474 with bounded
-per-request timeouts, concurrency, an overall deadline, and explicit
-cancellation.
+port in an editable numeric field and keeps all stale product controls
+unmounted. Reconnect first probes the entered port, then checks IPv4-loopback
+ports sequentially from 6474. The conventional scan stops after 10 occupied
+non-Mish ports or 5 empty ports, whichever occurs first, and retains bounded
+per-request timeouts, an overall deadline, and explicit cancellation.
 
 Browser-hosting bridges expose `GET /browser-discovery` solely as a versioned
 service marker. The marker contains no RPC token, PIN, proof, session, settings,
 or process data. Cross-port reads accept only HTTP origins on
 `127.0.0.1:6474` or above and use no credentials; all authenticated bootstrap
 and RPC routes retain their existing exact Host, Origin, cookie, proof, and
-token checks. A matching marker causes a fragment-free replacement navigation
+token checks. If a marker request is blocked by CORS, a credential-free opaque
+request classifies a listener as occupied when browser policy permits; an
+ambiguous network or policy failure counts against the empty-port budget. The
+opaque response can never authenticate or select a listener. Only a matching
+marker causes a fragment-free replacement navigation
 to the discovered origin. Origin-scoped proof storage is not copied, and a new
 or restarted process must pass through the existing pairing flow when its
 process-local session is no longer valid.

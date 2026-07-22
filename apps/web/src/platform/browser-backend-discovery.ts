@@ -5,15 +5,17 @@ export const MISH_BROWSER_DISCOVERY_PROTOCOL_VERSION = 1;
 
 const FIRST_MISH_BROWSER_PORT = 6474;
 const LAST_MISH_BROWSER_PORT = 65_535;
-const DEFAULT_CONCURRENCY = 12;
+const DEFAULT_MAX_EMPTY_PORTS = 5;
+const DEFAULT_MAX_OCCUPIED_PORTS = 10;
 const DEFAULT_PROBE_TIMEOUT_MILLISECONDS = 400;
 const DEFAULT_SCAN_TIMEOUT_MILLISECONDS = 15_000;
 
 interface DiscoveryOptions {
-  concurrency?: number;
-  currentPort: number;
   fetch?: typeof fetch;
+  maxEmptyPorts?: number;
+  maxOccupiedPorts?: number;
   maxPort?: number;
+  preferredPort: number;
   probeTimeoutMilliseconds?: number;
   scanTimeoutMilliseconds?: number;
   signal: AbortSignal;
@@ -21,59 +23,65 @@ interface DiscoveryOptions {
 
 export type BrowserBackendDiscoveryResult =
   | { origin: string; phase: "found"; port: number }
-  | { phase: "not-found" };
+  | { emptyPorts: number; occupiedPorts: number; phase: "not-found" };
+
+type BrowserBackendProbeResult =
+  | { origin: string; phase: "found"; port: number }
+  | { phase: "empty" | "occupied" };
 
 export async function discoverMishBrowserBackend({
-  concurrency = DEFAULT_CONCURRENCY,
-  currentPort,
   fetch: fetchRequest = globalThis.fetch,
+  maxEmptyPorts = DEFAULT_MAX_EMPTY_PORTS,
+  maxOccupiedPorts = DEFAULT_MAX_OCCUPIED_PORTS,
   maxPort = LAST_MISH_BROWSER_PORT,
+  preferredPort,
   probeTimeoutMilliseconds = DEFAULT_PROBE_TIMEOUT_MILLISECONDS,
   scanTimeoutMilliseconds = DEFAULT_SCAN_TIMEOUT_MILLISECONDS,
   signal,
 }: DiscoveryOptions): Promise<BrowserBackendDiscoveryResult> {
-  assertPort(currentPort);
+  assertPort(preferredPort);
   assertPort(maxPort);
   if (maxPort < FIRST_MISH_BROWSER_PORT) throw new RangeError("Invalid discovery port range");
-  if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) {
-    throw new RangeError("Discovery concurrency must be between 1 and 32");
-  }
+  assertPositiveInteger(maxEmptyPorts, "empty-port limit");
+  assertPositiveInteger(maxOccupiedPorts, "occupied-port limit");
 
   throwIfAborted(signal);
   const deadline = new AbortController();
   const deadlineTimer = setTimeout(() => deadline.abort(), scanTimeoutMilliseconds);
   try {
     const current = await probeMishBrowserBackend(
-      currentPort,
+      preferredPort,
       fetchRequest,
       [signal, deadline.signal],
       probeTimeoutMilliseconds,
     );
     throwIfAborted(signal);
-    if (current) return current;
-    if (deadline.signal.aborted) return { phase: "not-found" };
+    if (current.phase === "found") return current;
+    if (deadline.signal.aborted) return notFound(0, 0);
 
-    for (let start = FIRST_MISH_BROWSER_PORT; start <= maxPort; start += concurrency) {
-      const ports = Array.from(
-        { length: Math.min(concurrency, maxPort - start + 1) },
-        (_, index) => start + index,
-      );
-      const results = await Promise.all(
-        ports.map((port) =>
-          probeMishBrowserBackend(
-            port,
-            fetchRequest,
-            [signal, deadline.signal],
-            probeTimeoutMilliseconds,
-          ),
-        ),
+    let emptyPorts = 0;
+    let occupiedPorts = 0;
+    for (let port = FIRST_MISH_BROWSER_PORT; port <= maxPort; port += 1) {
+      if (port === preferredPort) continue;
+      const result = await probeMishBrowserBackend(
+        port,
+        fetchRequest,
+        [signal, deadline.signal],
+        probeTimeoutMilliseconds,
       );
       throwIfAborted(signal);
-      const found = results.find((candidate) => candidate !== null);
-      if (found) return found;
-      if (deadline.signal.aborted) return { phase: "not-found" };
+      if (result.phase === "found") return result;
+      if (result.phase === "occupied") occupiedPorts += 1;
+      else emptyPorts += 1;
+      if (
+        deadline.signal.aborted ||
+        emptyPorts >= maxEmptyPorts ||
+        occupiedPorts >= maxOccupiedPorts
+      ) {
+        return notFound(emptyPorts, occupiedPorts);
+      }
     }
-    return { phase: "not-found" };
+    return notFound(emptyPorts, occupiedPorts);
   } finally {
     clearTimeout(deadlineTimer);
   }
@@ -84,7 +92,61 @@ async function probeMishBrowserBackend(
   fetchRequest: typeof fetch,
   cancellationSignals: AbortSignal[],
   timeoutMilliseconds: number,
-) {
+): Promise<BrowserBackendProbeResult> {
+  const origin = `http://127.0.0.1:${port}`;
+  const url = `${origin}${MISH_BROWSER_DISCOVERY_PATH}`;
+  const markerMatches = await fetchWithTimeout(
+    fetchRequest,
+    url,
+    {
+      cache: "no-store",
+      credentials: "omit",
+      headers: { Accept: "application/json" },
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+    },
+    cancellationSignals,
+    timeoutMilliseconds,
+    async (response) => {
+      if (!response.ok || !response.headers.get("content-type")?.startsWith("application/json")) {
+        return false;
+      }
+      try {
+        return isMishBrowserDiscoveryPayload(await response.json());
+      } catch {
+        return false;
+      }
+    },
+  );
+  if (markerMatches === true) return { origin, phase: "found", port };
+  if (markerMatches === false) return { phase: "occupied" };
+  if (cancellationSignals.some((signal) => signal.aborted)) return { phase: "empty" };
+
+  const opaqueResponse = await fetchWithTimeout(
+    fetchRequest,
+    url,
+    {
+      cache: "no-store",
+      credentials: "omit",
+      mode: "no-cors",
+      redirect: "follow",
+      referrerPolicy: "no-referrer",
+    },
+    cancellationSignals,
+    timeoutMilliseconds,
+    async () => true,
+  );
+  return { phase: opaqueResponse ? "occupied" : "empty" };
+}
+
+async function fetchWithTimeout(
+  fetchRequest: typeof fetch,
+  url: string,
+  init: RequestInit,
+  cancellationSignals: AbortSignal[],
+  timeoutMilliseconds: number,
+  consume: (response: Response) => Promise<boolean>,
+): Promise<boolean | null> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   for (const cancellationSignal of cancellationSignals) {
@@ -92,21 +154,11 @@ async function probeMishBrowserBackend(
   }
   const timeout = setTimeout(abort, timeoutMilliseconds);
   try {
-    const origin = `http://127.0.0.1:${port}`;
-    const response = await fetchRequest(`${origin}${MISH_BROWSER_DISCOVERY_PATH}`, {
-      cache: "no-store",
-      credentials: "omit",
-      headers: { Accept: "application/json" },
-      redirect: "error",
-      referrerPolicy: "no-referrer",
+    const response = await fetchRequest(url, {
+      ...init,
       signal: controller.signal,
     });
-    if (!response.ok || !response.headers.get("content-type")?.startsWith("application/json")) {
-      return null;
-    }
-    const payload = await response.json();
-    if (!isMishBrowserDiscoveryPayload(payload)) return null;
-    return { origin, phase: "found", port } as const;
+    return await consume(response);
   } catch {
     return null;
   } finally {
@@ -115,6 +167,10 @@ async function probeMishBrowserBackend(
       cancellationSignal.removeEventListener("abort", abort);
     }
   }
+}
+
+function notFound(emptyPorts: number, occupiedPorts: number): BrowserBackendDiscoveryResult {
+  return { emptyPorts, occupiedPorts, phase: "not-found" };
 }
 
 function isMishBrowserDiscoveryPayload(value: unknown) {
@@ -132,6 +188,10 @@ function assertPort(port: number) {
   if (!Number.isInteger(port) || port < 1 || port > LAST_MISH_BROWSER_PORT) {
     throw new RangeError("Invalid browser backend port");
   }
+}
+
+function assertPositiveInteger(value: number, label: string) {
+  if (!Number.isInteger(value) || value < 1) throw new RangeError(`Invalid discovery ${label}`);
 }
 
 function throwIfAborted(signal: AbortSignal) {

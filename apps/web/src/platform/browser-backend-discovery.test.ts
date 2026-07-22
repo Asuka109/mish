@@ -26,7 +26,7 @@ describe("browser backend discovery", () => {
 
     await expect(
       discoverMishBrowserBackend({
-        currentPort: 6500,
+        preferredPort: 6500,
         fetch: fetchRequest,
         maxPort: 6500,
         signal: new AbortController().signal,
@@ -35,7 +35,11 @@ describe("browser backend discovery", () => {
     expect(fetchRequest).toHaveBeenCalledOnce();
     expect(fetchRequest).toHaveBeenCalledWith(
       "http://127.0.0.1:6500/browser-discovery",
-      expect.objectContaining({ credentials: "omit", redirect: "error" }),
+      expect.objectContaining({
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        redirect: "error",
+      }),
     );
   });
 
@@ -52,8 +56,7 @@ describe("browser backend discovery", () => {
 
     await expect(
       discoverMishBrowserBackend({
-        concurrency: 1,
-        currentPort: 6500,
+        preferredPort: 6500,
         fetch: fetchRequest,
         maxPort: 6476,
         signal: new AbortController().signal,
@@ -62,18 +65,65 @@ describe("browser backend discovery", () => {
     expect(visited).toEqual([6500, 6474, 6475, 6476]);
   });
 
-  it("reports no backend when every bounded candidate is unavailable or unrelated", async () => {
+  it("reports occupied candidates when every bounded listener is unrelated", async () => {
     const fetchRequest = vi.fn(async () => discoveryResponse({ service: "other" }));
 
     await expect(
       discoverMishBrowserBackend({
-        concurrency: 2,
-        currentPort: 6476,
+        preferredPort: 6500,
         fetch: fetchRequest,
         maxPort: 6476,
         signal: new AbortController().signal,
       }),
-    ).resolves.toEqual({ phase: "not-found" });
+    ).resolves.toEqual({ emptyPorts: 0, occupiedPorts: 3, phase: "not-found" });
+  });
+
+  it("stops after five empty conventional ports", async () => {
+    const emptyPorts: number[] = [];
+    const fetchRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const port = Number.parseInt(new URL(String(input)).port, 10);
+      if (port === 5000) return discoveryResponse({ service: "other" });
+      if (init?.mode === "no-cors") emptyPorts.push(port);
+      throw new TypeError("connection refused");
+    });
+
+    await expect(
+      discoverMishBrowserBackend({
+        preferredPort: 5000,
+        fetch: fetchRequest,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ emptyPorts: 5, occupiedPorts: 0, phase: "not-found" });
+    expect(emptyPorts).toEqual([6474, 6475, 6476, 6477, 6478]);
+  });
+
+  it("uses credential-free opaque probes and stops after ten CORS-blocked listeners", async () => {
+    const occupiedPorts: number[] = [];
+    const fetchRequest = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const port = Number.parseInt(new URL(String(input)).port, 10);
+      if (port === 5000) return discoveryResponse({ service: "other" });
+      if (init?.mode !== "no-cors") throw new TypeError("CORS blocked");
+      occupiedPorts.push(port);
+      expect(init).toEqual(
+        expect.objectContaining({
+          credentials: "omit",
+          mode: "no-cors",
+          redirect: "follow",
+          referrerPolicy: "no-referrer",
+        }),
+      );
+      expect(init?.headers).toBeUndefined();
+      return new Response(null, { status: 204 });
+    });
+
+    await expect(
+      discoverMishBrowserBackend({
+        preferredPort: 5000,
+        fetch: fetchRequest,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ emptyPorts: 0, occupiedPorts: 10, phase: "not-found" });
+    expect(occupiedPorts).toEqual([6474, 6475, 6476, 6477, 6478, 6479, 6480, 6481, 6482, 6483]);
   });
 
   it("cancels pending probes", async () => {
@@ -89,9 +139,8 @@ describe("browser backend discovery", () => {
         }),
     );
     const discovery = discoverMishBrowserBackend({
-      currentPort: 6474,
+      preferredPort: 6474,
       fetch: fetchRequest,
-      maxPort: 6474,
       probeTimeoutMilliseconds: 10_000,
       signal: controller.signal,
     });

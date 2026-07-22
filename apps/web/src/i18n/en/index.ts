@@ -1268,11 +1268,14 @@ const en = {
     eyebrow: "Local connection interrupted",
     failed: "Mish could not complete backend discovery. Try again.",
     found: "Found Mish on port {port:number}. Reconnecting…",
-    notFound: "No running Mish backend was found. Start Mish, then try again.",
+    notFound:
+      "No running Mish backend was found after checking {occupiedPorts:number} occupied and {emptyPorts:number} empty ports.",
+    portHint:
+      "Enter a port from 1 to 65535. Mish checks it first, then scans from 6474 until 10 occupied or 5 empty ports are reached.",
     portLabel: "Backend port",
     reconnect: "Reconnect",
     retry: "Try again",
-    searching: "Checking this port, then Mish ports from 6474 upward…",
+    searching: "Checking port {port:number}, then Mish ports from 6474 upward…",
     title: "Mish stopped responding",
   },
   errors: {

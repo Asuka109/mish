@@ -4254,9 +4254,15 @@ type RootTranslation = {
 		 */
 		found: RequiredParams<'port'>
 		/**
-		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​.​ ​S​t​a​r​t​ ​M​i​s​h​,​ ​t​h​e​n​ ​t​r​y​ ​a​g​a​i​n​.
+		 * N​o​ ​r​u​n​n​i​n​g​ ​M​i​s​h​ ​b​a​c​k​e​n​d​ ​w​a​s​ ​f​o​u​n​d​ ​a​f​t​e​r​ ​c​h​e​c​k​i​n​g​ ​{​o​c​c​u​p​i​e​d​P​o​r​t​s​}​ ​o​c​c​u​p​i​e​d​ ​a​n​d​ ​{​e​m​p​t​y​P​o​r​t​s​}​ ​e​m​p​t​y​ ​p​o​r​t​s​.
+		 * @param {number} emptyPorts
+		 * @param {number} occupiedPorts
 		 */
-		notFound: string
+		notFound: RequiredParams<'emptyPorts' | 'occupiedPorts'>
+		/**
+		 * E​n​t​e​r​ ​a​ ​p​o​r​t​ ​f​r​o​m​ ​1​ ​t​o​ ​6​5​5​3​5​.​ ​M​i​s​h​ ​c​h​e​c​k​s​ ​i​t​ ​f​i​r​s​t​,​ ​t​h​e​n​ ​s​c​a​n​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​n​t​i​l​ ​1​0​ ​o​c​c​u​p​i​e​d​ ​o​r​ ​5​ ​e​m​p​t​y​ ​p​o​r​t​s​ ​a​r​e​ ​r​e​a​c​h​e​d​.
+		 */
+		portHint: string
 		/**
 		 * B​a​c​k​e​n​d​ ​p​o​r​t
 		 */
@@ -4270,9 +4276,10 @@ type RootTranslation = {
 		 */
 		retry: string
 		/**
-		 * C​h​e​c​k​i​n​g​ ​t​h​i​s​ ​p​o​r​t​,​ ​t​h​e​n​ ​M​i​s​h​ ​p​o​r​t​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​p​w​a​r​d​…
+		 * C​h​e​c​k​i​n​g​ ​p​o​r​t​ ​{​p​o​r​t​}​,​ ​t​h​e​n​ ​M​i​s​h​ ​p​o​r​t​s​ ​f​r​o​m​ ​6​4​7​4​ ​u​p​w​a​r​d​…
+		 * @param {number} port
 		 */
-		searching: string
+		searching: RequiredParams<'port'>
 		/**
 		 * M​i​s​h​ ​s​t​o​p​p​e​d​ ​r​e​s​p​o​n​d​i​n​g
 		 */
@@ -8464,9 +8471,13 @@ export type TranslationFunctions = {
 		 */
 		found: (arg: { port: number }) => LocalizedString
 		/**
-		 * No running Mish backend was found. Start Mish, then try again.
+		 * No running Mish backend was found after checking {occupiedPorts} occupied and {emptyPorts} empty ports.
 		 */
-		notFound: () => LocalizedString
+		notFound: (arg: { emptyPorts: number, occupiedPorts: number }) => LocalizedString
+		/**
+		 * Enter a port from 1 to 65535. Mish checks it first, then scans from 6474 until 10 occupied or 5 empty ports are reached.
+		 */
+		portHint: () => LocalizedString
 		/**
 		 * Backend port
 		 */
@@ -8480,9 +8491,9 @@ export type TranslationFunctions = {
 		 */
 		retry: () => LocalizedString
 		/**
-		 * Checking this port, then Mish ports from 6474 upward…
+		 * Checking port {port}, then Mish ports from 6474 upward…
 		 */
-		searching: () => LocalizedString
+		searching: (arg: { port: number }) => LocalizedString
 		/**
 		 * Mish stopped responding
 		 */

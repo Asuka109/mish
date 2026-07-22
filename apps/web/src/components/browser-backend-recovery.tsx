@@ -1,7 +1,7 @@
 import type { StatusConnectionState } from "@mish/contracts";
-import { Button, Spinner } from "@mish/ui";
+import { Button, Input, Spinner } from "@mish/ui";
 import { ShieldCheck } from "@phosphor-icons/react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useI18nContext } from "../i18n/i18n-react";
 import {
   buildBrowserBackendUrl,
@@ -15,10 +15,10 @@ interface BrowserConnectionMonitor {
 }
 
 type RecoveryState =
+  | BrowserBackendDiscoveryResult
   | { phase: "disconnected" }
-  | { phase: "searching" }
-  | { phase: "cancelled" | "failed" | "not-found" }
-  | { origin: string; phase: "found"; port: number };
+  | { phase: "searching"; port: number }
+  | { phase: "cancelled" | "failed" };
 
 interface BrowserBackendRecoveryProps {
   backendPort?: number;
@@ -42,6 +42,9 @@ export function BrowserBackendRecovery({
   const { LL } = useI18nContext();
   const [recoveryRequired, setRecoveryRequired] = useState(false);
   const [recovery, setRecovery] = useState<RecoveryState>({ phase: "disconnected" });
+  const [requestedPort, setRequestedPort] = useState(
+    backendPort === undefined ? "" : String(backendPort),
+  );
   const heading = useRef<HTMLHeadingElement | null>(null);
   const scanController = useRef<AbortController | null>(null);
   const recoveryNotified = useRef(false);
@@ -76,15 +79,16 @@ export function BrowserBackendRecovery({
   }, [navigate, recovery]);
 
   if (!recoveryRequired || runtime !== "browser" || backendPort === undefined) return children;
+  const requestedBackendPort = parseBackendPort(requestedPort);
 
   const reconnect = async () => {
-    if (scanController.current) return;
+    if (scanController.current || requestedBackendPort === null) return;
     const controller = new AbortController();
     scanController.current = controller;
-    setRecovery({ phase: "searching" });
+    setRecovery({ phase: "searching", port: requestedBackendPort });
     try {
       const result: BrowserBackendDiscoveryResult = await discover({
-        currentPort: backendPort,
+        preferredPort: requestedBackendPort,
         signal: controller.signal,
       });
       if (controller.signal.aborted) {
@@ -92,7 +96,7 @@ export function BrowserBackendRecovery({
       } else if (result.phase === "found") {
         setRecovery(result);
       } else {
-        setRecovery({ phase: "not-found" });
+        setRecovery(result);
       }
     } catch (error) {
       setRecovery({
@@ -109,6 +113,10 @@ export function BrowserBackendRecovery({
 
   const cancel = () => scanController.current?.abort();
   const status = recoveryStatus(LL, recovery);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    void reconnect();
+  };
 
   return (
     <main className="browser-backend-recovery">
@@ -124,39 +132,59 @@ export function BrowserBackendRecovery({
           {LL.browserBackendRecovery.title()}
         </h1>
         <p>{LL.browserBackendRecovery.description()}</p>
-        <dl className="browser-backend-recovery__details">
-          <div>
-            <dt>{LL.browserBackendRecovery.portLabel()}</dt>
-            <dd className="tabular">{backendPort}</dd>
+        <form onSubmit={submit}>
+          <div className="browser-backend-recovery__port-field">
+            <label htmlFor="browser-backend-recovery-port">
+              {LL.browserBackendRecovery.portLabel()}
+            </label>
+            <Input
+              id="browser-backend-recovery-port"
+              aria-describedby="browser-backend-recovery-port-hint"
+              aria-invalid={requestedPort.length > 0 && requestedBackendPort === null}
+              disabled={recovery.phase === "searching" || recovery.phase === "found"}
+              inputMode="numeric"
+              maxLength={5}
+              onChange={(event) => {
+                setRequestedPort(event.target.value.replace(/\D/g, "").slice(0, 5));
+                if (recovery.phase !== "searching" && recovery.phase !== "found") {
+                  setRecovery({ phase: "disconnected" });
+                }
+              }}
+              pattern="[0-9]{1,5}"
+              value={requestedPort}
+            />
+            <p id="browser-backend-recovery-port-hint" className="browser-backend-recovery__hint">
+              {LL.browserBackendRecovery.portHint()}
+            </p>
           </div>
-        </dl>
 
-        {status ? (
-          <div
-            aria-live="polite"
-            className={`browser-backend-recovery__status browser-backend-recovery__status--${recovery.phase}`}
-            role={
-              recovery.phase === "failed" || recovery.phase === "not-found" ? "alert" : "status"
-            }
-          >
-            {recovery.phase === "searching" ? <Spinner /> : null}
-            <span>{status}</span>
-          </div>
-        ) : null}
-
-        <div className="browser-backend-recovery__actions">
-          {recovery.phase === "searching" ? (
-            <Button onClick={cancel} variant="outline">
-              {LL.browserBackendRecovery.cancel()}
-            </Button>
-          ) : recovery.phase !== "found" ? (
-            <Button onClick={() => void reconnect()}>
-              {recovery.phase === "disconnected"
-                ? LL.browserBackendRecovery.reconnect()
-                : LL.browserBackendRecovery.retry()}
-            </Button>
+          {status ? (
+            <div
+              aria-live="polite"
+              className={`browser-backend-recovery__status browser-backend-recovery__status--${recovery.phase}`}
+              role={
+                recovery.phase === "failed" || recovery.phase === "not-found" ? "alert" : "status"
+              }
+            >
+              {recovery.phase === "searching" ? <Spinner /> : null}
+              <span>{status}</span>
+            </div>
           ) : null}
-        </div>
+
+          <div className="browser-backend-recovery__actions">
+            {recovery.phase === "searching" ? (
+              <Button onClick={cancel} type="button" variant="outline">
+                {LL.browserBackendRecovery.cancel()}
+              </Button>
+            ) : recovery.phase !== "found" ? (
+              <Button disabled={requestedBackendPort === null} type="submit">
+                {recovery.phase === "disconnected"
+                  ? LL.browserBackendRecovery.reconnect()
+                  : LL.browserBackendRecovery.retry()}
+              </Button>
+            ) : null}
+          </div>
+        </form>
       </section>
     </main>
   );
@@ -165,11 +193,14 @@ export function BrowserBackendRecovery({
 function recoveryStatus(LL: ReturnType<typeof useI18nContext>["LL"], recovery: RecoveryState) {
   switch (recovery.phase) {
     case "searching":
-      return LL.browserBackendRecovery.searching();
+      return LL.browserBackendRecovery.searching({ port: recovery.port });
     case "found":
       return LL.browserBackendRecovery.found({ port: recovery.port });
     case "not-found":
-      return LL.browserBackendRecovery.notFound();
+      return LL.browserBackendRecovery.notFound({
+        emptyPorts: recovery.emptyPorts,
+        occupiedPorts: recovery.occupiedPorts,
+      });
     case "cancelled":
       return LL.browserBackendRecovery.cancelled();
     case "failed":
@@ -177,4 +208,10 @@ function recoveryStatus(LL: ReturnType<typeof useI18nContext>["LL"], recovery: R
     default:
       return null;
   }
+}
+
+function parseBackendPort(value: string) {
+  if (!/^\d{1,5}$/.test(value)) return null;
+  const port = Number(value);
+  return port >= 1 && port <= 65_535 ? port : null;
 }
