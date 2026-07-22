@@ -220,7 +220,7 @@ export function TrafficCaptureControl({
           </Toggle>
           <Button
             aria-label={LL.capture.helpAria()}
-            className="capture-help-button"
+            className="[&_svg]:text-(--color-muted-soft)"
             onClick={() => setHelpOpen(true)}
             size="icon-sm"
             type="button"
