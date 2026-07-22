@@ -1004,14 +1004,14 @@ async fn wait_for_candidate(
     loop {
         match source.initial_observation() {
             ControllerInitialObservation::Ready => {
-                if process.owns_local_proxy(proxy_endpoint).await {
-                    return Ok(());
-                }
                 if let Some(endpoint) =
                     unowned_managed_listener_conflict(process, proxy_endpoint, controller_address)
                         .await
                 {
                     return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
+                }
+                if process.owns_local_proxy(proxy_endpoint).await {
+                    return Ok(());
                 }
             }
             ControllerInitialObservation::VersionMismatch => {
@@ -1052,13 +1052,21 @@ async fn wait_for_candidate(
 /// readiness failure from a correctly bound managed Core into a port-conflict
 /// diagnosis.
 async fn unowned_managed_listener_conflict(
-    process: &DesktopMihomoProcess,
+    process: &impl CoreRuntime,
     proxy_endpoint: &LoopbackProxyEndpoint,
     controller_address: SocketAddr,
 ) -> Option<SocketAddr> {
-    let endpoint = managed_listener_conflict(proxy_endpoint, controller_address)?;
-    let listener = LoopbackProxyEndpoint::new(&endpoint.ip().to_string(), endpoint.port()).ok()?;
-    (!process.owns_local_proxy(&listener).await).then_some(endpoint)
+    for endpoint in managed_listener_endpoints(proxy_endpoint, controller_address) {
+        if std::net::TcpListener::bind(endpoint).is_ok() {
+            continue;
+        }
+        let listener =
+            LoopbackProxyEndpoint::new(&endpoint.ip().to_string(), endpoint.port()).ok()?;
+        if !process.owns_local_proxy(&listener).await {
+            return Some(endpoint);
+        }
+    }
+    None
 }
 
 /// Detect only whether Mish's fixed loopback endpoint can be bound. This does not
@@ -1067,13 +1075,19 @@ fn managed_listener_conflict(
     proxy_endpoint: &LoopbackProxyEndpoint,
     controller_address: SocketAddr,
 ) -> Option<SocketAddr> {
-    let endpoints = [
-        SocketAddr::new(proxy_endpoint.host(), proxy_endpoint.port()),
-        controller_address,
-    ];
-    endpoints
+    managed_listener_endpoints(proxy_endpoint, controller_address)
         .into_iter()
         .find(|endpoint| std::net::TcpListener::bind(endpoint).is_err())
+}
+
+fn managed_listener_endpoints(
+    proxy_endpoint: &LoopbackProxyEndpoint,
+    controller_address: SocketAddr,
+) -> [SocketAddr; 2] {
+    [
+        SocketAddr::new(proxy_endpoint.host(), proxy_endpoint.port()),
+        controller_address,
+    ]
 }
 
 async fn rollback_candidate(candidate: ActiveMihomo) {
@@ -1442,5 +1456,109 @@ impl RuntimeConfigGenerator {
             bytes,
             classifications,
         })
+    }
+}
+
+#[cfg(test)]
+mod managed_listener_ownership_tests {
+    use std::{collections::HashSet, net::TcpListener};
+
+    use futures_util::future::BoxFuture;
+    use mish_runtime::{CoreError, CorePhase, CoreStatus};
+
+    use super::*;
+
+    struct CandidateOwnership {
+        owned_endpoints: HashSet<SocketAddr>,
+    }
+
+    impl CandidateOwnership {
+        fn owning(endpoints: impl IntoIterator<Item = SocketAddr>) -> Self {
+            Self {
+                owned_endpoints: endpoints.into_iter().collect(),
+            }
+        }
+    }
+
+    impl CoreRuntime for CandidateOwnership {
+        fn configured(&self) -> bool {
+            true
+        }
+
+        fn owns_local_proxy(&self, endpoint: &LoopbackProxyEndpoint) -> BoxFuture<'_, bool> {
+            let owned = self
+                .owned_endpoints
+                .contains(&SocketAddr::new(endpoint.host(), endpoint.port()));
+            Box::pin(std::future::ready(owned))
+        }
+
+        fn status(&self) -> BoxFuture<'_, CoreStatus> {
+            Box::pin(std::future::ready(CoreStatus {
+                error: None,
+                phase: CorePhase::Stopped,
+                pid: None,
+                version: None,
+            }))
+        }
+
+        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { Ok(self.status().await) })
+        }
+
+        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { Ok(self.status().await) })
+        }
+    }
+
+    fn occupied_loopback_listener() -> TcpListener {
+        TcpListener::bind("127.0.0.1:0").unwrap()
+    }
+
+    #[tokio::test]
+    async fn owned_proxy_does_not_hide_a_foreign_controller_listener() {
+        let proxy_listener = occupied_loopback_listener();
+        let controller_listener = occupied_loopback_listener();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let controller_address = controller_listener.local_addr().unwrap();
+        let proxy_endpoint = LoopbackProxyEndpoint::new("127.0.0.1", proxy_address.port()).unwrap();
+        let candidate = CandidateOwnership::owning([proxy_address]);
+
+        assert_eq!(
+            unowned_managed_listener_conflict(&candidate, &proxy_endpoint, controller_address)
+                .await,
+            Some(controller_address)
+        );
+    }
+
+    #[tokio::test]
+    async fn foreign_proxy_listener_is_reported_before_controller() {
+        let proxy_listener = occupied_loopback_listener();
+        let controller_listener = occupied_loopback_listener();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let controller_address = controller_listener.local_addr().unwrap();
+        let proxy_endpoint = LoopbackProxyEndpoint::new("127.0.0.1", proxy_address.port()).unwrap();
+        let candidate = CandidateOwnership::owning([]);
+
+        assert_eq!(
+            unowned_managed_listener_conflict(&candidate, &proxy_endpoint, controller_address)
+                .await,
+            Some(proxy_address)
+        );
+    }
+
+    #[tokio::test]
+    async fn listeners_owned_by_the_candidate_are_not_conflicts() {
+        let proxy_listener = occupied_loopback_listener();
+        let controller_listener = occupied_loopback_listener();
+        let proxy_address = proxy_listener.local_addr().unwrap();
+        let controller_address = controller_listener.local_addr().unwrap();
+        let proxy_endpoint = LoopbackProxyEndpoint::new("127.0.0.1", proxy_address.port()).unwrap();
+        let candidate = CandidateOwnership::owning([proxy_address, controller_address]);
+
+        assert_eq!(
+            unowned_managed_listener_conflict(&candidate, &proxy_endpoint, controller_address)
+                .await,
+            None
+        );
     }
 }
