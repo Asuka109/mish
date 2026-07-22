@@ -83,6 +83,24 @@ const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
 
 const shellStyles = tv({
   slots: {
+    root: "app-shell relative grid h-screen h-dvh min-h-0 w-full grid-cols-[164px_minmax(0,1fr)] overflow-hidden bg-(--color-surface-soft)",
+    workspaceDragRegion:
+      "workspace-top-window-drag-region absolute top-0 right-0 left-[164px] z-[1] h-[10px]",
+    sidebar:
+      "sidebar flex min-w-0 flex-col bg-(--mish-sidebar-background) px-[10px] pt-[14px] pb-[10px] text-(--color-body) [--sidebar-icon-slot:18px] [--sidebar-row-gap:9px] [--sidebar-row-height:36px] [--sidebar-row-inset:10px] [container-name:sidebar] [container-type:inline-size]",
+    sidebarHeader:
+      "sidebar-window-header -mt-[14px] -mx-[10px] flex-none select-none pt-[14px] px-[10px]",
+    windowControls: "window-controls-slot flex h-[22px] flex-none items-center select-none",
+    trafficLights: "traffic-lights flex flex-none items-center gap-[7px] pl-1 [&_svg]:size-3",
+    windowDrag: "window-drag-region flex-1 self-stretch",
+    brand:
+      "brand-row flex h-12 items-center px-2 font-(--font-weight-heading) text-(--color-ink) [&_img]:h-[30px] [&_img]:w-auto [&_img]:max-w-full",
+    navList: "nav-list flex min-h-0 flex-1 flex-col gap-[3px] pt-[7px]",
+    navItem:
+      "nav-item grid h-(--sidebar-row-height) w-full flex-none grid-cols-[var(--sidebar-icon-slot)_minmax(0,1fr)] items-center gap-x-(--sidebar-row-gap) rounded-(--radius-md) border border-transparent px-(--sidebar-row-inset) text-(--text-body) font-(--font-weight-control) text-(--color-text-muted) no-underline hover:bg-(--mish-sidebar-item-hover-background) hover:text-(--color-body) [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap [&_svg]:col-start-1 [&_svg]:size-(--sidebar-icon-slot) [&_svg]:justify-self-center)",
+    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-[3px]",
+    workspace:
+      "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) shadow-(--shadow-panel) [margin:10px_10px_10px_0]",
     toolbar:
       "toolbar flex min-w-0 items-center justify-between border-b border-(--color-hairline) py-0 pr-4 pl-6 select-none",
     toolbarTitle: "toolbar-title font-(--font-weight-control)",
@@ -101,6 +119,15 @@ const shellStyles = tv({
       "runtime-data-badge inline-flex h-6 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-[9px] text-[12px] text-(--color-text-muted)",
     loading: "toolbar-loading text-(--text-metadata) text-(--color-text-muted)",
     contentScroll: "workspace-page-scroll min-h-0 min-w-0 overflow-auto",
+  },
+  variants: {
+    active: {
+      true: {
+        navItem:
+          "is-active border-(--mish-sidebar-item-active-border) bg-(--mish-sidebar-item-active-background) text-(--color-ink) shadow-(--mish-sidebar-item-active-shadow)",
+      },
+      false: {},
+    },
   },
 });
 
@@ -278,19 +305,19 @@ function Sidebar() {
     <SurfaceScope
       aria-label={LL.navigation.primary()}
       as="aside"
-      className="sidebar"
+      className={shellStyles().sidebar()}
       surfaceRole="window"
     >
-      <div className="sidebar-window-header" data-tauri-drag-region="deep">
-        <div className="window-controls-slot">
-          <div aria-hidden="true" className="traffic-lights">
+      <div className={shellStyles().sidebarHeader()} data-tauri-drag-region="deep">
+        <div className={shellStyles().windowControls()}>
+          <div aria-hidden="true" className={shellStyles().trafficLights()}>
             <Circle color="#ff5f57" weight="fill" />
             <Circle color="#febc2e" weight="fill" />
             <Circle color="#28c840" weight="fill" />
           </div>
-          <div aria-hidden="true" className="window-drag-region" />
+          <div aria-hidden="true" className={shellStyles().windowDrag()} />
         </div>
-        <div aria-label="Mish" className="brand-row">
+        <div aria-label="Mish" className={shellStyles().brand()}>
           <img
             alt=""
             aria-hidden="true"
@@ -310,13 +337,13 @@ function Sidebar() {
 
       <nav
         aria-label={LL.navigation.sections()}
-        className="nav-list"
+        className={shellStyles().navList()}
         onKeyDown={handleSidebarKeyDown}
       >
         {destinations.map(({ icon: Icon, key, path }) => (
           <NavLink
             aria-label={getNavigationLabel(LL, key)}
-            className={({ isActive }) => `nav-item${isActive ? " is-active" : ""}`}
+            className={({ isActive }) => shellStyles({ active: isActive }).navItem()}
             end
             key={path}
             title={getNavigationLabel(LL, key)}
@@ -326,10 +353,12 @@ function Sidebar() {
             <span>{getNavigationLabel(LL, key)}</span>
           </NavLink>
         ))}
-        <div className="sidebar-bottom-items">
+        <div className={shellStyles().sidebarBottom()}>
           <NavLink
             aria-label={LL.navigation.settings()}
-            className={({ isActive }) => `nav-item settings-link${isActive ? " is-active" : ""}`}
+            className={({ isActive }) =>
+              shellStyles({ active: isActive }).navItem({ className: "settings-link" })
+            }
             title={LL.navigation.settings()}
             to="/settings"
           >
@@ -583,16 +612,16 @@ function StatusActionDescriptions() {
 
 export function AppShell() {
   return (
-    <div className="app-shell">
+    <div className={shellStyles().root()}>
       <StatusActionDescriptions />
       <div
         aria-hidden="true"
-        className="workspace-top-window-drag-region"
+        className={shellStyles().workspaceDragRegion()}
         data-window-drag-surface="workspace-top"
         onMouseDown={handleDesktopWindowDrag}
       />
       <Sidebar />
-      <SurfaceScope as="main" className="workspace" surfaceRole="content">
+      <SurfaceScope as="main" className={shellStyles().workspace()} surfaceRole="content">
         <RouteFocusManager />
         <Toolbar />
         <div className={shellStyles().contentScroll()}>

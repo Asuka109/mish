@@ -217,71 +217,6 @@ h2 {
   filter: saturate(0.4);
 }
 
-.app-shell {
-  position: relative;
-  display: grid;
-  grid-template-columns: 164px minmax(0, 1fr);
-  width: 100%;
-  height: 100vh;
-  height: 100dvh;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--color-surface-soft);
-}
-
-.workspace-top-window-drag-region {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  right: 0;
-  left: 164px;
-  height: 10px;
-}
-
-.sidebar {
-  --sidebar-row-height: 36px;
-  --sidebar-row-inset: 10px;
-  --sidebar-icon-slot: 18px;
-  --sidebar-row-gap: 9px;
-  container: sidebar / inline-size;
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  padding: 14px 10px 10px;
-  background: var(--mish-sidebar-background);
-  color: var(--color-body);
-}
-
-.sidebar-window-header {
-  flex: 0 0 auto;
-  margin: -14px -10px 0;
-  padding: 14px 10px 0;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.window-controls-slot {
-  display: flex;
-  align-items: center;
-  height: 22px;
-  flex: 0 0 auto;
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.traffic-lights {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: 0 0 auto;
-  padding-left: 4px;
-}
-
-.traffic-lights svg {
-  width: 12px;
-  height: 12px;
-}
-
 .window-drag-region {
   align-self: stretch;
   flex: 1;
@@ -289,21 +224,6 @@ h2 {
 
 :root[data-runtime="desktop"] .traffic-lights {
   visibility: hidden;
-}
-
-.brand-row {
-  display: flex;
-  align-items: center;
-  height: 48px;
-  padding: 0 8px;
-  color: var(--color-ink);
-  font-weight: var(--font-weight-heading);
-}
-
-.brand-row img {
-  width: auto;
-  height: 30px;
-  max-width: 100%;
 }
 
 .brand-image-dark {
@@ -318,44 +238,11 @@ h2 {
   display: block;
 }
 
-.nav-list {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 3px;
-  padding-top: 7px;
-}
-
-.nav-item {
-  display: grid;
-  grid-template-columns: var(--sidebar-icon-slot) minmax(0, 1fr);
-  align-items: center;
-  column-gap: var(--sidebar-row-gap);
-  width: 100%;
-  height: var(--sidebar-row-height);
-  flex: 0 0 auto;
-  padding: 0 var(--sidebar-row-inset);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  color: var(--color-text-muted);
-  font-size: var(--text-body);
-  font-weight: var(--font-weight-control);
-  text-decoration: none;
-}
-
-.nav-item svg,
 .proxy-control-state > :first-child {
   grid-column: 1;
   justify-self: center;
 }
 
-.nav-item svg {
-  width: var(--sidebar-icon-slot);
-  height: var(--sidebar-icon-slot);
-}
-
-.nav-item > span,
 .proxy-control-label {
   min-width: 0;
   overflow: hidden;
@@ -363,27 +250,8 @@ h2 {
   white-space: nowrap;
 }
 
-.nav-item:hover {
-  background: var(--mish-sidebar-item-hover-background);
-  color: var(--color-body);
-}
-
-.nav-item.is-active {
-  border-color: var(--mish-sidebar-item-active-border);
-  background: var(--mish-sidebar-item-active-background);
-  color: var(--color-ink);
-  box-shadow: var(--mish-sidebar-item-active-shadow);
-}
-
 .settings-link {
   margin-top: 0;
-}
-
-.sidebar-bottom-items {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  margin-top: auto;
 }
 
 .ui-button.proxy-control-button {
@@ -489,20 +357,6 @@ h2 {
 
 .proxy-control-button[data-status="healthy"]:is(:hover, :focus-visible) .proxy-control-hover {
   opacity: 1;
-}
-
-.workspace {
-  position: relative;
-  display: grid;
-  grid-template-rows: 56px minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  margin: 10px 10px 10px 0;
-  overflow: hidden;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-lg);
-  background: var(--color-canvas);
-  box-shadow: var(--shadow-panel);
 }
 
 .service-manage-trigger {
