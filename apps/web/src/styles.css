@@ -1061,39 +1061,6 @@ h2 {
   font-size: var(--text-metadata);
 }
 
-.ui-badge {
-  display: inline-flex;
-  min-width: 24px;
-  height: 22px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 7px;
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-full);
-  background: var(--color-surface-soft);
-  color: var(--color-text-muted);
-  font-size: 12px;
-  font-weight: var(--font-weight-control);
-}
-
-.ui-badge--success {
-  border-color: color-mix(in srgb, var(--color-success) 34%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-success) 10%, var(--color-canvas));
-  color: var(--color-success-text);
-}
-
-.ui-badge--warning {
-  border-color: color-mix(in srgb, var(--color-warning) 32%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-canvas));
-  color: var(--color-warning);
-}
-
-.ui-badge--destructive {
-  border-color: color-mix(in srgb, var(--color-error) 32%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-error) 8%, var(--color-canvas));
-  color: var(--color-error);
-}
-
 .policy-group-trailing > svg {
   width: 13px;
   height: 13px;
@@ -1524,13 +1491,11 @@ h2 {
   border-bottom: 1px solid var(--color-hairline);
 }
 
-.dialog-title,
 .proxy-picker-title {
   font-size: var(--text-body);
   font-weight: var(--font-weight-heading);
 }
 
-.dialog-description,
 .proxy-picker-description {
   margin-top: 3px;
   color: var(--color-text-muted);
@@ -1917,8 +1882,6 @@ h2 {
   gap: 16px;
   padding: 16px 16px 0;
 }
-
-
 .service-editor-footer {
   margin: 2px -16px 0;
   justify-content: space-between;

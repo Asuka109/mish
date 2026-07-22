@@ -50,17 +50,17 @@ const buttonRecipe = tv({
 });
 
 const badgeRecipe = tv({
-  base: "ui-badge inline-flex min-h-5 items-center gap-1 rounded-(--radius-full) border border-(--color-hairline) bg-(--color-canvas) px-2 text-[12px] font-(--font-weight-control) text-(--color-body)",
+  base: "ui-badge inline-flex h-[22px] min-w-6 items-center justify-center rounded-(--radius-full) border border-(--color-hairline) bg-(--color-surface-soft) px-[7px] text-[12px] font-(--font-weight-control) text-(--color-text-muted)",
   variants: {
     variant: {
       default: "",
       outline: "",
       success:
-        "border-transparent bg-[color-mix(in_srgb,var(--color-success)_12%,transparent)] text-(--color-success-text)",
+        "border-[color-mix(in_srgb,var(--color-success)_34%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-canvas))] text-(--color-success-text)",
       warning:
-        "border-transparent bg-[color-mix(in_srgb,var(--color-warning)_12%,transparent)] text-(--color-warning)",
+        "border-[color-mix(in_srgb,var(--color-warning)_32%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-warning)_9%,var(--color-canvas))] text-(--color-warning)",
       destructive:
-        "border-transparent bg-[color-mix(in_srgb,var(--color-error)_12%,transparent)] text-(--color-error)",
+        "border-[color-mix(in_srgb,var(--color-error)_32%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-error)_8%,var(--color-canvas))] text-(--color-error)",
     },
   },
   defaultVariants: { variant: "default" },
@@ -141,6 +141,9 @@ const dialogRecipe = tv({
       "dialog-close absolute top-[10px] right-[10px] grid size-[30px] place-items-center rounded-(--radius-md) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-accent) hover:text-(--color-ink) [&_svg]:size-4",
     header:
       "dialog-header flex min-h-[74px] items-center border-b border-(--color-hairline) py-[13px] pr-11 pl-4",
+    title: "dialog-title text-(--text-body) font-(--font-weight-heading)",
+    description:
+      "dialog-description mt-[3px] text-(--text-metadata) leading-[18px] text-(--color-text-muted)",
     footer:
       "dialog-footer flex min-h-[62px] items-center justify-end gap-2 border-t border-(--color-hairline) px-4 py-[10px]",
   },
@@ -395,8 +398,31 @@ export function ToggleGroupItem({ className, ...props }: ToggleGroupItemProps) {
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
-export const DialogTitle = DialogPrimitive.Title;
-export const DialogDescription = DialogPrimitive.Description;
+
+export function DialogTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
+  return (
+    <DialogPrimitive.Title
+      {...props}
+      className={resolveClassName(className, (override) =>
+        dialogRecipe().title({ className: override }),
+      )}
+    />
+  );
+}
+
+export function DialogDescription({
+  className,
+  ...props
+}: ComponentProps<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      {...props}
+      className={resolveClassName(className, (override) =>
+        dialogRecipe().description({ className: override }),
+      )}
+    />
+  );
+}
 
 export function DialogHeader(props: HTMLAttributes<HTMLDivElement>) {
   return <div {...props} className={dialogRecipe().header({ className: props.className })} />;
