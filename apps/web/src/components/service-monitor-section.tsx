@@ -42,7 +42,7 @@ import {
   Spinner,
 } from "@mish/ui";
 import { useState } from "react";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
@@ -63,25 +63,77 @@ const serviceStyles = tv({
     section: "service-monitor-section mt-7",
     heading: "service-monitor-heading flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5",
     headingCopy: "flex min-w-0 items-baseline gap-2",
-    trigger:
-      "inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border border-transparent bg-transparent px-2.25 text-metadata text-muted-foreground hover:border-hairline hover:bg-accent hover:text-ink data-[popup-open]:border-hairline data-[popup-open]:bg-accent data-[popup-open]:text-ink [&_svg]:size-3",
-    unavailable:
-      "service-manage-unavailable block max-w-59 px-2.25 pt-1.5 pb-2 text-caption leading-4.25 font-normal whitespace-normal text-muted-foreground",
+    trigger: cx(
+      "inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border border-transparent",
+      "bg-transparent px-2.25 text-metadata text-muted-foreground hover:border-hairline",
+      "hover:bg-accent hover:text-ink data-popup-open:border-hairline data-popup-open:bg-accent",
+      "data-popup-open:text-ink [&_svg]:size-3",
+    ),
+    unavailable: cx(
+      "service-manage-unavailable block max-w-59 px-2.25 pt-1.5 pb-2 text-caption leading-4.25",
+      "font-normal whitespace-normal text-muted-foreground",
+    ),
     intervalLabel:
       "service-interval-label block px-2.25 pt-1.5 pb-0.75 text-caption leading-4.25 font-medium text-muted-foreground",
-    list: "service-monitor-list gap-0 bg-canvas [&>:not(:nth-child(3n))]:border-r [&>:not(:nth-child(3n))]:border-hairline-soft [&>:nth-child(n+4)]:border-t [&>:nth-child(n+4)]:border-hairline-soft [&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner [&>.service-monitor-row:nth-child(3)]:rounded-se-section-grid-inner [&>.service-monitor-row:nth-child(3n+1):nth-last-child(-n+3)]:rounded-es-section-grid-inner [&>.service-monitor-row:last-child:nth-child(3n)]:rounded-ee-section-grid-inner max-page-compact:[--section-grid-columns:1] max-page-compact:[&>*]:border-r-0 max-page-compact:[&>*]:rounded-none max-page-compact:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner max-page-compact:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner max-page-compact:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner max-page-compact:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner max-page-compact:[&>:not(:first-child)]:border-t max-page-compact:[&>:not(:first-child)]:border-hairline-soft [html[data-runtime=mobile]_&]:[--section-grid-columns:1] [html[data-runtime=mobile]_&]:[&>*]:border-r-0 [html[data-runtime=mobile]_&]:[&>*]:rounded-none [html[data-runtime=mobile]_&]:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner [html[data-runtime=mobile]_&]:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner [html[data-runtime=mobile]_&]:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner [html[data-runtime=mobile]_&]:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner [html[data-runtime=mobile]_&]:[&>:not(:first-child)]:border-t [html[data-runtime=mobile]_&]:[&>:not(:first-child)]:border-hairline-soft",
-    row: "service-monitor-row grid min-h-13 min-w-0 grid-cols-[minmax(0,1fr)_minmax(74px,144px)_76px_minmax(0,1fr)] items-center gap-2.5 overflow-clip rounded-none border-0 bg-transparent py-0 pr-3.25 pl-2.75 text-left text-fg hover:bg-accent hover:text-ink",
-    identity:
-      "service-monitor-identity col-start-2 grid min-w-0 grid-cols-[22px_minmax(0,1fr)] items-center gap-2.5 [&_strong]:overflow-hidden [&_strong]:text-left [&_strong]:text-body [&_strong]:font-medium [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
-    icon: "service-monitor-icon grid size-5.5 place-items-center text-muted-foreground [html[data-theme=dark]_&_[data-monochrome=true]]:invert [&_img]:block [&_img]:size-4.5 [&_img]:object-contain [&_img]:opacity-75",
-    latency:
-      "service-monitor-latency col-start-3 block justify-self-stretch text-right text-metadata whitespace-nowrap text-success-text data-[status=error]:text-error data-[status=warning]:text-warning [&_.ui-spinner]:size-3.25",
-    managerDialog:
-      "service-manager-dialog w-[min(420px,calc(100vw_-_32px))] [&_.dialog-header]:justify-between [&_.dialog-header]:gap-md [&_.dialog-header>div]:min-w-0",
+    list: cx(
+      "service-monitor-list gap-0 bg-canvas [&>:not(:nth-child(3n))]:border-r",
+      "[&>:not(:nth-child(3n))]:border-hairline-soft [&>:nth-child(n+4)]:border-t",
+      "[&>:nth-child(n+4)]:border-hairline-soft",
+      "[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
+      "[&>.service-monitor-row:nth-child(3)]:rounded-se-section-grid-inner",
+      "[&>.service-monitor-row:nth-child(3n+1):nth-last-child(-n+3)]:rounded-es-section-grid-inner",
+      "[&>.service-monitor-row:last-child:nth-child(3n)]:rounded-ee-section-grid-inner",
+      "max-page-compact:[--section-grid-columns:1] max-page-compact:[&>*]:border-r-0",
+      "max-page-compact:[&>*]:rounded-none",
+      "max-page-compact:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
+      "max-page-compact:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner",
+      "max-page-compact:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner",
+      "max-page-compact:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner",
+      "max-page-compact:[&>:not(:first-child)]:border-t",
+      "max-page-compact:[&>:not(:first-child)]:border-hairline-soft",
+      "runtime-mobile:[--section-grid-columns:1] runtime-mobile:[&>*]:border-r-0",
+      "runtime-mobile:[&>*]:rounded-none",
+      "runtime-mobile:[&>.service-monitor-row:first-child]:rounded-ss-section-grid-inner",
+      "runtime-mobile:[&>.service-monitor-row:first-child]:rounded-se-section-grid-inner",
+      "runtime-mobile:[&>.service-monitor-row:last-child]:rounded-es-section-grid-inner",
+      "runtime-mobile:[&>.service-monitor-row:last-child]:rounded-ee-section-grid-inner",
+      "runtime-mobile:[&>:not(:first-child)]:border-t",
+      "runtime-mobile:[&>:not(:first-child)]:border-hairline-soft",
+    ),
+    row: cx(
+      "service-monitor-row grid min-h-13 min-w-0",
+      "grid-cols-[minmax(0,1fr)_minmax(74px,144px)_76px_minmax(0,1fr)] items-center gap-2.5",
+      "overflow-clip rounded-none border-0 bg-transparent py-0 pr-3.25 pl-2.75 text-left text-fg",
+      "hover:bg-accent hover:text-ink",
+    ),
+    identity: cx(
+      "service-monitor-identity col-start-2 grid min-w-0 grid-cols-[22px_minmax(0,1fr)]",
+      "items-center gap-2.5 [&_strong]:overflow-hidden [&_strong]:text-left [&_strong]:text-body",
+      "[&_strong]:font-medium [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
+    ),
+    icon: cx(
+      "service-monitor-icon grid size-5.5 place-items-center text-muted-foreground",
+      "theme-dark:[&_[data-monochrome=true]]:invert [&_img]:block [&_img]:size-4.5",
+      "[&_img]:object-contain [&_img]:opacity-75",
+    ),
+    latency: cx(
+      "service-monitor-latency col-start-3 block justify-self-stretch text-right text-metadata",
+      "whitespace-nowrap text-success-text data-[status=error]:text-error",
+      "data-[status=warning]:text-warning [&_.ui-spinner]:size-3.25",
+    ),
+    managerDialog: cx(
+      "service-manager-dialog w-[min(420px,calc(100vw_-_32px))] [&_.dialog-header]:justify-between",
+      "[&_.dialog-header]:gap-md [&_.dialog-header>div]:min-w-0",
+    ),
     managerList:
       "service-manager-list max-h-[min(360px,calc(100vh_-_180px))] overflow-auto pt-1 pb-1.5",
-    managerRow:
-      "service-manager-row grid min-h-11.5 w-full grid-cols-[22px_minmax(0,1fr)_16px] items-center justify-stretch gap-2.5 rounded-none border-0 px-4 py-0 text-left [&+&]:border-t [&+&]:border-hairline-soft [&_strong]:overflow-hidden [&_strong]:text-body [&_strong]:font-medium [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&>svg]:justify-self-end [&>svg]:text-muted-foreground",
+    managerRow: cx(
+      "service-manager-row grid min-h-11.5 w-full grid-cols-[22px_minmax(0,1fr)_16px] items-center",
+      "justify-stretch gap-2.5 rounded-none border-0 px-4 py-0 text-left [&+&]:border-t",
+      "[&+&]:border-hairline-soft [&_strong]:overflow-hidden [&_strong]:text-body",
+      "[&_strong]:font-medium [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
+      "[&>svg]:justify-self-end [&>svg]:text-muted-foreground",
+    ),
     managerFooter: "service-manager-footer justify-start",
     editorDialog: "w-[min(460px,calc(100vw_-_32px))]",
     editorForm: "grid gap-4 px-4 pt-4",

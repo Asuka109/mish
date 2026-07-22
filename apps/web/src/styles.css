@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "@mish/design-tokens/tokens.css";
 
+@custom-variant runtime-desktop (&:where(html[data-runtime="desktop"] *));
+@custom-variant runtime-mobile (&:where(html[data-runtime="mobile"] *));
+@custom-variant theme-dark (&:where(html[data-theme="dark"] *));
+
 .startup-failure {
   align-items: center;
   background: var(--mish-color-surface-soft);

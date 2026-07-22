@@ -31,7 +31,7 @@ import {
 } from "@mish/ui";
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useCurrentProfileCommand } from "../data/current-profile-command";
@@ -84,43 +84,85 @@ const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
 
 const shellStyles = tv({
   slots: {
-    root: "app-shell relative grid h-screen h-dvh min-h-0 w-full grid-cols-[164px_minmax(0,1fr)] overflow-hidden bg-surface-soft max-shell-mobile:grid-cols-[minmax(0,1fr)] max-shell-mobile:grid-rows-[minmax(0,1fr)_auto]",
-    sidebar:
-      "sidebar flex min-w-0 flex-col bg-sidebar-background px-2.5 pt-3.5 pb-2.5 text-fg @container/sidebar max-shell-mobile:grid max-shell-mobile:min-h-14 max-shell-mobile:grid-row-2 max-shell-mobile:grid-cols-[minmax(0,1fr)] max-shell-mobile:border-t max-shell-mobile:border-hairline max-shell-mobile:px-2 max-shell-mobile:pt-1 max-shell-mobile:pb-[max(6px,env(safe-area-inset-bottom))]",
+    root: cx(
+      "app-shell relative grid h-screen h-dvh min-h-0 w-full grid-cols-[164px_minmax(0,1fr)]",
+      "overflow-hidden bg-surface-soft max-shell-mobile:grid-cols-[minmax(0,1fr)]",
+      "max-shell-mobile:grid-rows-[minmax(0,1fr)_auto]",
+    ),
+    sidebar: cx(
+      "sidebar flex min-w-0 flex-col bg-sidebar-background px-2.5 pt-3.5 pb-2.5 text-fg",
+      "@container/sidebar max-shell-mobile:grid max-shell-mobile:min-h-14",
+      "max-shell-mobile:grid-row-2 max-shell-mobile:grid-cols-[minmax(0,1fr)]",
+      "max-shell-mobile:border-t max-shell-mobile:border-hairline max-shell-mobile:px-2",
+      "max-shell-mobile:pt-1 max-shell-mobile:pb-[max(6px,env(safe-area-inset-bottom))]",
+    ),
     sidebarHeader:
       "sidebar-window-header -mt-3.5 -mx-2.5 flex-none select-none pt-3.5 px-2.5 max-shell-mobile:hidden",
     windowControls: "window-controls-slot flex h-5.5 flex-none items-center select-none",
     trafficLights:
-      "traffic-lights flex flex-none items-center gap-1.75 pl-1 [html[data-runtime=desktop]_&]:invisible [&_svg]:size-3",
+      "traffic-lights flex flex-none items-center gap-1.75 pl-1 runtime-desktop:invisible [&_svg]:size-3",
     brand:
       "brand-row flex h-12 items-center px-2 font-semibold text-ink [&_img]:h-7.5 [&_img]:w-auto [&_img]:max-w-full",
-    brandLight: "brand-image-light [html[data-theme=dark]_&]:hidden",
-    brandDark: "brand-image-dark hidden [html[data-theme=dark]_&]:block",
-    navList:
-      "nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75 max-shell-mobile:grid max-shell-mobile:grid-cols-7 max-shell-mobile:gap-0.5 max-shell-mobile:p-0",
-    navItem:
-      "nav-item grid h-sidebar-row-height w-full flex-none grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap rounded-md border border-transparent px-sidebar-row-inset text-body font-medium text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg max-shell-mobile:h-11 max-shell-mobile:gap-0.5 max-shell-mobile:text-micro max-shell-mobile:leading-3 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap max-shell-mobile:[&>span]:block max-shell-mobile:[&>span]:max-w-full [&_svg]:col-start-1 [&_svg]:size-sidebar-icon [&_svg]:justify-self-center)",
+    brandLight: "brand-image-light theme-dark:hidden",
+    brandDark: "brand-image-dark hidden theme-dark:block",
+    navList: cx(
+      "nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75 max-shell-mobile:grid",
+      "max-shell-mobile:grid-cols-7 max-shell-mobile:gap-0.5 max-shell-mobile:p-0",
+    ),
+    navItem: cx(
+      "nav-item grid h-sidebar-row-height w-full flex-none",
+      "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
+      "rounded-md border border-transparent px-sidebar-row-inset text-body font-medium",
+      "text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg",
+      "max-shell-mobile:h-11 max-shell-mobile:gap-0.5 max-shell-mobile:text-micro",
+      "max-shell-mobile:leading-3 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis",
+      "[&>span]:whitespace-nowrap max-shell-mobile:[&>span]:block",
+      "max-shell-mobile:[&>span]:max-w-full [&_svg]:col-start-1 [&_svg]:size-sidebar-icon",
+      "[&_svg]:justify-self-center",
+    ),
     sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-0.75 max-shell-mobile:contents",
-    workspace:
-      "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden rounded-lg border border-hairline bg-canvas shadow-panel [margin:10px_10px_10px_0] max-shell-mobile:grid-row-1 max-shell-mobile:m-[6px_6px_0] max-shell-mobile:rounded-compact",
-    toolbar:
-      "toolbar flex min-w-0 items-center justify-between border-b border-hairline py-0 pr-4 pl-6 select-none max-toolbar-compact:pl-4.5 max-shell-mobile:py-0 max-shell-mobile:pr-2 max-shell-mobile:pl-3",
-    toolbarTitle:
-      "toolbar-title font-medium max-shell-mobile:min-w-0 max-shell-mobile:overflow-hidden max-shell-mobile:text-ellipsis max-shell-mobile:whitespace-nowrap",
+    workspace: cx(
+      "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden",
+      "m-2.5 ml-0 rounded-lg border border-hairline bg-canvas shadow-panel",
+      "max-shell-mobile:grid-row-1 max-shell-mobile:mx-1.5 max-shell-mobile:mt-1.5",
+      "max-shell-mobile:mb-0 max-shell-mobile:rounded-compact",
+    ),
+    toolbar: cx(
+      "toolbar flex min-w-0 items-center justify-between border-b border-hairline py-0 pr-4 pl-6",
+      "select-none max-toolbar-compact:pl-4.5 max-shell-mobile:py-0 max-shell-mobile:pr-2",
+      "max-shell-mobile:pl-3",
+    ),
+    toolbarTitle: cx(
+      "toolbar-title font-medium max-shell-mobile:min-w-0 max-shell-mobile:overflow-hidden",
+      "max-shell-mobile:text-ellipsis max-shell-mobile:whitespace-nowrap",
+    ),
     toolbarHeading: "toolbar-heading flex min-w-0 items-center gap-2",
-    toolbarActions:
-      "toolbar-actions flex min-w-0 flex-[0_1_auto] items-center gap-1.5 max-shell-mobile:flex-none max-shell-mobile:gap-0.5",
-    toolbarButton:
-      "toolbar-button inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border border-transparent bg-transparent px-2.25 text-metadata text-muted-foreground hover:border-hairline hover:bg-accent hover:text-fg data-[popup-open]:border-hairline data-[popup-open]:bg-accent data-[popup-open]:text-fg [&_svg]:size-3.75",
+    toolbarActions: cx(
+      "toolbar-actions flex min-w-0 flex-initial items-center gap-1.5 max-shell-mobile:flex-none",
+      "max-shell-mobile:gap-0.5",
+    ),
+    toolbarButton: cx(
+      "toolbar-button inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border",
+      "border-transparent bg-transparent px-2.25 text-metadata text-muted-foreground",
+      "hover:border-hairline hover:bg-accent hover:text-fg data-popup-open:border-hairline",
+      "data-popup-open:bg-accent data-popup-open:text-fg [&_svg]:size-3.75",
+    ),
     appearanceToolbarButton: "appearance-menu-trigger size-8.5 p-0",
     languageToolbarButton: "language-menu-trigger size-8.5 p-0",
-    profileTrigger:
-      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent max-shell-mobile:w-8.5 max-shell-mobile:min-w-8.5 max-shell-mobile:p-0 max-shell-mobile:[&>span]:hidden [&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden [&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
+    profileTrigger: cx(
+      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent max-shell-mobile:w-8.5",
+      "max-shell-mobile:min-w-8.5 max-shell-mobile:p-0 max-shell-mobile:[&>span]:hidden",
+      "[&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden",
+      "[&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
+    ),
     menuContent: "min-w-39",
     menuLabel:
       "profile-menu-label block px-2.25 pt-1.5 pb-1.75 text-metadata text-muted-foreground",
-    runtimeBadge:
-      "runtime-data-badge inline-flex h-6 items-center justify-center gap-1.75 rounded-md border border-hairline bg-surface-soft px-2.25 text-caption text-muted-foreground max-toolbar-compact:hidden",
+    runtimeBadge: cx(
+      "runtime-data-badge inline-flex h-6 items-center justify-center gap-1.75 rounded-md border",
+      "border-hairline bg-surface-soft px-2.25 text-caption text-muted-foreground",
+      "max-toolbar-compact:hidden",
+    ),
     loading: "toolbar-loading text-metadata text-muted-foreground max-shell-mobile:hidden",
     contentScroll: "workspace-page-scroll min-h-0 min-w-0 overflow-auto",
   },
@@ -137,11 +179,22 @@ const shellStyles = tv({
 
 export const proxyControlStyles = tv({
   slots: {
-    proxyControl:
-      "proxy-control-button relative flex h-sidebar-row-height w-full items-center overflow-hidden rounded-md border border-transparent bg-transparent p-0 text-left text-metadata font-medium text-muted-foreground isolate disabled:opacity-100 max-shell-mobile:h-11 max-shell-mobile:text-micro max-shell-mobile:leading-3 [&:not([data-status=healthy]):hover]:bg-sidebar-item-hover [&:not([data-status=healthy]):hover]:text-fg",
-    material: "pointer-events-none absolute inset-0 z-0 rounded-[calc(var(--radius-md)-1px)]",
-    state:
-      "proxy-control-state relative z-2 grid w-full min-w-0 grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap px-sidebar-row-inset transition-opacity duration-160 ease-[cubic-bezier(0.22,1,0.36,1)] max-shell-mobile:gap-0.5 max-shell-mobile:px-0 [&>:first-child]:col-start-1 [&>:first-child]:justify-self-center [&_svg]:size-sidebar-icon",
+    proxyControl: cx(
+      "proxy-control-button relative flex h-sidebar-row-height w-full items-center overflow-hidden",
+      "rounded-md border border-transparent bg-transparent p-0 text-left text-metadata font-medium",
+      "text-muted-foreground isolate disabled:opacity-100 max-shell-mobile:h-11",
+      "max-shell-mobile:text-micro max-shell-mobile:leading-3",
+      "[&:not([data-status=healthy]):hover]:bg-sidebar-item-hover",
+      "[&:not([data-status=healthy]):hover]:text-fg",
+    ),
+    material: "pointer-events-none absolute inset-0 z-0 rounded-material-inset",
+    state: cx(
+      "proxy-control-state relative z-2 grid w-full min-w-0",
+      "grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap",
+      "px-sidebar-row-inset transition-opacity duration-160 ease-proxy-crossfade",
+      "max-shell-mobile:gap-0.5 max-shell-mobile:px-0 [&>:first-child]:col-start-1",
+      "[&>:first-child]:justify-self-center [&_svg]:size-sidebar-icon",
+    ),
     defaultState: "proxy-control-default",
     hoverState: "proxy-control-hover absolute inset-0 opacity-0",
     label: "proxy-control-label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
@@ -149,8 +202,14 @@ export const proxyControlStyles = tv({
   variants: {
     healthy: {
       true: {
-        proxyControl:
-          "border-status-water-border bg-status-water-base text-brand-foreground shadow-status hover:border-status-water-border hover:bg-status-water-base hover:text-brand-foreground focus-visible:border-status-water-border focus-visible:bg-status-water-base focus-visible:text-brand-foreground [&:is(:hover,:focus-visible)_[data-slot=proxy-control-default]]:opacity-0 [&:is(:hover,:focus-visible)_[data-slot=proxy-control-hover]]:opacity-100",
+        proxyControl: cx(
+          "border-status-water-border bg-status-water-base text-brand-foreground shadow-status",
+          "hover:border-status-water-border hover:bg-status-water-base hover:text-brand-foreground",
+          "focus-visible:border-status-water-border focus-visible:bg-status-water-base",
+          "focus-visible:text-brand-foreground",
+          "[&:is(:hover,:focus-visible)_[data-slot=proxy-control-default]]:opacity-0",
+          "[&:is(:hover,:focus-visible)_[data-slot=proxy-control-hover]]:opacity-100",
+        ),
       },
       false: {},
     },
@@ -497,7 +556,11 @@ function ProfileMenu() {
         <SelectGroup>
           {managedProfiles.map((profile) => (
             <SelectItem
-              className="profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2 rounded-sm px-2.25 text-metadata text-fg outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-ink"
+              className={cx(
+                "profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2",
+                "rounded-sm px-2.25 text-metadata text-fg outline-none select-none",
+                "data-highlighted:bg-accent data-highlighted:text-ink",
+              )}
               key={profile.id}
               value={profile.id}
             >

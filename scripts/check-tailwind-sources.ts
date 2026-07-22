@@ -11,6 +11,12 @@ const packagesRoot = resolve(root, "packages");
 const stylesheetPath = resolve(webSourceRoot, "styles.css");
 const stylesheet = readFileSync(stylesheetPath, "utf8");
 
+for (const variant of ["runtime-desktop", "runtime-mobile", "theme-dark"]) {
+  if (!stylesheet.includes(`@custom-variant ${variant} `)) {
+    throw new Error(`${relative(root, stylesheetPath)} must define the ${variant} variant.`);
+  }
+}
+
 function filesUnder(directory: string, extensions: ReadonlySet<string>): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = resolve(directory, entry.name);
@@ -139,6 +145,27 @@ const forbiddenStylePatterns = [
   {
     pattern: /(?:scale|tracking)-\[[^\]]+\]/g,
     reason: "uses an unnamed scale or tracking value",
+  },
+  {
+    pattern: /(?:flex-\[(?:0_1_auto|1_1_\d+(?:\.\d+)?px)\]|ease-\[[^\]]+\])/g,
+    reason: "uses an arbitrary flex or easing value with a native or named utility",
+  },
+  {
+    pattern: /\[html\[data-(?:runtime|theme)=[^\]]+\]_&\]/g,
+    reason: "uses a repeated ancestor selector instead of a named custom variant",
+  },
+  {
+    pattern: /data-\[(?:active|highlighted|pressed|starting-style|ending-style|popup-open)\]/g,
+    reason: "uses an arbitrary data-presence variant instead of Tailwind's named form",
+  },
+  {
+    pattern: /(?:bg|border|text)-\[color-mix\([^\]]+\)\]/g,
+    reason: "uses an unnamed semantic color mix",
+  },
+  {
+    pattern:
+      /(?:\[scrollbar-width:none\]|\[overflow-wrap:anywhere\]|\[transform-origin:var\([^\]]+\)\]|\[margin:[^\]]+\]|motion-reduce:\[animation-duration:[^\]]+\])/g,
+    reason: "uses an arbitrary declaration with a native or named utility",
   },
   {
     pattern: /(?:@?(?:max|min))-\[\d+px\]/g,

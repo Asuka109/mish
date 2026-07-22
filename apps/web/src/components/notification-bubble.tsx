@@ -15,7 +15,7 @@ import {
 } from "@mish/ui";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
 import { useProduct, type LocalProxyTestState } from "../data/product-provider";
 import { useCaptureCommand } from "../data/capture-command";
@@ -38,26 +38,44 @@ const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
 const notificationStyles = tv({
   slots: {
-    trigger:
-      "toolbar-button notification-trigger relative inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border border-transparent bg-transparent px-2.25 text-metadata text-muted-foreground hover:border-hairline hover:bg-accent hover:text-fg data-[popup-open]:border-hairline data-[popup-open]:bg-accent data-[popup-open]:text-fg",
-    count:
-      "notification-count absolute -top-1 -right-1.25 h-4.25 min-w-4.25 pointer-events-none px-1 text-micro leading-none tabular-nums",
+    trigger: cx(
+      "toolbar-button notification-trigger relative inline-flex h-8.5 items-center justify-center",
+      "gap-1.75 rounded-md border border-transparent bg-transparent px-2.25 text-metadata",
+      "text-muted-foreground hover:border-hairline hover:bg-accent hover:text-fg",
+      "data-popup-open:border-hairline data-popup-open:bg-accent data-popup-open:text-fg",
+    ),
+    count: cx(
+      "notification-count absolute -top-1 -right-1.25 h-4.25 min-w-4.25 pointer-events-none px-1",
+      "text-micro leading-none tabular-nums",
+    ),
     popover: "notification-popover w-[min(360px,calc(100vw_-_24px))]",
     header:
       "notification-header flex items-start justify-between gap-3 px-3.5 pt-3.5 pb-3 [&_.ui-button]:flex-none",
     title: "notification-title text-body leading-5 font-semibold",
     description: "notification-description mt-0.5 text-metadata leading-4.5 text-muted-foreground",
-    list: "notification-list m-0 max-h-[min(360px,calc(100vh_-_180px))] list-none overflow-auto border-y border-hairline p-0",
-    item: "notification-item relative flex min-w-0 flex-col gap-1.25 px-3.5 pt-2.75 pb-3 [&+&]:border-t [&+&]:border-hairline-soft",
-    itemHeading:
-      "notification-item-heading flex items-center justify-between gap-2 pr-6.5 [&_.ui-badge]:h-5 [&_time]:text-caption [&_time]:text-muted-foreground",
+    list: cx(
+      "notification-list m-0 max-h-[min(360px,calc(100vh_-_180px))] list-none overflow-auto",
+      "border-y border-hairline p-0",
+    ),
+    item: cx(
+      "notification-item relative flex min-w-0 flex-col gap-1.25 px-3.5 pt-2.75 pb-3 [&+&]:border-t",
+      "[&+&]:border-hairline-soft",
+    ),
+    itemHeading: cx(
+      "notification-item-heading flex items-center justify-between gap-2 pr-6.5 [&_.ui-badge]:h-5",
+      "[&_time]:text-caption [&_time]:text-muted-foreground",
+    ),
     entryTitle: "notification-entry-title text-metadata font-medium text-ink",
     message:
       "notification-message cursor-text wrap-anywhere text-metadata leading-4.75 font-medium text-fg select-text",
     detail:
       "notification-detail mt-0.75 wrap-anywhere text-metadata leading-4.5 text-muted-foreground",
-    remove:
-      "notification-remove absolute top-1.75 right-2 size-6.5 opacity-0 pointer-events-none transition-opacity duration-120 ease-out group-hover/item:opacity-100 group-hover/item:pointer-events-auto group-focus-within/item:opacity-100 group-focus-within/item:pointer-events-auto",
+    remove: cx(
+      "notification-remove absolute top-1.75 right-2 size-6.5 opacity-0 pointer-events-none",
+      "transition-opacity duration-120 ease-out group-hover/item:opacity-100",
+      "group-hover/item:pointer-events-auto group-focus-within/item:opacity-100",
+      "group-focus-within/item:pointer-events-auto",
+    ),
     actions: "notification-actions flex flex-wrap gap-1.5 pt-0.75",
     empty: "notification-empty min-h-42 rounded-none border-x-0 border-y border-hairline",
     footer: "notification-footer flex px-3.5 pt-2.5 pb-3",

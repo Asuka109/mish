@@ -143,6 +143,7 @@ const requiredThemeTokens = [
   "radius-sm",
   "radius-md",
   "radius-section-grid-inner",
+  "radius-material-inset",
   "radius-compact",
   "radius-lg",
   "shadow-panel",
@@ -156,6 +157,10 @@ const requiredThemeTokens = [
   "breakpoint-page-compact",
   "container-dialog-height",
   "container-settings-compact",
+  "container-welcome-description",
+  "container-welcome-purpose",
+  "ease-proxy-crossfade",
+  "animate-spinner-reduced",
   "spacing",
 ];
 

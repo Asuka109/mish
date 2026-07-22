@@ -15,7 +15,7 @@ import {
 } from "@mish/ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
@@ -31,42 +31,75 @@ import type { Locales } from "../i18n/i18n-types";
 
 const statusStyles = tv({
   slots: {
-    page: "mx-auto min-h-full w-full max-w-page px-8 pt-6 pb-8 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    page: cx(
+      "mx-auto min-h-full w-full max-w-page px-8 pt-6 pb-8 max-page-compact:p-6",
+      "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    ),
     loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
     error:
       "mb-3 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
     diagnostics:
       "my-2 inline-flex text-metadata font-medium text-brand no-underline hover:underline",
     controls: "pb-4",
-    controlCell:
-      "flex min-h-13.5 items-center gap-6 px-3.5 first:rounded-t-section-grid-inner last:rounded-b-section-grid-inner max-toolbar-compact:gap-4 max-shell-mobile:min-h-0 max-shell-mobile:flex-col max-shell-mobile:items-start max-shell-mobile:gap-2 max-shell-mobile:p-3",
+    controlCell: cx(
+      "flex min-h-13.5 items-center gap-6 px-3.5 first:rounded-t-section-grid-inner",
+      "last:rounded-b-section-grid-inner max-toolbar-compact:gap-4 max-shell-mobile:min-h-0",
+      "max-shell-mobile:flex-col max-shell-mobile:items-start max-shell-mobile:gap-2",
+      "max-shell-mobile:p-3",
+    ),
     controlLabel: "font-medium text-fg whitespace-nowrap",
     routingItem: "px-3",
-    contentGrid:
-      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 max-profile-stack:gap-8 max-page-compact:grid-cols-1 [html[data-runtime=mobile]_&]:grid-cols-1 [html[data-runtime=mobile]_&]:gap-6",
+    contentGrid: cx(
+      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12",
+      "max-profile-stack:gap-8 max-page-compact:grid-cols-1 runtime-mobile:grid-cols-1",
+      "runtime-mobile:gap-6",
+    ),
     section: "min-w-0",
     sessionSection: "min-w-0 @container/session",
     heading:
       "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-shell-mobile:items-start",
-    headingCopy:
-      "flex min-w-0 flex-1 items-baseline gap-2 [&_h2]:shrink-0 [&_p]:min-w-0 [&_p]:truncate [&_p]:text-metadata [&_p]:text-muted-foreground max-shell-mobile:flex-col max-shell-mobile:items-start max-shell-mobile:gap-0.5 max-shell-mobile:[&_p]:overflow-visible max-shell-mobile:[&_p]:text-clip max-shell-mobile:[&_p]:whitespace-normal max-shell-mobile:[&_p]:[overflow-wrap:anywhere]",
-    action:
-      "inline-flex shrink-0 items-center gap-1 rounded-sm p-1 text-metadata leading-4.5 text-fg no-underline whitespace-nowrap hover:text-ink hover:underline [&_svg]:size-3.25 [&_svg]:shrink-0",
-    sessionList:
-      "[--section-grid-columns:2] [&>:first-child]:rounded-t-section-grid-inner [&>:nth-last-child(2)]:rounded-bl-section-grid-inner [&>:last-child]:rounded-br-section-grid-inner",
-    trafficRow:
-      "grid min-h-16 grid-cols-[auto_max-content_minmax(72px,1fr)] items-center gap-3 px-3 @max-session-compact/session:grid-cols-[minmax(0,1fr)_auto]",
-    trafficLabel:
-      "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-metadata text-muted-soft [&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-traffic-download data-[direction=upload]:[&>svg]:text-traffic-upload",
+    headingCopy: cx(
+      "flex min-w-0 flex-1 items-baseline gap-2 [&_h2]:shrink-0 [&_p]:min-w-0 [&_p]:truncate",
+      "[&_p]:text-metadata [&_p]:text-muted-foreground max-shell-mobile:flex-col",
+      "max-shell-mobile:items-start max-shell-mobile:gap-0.5",
+      "max-shell-mobile:[&_p]:overflow-visible max-shell-mobile:[&_p]:text-clip",
+      "max-shell-mobile:[&_p]:whitespace-normal max-shell-mobile:[&_p]:wrap-anywhere",
+    ),
+    action: cx(
+      "inline-flex shrink-0 items-center gap-1 rounded-sm p-1 text-metadata leading-4.5 text-fg",
+      "no-underline whitespace-nowrap hover:text-ink hover:underline [&_svg]:size-3.25",
+      "[&_svg]:shrink-0",
+    ),
+    sessionList: cx(
+      "[--section-grid-columns:2] [&>:first-child]:rounded-t-section-grid-inner",
+      "[&>:nth-last-child(2)]:rounded-bl-section-grid-inner",
+      "[&>:last-child]:rounded-br-section-grid-inner",
+    ),
+    trafficRow: cx(
+      "grid min-h-16 grid-cols-[auto_max-content_minmax(72px,1fr)] items-center gap-3 px-3",
+      "@max-session-compact/session:grid-cols-[minmax(0,1fr)_auto]",
+    ),
+    trafficLabel: cx(
+      "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-metadata text-muted-soft",
+      "[&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-traffic-download",
+      "data-[direction=upload]:[&>svg]:text-traffic-upload",
+    ),
     trafficCopy:
       "grid min-w-0 gap-px [&>span]:text-muted-foreground [&>small]:text-caption [&>small]:text-muted-soft",
     trafficRate: "text-metadata font-medium text-muted-foreground whitespace-nowrap",
-    metric:
-      "grid min-h-13 content-center gap-0.5 px-3 py-1.75 [&>span]:text-metadata [&>span]:text-muted-foreground [&>strong]:truncate [&>strong]:text-metadata [&>strong]:font-medium",
-    policyList:
-      "gap-0 bg-canvas [&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-hairline-soft [&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
-    policyRow:
-      "flex min-h-12.5 w-full items-center justify-between gap-2.5 rounded-none border-0 bg-transparent py-0 pr-3 pl-2.5 text-left text-fg hover:bg-accent hover:text-ink-active",
+    metric: cx(
+      "grid min-h-13 content-center gap-0.5 px-3 py-1.75 [&>span]:text-metadata",
+      "[&>span]:text-muted-foreground [&>strong]:truncate [&>strong]:text-metadata",
+      "[&>strong]:font-medium",
+    ),
+    policyList: cx(
+      "gap-0 bg-canvas [&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-hairline-soft",
+      "[&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
+    ),
+    policyRow: cx(
+      "flex min-h-12.5 w-full items-center justify-between gap-2.5 rounded-none border-0",
+      "bg-transparent py-0 pr-3 pl-2.5 text-left text-fg hover:bg-accent hover:text-ink-active",
+    ),
     policyLeading: "flex min-w-0 items-center gap-2.5",
     policyTrailing: "flex shrink-0 items-center gap-2.5 [&>svg]:size-3.25 [&>svg]:text-muted-soft",
     policyRank: "text-center text-caption text-muted-soft",

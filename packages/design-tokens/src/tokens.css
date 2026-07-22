@@ -305,6 +305,26 @@
   --color-toggle-capture-running-icon: var(--mish-color-toggle-capture-running-icon);
   --color-status-water-border: var(--mish-color-status-water-border);
   --color-dialog-backdrop: var(--mish-color-dialog-backdrop);
+  --color-profile-subscription-surface: color-mix(
+    in srgb,
+    var(--mish-color-surface-soft) 58%,
+    var(--mish-color-canvas)
+  );
+  --color-route-graph-error-border: color-mix(
+    in srgb,
+    var(--mish-color-error) 35%,
+    var(--mish-color-hairline)
+  );
+  --color-mobile-fixture-background: color-mix(
+    in srgb,
+    var(--mish-color-warning) 7%,
+    var(--mish-color-canvas)
+  );
+  --color-welcome-policy-background: color-mix(
+    in srgb,
+    var(--mish-color-brand) 6%,
+    var(--mish-color-canvas)
+  );
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -344,6 +364,7 @@
   --radius-sm: var(--mish-radius-sm);
   --radius-md: var(--mish-radius-md);
   --radius-section-grid-inner: var(--mish-radius-section-grid-inner);
+  --radius-material-inset: calc(var(--mish-radius-md) - 1px);
   --radius-compact: var(--mish-radius-compact);
   --radius-lg: var(--mish-radius-lg);
   --radius-full: var(--mish-radius-full);
@@ -373,6 +394,8 @@
   --container-page-narrow: 960px;
   --container-settings-compact: 680px;
   --container-session-compact: 320px;
+  --container-welcome-description: 58ch;
+  --container-welcome-purpose: 62ch;
 
   --breakpoint-shell-mobile: 600px;
   --breakpoint-dialog-compact: 620px;
@@ -385,6 +408,8 @@
   --border-width-spinner: var(--mish-border-width-spinner);
   --blur-dialog-backdrop: var(--mish-blur-dialog-backdrop);
   --scale-overlay-enter: var(--mish-scale-overlay-enter);
+  --ease-proxy-crossfade: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-spinner-reduced: spin 1.5s linear infinite;
   --tracking-pin: 0.28em;
   --tracking-label: 0.03em;
   --tracking-title-tight: -0.012em;

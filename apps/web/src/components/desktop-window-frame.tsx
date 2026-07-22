@@ -1,4 +1,5 @@
 import type { MouseEventHandler, ReactNode } from "react";
+import { cx } from "tailwind-variants";
 import { handleDesktopWindowDrag } from "../platform/desktop-window";
 
 interface DesktopWindowFrameProps {
@@ -17,7 +18,10 @@ export function DesktopWindowFrame({ children, runtime }: DesktopWindowFrameProp
       {runtime === "desktop" ? (
         <div
           aria-hidden="true"
-          className="desktop-window-drag-surface fixed inset-x-0 top-0 z-(--layer-window-frame) h-(--desktop-window-frame-height)"
+          className={cx(
+            "desktop-window-drag-surface fixed inset-x-0 top-0",
+            "z-(--layer-window-frame) h-(--desktop-window-frame-height)",
+          )}
           data-window-drag-behavior="drag-and-zoom"
           data-window-drag-surface="window-frame"
           onMouseDown={handleWindowFrameMouseDown}

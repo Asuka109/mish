@@ -25,6 +25,11 @@ Recipes never construct Tailwind utilities dynamically. Each utility is a
 complete literal in source so Tailwind v4 can detect it in `@mish/ui`, which is
 scanned by `apps/web/src/styles.css` through `@source`.
 
+Long recipes use `tailwind-variants` `cx()` to group complete static utility
+literals into readable lines. `cx()` only concatenates those groups; the TV
+recipe remains the single `tailwind-merge` boundary, including the final caller
+`className` override.
+
 `pnpm check:styles` enforces those boundaries. It rejects interpolation inside
 recipes or Tailwind class fragments, requires every package that imports
 `tailwind-variants` to have an explicit `@source` entry, and verifies that every
@@ -39,6 +44,10 @@ color. Recipes do not bypass the theme with `bg-(--color-canvas)`, raw
 equivalent indirect shorthands. Surface-scoped values such as the material-aware
 sidebar background are exposed as named theme colors while their runtime CSS
 variables remain the source of truth.
+
+Repeated root-state selectors use named CSS-first variants. `runtime-desktop:`,
+`runtime-mobile:`, and `theme-dark:` replace inline `html[data-*]` arbitrary
+ancestor selectors while preserving the same document-root state contract.
 
 Simple fixed geometry follows the 4px Tailwind spacing base, including exact
 fractional steps (`h-5.5` for 22px, `gap-1.75` for 7px, and `px-2.25` for 9px).

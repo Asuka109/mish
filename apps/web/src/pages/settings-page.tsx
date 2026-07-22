@@ -32,7 +32,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 
 type PendingButtonAction =
   | "language"
@@ -52,32 +52,80 @@ type PromiseButtonAction =
 
 const settingsStyles = tv({
   slots: {
-    page: "@container/settings-page mx-auto w-full max-w-page-narrow px-8 pt-8 pb-12 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6 [&>header+section]:mt-6",
-    header:
-      "[&_h1]:text-title [&_h1]:font-semibold [&_h1]:tracking-title-tight [&_p]:mt-1.75 [&_p]:max-w-175 [&_p]:leading-5.25 [&_p]:text-muted-foreground",
-    notice:
-      "mt-6 flex items-start gap-2 rounded-md border border-feedback-warning-border px-3 py-2.5 text-metadata text-warning [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0",
+    page: cx(
+      "@container/settings-page mx-auto w-full max-w-page-narrow px-8 pt-8 pb-12",
+      "max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+      "[&>header+section]:mt-6",
+    ),
+    header: cx(
+      "[&_h1]:text-title [&_h1]:font-semibold [&_h1]:tracking-title-tight [&_p]:mt-1.75",
+      "[&_p]:max-w-175 [&_p]:leading-5.25 [&_p]:text-muted-foreground",
+    ),
+    notice: cx(
+      "mt-6 flex items-start gap-2 rounded-md border border-feedback-warning-border px-3 py-2.5",
+      "text-metadata text-warning [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0",
+    ),
     section: "mt-7",
-    heading:
-      "px-1 pb-2.5 [&_h2]:text-body [&_h2]:font-semibold [&_p]:mt-0.75 [&_p]:max-w-180 [&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground",
+    heading: cx(
+      "px-1 pb-2.5 [&_h2]:text-body [&_h2]:font-semibold [&_p]:mt-0.75 [&_p]:max-w-180",
+      "[&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground",
+    ),
     control:
       "[&_.traffic-capture-stack]:items-end @max-settings-compact/settings-page:[&_.traffic-capture-stack]:items-start",
-    inline:
-      "inline-flex items-center gap-2 @max-settings-compact/settings-page:flex-wrap @max-settings-compact/settings-page:justify-start [&_label]:inline-grid [&_label]:gap-0.75 [&_label]:text-start [&_label]:text-label-small [&_label]:leading-3.5 [&_label]:text-muted-foreground [&_input[type=number]]:min-h-7.5 [&_input[type=number]]:w-20.5 [&_input[type=number]]:rounded-sm [&_input[type=number]]:border [&_input[type=number]]:border-hairline [&_input[type=number]]:bg-canvas [&_input[type=number]]:px-1.75 [&_input[type=number]]:py-1 [&_input[type=number]]:text-fg",
-    localProxy:
-      "flex flex-wrap items-center justify-end gap-2 @max-settings-compact/settings-page:justify-start [&_.ui-button]:min-w-28 [&_.ui-button[aria-busy=true]:disabled]:opacity-100",
+    inline: cx(
+      "inline-flex items-center gap-2 @max-settings-compact/settings-page:flex-wrap",
+      "@max-settings-compact/settings-page:justify-start [&_label]:inline-grid [&_label]:gap-0.75",
+      "[&_label]:text-start [&_label]:text-label-small [&_label]:leading-3.5",
+      "[&_label]:text-muted-foreground [&_input[type=number]]:min-h-7.5",
+      "[&_input[type=number]]:w-20.5 [&_input[type=number]]:rounded-sm",
+      "[&_input[type=number]]:border [&_input[type=number]]:border-hairline",
+      "[&_input[type=number]]:bg-canvas [&_input[type=number]]:px-1.75 [&_input[type=number]]:py-1",
+      "[&_input[type=number]]:text-fg",
+    ),
+    localProxy: cx(
+      "flex flex-wrap items-center justify-end gap-2",
+      "@max-settings-compact/settings-page:justify-start [&_.ui-button]:min-w-28",
+      "[&_.ui-button[aria-busy=true]:disabled]:opacity-100",
+    ),
     localProxyEndpoint: "flex flex-wrap items-center gap-2 [&_code]:text-ink [&_code]:tabular-nums",
-    networkList:
-      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start",
-    networkPrimary:
-      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start [&>strong]:font-medium [&>span]:text-metadata [&>span]:text-muted-foreground",
+    networkList: cx(
+      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg",
+      "data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start",
+    ),
+    networkPrimary: cx(
+      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start [&>strong]:font-medium [&>span]:text-metadata",
+      "[&>span]:text-muted-foreground",
+    ),
     networkEmpty: "text-metadata text-muted-foreground",
-    networkAddresses:
-      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start [&>span]:justify-end @max-settings-compact/settings-page:[&>span]:justify-start [&_code]:font-mono [&_code]:text-caption [&_code]:text-muted-foreground",
-    networkDetail:
-      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start [&>span:first-child]:text-metadata [&>span:first-child]:text-muted-foreground",
-    observedValues:
-      "flex max-w-105 flex-wrap justify-end gap-1 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-start [&_code]:max-w-full [&_code]:truncate [&_code]:rounded-sm [&_code]:border [&_code]:border-hairline [&_code]:bg-surface-soft [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-caption [&_code]:text-fg",
+    networkAddresses: cx(
+      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg",
+      "data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start [&>span]:justify-end",
+      "@max-settings-compact/settings-page:[&>span]:justify-start [&_code]:font-mono",
+      "[&_code]:text-caption [&_code]:text-muted-foreground",
+    ),
+    networkDetail: cx(
+      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg",
+      "data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68",
+      "@max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-items-start",
+      "@max-settings-compact/settings-page:text-start [&>span:first-child]:text-metadata",
+      "[&>span:first-child]:text-muted-foreground",
+    ),
+    observedValues: cx(
+      "flex max-w-105 flex-wrap justify-end gap-1 @max-settings-compact/settings-page:max-w-full",
+      "@max-settings-compact/settings-page:justify-start [&_code]:max-w-full [&_code]:truncate",
+      "[&_code]:rounded-sm [&_code]:border [&_code]:border-hairline [&_code]:bg-surface-soft",
+      "[&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-caption [&_code]:text-fg",
+    ),
   },
 });
 

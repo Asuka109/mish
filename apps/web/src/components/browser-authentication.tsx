@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button, Input, Spinner } from "@mish/ui";
 import { ShieldCheck } from "@phosphor-icons/react";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import { useI18nContext } from "../i18n/i18n-react";
 import {
   BrowserPairingError,
@@ -19,10 +19,19 @@ interface BrowserAuthenticationProps {
 const authenticationStyles = tv({
   slots: {
     page: "fixed inset-0 flex items-center justify-center bg-surface-soft p-xl font-sans text-ink",
-    card: "w-[min(100%,440px)] rounded-lg border border-hairline bg-canvas p-xl shadow-panel [&_h1]:my-xs [&_h1]:mb-sm [&_h1]:text-title [&_h1]:font-semibold [&_p]:m-0 [&_p]:text-body [&_p]:text-fg",
+    card: cx(
+      "w-full max-w-dialog rounded-lg border border-hairline bg-canvas p-xl shadow-panel",
+      "[&_h1]:my-xs [&_h1]:mb-sm [&_h1]:text-title [&_h1]:font-semibold [&_p]:m-0 [&_p]:text-body",
+      "[&_p]:text-fg",
+    ),
     icon: "flex size-11 items-center justify-center rounded-md bg-accent text-focus-accent mb-md [&_svg]:size-6",
     eyebrow: "text-metadata! text-muted-foreground!",
-    form: "mt-lg [&_label]:mb-xs [&_label]:block [&_label]:text-body [&_label]:font-semibold [&_label]:text-ink [&_.ui-input]:w-full [&_.ui-input]:font-mono [&_.ui-input]:text-2xl [&_.ui-input]:tracking-pin [&_.ui-input]:text-center [&_.ui-button]:mt-md [&_.ui-button]:w-full",
+    form: cx(
+      "mt-lg [&_label]:mb-xs [&_label]:block [&_label]:text-body [&_label]:font-semibold",
+      "[&_label]:text-ink [&_.ui-input]:w-full [&_.ui-input]:font-mono [&_.ui-input]:text-2xl",
+      "[&_.ui-input]:tracking-pin [&_.ui-input]:text-center [&_.ui-button]:mt-md",
+      "[&_.ui-button]:w-full",
+    ),
     status: "mt-lg flex items-center gap-sm text-fg",
     recovery: "mt-lg [&_.ui-button]:mt-md [&_.ui-button]:w-full",
     hint: "mt-xs! text-metadata! text-muted-foreground!",

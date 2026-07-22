@@ -4,7 +4,7 @@ import { Question } from "@phosphor-icons/react/Question";
 import { ShieldCheck } from "@phosphor-icons/react/ShieldCheck";
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import {
   Button,
   Dialog,
@@ -42,8 +42,11 @@ const captureStyles = tv({
     control: "inline-flex flex-wrap items-center gap-2",
     dialogHeader: "border-0",
     explanations: "px-4 py-1.5",
-    explanation:
-      "grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 py-3.5 [&>svg]:mt-px [&>svg]:size-4.5 [&>svg]:text-muted-foreground [&_p]:mt-1 [&_p]:text-metadata [&_p]:leading-5 [&_p]:text-muted-foreground",
+    explanation: cx(
+      "grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 py-3.5 [&>svg]:mt-px [&>svg]:size-4.5",
+      "[&>svg]:text-muted-foreground [&_p]:mt-1 [&_p]:text-metadata [&_p]:leading-5",
+      "[&_p]:text-muted-foreground",
+    ),
     dialogFooter: "border-0",
   },
 });

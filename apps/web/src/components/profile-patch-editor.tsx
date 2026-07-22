@@ -49,7 +49,7 @@ import type {
   StructuredRuleDto,
 } from "@mish/contracts";
 import { useEffect, useState } from "react";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -93,20 +93,35 @@ const patchStyles = tv({
     notice:
       "m-0 rounded-md border border-hairline bg-surface-soft px-3 py-2.5 text-muted-foreground",
     blocked: "text-error",
-    toolbar:
-      "flex items-center justify-between gap-3 max-editor-stack:flex-col max-editor-stack:items-stretch [&>div]:flex [&>div]:items-center [&>div]:gap-2 max-editor-stack:[&>div]:flex-wrap [&_span]:text-metadata [&_span]:text-muted-foreground",
-    scroll:
-      "min-h-40 max-h-[min(430px,50vh)] overflow-auto rounded-md border border-hairline bg-canvas [&>.ui-empty]:min-h-39.5 [&>.ui-empty]:border-0",
+    toolbar: cx(
+      "flex items-center justify-between gap-3 max-editor-stack:flex-col",
+      "max-editor-stack:items-stretch [&>div]:flex [&>div]:items-center [&>div]:gap-2",
+      "max-editor-stack:[&>div]:flex-wrap [&_span]:text-metadata [&_span]:text-muted-foreground",
+    ),
+    scroll: cx(
+      "min-h-40 max-h-[min(430px,50vh)] overflow-auto rounded-md border border-hairline bg-canvas",
+      "[&>.ui-empty]:min-h-39.5 [&>.ui-empty]:border-0",
+    ),
     loading: "inline-flex items-center gap-2",
-    row: "flex min-w-0 items-center justify-between gap-3 p-3 max-editor-stack:flex-col max-editor-stack:items-stretch [&+&]:border-t [&+&]:border-hairline-soft",
-    summary:
-      "min-w-0 flex-1 [&>div]:flex [&>div]:items-center [&>div]:gap-1.5 [&_p]:my-0.5 [&_p]:mt-1 [&_p]:overflow-hidden [&_p]:text-ellipsis [&_p]:whitespace-nowrap [&_small]:text-metadata [&_small]:text-muted-foreground",
+    row: cx(
+      "flex min-w-0 items-center justify-between gap-3 p-3 max-editor-stack:flex-col",
+      "max-editor-stack:items-stretch [&+&]:border-t [&+&]:border-hairline-soft",
+    ),
+    summary: cx(
+      "min-w-0 flex-1 [&>div]:flex [&>div]:items-center [&>div]:gap-1.5 [&_p]:my-0.5 [&_p]:mt-1",
+      "[&_p]:overflow-hidden [&_p]:text-ellipsis [&_p]:whitespace-nowrap [&_small]:text-metadata",
+      "[&_small]:text-muted-foreground",
+    ),
     rowActions: "flex items-center gap-1.5 max-editor-stack:flex-wrap",
     dirty: "text-metadata text-muted-foreground",
     formDialog:
       "w-[min(560px,calc(100vw_-_32px))] max-h-[min(720px,calc(100vh_-_32px))] overflow-auto",
-    orderList:
-      "flex flex-col gap-px overflow-hidden rounded-md border border-hairline bg-hairline-soft [&>div]:flex [&>div]:min-w-0 [&>div]:min-h-10 [&>div]:items-center [&>div]:gap-1 [&>div]:bg-canvas [&>div]:py-1 [&>div]:pr-1.5 [&>div]:pl-2.5 [&_span]:min-w-0 [&_span]:flex-1 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
+    orderList: cx(
+      "flex flex-col gap-px overflow-hidden rounded-md border border-hairline bg-hairline-soft",
+      "[&>div]:flex [&>div]:min-w-0 [&>div]:min-h-10 [&>div]:items-center [&>div]:gap-1",
+      "[&>div]:bg-canvas [&>div]:py-1 [&>div]:pr-1.5 [&>div]:pl-2.5 [&_span]:min-w-0",
+      "[&_span]:flex-1 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
+    ),
     members: "flex max-h-45 flex-wrap gap-1.5 overflow-auto p-0.5",
   },
 });

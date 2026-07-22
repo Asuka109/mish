@@ -5,7 +5,7 @@ import { FolderOpen } from "@phosphor-icons/react/FolderOpen";
 import { GlobeHemisphereWest } from "@phosphor-icons/react/GlobeHemisphereWest";
 import { WarningCircle } from "@phosphor-icons/react/WarningCircle";
 import { useMemo, useState, type FormEvent } from "react";
-import { tv } from "tailwind-variants";
+import { cx, tv } from "tailwind-variants";
 import {
   Badge,
   Button,
@@ -51,15 +51,29 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
 
 const profileStyles = tv({
   slots: {
-    page: "mx-auto w-full max-w-page-medium p-8 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
-    header:
-      "flex items-start justify-between gap-6 max-page-compact:flex-col max-page-compact:items-stretch [&_p]:mt-1.75 [&_p]:max-w-165 [&_p]:leading-5.25 [&_p]:text-muted-foreground",
-    importActions:
-      "flex shrink-0 items-center gap-2 max-page-compact:self-start max-shell-mobile:w-full max-shell-mobile:flex-wrap max-shell-mobile:[&>.ui-button]:min-w-0 max-shell-mobile:[&>.ui-button]:flex-[1_1_180px]",
+    page: cx(
+      "mx-auto w-full max-w-page-medium p-8 max-page-compact:p-6 max-shell-mobile:px-4",
+      "max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    ),
+    header: cx(
+      "flex items-start justify-between gap-6 max-page-compact:flex-col",
+      "max-page-compact:items-stretch [&_p]:mt-1.75 [&_p]:max-w-165 [&_p]:leading-5.25",
+      "[&_p]:text-muted-foreground",
+    ),
+    importActions: cx(
+      "flex shrink-0 items-center gap-2 max-page-compact:self-start max-shell-mobile:w-full",
+      "max-shell-mobile:flex-wrap max-shell-mobile:[&>.ui-button]:min-w-0",
+      "max-shell-mobile:[&>.ui-button]:grow max-shell-mobile:[&>.ui-button]:shrink",
+      "max-shell-mobile:[&>.ui-button]:basis-45",
+    ),
     loading: "mt-2.5 text-caption leading-4.5 text-muted-foreground",
     empty: "mt-5",
     cardList: "mt-6 grid gap-3.5",
-    card: "overflow-hidden rounded-lg border border-hairline bg-canvas data-[source=subscription]:[&>header]:border-b data-[source=subscription]:[&>header]:border-hairline-soft",
+    card: cx(
+      "overflow-hidden rounded-lg border border-hairline bg-canvas",
+      "data-[source=subscription]:[&>header]:border-b",
+      "data-[source=subscription]:[&>header]:border-hairline-soft",
+    ),
     cardHeader:
       "flex min-h-17 items-center justify-between gap-4 px-4 py-3 max-content-narrow:items-start",
     cardTitle: "flex min-w-0 flex-1 items-center gap-2",
@@ -67,27 +81,52 @@ const profileStyles = tv({
       "flex shrink-0 items-center gap-2 max-content-narrow:flex-wrap max-content-narrow:justify-end",
     fileTitle: "min-w-0 overflow-hidden text-ink text-ellipsis whitespace-nowrap font-semibold",
     extension: "text-muted-foreground font-medium",
-    subscription:
-      "bg-[color-mix(in_srgb,var(--color-surface-soft)_58%,var(--color-canvas))] px-4 pt-3.5 pb-3.25",
-    subscriptionGrid:
-      "profile-subscription-grid grid grid-cols-[minmax(260px,1fr)_126px_144px] items-end gap-5 max-page-compact:grid-cols-[minmax(0,1fr)_112px_132px] max-page-compact:gap-3.5 max-content-narrow:grid-cols-2",
-    subscriptionCell:
-      "grid min-w-0 gap-1 [&>span]:text-caption [&>span]:leading-4 [&>span]:text-muted-foreground [&>dt]:text-caption [&>dt]:leading-4 [&>dt]:text-muted-foreground",
-    source:
-      "grid min-w-0 gap-1 max-content-narrow:col-span-2 [&>span:first-child]:flex [&>span:first-child]:items-center [&>span:first-child]:gap-1.5 [&_svg]:size-3.75",
-    url: "block min-h-6.5 overflow-hidden text-metadata leading-6.5 font-medium text-muted-foreground text-ellipsis whitespace-nowrap",
-    date: "grid gap-1 text-metadata text-muted-foreground [&>strong]:flex [&>strong]:min-h-6.5 [&>strong]:items-center [&>strong]:truncate [&>strong]:text-metadata [&>strong]:leading-4.5 [&>strong]:font-medium [&>strong]:text-ink [&>strong]:tabular-nums",
+    subscription: "bg-profile-subscription-surface px-4 pt-3.5 pb-3.25",
+    subscriptionGrid: cx(
+      "profile-subscription-grid grid grid-cols-[minmax(260px,1fr)_126px_144px] items-end gap-5",
+      "max-page-compact:grid-cols-[minmax(0,1fr)_112px_132px] max-page-compact:gap-3.5",
+      "max-content-narrow:grid-cols-2",
+    ),
+    subscriptionCell: cx(
+      "grid min-w-0 gap-1 [&>span]:text-caption [&>span]:leading-4 [&>span]:text-muted-foreground",
+      "[&>dt]:text-caption [&>dt]:leading-4 [&>dt]:text-muted-foreground",
+    ),
+    source: cx(
+      "grid min-w-0 gap-1 max-content-narrow:col-span-2 [&>span:first-child]:flex",
+      "[&>span:first-child]:items-center [&>span:first-child]:gap-1.5 [&_svg]:size-3.75",
+    ),
+    url: cx(
+      "block min-h-6.5 overflow-hidden text-metadata leading-6.5 font-medium text-muted-foreground",
+      "text-ellipsis whitespace-nowrap",
+    ),
+    date: cx(
+      "grid gap-1 text-metadata text-muted-foreground [&>strong]:flex [&>strong]:min-h-6.5",
+      "[&>strong]:items-center [&>strong]:truncate [&>strong]:text-metadata [&>strong]:leading-4.5",
+      "[&>strong]:font-medium [&>strong]:text-ink [&>strong]:tabular-nums",
+    ),
     nextUpdate: "inline-flex w-max max-w-full items-center gap-1",
-    intervalTrigger:
-      "profile-interval-trigger grid size-7 place-items-center rounded-sm border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-ink data-[popup-open]:bg-accent data-[popup-open]:text-ink focus-visible:bg-accent focus-visible:text-ink disabled:opacity-45 [&_svg]:size-3.75",
+    intervalTrigger: cx(
+      "profile-interval-trigger grid size-7 place-items-center rounded-sm border-0 bg-transparent",
+      "text-muted-foreground hover:bg-accent hover:text-ink data-popup-open:bg-accent",
+      "data-popup-open:text-ink focus-visible:bg-accent focus-visible:text-ink disabled:opacity-45",
+      "[&_svg]:size-3.75",
+    ),
     intervalMenu: "w-47.5",
-    overwrite:
-      "mt-2.25 flex items-center gap-1.75 border-t border-hairline-soft pt-2.25 text-caption leading-4.5 text-warning [&_svg]:size-3.75 [&_svg]:shrink-0 [&_span]:text-muted-foreground [&_button]:ml-0.75 [&_button]:inline [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:text-ink [&_button]:underline [&_button]:underline-offset-0.75 hover:[&_button]:text-brand focus-visible:[&_button]:text-brand",
+    overwrite: cx(
+      "mt-2.25 flex items-center gap-1.75 border-t border-hairline-soft pt-2.25 text-caption",
+      "leading-4.5 text-warning [&_svg]:size-3.75 [&_svg]:shrink-0 [&_span]:text-muted-foreground",
+      "[&_button]:ml-0.75 [&_button]:inline [&_button]:border-0 [&_button]:bg-transparent",
+      "[&_button]:p-0 [&_button]:text-ink [&_button]:underline [&_button]:underline-offset-0.75",
+      "hover:[&_button]:text-brand focus-visible:[&_button]:text-brand",
+    ),
     importDialog: "w-[min(720px,calc(100vw_-_32px))]",
     importForm: "p-4",
     preview: "grid gap-3.5 p-4",
-    previewList:
-      "grid grid-cols-3 overflow-hidden rounded-md border border-hairline [&>div]:grid [&>div]:gap-1 [&>div]:p-3 [&>div+div]:border-l [&>div+div]:border-hairline-soft [&_dt]:text-caption [&_dt]:text-muted-foreground [&_dd]:text-ink [&_dd]:font-semibold",
+    previewList: cx(
+      "grid grid-cols-3 overflow-hidden rounded-md border border-hairline [&>div]:grid",
+      "[&>div]:gap-1 [&>div]:p-3 [&>div+div]:border-l [&>div+div]:border-hairline-soft",
+      "[&_dt]:text-caption [&_dt]:text-muted-foreground [&_dd]:text-ink [&_dd]:font-semibold",
+    ),
     previewMessage: "text-caption text-muted-foreground",
   },
 });
