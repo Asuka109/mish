@@ -2275,11 +2275,41 @@ describe("desktop RPC experience", () => {
     const group = screen.getByRole("button", { name: /🌐 Proxy/ });
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: /Google/ });
-    for (const control of [globalMode, group, google]) {
+    for (const control of [globalMode, google]) {
       expect(control).toBeDisabled();
       expect(control).toHaveAccessibleDescription(/not supported by the current local service/i);
       await user.click(control);
     }
+    expect(group).toBeEnabled();
+    await user.click(group);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByText(
+        "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+      ),
+    ).not.toBeInTheDocument();
+    const disabledSelections = within(dialog).getAllByRole("button", { name: /^Select / });
+    expect(disabledSelections.length).toBeGreaterThan(0);
+    disabledSelections.forEach((selection) => {
+      expect(selection).toBeDisabled();
+      expect(selection).not.toHaveTextContent("Read-only");
+      const row = selection.closest<HTMLElement>("[data-entity-id]");
+      expect(row).toHaveAttribute("data-muted", "true");
+      expect(row).toHaveClass("opacity-55");
+    });
+    const currentSelection = disabledSelections.find(
+      (selection) => selection.getAttribute("aria-pressed") === "true",
+    );
+    expect(currentSelection?.closest("[data-entity-id]")).not.toHaveClass("bg-accent");
+    const automaticGroup = within(dialog)
+      .getByText("⚡ 自动选择・Auto")
+      .closest<HTMLElement>("[data-entity-id]")!;
+    expect(automaticGroup).toHaveAttribute("data-disabled", "true");
+    expect(automaticGroup).toHaveAttribute("data-muted", "true");
+    expect(within(automaticGroup).getByText("Auto-select")).toBeVisible();
+    expect(within(automaticGroup).queryByText("Read-only")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Latency unavailable")).not.toBeInTheDocument();
+    expect(within(dialog).getAllByText("Read-only").length).toBeGreaterThan(0);
 
     expect(setCapture).not.toHaveBeenCalled();
     expect(setRoutingMode).not.toHaveBeenCalled();
@@ -2373,7 +2403,20 @@ describe("Status fixture experience", () => {
     expect(within(groups).getByText("Configured group 5")).toBeVisible();
     expect(within(groups).queryByText("Configured group 6")).not.toBeInTheDocument();
     expect(within(groups).queryByText("No policy groups available.")).not.toBeInTheDocument();
-    expect(within(groups).getByRole("button", { name: /Configured group 1/ })).toBeDisabled();
+    const configuredGroup = within(groups).getByRole("button", { name: /Configured group 1/ });
+    expect(configuredGroup).toBeEnabled();
+    await userEvent.setup().click(configuredGroup);
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByText(
+        "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+      ),
+    ).not.toBeInTheDocument();
+    const configuredNode = within(dialog).getByRole("button", {
+      name: "Select Configured node 1 in Configured group 1",
+    });
+    expect(configuredNode).toBeDisabled();
+    expect(configuredNode).not.toHaveTextContent("Read-only");
     expect(profileClient.getRoutes).toHaveBeenCalledWith("fixture-profile-studio");
   });
 
@@ -2388,7 +2431,7 @@ describe("Status fixture experience", () => {
 
     await user.click(screen.getByRole("button", { name: /🌐 Proxy/ }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    await user.click(screen.getByText("🇯🇵 NRT-03"));
+    await user.click(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /🌐 Proxy/ })).toHaveTextContent(
@@ -2401,14 +2444,40 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
     await user.click(await screen.findByRole("button", { name: /🌐 Proxy/ }));
-    await user.click(await screen.findByText("🇯🇵 NRT-03"));
+    await user.click(await screen.findByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
     await user.click(screen.getByRole("link", { name: "Routes" }));
-    await user.click(await screen.findByRole("button", { name: "Expand 🌐 Proxy" }));
+    await user.click(await screen.findByRole("button", { name: "Browse 🌐 Proxy" }));
 
     expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
+  });
+
+  it("keeps picker search on direct choices without nested navigation and restores focus", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+    const trigger = await screen.findByRole("button", { name: /🌐 Proxy/ });
+    await user.click(trigger);
+
+    const dialog = await screen.findByRole("dialog");
+    const search = within(dialog).getByRole("searchbox", { name: "Search available nodes" });
+    await user.type(search, "開発 🚄");
+    expect(within(dialog).getByText("No matching nodes.")).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(search).toHaveValue("");
+
+    const automaticGroup = within(dialog).getByText("⚡ 自动选择・Auto").closest("li");
+    expect(automaticGroup).not.toBeNull();
+    expect(automaticGroup).toHaveTextContent("Policy group · URL test");
+    expect(
+      within(dialog).queryByRole("button", { name: "Browse ⚡ 自动选择・Auto" }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Current policy-group path")).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("keeps capture actions explicitly described as fixture-only", async () => {

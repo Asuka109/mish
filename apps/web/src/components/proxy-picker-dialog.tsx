@@ -1,110 +1,112 @@
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@mish/ui";
-import type { ProxyNodeDto, SelectorPolicyGroupDto } from "@mish/contracts";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useI18nContext } from "../i18n/i18n-react";
+import type { RouteGraph } from "../pages/routes-model";
+import { PolicyGroupBrowser, usePolicyGroupBrowserSession } from "./policy-group-browser";
 
-const proxyPickerStyles = tv({
+const pickerStyles = tv({
   slots: {
-    dialog:
-      "max-h-[min(520px,calc(100vh_-_48px))] w-[min(420px,calc(100vw_-_32px))] overflow-hidden",
-    header: "flex min-h-18.5 items-center border-b border-hairline py-3.25 pr-11 pl-4",
+    dialog: cx(
+      "policy-picker-dialog max-h-[min(680px,calc(100vh_-_32px))]",
+      "w-[min(560px,calc(100vw_-_32px))] overflow-hidden overscroll-contain",
+      "max-shell-mobile:max-h-[calc(100vh_-_12px)] max-shell-mobile:w-[calc(100vw_-_12px)]",
+    ),
+    header:
+      "policy-picker-header flex min-h-18.5 items-center gap-2 border-b border-hairline py-3.25 pr-11 pl-4",
     title: "text-body font-semibold",
     description: "mt-0.75 text-metadata leading-4.5 text-muted-foreground",
-    option: cx(
-      "grid min-h-14 grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 rounded-none border-0",
-      "border-b border-hairline px-3.5 py-0 pr-3.5 pl-4 text-fg outline-none last:border-b-0",
-      "data-[selected=true]:bg-accent data-[selected=true]:text-ink data-[checked=true]:bg-accent",
-      "data-[checked=true]:text-ink data-[checked=true]:[&_.command-item-check]:opacity-100",
-    ),
-    optionCopy: cx(
-      "grid min-w-0 gap-0.5 [&_strong]:truncate [&_strong]:text-body [&_strong]:font-medium",
-      "[&_span]:text-metadata [&_span]:text-muted-foreground",
-    ),
-    latency: "text-metadata text-success-text",
+    list: "min-h-0 overflow-auto overscroll-contain",
+    empty: "px-4 py-7 text-center text-metadata text-muted-foreground",
   },
 });
 
-interface ProxyPickerDialogProps {
-  group: SelectorPolicyGroupDto | null;
-  nodes: ProxyNodeDto[];
+interface PolicyPickerDialogProps {
+  commandsDisabled?: boolean;
+  graph: RouteGraph;
+  groupId: string | null;
   onOpenChange(open: boolean): void;
-  onSelect(nodeId: string): void;
   open: boolean;
 }
 
-export function ProxyPickerDialog({
-  group,
-  nodes,
+export function PolicyPickerDialog({
+  commandsDisabled = false,
+  graph,
+  groupId,
   onOpenChange,
-  onSelect,
   open,
-}: ProxyPickerDialogProps) {
+}: PolicyPickerDialogProps) {
   const { LL } = useI18nContext();
+  const [query, setQuery] = useState("");
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const browserSession = usePolicyGroupBrowserSession();
+  const group = groupId ? graph.groupById.get(groupId) : undefined;
+
+  useEffect(() => {
+    if (open && groupId) setQuery("");
+  }, [groupId, open]);
+
+  function focusSearch() {
+    const search = dialogRef.current?.querySelector<HTMLInputElement>("input[type=search]");
+    search?.focus({ preventScroll: true });
+    search?.select();
+  }
+
+  function handleDialogKeys(event: KeyboardEvent<HTMLDivElement>) {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "f") {
+      event.preventDefault();
+      focusSearch();
+    }
+  }
+
   if (!group) return null;
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
-      <DialogContent className={proxyPickerStyles().dialog()} closeLabel={LL.common.close()}>
-        <div className={proxyPickerStyles().header()}>
+    <Dialog
+      onOpenChange={(nextOpen, details) => {
+        if (!nextOpen && details.reason === "escape-key" && query) {
+          details.cancel();
+          setQuery("");
+          return;
+        }
+        onOpenChange(nextOpen);
+      }}
+      open={open}
+    >
+      <DialogContent
+        className={pickerStyles().dialog()}
+        closeLabel={LL.common.close()}
+        onKeyDownCapture={handleDialogKeys}
+        ref={dialogRef}
+      >
+        <div className={pickerStyles().header()}>
           <div>
-            <DialogTitle
-              className={proxyPickerStyles().title({ className: "user-authored-label" })}
-            >
+            <DialogTitle className={pickerStyles().title({ className: "user-authored-label" })}>
               {group.label}
             </DialogTitle>
-            <DialogDescription className={proxyPickerStyles().description()}>
+            <DialogDescription className={pickerStyles().description()}>
               {LL.proxyPicker.description()}
             </DialogDescription>
           </div>
         </div>
-        <Command>
-          <CommandInput
-            aria-label={LL.proxyPicker.searchAria()}
-            placeholder={LL.proxyPicker.searchPlaceholder()}
-          />
-          <CommandList className="proxy-picker-list">
-            <CommandEmpty>{LL.proxyPicker.empty()}</CommandEmpty>
-            <CommandGroup>
-              {nodes.map((node) => {
-                const selected = node.id === group.selectedChildId;
-                return (
-                  <CommandItem
-                    className={proxyPickerStyles().option()}
-                    data-checked={selected}
-                    key={node.id}
-                    onSelect={() => {
-                      onSelect(node.id);
-                      onOpenChange(false);
-                    }}
-                    value={`${node.label} ${node.protocol}`}
-                  >
-                    <span className={proxyPickerStyles().optionCopy()}>
-                      <strong className="user-authored-label">{node.label}</strong>
-                      <span>{node.protocol}</span>
-                    </span>
-                    <span className={proxyPickerStyles().latency({ className: "tabular-nums" })}>
-                      {node.latencyMilliseconds === null
-                        ? LL.common.unavailable()
-                        : `${node.latencyMilliseconds} ms`}
-                    </span>
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
+        <PolicyGroupBrowser
+          commandsDisabled={commandsDisabled}
+          emptyClassName={pickerStyles().empty()}
+          emptyLabel={LL.proxyPicker.empty()}
+          graph={graph}
+          group={group}
+          listClassName={pickerStyles().list()}
+          onQueryChange={setQuery}
+          onSelectionConfirmed={() => onOpenChange(false)}
+          onSortChange={(sort) => browserSession.setSort(group.id, sort)}
+          query={query}
+          searchLabel={LL.proxyPicker.searchAria()}
+          searchPlaceholder={LL.proxyPicker.searchPlaceholder()}
+          sort={browserSession.sortFor(group.id)}
+        />
       </DialogContent>
     </Dialog>
   );
 }
+
+export { PolicyPickerDialog as ProxyPickerDialog };

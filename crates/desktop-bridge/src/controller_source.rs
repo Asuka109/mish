@@ -428,6 +428,7 @@ impl StatusDataSource for ControllerStatusSource {
         snapshot.group_delay_policy = GroupDelayPolicy {
             id: mish_mihomo_controller::ROUTE_DELAY_POLICY_ID.into(),
             timeout_milliseconds: mish_mihomo_controller::ROUTE_DELAY_TIMEOUT_MILLISECONDS,
+            url: Some(mish_mihomo_controller::ROUTE_DELAY_TEST_URL.into()),
         };
         snapshot.group_delay_test = state.group_delay_test.clone();
         snapshot

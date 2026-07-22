@@ -48,7 +48,11 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
         type: "selector",
       },
     ],
-    groupDelayPolicy: { id: "fixture-only", timeoutMilliseconds: 5_000 },
+    groupDelayPolicy: {
+      id: "fixture-only",
+      timeoutMilliseconds: 5_000,
+      url: "https://www.gstatic.com/generate_204",
+    },
     groupDelayTest: {
       children: [],
       finishedAt: null,

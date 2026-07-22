@@ -1002,7 +1002,23 @@ export const GroupDelayChildResultSchema = z
 export interface GroupDelayChildResultDto extends z.infer<typeof GroupDelayChildResultSchema> {}
 
 export const GroupDelayPolicySchema = z
-  .object({ id: IdentifierSchema, timeoutMilliseconds: z.number().int().nonnegative().max(32_767) })
+  .object({
+    id: IdentifierSchema,
+    timeoutMilliseconds: z.number().int().nonnegative().max(32_767),
+    url: z
+      .string()
+      .max(2_048)
+      .refine((value) => {
+        try {
+          const url = new URL(value);
+          return url.protocol === "https:" && url.username === "" && url.password === "";
+        } catch {
+          return false;
+        }
+      })
+      .nullable()
+      .default(null),
+  })
   .strict();
 export interface GroupDelayPolicyDto extends z.infer<typeof GroupDelayPolicySchema> {}
 

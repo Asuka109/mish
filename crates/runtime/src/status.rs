@@ -123,6 +123,7 @@ impl GroupDelayTest {
 pub struct GroupDelayPolicy {
     pub id: String,
     pub timeout_milliseconds: u16,
+    pub url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -309,6 +310,7 @@ impl StatusSnapshot {
             group_delay_policy: GroupDelayPolicy {
                 id: "unavailable".into(),
                 timeout_milliseconds: 0,
+                url: None,
             },
             group_delay_test: GroupDelayTest::idle(),
             metrics: RuntimeMetrics::default(),

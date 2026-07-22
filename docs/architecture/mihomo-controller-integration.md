@@ -189,8 +189,10 @@ children and invokes the individual endpoint through bounded local scheduling.
 
 The P0 application policy is `mihomo-google-204-v1`: the upstream recommended
 `https://www.gstatic.com/generate_204` target, a 5,000 ms timeout, and expected
-HTTP status 204. The UI displays the policy ID and timeout but the RPC does not
-expose or override the URL. No background or scheduled probe exists.
+HTTP status 204. The status RPC exposes the fixed public URL and timeout but does
+not allow either value to be overridden. The browser displays only the URL; the
+internal policy ID and timeout remain contract and execution metadata. No
+background or scheduled probe exists.
 
 Cancellation stops unstarted work and drops client-held HTTP work. Pinned
 v1.19.29 creates an individual proxy delay context from
