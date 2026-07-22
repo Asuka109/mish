@@ -78,6 +78,10 @@ const eventStyles = tv({
     localNote: "events-local-note mt-2 text-[12px] leading-[17px] text-(--color-text-muted)",
     pausedNote: "events-paused-note mt-2 text-[12px] leading-[17px] text-(--color-warning)",
     empty: "events-empty mt-4 min-h-[220px] border-solid",
+    list: "events-list mt-4 min-h-[220px] max-h-[min(560px,calc(100vh_-_430px))] list-none overflow-auto overscroll-contain rounded-(--radius-md) border border-(--color-hairline) p-0",
+    row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-[10px] border-b border-(--color-hairline-soft) px-[10px] py-[9px] last:border-b-0 [&>time]:pt-[3px] [&>time]:text-[12px] [&>time]:text-(--color-text-muted) [&_.ui-badge]:justify-self-start",
+    source: "event-source pt-[3px] text-[12px] text-(--color-text-muted)",
+    copy: "event-copy grid min-w-0 gap-[3px] [&_strong]:wrap-anywhere [&_strong]:text-(--text-metadata) [&_strong]:leading-[19px] [&_strong]:font-(--font-weight-control) [&_small]:wrap-anywhere [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted)",
   },
 });
 
@@ -475,15 +479,15 @@ export function EventsPage() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <ol className="events-list" onScroll={observeScroll} ref={listRef}>
+        <ol className={eventStyles().list()} onScroll={observeScroll} ref={listRef}>
           {filteredEvents.map((event) => (
-            <li className="event-row" data-level={event.level} key={event.id}>
+            <li className={eventStyles().row()} data-level={event.level} key={event.id}>
               <time className="tabular" dateTime={new Date(event.observedAt).toISOString()}>
                 {formatEventTime(event.observedAt, locale)}
               </time>
               <Badge variant={levelBadge(event.level)}>{levelLabel(LL, event.level)}</Badge>
-              <span className="event-source">{sourceLabel(LL, event.source)}</span>
-              <div className="event-copy">
+              <span className={eventStyles().source()}>{sourceLabel(LL, event.source)}</span>
+              <div className={eventStyles().copy()}>
                 <strong>{event.message}</strong>
                 {event.detail ? <small>{event.detail}</small> : null}
                 {offersDiagnostics(event) ? (
