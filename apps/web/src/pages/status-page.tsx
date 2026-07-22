@@ -15,6 +15,7 @@ import {
 } from "@mish/ui";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
+import { tv } from "tailwind-variants";
 import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
@@ -26,6 +27,22 @@ import { getCommandDescriptionId } from "../data/status-capabilities";
 import type { CaptureSelectionDto, RoutingMode, SelectorPolicyGroupDto } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
+
+const statusStyles = tv({
+  slots: {
+    page: "status-page",
+    controls: "status-controls",
+    controlCell: "status-control-cell flex min-h-[54px] items-center gap-6 px-[14px]",
+    controlLabel:
+      "status-control-label text-(--color-body) font-(--font-weight-control) whitespace-nowrap",
+    contentGrid: "content-grid grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 mt-6",
+    heading: "section-heading flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5",
+    headingCopy:
+      "section-heading-copy flex min-w-0 items-baseline gap-2 [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted) [&_p]:whitespace-nowrap",
+    policyRow:
+      "policy-group-row flex min-h-[52px] items-center justify-between gap-3 px-[14px] text-(--color-body) hover:bg-(--color-accent)",
+  },
+});
 
 function formatBytes(value: number, locale: Locales) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -181,7 +198,7 @@ export function StatusPage() {
 
   return (
     <div>
-      <div className="status-page">
+      <div className={statusStyles().page()}>
         <h1 className="sr-only">{LL.navigation.status()}</h1>
         {snapshot.adapterKind !== "fixture" && connection.stale ? (
           <p className="fixture-error" role="status">
@@ -197,10 +214,10 @@ export function StatusPage() {
             {LL.diagnostics.open()}
           </Link>
         ) : null}
-        <div className="status-controls">
+        <div className={statusStyles().controls()}>
           <SectionGrid className="status-control-card">
-            <SectionGridItem className="status-control-cell">
-              <span className="status-control-label">{LL.status.routingMode()}</span>
+            <SectionGridItem className={statusStyles().controlCell()}>
+              <span className={statusStyles().controlLabel()}>{LL.status.routingMode()}</span>
               <ToggleGroup
                 aria-label={LL.status.routingMode()}
                 aria-describedby={routingDescriptionId}
@@ -231,8 +248,8 @@ export function StatusPage() {
                 ))}
               </ToggleGroup>
             </SectionGridItem>
-            <SectionGridItem className="status-control-cell">
-              <span className="status-control-label">{LL.status.trafficCapture()}</span>
+            <SectionGridItem className={statusStyles().controlCell()}>
+              <span className={statusStyles().controlLabel()}>{LL.status.trafficCapture()}</span>
               <TrafficCaptureControl
                 adapterKind={snapshot.adapterKind}
                 capabilities={snapshot.capabilities}
@@ -271,13 +288,13 @@ export function StatusPage() {
           </SectionGrid>
         </div>
 
-        <div className="content-grid">
+        <div className={statusStyles().contentGrid()}>
           <section
             aria-label={LL.status.currentSessionAria()}
             className="flat-section session-section"
           >
-            <div className="section-heading">
-              <div className="section-heading-copy">
+            <div className={statusStyles().heading()}>
+              <div className={statusStyles().headingCopy()}>
                 <h2>{LL.status.session()}</h2>
                 <p title={sessionActivity}>{sessionActivity}</p>
               </div>
@@ -367,8 +384,8 @@ export function StatusPage() {
           </section>
 
           <section aria-label={LL.status.groupsAria()} className="flat-section">
-            <div className="section-heading">
-              <div className="section-heading-copy">
+            <div className={statusStyles().heading()}>
+              <div className={statusStyles().headingCopy()}>
                 <h2>{LL.status.groups()}</h2>
                 <p title={LL.status.usedFirst()}>{LL.status.usedFirst()}</p>
               </div>
@@ -416,7 +433,7 @@ export function StatusPage() {
                   );
                   if (group.type !== "selector") {
                     return (
-                      <SectionGridItem className="policy-group-row" key={group.id}>
+                      <SectionGridItem className={statusStyles().policyRow()} key={group.id}>
                         {rowContent}
                       </SectionGridItem>
                     );
@@ -424,7 +441,7 @@ export function StatusPage() {
                   return (
                     <Button
                       aria-describedby={groupDescriptionId}
-                      className="section-grid-item policy-group-row"
+                      className={`${statusStyles().policyRow()} section-grid-item`}
                       disabled={isGroupCommandPending(group.id) || !groupSupported}
                       key={group.id}
                       loading={Boolean(pendingSelectionId)}
