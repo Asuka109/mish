@@ -154,7 +154,7 @@ unavailable. HTTPS profile import and all authenticated RPC operations continue
 to use the same desktop application services and typed capability checks as the
 WebView.
 
-Managed Core recovery precedes every activation and fixed-listener readiness
+Managed Core recovery precedes every activation and managed-listener readiness
 probe. Startup never restores the recorded profile automatically: it terminates
 and waits for a proven orphan, clears Core ownership, performs conservative
 System Proxy recovery, and publishes the existing safe-stopped policy.
@@ -242,7 +242,7 @@ DTOs to a closed command enum with fixed absolute executables and separate
 arguments; it does not accept an executable path or arbitrary shell text from
 RPC, profiles, or the UI.
 
-The authenticated Status surface also exposes one fixed local proxy listener
+The authenticated Status surface also exposes one Settings-configured local proxy listener
 test. It accepts empty parameters and performs only bounded TCP readiness against
 the application-owned loopback endpoint after confirming that the current
 managed runtime identity owns that listening socket. A listener owned by an old

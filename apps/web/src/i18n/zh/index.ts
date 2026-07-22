@@ -121,6 +121,13 @@ const zh = {
       test: "测试连接",
       title: "单个应用代理",
     },
+    managedPorts: "托管端口",
+    managedPortsDescription:
+      "Mish 本地代理与 Mihomo Controller 使用的仅回环端口。修改将在下次启动代理时生效。",
+    managedPortsFind: "寻找可用端口",
+    managedPortsFindAndRetry: "寻找端口并重试",
+    managedPortsConflict: "Mish 无法使用 {endpoint}。",
+    managedPortsSave: "保存端口",
     network: "网络与 DNS",
     networkDescription: "查看这台 Mac 当前的网络和 DNS 信息。这里不会更改任何网络设置。",
     networkDns: {

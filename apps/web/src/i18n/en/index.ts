@@ -133,6 +133,13 @@ const en = {
       test: "Test listener",
       title: "Local-only manual proxy",
     },
+    managedPorts: "Managed ports",
+    managedPortsDescription:
+      "Loopback-only ports used by Mish's local proxy and Mihomo Controller. Changes apply to the next proxy activation.",
+    managedPortsFind: "Find available ports",
+    managedPortsFindAndRetry: "Find ports and retry",
+    managedPortsConflict: "Mish could not use {endpoint}.",
+    managedPortsSave: "Save ports",
     network: "Network and DNS",
     networkDescription:
       "Read-only macOS observations for troubleshooting. No interface, route, or DNS setting can be changed here.",

@@ -258,6 +258,14 @@ class DesktopSettingsClient implements SettingsClient {
     this.snapshot.preferences.startup.launchProxyWhenMishLaunches = launchProxyWhenMishLaunches;
     return this.getSnapshot();
   });
+  setManagedPorts = vi.fn(async (managedPorts: { controller: number; proxy: number }) => {
+    this.snapshot.preferences.managedPorts = managedPorts;
+    return this.getSnapshot();
+  });
+  findManagedPorts = vi.fn(async () => {
+    this.snapshot.preferences.managedPorts = { controller: 29090, proxy: 27890 };
+    return this.getSnapshot();
+  });
   subscribeSnapshots = vi.fn(
     (_listener: (snapshot: SettingsSnapshotDto) => void) => () => undefined,
   );
@@ -1093,6 +1101,38 @@ describe("production routes", () => {
     expect(screen.getByText("Mish 0.1.0")).toBeVisible();
     expect(screen.getByText("Mihomo v1.19.29")).toBeVisible();
     expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
+  });
+
+  it("saves managed ports and can replace them with an available pair", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    const proxyPort = await screen.findByRole("spinbutton", { name: "Managed proxy port" });
+    const controllerPort = screen.getByRole("spinbutton", { name: "Managed Controller port" });
+    await user.clear(proxyPort);
+    await user.type(proxyPort, "17890");
+    await user.clear(controllerPort);
+    await user.type(controllerPort, "19090");
+    await user.click(screen.getByRole("button", { name: "Save ports" }));
+
+    await waitFor(() =>
+      expect(settingsClient.setManagedPorts).toHaveBeenCalledWith({
+        controller: 19090,
+        proxy: 17890,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Find available ports" }));
+    await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
+    expect(proxyPort).toHaveValue(27890);
+    expect(controllerPort).toHaveValue(29090);
   });
 
   it("offers a clean helper reinstall when the desktop core is inactive", async () => {

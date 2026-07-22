@@ -32,6 +32,7 @@ const settingsSnapshot = {
   preferences: {
     appearance: "system" as const,
     language: "en" as const,
+    managedPorts: { controller: 9090, proxy: 7890 },
     onboarding: { welcomeInvitation: null },
     startup: {
       launchAtLogin: false,

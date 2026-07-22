@@ -274,7 +274,10 @@ off, DNS has no listen socket, and selection/fake-IP persistence is disabled.
 Relative provider paths remain source-owned but paths that escape the managed
 home are rejected.
 
-The same fixed mixed endpoint can be used by one browser extension or
+The Settings-owned managed-port pair defaults to mixed proxy `127.0.0.1:7890`
+and Controller `127.0.0.1:9090`. Both values are loopback-only, must be
+distinct, and apply only to a later activation; they never come from a Profile.
+The same configured mixed endpoint can be used by one browser extension or
 application-specific manual proxy without enabling macOS System Proxy. Protocol
 version 14 exposes only a bounded readiness test for that listener; it accepts no
 target and does not observe or apply operating-system proxy state. See
@@ -294,17 +297,19 @@ Commit requires all of the following:
 4. the first complete observation batch maps to valid Status and Traffic
    snapshots.
 
-Production desktop candidates also require the fixed mixed-proxy listener to be
+Production desktop candidates also require the configured mixed-proxy listener to be
 owned by the same recorded PID and process identity before commit. Controller
-readiness from a candidate that failed to bind `127.0.0.1:7890` is therefore not
+readiness from a candidate that failed to bind either configured managed port is therefore not
 activation success, even if another process makes that port connectable.
 
-If a candidate exits while the fixed Mish-managed loopback listener cannot be
-bound, activation reports the bounded `managed-listener-conflict` failure with
-only `127.0.0.1:<port>` and the safe remediation to stop or reconfigure the
-competing application. It does not inspect or expose process arguments, paths,
-configuration, credentials, or unrelated process metadata. Other early exits
-remain typed as `early-exit`.
+If a candidate exits or cannot start while either configured Mish-managed
+loopback listener cannot be bound, activation reports the bounded
+`managed-listener-conflict` failure with only `127.0.0.1:<port>` and the safe
+remediation to stop or reconfigure the competing application. The notification
+surface also offers one bounded recovery: choose two currently available
+loopback ports, persist them, and retry the same activation. It does not inspect
+or expose process arguments, paths, configuration, credentials, or unrelated
+process metadata. Other early exits remain typed as `early-exit`.
 
 Core lifecycle ownership is durable independently from `activation-state.json`.
 The schema-1 ownership record binds the controlled executable, candidate home,

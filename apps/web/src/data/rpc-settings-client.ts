@@ -3,6 +3,7 @@ import {
   settingsRpcNotifications,
   type AppearancePreference,
   type LanguagePreference,
+  type ManagedPortPreferencesDto,
   type OnboardingWelcomeAction,
   type SettingsClient,
   type SettingsSnapshotDto,
@@ -94,6 +95,18 @@ export class RpcSettingsClient implements SettingsClient {
   ) {
     return this.rpc
       .request("settings.setLaunchProxyWhenMishLaunches", { launchProxyWhenMishLaunches }, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
+  setManagedPorts(managedPorts: ManagedPortPreferencesDto, options?: RpcRequestOptions) {
+    return this.rpc
+      .request("settings.setManagedPorts", { managedPorts }, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
+  findManagedPorts(options?: RpcRequestOptions) {
+    return this.rpc
+      .request("settings.findManagedPorts", {}, options)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 

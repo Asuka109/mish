@@ -386,6 +386,7 @@ impl fmt::Debug for ActivationCommit {
 
 struct ActiveMihomo {
     candidate_root: PathBuf,
+    controller_address: SocketAddr,
     fingerprint: String,
     profile_id: String,
     process: Arc<DesktopMihomoProcess>,
@@ -852,6 +853,7 @@ impl MihomoActivationManager {
         candidate_guard.disarm();
         Ok(ActiveMihomo {
             candidate_root,
+            controller_address: policy.controller_address(),
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
             process,
@@ -869,6 +871,11 @@ impl MihomoActivationManager {
         cancellation: CancellationToken,
     ) -> Result<(), MihomoActivationError> {
         if candidate.runtime.start_core().await.is_err() {
+            if let Some(endpoint) =
+                managed_listener_conflict(&candidate.proxy_endpoint, candidate.controller_address)
+            {
+                return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
+            }
             return Err(MihomoActivationError::StartFailed);
         }
         candidate.source.start().await;
@@ -877,6 +884,7 @@ impl MihomoActivationManager {
             &candidate.source,
             &candidate.process,
             &candidate.proxy_endpoint,
+            candidate.controller_address,
             self.timing.readiness_timeout,
             cancellation,
         )
@@ -987,6 +995,7 @@ async fn wait_for_candidate(
     source: &ControllerStatusSource,
     process: &DesktopMihomoProcess,
     proxy_endpoint: &LoopbackProxyEndpoint,
+    controller_address: SocketAddr,
     timeout_after: Duration,
     cancellation: CancellationToken,
 ) -> Result<(), MihomoActivationError> {
@@ -1008,10 +1017,8 @@ async fn wait_for_candidate(
             ControllerInitialObservation::Pending => {}
         }
         if !matches!(runtime.core_status().await.phase, CorePhase::Running) {
-            if managed_listener_conflict(proxy_endpoint) {
-                return Err(MihomoActivationError::ManagedListenerConflict(
-                    SocketAddr::from(([127, 0, 0, 1], proxy_endpoint.port())),
-                ));
+            if let Some(endpoint) = managed_listener_conflict(proxy_endpoint, controller_address) {
+                return Err(MihomoActivationError::ManagedListenerConflict(endpoint));
             }
             return Err(MihomoActivationError::EarlyExit);
         }
@@ -1031,8 +1038,17 @@ async fn wait_for_candidate(
 
 /// Detect only whether Mish's fixed loopback endpoint can be bound. This does not
 /// inspect arbitrary processes, command lines, configuration, or credentials.
-fn managed_listener_conflict(endpoint: &LoopbackProxyEndpoint) -> bool {
-    std::net::TcpListener::bind((endpoint.host(), endpoint.port())).is_err()
+fn managed_listener_conflict(
+    proxy_endpoint: &LoopbackProxyEndpoint,
+    controller_address: SocketAddr,
+) -> Option<SocketAddr> {
+    let endpoints = [
+        SocketAddr::new(proxy_endpoint.host(), proxy_endpoint.port()),
+        controller_address,
+    ];
+    endpoints
+        .into_iter()
+        .find(|endpoint| std::net::TcpListener::bind(endpoint).is_err())
 }
 
 async fn rollback_candidate(candidate: ActiveMihomo) {
@@ -1280,6 +1296,11 @@ impl ManagedRuntimePolicy {
         }
         self.tun_enabled = explicitly_selected;
         Ok(self)
+    }
+
+    pub fn with_proxy_endpoint(mut self, proxy_endpoint: LoopbackProxyEndpoint) -> Self {
+        self.proxy_endpoint = proxy_endpoint;
+        self
     }
 
     pub fn controller_address(&self) -> SocketAddr {

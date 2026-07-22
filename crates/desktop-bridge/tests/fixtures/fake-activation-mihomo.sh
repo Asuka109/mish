@@ -39,6 +39,10 @@ if grep -q "activation-test-early-exit: true" "$config_file"; then
   exit 23
 fi
 
+if grep -q "activation-test-immediate-exit: true" "$config_file"; then
+  exit 23
+fi
+
 trap 'exit 0' TERM INT
 while true; do
   sleep 1

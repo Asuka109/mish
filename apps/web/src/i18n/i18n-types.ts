@@ -415,6 +415,31 @@ type RootTranslation = {
 			title: string
 		}
 		/**
+		 * M​a​n​a​g​e​d​ ​p​o​r​t​s
+		 */
+		managedPorts: string
+		/**
+		 * L​o​o​p​b​a​c​k​-​o​n​l​y​ ​p​o​r​t​s​ ​u​s​e​d​ ​b​y​ ​M​i​s​h​'​s​ ​l​o​c​a​l​ ​p​r​o​x​y​ ​a​n​d​ ​M​i​h​o​m​o​ ​C​o​n​t​r​o​l​l​e​r​.​ ​C​h​a​n​g​e​s​ ​a​p​p​l​y​ ​t​o​ ​t​h​e​ ​n​e​x​t​ ​p​r​o​x​y​ ​a​c​t​i​v​a​t​i​o​n​.
+		 */
+		managedPortsDescription: string
+		/**
+		 * F​i​n​d​ ​a​v​a​i​l​a​b​l​e​ ​p​o​r​t​s
+		 */
+		managedPortsFind: string
+		/**
+		 * F​i​n​d​ ​p​o​r​t​s​ ​a​n​d​ ​r​e​t​r​y
+		 */
+		managedPortsFindAndRetry: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​u​s​e​ ​{​e​n​d​p​o​i​n​t​}​.
+		 * @param {unknown} endpoint
+		 */
+		managedPortsConflict: RequiredParams<'endpoint'>
+		/**
+		 * S​a​v​e​ ​p​o​r​t​s
+		 */
+		managedPortsSave: string
+		/**
 		 * N​e​t​w​o​r​k​ ​a​n​d​ ​D​N​S
 		 */
 		network: string
@@ -4629,6 +4654,30 @@ export type TranslationFunctions = {
 			 */
 			title: () => LocalizedString
 		}
+		/**
+		 * Managed ports
+		 */
+		managedPorts: () => LocalizedString
+		/**
+		 * Loopback-only ports used by Mish's local proxy and Mihomo Controller. Changes apply to the next proxy activation.
+		 */
+		managedPortsDescription: () => LocalizedString
+		/**
+		 * Find available ports
+		 */
+		managedPortsFind: () => LocalizedString
+		/**
+		 * Find ports and retry
+		 */
+		managedPortsFindAndRetry: () => LocalizedString
+		/**
+		 * Mish could not use {endpoint}.
+		 */
+		managedPortsConflict: (arg: { endpoint: unknown }) => LocalizedString
+		/**
+		 * Save ports
+		 */
+		managedPortsSave: () => LocalizedString
 		/**
 		 * Network and DNS
 		 */

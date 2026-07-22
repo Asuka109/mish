@@ -12,6 +12,7 @@ import type {
   AppearancePreference,
   CaptureSelectionDto,
   LanguagePreference,
+  ManagedPortPreferencesDto,
   SettingsAvailability,
   StartupPreferencesDto,
   WindowCloseBehavior,
@@ -30,7 +31,12 @@ import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-type PendingButtonAction = "language" | "proxy-launch" | "startup" | "window-close";
+type PendingButtonAction =
+  | "language"
+  | "managed-ports"
+  | "proxy-launch"
+  | "startup"
+  | "window-close";
 
 type StartupOption = "off" | "show-window" | "background";
 
@@ -159,10 +165,12 @@ export function SettingsPage() {
     null,
   );
   const [pendingLanguage, setPendingLanguage] = useState<LanguagePreference | null>(null);
+  const [managedPorts, setManagedPorts] = useState<ManagedPortPreferencesDto | null>(null);
   const networkAutoRefreshStarted = useRef(false);
   const { LL, locale, setLocale } = useI18nContext();
   const snapshot = settings.snapshot;
   const startup = snapshot.preferences.startup;
+  const displayedManagedPorts = managedPorts ?? snapshot.preferences.managedPorts;
   const displayedStartup = optimisticStartup ?? startup;
   const displayedStartupOption: StartupOption = displayedStartup.launchAtLogin
     ? displayedStartup.loginLaunchBehavior
@@ -268,6 +276,25 @@ export function SettingsPage() {
     }
   }
 
+  async function saveManagedPorts() {
+    setPendingButtonAction("managed-ports");
+    try {
+      await settings.setManagedPorts(displayedManagedPorts);
+    } finally {
+      setPendingButtonAction(null);
+      setManagedPorts(null);
+    }
+  }
+
+  async function findManagedPorts() {
+    setPendingButtonAction("managed-ports");
+    try {
+      if (await settings.findManagedPorts()) setManagedPorts(null);
+    } finally {
+      setPendingButtonAction(null);
+    }
+  }
+
   function changeAppearance(values: string[]) {
     const appearance = values[0] as AppearancePreference | undefined;
     if (!appearance || !["system", "light", "dark"].includes(appearance)) return;
@@ -324,6 +351,76 @@ export function SettingsPage() {
         id="settings-capture-startup"
         title={LL.settingsPage.captureStartup()}
       >
+        <SettingsRow
+          description={LL.settingsPage.managedPortsDescription()}
+          title={LL.settingsPage.managedPorts()}
+        >
+          <div className="settings-inline-control">
+            <label>
+              Proxy
+              <input
+                aria-label="Managed proxy port"
+                inputMode="numeric"
+                max={65535}
+                min={1}
+                onChange={(event) =>
+                  setManagedPorts({
+                    ...displayedManagedPorts,
+                    proxy: Number(event.target.value),
+                  })
+                }
+                type="number"
+                value={displayedManagedPorts.proxy}
+              />
+            </label>
+            <label>
+              Controller
+              <input
+                aria-label="Managed Controller port"
+                inputMode="numeric"
+                max={65535}
+                min={1}
+                onChange={(event) =>
+                  setManagedPorts({
+                    ...displayedManagedPorts,
+                    controller: Number(event.target.value),
+                  })
+                }
+                type="number"
+                value={displayedManagedPorts.controller}
+              />
+            </label>
+            <Button
+              disabled={
+                settings.pending ||
+                displayedManagedPorts.proxy < 1 ||
+                displayedManagedPorts.proxy > 65535 ||
+                displayedManagedPorts.controller < 1 ||
+                displayedManagedPorts.controller > 65535 ||
+                displayedManagedPorts.proxy === displayedManagedPorts.controller
+              }
+              loading={pendingButtonAction === "managed-ports"}
+              loadingText={LL.settingsPage.managedPortsSave()}
+              onClick={() => void saveManagedPorts()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {LL.settingsPage.managedPortsSave()}
+            </Button>
+            <Button
+              disabled={settings.pending}
+              loading={pendingButtonAction === "managed-ports"}
+              loadingText={LL.settingsPage.managedPortsFind()}
+              onClick={() => void findManagedPorts()}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              {LL.settingsPage.managedPortsFind()}
+            </Button>
+          </div>
+        </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.trafficCaptureDescription()}
           title={LL.settingsPage.trafficCapture()}
