@@ -2,6 +2,7 @@ import { ArrowDown } from "@phosphor-icons/react/ArrowDown";
 import { Copy } from "@phosphor-icons/react/Copy";
 import { Pause } from "@phosphor-icons/react/Pause";
 import { Play } from "@phosphor-icons/react/Play";
+import { Trash } from "@phosphor-icons/react/Trash";
 import {
   Badge,
   Button,
@@ -24,6 +25,9 @@ import {
   SelectValue,
   SectionGrid,
   SectionGridItem,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@mish/ui";
 import type {
   DiagnosticCheckDto,
@@ -37,7 +41,7 @@ import type {
   SupportBundleCategory,
   SupportBundleRedactionCategory,
 } from "@mish/contracts";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useEvents } from "../data/events-provider";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -294,12 +298,9 @@ export function EventsPage() {
         ) : null}
       </section>
 
-      <Dialog
-        onOpenChange={(open) => (open ? undefined : clearSupportBundlePreview())}
-        open={supportBundlePreview !== null}
-      >
-        <DialogContent className="support-bundle-dialog" closeLabel={LL.common.close()}>
-          {supportBundlePreview ? (
+      {supportBundlePreview ? (
+        <Dialog onOpenChange={(open) => (open ? undefined : clearSupportBundlePreview())} open>
+          <DialogContent className="support-bundle-dialog" closeLabel={LL.common.close()}>
             <>
               <DialogHeader>
                 <DialogTitle className="dialog-title">
@@ -367,9 +368,9 @@ export function EventsPage() {
                 </Button>
               </DialogFooter>
             </>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       <div className="events-controls">
         <Input
@@ -405,21 +406,26 @@ export function EventsPage() {
             value === "newest" ? LL.events.newestFirst() : LL.events.oldestFirst()
           }
         />
-        <Button onClick={togglePause} variant="outline">
-          {viewPaused ? (
-            <Play aria-hidden="true" data-icon="inline-start" />
-          ) : (
-            <Pause aria-hidden="true" data-icon="inline-start" />
-          )}
-          {viewPaused ? LL.events.resume() : LL.events.pause()}
-        </Button>
-        <Button disabled={followLatest || viewPaused} onClick={followNow} variant="outline">
-          <ArrowDown aria-hidden="true" data-icon="inline-start" />
-          {followLatest ? LL.events.followingLatest() : LL.events.followLatest()}
-        </Button>
-        <Button disabled={events.length === 0} onClick={clearVisibleLocal} variant="outline">
-          {LL.events.clearLocal()}
-        </Button>
+        <EventsToolbarButton
+          label={viewPaused ? LL.events.resume() : LL.events.pause()}
+          onClick={togglePause}
+        >
+          {viewPaused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+        </EventsToolbarButton>
+        <EventsToolbarButton
+          disabled={followLatest || viewPaused}
+          label={followLatest ? LL.events.followingLatest() : LL.events.followLatest()}
+          onClick={followNow}
+        >
+          <ArrowDown aria-hidden="true" />
+        </EventsToolbarButton>
+        <EventsToolbarButton
+          disabled={events.length === 0}
+          label={LL.events.clearLocal()}
+          onClick={clearVisibleLocal}
+        >
+          <Trash aria-hidden="true" />
+        </EventsToolbarButton>
       </div>
 
       <p className="events-local-note">{LL.events.clearLocalDescription()}</p>
@@ -472,6 +478,39 @@ export function EventsPage() {
         {copiedId ? LL.events.copied() : ""}
       </span>
     </div>
+  );
+}
+
+function EventsToolbarButton({
+  children,
+  disabled = false,
+  label,
+  onClick,
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  label: string;
+  onClick(): void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label={label}
+            className="events-toolbar-button"
+            disabled={disabled}
+            onClick={onClick}
+            size="icon-sm"
+            variant="outline"
+          />
+        }
+      >
+        {children}
+        <span className="events-toolbar-button-label">{label}</span>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
 

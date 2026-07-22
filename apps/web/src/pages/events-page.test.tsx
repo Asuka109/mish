@@ -2,11 +2,17 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@mish/ui";
-import type { SupportBundleClient, SupportBundlePreviewDto } from "@mish/contracts";
+import type {
+  DiagnosticHistoryDto,
+  DiagnosticsClient,
+  SupportBundleClient,
+  SupportBundlePreviewDto,
+} from "@mish/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes } from "../app";
 import { AppearanceProvider } from "../appearance";
 import { EventsProvider } from "../data/events-provider";
+import { FixtureDiagnosticsClient } from "../data/fixture-diagnostics-client";
 import { FixtureEventsClient } from "../data/fixture-events-client";
 import { ProductProvider } from "../data/product-provider";
 import TypesafeI18n from "../i18n/i18n-react";
@@ -14,13 +20,21 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderEvents(client: FixtureEventsClient, supportBundleClient?: SupportBundleClient) {
+function renderEvents(
+  client: FixtureEventsClient,
+  supportBundleClient?: SupportBundleClient,
+  diagnosticsClient?: DiagnosticsClient,
+) {
   return render(
     <AppearanceProvider>
       <TypesafeI18n locale="en">
         <MemoryRouter initialEntries={["/events"]}>
           <ProductProvider>
-            <EventsProvider client={client} supportBundleClient={supportBundleClient}>
+            <EventsProvider
+              client={client}
+              diagnosticsClient={diagnosticsClient}
+              supportBundleClient={supportBundleClient}
+            >
               <TooltipProvider>
                 <AppRoutes />
               </TooltipProvider>
@@ -106,6 +120,48 @@ describe("Events page", () => {
     await user.click(screen.getByRole("button", { name: "Clear local" }));
     expect(await screen.findByText("No local events")).toBeVisible();
     expect((await client.getSnapshot()).events).toHaveLength(4);
+  });
+
+  it("keeps the wide toolbar controls icon-only, named, focusable, and actionable", async () => {
+    const user = userEvent.setup();
+    renderEvents(new FixtureEventsClient());
+
+    const pause = await screen.findByRole("button", { name: "Pause view" });
+    const follow = screen.getByRole("button", { name: "Following latest" });
+    const clear = screen.getByRole("button", { name: "Clear local" });
+
+    for (const control of [pause, follow, clear]) {
+      expect(control).toHaveClass("events-toolbar-button", "ui-button--icon-sm");
+      expect(control.querySelector("svg")).toBeInTheDocument();
+      control.focus();
+      expect(control).toHaveFocus();
+    }
+
+    await user.click(pause);
+    expect(await screen.findByRole("button", { name: "Resume view" })).toBeVisible();
+  });
+
+  it("renders unavailable, failed, cancelled, and successful diagnostics as terminal history", async () => {
+    const fixture = new FixtureDiagnosticsClient();
+    const completed = await fixture.startRun();
+    const history: DiagnosticHistoryDto = {
+      ...completed,
+      runs: [
+        completed.runs[0]!,
+        { ...completed.runs[0]!, id: "cancelled-run", status: "cancelled" },
+        { ...completed.runs[0]!, id: "invalidated-run", status: "invalidated" },
+      ],
+    };
+    renderEvents(new FixtureEventsClient(), undefined, new TerminalDiagnosticsClient(history));
+
+    expect(await screen.findByText("Completed")).toBeVisible();
+    expect(screen.getByText("Cancelled")).toBeVisible();
+    expect(screen.getByText("Invalidated by runtime replacement")).toBeVisible();
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Running")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run diagnostics" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Cancel diagnostics" })).not.toBeInTheDocument();
   });
 
   it("copies only the selected already-redacted event text", async () => {
@@ -297,5 +353,23 @@ class TestSupportBundleClient implements SupportBundleClient {
       if (result === "failed") throw new Error("/synthetic/private/bundle.json");
       return { status: result };
     });
+  }
+}
+
+class TerminalDiagnosticsClient implements DiagnosticsClient {
+  constructor(private readonly history: DiagnosticHistoryDto) {}
+
+  async cancelRun() {
+    return structuredClone(this.history);
+  }
+
+  dispose() {}
+
+  async getHistory() {
+    return structuredClone(this.history);
+  }
+
+  async startRun() {
+    return structuredClone(this.history);
   }
 }

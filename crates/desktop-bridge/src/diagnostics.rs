@@ -88,6 +88,19 @@ pub struct DiagnosticCoordinator {
     state: Arc<Mutex<DiagnosticState>>,
 }
 
+struct DiagnosticRunFinalizer {
+    coordinator: DiagnosticCoordinator,
+    run_id: String,
+}
+
+impl Drop for DiagnosticRunFinalizer {
+    fn drop(&mut self) {
+        // A spawned diagnostic task can be dropped during shutdown or an unexpected
+        // cancellation. Do not leave the history advertising a run that no longer exists.
+        self.coordinator.invalidate_run(&self.run_id);
+    }
+}
+
 impl Default for DiagnosticCoordinator {
     fn default() -> Self {
         Self::new()
@@ -199,6 +212,10 @@ impl DiagnosticCoordinator {
         mut runtime_changes: watch::Receiver<MishRuntime>,
         cancellation: CancellationToken,
     ) {
+        let _finalizer = DiagnosticRunFinalizer {
+            coordinator: self.clone(),
+            run_id: run_id.clone(),
+        };
         self.push_check(&run_id, bridge_check());
         if self.stopped(&run_id, &runtime, &mut runtime_changes, &cancellation) {
             return;
@@ -710,6 +727,31 @@ mod tests {
         }
     }
 
+    struct UnavailableNetwork;
+
+    impl DiagnosticNetworkProbe for UnavailableNetwork {
+        fn resolve_dns(&self) -> BoxFuture<'_, Result<usize, DiagnosticFailure>> {
+            Box::pin(std::future::ready(Err(DiagnosticFailure::Unavailable)))
+        }
+
+        fn direct_reachability(&self) -> BoxFuture<'_, Result<(u16, u64), DiagnosticFailure>> {
+            Box::pin(std::future::ready(Err(
+                DiagnosticFailure::EndpointUnreachable,
+            )))
+        }
+    }
+
+    async fn wait_for_terminal_history(coordinator: &DiagnosticCoordinator) -> DiagnosticHistory {
+        for _ in 0..20 {
+            let history = coordinator.history(StatusAdapterKind::Rpc);
+            if history.active_run_id.is_none() {
+                return history;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        panic!("diagnostic run did not reach a terminal state");
+    }
+
     #[tokio::test]
     async fn bounds_history_and_marks_unsupported_proxy_partial() {
         let coordinator = DiagnosticCoordinator::with_network(Arc::new(FixedNetwork));
@@ -752,6 +794,33 @@ mod tests {
         assert_eq!(
             coordinator.history(StatusAdapterKind::Rpc).runs[0].status,
             DiagnosticRunStatus::Invalidated
+        );
+    }
+
+    #[tokio::test]
+    async fn unavailable_and_failed_checks_complete_the_same_run() {
+        let coordinator = DiagnosticCoordinator::with_network(Arc::new(UnavailableNetwork));
+        let runtime = MishRuntime::new(Arc::new(FixedCore));
+        let (_changes, receiver) = watch::channel(runtime.clone());
+
+        let started = coordinator.start(runtime, receiver, StatusAdapterKind::Rpc);
+        let history = wait_for_terminal_history(&coordinator).await;
+
+        assert_eq!(history.runs.len(), 1);
+        assert_eq!(history.runs[0].id, started.runs[0].id);
+        assert_eq!(history.runs[0].status, DiagnosticRunStatus::Completed);
+        assert!(history.runs[0].finished_at.is_some());
+        assert!(
+            history.runs[0]
+                .checks
+                .iter()
+                .any(|check| check.status == DiagnosticCheckStatus::Unavailable)
+        );
+        assert!(
+            history.runs[0]
+                .checks
+                .iter()
+                .any(|check| check.status == DiagnosticCheckStatus::Failed)
         );
     }
 
