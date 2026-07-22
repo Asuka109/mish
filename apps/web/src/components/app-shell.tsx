@@ -54,6 +54,7 @@ import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
 import { SurfaceScope } from "./surface-scope";
+import styles from "./app-shell.module.css";
 
 const destinations = [
   { icon: Gauge, key: "status", path: "/status" },
@@ -122,6 +123,28 @@ const shellStyles = tv({
       true: {
         navItem:
           "is-active border-(--mish-sidebar-item-active-border) bg-(--mish-sidebar-item-active-background) text-(--color-ink) shadow-(--mish-sidebar-item-active-shadow)",
+      },
+      false: {},
+    },
+  },
+});
+
+export const proxyControlStyles = tv({
+  slots: {
+    proxyControl:
+      "proxy-control-button relative flex h-(--sidebar-row-height) w-full items-center overflow-hidden rounded-(--radius-md) border border-transparent bg-transparent p-0 text-left text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) isolate disabled:opacity-100 [&:not([data-status=healthy]):hover]:bg-(--mish-sidebar-item-hover-background) [&:not([data-status=healthy]):hover]:text-(--color-body)",
+    material: "pointer-events-none absolute inset-0 z-0 rounded-[calc(var(--radius-md)-1px)]",
+    state:
+      "proxy-control-state relative z-2 grid w-full min-w-0 grid-cols-[var(--sidebar-icon-slot)_minmax(0,1fr)] items-center gap-x-(--sidebar-row-gap) px-(--sidebar-row-inset) transition-opacity duration-160 ease-[cubic-bezier(0.22,1,0.36,1)] [&>:first-child]:col-start-1 [&>:first-child]:justify-self-center [&_svg]:size-(--sidebar-icon-slot)",
+    defaultState: "proxy-control-default",
+    hoverState: "proxy-control-hover absolute inset-0 opacity-0",
+    label: "proxy-control-label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
+  },
+  variants: {
+    healthy: {
+      true: {
+        proxyControl:
+          "border-[color-mix(in_srgb,var(--color-status-water-base)_76%,var(--color-ink))] bg-(--color-status-water-base) text-(--color-brand-foreground) shadow-(--shadow-status) hover:border-[color-mix(in_srgb,var(--color-status-water-base)_76%,var(--color-ink))] hover:bg-(--color-status-water-base) hover:text-(--color-brand-foreground) focus-visible:border-[color-mix(in_srgb,var(--color-status-water-base)_76%,var(--color-ink))] focus-visible:bg-(--color-status-water-base) focus-visible:text-(--color-brand-foreground) [&:is(:hover,:focus-visible)_[data-slot=proxy-control-default]]:opacity-0 [&:is(:hover,:focus-visible)_[data-slot=proxy-control-hover]]:opacity-100",
       },
       false: {},
     },
@@ -215,6 +238,7 @@ function ProxyControlButton() {
   const actionDescriptionId = snapshot
     ? getAggregateCaptureDescriptionId(snapshot, commandSupported)
     : undefined;
+  const proxyStyles = proxyControlStyles({ healthy: phase === "healthy" });
 
   async function handleToggle() {
     if (!runtime) return;
@@ -241,7 +265,7 @@ function ProxyControlButton() {
               ? LL.proxyControl.enableFixtureAria()
               : LL.proxyControl.enableAria()
       }
-      className="proxy-control-button"
+      className={proxyStyles.proxyControl()}
       data-status={phase}
       disabled={!snapshot || pending || needsAttention || !commandSupported || !captureAvailable}
       onClick={handleToggle}
@@ -258,37 +282,53 @@ function ProxyControlButton() {
       {phase === "healthy" ? (
         <span
           aria-hidden="true"
-          className="proxy-control-material"
+          className={proxyStyles.material({ className: styles.proxyControlMaterial })}
           data-slot="proxy-control-material"
         >
           <StatusShimmer active />
         </span>
       ) : null}
       {pending ? (
-        <span className="proxy-control-state proxy-control-default">
+        <span
+          className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+          data-slot="proxy-control-default"
+        >
           <Spinner data-icon="inline-start" />
-          <span className="proxy-control-label">{LL.common.pending()}</span>
+          <span className={proxyStyles.label()}>{LL.common.pending()}</span>
         </span>
       ) : needsAttention ? (
-        <span className="proxy-control-state proxy-control-default">
+        <span
+          className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+          data-slot="proxy-control-default"
+        >
           <XCircle aria-hidden="true" data-icon="inline-start" />
-          <span className="proxy-control-label">{LL.proxyControl.needsAttention()}</span>
+          <span className={proxyStyles.label()}>{LL.proxyControl.needsAttention()}</span>
         </span>
       ) : active ? (
         <>
-          <span className="proxy-control-state proxy-control-default">
+          <span
+            className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+            data-slot="proxy-control-default"
+          >
             <WifiHigh aria-hidden="true" data-icon="inline-start" weight="bold" />
-            <span className="proxy-control-label">{LL.proxyControl.running()}</span>
+            <span className={proxyStyles.label()}>{LL.proxyControl.running()}</span>
           </span>
-          <span aria-hidden="true" className="proxy-control-state proxy-control-hover">
+          <span
+            aria-hidden="true"
+            className={proxyStyles.state({ className: proxyStyles.hoverState() })}
+            data-slot="proxy-control-hover"
+          >
             <XCircle data-icon="inline-start" />
-            <span className="proxy-control-label">{LL.proxyControl.disable()}</span>
+            <span className={proxyStyles.label()}>{LL.proxyControl.disable()}</span>
           </span>
         </>
       ) : (
-        <span className="proxy-control-state proxy-control-default">
+        <span
+          className={proxyStyles.state({ className: proxyStyles.defaultState() })}
+          data-slot="proxy-control-default"
+        >
           <Power aria-hidden="true" data-icon="inline-start" />
-          <span className="proxy-control-label">{LL.proxyControl.enable()}</span>
+          <span className={proxyStyles.label()}>{LL.proxyControl.enable()}</span>
         </span>
       )}
     </Button>

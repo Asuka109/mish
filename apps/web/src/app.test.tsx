@@ -2195,14 +2195,14 @@ describe("Status fixture experience", () => {
     expect(
       startButton.querySelector('[data-slot="proxy-control-material"]'),
     ).not.toBeInTheDocument();
-    expect(startButton.querySelector(".sidebar-status-shimmer")).not.toBeInTheDocument();
+    expect(startButton.querySelector("canvas[aria-hidden='true']")).not.toBeInTheDocument();
     await user.click(startButton);
     const stopButton = await screen.findByRole("button", { name: "Disable the proxy demo state" });
     const material = stopButton.querySelector('[data-slot="proxy-control-material"]');
     expect(stopButton).toHaveAttribute("data-slot", "button");
     expect(stopButton).toHaveAccessibleDescription(/local fixture data only/);
     expect(material).toHaveAttribute("aria-hidden", "true");
-    expect(material?.querySelector(".sidebar-status-shimmer")).toBeInTheDocument();
+    expect(material?.querySelector("canvas[aria-hidden='true']")).toBeInTheDocument();
     await user.click(stopButton);
     expect(
       await screen.findByRole("button", { name: "Launch the proxy demo state" }),

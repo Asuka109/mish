@@ -1,5 +1,6 @@
 import { page, userEvent } from "vitest/browser";
 import { beforeAll, describe, expect, test, vi } from "vitest";
+import { proxyControlStyles } from "../components/app-shell";
 
 const routes = ["/status", "/routes", "/profiles", "/traffic", "/events", "/settings"];
 
@@ -151,20 +152,21 @@ function appendProxyControlFixture(
   status: "inactive" | "connecting" | "error" | "healthy",
   label: string,
 ) {
+  const styles = proxyControlStyles({ healthy: status === "healthy" });
   const button = document.createElement("button");
-  button.className = "ui-button ui-button--ghost ui-button--default proxy-control-button";
+  button.className = `ui-button ui-button--ghost ui-button--default ${styles.proxyControl()}`;
   button.dataset.status = status;
   button.type = "button";
   button.innerHTML = `
-    <span class="proxy-control-state proxy-control-default">
+    <span class="${styles.state({ className: styles.defaultState() })}" data-slot="proxy-control-default">
       <svg aria-hidden="true" viewBox="0 0 18 18"></svg>
-      <span class="proxy-control-label">${label}</span>
+      <span class="${styles.label()}">${label}</span>
     </span>
     ${
       status === "healthy"
-        ? `<span aria-hidden="true" class="proxy-control-state proxy-control-hover">
+        ? `<span aria-hidden="true" class="${styles.state({ className: styles.hoverState() })}" data-slot="proxy-control-hover">
             <svg viewBox="0 0 18 18"></svg>
-            <span class="proxy-control-label">Stop proxy</span>
+            <span class="${styles.label()}">Stop proxy</span>
           </span>`
         : ""
     }
@@ -217,6 +219,28 @@ beforeAll(async () => {
 });
 
 describe("responsive application shell", () => {
+  test("keeps the healthy proxy material inside its one-pixel rounded border", async () => {
+    await page.viewport(800, 600);
+    await navigate("/status");
+
+    const button = document.querySelector<HTMLButtonElement>(".proxy-control-button");
+    if (!button) throw new Error("Missing proxy control");
+    if (button.dataset.status !== "healthy") {
+      await page.elementLocator(button).click();
+      await vi.waitFor(() => expect(button.dataset.status).toBe("healthy"));
+    }
+
+    const material = button.querySelector<HTMLElement>('[data-slot="proxy-control-material"]');
+    if (!material) throw new Error("Missing healthy proxy material");
+    const buttonStyle = getComputedStyle(button);
+    const materialStyle = getComputedStyle(material);
+
+    expect(materialStyle.backgroundColor).toBe(buttonStyle.backgroundColor);
+    expect(Number.parseFloat(materialStyle.borderTopLeftRadius)).toBe(
+      Number.parseFloat(buttonStyle.borderTopLeftRadius) - 1,
+    );
+  });
+
   test("uses one desktop grid for destination, Settings, and every proxy-control state", async () => {
     await page.viewport(800, 600);
     const root = document.documentElement;

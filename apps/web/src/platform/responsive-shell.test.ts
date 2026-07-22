@@ -63,16 +63,6 @@ describe("responsive shell CSS", () => {
     expect(notifications).toContain("group-focus-within/item:pointer-events-auto");
   });
 
-  it("nests the proxy material inside its one-pixel rounded border without a light seam", () => {
-    const healthyButtonRule = styles.match(
-      /\.ui-button\.proxy-control-button\[data-status="healthy"\] \{[\s\S]*?\n\}/,
-    )?.[0];
-    const materialRule = styles.match(/\.proxy-control-material \{[\s\S]*?\n\}/)?.[0];
-
-    expect(healthyButtonRule).toContain("background: var(--color-status-water-base)");
-    expect(materialRule).toContain("border-radius: calc(var(--radius-md) - 1px)");
-  });
-
   it("separates the profile patch editor sections inside a padded content region", () => {
     expect(patchEditor).toContain('content: "flex flex-col gap-3 p-4"');
     expect(styles).not.toContain(".profile-patch-content {");
