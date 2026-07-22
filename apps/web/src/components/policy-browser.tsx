@@ -2,6 +2,7 @@ import { ArrowClockwise } from "@phosphor-icons/react/ArrowClockwise";
 import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import { Check } from "@phosphor-icons/react/Check";
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
+import { SortAscending } from "@phosphor-icons/react/SortAscending";
 import { XCircle } from "@phosphor-icons/react/XCircle";
 import type { GroupDelayChildResultDto, PolicyGroupDto, ProxyNodeDto } from "@mish/contracts";
 import {
@@ -10,9 +11,13 @@ import {
   Field,
   FieldLabel,
   Input,
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Spinner,
-  ToggleGroup,
-  ToggleGroupItem,
 } from "@mish/ui";
 import { useId, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router";
@@ -75,7 +80,12 @@ const policyEntityRowRecipe = tv({
     },
     disabled: {
       false: "",
-      true: "policy-browser-entity-row--disabled opacity-55",
+      true: cx(
+        "policy-browser-entity-row--disabled opacity-55",
+        "[&_.policy-browser-entity-primary:disabled]:opacity-100",
+        "[&_.policy-browser-latency]:text-muted-foreground",
+        "[&_.policy-browser-selection]:text-muted-foreground",
+      ),
     },
     entityKind: {
       group: "policy-browser-entity-row--group",
@@ -189,7 +199,6 @@ export interface LatencyStatusProps {
   measuredLabel(latency: number): string;
   result?: GroupDelayChildResultDto;
   testingLabel: string;
-  unknownLabel: string;
 }
 
 export function LatencyStatus({
@@ -199,12 +208,12 @@ export function LatencyStatus({
   measuredLabel,
   result,
   testingLabel,
-  unknownLabel,
 }: LatencyStatusProps) {
   const historical = normalizeMeasuredLatency(latencyMilliseconds);
   const state = delayState(result) ?? (historical === null ? "unknown" : "measured");
   const latency =
     result?.phase === "success" ? normalizeMeasuredLatency(result.latencyMilliseconds) : historical;
+  if (state === "unknown" || (state === "measured" && latency === null)) return null;
   const label =
     state === "testing"
       ? testingLabel
@@ -212,9 +221,7 @@ export function LatencyStatus({
         ? cancelledLabel
         : state === "failed" && result
           ? failureLabel(result)
-          : latency === null
-            ? unknownLabel
-            : measuredLabel(latency);
+          : measuredLabel(latency!);
   return (
     <span className={latencyStatusRecipe({ latencyState: state })} data-latency-state={state}>
       <span>{label}</span>
@@ -348,6 +355,7 @@ interface PolicyEntityRowProps {
   entityKind: PolicyEntityKind;
   latency: ReactNode;
   metadata: string;
+  muted?: boolean;
   onBrowse?: () => void;
   onSelect?: () => void;
   pendingLabel: string;
@@ -368,6 +376,7 @@ export function PolicyEntityRow({
   entityKind,
   latency,
   metadata,
+  muted = false,
   onBrowse,
   onSelect,
   pendingLabel,
@@ -387,6 +396,8 @@ export function PolicyEntityRow({
       : onSelect
         ? "unselected"
         : "read-only";
+  const visualSelectionState =
+    muted && selectionState === "current" ? "unselected" : selectionState;
   const content = (
     <>
       <span className="policy-browser-entity-copy grid min-w-0 gap-0.5 [&>*]:min-w-0">
@@ -403,7 +414,6 @@ export function PolicyEntityRow({
         <span className="text-metadata text-muted-foreground">{metadata}</span>
       </span>
       <span className="policy-browser-entity-status inline-flex min-w-0 items-center justify-end gap-3 max-shell-mobile:justify-between">
-        {latency}
         {selectionState === "read-only" && automaticGroup ? null : (
           <SelectionStatus
             currentLabel={currentLabel}
@@ -412,6 +422,7 @@ export function PolicyEntityRow({
             state={selectionState}
           />
         )}
+        {latency}
       </span>
     </>
   );
@@ -419,13 +430,14 @@ export function PolicyEntityRow({
     <div
       className={policyEntityRowRecipe({
         density,
-        disabled,
+        disabled: muted,
         entityKind,
         interactive: Boolean(onSelect),
-        selectionState,
+        selectionState: visualSelectionState,
       })}
       data-disabled={disabled || undefined}
       data-entity-id={entity.id}
+      data-muted={muted || undefined}
     >
       {onSelect ? (
         <Button
@@ -518,6 +530,7 @@ export function PolicyBrowserToolbar<Sort extends string>({
   testAriaLabel,
 }: PolicyBrowserToolbarProps<Sort>) {
   const searchId = useId();
+  const sortItems = sorts.map((option) => ({ label: sortOptionLabel(option), value: option }));
   return (
     <div className="policy-browser-toolbar grid min-w-0 grid-cols-[minmax(180px,1fr)_auto] items-center gap-x-4 gap-y-2 border-b border-hairline-soft bg-surface-soft px-3 py-2.5 max-shell-mobile:grid-cols-1">
       {showSearch ? (
@@ -548,28 +561,36 @@ export function PolicyBrowserToolbar<Sort extends string>({
           !showSearch && "col-start-2 row-start-1",
         )}
       >
-        <ToggleGroup
-          aria-label={sortLabel}
-          className="policy-browser-sort inline-flex max-shell-mobile:min-w-0 max-shell-mobile:flex-1"
-          onValueChange={(values) => {
-            const next = values[0] as Sort | undefined;
-            if (next) onSortChange(next);
+        <Select
+          disabled={sortDisabled}
+          items={sortItems}
+          onValueChange={(next) => {
+            if (typeof next === "string" && sorts.includes(next as Sort)) {
+              onSortChange(next as Sort);
+            }
           }}
-          spacing={0}
-          value={[sort]}
-          variant="outline"
+          value={sort}
         >
-          {sorts.map((option) => (
-            <ToggleGroupItem
-              className="policy-browser-sort-option inline-flex h-7.5 items-center justify-center rounded-none border border-hairline bg-canvas px-2.5 text-caption text-muted-foreground first:rounded-l-sm last:rounded-r-sm [&:not(:first-child)]:border-l-0 hover:bg-accent hover:text-ink data-pressed:bg-accent data-pressed:text-ink max-shell-mobile:min-w-0 max-shell-mobile:flex-1 max-shell-mobile:px-1 max-shell-mobile:text-micro"
-              disabled={sortDisabled}
-              key={option}
-              value={option}
-            >
-              {sortOptionLabel(option)}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
+          <SelectTrigger
+            aria-label={sortLabel}
+            className="policy-browser-sort h-8.5 min-w-37 max-w-44 flex-none max-shell-mobile:min-w-0 max-shell-mobile:flex-1"
+          >
+            <SortAscending
+              aria-hidden="true"
+              className="policy-browser-sort-icon size-4 shrink-0 text-muted-foreground"
+            />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {sortItems.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <Button
           aria-label={delayActive ? cancelAriaLabel : testAriaLabel}
           aria-busy={delayBusy || undefined}

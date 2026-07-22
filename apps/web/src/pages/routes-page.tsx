@@ -356,7 +356,6 @@ export function PolicyGroupDetail({
                       measuredLabel={(latency) => LL.routes.latencyMilliseconds({ latency })}
                       result={result}
                       testingLabel={LL.routes.delayPending()}
-                      unknownLabel={LL.routes.latencyUnavailable()}
                     />
                   }
                   metadata={
@@ -367,6 +366,7 @@ export function PolicyGroupDetail({
                           type: childGroup ? getGroupTypeLabel(LL, childGroup) : "",
                         }))
                   }
+                  muted={selectionDisabled}
                   onSelect={
                     canSelectNode || canSelectGroup ? () => onSelect(group.id, childId) : undefined
                   }

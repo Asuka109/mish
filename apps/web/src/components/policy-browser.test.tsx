@@ -87,6 +87,7 @@ describe("policy browser primitives", () => {
         entityKind="group"
         latency={<span>Unknown</span>}
         metadata="Policy group · url-test"
+        muted
         pendingLabel="Switching"
         readOnlyLabel="Read-only"
         selected={false}
@@ -96,28 +97,103 @@ describe("policy browser primitives", () => {
 
     const row = screen.getByText("SG Singapore").closest("[data-entity-id]");
     expect(row).toHaveAttribute("data-disabled", "true");
+    expect(row).toHaveAttribute("data-muted", "true");
     expect(row).toHaveClass("opacity-55");
     expect(screen.getByText("Auto-select")).toBeVisible();
     expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
   });
 
-  it("renders historical zero milliseconds as unknown rather than measured success", () => {
-    render(
+  it("uses one neutral treatment for unavailable current and automatic rows", () => {
+    const { container } = render(
+      <>
+        <PolicyEntityRow
+          currentLabel="Selected"
+          disabled
+          entity={{
+            id: "current-node",
+            label: "Current node",
+            latencyMilliseconds: 42,
+            protocol: "ss",
+          }}
+          entityKind="node"
+          latency={
+            <LatencyStatus
+              cancelledLabel="Cancelled"
+              failureLabel={() => "Failed"}
+              latencyMilliseconds={42}
+              measuredLabel={(value) => `${value} ms`}
+              testingLabel="Testing"
+            />
+          }
+          metadata="ss"
+          muted
+          onSelect={() => undefined}
+          pendingLabel="Switching"
+          readOnlyLabel="Read-only"
+          selectLabel="Select Current node"
+          selected
+          selectionPending={false}
+        />
+        <PolicyEntityRow
+          automaticLabel="Auto-select"
+          currentLabel="Selected"
+          disabled
+          entity={{
+            childIds: ["current-node"],
+            id: "automatic-group",
+            label: "Automatic group",
+            selectedChildId: "current-node",
+            type: "url-test",
+          }}
+          entityKind="group"
+          latency={<span>Unknown</span>}
+          metadata="Policy group · url-test"
+          muted
+          pendingLabel="Switching"
+          readOnlyLabel="Read-only"
+          selected={false}
+          selectionPending={false}
+        />
+      </>,
+    );
+
+    const rows = [...container.querySelectorAll<HTMLElement>("[data-entity-id]")];
+    expect(rows).toHaveLength(2);
+    rows.forEach((row) => {
+      expect(row).toHaveClass("opacity-55");
+      expect(row).not.toHaveClass("bg-accent");
+    });
+    expect(screen.getByRole("button", { name: "Select Current node" })).toBeDisabled();
+    expect(screen.getByText("Selected")).toHaveClass("text-success-text");
+    const currentStatus = rows[0]!.querySelector(".policy-browser-entity-status");
+    expect(currentStatus?.children[0]).toHaveClass("policy-browser-selection");
+    expect(currentStatus?.children[1]).toHaveClass("policy-browser-latency");
+  });
+
+  it("hides unavailable and historical zero latency instead of presenting them as results", () => {
+    const { container, rerender } = render(
       <LatencyStatus
         cancelledLabel="Cancelled"
         failureLabel={() => "Failed"}
         latencyMilliseconds={0}
         measuredLabel={(latency) => `${latency} ms`}
         testingLabel="Testing"
-        unknownLabel="Unknown"
       />,
     );
 
-    expect(screen.getByText("Unknown").closest("[data-latency-state]")).toHaveAttribute(
-      "data-latency-state",
-      "unknown",
-    );
+    expect(container).toBeEmptyDOMElement();
     expect(screen.queryByText("0 ms")).not.toBeInTheDocument();
+
+    rerender(
+      <LatencyStatus
+        cancelledLabel="Cancelled"
+        failureLabel={() => "Failed"}
+        latencyMilliseconds={null}
+        measuredLabel={(latency) => `${latency} ms`}
+        testingLabel="Testing"
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("renders typed failure and cancellation states with observation time", () => {
@@ -134,7 +210,6 @@ describe("policy browser primitives", () => {
           phase: "failed",
         }}
         testingLabel="Testing"
-        unknownLabel="Unknown"
       />,
     );
 
@@ -157,7 +232,6 @@ describe("policy browser primitives", () => {
           phase: "cancelled",
         }}
         testingLabel="Testing"
-        unknownLabel="Unknown"
       />,
     );
     expect(screen.getByText("Cancelled").closest("[data-latency-state]")).toHaveAttribute(

@@ -2292,13 +2292,22 @@ describe("desktop RPC experience", () => {
     disabledSelections.forEach((selection) => {
       expect(selection).toBeDisabled();
       expect(selection).not.toHaveTextContent("Read-only");
+      const row = selection.closest<HTMLElement>("[data-entity-id]");
+      expect(row).toHaveAttribute("data-muted", "true");
+      expect(row).toHaveClass("opacity-55");
     });
+    const currentSelection = disabledSelections.find(
+      (selection) => selection.getAttribute("aria-pressed") === "true",
+    );
+    expect(currentSelection?.closest("[data-entity-id]")).not.toHaveClass("bg-accent");
     const automaticGroup = within(dialog)
       .getByText("⚡ 自动选择・Auto")
       .closest<HTMLElement>("[data-entity-id]")!;
     expect(automaticGroup).toHaveAttribute("data-disabled", "true");
+    expect(automaticGroup).toHaveAttribute("data-muted", "true");
     expect(within(automaticGroup).getByText("Auto-select")).toBeVisible();
     expect(within(automaticGroup).queryByText("Read-only")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Latency unavailable")).not.toBeInTheDocument();
     expect(within(dialog).getAllByText("Read-only").length).toBeGreaterThan(0);
 
     expect(setCapture).not.toHaveBeenCalled();

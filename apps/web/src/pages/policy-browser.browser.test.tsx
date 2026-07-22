@@ -81,6 +81,9 @@ describe("unified policy browser", () => {
     await expect
       .element(page.getByRole("button", { name: "Start Delay Test for 🌐 Proxy" }))
       .toBeVisible();
+    const sort = page.getByRole("combobox", { name: "Sort children in 🌐 Proxy" });
+    await expect.element(sort).toBeVisible();
+    expect(document.querySelector(".policy-browser-sort-icon")).not.toBeNull();
     expect(document.querySelector(".policy-picker-dialog .policy-browser-browse")).toBeNull();
     expect(
       document.querySelector<HTMLElement>('[data-entity-id="auto-fast"] .ui-badge')?.textContent,

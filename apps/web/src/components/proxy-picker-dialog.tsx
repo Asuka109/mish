@@ -307,7 +307,6 @@ export function PolicyPickerDialog({
                           measuredLabel={(latency) => LL.routes.latencyMilliseconds({ latency })}
                           result={delayResult}
                           testingLabel={LL.routes.delayPending()}
-                          unknownLabel={LL.routes.latencyUnavailable()}
                         />
                       }
                       metadata={
@@ -319,6 +318,7 @@ export function PolicyPickerDialog({
                               : (childGroup?.type ?? ""),
                         })
                       }
+                      muted={commandsDisabled}
                       onSelect={
                         canSelectNode || canSelectGroup
                           ? () => void selectChild(childId)
