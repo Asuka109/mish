@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const styles = readFileSync("src/styles.css", "utf8");
+const shell = readFileSync("src/components/app-shell.tsx", "utf8");
+const notifications = readFileSync("src/components/notification-bubble.tsx", "utf8");
 const desktopConfig = readFileSync("../desktop/src-tauri/tauri.conf.json", "utf8");
 
 describe("responsive shell CSS", () => {
@@ -13,21 +15,19 @@ describe("responsive shell CSS", () => {
 
   it("lets the shell shrink to the host viewport in both axes", () => {
     const viewportRootRule = styles.match(/html,[\s\S]*?#root \{[\s\S]*?\n\}/)?.[0];
-    const appShellRule = styles.match(/\.app-shell \{[\s\S]*?\n\}/)?.[0];
 
     expect(viewportRootRule).toContain("min-width: 0");
     expect(viewportRootRule).not.toContain("min-width: 700px");
-    expect(appShellRule).toContain("min-height: 0");
-    expect(appShellRule).not.toContain("min-height: 620px");
+    expect(shell).toContain("app-shell relative grid h-screen h-dvh min-h-0");
+    expect(shell).not.toContain("min-h-[620px]");
   });
 
   it("keeps the full sidebar at the minimum desktop window width", () => {
-    const appShellRule = styles.match(/\.app-shell \{[\s\S]*?\n\}/)?.[0];
     const narrowDesktopRule = styles.match(
       /@media \(max-width: 820px\) \{[\s\S]*?(?=@media \(max-width: 600px\))/,
     )?.[0];
 
-    expect(appShellRule).toContain("grid-template-columns: 164px minmax(0, 1fr)");
+    expect(shell).toContain("grid-cols-[164px_minmax(0,1fr)]");
     expect(styles).not.toContain("grid-template-columns: 148px minmax(0, 1fr)");
     expect(styles).not.toContain("grid-template-columns: 84px minmax(0, 1fr)");
     expect(narrowDesktopRule).not.toContain(".nav-item > span");
@@ -48,30 +48,18 @@ describe("responsive shell CSS", () => {
   });
 
   it("keeps the notification icon aligned with the toolbar color states", () => {
-    const notificationRule = styles.match(/\.ui-button\.notification-trigger \{[\s\S]*?\n\}/)?.[0];
-    const notificationInteractiveRule = styles.match(
-      /\.ui-button\.notification-trigger:hover,[\s\S]*?\n\}/,
-    )?.[0];
-
-    expect(notificationRule).toContain("color: var(--color-text-muted)");
-    expect(notificationInteractiveRule).toContain("color: var(--color-body)");
+    expect(notifications).toContain("notification-trigger relative inline-flex");
+    expect(notifications).toContain("text-(--color-text-muted)");
+    expect(notifications).toContain("hover:text-(--color-body)");
   });
 
   it("keeps notification messages wrappable and exposes remove controls on interaction", () => {
-    const messageRule = styles.match(/\.notification-message \{[\s\S]*?\n\}/)?.[0];
-    const removeRule = styles.match(/\.notification-remove \{[\s\S]*?\n\}/)?.[0];
-    const revealRule = styles.match(
-      /\.notification-item:is\(:hover, :focus-within\) \.notification-remove \{[\s\S]*?\n\}/,
-    )?.[0];
-
-    expect(messageRule).toContain("overflow-wrap: anywhere");
-    expect(messageRule).toContain("user-select: text");
-    expect(messageRule).toContain("white-space: normal");
-    expect(messageRule).not.toContain("text-overflow: ellipsis");
-    expect(removeRule).toContain("opacity: 0");
-    expect(removeRule).toContain("pointer-events: none");
-    expect(revealRule).toContain("opacity: 1");
-    expect(revealRule).toContain("pointer-events: auto");
+    expect(notifications).toContain("notification-message cursor-text wrap-anywhere");
+    expect(notifications).toContain("select-text");
+    expect(notifications).not.toContain("truncate");
+    expect(notifications).toContain("opacity-0 pointer-events-none");
+    expect(notifications).toContain("group-hover/item:opacity-100");
+    expect(notifications).toContain("group-focus-within/item:pointer-events-auto");
   });
 
   it("nests the proxy material inside its one-pixel rounded border without a light seam", () => {

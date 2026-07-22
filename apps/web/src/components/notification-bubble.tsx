@@ -17,6 +17,7 @@ import type { EventLevel, EventRecordDto } from "@mish/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
+import { tv } from "tailwind-variants";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
 import { useProduct, type LocalProxyTestState } from "../data/product-provider";
 import { useCaptureCommand } from "../data/capture-command";
@@ -33,6 +34,36 @@ import { WelcomeDialog } from "./welcome-dialog";
 const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
 const noEvents: EventRecordDto[] = [];
+
+const notificationStyles = tv({
+  slots: {
+    trigger:
+      "toolbar-button notification-trigger relative inline-flex h-[34px] items-center justify-center gap-[7px] rounded-(--radius-md) border border-transparent bg-transparent px-[9px] text-(--text-metadata) text-(--color-text-muted) hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-body) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-body)",
+    count:
+      "notification-count tabular absolute -top-1 -right-[5px] h-[17px] min-w-[17px] pointer-events-none px-1 text-[10px] leading-none",
+    popover: "notification-popover w-[min(360px,calc(100vw_-_24px))]",
+    header:
+      "notification-header flex items-start justify-between gap-3 px-[14px] pt-[14px] pb-[12px] [&_.ui-button]:flex-none",
+    title: "notification-title text-(--text-body) leading-5 font-(--font-weight-heading)",
+    description:
+      "notification-description mt-[2px] text-(--text-metadata) leading-[18px] text-(--color-text-muted)",
+    list: "notification-list m-0 max-h-[min(360px,calc(100vh_-_180px))] list-none overflow-auto border-y border-(--color-hairline) p-0",
+    item: "notification-item relative flex min-w-0 flex-col gap-[5px] px-[14px] pt-[11px] pb-[12px] [&+&]:border-t [&+&]:border-(--color-hairline-soft)",
+    itemHeading:
+      "notification-item-heading flex items-center justify-between gap-2 pr-[26px] [&_.ui-badge]:h-5 [&_time]:text-[12px] [&_time]:text-(--color-text-muted)",
+    message:
+      "notification-message cursor-text wrap-anywhere text-(--text-metadata) leading-[19px] font-(--font-weight-control) text-(--color-body) select-text",
+    detail:
+      "notification-detail mt-[3px] wrap-anywhere text-(--text-metadata) leading-[18px] text-(--color-text-muted)",
+    remove:
+      "notification-remove absolute top-[7px] right-2 size-[26px] opacity-0 pointer-events-none transition-opacity duration-[120ms] ease-out group-hover/item:opacity-100 group-hover/item:pointer-events-auto group-focus-within/item:opacity-100 group-focus-within/item:pointer-events-auto",
+    actions: "notification-actions flex flex-wrap gap-[6px] pt-[3px]",
+    empty:
+      "notification-empty min-h-[168px] rounded-none border-x-0 border-y border-(--color-hairline)",
+    footer: "notification-footer flex px-[14px] pt-[10px] pb-[12px]",
+    viewAll: "notification-view-all w-full",
+  },
+});
 
 interface NotificationState {
   readNotificationIds: Set<string>;
@@ -503,7 +534,7 @@ export function NotificationBubble() {
           render={
             <Button
               aria-label={LL.notifications.trigger({ count: unreadCount })}
-              className="toolbar-button notification-trigger"
+              className={notificationStyles().trigger()}
               ref={notificationTriggerRef}
               size="icon-sm"
               variant="ghost"
@@ -512,23 +543,25 @@ export function NotificationBubble() {
         >
           <Bell aria-hidden="true" />
           {unreadCount > 0 ? (
-            <Badge className="notification-count tabular" variant="destructive">
+            <Badge className={notificationStyles().count()} variant="destructive">
               {formatUnreadCount(unreadCount)}
             </Badge>
           ) : null}
         </PopoverTrigger>
-        <PopoverContent align="end" className="notification-popover" sideOffset={8}>
-          <div className="notification-header">
+        <PopoverContent align="end" className={notificationStyles().popover()} sideOffset={8}>
+          <div className={notificationStyles().header()}>
             <div>
-              <PopoverTitle className="notification-title">{LL.notifications.title()}</PopoverTitle>
-              <PopoverDescription className="notification-description">
+              <PopoverTitle className={notificationStyles().title()}>
+                {LL.notifications.title()}
+              </PopoverTitle>
+              <PopoverDescription className={notificationStyles().description()}>
                 {LL.notifications.description()}
               </PopoverDescription>
             </div>
           </div>
 
           {visibleNotifications.length > 0 ? (
-            <ol className="notification-list">
+            <ol className={notificationStyles().list()}>
               {visibleNotifications.map((notification) => (
                 <NotificationItem
                   disabled={isCommandPending("capture") || Boolean(settingsContext?.pending)}
@@ -541,7 +574,7 @@ export function NotificationBubble() {
               ))}
             </ol>
           ) : (
-            <Empty className="notification-empty">
+            <Empty className={notificationStyles().empty()}>
               <EmptyHeader>
                 <EmptyTitle>{LL.notifications.emptyTitle()}</EmptyTitle>
                 <EmptyDescription>{LL.notifications.emptyDescription()}</EmptyDescription>
@@ -549,9 +582,9 @@ export function NotificationBubble() {
             </Empty>
           )}
 
-          <div className="notification-footer">
+          <div className={notificationStyles().footer()}>
             <Button
-              className="notification-view-all"
+              className={notificationStyles().viewAll()}
               nativeButton={false}
               render={<Link onClick={() => setOpen(false)} to="/events" />}
               size="sm"
@@ -593,17 +626,17 @@ function NotificationItem({ disabled, LL, locale, notification, onRemove }: Noti
   }
 
   return (
-    <li className="notification-item">
+    <li className={notificationStyles().item({ className: "group/item" })}>
       <Button
         aria-label={LL.notifications.remove({ message: notification.message })}
-        className="notification-remove"
+        className={notificationStyles().remove()}
         onClick={() => onRemove(notification.id)}
         size="icon-sm"
         variant="ghost"
       >
         <X aria-hidden="true" />
       </Button>
-      <div className="notification-item-heading">
+      <div className={notificationStyles().itemHeading()}>
         <Badge variant={levelBadge(notification.level)}>
           {LL.events.level[notification.level]()}
         </Badge>
@@ -611,12 +644,14 @@ function NotificationItem({ disabled, LL, locale, notification, onRemove }: Noti
           {formatNotificationTime(notification.observedAt, locale)}
         </time>
       </div>
-      <p className="notification-message" data-native-text-interaction>
+      <p className={notificationStyles().message()} data-native-text-interaction>
         {notification.message}
       </p>
-      {notification.detail ? <p className="notification-detail">{notification.detail}</p> : null}
+      {notification.detail ? (
+        <p className={notificationStyles().detail()}>{notification.detail}</p>
+      ) : null}
       {notification.actions && notification.actions.length > 0 ? (
-        <div className="notification-actions">
+        <div className={notificationStyles().actions()}>
           {notification.actions.map((action) => (
             <Button
               disabled={disabled}

@@ -3,15 +3,13 @@ import { describe, expect, it } from "vitest";
 
 const styles = readFileSync("src/styles.css", "utf8");
 const tokens = readFileSync("../../packages/design-tokens/src/tokens.css", "utf8");
+const shell = readFileSync("src/components/app-shell.tsx", "utf8");
 
 describe("native sidebar material CSS boundary", () => {
   it("exposes only the native-capable shell while keeping the workspace opaque", () => {
     const nativeMaterialRule = tokens.match(
       /\[data-surface-rendering="material"\] \{[\s\S]*?\n\}/,
     )?.[0];
-    const sidebarRule = styles.match(/\.sidebar \{[\s\S]*?\n\}/)?.[0];
-    const sidebarHoverRule = styles.match(/\.nav-item:hover \{[\s\S]*?\n\}/)?.[0];
-    const workspaceRule = styles.match(/\.workspace \{[\s\S]*?\n\}/)?.[0];
 
     expect(nativeMaterialRule).toContain("--mish-sidebar-background: transparent");
     expect(nativeMaterialRule).toContain("--mish-sidebar-item-hover-background: color-mix(");
@@ -23,9 +21,9 @@ describe("native sidebar material CSS boundary", () => {
     );
     expect(nativeMaterialRule).toContain("var(--mish-sidebar-material-control-border-opacity)");
     expect(nativeMaterialRule).not.toMatch(/backdrop-filter|gradient|url\(/);
-    expect(sidebarRule).toContain("background: var(--mish-sidebar-background)");
-    expect(sidebarHoverRule).toContain("background: var(--mish-sidebar-item-hover-background)");
-    expect(workspaceRule).toContain("background: var(--color-canvas)");
+    expect(shell).toContain("bg-(--mish-sidebar-background)");
+    expect(shell).toContain("hover:bg-(--mish-sidebar-item-hover-background)");
+    expect(shell).toContain("bg-(--color-canvas)");
   });
 
   it("does not independently override the resolved surface for reduced transparency", () => {
