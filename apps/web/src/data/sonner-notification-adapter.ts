@@ -1,14 +1,55 @@
 import { toast } from "sonner";
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import type { DeliveredNotification } from "./notification-delivery";
+
+function ToastActionGroup({
+  actions,
+  execute,
+}: {
+  actions: DeliveredNotification["actions"];
+  execute(actionId: string): Promise<void>;
+}) {
+  const [pendingActionId, setPendingActionId] = useState<string>();
+  const pending = Boolean(pendingActionId);
+
+  async function run(actionId: string) {
+    if (pending) return;
+    setPendingActionId(actionId);
+    try {
+      await execute(actionId);
+    } finally {
+      setPendingActionId(undefined);
+    }
+  }
+
+  return createElement(
+    "span",
+    { style: { display: "flex", gap: 4, marginLeft: "auto" } },
+    actions.map((action) =>
+      createElement(
+        "button",
+        {
+          "aria-busy": pendingActionId === action.id || undefined,
+          "data-button": true,
+          "data-cancel": action.tone === "secondary" || undefined,
+          "data-disabled": pending || undefined,
+          disabled: pending,
+          key: action.id,
+          onClick: () => void run(action.id),
+          style: { marginLeft: 0, marginRight: 0 },
+          type: "button",
+        },
+        action.label,
+      ),
+    ),
+  );
+}
 
 /** The only production boundary allowed to call Sonner's imperative API. */
 export function presentNotificationToast(
   notification: DeliveredNotification,
-  execute: (actionId?: string) => void,
+  execute: (actionId?: string) => Promise<void>,
 ) {
-  const primaryAction = notification.actions.find((action) => action.tone !== "secondary");
-  const secondaryAction = notification.actions.find((action) => action.tone === "secondary");
   const options = {
     description:
       notification.title && notification.detail
@@ -21,18 +62,11 @@ export function presentNotificationToast(
         : (notification.detail ?? (notification.title ? notification.message : undefined)),
     duration: notification.duration,
     id: notification.id,
-    action: primaryAction
-      ? {
-          label: primaryAction.label,
-          onClick: () => execute(primaryAction.id),
-        }
-      : undefined,
-    cancel: secondaryAction
-      ? {
-          label: secondaryAction.label,
-          onClick: () => execute(secondaryAction.id),
-        }
-      : undefined,
+    action:
+      notification.actions.length > 0
+        ? createElement(ToastActionGroup, { actions: notification.actions, execute })
+        : undefined,
+    cancel: undefined,
   };
   const title = notification.title ?? notification.message;
   const hasOptions =

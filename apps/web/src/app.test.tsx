@@ -813,8 +813,10 @@ describe("production routes", () => {
         "Your Mish welcome is ready",
         expect.objectContaining({
           action: expect.objectContaining({
-            label: "Open welcome",
-            onClick: expect.any(Function),
+            props: expect.objectContaining({
+              actions: [expect.objectContaining({ id: "open-welcome", label: "Open welcome" })],
+              execute: expect.any(Function),
+            }),
           }),
           description: "Welcome to Mish. Your introduction is ready whenever you are.",
           duration: Number.POSITIVE_INFINITY,
@@ -831,9 +833,11 @@ describe("production routes", () => {
     expect(
       settingsClient.setOnboardingWelcomeState.mock.calls.filter(([action]) => action === "prompt"),
     ).toHaveLength(1);
-    const toastAction = infoToast.mock.calls.at(-1)?.[1]?.action as { onClick(): void } | undefined;
+    const toastAction = infoToast.mock.calls.at(-1)?.[1]?.action as
+      | { props: { execute(actionId: string): Promise<void> } }
+      | undefined;
     expect(toastAction).toBeDefined();
-    await act(async () => toastAction?.onClick());
+    await act(async () => toastAction?.props.execute("open-welcome"));
     expect(await screen.findByRole("dialog", { name: "Welcome to Mish" })).toBeVisible();
     expect(settingsClient.setOnboardingWelcomeState).toHaveBeenCalledWith("open");
 
@@ -2440,7 +2444,17 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
         expect.stringContaining("System Proxy differs from Mish's requested state."),
-        expect.objectContaining({ action: expect.any(Object), cancel: expect.any(Object) }),
+        expect.objectContaining({
+          action: expect.objectContaining({
+            props: expect.objectContaining({
+              actions: expect.arrayContaining([
+                expect.objectContaining({ id: "repair", label: "Repair System Proxy" }),
+                expect.objectContaining({ id: "leave-as-is", label: "Leave OS settings as is" }),
+              ]),
+            }),
+          }),
+          cancel: undefined,
+        }),
       ),
     );
     expect(screen.getByRole("button", { name: "Proxy needs attention" })).toBeInTheDocument();
@@ -2509,7 +2523,16 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
         expect.stringContaining("Mish cannot validate its saved System Proxy recovery record."),
-        expect.objectContaining({ action: undefined, cancel: expect.any(Object) }),
+        expect.objectContaining({
+          action: expect.objectContaining({
+            props: expect.objectContaining({
+              actions: [
+                expect.objectContaining({ id: "leave-as-is", label: "Leave OS settings as is" }),
+              ],
+            }),
+          }),
+          cancel: undefined,
+        }),
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

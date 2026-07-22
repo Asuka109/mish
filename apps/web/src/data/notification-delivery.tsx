@@ -96,10 +96,11 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
     let action: NotificationActionDescriptor | undefined;
     setEntries((current) => {
       const entry = current.find((item) => item.id === id);
-      action = entry?.actions.find((item) => item.id === actionId) ?? entry?.actions[0];
-      if (!entry || !action || entry.pendingActionId) return current;
+      const candidate = entry?.actions.find((item) => item.id === actionId) ?? entry?.actions[0];
+      if (!entry || !candidate || entry.pendingActionId) return current;
+      action = candidate;
       return current.map((item) =>
-        item.id === id ? { ...item, pendingActionId: action?.id } : item,
+        item.id === id ? { ...item, pendingActionId: candidate.id } : item,
       );
     });
     if (!action) return;
@@ -127,7 +128,7 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
           entry,
         ].toSorted((left, right) => right.observedAt - left.observedAt);
         for (const replacedId of replacedIds) dismissNotificationToast(replacedId);
-        presentNotificationToast(entry, (actionId) => void execute(entry.id, actionId));
+        presentNotificationToast(entry, (actionId) => execute(entry.id, actionId));
         return next;
       });
     },
