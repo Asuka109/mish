@@ -2,8 +2,6 @@ import { ArrowDown } from "@phosphor-icons/react/ArrowDown";
 import { ArrowUp } from "@phosphor-icons/react/ArrowUp";
 import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import {
-  Badge,
-  Button,
   Empty,
   EmptyHeader,
   EmptyTitle,
@@ -13,9 +11,10 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@mish/ui";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { ProxyPickerDialog } from "../components/proxy-picker-dialog";
+import { PolicyGroupSummaryRow } from "../components/policy-browser";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
@@ -25,9 +24,10 @@ import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
-import type { CaptureSelectionDto, RoutingMode, SelectorPolicyGroupDto } from "@mish/contracts";
+import type { CaptureSelectionDto, RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
+import { buildRouteGraph, getRouteChildLatency, normalizeMeasuredLatency } from "./routes-model";
 
 function formatBytes(value: number, locale: Locales) {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -59,9 +59,7 @@ export function StatusPage() {
     error,
     isCommandPending,
     isCommandSupported,
-    isGroupCommandPending,
     isLoading,
-    selectGroupChild,
     setRoutingMode,
     snapshot,
   } = useProduct();
@@ -69,13 +67,11 @@ export function StatusPage() {
   const settings = useOptionalSettings();
   const { LL, locale } = useI18nContext();
   const [pickerGroupId, setPickerGroupId] = useState<string | null>(null);
+  const pickerTriggerRef = useRef<HTMLElement | null>(null);
   const [optimisticCaptureSelection, setOptimisticCaptureSelection] =
     useState<CaptureSelectionDto | null>(null);
   const [optimisticRoutingMode, setOptimisticRoutingMode] = useState<RoutingMode | null>(null);
   const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
-  const [pendingGroupSelections, setPendingGroupSelections] = useState<Map<string, string>>(
-    () => new Map(),
-  );
   const captureActive = Boolean(
     snapshot?.runtime.systemProxyEnabled || snapshot?.runtime.tunEnabled,
   );
@@ -86,6 +82,7 @@ export function StatusPage() {
   const configuredRoutes = useConfiguredRouteCatalog(snapshot);
   const groups = configuredRoutes?.groups ?? snapshot?.groups ?? [];
   const nodes = configuredRoutes?.nodes ?? snapshot?.nodes ?? [];
+  const routeGraph = useMemo(() => buildRouteGraph(groups, nodes), [groups, nodes]);
   const modeLabels: Record<RoutingMode, string> = {
     direct: LL.status.modeDirect(),
     global: LL.status.modeGlobal(),
@@ -124,16 +121,11 @@ export function StatusPage() {
     );
   }
 
-  const pickerGroupCandidate = groups.find((group) => group.id === pickerGroupId);
-  const pickerGroup = pickerGroupCandidate?.type === "selector" ? pickerGroupCandidate : null;
-  const pickerNodes = pickerGroup
-    ? nodes.filter((node) => pickerGroup.childIds.includes(node.id))
-    : [];
+  const pickerGroup = pickerGroupId ? routeGraph.groupById.get(pickerGroupId) : null;
   const captureRuntime = snapshot.runtime;
   const captureSupported = isCommandSupported("capture");
   const groupSupported = isCommandSupported("group") && configuredRoutes === null;
   const routingSupported = isCommandSupported("routing");
-  const groupDescriptionId = getCommandDescriptionId(snapshot.adapterKind, groupSupported);
   const routingDescriptionId = getCommandDescriptionId(snapshot.adapterKind, routingSupported);
   const sessionActivity =
     snapshot.adapterKind === "fixture"
@@ -165,21 +157,9 @@ export function StatusPage() {
     }
   }
 
-  function openPicker(group: SelectorPolicyGroupDto) {
-    setPickerGroupId(group.id);
-  }
-
-  async function selectGroupNode(groupId: string, nodeId: string) {
-    setPendingGroupSelections((current) => new Map(current).set(groupId, nodeId));
-    try {
-      await selectGroupChild(groupId, nodeId);
-    } finally {
-      setPendingGroupSelections((current) => {
-        const next = new Map(current);
-        next.delete(groupId);
-        return next;
-      });
-    }
+  function openPicker(groupId: string) {
+    pickerTriggerRef.current = document.activeElement as HTMLElement | null;
+    setPickerGroupId(groupId);
   }
 
   return (
@@ -388,64 +368,42 @@ export function StatusPage() {
                 <CaretRight aria-hidden="true" />
               </Link>
             </div>
-            {frequentGroups.length > 0 ? (
+            {routeGraph.errors.length > 0 ? (
+              <p className="policy-browser-read-only" role="alert">
+                {LL.routes.graphErrorTitle()}
+              </p>
+            ) : frequentGroups.length > 0 ? (
               <SectionGrid className="policy-group-list">
                 {frequentGroups.map((group, index) => {
-                  const pendingSelectionId = pendingGroupSelections.get(group.id);
-                  const displayedChildId = pendingSelectionId ?? group.selectedChildId;
-                  const selectedNode = nodes.find((node) => node.id === displayedChildId);
-                  const selectedGroup = groups.find(
-                    (candidate) => candidate.id === displayedChildId,
+                  const selectedLabel = group.selectedChildId
+                    ? (routeGraph.nodeById.get(group.selectedChildId)?.label ??
+                      routeGraph.groupById.get(group.selectedChildId)?.label)
+                    : null;
+                  const latency = normalizeMeasuredLatency(
+                    getRouteChildLatency(routeGraph, group.selectedChildId ?? ""),
                   );
-                  const rowContent = (
-                    <>
-                      <span className="policy-group-leading">
-                        <span className="policy-group-rank tabular">{index + 1}</span>
-                        <span className="policy-group-copy">
-                          <strong className="policy-group-primary user-authored-label">
-                            {group.label}
-                          </strong>
-                          <span className="policy-group-secondary user-authored-label">
-                            {selectedNode?.label ?? selectedGroup?.label ?? LL.status.noSelection()}
-                            {selectedNode?.latencyMilliseconds === null ||
-                            selectedNode?.latencyMilliseconds === undefined
-                              ? ""
-                              : ` · ${selectedNode.latencyMilliseconds} ms`}
-                          </span>
-                        </span>
-                      </span>
-                      <span className="policy-group-trailing">
-                        <Badge
-                          aria-label={LL.status.availableChildren({ count: group.childIds.length })}
-                          variant="outline"
-                        >
-                          {group.childIds.length}
-                        </Badge>
-                        {group.type === "selector" ? <CaretRight aria-hidden="true" /> : null}
-                      </span>
-                    </>
-                  );
-                  if (group.type !== "selector") {
-                    return (
-                      <SectionGridItem className="policy-group-row" key={group.id}>
-                        {rowContent}
-                      </SectionGridItem>
-                    );
-                  }
                   return (
-                    <Button
-                      aria-describedby={groupDescriptionId}
-                      className="section-grid-item policy-group-row"
-                      disabled={isGroupCommandPending(group.id) || !groupSupported}
-                      key={group.id}
-                      loading={Boolean(pendingSelectionId)}
-                      loadingText={LL.common.pending()}
-                      onClick={() => openPicker(group)}
-                      type="button"
-                      variant="ghost"
-                    >
-                      {rowContent}
-                    </Button>
+                    <SectionGridItem key={group.id}>
+                      <PolicyGroupSummaryRow
+                        childCount={group.childIds.length}
+                        childCountLabel={LL.status.availableChildren({
+                          count: group.childIds.length,
+                        })}
+                        density="compact"
+                        currentLabel={selectedLabel ?? LL.status.noSelection()}
+                        group={group}
+                        latency={
+                          latency === null ? null : (
+                            <span className="policy-browser-summary-latency tabular">
+                              {" "}
+                              · {latency} ms
+                            </span>
+                          )
+                        }
+                        onOpen={group.childIds.length > 0 ? () => openPicker(group.id) : undefined}
+                        rank={index + 1}
+                      />
+                    </SectionGridItem>
                   );
                 })}
               </SectionGrid>
@@ -463,13 +421,15 @@ export function StatusPage() {
       </div>
 
       <ProxyPickerDialog
-        group={pickerGroup}
-        nodes={pickerNodes}
-        onOpenChange={(open) => !open && setPickerGroupId(null)}
-        onSelect={(nodeId) => {
-          if (pickerGroup) void selectGroupNode(pickerGroup.id, nodeId);
+        graph={routeGraph}
+        groupId={pickerGroup?.id ?? null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPickerGroupId(null);
+          requestAnimationFrame(() => pickerTriggerRef.current?.focus({ preventScroll: true }));
         }}
         open={pickerGroup !== null}
+        readOnly={!groupSupported || configuredRoutes !== null || connection.stale}
       />
     </div>
   );

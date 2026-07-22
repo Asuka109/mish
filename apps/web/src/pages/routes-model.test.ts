@@ -5,13 +5,22 @@ import {
   type ProxyNodeDto,
 } from "@mish/contracts";
 import { describe, expect, it } from "vitest";
-import { buildRouteGraph, createRouteSearchState, sortRouteChildIds } from "./routes-model";
+import {
+  POLICY_ENTITY_BATCH_SIZE,
+  buildRouteGraph,
+  createRouteSearchState,
+  filterDirectPolicyChildIds,
+  getBoundedPolicyEntityIds,
+  normalizeMeasuredLatency,
+  sortRouteChildIds,
+} from "./routes-model";
 
 const nodes: ProxyNodeDto[] = [
   { id: "slow", label: "Zulu", latencyMilliseconds: 180, protocol: "VLESS" },
   { id: "unknown", label: "Charlie", latencyMilliseconds: null, protocol: "Trojan" },
   { id: "fast", label: "Alpha", latencyMilliseconds: 38, protocol: "Hysteria2" },
   { id: "unicode", label: "台北・開発 🚄", latencyMilliseconds: 72, protocol: "TUIC" },
+  { id: "zero", label: "Zero is unknown", latencyMilliseconds: 0, protocol: "SS" },
 ];
 
 function selector(
@@ -131,19 +140,90 @@ describe("Routes graph model", () => {
 
     expect(search.visibleEntityIds).toEqual(new Set(["unicode", "nested", "root"]));
     expect(search.autoExpandedGroupIds).toEqual(new Set(["nested", "root"]));
+    expect(search.matchPathByEntityId.get("unicode")).toEqual(["root", "nested", "unicode"]);
+  });
+
+  it("matches node protocols and policy group types globally but scopes picker search to direct children", () => {
+    const nested = {
+      childIds: ["unicode"],
+      id: "nested",
+      label: "Automatic",
+      selectedChildId: "unicode",
+      type: "url-test" as const,
+    };
+    const root = selector("root", ["fast", "nested"], "fast");
+    const graph = buildRouteGraph([root, nested], nodes);
+
+    expect(createRouteSearchState(graph, "tuic", "en").visibleEntityIds).toEqual(
+      new Set(["unicode", "nested", "root"]),
+    );
+    expect(createRouteSearchState(graph, "url-test", "en").directMatchEntityIds).toContain(
+      "nested",
+    );
+    expect(filterDirectPolicyChildIds(graph, root, "tuic", "en")).toEqual([]);
+    expect(filterDirectPolicyChildIds(graph, nested, "tuic", "en")).toEqual(["unicode"]);
   });
 
   it("sorts each group's direct children without treating missing latency as zero", () => {
-    const group = selector("root", ["slow", "unknown", "fast"]);
+    const group = selector("root", ["slow", "zero", "unknown", "fast"]);
     const graph = buildRouteGraph([group], nodes);
 
     expect(sortRouteChildIds(graph, group, "configuration", "en")).toEqual([
       "slow",
+      "zero",
       "unknown",
       "fast",
     ]);
-    expect(sortRouteChildIds(graph, group, "latency", "en")).toEqual(["fast", "slow", "unknown"]);
-    expect(sortRouteChildIds(graph, group, "label", "en")).toEqual(["fast", "unknown", "slow"]);
+    expect(sortRouteChildIds(graph, group, "latency", "en")).toEqual([
+      "fast",
+      "slow",
+      "zero",
+      "unknown",
+    ]);
+    expect(sortRouteChildIds(graph, group, "label", "en")).toEqual([
+      "fast",
+      "unknown",
+      "zero",
+      "slow",
+    ]);
+    expect(normalizeMeasuredLatency(0)).toBeNull();
+    expect(normalizeMeasuredLatency(-1)).toBeNull();
+    expect(normalizeMeasuredLatency(38)).toBe(38);
+  });
+
+  it("freezes latency ordering while a delay test is active and applies results only on completion", () => {
+    const group = selector("root", ["slow", "unknown", "fast"]);
+    const graph = buildRouteGraph([group], nodes);
+    const activeTest: GroupDelayTestDto = {
+      children: [
+        {
+          childId: "slow",
+          failure: null,
+          latencyMilliseconds: 1,
+          observedAt: 1,
+          phase: "success",
+        },
+      ],
+      finishedAt: null,
+      groupId: "root",
+      phase: "progress",
+      profileId: "profile",
+      startedAt: 1,
+      testId: "active",
+    };
+
+    expect(sortRouteChildIds(graph, group, "latency", "en", activeTest)).toEqual([
+      "fast",
+      "slow",
+      "unknown",
+    ]);
+    expect(
+      sortRouteChildIds(graph, group, "latency", "en", {
+        ...activeTest,
+        finishedAt: 2,
+        phase: "completed",
+      }),
+    ).toEqual(["slow", "fast", "unknown"]);
   });
 
   it("sorts current successful measurements first and failed or timed-out results last", () => {
@@ -186,5 +266,29 @@ describe("Routes graph model", () => {
       "fast",
       "slow",
     ]);
+  });
+
+  it("searches an 8,192-child group across the full data set while exposing 100-row batches", () => {
+    const largeNodes = Array.from(
+      { length: 8_192 },
+      (_, index): ProxyNodeDto => ({
+        id: `large-${index + 1}`,
+        label: index === 8_191 ? "末尾 Upper-bound target" : `Upper-bound node ${index + 1}`,
+        latencyMilliseconds: index % 3 === 0 ? index + 1 : null,
+        protocol: index % 2 === 0 ? "VLESS" : "Trojan",
+      }),
+    );
+    const group = selector(
+      "large-root",
+      largeNodes.map((node) => node.id),
+    );
+    const startedAt = performance.now();
+    const graph = buildRouteGraph([group], largeNodes);
+    const matches = filterDirectPolicyChildIds(graph, group, "末尾", "zh-CN");
+
+    expect(graph.errors).toEqual([]);
+    expect(matches).toEqual(["large-8192"]);
+    expect(getBoundedPolicyEntityIds(group.childIds, POLICY_ENTITY_BATCH_SIZE)).toHaveLength(100);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
   });
 });

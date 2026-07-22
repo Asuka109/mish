@@ -1537,7 +1537,7 @@ type RootTranslation = {
 		 */
 		searchAria: string
 		/**
-		 * S​e​a​r​c​h​ ​n​o​d​e​s
+		 * S​e​a​r​c​h​ ​n​o​d​e​s​…
 		 */
 		searchPlaceholder: string
 	}
@@ -1547,6 +1547,20 @@ type RootTranslation = {
 		 * @param {string} profile
 		 */
 		activeProfile: RequiredParams<'profile'>
+		/**
+		 * B​a​c​k​ ​t​o​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		backToGroup: RequiredParams<'group'>
+		/**
+		 * A​l​l​ ​R​o​u​t​e​s
+		 */
+		backToRoutes: string
+		/**
+		 * B​r​o​w​s​e​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		browseGroup: RequiredParams<'group'>
 		/**
 		 * {​c​o​u​n​t​}​ ​c​h​i​l​d​r​e​n
 		 * @param {number} count
@@ -1570,6 +1584,19 @@ type RootTranslation = {
 		 * C​o​n​f​i​g​u​r​a​t​i​o​n
 		 */
 		configurationOrder: string
+		/**
+		 * C​o​n​f​i​g​u​r​e​d​ ​p​r​o​f​i​l​e​ ​r​o​u​t​e​s​ ​a​r​e​ ​r​e​a​d​-​o​n​l​y​ ​u​n​t​i​l​ ​M​i​h​o​m​o​ ​C​o​r​e​ ​p​r​o​v​i​d​e​s​ ​a​ ​c​o​n​f​i​r​m​e​d​ ​l​i​v​e​ ​c​a​t​a​l​o​g​.
+		 */
+		configuredReadOnly: string
+		/**
+		 * B​r​o​w​s​e​,​ ​s​o​r​t​,​ ​t​e​s​t​,​ ​a​n​d​ ​s​e​l​e​c​t​ ​t​h​e​ ​d​i​r​e​c​t​ ​c​h​i​l​d​r​e​n​ ​o​f​ ​{​g​r​o​u​p​}​.
+		 * @param {string} group
+		 */
+		currentGroupDescription: RequiredParams<'group'>
+		/**
+		 * C​u​r​r​e​n​t​ ​p​o​l​i​c​y​-​g​r​o​u​p​ ​p​a​t​h
+		 */
+		currentPath: string
 		/**
 		 * C​u​r​r​e​n​t​:​ ​{​c​h​i​l​d​}
 		 * @param {string} child
@@ -1688,6 +1715,14 @@ type RootTranslation = {
 		 * @param {string} type
 		 */
 		groupReferenceType: RequiredParams<'type'>
+		/**
+		 * T​h​e​ ​r​e​q​u​e​s​t​e​d​ ​p​o​l​i​c​y​ ​g​r​o​u​p​ ​i​s​ ​n​o​ ​l​o​n​g​e​r​ ​i​n​ ​t​h​e​ ​c​o​n​f​i​r​m​e​d​ ​g​r​a​p​h​.
+		 */
+		groupNotFoundDescription: string
+		/**
+		 * P​o​l​i​c​y​ ​g​r​o​u​p​ ​n​o​t​ ​f​o​u​n​d
+		 */
+		groupNotFoundTitle: string
 		groupType: {
 			/**
 			 * D​i​r​e​c​t
@@ -1774,6 +1809,12 @@ type RootTranslation = {
 		 */
 		labelOrder: string
 		/**
+		 * L​o​a​d​e​d​ ​{​a​d​d​e​d​}​ ​m​o​r​e​ ​c​h​i​l​d​r​e​n​,​ ​{​t​o​t​a​l​}​ ​s​h​o​w​n​ ​i​n​ ​t​o​t​a​l​.
+		 * @param {number} added
+		 * @param {number} total
+		 */
+		loadedMore: RequiredParams<'added' | 'total'>
+		/**
 		 * T​h​i​s​ ​g​r​o​u​p​ ​h​a​s​ ​n​o​ ​c​h​i​l​d​r​e​n​.
 		 */
 		noChildren: string
@@ -1798,13 +1839,36 @@ type RootTranslation = {
 		 */
 		noMatchesTitle: string
 		/**
+		 * P​a​t​h​ ​·​ ​{​p​a​t​h​}
+		 * @param {string} path
+		 */
+		ownedByPath: RequiredParams<'path'>
+		/**
+		 * R​e​a​d​-​o​n​l​y
+		 */
+		readOnly: string
+		/**
 		 * S​e​a​r​c​h​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​a​n​d​ ​c​h​i​l​d​r​e​n
 		 */
 		searchLabel: string
 		/**
-		 * S​e​a​r​c​h​ ​c​o​m​p​l​e​t​e​ ​l​a​b​e​l​s
+		 * S​e​a​r​c​h​ ​c​o​m​p​l​e​t​e​ ​l​a​b​e​l​s​…
 		 */
 		searchPlaceholder: string
+		/**
+		 * S​e​a​r​c​h​ ​d​i​r​e​c​t​ ​c​h​i​l​d​r​e​n​ ​o​f​ ​{​g​r​o​u​p​}
+		 * @param {string} group
+		 */
+		searchCurrentGroup: RequiredParams<'group'>
+		/**
+		 * S​e​a​r​c​h​ ​t​h​i​s​ ​g​r​o​u​p​…
+		 */
+		searchCurrentGroupPlaceholder: string
+		/**
+		 * {​c​o​u​n​t​}​ ​m​a​t​c​h​i​n​g​ ​i​t​e​m​s
+		 * @param {number} count
+		 */
+		searchResultCount: RequiredParams<'count'>
 		/**
 		 * S​e​l​e​c​t​ ​{​c​h​i​l​d​}​ ​i​n​ ​{​g​r​o​u​p​}
 		 * @param {string} child
@@ -1812,9 +1876,23 @@ type RootTranslation = {
 		 */
 		selectChild: RequiredParams<'child' | 'group'>
 		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​s​w​i​t​c​h​ ​t​o​ ​{​c​h​i​l​d​}​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​s​e​l​e​c​t​i​o​n​ ​r​e​m​a​i​n​s​ ​c​u​r​r​e​n​t​.
+		 * @param {string} child
+		 */
+		selectionFailed: RequiredParams<'child'>
+		/**
+		 * S​e​l​e​c​t​i​o​n​ ​n​o​t​ ​c​o​n​f​i​r​m​e​d
+		 */
+		selectionFailedTitle: string
+		/**
 		 * S​e​l​e​c​t​e​d
 		 */
 		selected: string
+		/**
+		 * S​h​o​w​ ​{​c​o​u​n​t​}​ ​M​o​r​e
+		 * @param {number} count
+		 */
+		showMore: RequiredParams<'count'>
 		/**
 		 * S​o​r​t​ ​c​h​i​l​d​r​e​n​ ​i​n​ ​{​g​r​o​u​p​}
 		 * @param {string} group
@@ -1829,6 +1907,10 @@ type RootTranslation = {
 		 * T​e​s​t
 		 */
 		startDelayButton: string
+		/**
+		 * S​w​i​t​c​h​i​n​g
+		 */
+		switching: string
 		/**
 		 * R​o​u​t​e​s
 		 */
@@ -5823,7 +5905,7 @@ export type TranslationFunctions = {
 		 */
 		searchAria: () => LocalizedString
 		/**
-		 * Search nodes
+		 * Search nodes…
 		 */
 		searchPlaceholder: () => LocalizedString
 	}
@@ -5832,6 +5914,18 @@ export type TranslationFunctions = {
 		 * Active profile: {profile}
 		 */
 		activeProfile: (arg: { profile: string }) => LocalizedString
+		/**
+		 * Back to {group}
+		 */
+		backToGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * All Routes
+		 */
+		backToRoutes: () => LocalizedString
+		/**
+		 * Browse {group}
+		 */
+		browseGroup: (arg: { group: string }) => LocalizedString
 		/**
 		 * {count} children
 		 */
@@ -5852,6 +5946,18 @@ export type TranslationFunctions = {
 		 * Configuration
 		 */
 		configurationOrder: () => LocalizedString
+		/**
+		 * Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.
+		 */
+		configuredReadOnly: () => LocalizedString
+		/**
+		 * Browse, sort, test, and select the direct children of {group}.
+		 */
+		currentGroupDescription: (arg: { group: string }) => LocalizedString
+		/**
+		 * Current policy-group path
+		 */
+		currentPath: () => LocalizedString
 		/**
 		 * Current: {child}
 		 */
@@ -5960,6 +6066,14 @@ export type TranslationFunctions = {
 		 * Policy group · {type}
 		 */
 		groupReferenceType: (arg: { type: string }) => LocalizedString
+		/**
+		 * The requested policy group is no longer in the confirmed graph.
+		 */
+		groupNotFoundDescription: () => LocalizedString
+		/**
+		 * Policy group not found
+		 */
+		groupNotFoundTitle: () => LocalizedString
 		groupType: {
 			/**
 			 * Direct
@@ -6035,6 +6149,10 @@ export type TranslationFunctions = {
 		 */
 		labelOrder: () => LocalizedString
 		/**
+		 * Loaded {added} more children, {total} shown in total.
+		 */
+		loadedMore: (arg: { added: number, total: number }) => LocalizedString
+		/**
 		 * This group has no children.
 		 */
 		noChildren: () => LocalizedString
@@ -6059,21 +6177,53 @@ export type TranslationFunctions = {
 		 */
 		noMatchesTitle: () => LocalizedString
 		/**
+		 * Path · {path}
+		 */
+		ownedByPath: (arg: { path: string }) => LocalizedString
+		/**
+		 * Read-only
+		 */
+		readOnly: () => LocalizedString
+		/**
 		 * Search policy groups and children
 		 */
 		searchLabel: () => LocalizedString
 		/**
-		 * Search complete labels
+		 * Search complete labels…
 		 */
 		searchPlaceholder: () => LocalizedString
+		/**
+		 * Search direct children of {group}
+		 */
+		searchCurrentGroup: (arg: { group: string }) => LocalizedString
+		/**
+		 * Search this group…
+		 */
+		searchCurrentGroupPlaceholder: () => LocalizedString
+		/**
+		 * {count} matching items
+		 */
+		searchResultCount: (arg: { count: number }) => LocalizedString
 		/**
 		 * Select {child} in {group}
 		 */
 		selectChild: (arg: { child: string, group: string }) => LocalizedString
 		/**
+		 * Mish could not switch to {child}. The previous selection remains current.
+		 */
+		selectionFailed: (arg: { child: string }) => LocalizedString
+		/**
+		 * Selection not confirmed
+		 */
+		selectionFailedTitle: () => LocalizedString
+		/**
 		 * Selected
 		 */
 		selected: () => LocalizedString
+		/**
+		 * Show {count} More
+		 */
+		showMore: (arg: { count: number }) => LocalizedString
 		/**
 		 * Sort children in {group}
 		 */
@@ -6086,6 +6236,10 @@ export type TranslationFunctions = {
 		 * Test
 		 */
 		startDelayButton: () => LocalizedString
+		/**
+		 * Switching
+		 */
+		switching: () => LocalizedString
 		/**
 		 * Routes
 		 */

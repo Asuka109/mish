@@ -2260,11 +2260,16 @@ describe("desktop RPC experience", () => {
     const group = screen.getByRole("button", { name: /🌐 Proxy/ });
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: /Google/ });
-    for (const control of [globalMode, group, google]) {
+    for (const control of [globalMode, google]) {
       expect(control).toBeDisabled();
       expect(control).toHaveAccessibleDescription(/not supported by the current local service/i);
       await user.click(control);
     }
+    expect(group).toBeEnabled();
+    await user.click(group);
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+    );
 
     expect(setCapture).not.toHaveBeenCalled();
     expect(setRoutingMode).not.toHaveBeenCalled();
@@ -2344,7 +2349,12 @@ describe("Status fixture experience", () => {
     expect(within(groups).getByText("Configured group 5")).toBeVisible();
     expect(within(groups).queryByText("Configured group 6")).not.toBeInTheDocument();
     expect(within(groups).queryByText("No policy groups available.")).not.toBeInTheDocument();
-    expect(within(groups).getByRole("button", { name: /Configured group 1/ })).toBeDisabled();
+    const configuredGroup = within(groups).getByRole("button", { name: /Configured group 1/ });
+    expect(configuredGroup).toBeEnabled();
+    await userEvent.setup().click(configuredGroup);
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+    );
     expect(profileClient.getRoutes).toHaveBeenCalledWith("fixture-profile-studio");
   });
 
@@ -2359,7 +2369,7 @@ describe("Status fixture experience", () => {
 
     await user.click(screen.getByRole("button", { name: /🌐 Proxy/ }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    await user.click(screen.getByText("🇯🇵 NRT-03"));
+    await user.click(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /🌐 Proxy/ })).toHaveTextContent(
@@ -2372,7 +2382,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
     await user.click(await screen.findByRole("button", { name: /🌐 Proxy/ }));
-    await user.click(await screen.findByText("🇯🇵 NRT-03"));
+    await user.click(await screen.findByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
     await user.click(screen.getByRole("link", { name: "Routes" }));
     await user.click(await screen.findByRole("button", { name: "Expand 🌐 Proxy" }));
 
@@ -2380,6 +2390,44 @@ describe("Status fixture experience", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("scopes picker search to the current group and restores nested and trigger focus", async () => {
+    const user = userEvent.setup();
+    renderRoute("/status");
+    const trigger = await screen.findByRole("button", { name: /🌐 Proxy/ });
+    await user.click(trigger);
+
+    const dialog = await screen.findByRole("dialog");
+    const search = within(dialog).getByRole("searchbox", { name: "Search available nodes" });
+    await user.type(search, "開発 🚄");
+    expect(within(dialog).getByText("No matching nodes.")).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(search).toHaveValue("");
+
+    const browseAutomatic = within(dialog).getByRole("button", {
+      name: "Browse ⚡ 自动选择・Auto",
+    });
+    await user.click(browseAutomatic);
+    expect(within(dialog).getByLabelText("Current policy-group path")).toHaveTextContent(
+      "🌐 Proxy / ⚡ 自动选择・Auto",
+    );
+    expect(within(dialog).getByText("台北・開発 🚄")).toBeVisible();
+    expect(
+      within(dialog).queryByRole("button", {
+        name: "Select 台北・開発 🚄 in ⚡ 自动选择・Auto",
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: "Browse ⚡ 自动选择・Auto" }),
+      ).toHaveFocus(),
+    );
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it("keeps capture actions explicitly described as fixture-only", async () => {

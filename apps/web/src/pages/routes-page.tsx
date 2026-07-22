@@ -1,19 +1,14 @@
-import { ArrowClockwise } from "@phosphor-icons/react/ArrowClockwise";
 import { CaretDown } from "@phosphor-icons/react/CaretDown";
 import { CaretRight } from "@phosphor-icons/react/CaretRight";
-import { Check } from "@phosphor-icons/react/Check";
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
-import { XCircle } from "@phosphor-icons/react/XCircle";
 import type {
   GroupDelayChildResultDto,
   GroupDelayPolicyDto,
   GroupDelayTestDto,
   PolicyGroupDto,
   PolicyGroupType,
-  ProxyNodeDto,
 } from "@mish/contracts";
 import {
-  Badge,
   Button,
   Empty,
   EmptyDescription,
@@ -22,11 +17,19 @@ import {
   Field,
   FieldLabel,
   Input,
-  ToggleGroup,
-  ToggleGroupItem,
 } from "@mish/ui";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link, useParams } from "react-router";
+import {
+  BoundedEntityList,
+  LatencyStatus,
+  PolicyBrowserToolbar,
+  PolicyEntityRow,
+  PolicyGroupSummaryRow,
+  handlePolicyPeerNavigation,
+} from "../components/policy-browser";
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
+import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -34,7 +37,10 @@ import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import {
   buildRouteGraph,
   createRouteSearchState,
+  filterDirectPolicyChildIds,
   getGroupDelayResult,
+  getRouteChildLatency,
+  normalizeMeasuredLatency,
   sortRouteChildIds,
   type RouteGraph,
   type RouteGraphError,
@@ -96,11 +102,8 @@ function getSortLabel(LL: TranslationFunctions, sort: RouteSort) {
   return LL.routes.labelOrder();
 }
 
-function getDelayFailureLabel(
-  LL: TranslationFunctions,
-  failure: GroupDelayChildResultDto["failure"],
-) {
-  switch (failure) {
+function getDelayFailureLabel(LL: TranslationFunctions, result: GroupDelayChildResultDto) {
+  switch (result.failure) {
     case "timeout":
       return LL.routes.delayTimeout();
     case "stale-membership":
@@ -137,168 +140,7 @@ function getDelayPhaseLabel(LL: TranslationFunctions, test: GroupDelayTestDto) {
   }
 }
 
-function DelayResult({ result }: { result?: GroupDelayChildResultDto }) {
-  const { LL, locale } = useI18nContext();
-  if (!result) return null;
-  const outcome =
-    result.phase === "success"
-      ? LL.routes.latencyMilliseconds({ latency: result.latencyMilliseconds! })
-      : result.phase === "pending"
-        ? LL.routes.delayPending()
-        : getDelayFailureLabel(LL, result.failure);
-  return (
-    <span className={`route-delay-result route-delay-${result.phase}`}>
-      <span>{outcome}</span>
-      {result.observedAt === null ? null : (
-        <time dateTime={new Date(result.observedAt).toISOString()}>
-          {new Intl.DateTimeFormat(locale === "zh" ? "zh-CN" : "en", {
-            hour: "2-digit",
-            minute: "2-digit",
-            second: "2-digit",
-          }).format(result.observedAt)}
-        </time>
-      )}
-    </span>
-  );
-}
-
-interface RouteNodeRowProps {
-  commandDescriptionId: string | undefined;
-  commandPending: boolean;
-  commandSupported: boolean;
-  group: PolicyGroupDto;
-  delayResult?: GroupDelayChildResultDto;
-  node: ProxyNodeDto;
-  onSelect(groupId: string, childId: string): void;
-  selectionPending: boolean;
-}
-
-function RouteNodeRow({
-  commandDescriptionId,
-  commandPending,
-  commandSupported,
-  group,
-  delayResult,
-  node,
-  onSelect,
-  selectionPending,
-}: RouteNodeRowProps) {
-  const { LL } = useI18nContext();
-  const selected = group.selectedChildId === node.id;
-  const content = (
-    <>
-      <span className="route-child-copy">
-        <strong className="user-authored-label" title={node.label}>
-          {node.label}
-        </strong>
-        <span>{node.protocol}</span>
-      </span>
-      <span className="route-child-status">
-        {delayResult ? (
-          <DelayResult result={delayResult} />
-        ) : (
-          <span className="route-latency tabular">
-            {node.latencyMilliseconds === null
-              ? LL.routes.latencyUnavailable()
-              : LL.routes.latencyMilliseconds({ latency: node.latencyMilliseconds })}
-          </span>
-        )}
-        {selected ? (
-          <span className="route-selected-status">
-            <Check aria-hidden="true" />
-            {LL.routes.selected()}
-          </span>
-        ) : null}
-      </span>
-    </>
-  );
-
-  if (group.type !== "selector") {
-    return <div className="route-child-row">{content}</div>;
-  }
-
-  return (
-    <Button
-      aria-describedby={commandDescriptionId}
-      aria-label={LL.routes.selectChild({ child: node.label, group: group.label })}
-      aria-pressed={selected}
-      className="route-child-row route-child-select"
-      disabled={commandPending || !commandSupported}
-      loading={selectionPending}
-      loadingText={LL.common.pending()}
-      onClick={() => onSelect(group.id, node.id)}
-      variant="ghost"
-    >
-      {content}
-    </Button>
-  );
-}
-
-interface RouteGroupReferenceRowProps {
-  commandDescriptionId: string | undefined;
-  commandPending: boolean;
-  commandSupported: boolean;
-  delayResult?: GroupDelayChildResultDto;
-  group: PolicyGroupDto;
-  parentGroup: PolicyGroupDto;
-  onSelect(groupId: string, childId: string): void;
-  selectionPending: boolean;
-}
-
-function RouteGroupReferenceRow({
-  commandDescriptionId,
-  commandPending,
-  commandSupported,
-  delayResult,
-  group,
-  parentGroup,
-  onSelect,
-  selectionPending,
-}: RouteGroupReferenceRowProps) {
-  const { LL } = useI18nContext();
-  const selected = parentGroup.selectedChildId === group.id;
-  const content = (
-    <>
-      <span className="route-child-copy">
-        <strong className="user-authored-label" title={group.label}>
-          {group.label}
-        </strong>
-        <span>{LL.routes.groupReferenceType({ type: getGroupTypeLabel(LL, group) })}</span>
-      </span>
-      <span className="route-child-status">
-        <DelayResult result={delayResult} />
-        {selected ? (
-          <span className="route-selected-status">
-            <Check aria-hidden="true" />
-            {LL.routes.selected()}
-          </span>
-        ) : null}
-      </span>
-    </>
-  );
-
-  if (parentGroup.type !== "selector") {
-    return <div className="route-child-row route-group-reference">{content}</div>;
-  }
-
-  return (
-    <Button
-      aria-describedby={commandDescriptionId}
-      aria-label={LL.routes.selectChild({ child: group.label, group: parentGroup.label })}
-      aria-pressed={selected}
-      className="route-child-row route-child-select route-group-reference"
-      disabled={commandPending || !commandSupported}
-      loading={selectionPending}
-      loadingText={LL.common.pending()}
-      onClick={() => onSelect(parentGroup.id, group.id)}
-      variant="ghost"
-    >
-      {content}
-    </Button>
-  );
-}
-
-interface RouteGroupProps {
+interface PolicyGroupDetailProps {
   commandDescriptionId: string | undefined;
   commandSupported: boolean;
   delayCommandPending: boolean;
@@ -309,247 +151,282 @@ interface RouteGroupProps {
     | null;
   delayPolicy: GroupDelayPolicyDto;
   delayTest: GroupDelayTestDto;
-  disabled: boolean;
-  expandedGroupIds: Set<string>;
+  density?: "default" | "compact";
   graph: RouteGraph;
   group: PolicyGroupDto;
+  frozenDelayOrder: { childIds: readonly string[]; groupId: string } | null;
   isGroupCommandPending(groupId: string): boolean;
   locale: Locales;
   onCancelDelay(testId: string): void;
+  onQueryChange?(query: string): void;
   onSelect(groupId: string, childId: string): void;
   onSort(groupId: string, sort: RouteSort): void;
   onStartDelay(groupId: string): void;
-  onToggle(groupId: string): void;
   pendingSelectionId?: string;
-  search: RouteSearchState;
+  query: string;
+  search?: RouteSearchState;
+  showSearch?: boolean;
   sortByGroupId: ReadonlyMap<string, RouteSort>;
 }
 
-function RouteGroup({
-  commandDescriptionId,
+export function PolicyGroupDetail({
   commandSupported,
   delayCommandPending,
   delayCommandSupported,
   delayPendingAction,
   delayPolicy,
   delayTest,
-  disabled,
-  expandedGroupIds,
+  density = "default",
   graph,
   group,
+  frozenDelayOrder,
   isGroupCommandPending,
   locale,
   onCancelDelay,
+  onQueryChange = () => undefined,
   onSelect,
   onSort,
   onStartDelay,
-  onToggle,
   pendingSelectionId,
+  query,
   search,
+  showSearch = false,
   sortByGroupId,
-}: RouteGroupProps) {
+}: PolicyGroupDetailProps) {
   const { LL } = useI18nContext();
-  const hasChildren = group.childIds.length > 0;
-  const expanded =
-    !disabled &&
-    hasChildren &&
-    (expandedGroupIds.has(group.id) || search.autoExpandedGroupIds.has(group.id));
-  const childrenId = `route-group-${encodeURIComponent(group.id)}`;
-  const currentChild = getEntityLabel(graph, group.selectedChildId);
+  const language = locale === "zh" ? "zh-CN" : "en";
   const sort = sortByGroupId.get(group.id) ?? "configuration";
-  const sortedChildIds = expanded ? sortRouteChildIds(graph, group, sort, locale, delayTest) : [];
   const delayIsActive = delayTest.phase === "pending" || delayTest.phase === "progress";
   const delayMatchesGroup = delayTest.groupId === group.id;
+  const sortedIds =
+    delayMatchesGroup && delayIsActive && frozenDelayOrder?.groupId === group.id
+      ? [...frozenDelayOrder.childIds]
+      : sortRouteChildIds(graph, group, sort, language, delayTest);
+  const directFilteredIds = showSearch
+    ? filterDirectPolicyChildIds(graph, group, query, language)
+    : sortedIds;
+  const directFilteredSet = new Set(directFilteredIds);
+  const visibleChildIds = sortedIds.filter((childId) => {
+    if (showSearch) return directFilteredSet.has(childId);
+    if (!search?.queryActive) return true;
+    return search.directMatchEntityIds.has(group.id) || search.visibleEntityIds.has(childId);
+  });
   const activeDelayGroup = delayTest.groupId
     ? (graph.groupById.get(delayTest.groupId)?.label ?? delayTest.groupId)
     : "";
   const completedDelayChildren = delayMatchesGroup
     ? delayTest.children.filter((child) => child.phase !== "pending").length
     : 0;
-  const visibleChildIds = search.queryActive
-    ? sortedChildIds.filter(
-        (childId) =>
-          search.directMatchEntityIds.has(group.id) || search.visibleEntityIds.has(childId),
-      )
-    : sortedChildIds;
-  const headerContent = (
-    <>
-      <span className="route-group-chevron">
-        {expanded ? <CaretDown aria-hidden="true" /> : <CaretRight aria-hidden="true" />}
-      </span>
-      <span className="route-group-copy">
-        <span className="route-group-title-line">
-          <strong className="user-authored-label" title={group.label}>
-            {group.label}
-          </strong>
-          <Badge variant="outline">{getGroupTypeLabel(LL, group)}</Badge>
-        </span>
-        <span className="route-group-current user-authored-label">
-          {currentChild
-            ? LL.routes.currentChild({ child: currentChild })
-            : LL.routes.noCurrentChild()}
-        </span>
-      </span>
-      <Badge aria-label={LL.routes.childCount({ count: group.childIds.length })} variant="outline">
-        {group.childIds.length}
-      </Badge>
-    </>
-  );
+  const groupSelectionPending = isGroupCommandPending(group.id);
+  const delayProgress =
+    delayMatchesGroup && delayTest.phase !== "idle"
+      ? LL.routes.delayStateProgress({
+          completed: completedDelayChildren,
+          state: getDelayPhaseLabel(LL, delayTest),
+          total: delayTest.children.length,
+        })
+      : delayIsActive
+        ? LL.routes.delayTestingGroup({ group: activeDelayGroup })
+        : LL.routes.delayPolicy({
+            policy: delayPolicy.id,
+            seconds: delayPolicy.timeoutMilliseconds / 1000,
+          });
 
+  return (
+    <div className="policy-group-detail">
+      <PolicyBrowserToolbar
+        cancelAriaLabel={LL.routes.cancelDelay({ group: group.label })}
+        cancelLabel={LL.routes.cancelDelayButton()}
+        delayActive={delayMatchesGroup && delayIsActive}
+        delayBusy={delayCommandPending}
+        delayDisabled={!delayCommandSupported || delayIsActive || group.childIds.length === 0}
+        delayProgress={delayProgress}
+        onCancel={() => delayTest.testId && onCancelDelay(delayTest.testId)}
+        onQueryChange={onQueryChange}
+        onSortChange={(nextSort) => onSort(group.id, nextSort)}
+        onTest={() => onStartDelay(group.id)}
+        query={query}
+        searchLabel={LL.routes.searchCurrentGroup({ group: group.label })}
+        searchPlaceholder={LL.routes.searchCurrentGroupPlaceholder()}
+        showSearch={showSearch}
+        sort={sort}
+        sortDisabled={delayMatchesGroup && delayIsActive}
+        sortLabel={LL.routes.sortChildren({ group: group.label })}
+        sortOptionLabel={(option) => getSortLabel(LL, option)}
+        sorts={routeSorts}
+        testLabel={LL.routes.startDelayButton()}
+        testAriaLabel={LL.routes.startDelay({ group: group.label })}
+      />
+      <span aria-live="polite" className="sr-only" role="status">
+        {LL.routes.searchResultCount({ count: visibleChildIds.length })}
+      </span>
+      <BoundedEntityList
+        empty={<p className="route-group-empty">{LL.routes.noChildren()}</p>}
+        ids={visibleChildIds}
+        key={`${group.id}:${showSearch ? query : search?.queryActive ? query : "all"}`}
+        loadedAnnouncement={(added, total) => LL.routes.loadedMore({ added, total })}
+        showMoreLabel={(remaining) => LL.routes.showMore({ count: Math.min(100, remaining) })}
+      >
+        {(visibleIds) =>
+          visibleIds.map((childId) => {
+            const childGroup = graph.groupById.get(childId);
+            const node = graph.nodeById.get(childId);
+            const entity = childGroup ?? node;
+            if (!entity) return null;
+            const selected = group.selectedChildId === childId;
+            const result = getGroupDelayResult(delayTest, group.id, childId);
+            const canSelectNode = group.type === "selector" && Boolean(node) && commandSupported;
+            const canSelectGroup =
+              group.type === "selector" && childGroup?.type === "selector" && commandSupported;
+            const path = search?.matchPathByEntityId.get(childId);
+            const pathLabel = path
+              ? path.map((entityId) => getEntityLabel(graph, entityId)).join(" / ")
+              : null;
+            return (
+              <li key={childId}>
+                <PolicyEntityRow
+                  browseLabel={
+                    childGroup ? LL.routes.browseGroup({ group: childGroup.label }) : undefined
+                  }
+                  browseTo={childGroup ? `/routes/${encodeURIComponent(childGroup.id)}` : undefined}
+                  currentLabel={LL.routes.selected()}
+                  density={density}
+                  disabled={groupSelectionPending}
+                  entity={entity}
+                  entityKind={childGroup ? "group" : "node"}
+                  latency={
+                    <LatencyStatus
+                      cancelledLabel={LL.routes.delayCancelled()}
+                      failureLabel={(delayResult) => getDelayFailureLabel(LL, delayResult)}
+                      latencyMilliseconds={
+                        node?.latencyMilliseconds ?? getRouteChildLatency(graph, childId)
+                      }
+                      measuredLabel={(latency) => LL.routes.latencyMilliseconds({ latency })}
+                      result={result}
+                      testingLabel={LL.routes.delayPending()}
+                      unknownLabel={LL.routes.latencyUnavailable()}
+                    />
+                  }
+                  metadata={
+                    pathLabel && search?.directMatchEntityIds.has(childId)
+                      ? LL.routes.ownedByPath({ path: pathLabel })
+                      : (node?.protocol ??
+                        LL.routes.groupReferenceType({
+                          type: childGroup ? getGroupTypeLabel(LL, childGroup) : "",
+                        }))
+                  }
+                  onSelect={
+                    canSelectNode || canSelectGroup ? () => onSelect(group.id, childId) : undefined
+                  }
+                  pendingLabel={LL.routes.switching()}
+                  readOnlyLabel={LL.routes.readOnly()}
+                  selectLabel={LL.routes.selectChild({ child: entity.label, group: group.label })}
+                  selected={selected}
+                  selectionPending={pendingSelectionId === childId}
+                />
+              </li>
+            );
+          })
+        }
+      </BoundedEntityList>
+      <span className="sr-only">
+        {delayPendingAction?.kind === "start" && delayPendingAction.groupId === group.id
+          ? LL.routes.delayTestingGroup({ group: group.label })
+          : null}
+      </span>
+    </div>
+  );
+}
+
+interface RouteGroupProps extends Omit<PolicyGroupDetailProps, "density" | "query" | "showSearch"> {
+  disabled: boolean;
+  expandedGroupIds: Set<string>;
+  onToggle(groupId: string): void;
+}
+
+function RouteGroup({
+  disabled,
+  expandedGroupIds,
+  graph,
+  group,
+  onToggle,
+  search,
+  ...detailProps
+}: RouteGroupProps) {
+  const { LL } = useI18nContext();
+  const hasChildren = group.childIds.length > 0;
+  const expanded =
+    !disabled &&
+    hasChildren &&
+    (expandedGroupIds.has(group.id) || Boolean(search?.autoExpandedGroupIds.has(group.id)));
+  const currentChild = getEntityLabel(graph, group.selectedChildId) || LL.routes.noCurrentChild();
+  const latency = normalizeMeasuredLatency(
+    getRouteChildLatency(graph, group.selectedChildId ?? ""),
+  );
   return (
     <li className="route-group-item">
       <article className="route-group" data-disabled={disabled ? "true" : undefined}>
         <div className="route-group-header">
-          {hasChildren ? (
-            <Button
-              aria-controls={childrenId}
-              aria-expanded={expanded}
-              aria-label={
-                expanded
-                  ? LL.routes.collapseGroup({ group: group.label })
-                  : LL.routes.expandGroup({ group: group.label })
+          <Button
+            aria-controls={`route-group-${encodeURIComponent(group.id)}`}
+            aria-expanded={expanded}
+            aria-label={
+              expanded
+                ? LL.routes.collapseGroup({ group: group.label })
+                : LL.routes.expandGroup({ group: group.label })
+            }
+            className="route-group-toggle route-group-desktop-toggle"
+            data-policy-row-primary
+            disabled={disabled || !hasChildren}
+            onClick={() => onToggle(group.id)}
+            type="button"
+            variant="ghost"
+          >
+            <span className="route-group-chevron">
+              {expanded ? <CaretDown aria-hidden="true" /> : <CaretRight aria-hidden="true" />}
+            </span>
+            <PolicyGroupSummaryRow
+              childCount={group.childIds.length}
+              childCountLabel={LL.routes.childCount({ count: group.childIds.length })}
+              currentLabel={LL.routes.currentChild({ child: currentChild })}
+              group={group}
+              latency={
+                latency === null ? null : (
+                  <span className="policy-browser-summary-latency tabular"> · {latency} ms</span>
+                )
               }
-              className="route-group-toggle"
-              disabled={disabled}
-              onClick={() => onToggle(group.id)}
-              variant="ghost"
-            >
-              {headerContent}
-            </Button>
-          ) : (
-            <div className="route-group-toggle route-group-static">{headerContent}</div>
-          )}
+              typeLabel={getGroupTypeLabel(LL, group)}
+            />
+          </Button>
+          <Link
+            aria-label={LL.routes.browseGroup({ group: group.label })}
+            className="route-group-mobile-link"
+            to={`/routes/${encodeURIComponent(group.id)}`}
+          >
+            <PolicyGroupSummaryRow
+              childCount={group.childIds.length}
+              childCountLabel={LL.routes.childCount({ count: group.childIds.length })}
+              currentLabel={LL.routes.currentChild({ child: currentChild })}
+              density="compact"
+              group={group}
+              latency={
+                latency === null ? null : (
+                  <span className="policy-browser-summary-latency tabular"> · {latency} ms</span>
+                )
+              }
+              typeLabel={getGroupTypeLabel(LL, group)}
+            />
+          </Link>
         </div>
-
         {expanded ? (
-          <div className="route-group-body" id={childrenId}>
-            <div className="route-group-tools">
-              <div className="route-sort-tools">
-                <span>{LL.routes.sortChildren({ group: group.label })}</span>
-                <ToggleGroup
-                  aria-label={LL.routes.sortChildren({ group: group.label })}
-                  className="route-sort-group"
-                  onValueChange={(values) => {
-                    const nextSort = values[0] as RouteSort | undefined;
-                    if (nextSort) onSort(group.id, nextSort);
-                  }}
-                  spacing={0}
-                  value={[sort]}
-                  variant="outline"
-                >
-                  {routeSorts.map((option) => (
-                    <ToggleGroupItem className="route-sort-button" key={option} value={option}>
-                      {getSortLabel(LL, option)}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-              </div>
-              <div className="route-delay-tools">
-                <span className="route-delay-copy">
-                  <strong className="user-authored-label">
-                    {delayMatchesGroup && delayIsActive
-                      ? LL.routes.delayTestingGroup({ group: group.label })
-                      : delayIsActive
-                        ? LL.routes.delayTestingGroup({ group: activeDelayGroup })
-                        : LL.routes.delayTestGroup({ group: group.label })}
-                  </strong>
-                  <span>
-                    {delayMatchesGroup && delayTest.phase !== "idle"
-                      ? LL.routes.delayStateProgress({
-                          completed: completedDelayChildren,
-                          state: getDelayPhaseLabel(LL, delayTest),
-                          total: delayTest.children.length,
-                        })
-                      : LL.routes.delayPolicy({
-                          policy: delayPolicy.id,
-                          seconds: delayPolicy.timeoutMilliseconds / 1000,
-                        })}
-                  </span>
-                </span>
-                {delayMatchesGroup && delayIsActive && delayTest.testId ? (
-                  <Button
-                    disabled={delayCommandPending}
-                    loading={
-                      delayCommandPending &&
-                      delayPendingAction?.kind === "cancel" &&
-                      delayPendingAction.testId === delayTest.testId
-                    }
-                    loadingText={LL.routes.cancelDelayButton()}
-                    aria-label={LL.routes.cancelDelay({ group: group.label })}
-                    onClick={() => onCancelDelay(delayTest.testId!)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <XCircle aria-hidden="true" data-icon="inline-start" />
-                    {LL.routes.cancelDelayButton()}
-                  </Button>
-                ) : (
-                  <Button
-                    aria-label={LL.routes.startDelay({ group: group.label })}
-                    disabled={
-                      delayCommandPending ||
-                      !delayCommandSupported ||
-                      delayIsActive ||
-                      group.childIds.length === 0
-                    }
-                    loading={
-                      delayCommandPending &&
-                      delayPendingAction?.kind === "start" &&
-                      delayPendingAction.groupId === group.id
-                    }
-                    loadingText={LL.routes.startDelayButton()}
-                    onClick={() => onStartDelay(group.id)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <ArrowClockwise aria-hidden="true" data-icon="inline-start" />
-                    {LL.routes.startDelayButton()}
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {visibleChildIds.length > 0 ? (
-              <ul className="route-children-list">
-                {visibleChildIds.map((childId) => {
-                  const childGroup = graph.groupById.get(childId);
-                  if (childGroup) {
-                    return (
-                      <li key={childId}>
-                        <RouteGroupReferenceRow
-                          commandDescriptionId={commandDescriptionId}
-                          commandPending={isGroupCommandPending(group.id)}
-                          commandSupported={commandSupported}
-                          delayResult={getGroupDelayResult(delayTest, group.id, childId)}
-                          group={childGroup}
-                          onSelect={onSelect}
-                          parentGroup={group}
-                          selectionPending={pendingSelectionId === childId}
-                        />
-                      </li>
-                    );
-                  }
-                  const node = graph.nodeById.get(childId);
-                  if (!node) return null;
-                  return (
-                    <li key={childId}>
-                      <RouteNodeRow
-                        commandDescriptionId={commandDescriptionId}
-                        commandPending={isGroupCommandPending(group.id)}
-                        commandSupported={commandSupported}
-                        delayResult={getGroupDelayResult(delayTest, group.id, childId)}
-                        group={group}
-                        node={node}
-                        onSelect={onSelect}
-                        selectionPending={pendingSelectionId === childId}
-                      />
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              <p className="route-group-empty">{LL.routes.noChildren()}</p>
-            )}
+          <div className="route-group-body" id={`route-group-${encodeURIComponent(group.id)}`}>
+            <PolicyGroupDetail
+              {...detailProps}
+              graph={graph}
+              group={group}
+              query={search?.queryActive ? "search" : ""}
+              search={search}
+            />
           </div>
         ) : null}
       </article>
@@ -557,20 +434,33 @@ function RouteGroup({
   );
 }
 
+function GraphError({ children }: { children: ReactNode }) {
+  const { LL } = useI18nContext();
+  return (
+    <section className="routes-graph-error" role="alert">
+      <h2>{LL.routes.graphErrorTitle()}</h2>
+      <p>{LL.routes.graphErrorDescription()}</p>
+      {children}
+    </section>
+  );
+}
+
 export function RoutesPage() {
   const {
+    cancelGroupDelayTest,
     connection,
     error,
     isCommandPending,
     isCommandSupported,
     isGroupCommandPending,
     isLoading,
-    cancelGroupDelayTest,
     selectGroupChild,
     snapshot,
     startGroupDelayTest,
   } = useProduct();
+  const { publish } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
+  const { groupId: routeGroupId } = useParams<{ groupId?: string }>();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(() => new Set());
@@ -579,6 +469,11 @@ export function RoutesPage() {
   const [delayPendingAction, setDelayPendingAction] = useState<
     { groupId: string; kind: "start" } | { kind: "cancel"; testId: string } | null
   >(null);
+  const [frozenDelayOrder, setFrozenDelayOrder] = useState<{
+    childIds: readonly string[];
+    groupId: string;
+  } | null>(null);
+  const preSearchState = useRef<{ expanded: Set<string>; scrollTop: number } | null>(null);
   const configuredRoutes = useConfiguredRouteCatalog(snapshot);
   const configuredRoutesActive = configuredRoutes !== null;
   const groups = configuredRoutesActive ? configuredRoutes.groups : (snapshot?.groups ?? []);
@@ -591,6 +486,54 @@ export function RoutesPage() {
     () => createRouteSearchState(graph, deferredQuery, locale === "zh" ? "zh-CN" : "en"),
     [deferredQuery, graph, locale],
   );
+
+  useEffect(() => {
+    const scroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
+    if (query && !preSearchState.current) {
+      preSearchState.current = {
+        expanded: new Set(expandedGroupIds),
+        scrollTop: scroller?.scrollTop ?? 0,
+      };
+      return;
+    }
+    if (query || !preSearchState.current) return;
+    const previous = preSearchState.current;
+    preSearchState.current = null;
+    setExpandedGroupIds(previous.expanded);
+    requestAnimationFrame(() => {
+      if (scroller) scroller.scrollTop = previous.scrollTop;
+    });
+  }, [expandedGroupIds, query]);
+
+  useEffect(() => {
+    function handleSearchShortcut(event: globalThis.KeyboardEvent) {
+      const searchInput = document.querySelector<HTMLInputElement>(
+        ".routes-page input[type='search']",
+      );
+      if (!searchInput) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "f") {
+        event.preventDefault();
+        searchInput.focus({ preventScroll: true });
+        searchInput.select();
+        return;
+      }
+      if (event.key !== "Escape" || document.activeElement !== searchInput) return;
+      event.preventDefault();
+      if (query) setQuery("");
+      else searchInput.blur();
+    }
+    window.addEventListener("keydown", handleSearchShortcut);
+    return () => window.removeEventListener("keydown", handleSearchShortcut);
+  }, [query]);
+
+  useEffect(() => {
+    if (
+      snapshot?.groupDelayTest.phase !== "pending" &&
+      snapshot?.groupDelayTest.phase !== "progress"
+    ) {
+      setFrozenDelayOrder(null);
+    }
+  }, [snapshot?.groupDelayTest.phase]);
 
   if (isLoading) {
     return (
@@ -608,15 +551,16 @@ export function RoutesPage() {
     );
   }
 
-  const commandSupported = isCommandSupported("group");
-  const liveCommandSupported = commandSupported && !configuredRoutesActive;
+  const liveCommandSupported = isCommandSupported("group") && !configuredRoutesActive;
   const delayCommandSupported = isCommandSupported("group-delay") && !configuredRoutesActive;
   const delayCommandPending = isCommandPending("group-delay");
   const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, liveCommandSupported);
   const modeGroups = groups.filter((group) => routingMode === "global" || !isGlobalGroup(group));
   const visibleGroupIds = modeGroups
     .map((group) => group.id)
-    .filter((groupId) => !search.queryActive || search.visibleEntityIds.has(groupId));
+    .filter((id) => !search.queryActive || search.visibleEntityIds.has(id));
+  const decodedRouteGroupId = routeGroupId ? decodeURIComponent(routeGroupId) : null;
+  const standaloneGroup = decodedRouteGroupId ? graph.groupById.get(decodedRouteGroupId) : null;
 
   function toggleGroup(groupId: string) {
     setExpandedGroupIds((current) => {
@@ -633,18 +577,43 @@ export function RoutesPage() {
 
   async function selectChild(groupId: string, childId: string) {
     setPendingSelections((current) => new Map(current).set(groupId, childId));
-    try {
-      await selectGroupChild(groupId, childId);
-    } finally {
-      setPendingSelections((current) => {
-        const next = new Map(current);
-        next.delete(groupId);
-        return next;
-      });
-    }
+    const result = await selectGroupChild(groupId, childId);
+    setPendingSelections((current) => {
+      const next = new Map(current);
+      next.delete(groupId);
+      return next;
+    });
+    if (result.ok) return;
+    const child = getEntityLabel(graph, childId);
+    publish({
+      id: `policy-selection-failed-${groupId}`,
+      level: "error",
+      message: LL.routes.selectionFailed({ child }),
+      title: LL.routes.selectionFailedTitle(),
+    });
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(`[data-entity-id="${CSS.escape(childId)}"]`)
+        ?.querySelector<HTMLElement>("[data-policy-row-primary]")
+        ?.focus({ preventScroll: true });
+    });
   }
 
   async function startDelay(groupId: string) {
+    if (!snapshot) return;
+    const group = graph.groupById.get(groupId);
+    if (group) {
+      setFrozenDelayOrder({
+        childIds: sortRouteChildIds(
+          graph,
+          group,
+          sortByGroupId.get(groupId) ?? "configuration",
+          locale === "zh" ? "zh-CN" : "en",
+          snapshot.groupDelayTest,
+        ),
+        groupId,
+      });
+    }
     setDelayPendingAction({ groupId, kind: "start" });
     try {
       await startGroupDelayTest(groupId);
@@ -662,40 +631,80 @@ export function RoutesPage() {
     }
   }
 
+  const sharedDetailProps = {
+    commandDescriptionId,
+    commandSupported: liveCommandSupported,
+    delayCommandPending,
+    delayCommandSupported,
+    delayPendingAction,
+    delayPolicy: snapshot.groupDelayPolicy,
+    delayTest: snapshot.groupDelayTest,
+    frozenDelayOrder,
+    graph,
+    isGroupCommandPending,
+    locale,
+    onCancelDelay: (testId: string) => void cancelDelay(testId),
+    onSelect: (groupId: string, childId: string) => void selectChild(groupId, childId),
+    onSort: changeSort,
+    onStartDelay: (groupId: string) => void startDelay(groupId),
+    sortByGroupId,
+  };
+
   return (
     <div className="routes-page">
       <div className="routes-workspace">
         <header className="routes-header">
-          <h1>{LL.routes.title()}</h1>
-          <p>{LL.routes.description()}</p>
+          {standaloneGroup ? (
+            <Link className="routes-back-link" to="/routes">
+              {LL.routes.backToRoutes()}
+            </Link>
+          ) : null}
+          <h1 className={standaloneGroup ? "user-authored-label" : undefined}>
+            {standaloneGroup?.label ?? LL.routes.title()}
+          </h1>
+          <p>
+            {standaloneGroup
+              ? LL.routes.currentGroupDescription({ group: standaloneGroup.label })
+              : LL.routes.description()}
+          </p>
         </header>
 
-        {snapshot.adapterKind !== "fixture" && connection.stale ? (
+        {connection.stale && snapshot.adapterKind !== "fixture" ? (
           <p className="fixture-error" role="status">
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
-        <Field className="routes-search-field">
-          <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
-          <span className="routes-search-control">
-            <MagnifyingGlass aria-hidden="true" />
-            <Input
-              autoComplete="off"
-              data-native-search
-              id="routes-search"
-              onValueChange={setQuery}
-              placeholder={LL.routes.searchPlaceholder()}
-              spellCheck={false}
-              type="search"
-              value={query}
-            />
-          </span>
-        </Field>
+        {configuredRoutesActive ? (
+          <p className="policy-browser-read-only" role="status">
+            {LL.routes.configuredReadOnly()}
+          </p>
+        ) : null}
+
+        {!standaloneGroup ? (
+          <Field className="routes-search-field">
+            <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
+            <span className="routes-search-control">
+              <MagnifyingGlass aria-hidden="true" />
+              <Input
+                autoComplete="off"
+                data-native-search
+                id="routes-search"
+                name="routes-search"
+                onValueChange={setQuery}
+                placeholder={LL.routes.searchPlaceholder()}
+                spellCheck={false}
+                type="search"
+                value={query}
+              />
+            </span>
+            <span aria-live="polite" className="sr-only" role="status">
+              {LL.routes.searchResultCount({ count: visibleGroupIds.length })}
+            </span>
+          </Field>
+        ) : null}
 
         {graph.errors.length > 0 ? (
-          <section className="routes-graph-error" role="alert">
-            <h2>{LL.routes.graphErrorTitle()}</h2>
-            <p>{LL.routes.graphErrorDescription()}</p>
+          <GraphError>
             <ul>
               {graph.errors.map((graphError, index) => (
                 <li key={`${graphError.code}-${index}`}>
@@ -703,12 +712,32 @@ export function RoutesPage() {
                 </li>
               ))}
             </ul>
-          </section>
+          </GraphError>
         ) : groups.length === 0 ? (
           <Empty className="routes-empty">
             <EmptyHeader>
               <EmptyTitle>{LL.routes.noGroupsTitle()}</EmptyTitle>
               <EmptyDescription>{LL.routes.noGroupsDescription()}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : standaloneGroup ? (
+          <section aria-label={standaloneGroup.label} className="routes-single-group">
+            <PolicyGroupDetail
+              {...sharedDetailProps}
+              commandSupported={liveCommandSupported && standaloneGroup.type === "selector"}
+              density="compact"
+              group={standaloneGroup}
+              onQueryChange={setQuery}
+              pendingSelectionId={pendingSelections.get(standaloneGroup.id)}
+              query={query}
+              showSearch
+            />
+          </section>
+        ) : decodedRouteGroupId ? (
+          <Empty className="routes-empty">
+            <EmptyHeader>
+              <EmptyTitle>{LL.routes.groupNotFoundTitle()}</EmptyTitle>
+              <EmptyDescription>{LL.routes.groupNotFoundDescription()}</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : visibleGroupIds.length === 0 ? (
@@ -720,38 +749,20 @@ export function RoutesPage() {
           </Empty>
         ) : (
           <section aria-label={LL.routes.title()} className="routes-graph">
-            <ul className="route-root-list">
+            <ul className="route-root-list" onKeyDown={handlePolicyPeerNavigation}>
               {visibleGroupIds.map((groupId) => {
                 const group = graph.groupById.get(groupId);
                 if (!group) return null;
-                const pendingSelectionId = pendingSelections.get(groupId);
-                const displayedGroup = pendingSelectionId
-                  ? { ...group, selectedChildId: pendingSelectionId }
-                  : group;
                 return (
                   <RouteGroup
-                    commandDescriptionId={commandDescriptionId}
-                    commandSupported={liveCommandSupported}
-                    delayCommandPending={delayCommandPending}
-                    delayCommandSupported={delayCommandSupported}
-                    delayPendingAction={delayPendingAction}
-                    delayPolicy={snapshot.groupDelayPolicy}
-                    delayTest={snapshot.groupDelayTest}
+                    {...sharedDetailProps}
                     disabled={routingMode === "global" && !isGlobalGroup(group)}
                     expandedGroupIds={expandedGroupIds}
-                    graph={graph}
-                    group={displayedGroup}
-                    isGroupCommandPending={isGroupCommandPending}
+                    group={group}
                     key={groupId}
-                    locale={locale}
-                    onCancelDelay={(testId) => void cancelDelay(testId)}
-                    onSelect={(groupId, childId) => void selectChild(groupId, childId)}
-                    onSort={changeSort}
-                    onStartDelay={(groupId) => void startDelay(groupId)}
                     onToggle={toggleGroup}
-                    pendingSelectionId={pendingSelectionId}
+                    pendingSelectionId={pendingSelections.get(groupId)}
                     search={search}
-                    sortByGroupId={sortByGroupId}
                   />
                 );
               })}

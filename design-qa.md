@@ -192,3 +192,33 @@ The persisted preference now has an execution path on the next full application 
 - Typecheck, lint, i18n generation, formatting, design/token/docs checks, production desktop Web build, Rust format, and `git diff --check`: passed.
 
 final result: passed
+
+## Unified policy-group and node browser
+
+Status: passed.
+
+### Visual comparison
+
+- Compared the compact Status summary and focused picker against reference 1 at a 1928 × 1142 viewport.
+- Compared the multi-group Routes workspace against reference 2 using the same rendered state and a side-by-side combined image.
+- Preserved Mish typography, spacing, surfaces, theme behavior, and desktop chrome instead of copying incidental source pixels.
+- Verified light/opaque Status and picker, light Routes, and dark/material Routes.
+
+### Responsive and interaction checks
+
+- Verified Status and picker at 800 × 600.
+- Verified dedicated Routes group views at 320 × 700 and 390 × 700 without horizontal overflow.
+- Verified multiple desktop groups can remain expanded and retain their independent controls.
+- Verified compact rows keep effective 44 px targets and retain latency, current state, and counts.
+- Verified picker search, nested browsing, explicit group selection, keyboard Escape hierarchy, and focus restoration.
+
+### Content and state checks
+
+- Verified English and Chinese localization, Unicode labels, long-label containment, configured fallback, reconnecting/stale behavior, empty and no-match states, delay states, and explicit non-color status labels.
+- Verified the 160-node fixture, 8,192-child model fixture, 100-row batches, full-data search, and stable ordering during an active delay test.
+
+### Evidence
+
+Generated comparison images are stored locally under `.scratch/design-qa/` and are intentionally excluded from source control.
+
+final result: passed

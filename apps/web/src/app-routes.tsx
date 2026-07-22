@@ -57,6 +57,7 @@ export function ProductRoutes({ shell }: ProductRoutesProps) {
         <Route index element={<Navigate replace to="/status" />} />
         <Route element={<StatusPage />} path="status" />
         <Route element={renderDeferredRoute(<RoutesPage />)} path="routes" />
+        <Route element={renderDeferredRoute(<RoutesPage />)} path="routes/:groupId" />
         <Route element={renderDeferredRoute(<ProfilesPage />)} path="profiles" />
         <Route element={renderDeferredRoute(<TrafficPage />)} path="traffic" />
         <Route element={renderDeferredRoute(<EventsPage />)} path="events" />

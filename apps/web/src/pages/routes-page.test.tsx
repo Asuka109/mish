@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   StatusClientError,
@@ -20,11 +20,11 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderRoutes(client = new FixtureStatusClient()) {
+function renderRoutes(client = new FixtureStatusClient(), initialEntry = "/routes") {
   return render(
     <AppearanceProvider>
       <TypesafeI18n locale="en">
-        <MemoryRouter initialEntries={["/routes"]}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <ProductProvider client={client}>
             <TooltipProvider>
               <AppRoutes />
@@ -56,6 +56,7 @@ class SnapshotClient extends FixtureStatusClient {
 class DelaySnapshotClient extends SnapshotClient {
   readonly cancelledTestIds: string[] = [];
   readonly startedGroupIds: string[] = [];
+  mutateLatenciesOnStart = false;
 
   override async startGroupDelayTest(groupId: string) {
     this.startedGroupIds.push(groupId);
@@ -75,6 +76,12 @@ class DelaySnapshotClient extends SnapshotClient {
       startedAt: 1_720_000_000_000,
       testId: "group-delay-ui",
     };
+    if (this.mutateLatenciesOnStart) {
+      group.childIds.forEach((childId, index) => {
+        const node = this.confirmedSnapshot.nodes.find((candidate) => candidate.id === childId);
+        if (node) node.latencyMilliseconds = (index + 1) * 100;
+      });
+    }
     return structuredClone(this.confirmedSnapshot);
   }
 
@@ -97,8 +104,10 @@ class DelaySnapshotClient extends SnapshotClient {
 
 class DeferredSelectionClient extends SnapshotClient {
   rejectSelection: (() => void) | null = null;
+  selectionAttempts = 0;
 
   override selectGroupChild() {
+    this.selectionAttempts += 1;
     return new Promise<StatusSnapshotDto>((_, reject) => {
       this.rejectSelection = () =>
         reject(new StatusClientError("conflict", "Group selection failed", true));
@@ -184,11 +193,17 @@ describe("Routes workspace", () => {
     await user.click(screen.getByRole("button", { name: "Expand 🌐 Proxy" }));
 
     const proxy = screen.getByRole("button", { name: "Collapse 🌐 Proxy" }).closest("article")!;
-    const referencedGroup = within(proxy).getByRole("button", {
-      name: "Select ⚡ 自动选择・Auto in 🌐 Proxy",
-    });
-    expect(referencedGroup).toBeVisible();
+    const referencedGroup = within(proxy).getByText("⚡ 自动选择・Auto").closest("li");
+    expect(referencedGroup).not.toBeNull();
     expect(referencedGroup).toHaveTextContent("Policy group · URL test");
+    expect(
+      within(referencedGroup!).getByRole("link", { name: "Browse ⚡ 自动选择・Auto" }),
+    ).toBeVisible();
+    expect(
+      within(referencedGroup!).queryByRole("button", {
+        name: "Select ⚡ 自动选择・Auto in 🌐 Proxy",
+      }),
+    ).not.toBeInTheDocument();
     expect(
       within(proxy).queryByRole("button", { name: "Expand ⚡ 自动选择・Auto" }),
     ).not.toBeInTheDocument();
@@ -211,7 +226,7 @@ describe("Routes workspace", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: /Streaming/ }));
-    await user.click(screen.getByText("🇯🇵 NRT-03"));
+    await user.click(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🎬 Streaming" }));
     await user.click(screen.getByRole("link", { name: /View All/ }));
     await user.click(await screen.findByRole("button", { name: "Expand 🎬 Streaming" }));
     expect(
@@ -243,6 +258,34 @@ describe("Routes workspace", () => {
     ]) {
       expect(screen.getAllByText(label)[0]).toBeVisible();
     }
+
+    await user.click(screen.getByRole("button", { name: "Expand Scale verification pool · 160" }));
+    const scaleGroup = screen
+      .getByRole("button", { name: "Collapse Scale verification pool · 160" })
+      .closest("article")!;
+    expect(scaleGroup.querySelectorAll(".policy-browser-entity-list > li")).toHaveLength(100);
+    expect(within(scaleGroup).queryByText("Scale fixture node 101")).not.toBeInTheDocument();
+    await user.click(within(scaleGroup).getByRole("button", { name: /Show 60 More/i }));
+    expect(within(scaleGroup).getByText("Scale fixture node 160")).toBeVisible();
+  });
+
+  it("uses a dedicated single-group route for narrow policy browsing", async () => {
+    const user = userEvent.setup();
+    renderRoutes(new FixtureStatusClient(), "/routes/proxy");
+
+    expect(await screen.findByRole("heading", { name: "🌐 Proxy" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "All Routes" })).toHaveAttribute("href", "/routes");
+    const search = screen.getByRole("searchbox", { name: "Search direct children of 🌐 Proxy" });
+    fireEvent.keyDown(window, { key: "f", metaKey: true });
+    expect(search).toHaveFocus();
+    await user.type(search, "vless");
+    expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Expand 🎬 Streaming" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(search).toHaveValue("");
+    expect(search).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(search).not.toHaveFocus();
   });
 
   it("searches complete Unicode child labels and keeps their nested path visible", async () => {
@@ -294,7 +337,7 @@ describe("Routes workspace", () => {
     );
   });
 
-  it("shows a targeted loading state while optimistically selecting a group child", async () => {
+  it("keeps the confirmed child current while a target is switching and restores it on failure", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
     const client = new DeferredSelectionClient(snapshot);
     const user = userEvent.setup();
@@ -307,13 +350,21 @@ describe("Routes workspace", () => {
     await user.click(selection);
 
     expect(selection).toHaveAttribute("aria-busy", "true");
-    expect(selection).toHaveAttribute("aria-pressed", "true");
-    expect(selection).toHaveTextContent("Pending");
+    expect(selection).toHaveAttribute("aria-pressed", "false");
+    expect(selection).toHaveTextContent("Switching");
     expect(selection.querySelector(".ui-spinner")).toBeInTheDocument();
+    const confirmedSelection = screen.getByRole("button", {
+      name: "Select 🇸🇬 SIN-01 in 🎬 Streaming",
+    });
+    expect(confirmedSelection).toBeDisabled();
+    expect(confirmedSelection).toHaveAttribute("aria-pressed", "true");
+    await user.click(confirmedSelection);
+    expect(client.selectionAttempts).toBe(1);
 
     client.rejectSelection?.();
     await waitFor(() => expect(selection).not.toHaveAttribute("aria-busy"));
     expect(selection).toHaveAttribute("aria-pressed", "false");
+    expect(selection).toHaveFocus();
   });
 
   it("does not expose automatic or unsupported group children as manual selectors", async () => {
@@ -339,6 +390,7 @@ describe("Routes workspace", () => {
       timeoutMilliseconds: 5_000,
     };
     const client = new DelaySnapshotClient(snapshot);
+    client.mutateLatenciesOnStart = true;
     const user = userEvent.setup();
     renderRoutes(client);
 
@@ -347,14 +399,29 @@ describe("Routes workspace", () => {
       .getByRole("button", { name: "Collapse 🎬 Streaming" })
       .closest("article")!;
     expect(within(streaming).getByText(/mihomo-google-204-v1/)).toBeVisible();
+    await user.click(within(streaming).getByRole("button", { name: "Latency" }));
+    const orderBeforeTest = within(streaming)
+      .getAllByRole("button", { name: /^Select / })
+      .map((row) => row.getAttribute("aria-label"));
     await user.click(
       within(streaming).getByRole("button", { name: "Start Delay Test for 🎬 Streaming" }),
     );
 
-    expect(await within(streaming).findByText("Testing 🎬 Streaming")).toBeVisible();
+    expect(await within(streaming).findByText("Pending · 0/3")).toBeVisible();
+    expect(
+      within(streaming)
+        .getAllByRole("button", { name: /^Select / })
+        .map((row) => row.getAttribute("aria-label")),
+    ).toEqual(orderBeforeTest);
     expect(client.startedGroupIds).toEqual([
       snapshot.groups.find((group) => group.label === "🎬 Streaming")!.id,
     ]);
+    await user.click(screen.getByRole("button", { name: "Expand 🌐 Proxy" }));
+    const proxy = screen.getByRole("button", { name: "Collapse 🌐 Proxy" }).closest("article")!;
+    expect(
+      within(proxy).getByRole("button", { name: "Start Delay Test for 🌐 Proxy" }),
+    ).toBeDisabled();
+    expect(within(proxy).getByText("Testing 🎬 Streaming")).toBeVisible();
     await user.click(
       within(streaming).getByRole("button", { name: "Cancel Delay Test for 🎬 Streaming" }),
     );
@@ -382,13 +449,10 @@ describe("Routes workspace", () => {
     await screen.findByRole("heading", { name: "Routes" });
     expect(screen.queryByText("Routes are read-only")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Expand 🎬 Streaming" }));
-    const selection = screen.getByRole("button", {
-      name: "Select 🇯🇵 NRT-03 in 🎬 Streaming",
-    });
-    expect(selection).toBeDisabled();
-    expect(selection).toHaveAccessibleDescription(
-      "This action is not supported by the current local service.",
-    );
+    expect(
+      screen.queryByRole("button", { name: "Select 🇯🇵 NRT-03 in 🎬 Streaming" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText("Read-only").length).toBeGreaterThan(0);
   });
 
   it("shows the selected profile's configured groups while Mihomo is stopped", async () => {
@@ -424,8 +488,11 @@ describe("Routes workspace", () => {
     ]);
 
     await user.click(groups[0]);
-    expect(screen.getByRole("button", { name: "Select Zulu node in Z first" })).toBeDisabled();
-    expect(screen.getAllByText("No single current child")[0]).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Select Zulu node in Z first" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByText("Read-only").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/No single current child/)[0]).toBeVisible();
   });
 
   it("shows a safe graph error instead of rendering inconsistent relationships", async () => {
