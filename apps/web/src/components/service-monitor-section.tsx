@@ -17,6 +17,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
   DialogTitle,
   DropdownMenu,
   DropdownMenuContent,
@@ -60,9 +61,10 @@ const defaultServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS))
 const serviceStyles = tv({
   slots: {
     section: "service-monitor-section mt-7",
-    heading: "service-monitor-heading section-heading pb-[9px]",
+    heading: "service-monitor-heading flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5",
+    headingCopy: "flex min-w-0 items-baseline gap-2",
     trigger:
-      "service-manage-trigger border-transparent hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-ink) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-ink) [&_svg]:size-3",
+      "inline-flex h-[34px] items-center justify-center gap-[7px] rounded-(--radius-md) border border-transparent bg-transparent px-[9px] text-(--text-metadata) text-(--color-text-muted) hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-ink) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-ink) [&_svg]:size-3",
     unavailable:
       "service-manage-unavailable block max-w-[236px] px-[9px] pt-[6px] pb-2 text-[12px] leading-[17px] font-(--font-weight-body) whitespace-normal text-(--color-text-muted)",
     intervalLabel:
@@ -81,6 +83,10 @@ const serviceStyles = tv({
     managerRow:
       "service-manager-row grid min-h-[46px] w-full grid-cols-[22px_minmax(0,1fr)_16px] items-center justify-stretch gap-[10px] rounded-none border-0 px-4 py-0 text-left [&+&]:border-t [&+&]:border-(--color-hairline-soft) [&_strong]:overflow-hidden [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-control) [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&>svg]:justify-self-end [&>svg]:text-(--color-text-muted)",
     managerFooter: "service-manager-footer justify-start",
+    editorDialog: "w-[min(460px,calc(100vw_-_32px))]",
+    editorForm: "grid gap-4 px-4 pt-4",
+    editorFooter: "mt-0.5 -mx-4 mb-0 justify-between",
+    footerActions: "flex gap-2",
   },
 });
 
@@ -172,7 +178,7 @@ function ServiceManagerDialog({
   return (
     <Dialog onOpenChange={(nextOpen) => !nextOpen && onClose()} open={open}>
       <DialogContent className={serviceStyles().managerDialog()} closeLabel={LL.common.close()}>
-        <div className="dialog-header">
+        <DialogHeader>
           <div>
             <DialogTitle className="dialog-title">{LL.services.editServices()}</DialogTitle>
             <DialogDescription className="dialog-description">
@@ -183,7 +189,7 @@ function ServiceManagerDialog({
             <Plus aria-hidden="true" data-icon="inline-start" />
             {LL.services.add()}
           </Button>
-        </div>
+        </DialogHeader>
         <div className={serviceStyles().managerList()}>
           {services.map((service) => {
             return (
@@ -268,8 +274,8 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
 
   return (
     <Dialog onOpenChange={(open) => !open && onClose()} open>
-      <DialogContent className="service-editor-dialog" closeLabel={LL.common.close()}>
-        <div className="dialog-header">
+      <DialogContent className={serviceStyles().editorDialog()} closeLabel={LL.common.close()}>
+        <DialogHeader>
           <div>
             <DialogTitle className="dialog-title">
               {existingService ? LL.services.edit() : LL.services.add()}
@@ -280,9 +286,9 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
                 : LL.services.metadataDescription()}
             </DialogDescription>
           </div>
-        </div>
+        </DialogHeader>
         <form
-          className="service-editor-form"
+          className={serviceStyles().editorForm()}
           onSubmit={(event) => {
             event.preventDefault();
             saveService();
@@ -341,7 +347,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
               {showUrlError ? <FieldError>{LL.services.urlError()}</FieldError> : null}
             </Field>
           </FieldGroup>
-          <div className="dialog-footer service-editor-footer">
+          <DialogFooter className={serviceStyles().editorFooter()}>
             {existingService ? (
               <Button
                 disabled={commandPending}
@@ -354,7 +360,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
             ) : (
               <span />
             )}
-            <div className="dialog-footer-actions">
+            <div className={serviceStyles().footerActions()}>
               <DialogClose
                 render={<Button className="secondary-button" type="button" variant="outline" />}
               >
@@ -370,7 +376,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
                 {LL.common.save()}
               </Button>
             </div>
-          </div>
+          </DialogFooter>
         </form>
 
         <AlertDialog onOpenChange={setDeleteConfirmOpen} open={deleteConfirmOpen}>
@@ -448,7 +454,7 @@ export function ServiceMonitorSection() {
   return (
     <section aria-label={LL.services.aria()} className={serviceStyles().section()}>
       <div className={serviceStyles().heading()}>
-        <div className="section-heading-copy">
+        <div className={serviceStyles().headingCopy()}>
           <h2>{LL.status.services()}</h2>
         </div>
         <DropdownMenu>

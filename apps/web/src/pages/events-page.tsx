@@ -79,13 +79,13 @@ const eventStyles = tv({
     pausedNote: "events-paused-note mt-2 text-[12px] leading-[17px] text-(--color-warning)",
     empty: "events-empty mt-4 min-h-[220px] border-solid",
     list: "events-list mt-4 min-h-[220px] max-h-[min(560px,calc(100vh_-_430px))] list-none overflow-auto overscroll-contain rounded-(--radius-md) border border-(--color-hairline) p-0",
-    row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-[10px] border-b border-(--color-hairline-soft) px-[10px] py-[9px] last:border-b-0 [&>time]:pt-[3px] [&>time]:text-[12px] [&>time]:text-(--color-text-muted) [&_.ui-badge]:justify-self-start",
+    row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-[10px] border-b border-(--color-hairline-soft) px-[10px] py-[9px] last:border-b-0 [&>time]:pt-[3px] [&>time]:text-[12px] [&>time]:text-(--color-text-muted) [&_.ui-badge]:justify-self-start [&_.ui-button_svg]:size-[15px]",
     source: "event-source pt-[3px] text-[12px] text-(--color-text-muted)",
     copy: "event-copy grid min-w-0 gap-[3px] [&_strong]:wrap-anywhere [&_strong]:text-(--text-metadata) [&_strong]:leading-[19px] [&_strong]:font-(--font-weight-control) [&_small]:wrap-anywhere [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted)",
     diagnostics:
       "diagnostics-section mt-6 scroll-mt-4 outline-none focus-visible:rounded-(--radius-md) focus-visible:shadow-[0_0_0_2px_var(--color-accent)]",
     diagnosticsHeading:
-      "diagnostics-heading section-heading items-start max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] [&>div]:min-w-0 [&_p]:mt-1 [&_p]:max-w-[760px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
+      "diagnostics-heading flex min-h-11 items-start justify-between gap-4 px-1 pb-2.5 max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] [&>div]:min-w-0 [&_p]:mt-1 [&_p]:max-w-[760px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
     diagnosticMessage: "mt-[10px] text-(--text-metadata) leading-[19px] text-(--color-text-muted)",
     diagnosticFixture: "text-(--color-warning)",
     diagnosticError: "text-(--color-error)",

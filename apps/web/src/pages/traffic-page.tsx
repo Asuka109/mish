@@ -777,14 +777,14 @@ function ConnectionDetailDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={connection !== null}>
       <DialogContent className={trafficStyles().detailDialog()} closeLabel={LL.common.close()}>
-        <div className="dialog-header">
+        <DialogHeader>
           <div>
             <DialogTitle className="dialog-title">{LL.traffic.connectionDetails()}</DialogTitle>
             <DialogDescription className="dialog-description">
               {LL.traffic.detailDescription()}
             </DialogDescription>
           </div>
-        </div>
+        </DialogHeader>
         {connection ? (
           <div className={trafficStyles().detailBody()}>
             <dl className={trafficStyles().detailGrid()}>
@@ -869,7 +869,7 @@ function ConnectionDetailDialog({
                 <p>{LL.traffic.unavailable()}</p>
               )}
             </section>
-            <div className="dialog-footer">
+            <DialogFooter>
               {!("closedAt" in connection) ? (
                 <Button
                   aria-describedby={canClose ? undefined : "traffic-close-scope"}
@@ -882,7 +882,7 @@ function ConnectionDetailDialog({
                   {LL.traffic.close()}
                 </Button>
               ) : null}
-            </div>
+            </DialogFooter>
           </div>
         ) : null}
       </DialogContent>

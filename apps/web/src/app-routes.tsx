@@ -31,9 +31,9 @@ export function RoutePending() {
   }, []);
 
   return (
-    <div aria-busy="true" className="route-loading">
+    <div aria-busy="true" className="route-loading grid place-items-center">
       {visible ? (
-        <div className="route-loading-indicator" role="status">
+        <div className="grid size-7 place-items-center text-(--color-text-muted)" role="status">
           <Spinner />
           <span className="sr-only">{LL.common.loading()}</span>
         </div>
