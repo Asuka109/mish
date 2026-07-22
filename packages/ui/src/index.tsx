@@ -197,7 +197,7 @@ const selectRecipe = tv({
       "border border-hairline bg-canvas px-2.5 text-metadata text-fg disabled:opacity-50",
     ),
     icon: "ui-select-icon size-3.5 text-muted-foreground [&_svg]:size-3.5",
-    positioner: "ui-select-positioner outline-none",
+    positioner: "ui-select-positioner z-72 outline-none",
     content: cx(
       "ui-select-content max-h-[min(var(--container-select-list),var(--available-height))]",
       "min-w-(--anchor-width) overflow-hidden rounded-md border border-hairline bg-canvas text-fg",

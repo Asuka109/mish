@@ -84,6 +84,15 @@ describe("unified policy browser", () => {
     const sort = page.getByRole("combobox", { name: "Sort children in 🌐 Proxy" });
     await expect.element(sort).toBeVisible();
     expect(document.querySelector(".policy-browser-sort-icon")).not.toBeNull();
+    await userEvent.click(sort);
+    await expect.element(page.getByRole("option", { name: "Latency" })).toBeVisible();
+    const sortPositioner = document.querySelector<HTMLElement>(".ui-select-positioner");
+    const dialog = document.querySelector<HTMLElement>(".policy-picker-dialog");
+    if (!sortPositioner || !dialog) throw new Error("Missing picker sort overlay");
+    expect(Number(getComputedStyle(sortPositioner).zIndex)).toBeGreaterThan(
+      Number(getComputedStyle(dialog).zIndex),
+    );
+    await userEvent.keyboard("{Escape}");
     expect(document.querySelector(".policy-picker-dialog .policy-browser-browse")).toBeNull();
     expect(
       document.querySelector<HTMLElement>('[data-entity-id="auto-fast"] .ui-badge')?.textContent,

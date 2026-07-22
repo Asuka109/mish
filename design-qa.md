@@ -233,6 +233,16 @@ Status: passed.
 - Required fidelity surfaces: existing typography, spacing rhythm, dark tokens, iconography, and bilingual copy remain unchanged apart from the requested deletion. No raster or brand assets changed.
 - Comparison history: the first source exposed two P1 semantic conflicts—global command unavailability reused entity-level read-only labeling, and a redundant fallback explanation occupied a large dialog region. Both were removed. A second annotated pass found that static automatic groups did not inherit the stopped-Core dimming and that their `只读` status described implementation constraints rather than behavior. The second fix added disabled-row styling and moved the behavior to an `自动选择` badge beside the label. Post-fix visual evidence and stopped-Core tests show no remaining P0, P1, or P2 issue from these annotations.
 
+### Annotation follow-up: modal sort popup stacking
+
+- Source visual truth: `/var/folders/5z/wjdqjxyn66n_69rwycgmdz1c0000gn/T/codex-clipboard-79b3c252-0dcd-49ee-bc4a-5bb511fc3c37.png`, a 334 × 92 crop of the open picker state where activating the sort control produced no visible menu.
+- Implementation screenshot: `.scratch/design-qa/picker-sort-open-implementation.png`, captured by the browser regression at an 800 × 600 CSS viewport with device scale factor 1 while the sort popup was open.
+- Combined comparison: `.scratch/design-qa/picker-sort-overlay-comparison.png`, which places the supplied control crop and the complete rendered picker state on one 1600 × 600 canvas. The source uses the user's dark localized runtime while the deterministic browser fixture uses light English data; the comparison is limited to popup visibility and anchoring rather than unrelated theme or content differences.
+- Finding: the Select portal was mounted outside the dialog as intended, but its positioner had an automatic stacking level below the dialog content at `z-index: 71`. The popup existed and accepted semantic queries while remaining visually occluded, a P1 interaction failure.
+- Fix: the shared Select positioner now uses `z-index: 72`, directly above dialogs and below the existing tooltip layer. The popup remains aligned to the trigger and retains the existing Mish surface, border, shadow, typography, spacing, and option states.
+- Post-fix evidence: the combined comparison shows all three sort options visibly anchored below the trigger without clipping or layout shift. A real-browser regression opens the modal Select, verifies the Latency option is visible, and asserts that the positioner is above the dialog before closing it with Escape.
+- Comparison history: the first browser run reproduced the failure with an automatic/`NaN` computed stacking value against dialog level 71. After the shared-layer fix, all 41 browser tests passed and the desktop production bundle emitted `z-index: 72`.
+
 ### Content and state checks
 
 - Verified English and Chinese localization, Unicode labels, long-label containment, configured fallback, reconnecting/stale behavior, empty and no-match states, delay states, and explicit non-color status labels.
