@@ -314,7 +314,7 @@ describe("Routes workspace", () => {
     await user.click(
       within(streaming!).getByRole("combobox", { name: "Sort children in 🎬 Streaming" }),
     );
-    await user.click(screen.getByRole("option", { name: "Latency" }));
+    await user.click(await screen.findByRole("option", { name: "Latency" }));
     const rows = within(streaming!).getAllByRole("button", { name: /^Select / });
     expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
       "Select 🇭🇰 HKG-02 in 🎬 Streaming",
@@ -405,7 +405,7 @@ describe("Routes workspace", () => {
     await user.click(
       within(streaming).getByRole("combobox", { name: "Sort children in 🎬 Streaming" }),
     );
-    await user.click(screen.getByRole("option", { name: "Latency" }));
+    await user.click(await screen.findByRole("option", { name: "Latency" }));
     const orderBeforeTest = within(streaming)
       .getAllByRole("button", { name: /^Select / })
       .map((row) => row.getAttribute("aria-label"));
