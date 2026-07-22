@@ -105,7 +105,9 @@ describe("status traffic row layout", () => {
     expect(getComputedStyle(summary).flexGrow).toBe("0");
     expect(getComputedStyle(rate).flexGrow).toBe("0");
     expect(getComputedStyle(curve).overflowX).toBe("hidden");
-    expect(getComputedStyle(curve).maskImage).toContain("linear-gradient");
+    const maskImage = getComputedStyle(curve).maskImage;
+    expect(maskImage).toContain("linear-gradient");
+    expect(maskImage.match(/32px/g)).toHaveLength(2);
     expect(stack.getBoundingClientRect().right).toBe(curve.getBoundingClientRect().right);
     expect(stack.getBoundingClientRect().width).toBe(360);
   });
