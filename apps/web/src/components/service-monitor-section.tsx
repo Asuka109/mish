@@ -64,13 +64,13 @@ const serviceStyles = tv({
     trigger:
       "service-manage-trigger border-transparent hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-ink) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-ink) [&_svg]:size-3",
     unavailable:
-      "service-manage-unavailable block max-w-[236px] px-[9px] pt-[6px] pb-2 text-[12px] leading-[17px] whitespace-normal text-(--color-text-muted)",
+      "service-manage-unavailable block max-w-[236px] px-[9px] pt-[6px] pb-2 text-[12px] leading-[17px] font-(--font-weight-body) whitespace-normal text-(--color-text-muted)",
     intervalLabel:
       "service-interval-label block px-[9px] pt-[6px] pb-[3px] text-[12px] leading-[17px] font-(--font-weight-control) text-(--color-text-muted)",
-    list: "service-monitor-list gap-0 bg-(--color-canvas)",
+    list: "service-monitor-list gap-0 bg-(--color-canvas) [&>:not(:nth-child(3n))]:border-r [&>:not(:nth-child(3n))]:border-(--color-hairline-soft) [&>:nth-child(n+4)]:border-t [&>:nth-child(n+4)]:border-(--color-hairline-soft) [&>.service-monitor-row:first-child]:rounded-ss-[7px] [&>.service-monitor-row:nth-child(3)]:rounded-se-[7px] [&>.service-monitor-row:nth-child(3n+1):nth-last-child(-n+3)]:rounded-es-[7px] [&>.service-monitor-row:last-child:nth-child(3n)]:rounded-ee-[7px] max-[900px]:[--section-grid-columns:1] max-[900px]:[&>*]:border-r-0 max-[900px]:[&>*]:rounded-none max-[900px]:[&>.service-monitor-row:first-child]:rounded-ss-[7px] max-[900px]:[&>.service-monitor-row:first-child]:rounded-se-[7px] max-[900px]:[&>.service-monitor-row:last-child]:rounded-es-[7px] max-[900px]:[&>.service-monitor-row:last-child]:rounded-ee-[7px] max-[900px]:[&>:not(:first-child)]:border-t max-[900px]:[&>:not(:first-child)]:border-(--color-hairline-soft)",
     row: "service-monitor-row grid min-h-[52px] grid-cols-[minmax(0,1fr)_minmax(74px,144px)_76px_minmax(0,1fr)] items-center gap-[10px] rounded-none border-0 bg-transparent py-0 pr-[13px] pl-[11px] text-left text-(--color-body) hover:bg-(--color-accent) hover:text-(--color-ink)",
     identity:
-      "service-monitor-identity col-start-2 grid min-w-0 grid-cols-[22px_minmax(0,1fr)] items-center gap-[10px] [&_strong]:overflow-hidden [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-control) [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
+      "service-monitor-identity col-start-2 grid min-w-0 grid-cols-[22px_minmax(0,1fr)] items-center gap-[10px] [&_strong]:overflow-hidden [&_strong]:text-left [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-control) [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap",
     icon: "service-monitor-icon grid size-[22px] place-items-center text-(--color-text-muted) [&_img]:block [&_img]:size-[18px] [&_img]:object-contain [&_img]:opacity-75",
     latency:
       "service-monitor-latency col-start-3 block justify-self-stretch text-right text-(--text-metadata) whitespace-nowrap text-(--color-success-text) data-[status=error]:text-(--color-error) data-[status=warning]:text-(--color-warning) [&_.ui-spinner]:size-[13px]",
