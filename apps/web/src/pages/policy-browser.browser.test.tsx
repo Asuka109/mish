@@ -69,7 +69,7 @@ describe("unified policy browser", () => {
     const summaries = document.querySelectorAll<HTMLElement>(
       ".policy-group-list .policy-browser-group-summary",
     );
-    expect(summaries[0]?.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(summaries[0]?.getBoundingClientRect().height).toBeGreaterThanOrEqual(58);
     expect(summaries[0]?.textContent).toMatch(/1.*🌐 Proxy.*🇭🇰 HKG-02.*38 ms.*11/s);
 
     const proxySummary = page.getByRole("button", { name: /🌐 Proxy/ });

@@ -513,7 +513,7 @@ export function StatusPage() {
                           count: group.childIds.length,
                         })}
                         currentLabel={selectedLabel ?? LL.status.noSelection()}
-                        density="compact"
+                        density="default"
                         group={group}
                         latency={
                           latency === null ? null : (
