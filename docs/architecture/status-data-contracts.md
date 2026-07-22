@@ -32,7 +32,7 @@ non-fixture adapter.
 | `RuntimeMetricsDto`       | Memory in use, proxy-session uptime, active connections, effective rules                     | Mihomo observations plus local-bridge derivation |
 | `ProfileSummaryDto`       | Stable profile ID/fingerprint and user-facing label                                          | Local bridge persistence                         |
 | `PolicyGroupDto`          | Opaque group label, type, children, selected child, latency data                             | Mihomo proxy tree plus delay observations        |
-| `GroupDelayPolicyDto`     | Visible application policy ID and bounded timeout                                            | Local bridge application policy                  |
+| `GroupDelayPolicyDto`     | Internal policy ID, visible fixed HTTPS probe URL, and bounded timeout                       | Local bridge application policy                  |
 | `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results     |
 | `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                          |
 | `ServiceMonitorDto`       | ID, opaque title, probe URL, HTTPS icon URL, probe policy                                    | Local bridge persistence                         |

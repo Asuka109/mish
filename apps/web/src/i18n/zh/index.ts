@@ -477,7 +477,7 @@ const zh = {
     delayPhasePartial: "部分完成",
     delayPhasePending: "等待中",
     delayPhaseProgress: "测试中",
-    delayPolicy: "策略 {policy} · 超时 {seconds} 秒",
+    delayPolicy: "{url}",
     delayStaleMembership: "已不属于该组",
     delayStateProgress: "{state} · {completed}/{total}",
     delayTestGroup: "测试 {group}",

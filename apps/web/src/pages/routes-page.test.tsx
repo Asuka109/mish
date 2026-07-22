@@ -391,6 +391,7 @@ describe("Routes workspace", () => {
     snapshot.groupDelayPolicy = {
       id: "mihomo-google-204-v1",
       timeoutMilliseconds: 5_000,
+      url: "https://www.gstatic.com/generate_204",
     };
     const client = new DelaySnapshotClient(snapshot);
     client.mutateLatenciesOnStart = true;
@@ -401,7 +402,9 @@ describe("Routes workspace", () => {
     const streaming = screen
       .getByRole("button", { name: "Collapse 🎬 Streaming" })
       .closest("article")!;
-    expect(within(streaming).getByText(/mihomo-google-204-v1/)).toBeVisible();
+    expect(within(streaming).getByText(/https:\/\/www\.gstatic\.com\/generate_204/)).toBeVisible();
+    expect(within(streaming).queryByText(/mihomo-google-204-v1/)).not.toBeInTheDocument();
+    expect(within(streaming).queryByText(/5 s timeout/)).not.toBeInTheDocument();
     await user.click(
       within(streaming).getByRole("combobox", { name: "Sort children in 🎬 Streaming" }),
     );

@@ -513,7 +513,7 @@ const en = {
     delayPhasePartial: "Partial",
     delayPhasePending: "Pending",
     delayPhaseProgress: "In progress",
-    delayPolicy: "Policy {policy:string} · {seconds:number} s timeout",
+    delayPolicy: "{url:string}",
     delayStaleMembership: "No longer in group",
     delayStateProgress: "{state:string} · {completed:number}/{total:number}",
     delayTestGroup: "Test {group:string}",

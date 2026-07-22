@@ -279,10 +279,11 @@ export function PolicyGroupDetail({
         })
       : delayIsActive
         ? LL.routes.delayTestingGroup({ group: activeDelayGroup })
-        : LL.routes.delayPolicy({
-            policy: delayPolicy.id,
-            seconds: delayPolicy.timeoutMilliseconds / 1000,
-          });
+        : delayPolicy.url
+          ? LL.routes.delayPolicy({
+              url: delayPolicy.url,
+            })
+          : null;
 
   return (
     <div className={routeStyles().detail()}>

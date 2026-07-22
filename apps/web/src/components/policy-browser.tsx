@@ -614,7 +614,7 @@ export function PolicyBrowserToolbar<Sort extends string>({
         aria-live="polite"
         className={cx(
           "policy-browser-progress min-w-0 truncate text-caption text-muted-foreground max-shell-mobile:col-start-1 max-shell-mobile:row-auto max-shell-mobile:min-h-4.5 max-shell-mobile:whitespace-normal",
-          !showSearch && "col-start-1 row-start-1",
+          showSearch ? "col-span-2 max-shell-mobile:col-span-1" : "col-start-1 row-start-1",
         )}
         role="status"
       >

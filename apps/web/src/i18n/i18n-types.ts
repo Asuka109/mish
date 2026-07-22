@@ -1651,11 +1651,10 @@ type RootTranslation = {
 		 */
 		delayPhaseProgress: string
 		/**
-		 * P​o​l​i​c​y​ ​{​p​o​l​i​c​y​}​ ​·​ ​{​s​e​c​o​n​d​s​}​ ​s​ ​t​i​m​e​o​u​t
-		 * @param {string} policy
-		 * @param {number} seconds
+		 * {​u​r​l​}
+		 * @param {string} url
 		 */
-		delayPolicy: RequiredParams<'policy' | 'seconds'>
+		delayPolicy: RequiredParams<'url'>
 		/**
 		 * N​o​ ​l​o​n​g​e​r​ ​i​n​ ​g​r​o​u​p
 		 */
@@ -6000,9 +5999,9 @@ export type TranslationFunctions = {
 		 */
 		delayPhaseProgress: () => LocalizedString
 		/**
-		 * Policy {policy} · {seconds} s timeout
+		 * {url}
 		 */
-		delayPolicy: (arg: { policy: string, seconds: number }) => LocalizedString
+		delayPolicy: (arg: { url: string }) => LocalizedString
 		/**
 		 * No longer in group
 		 */

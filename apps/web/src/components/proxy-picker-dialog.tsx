@@ -209,10 +209,11 @@ export function PolicyPickerDialog({
       })
     : delayIsActive
       ? LL.routes.delayTestingGroup({ group: activeDelayGroup })
-      : LL.routes.delayPolicy({
-          policy: snapshot.groupDelayPolicy.id,
-          seconds: snapshot.groupDelayPolicy.timeoutMilliseconds / 1000,
-        });
+      : snapshot.groupDelayPolicy.url
+        ? LL.routes.delayPolicy({
+            url: snapshot.groupDelayPolicy.url,
+          })
+        : null;
 
   return (
     <Dialog

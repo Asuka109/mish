@@ -81,6 +81,11 @@ describe("unified policy browser", () => {
     await expect
       .element(page.getByRole("button", { name: "Start Delay Test for 🌐 Proxy" }))
       .toBeVisible();
+    const policyProgress = document.querySelector<HTMLElement>(
+      ".policy-picker-dialog .policy-browser-progress",
+    );
+    expect(policyProgress?.textContent).toBe("https://www.gstatic.com/generate_204");
+    expect(policyProgress?.textContent).not.toContain("fixture-only");
     const sort = page.getByRole("combobox", { name: "Sort children in 🌐 Proxy" });
     await expect.element(sort).toBeVisible();
     expect(document.querySelector(".policy-browser-sort-icon")).not.toBeNull();
