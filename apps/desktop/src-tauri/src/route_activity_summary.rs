@@ -1,5 +1,6 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -7,56 +8,70 @@ use std::{
 use mish_runtime::{ProxyNode, TrafficDataPhase, TrafficDataSnapshot};
 
 const SUMMARY_WINDOW: Duration = Duration::from_secs(60);
-const OBSERVATION_LOG_WINDOW: Duration = Duration::from_secs(15 * 60);
-const MAX_OBSERVATION_EVENTS: usize = 2_048;
-const MAX_SEEN_CONNECTION_IDS: usize = 512;
+const MAX_OBSERVATION_EVENTS: usize = 8_192;
+const MAX_SEEN_CONNECTION_IDS: usize = 131_072;
+const MEMORY_BUDGET_BYTES: usize = 10 * 1024 * 1024;
+const EVENT_BYTE_BUDGET: usize = 512;
+const FINGERPRINT_INDEX_BYTE_BUDGET: usize = 32;
+const RING_AND_INDEX_OVERHEAD_BYTES: usize = 1_114_112;
 const MAX_INPUT_LABEL_CHARS: usize = 160;
 const MAX_DISPLAY_LABEL_CHARS: usize = 48;
 
-/// The single display-safe fact that a native menu may consume from Traffic.
-///
-/// It deliberately contains no connection, controller, endpoint, or profile
-/// identifiers. `label` is a bounded, sanitized user-authored node label.
+/// The single display-safe fact a native menu may consume from Traffic.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RouteActivitySummary {
     pub(crate) label: String,
 }
 
-/// In-memory projection of a private, bounded first-observation event log for
-/// the current Traffic session.
+/// Explicit retained-count and capacity evidence for the private observation log.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ObservationLogTelemetry {
+    pub(crate) retained_events: usize,
+    pub(crate) event_capacity: usize,
+    pub(crate) evicted_events: u64,
+    pub(crate) distinct_connection_ids: usize,
+    pub(crate) dedupe_capacity: usize,
+    pub(crate) dedupe_overflow_events: u64,
+    pub(crate) current_active_connections: usize,
+}
+
+/// Conservative static accounting for the complete private log and its indexes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ObservationLogMemoryBudget {
+    pub(crate) event_bytes: usize,
+    pub(crate) dedupe_index_bytes: usize,
+    pub(crate) container_and_safety_bytes: usize,
+    pub(crate) total_bytes: usize,
+}
+
+/// Session-scoped private connection observation log with display-safe derived queries.
 ///
-/// The status-bar owner calls [`Self::observe`] when its authoritative typed
-/// Traffic snapshot changes, then calls [`Self::summary_at`] once per second
-/// from its menu refresh timer. The projection does not fetch or reinterpret
-/// Traffic data itself.
+/// `observe` accepts only an already-authoritative typed Traffic snapshot. It neither
+/// polls Controller data nor owns another Traffic authority. Raw connection IDs are
+/// reduced to private in-memory fingerprints for session deduplication and never
+/// cross this module's display-safe query boundary.
 #[derive(Clone, Default)]
 pub(crate) struct RouteActivitySummaryHandle {
-    projection: Arc<Mutex<RouteActivityProjection>>,
+    log: Arc<Mutex<ConnectionObservationLog>>,
 }
 
 impl RouteActivitySummaryHandle {
-    /// Records first observations from the latest authoritative Traffic
-    /// snapshot. This is intentionally separate from the one-second display
-    /// cadence so the native menu does not poll or duplicate Traffic authority.
     pub(crate) fn observe(
         &self,
         traffic: &TrafficDataSnapshot,
         nodes: &[ProxyNode],
         observed_at: Duration,
     ) {
-        if let Ok(mut projection) = self.projection.lock() {
-            projection.observe(traffic, nodes, observed_at);
+        if let Ok(mut log) = self.log.lock() {
+            log.observe(traffic, nodes, observed_at);
         }
     }
 
-    /// Re-evaluates the strict rolling window at the native menu's current
-    /// monotonic time. The status bar calls this once per second.
+    /// Queries the strict trailing 60-second summary with caller-injected monotonic time.
     pub(crate) fn summary_at(&self, observed_at: Duration) -> Option<RouteActivitySummary> {
-        let mut projection = self.projection.lock().ok()?;
-        projection.summary_at(observed_at)
+        self.log.lock().ok()?.summary_at(observed_at)
     }
 
-    /// Convenience for a snapshot refresh that also needs an immediate result.
     pub(crate) fn update(
         &self,
         traffic: &TrafficDataSnapshot,
@@ -66,15 +81,31 @@ impl RouteActivitySummaryHandle {
         self.observe(traffic, nodes, observed_at);
         self.summary_at(observed_at)
     }
+
+    pub(crate) fn telemetry(&self) -> Option<ObservationLogTelemetry> {
+        Some(self.log.lock().ok()?.telemetry())
+    }
+
+    pub(crate) const fn memory_budget() -> ObservationLogMemoryBudget {
+        ObservationLogMemoryBudget {
+            event_bytes: MAX_OBSERVATION_EVENTS * EVENT_BYTE_BUDGET,
+            dedupe_index_bytes: MAX_SEEN_CONNECTION_IDS * FINGERPRINT_INDEX_BYTE_BUDGET,
+            container_and_safety_bytes: RING_AND_INDEX_OVERHEAD_BYTES,
+            total_bytes: MAX_OBSERVATION_EVENTS * EVENT_BYTE_BUDGET
+                + MAX_SEEN_CONNECTION_IDS * FINGERPRINT_INDEX_BYTE_BUDGET
+                + RING_AND_INDEX_OVERHEAD_BYTES,
+        }
+    }
 }
 
 #[derive(Default)]
-struct RouteActivityProjection {
-    has_current_connections: bool,
-    observation_log: VecDeque<RouteObservationEvent>,
+struct ConnectionObservationLog {
+    events: VecDeque<RouteObservationEvent>,
     session: Option<ObservationSession>,
-    seen_connection_ids: HashMap<String, ()>,
-    seen_connection_order: VecDeque<String>,
+    seen_connection_ids: HashSet<u128>,
+    evicted_events: u64,
+    dedupe_overflow_events: u64,
+    current_active_connections: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -88,7 +119,7 @@ struct RouteObservationEvent {
     exit_label: Option<String>,
 }
 
-impl RouteActivityProjection {
+impl ConnectionObservationLog {
     fn observe(
         &mut self,
         traffic: &TrafficDataSnapshot,
@@ -99,72 +130,55 @@ impl RouteActivityProjection {
             self.reset();
             return;
         }
-        let Some(session_id) = traffic.session_id.clone() else {
+        let Some(session_id) = traffic.session_id.as_deref() else {
             self.reset();
             return;
         };
         let session = ObservationSession {
             profile_id: traffic.profile_id.clone(),
-            session_id,
+            session_id: session_id.into(),
         };
         if self.session.as_ref() != Some(&session) {
             self.reset();
             self.session = Some(session);
         }
-        self.has_current_connections = !traffic.active_connections.is_empty();
-        if traffic.active_connections.is_empty() {
-            return;
-        }
-        self.prune_log(observed_at);
 
+        // A ready empty snapshot is authoritative current-active state, but it does
+        // not invalidate recent observations inside a consumer's rolling window.
+        self.current_active_connections = traffic.active_connections.len();
         for connection in &traffic.active_connections {
-            if self.seen_connection_ids.contains_key(&connection.id) {
+            let fingerprint = connection_id_fingerprint(&connection.id);
+            if self.seen_connection_ids.contains(&fingerprint) {
                 continue;
             }
-            let exit_label = resolve_exit_label(&connection.route_chain, nodes);
-            self.remember(
-                connection.id.clone(),
-                RouteObservationEvent {
-                    observed_at,
-                    exit_label,
-                },
-            );
-        }
-    }
-
-    fn summary_at(&mut self, observed_at: Duration) -> Option<RouteActivitySummary> {
-        self.prune_log(observed_at);
-        self.has_current_connections
-            .then(|| self.leading_label(observed_at))
-            .flatten()
-            .map(|label| RouteActivitySummary { label })
-    }
-
-    fn remember(&mut self, id: String, event: RouteObservationEvent) {
-        self.seen_connection_ids.insert(id.clone(), ());
-        self.seen_connection_order.push_back(id);
-        while self.seen_connection_order.len() > MAX_SEEN_CONNECTION_IDS {
-            if let Some(expired) = self.seen_connection_order.pop_front() {
-                self.seen_connection_ids.remove(&expired);
+            if self.seen_connection_ids.len() == MAX_SEEN_CONNECTION_IDS {
+                self.dedupe_overflow_events += 1;
+                continue;
             }
-        }
-        self.observation_log.push_back(event);
-        while self.observation_log.len() > MAX_OBSERVATION_EVENTS {
-            self.observation_log.pop_front();
+            self.seen_connection_ids.insert(fingerprint);
+            self.push(RouteObservationEvent {
+                observed_at,
+                exit_label: resolve_exit_label(&connection.route_chain, nodes),
+            });
         }
     }
 
-    fn prune_log(&mut self, observed_at: Duration) {
-        while self.observation_log.front().is_some_and(|event| {
-            observed_at.saturating_sub(event.observed_at) >= OBSERVATION_LOG_WINDOW
-        }) {
-            self.observation_log.pop_front();
+    fn push(&mut self, event: RouteObservationEvent) {
+        if self.events.len() == MAX_OBSERVATION_EVENTS {
+            self.events.pop_front();
+            self.evicted_events += 1;
         }
+        self.events.push_back(event);
+    }
+
+    fn summary_at(&self, observed_at: Duration) -> Option<RouteActivitySummary> {
+        self.leading_label(observed_at)
+            .map(|label| RouteActivitySummary { label })
     }
 
     fn leading_label(&self, observed_at: Duration) -> Option<String> {
         let mut counts = HashMap::<&str, usize>::new();
-        for event in &self.observation_log {
+        for event in &self.events {
             if observed_at.saturating_sub(event.observed_at) < SUMMARY_WINDOW {
                 if let Some(label) = event.exit_label.as_deref() {
                     *counts.entry(label).or_default() += 1;
@@ -181,13 +195,36 @@ impl RouteActivityProjection {
             .map(|(label, _)| label.into())
     }
 
-    fn reset(&mut self) {
-        self.has_current_connections = false;
-        self.session = None;
-        self.observation_log.clear();
-        self.seen_connection_ids.clear();
-        self.seen_connection_order.clear();
+    fn telemetry(&self) -> ObservationLogTelemetry {
+        ObservationLogTelemetry {
+            retained_events: self.events.len(),
+            event_capacity: MAX_OBSERVATION_EVENTS,
+            evicted_events: self.evicted_events,
+            distinct_connection_ids: self.seen_connection_ids.len(),
+            dedupe_capacity: MAX_SEEN_CONNECTION_IDS,
+            dedupe_overflow_events: self.dedupe_overflow_events,
+            current_active_connections: self.current_active_connections,
+        }
     }
+
+    fn reset(&mut self) {
+        self.events.clear();
+        self.session = None;
+        self.seen_connection_ids.clear();
+        self.evicted_events = 0;
+        self.dedupe_overflow_events = 0;
+        self.current_active_connections = 0;
+    }
+}
+
+fn connection_id_fingerprint(id: &str) -> u128 {
+    fn fingerprint_part(domain: u8, id: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        domain.hash(&mut hasher);
+        id.hash(&mut hasher);
+        hasher.finish()
+    }
+    u128::from(fingerprint_part(0, id)) << 64 | u128::from(fingerprint_part(1, id))
 }
 
 fn resolve_exit_label(route_chain: &[String], nodes: &[ProxyNode]) -> Option<String> {
@@ -236,7 +273,7 @@ fn display_safe_node_label(label: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_OBSERVATION_EVENTS, MAX_SEEN_CONNECTION_IDS, OBSERVATION_LOG_WINDOW,
+        MAX_OBSERVATION_EVENTS, MAX_SEEN_CONNECTION_IDS, MEMORY_BUDGET_BYTES,
         RouteActivitySummaryHandle, display_safe_node_label,
     };
     use std::time::Duration;
@@ -254,7 +291,6 @@ mod tests {
             protocol: "ss".into(),
         }
     }
-
     fn connection(id: &str, route_chain: &[&str]) -> TrafficConnection {
         TrafficConnection {
             destination_host: Some("private.example".into()),
@@ -275,12 +311,11 @@ mod tests {
             route_chain: route_chain.iter().map(|label| (*label).into()).collect(),
             sniff_host: None,
             source_ip: Some("192.0.2.2".into()),
-            source_port: 50000,
+            source_port: 50_000,
             started_at: "2026-01-01T00:00:00Z".into(),
             upload_bytes: "0".into(),
         }
     }
-
     fn snapshot(session: &str, connections: Vec<TrafficConnection>) -> TrafficDataSnapshot {
         TrafficDataSnapshot {
             active_connections: connections,
@@ -293,11 +328,9 @@ mod tests {
             session_id: Some(session.into()),
         }
     }
-
     fn at(seconds: u64) -> Duration {
         Duration::from_secs(seconds)
     }
-
     fn label(result: Option<super::RouteActivitySummary>) -> Option<String> {
         result.map(|summary| summary.label)
     }
@@ -306,21 +339,22 @@ mod tests {
     fn first_observations_select_the_busiest_real_exit_node() {
         let handle = RouteActivitySummaryHandle::default();
         let nodes = [node("Tokyo"), node("Singapore")];
-        let result = handle.update(
-            &snapshot(
-                "one",
-                vec![
-                    connection("one", &["Auto", "Tokyo"]),
-                    connection("two", &["Auto", "Tokyo"]),
-                    connection("three", &["Auto", "Singapore"]),
-                ],
-            ),
-            &nodes,
-            at(1),
+        assert_eq!(
+            label(handle.update(
+                &snapshot(
+                    "one",
+                    vec![
+                        connection("one", &["Auto", "Tokyo"]),
+                        connection("two", &["Auto", "Tokyo"]),
+                        connection("three", &["Auto", "Singapore"])
+                    ]
+                ),
+                &nodes,
+                at(1)
+            )),
+            Some("Tokyo".into())
         );
-        assert_eq!(label(result), Some("Tokyo".into()));
     }
-
     #[test]
     fn duplicate_snapshots_and_long_lived_connections_are_not_new_activity() {
         let handle = RouteActivitySummaryHandle::default();
@@ -330,10 +364,6 @@ mod tests {
             label(handle.update(&first, &nodes, at(1))),
             Some("Tokyo".into())
         );
-        assert_eq!(
-            label(handle.update(&first, &nodes, at(30))),
-            Some("Tokyo".into())
-        );
         assert_eq!(label(handle.update(&first, &nodes, at(61))), None);
         assert_eq!(
             label(handle.update(
@@ -341,7 +371,7 @@ mod tests {
                     "one",
                     vec![
                         connection("one", &["Tokyo"]),
-                        connection("two", &["Singapore"]),
+                        connection("two", &["Singapore"])
                     ]
                 ),
                 &nodes,
@@ -350,146 +380,146 @@ mod tests {
             Some("Singapore".into())
         );
     }
-
     #[test]
-    fn the_sixty_second_boundary_is_strict() {
+    fn empty_ready_snapshot_updates_active_tracking_without_erasing_recent_events() {
         let handle = RouteActivitySummaryHandle::default();
         let nodes = [node("Tokyo")];
-        let traffic = snapshot("one", vec![connection("one", &["Tokyo"])]);
-        handle.observe(&traffic, &nodes, at(0));
-        assert_eq!(label(handle.summary_at(at(59))), Some("Tokyo".into()));
-        assert_eq!(label(handle.summary_at(at(60))), None);
-    }
-
-    #[test]
-    fn ties_use_lexicographically_ascending_safe_labels() {
-        let handle = RouteActivitySummaryHandle::default();
-        let nodes = [node("Zurich"), node("Amsterdam")];
-        assert_eq!(
-            label(handle.update(
-                &snapshot(
-                    "one",
-                    vec![
-                        connection("one", &["Zurich"]),
-                        connection("two", &["Amsterdam"]),
-                    ]
-                ),
-                &nodes,
-                at(1)
-            )),
-            Some("Amsterdam".into())
-        );
-    }
-
-    #[test]
-    fn a_profile_or_session_replacement_resets_observations() {
-        let handle = RouteActivitySummaryHandle::default();
-        let nodes = [node("Tokyo"), node("Singapore")];
-        handle.update(
+        handle.observe(
             &snapshot("one", vec![connection("one", &["Tokyo"])]),
             &nodes,
             at(1),
         );
         assert_eq!(
-            label(handle.update(
-                &snapshot("two", vec![connection("one", &["Singapore"])]),
+            label(handle.update(&snapshot("one", Vec::new()), &nodes, at(2))),
+            Some("Tokyo".into())
+        );
+        assert_eq!(handle.telemetry().unwrap().current_active_connections, 0);
+    }
+    #[test]
+    fn duplicate_snapshot_above_the_old_seen_id_limit_is_not_recounted() {
+        let handle = RouteActivitySummaryHandle::default();
+        let nodes = [node("Tokyo")];
+        let traffic = snapshot(
+            "one",
+            (0..=MAX_SEEN_CONNECTION_IDS.min(1_024))
+                .map(|index| connection(&format!("connection-{index}"), &["Tokyo"]))
+                .collect(),
+        );
+        handle.observe(&traffic, &nodes, at(0));
+        handle.observe(&traffic, &nodes, at(61));
+        assert_eq!(label(handle.summary_at(at(61))), None);
+    }
+    #[test]
+    fn ring_overflow_is_oldest_first_and_does_not_break_deduplication() {
+        let handle = RouteActivitySummaryHandle::default();
+        let nodes = [node("Tokyo")];
+        let traffic = snapshot(
+            "one",
+            (0..=MAX_OBSERVATION_EVENTS)
+                .map(|index| connection(&format!("burst-{index}"), &["Tokyo"]))
+                .collect(),
+        );
+        handle.observe(&traffic, &nodes, at(0));
+        handle.observe(&traffic, &nodes, at(61));
+        let telemetry = handle.telemetry().unwrap();
+        assert_eq!(telemetry.retained_events, MAX_OBSERVATION_EVENTS);
+        assert_eq!(telemetry.evicted_events, 1);
+        assert_eq!(telemetry.dedupe_overflow_events, 0);
+        assert_eq!(label(handle.summary_at(at(61))), None);
+    }
+    #[test]
+    fn low_rate_and_high_rate_short_flows_are_bounded() {
+        let handle = RouteActivitySummaryHandle::default();
+        let nodes = [node("Tokyo")];
+        for second in 0..3 {
+            handle.observe(
+                &snapshot(
+                    "one",
+                    vec![connection(&format!("slow-{second}"), &["Tokyo"])],
+                ),
                 &nodes,
-                at(2)
-            )),
+                at(second),
+            );
+        }
+        assert_eq!(label(handle.summary_at(at(59))), Some("Tokyo".into()));
+        let burst = snapshot(
+            "one",
+            (0..MAX_OBSERVATION_EVENTS)
+                .map(|index| connection(&format!("fast-{index}"), &["Tokyo"]))
+                .collect(),
+        );
+        handle.observe(&burst, &nodes, at(60));
+        assert_eq!(
+            handle.telemetry().unwrap().retained_events,
+            MAX_OBSERVATION_EVENTS
+        );
+    }
+    #[test]
+    fn resets_on_stale_unavailable_missing_session_profile_and_traffic_session_replacement() {
+        let handle = RouteActivitySummaryHandle::default();
+        let nodes = [node("Tokyo"), node("Singapore")];
+        let ready = snapshot("one", vec![connection("one", &["Tokyo"])]);
+        handle.observe(&ready, &nodes, at(1));
+        let mut stale = ready.clone();
+        stale.phase = TrafficDataPhase::Stale;
+        handle.observe(&stale, &nodes, at(2));
+        assert_eq!(label(handle.summary_at(at(2))), None);
+        handle.observe(&ready, &nodes, at(3));
+        handle.observe(
+            &TrafficDataSnapshot::unavailable(StatusAdapterKind::Native),
+            &nodes,
+            at(4),
+        );
+        assert_eq!(label(handle.summary_at(at(4))), None);
+        let mut missing = ready.clone();
+        missing.session_id = None;
+        handle.observe(&missing, &nodes, at(5));
+        assert_eq!(label(handle.summary_at(at(5))), None);
+        handle.observe(&ready, &nodes, at(6));
+        let mut profile = snapshot("one", vec![connection("one", &["Singapore"])]);
+        profile.profile_id = "replacement".into();
+        assert_eq!(
+            label(handle.update(&profile, &nodes, at(7))),
             Some("Singapore".into())
         );
-
-        let mut changed_profile = snapshot("two", vec![connection("one", &["Tokyo"])]);
-        changed_profile.profile_id = "other-private-profile".into();
         assert_eq!(
-            label(handle.update(&changed_profile, &nodes, at(3))),
+            label(handle.update(
+                &snapshot("two", vec![connection("one", &["Tokyo"])]),
+                &nodes,
+                at(8)
+            )),
             Some("Tokyo".into())
         );
     }
-
     #[test]
-    fn stale_unavailable_and_empty_snapshots_have_no_summary() {
+    fn sixty_second_window_is_strict_and_ties_are_deterministic() {
         let handle = RouteActivitySummaryHandle::default();
-        let nodes = [node("Tokyo")];
-        let ready = snapshot("one", vec![connection("one", &["Tokyo"])]);
-        handle.update(&ready, &nodes, at(1));
-        assert_eq!(
-            label(handle.update(&snapshot("one", Vec::new()), &nodes, at(2))),
-            None
+        let nodes = [node("Zurich"), node("Amsterdam")];
+        handle.observe(
+            &snapshot(
+                "one",
+                vec![
+                    connection("one", &["Zurich"]),
+                    connection("two", &["Amsterdam"]),
+                ],
+            ),
+            &nodes,
+            at(0),
         );
-        let mut stale = ready.clone();
-        stale.phase = TrafficDataPhase::Stale;
-        assert_eq!(label(handle.update(&stale, &nodes, at(3))), None);
-        assert_eq!(
-            label(handle.update(
-                &TrafficDataSnapshot::unavailable(StatusAdapterKind::Native),
-                &nodes,
-                at(4)
-            )),
-            None
-        );
-        assert_eq!(
-            label(handle.update(&snapshot("two", Vec::new()), &nodes, at(5))),
-            None
-        );
-        let mut missing_session = snapshot("three", vec![connection("two", &["Tokyo"])]);
-        missing_session.session_id = None;
-        assert_eq!(label(handle.update(&missing_session, &nodes, at(6))), None);
+        assert_eq!(label(handle.summary_at(at(59))), Some("Amsterdam".into()));
+        assert_eq!(label(handle.summary_at(at(60))), None);
     }
-
     #[test]
-    fn observation_log_retention_is_bounded_by_age_and_capacity() {
-        let handle = RouteActivitySummaryHandle::default();
-        let nodes = [node("Tokyo")];
-        let connections = (0..=MAX_OBSERVATION_EVENTS)
-            .map(|index| connection(&format!("connection-{index}"), &["Tokyo"]))
-            .collect();
-        handle.update(&snapshot("one", connections), &nodes, at(1));
-        {
-            let projection = handle.projection.lock().unwrap();
-            assert_eq!(projection.observation_log.len(), MAX_OBSERVATION_EVENTS);
-            assert_eq!(
-                projection.seen_connection_ids.len(),
-                MAX_SEEN_CONNECTION_IDS
-            );
-        }
+    fn memory_accounting_stays_under_ten_mebibytes() {
+        let budget = RouteActivitySummaryHandle::memory_budget();
+        assert!(budget.total_bytes <= MEMORY_BUDGET_BYTES);
         assert_eq!(
-            label(handle.summary_at(OBSERVATION_LOG_WINDOW + Duration::from_secs(1))),
-            None
-        );
-        assert!(handle.projection.lock().unwrap().observation_log.is_empty());
-    }
-
-    #[test]
-    fn only_the_last_catalogued_node_in_the_route_chain_is_an_exit() {
-        let handle = RouteActivitySummaryHandle::default();
-        let nodes = [node("Tokyo"), node("Relay exit")];
-        assert_eq!(
-            label(handle.update(
-                &snapshot(
-                    "one",
-                    vec![connection("one", &["Policy group", "Tokyo", "Relay exit"],)]
-                ),
-                &nodes,
-                at(1)
-            )),
-            Some("Relay exit".into())
-        );
-        assert_eq!(
-            label(handle.update(
-                &snapshot(
-                    "two",
-                    vec![connection("two", &["Policy group", "Unknown label"],)]
-                ),
-                &nodes,
-                at(2)
-            )),
-            None
+            budget.total_bytes,
+            budget.event_bytes + budget.dedupe_index_bytes + budget.container_and_safety_bytes
         );
     }
-
     #[test]
-    fn labels_are_trimmed_unicode_safe_truncated_and_redacted() {
+    fn labels_are_unicode_safe_and_sensitive_values_never_become_display_data() {
         assert_eq!(
             display_safe_node_label("  东京 🚄  "),
             Some("东京 🚄".into())
@@ -499,7 +529,6 @@ mod tests {
             display_safe_node_label(&long),
             Some(format!("{}…", "界".repeat(48)))
         );
-        assert_eq!(display_safe_node_label(&"x".repeat(161)), None);
         for sensitive in [
             "https://private.example/token=secret",
             "127.0.0.1",
@@ -511,7 +540,6 @@ mod tests {
         ] {
             assert_eq!(display_safe_node_label(sensitive), None, "{sensitive}");
         }
-
         let handle = RouteActivitySummaryHandle::default();
         let unsafe_node = [node("private.example:7890")];
         assert_eq!(

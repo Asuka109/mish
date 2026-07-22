@@ -52,6 +52,9 @@ use uuid::Uuid;
 
 mod graceful_exit;
 mod native_menu;
+// The consumer-neutral observation API is intentionally wired before a later
+// native-menu surface consumes it.
+#[allow(dead_code)]
 mod route_activity_summary;
 mod status_bar;
 
