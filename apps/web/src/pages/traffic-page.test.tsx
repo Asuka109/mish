@@ -210,6 +210,7 @@ describe("Traffic page", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "Mihomo rejected the close command. The active snapshot was refreshed without claiming success.",
+        expect.objectContaining({ id: "traffic-operation-failure" }),
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

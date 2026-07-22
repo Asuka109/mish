@@ -70,10 +70,11 @@ export function presentNotificationToast(
     options.description !== undefined ||
     options.duration !== undefined;
   if (!hasOptions) {
-    if (notification.level === "success") toast.success(title);
-    else if (notification.level === "warning") toast.warning(title);
-    else if (notification.level === "error") toast.error(title);
-    else toast.info(title);
+    const id = { id: notification.id };
+    if (notification.level === "success") toast.success(title, id);
+    else if (notification.level === "warning") toast.warning(title, id);
+    else if (notification.level === "error") toast.error(title, id);
+    else toast.info(title, id);
     return;
   }
   if (notification.level === "success") toast.success(title, options);

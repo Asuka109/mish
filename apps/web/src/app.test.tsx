@@ -9,6 +9,7 @@ import {
   StatusClientError,
   type AppearancePreference,
   type CaptureSelectionDto,
+  type EventsClient,
   type ProfileClient,
   type ProfileSnapshotDto,
   type LanguagePreference,
@@ -32,6 +33,7 @@ import { FixtureStatusClient } from "./data/fixture-status-client";
 import { FixtureProfileClient } from "./data/fixture-profile-client";
 import { ProductProvider } from "./data/product-provider";
 import { EventsProvider } from "./data/events-provider";
+import { createFixtureEventsClient } from "./data/fixture-events-client";
 import {
   FixtureSettingsClient,
   createFixtureSettingsSnapshot,
@@ -54,6 +56,7 @@ function renderRoute(
   settingsClient: SettingsClient = new FixtureSettingsClient(),
   settingsSnapshot: SettingsSnapshotDto = createFixtureSettingsSnapshot(),
   localBackupClient?: LocalBackupClient,
+  eventsClient?: EventsClient,
 ) {
   return render(
     <SettingsProvider
@@ -81,7 +84,7 @@ function renderRoute(
             <ProductProvider client={client}>
               <ProfileProvider client={profileClient}>
                 <TrafficProvider>
-                  <EventsProvider>
+                  <EventsProvider client={eventsClient}>
                     <TooltipProvider>
                       <AppRoutes />
                     </TooltipProvider>
@@ -1211,6 +1214,62 @@ describe("production routes", () => {
     expect(notificationCenter).not.toHaveTextContent("The command failed.");
   });
 
+  it("delivers an application capture-failure event once across the toast and center", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    const eventsClient = createFixtureEventsClient();
+    const eventsSnapshot = await eventsClient.getSnapshot();
+    eventsClient.publishSnapshot({
+      ...eventsSnapshot,
+      events: [
+        ...eventsSnapshot.events,
+        {
+          detail: "Restart the active profile and retry only after Status is healthy",
+          id: "capture-failure:listener-unavailable",
+          level: "error",
+          message: "Traffic capture was blocked because the managed listener is unavailable",
+          observedAt: Date.now(),
+          sequence: eventsSnapshot.sequence + 1,
+          source: "application",
+        },
+      ],
+      sequence: eventsSnapshot.sequence + 1,
+    });
+    renderRoute(
+      "/status",
+      "en",
+      new FailingCaptureClient(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      eventsClient,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    );
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "Traffic capture was blocked because the managed listener is unavailable",
+        expect.objectContaining({ id: "capture-failure:capture-failure:listener-unavailable" }),
+      ),
+    );
+    expect(errorToast).not.toHaveBeenCalledWith("The command failed.", expect.anything());
+
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent(
+      "Traffic capture was blocked because the managed listener is unavailable",
+    );
+    expect(notificationCenter).toHaveTextContent(
+      "Restart the active profile and retry only after Status is healthy",
+    );
+    expect(notificationCenter).not.toHaveTextContent("The command failed.");
+  });
+
   it("offers a clean helper reinstall when the desktop core is inactive", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();
@@ -1421,7 +1480,9 @@ describe("desktop RPC experience", () => {
 
     act(() => statusClient.complete());
 
-    await waitFor(() => expect(successToast).toHaveBeenCalledWith("Listener ready"));
+    await waitFor(() =>
+      expect(successToast).toHaveBeenCalledWith("Listener ready", expect.any(Object)),
+    );
     expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
     expect(snapshot.runtime.systemProxy.phase).toBe("off");
     expect(snapshot.runtime.systemProxyEnabled).toBe(false);
@@ -1439,6 +1500,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
         "Start the proxy with a valid Profile, then test the listener again.",
+        expect.any(Object),
       ),
     );
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
@@ -1459,6 +1521,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
         "The Core is changing state. Wait for it to finish, then test again.",
+        expect.any(Object),
       ),
     );
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
@@ -1479,6 +1542,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "The local listener did not respond. Confirm the active Profile is healthy, then try again.",
+        expect.any(Object),
       ),
     );
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
@@ -1499,6 +1563,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "Mish could not test the local listener. Check the local service connection and try again.",
+        expect.any(Object),
       ),
     );
     expect(document.body).not.toHaveTextContent("super-secret");
@@ -1839,6 +1904,7 @@ describe("desktop RPC experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "The setting could not be confirmed. The last confirmed state is still shown.",
+        expect.any(Object),
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -2280,6 +2346,7 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
+        expect.any(Object),
       ),
     );
     const startButton = screen.getByRole("button", { name: "启动代理" });
@@ -2407,7 +2474,12 @@ describe("Status fixture experience", () => {
       }),
     );
 
-    await waitFor(() => expect(errorToast).toHaveBeenCalledWith("The command failed."));
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "The command failed.",
+        expect.objectContaining({ id: "status-operation-failure" }),
+      ),
+    );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
@@ -2581,6 +2653,7 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "macOS did not allow the System Proxy change. No success was recorded.",
+        expect.any(Object),
       ),
     );
     const user = userEvent.setup();
@@ -2615,6 +2688,7 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
         "Virtual Interface differs from the requested state and was not reported as active.",
+        expect.any(Object),
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -2642,7 +2716,12 @@ describe("Status fixture experience", () => {
 
     const errorToast = vi.spyOn(toast, "error");
     client.rejectCommand?.();
-    await waitFor(() => expect(errorToast).toHaveBeenCalledWith("The command failed."));
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "The command failed.",
+        expect.objectContaining({ id: "status-operation-failure" }),
+      ),
+    );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
@@ -2674,7 +2753,12 @@ describe("Status fixture experience", () => {
     const manager = await screen.findByRole("dialog", { name: "Edit services…" });
     await user.click(within(manager).getByRole("button", { name: "Restore defaults" }));
 
-    await waitFor(() => expect(errorToast).toHaveBeenCalledWith("The command failed."));
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "The command failed.",
+        expect.objectContaining({ id: "status-operation-failure" }),
+      ),
+    );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await user.click(within(manager).getByRole("button", { name: "Close" }));
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));

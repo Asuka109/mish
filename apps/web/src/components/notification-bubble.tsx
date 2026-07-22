@@ -35,6 +35,10 @@ import { WelcomeDialog } from "./welcome-dialog";
 
 const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
+const captureFailureEventMessages = new Set([
+  "Traffic capture was blocked because Mihomo is not healthy",
+  "Traffic capture was blocked because the managed listener is unavailable",
+]);
 
 type LocalProxyFeedback =
   | { id: string; level: "success"; message: string }
@@ -117,10 +121,20 @@ function NotificationPublicationController({
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
   const tunWarning = tun?.phase === "drift" || tun?.phase === "failed";
+  const captureFailureEvent =
+    commandStates.capture.phase === "failure"
+      ? [...(eventsContext?.events ?? [])]
+          .reverse()
+          .find(
+            (event) =>
+              event.source === "application" && captureFailureEventMessages.has(event.message),
+          )
+      : undefined;
   // A managed-listener conflict is the authoritative explanation for the same
   // capture attempt even when the status command reports its generic failure
   // before the profile activation snapshot reaches the UI.
   const captureFailureAlreadyExplained =
+    Boolean(captureFailureEvent) ||
     Boolean(managedListenerConflict) ||
     (commandStates.capture.phase === "failure" && (systemProxyFailed || tunWarning));
   const productFailure = Boolean(snapshot && productError && !captureFailureAlreadyExplained);
@@ -197,11 +211,30 @@ function NotificationPublicationController({
     () =>
       ingestExternalEvents(
         (eventsContext?.events ?? []).filter(
-          (event) => !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
+          (event) =>
+            event.id !== captureFailureEvent?.id &&
+            !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
         ),
       ),
-    [LL, captureFailureAlreadyExplained, eventsContext?.events, ingestExternalEvents],
+    [
+      LL,
+      captureFailureAlreadyExplained,
+      captureFailureEvent?.id,
+      eventsContext?.events,
+      ingestExternalEvents,
+    ],
   );
+  useEffect(() => {
+    if (!captureFailureEvent) return;
+    publish({
+      detail: captureFailureEvent.detail ?? undefined,
+      id: `capture-failure:${captureFailureEvent.id}`,
+      level: captureFailureEvent.level,
+      message: captureFailureEvent.message,
+      observedAt: captureFailureEvent.observedAt,
+      replaces: ["status-operation-failure"],
+    });
+  }, [captureFailureEvent, publish]);
   useEffect(() => {
     if (!welcomeAvailable || !welcomeInvitation) {
       retire(welcomePromptToastId);
