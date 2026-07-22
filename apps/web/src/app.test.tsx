@@ -2445,7 +2445,7 @@ describe("Status fixture experience", () => {
     await user.click(await screen.findByRole("button", { name: /🌐 Proxy/ }));
     await user.click(await screen.findByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" }));
     await user.click(screen.getByRole("link", { name: "Routes" }));
-    await user.click(await screen.findByRole("button", { name: "Expand 🌐 Proxy" }));
+    await user.click(await screen.findByRole("button", { name: "Browse 🌐 Proxy" }));
 
     expect(screen.getByRole("button", { name: "Select 🇯🇵 NRT-03 in 🌐 Proxy" })).toHaveAttribute(
       "aria-pressed",

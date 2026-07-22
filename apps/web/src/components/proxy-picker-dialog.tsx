@@ -326,6 +326,7 @@ export function PolicyPickerDialog({
                           : undefined
                       }
                       pendingLabel={LL.routes.switching()}
+                      readOnlyPresentation={group.type === "selector" ? "explicit" : "passive"}
                       readOnlyLabel={LL.routes.readOnly()}
                       selectLabel={LL.routes.selectChild({
                         child: entity.label,

@@ -200,7 +200,7 @@ Status: passed.
 ### Visual comparison
 
 - Compared the compact Status summary and focused picker against reference 1 at a 1928 × 1142 viewport.
-- Compared the multi-group Routes workspace against reference 2 using the same rendered state and a side-by-side combined image.
+- Compared the Routes policy-group collection and shared node-browser dialog against both policy-browser references using side-by-side combined images.
 - Preserved Mish typography, spacing, surfaces, theme behavior, and desktop chrome instead of copying incidental source pixels.
 - Verified light/opaque Status and picker, light Routes, and dark/material Routes.
 
@@ -208,7 +208,7 @@ Status: passed.
 
 - Verified Status and picker at 800 × 600.
 - Verified dedicated Routes group views at 320 × 700 and 390 × 700 without horizontal overflow.
-- Verified multiple desktop groups can remain expanded and retain their independent controls.
+- Verified every desktop policy-group row opens the same focused node-browser dialog used by Status, without mounting inline child trees.
 - Verified compact rows keep effective 44 px targets and retain latency, current state, and counts.
 - Verified picker search, direct selection, keyboard Escape clearing/close behavior, and focus restoration.
 
@@ -216,7 +216,7 @@ Status: passed.
 
 - Compared the annotated 971 × 689 dark Chinese picker state with the updated implementation at the same viewport, theme, locale, and open-dialog state.
 - Removed the trailing browse disclosure, nested navigation stack, breadcrumb, and back action from the picker. Policy-group children now remain direct selectable or explicitly read-only rows in the current group.
-- Kept hierarchy and multi-group exploration in Routes, where the extra navigation context is visible and expected.
+- Kept global group discovery and full-graph search in Routes while direct-child exploration remains in the shared focused picker.
 - The updated dialog keeps the existing row density, latency, selection, protocol/group-type, search, sort, test, and read-only treatments without leaving a dead trailing column.
 - The in-app Browser accessibility snapshot contains no nested browse action or current-path control, and the focused unit/browser coverage confirms Escape closes after clearing search and restores focus to the Status summary trigger.
 
@@ -229,7 +229,7 @@ Status: passed.
 - Focused comparison: a separate crop was unnecessary because the removed explanation and the row-end status labels are legible in the full 971 × 689 capture.
 - Semantic result: selectable node and selector-group rows keep their accessible selection buttons but become disabled when Core commands are unavailable. They do not display `只读`. Intrinsically automatic `url-test`, `fallback`, and `load-balance` groups show an `自动选择` badge beside the group name instead of a right-aligned `只读` status. Other intrinsically non-selectable group types retain their explicit read-only state.
 - Disabled composition: command unavailability dims static automatic rows and disabled selection buttons consistently, without turning search, sort, or Routes disclosure navigation into unavailable controls.
-- Interaction evidence: disabled selections do not invoke commands; search, sort, and nested Routes browsing remain available, while delay-test and other write controls stay disabled.
+- Interaction evidence: disabled selections do not invoke commands; search, sort, and Routes group browsing remain available, while delay-test and other write controls stay disabled.
 - Required fidelity surfaces: existing typography, spacing rhythm, dark tokens, iconography, and bilingual copy remain unchanged apart from the requested deletion. No raster or brand assets changed.
 - Comparison history: the first source exposed two P1 semantic conflicts—global command unavailability reused entity-level read-only labeling, and a redundant fallback explanation occupied a large dialog region. Both were removed. A second annotated pass found that static automatic groups did not inherit the stopped-Core dimming and that their `只读` status described implementation constraints rather than behavior. The second fix added disabled-row styling and moved the behavior to an `自动选择` badge beside the label. Post-fix visual evidence and stopped-Core tests show no remaining P0, P1, or P2 issue from these annotations.
 
@@ -253,6 +253,17 @@ Status: passed.
 - Post-fix evidence: the collapsed comparison shows one collection card with continuous rows, aligned counts, and the existing group-summary hierarchy. The expanded capture shows two groups open simultaneously with toolbars and node rows remaining inside the same uninterrupted outer card. Browser geometry verifies one bordered/clipped graph, zero gaps between peer groups, borderless group articles, and two mounted expanded bodies.
 - Required fidelity surfaces: existing system typography, row heights, tokens, icons, selected/latency states, search field, toolbar controls, and bilingual dynamic copy are unchanged. No image or brand assets changed. At 320 and 390 CSS pixels, the same collection surface retains dedicated group links and the existing single-group child route rather than squeezing the desktop tree.
 - Comparison history: the pre-fix Routes capture showed distinct rounded cards with 12-pixel gaps. The post-fix combined and expanded captures show no remaining P0, P1, or P2 issue for the requested one-card composition.
+
+### Annotation follow-up: shared Routes node-browser dialog
+
+- Source visual truth: the latest annotated Routes captures at a 1046 × 770 viewport, which requested replacing inline disclosure with the existing focused node browser and keeping `url-test` groups browsable, plus `/var/folders/5z/wjdqjxyn66n_69rwycgmdz1c0000gn/T/codex-clipboard-ef3e4355-d4f6-4eec-a5ed-90a385647836.png` for the accepted summary-to-dialog interaction.
+- Implementation screenshots: `.scratch/design-qa/routes-shared-dialog-list.png` and `.scratch/design-qa/routes-shared-dialog-open.png`, captured by the browser regression at an 800 × 600 CSS viewport with device scale factor 1 in dark material mode.
+- Combined comparison: `.scratch/design-qa/routes-shared-dialog-comparison.png`, a 2400 × 600 canvas pairing the normalized source browser, the final Routes collection, and the final opened shared dialog.
+- Initial finding: Routes reused the semantic rows but still owned a second inline child-browser composition. The left disclosure implied expandable hierarchy, automatic groups with zero reported children appeared unavailable, and the same direct-child task behaved differently between Status and Routes.
+- Fix: desktop Routes rows now call the existing `PolicyPickerDialog`; no group body is mounted below a row. Every policy-group type remains a browsable row even with zero reported children. Selector groups expose confirmed selection commands inside the dialog, while automatic groups expose the same search, sort, delay, metadata, latency, and empty states without manual selection. Narrow widths retain the accepted dedicated group route.
+- Post-fix evidence: the final collection uses the node browser's continuous rows, trailing disclosure, counts, current child, and latency treatment. The opened state is the same shared dialog component used by Status, including its toolbar, 100-row batching, selection confirmation, failure focus restoration, and delay-test authority. The automatic-group browser test confirms an enabled trigger and no manual `Select` action.
+- Required fidelity surfaces: the outer card, row heights, separators, badges, typography, count alignment, search field, dark/material surfaces, focus behavior, and bilingual dynamic labels are preserved. Global search still traverses the full graph and shows the matched path in each retained owning-group row.
+- Comparison history: the annotated implementation showed left-side expand chevrons and inline child content. The post-fix comparison shows trailing browser disclosure and one focused modal surface with no remaining P0, P1, or P2 issue for this feedback.
 
 ### Content and state checks
 

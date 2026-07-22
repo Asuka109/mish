@@ -1,5 +1,3 @@
-import { CaretDown } from "@phosphor-icons/react/CaretDown";
-import { CaretRight } from "@phosphor-icons/react/CaretRight";
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
 import type {
   GroupDelayChildResultDto,
@@ -9,7 +7,6 @@ import type {
   PolicyGroupType,
 } from "@mish/contracts";
 import {
-  Button,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -29,6 +26,7 @@ import {
   PolicyGroupSummaryRow,
   handlePolicyPeerNavigation,
 } from "../components/policy-browser";
+import { PolicyPickerDialog } from "../components/proxy-picker-dialog";
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
@@ -83,17 +81,11 @@ const routeStyles = tv({
     ),
     rootList: "route-root-list m-0 flex list-none flex-col p-0",
     groupItem: "route-group-item min-w-0 border-b border-hairline-soft last:border-b-0",
-    group: "route-group min-w-0 bg-canvas data-[disabled=true]:opacity-55",
+    group: "route-group min-w-0 bg-canvas",
     groupHeader: "route-group-header flex min-h-14.5 min-w-0 items-stretch",
-    groupToggle: cx(
-      "route-group-toggle grid min-h-14.5 min-w-0 w-full grid-cols-[18px_minmax(0,1fr)] items-center",
-      "justify-stretch gap-2.5 rounded-none border-0 bg-transparent p-0 text-left text-fg",
-      "hover:bg-accent hover:text-ink max-shell-mobile:hidden",
-    ),
-    chevron: "route-group-chevron grid place-items-center text-muted-foreground [&_svg]:size-3.5",
+    desktopOpen: "route-group-desktop-open min-w-0 flex-1 max-shell-mobile:hidden",
     mobileLink:
       "route-group-mobile-link hidden w-full text-inherit no-underline max-shell-mobile:block",
-    groupBody: "route-group-body border-t border-hairline bg-surface-soft",
     detail: "policy-group-detail min-w-0",
     groupEmpty:
       "route-group-empty border-t border-hairline-soft bg-canvas px-3.5 py-4.5 text-center text-metadata text-muted-foreground",
@@ -371,6 +363,7 @@ export function PolicyGroupDetail({
                     canSelectNode || canSelectGroup ? () => onSelect(group.id, childId) : undefined
                   }
                   pendingLabel={LL.routes.switching()}
+                  readOnlyPresentation={group.type === "selector" ? "explicit" : "passive"}
                   readOnlyLabel={LL.routes.readOnly()}
                   selectLabel={LL.routes.selectChild({ child: entity.label, group: group.label })}
                   selected={selected}
@@ -390,66 +383,47 @@ export function PolicyGroupDetail({
   );
 }
 
-interface RouteGroupProps extends Omit<PolicyGroupDetailProps, "density" | "query" | "showSearch"> {
-  disabled: boolean;
-  expandedGroupIds: Set<string>;
-  onToggle(groupId: string): void;
+interface RouteGroupProps {
+  graph: RouteGraph;
+  group: PolicyGroupDto;
+  onOpen(groupId: string): void;
+  search: RouteSearchState;
 }
 
-function RouteGroup({
-  disabled,
-  expandedGroupIds,
-  graph,
-  group,
-  onToggle,
-  search,
-  ...detailProps
-}: RouteGroupProps) {
+function RouteGroup({ graph, group, onOpen, search }: RouteGroupProps) {
   const { LL } = useI18nContext();
-  const hasChildren = group.childIds.length > 0;
-  const expanded =
-    !disabled &&
-    hasChildren &&
-    (expandedGroupIds.has(group.id) || Boolean(search?.autoExpandedGroupIds.has(group.id)));
   const currentChild = getEntityLabel(graph, group.selectedChildId) || LL.routes.noCurrentChild();
+  const matchingPath = search.queryActive
+    ? [...search.matchPathByEntityId.entries()].find(([, path]) => path.includes(group.id))?.[1]
+    : undefined;
+  const currentLabel = matchingPath
+    ? LL.routes.ownedByPath({
+        path: matchingPath.map((entityId) => getEntityLabel(graph, entityId)).join(" / "),
+      })
+    : LL.routes.currentChild({ child: currentChild });
   const latency = normalizeMeasuredLatency(
     getRouteChildLatency(graph, group.selectedChildId ?? ""),
   );
   return (
     <li className={routeStyles().groupItem()}>
-      <article className={routeStyles().group()} data-disabled={disabled ? "true" : undefined}>
+      <article className={routeStyles().group()}>
         <div className={routeStyles().groupHeader()}>
-          <Button
-            aria-controls={`route-group-${encodeURIComponent(group.id)}`}
-            aria-expanded={expanded}
-            aria-label={
-              expanded
-                ? LL.routes.collapseGroup({ group: group.label })
-                : LL.routes.expandGroup({ group: group.label })
-            }
-            className={routeStyles().groupToggle({ className: "route-group-desktop-toggle" })}
-            data-policy-row-primary
-            disabled={disabled || !hasChildren}
-            onClick={() => onToggle(group.id)}
-            type="button"
-            variant="ghost"
-          >
-            <span className={routeStyles().chevron()}>
-              {expanded ? <CaretDown aria-hidden="true" /> : <CaretRight aria-hidden="true" />}
-            </span>
+          <div className={routeStyles().desktopOpen()}>
             <PolicyGroupSummaryRow
               childCount={group.childIds.length}
               childCountLabel={LL.routes.childCount({ count: group.childIds.length })}
-              currentLabel={LL.routes.currentChild({ child: currentChild })}
+              currentLabel={currentLabel}
               group={group}
               latency={
-                latency === null ? null : (
+                matchingPath || latency === null ? null : (
                   <span className="text-success-text tabular-nums"> · {latency} ms</span>
                 )
               }
+              onOpen={() => onOpen(group.id)}
+              openLabel={LL.routes.browseGroup({ group: group.label })}
               typeLabel={getGroupTypeLabel(LL, group)}
             />
-          </Button>
+          </div>
           <Link
             aria-label={LL.routes.browseGroup({ group: group.label })}
             className={routeStyles().mobileLink()}
@@ -458,11 +432,11 @@ function RouteGroup({
             <PolicyGroupSummaryRow
               childCount={group.childIds.length}
               childCountLabel={LL.routes.childCount({ count: group.childIds.length })}
-              currentLabel={LL.routes.currentChild({ child: currentChild })}
+              currentLabel={currentLabel}
               density="compact"
               group={group}
               latency={
-                latency === null ? null : (
+                matchingPath || latency === null ? null : (
                   <span className="text-success-text tabular-nums"> · {latency} ms</span>
                 )
               }
@@ -470,20 +444,6 @@ function RouteGroup({
             />
           </Link>
         </div>
-        {expanded ? (
-          <div
-            className={routeStyles().groupBody()}
-            id={`route-group-${encodeURIComponent(group.id)}`}
-          >
-            <PolicyGroupDetail
-              {...detailProps}
-              graph={graph}
-              group={group}
-              query={search?.queryActive ? "search" : ""}
-              search={search}
-            />
-          </div>
-        ) : null}
       </article>
     </li>
   );
@@ -518,7 +478,8 @@ export function RoutesPage() {
   const { groupId: routeGroupId } = useParams<{ groupId?: string }>();
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(() => new Set());
+  const [pickerGroupId, setPickerGroupId] = useState<string | null>(null);
+  const pickerTriggerRef = useRef<HTMLElement | null>(null);
   const [sortByGroupId, setSortByGroupId] = useState<Map<string, RouteSort>>(() => new Map());
   const [pendingSelections, setPendingSelections] = useState<Map<string, string>>(() => new Map());
   const [delayPendingAction, setDelayPendingAction] = useState<
@@ -528,7 +489,7 @@ export function RoutesPage() {
     childIds: readonly string[];
     groupId: string;
   } | null>(null);
-  const preSearchState = useRef<{ expanded: Set<string>; scrollTop: number } | null>(null);
+  const preSearchScrollTop = useRef<number | null>(null);
   const configuredRoutes = useConfiguredRouteCatalog(snapshot);
   const configuredRoutesActive = configuredRoutes !== null;
   const groups = configuredRoutesActive ? configuredRoutes.groups : (snapshot?.groups ?? []);
@@ -544,21 +505,17 @@ export function RoutesPage() {
 
   useEffect(() => {
     const scroller = document.querySelector<HTMLElement>("main .workspace-page-scroll");
-    if (query && !preSearchState.current) {
-      preSearchState.current = {
-        expanded: new Set(expandedGroupIds),
-        scrollTop: scroller?.scrollTop ?? 0,
-      };
+    if (query && preSearchScrollTop.current === null) {
+      preSearchScrollTop.current = scroller?.scrollTop ?? 0;
       return;
     }
-    if (query || !preSearchState.current) return;
-    const previous = preSearchState.current;
-    preSearchState.current = null;
-    setExpandedGroupIds(previous.expanded);
+    if (query || preSearchScrollTop.current === null) return;
+    const previousScrollTop = preSearchScrollTop.current;
+    preSearchScrollTop.current = null;
     requestAnimationFrame(() => {
-      if (scroller) scroller.scrollTop = previous.scrollTop;
+      if (scroller) scroller.scrollTop = previousScrollTop;
     });
-  }, [expandedGroupIds, query]);
+  }, [query]);
 
   useEffect(() => {
     function handleSearchShortcut(event: globalThis.KeyboardEvent) {
@@ -615,14 +572,11 @@ export function RoutesPage() {
     .filter((id) => !search.queryActive || search.visibleEntityIds.has(id));
   const decodedRouteGroupId = routeGroupId ? decodeURIComponent(routeGroupId) : null;
   const standaloneGroup = decodedRouteGroupId ? graph.groupById.get(decodedRouteGroupId) : null;
+  const pickerGroup = pickerGroupId ? graph.groupById.get(pickerGroupId) : null;
 
-  function toggleGroup(groupId: string) {
-    setExpandedGroupIds((current) => {
-      const next = new Set(current);
-      if (next.has(groupId)) next.delete(groupId);
-      else next.add(groupId);
-      return next;
-    });
+  function openPicker(groupId: string) {
+    pickerTriggerRef.current = document.activeElement as HTMLElement | null;
+    setPickerGroupId(groupId);
   }
 
   function changeSort(groupId: string, sort: RouteSort) {
@@ -704,118 +658,134 @@ export function RoutesPage() {
   };
 
   return (
-    <div className={routeStyles().page()}>
-      <div className={routeStyles().workspace()}>
-        <header className={routeStyles().header()}>
-          {standaloneGroup ? (
-            <Link className={routeStyles().back()} to="/routes">
-              {LL.routes.backToRoutes()}
-            </Link>
+    <>
+      <div className={routeStyles().page()}>
+        <div className={routeStyles().workspace()}>
+          <header className={routeStyles().header()}>
+            {standaloneGroup ? (
+              <Link className={routeStyles().back()} to="/routes">
+                {LL.routes.backToRoutes()}
+              </Link>
+            ) : null}
+            <h1 className={standaloneGroup ? "user-authored-label" : undefined}>
+              {standaloneGroup?.label ?? LL.routes.title()}
+            </h1>
+            <p>
+              {standaloneGroup
+                ? LL.routes.currentGroupDescription({ group: standaloneGroup.label })
+                : LL.routes.description()}
+            </p>
+          </header>
+
+          {connection.stale && snapshot.adapterKind !== "fixture" ? (
+            <p className={routeStyles().stale()} role="status">
+              {connection.phase === "reconnecting"
+                ? LL.status.reconnecting()
+                : LL.status.staleData()}
+            </p>
           ) : null}
-          <h1 className={standaloneGroup ? "user-authored-label" : undefined}>
-            {standaloneGroup?.label ?? LL.routes.title()}
-          </h1>
-          <p>
-            {standaloneGroup
-              ? LL.routes.currentGroupDescription({ group: standaloneGroup.label })
-              : LL.routes.description()}
-          </p>
-        </header>
+          {!standaloneGroup ? (
+            <Field className={routeStyles().searchField()}>
+              <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
+              <span className={routeStyles().searchControl()}>
+                <MagnifyingGlass aria-hidden="true" />
+                <Input
+                  autoComplete="off"
+                  data-native-search
+                  id="routes-search"
+                  name="routes-search"
+                  onValueChange={setQuery}
+                  placeholder={LL.routes.searchPlaceholder()}
+                  spellCheck={false}
+                  type="search"
+                  value={query}
+                />
+              </span>
+              <span aria-live="polite" className="sr-only" role="status">
+                {LL.routes.searchResultCount({ count: visibleGroupIds.length })}
+              </span>
+            </Field>
+          ) : null}
 
-        {connection.stale && snapshot.adapterKind !== "fixture" ? (
-          <p className={routeStyles().stale()} role="status">
-            {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
-          </p>
-        ) : null}
-        {!standaloneGroup ? (
-          <Field className={routeStyles().searchField()}>
-            <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
-            <span className={routeStyles().searchControl()}>
-              <MagnifyingGlass aria-hidden="true" />
-              <Input
-                autoComplete="off"
-                data-native-search
-                id="routes-search"
-                name="routes-search"
-                onValueChange={setQuery}
-                placeholder={LL.routes.searchPlaceholder()}
-                spellCheck={false}
-                type="search"
-                value={query}
+          {graph.errors.length > 0 ? (
+            <GraphError>
+              <ul>
+                {graph.errors.map((graphError, index) => (
+                  <li key={`${graphError.code}-${index}`}>
+                    {getGraphErrorMessage(LL, graph, graphError)}
+                  </li>
+                ))}
+              </ul>
+            </GraphError>
+          ) : groups.length === 0 ? (
+            <Empty className={routeStyles().empty()}>
+              <EmptyHeader>
+                <EmptyTitle>{LL.routes.noGroupsTitle()}</EmptyTitle>
+                <EmptyDescription>{LL.routes.noGroupsDescription()}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : standaloneGroup ? (
+            <section aria-label={standaloneGroup.label} className={routeStyles().singleGroup()}>
+              <PolicyGroupDetail
+                {...sharedDetailProps}
+                density="compact"
+                group={standaloneGroup}
+                onQueryChange={setQuery}
+                pendingSelectionId={pendingSelections.get(standaloneGroup.id)}
+                query={query}
+                showSearch
               />
-            </span>
-            <span aria-live="polite" className="sr-only" role="status">
-              {LL.routes.searchResultCount({ count: visibleGroupIds.length })}
-            </span>
-          </Field>
-        ) : null}
-
-        {graph.errors.length > 0 ? (
-          <GraphError>
-            <ul>
-              {graph.errors.map((graphError, index) => (
-                <li key={`${graphError.code}-${index}`}>
-                  {getGraphErrorMessage(LL, graph, graphError)}
-                </li>
-              ))}
-            </ul>
-          </GraphError>
-        ) : groups.length === 0 ? (
-          <Empty className={routeStyles().empty()}>
-            <EmptyHeader>
-              <EmptyTitle>{LL.routes.noGroupsTitle()}</EmptyTitle>
-              <EmptyDescription>{LL.routes.noGroupsDescription()}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : standaloneGroup ? (
-          <section aria-label={standaloneGroup.label} className={routeStyles().singleGroup()}>
-            <PolicyGroupDetail
-              {...sharedDetailProps}
-              density="compact"
-              group={standaloneGroup}
-              onQueryChange={setQuery}
-              pendingSelectionId={pendingSelections.get(standaloneGroup.id)}
-              query={query}
-              showSearch
-            />
-          </section>
-        ) : decodedRouteGroupId ? (
-          <Empty className={routeStyles().empty()}>
-            <EmptyHeader>
-              <EmptyTitle>{LL.routes.groupNotFoundTitle()}</EmptyTitle>
-              <EmptyDescription>{LL.routes.groupNotFoundDescription()}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : visibleGroupIds.length === 0 ? (
-          <Empty className={routeStyles().empty()}>
-            <EmptyHeader>
-              <EmptyTitle>{LL.routes.noMatchesTitle()}</EmptyTitle>
-              <EmptyDescription>{LL.routes.noMatchesDescription()}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <section aria-label={LL.routes.title()} className={routeStyles().graph()}>
-            <ul className={routeStyles().rootList()} onKeyDown={handlePolicyPeerNavigation}>
-              {visibleGroupIds.map((groupId) => {
-                const group = graph.groupById.get(groupId);
-                if (!group) return null;
-                return (
-                  <RouteGroup
-                    {...sharedDetailProps}
-                    disabled={routingMode === "global" && !isGlobalGroup(group)}
-                    expandedGroupIds={expandedGroupIds}
-                    group={group}
-                    key={groupId}
-                    onToggle={toggleGroup}
-                    pendingSelectionId={pendingSelections.get(groupId)}
-                    search={search}
-                  />
-                );
-              })}
-            </ul>
-          </section>
-        )}
+            </section>
+          ) : decodedRouteGroupId ? (
+            <Empty className={routeStyles().empty()}>
+              <EmptyHeader>
+                <EmptyTitle>{LL.routes.groupNotFoundTitle()}</EmptyTitle>
+                <EmptyDescription>{LL.routes.groupNotFoundDescription()}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : visibleGroupIds.length === 0 ? (
+            <Empty className={routeStyles().empty()}>
+              <EmptyHeader>
+                <EmptyTitle>{LL.routes.noMatchesTitle()}</EmptyTitle>
+                <EmptyDescription>{LL.routes.noMatchesDescription()}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <section aria-label={LL.routes.title()} className={routeStyles().graph()}>
+              <ul className={routeStyles().rootList()} onKeyDown={handlePolicyPeerNavigation}>
+                {visibleGroupIds.map((groupId) => {
+                  const group = graph.groupById.get(groupId);
+                  if (!group) return null;
+                  return (
+                    <RouteGroup
+                      graph={graph}
+                      group={group}
+                      key={groupId}
+                      onOpen={openPicker}
+                      search={search}
+                    />
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+        </div>
       </div>
-    </div>
+      <PolicyPickerDialog
+        commandsDisabled={
+          !liveCommandSupported ||
+          connection.stale ||
+          Boolean(pickerGroup && routingMode === "global" && !isGlobalGroup(pickerGroup))
+        }
+        graph={graph}
+        groupId={pickerGroup?.id ?? null}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPickerGroupId(null);
+          requestAnimationFrame(() => pickerTriggerRef.current?.focus({ preventScroll: true }));
+        }}
+        open={pickerGroup !== null}
+      />
+    </>
   );
 }

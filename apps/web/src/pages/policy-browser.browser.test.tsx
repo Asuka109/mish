@@ -112,7 +112,7 @@ describe("unified policy browser", () => {
     expect(document.documentElement.dataset.windowSurface).toBe("opaque");
   });
 
-  test("keeps multiple Routes groups expanded with complete desktop tools", async () => {
+  test("opens the shared node browser from the unified Routes collection card", async () => {
     await page.viewport(800, 600);
     renderPolicyWorkspace("/routes", "en", "dark");
     await expect.element(page.getByRole("heading", { name: "Routes" })).toBeVisible();
@@ -133,17 +133,22 @@ describe("unified policy browser", () => {
       expect(getComputedStyle(groupCard).borderTopWidth).toBe("0px");
       expect(getComputedStyle(groupCard).borderRadius).toBe("0px");
     });
-
-    await userEvent.click(page.getByRole("button", { name: "Expand 🌐 Proxy" }));
-    await userEvent.click(page.getByRole("button", { name: "Expand 🎬 Streaming" }));
-    await expect.element(page.getByRole("button", { name: "Collapse 🌐 Proxy" })).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Collapse 🎬 Streaming" })).toBeVisible();
+    expect(graph.querySelectorAll(".route-group-body")).toHaveLength(0);
+    await userEvent.click(page.getByRole("button", { name: "Browse 🌐 Proxy" }));
+    await expect.element(page.getByRole("dialog", { name: "🌐 Proxy" })).toBeVisible();
     await expect
       .element(page.getByRole("button", { name: "Start Delay Test for 🌐 Proxy" }))
       .toBeVisible();
-    expect(graph.querySelectorAll(":scope > .route-root-list > li .route-group-body")).toHaveLength(
-      2,
-    );
+    await userEvent.click(page.getByRole("button", { name: "Close" }));
+    const automaticGroup = page.getByRole("button", { name: "Browse ⚡ 自动选择・Auto" });
+    await expect.element(automaticGroup).toBeEnabled();
+    await userEvent.click(automaticGroup);
+    await expect.element(page.getByRole("dialog", { name: "⚡ 自动选择・Auto" })).toBeVisible();
+    expect(document.querySelector('.policy-picker-dialog [aria-label^="Select "]')).toBeNull();
+    expect(
+      document.querySelector(".policy-picker-dialog .policy-browser-entity-row--read-only"),
+    ).toBeNull();
+    expect(document.querySelector(".policy-picker-dialog")?.textContent).not.toContain("Read-only");
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(document.documentElement.dataset.windowSurface).toBe("material");
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
@@ -156,11 +161,10 @@ describe("unified policy browser", () => {
       renderPolicyWorkspace("/routes", "zh");
       await expect.element(page.getByRole("heading", { name: "路由" })).toBeVisible();
       await vi.waitFor(() => {
-        expect(document.querySelector(".route-group-desktop-toggle")).not.toBeNull();
+        expect(document.querySelector(".route-group-desktop-open")).not.toBeNull();
       });
       expect(
-        getComputedStyle(document.querySelector<HTMLElement>(".route-group-desktop-toggle")!)
-          .display,
+        getComputedStyle(document.querySelector<HTMLElement>(".route-group-desktop-open")!).display,
       ).toBe("none");
 
       await userEvent.click(page.getByRole("link", { name: "浏览 🌐 Proxy" }));

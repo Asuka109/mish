@@ -1603,7 +1603,7 @@ type RootTranslation = {
 		 */
 		currentChild: RequiredParams<'child'>
 		/**
-		 * B​r​o​w​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​'​s​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​.​ ​E​x​p​a​n​d​i​n​g​ ​a​ ​g​r​o​u​p​ ​s​h​o​w​s​ ​i​t​s​ ​d​i​r​e​c​t​ ​c​h​o​i​c​e​s​,​ ​a​n​d​ ​e​a​c​h​ ​s​e​l​e​c​t​i​o​n​ ​c​h​a​n​g​e​s​ ​o​n​l​y​ ​t​h​a​t​ ​g​r​o​u​p​.
+		 * B​r​o​w​s​e​ ​t​h​e​ ​a​c​t​i​v​e​ ​p​r​o​f​i​l​e​'​s​ ​p​o​l​i​c​y​ ​g​r​o​u​p​s​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​.​ ​O​p​e​n​i​n​g​ ​a​ ​g​r​o​u​p​ ​s​h​o​w​s​ ​i​t​s​ ​d​i​r​e​c​t​ ​c​h​o​i​c​e​s​,​ ​a​n​d​ ​e​a​c​h​ ​s​e​l​e​c​t​i​o​n​ ​c​h​a​n​g​e​s​ ​o​n​l​y​ ​t​h​a​t​ ​g​r​o​u​p​.
 		 */
 		description: string
 		/**
@@ -5951,7 +5951,7 @@ export type TranslationFunctions = {
 		 */
 		currentChild: (arg: { child: string }) => LocalizedString
 		/**
-		 * Browse the active profile's policy groups independently. Expanding a group shows its direct choices, and each selection changes only that group.
+		 * Browse the active profile's policy groups independently. Opening a group shows its direct choices, and each selection changes only that group.
 		 */
 		description: () => LocalizedString
 		/**

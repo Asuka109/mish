@@ -501,7 +501,7 @@ const en = {
     currentPath: "Current policy-group path",
     currentChild: "Current: {child:string}",
     description:
-      "Browse the active profile's policy groups independently. Expanding a group shows its direct choices, and each selection changes only that group.",
+      "Browse the active profile's policy groups independently. Opening a group shows its direct choices, and each selection changes only that group.",
     desktopDescription: "Policy groups reported by the desktop local service.",
     delayCancelled: "Cancelled",
     delayDisconnected: "Disconnected",

@@ -268,6 +268,7 @@ interface PolicyGroupSummaryRowProps {
   group: PolicyGroupDto;
   latency?: ReactNode;
   onOpen?: () => void;
+  openLabel?: string;
   pending?: boolean;
   rank?: number;
   typeLabel?: string;
@@ -281,6 +282,7 @@ export function PolicyGroupSummaryRow({
   group,
   latency,
   onOpen,
+  openLabel,
   pending = false,
   rank,
   typeLabel,
@@ -328,6 +330,7 @@ export function PolicyGroupSummaryRow({
   }
   return (
     <Button
+      aria-label={openLabel}
       aria-busy={pending || undefined}
       className={policyGroupSummaryRecipe({
         density,
@@ -359,6 +362,7 @@ interface PolicyEntityRowProps {
   onBrowse?: () => void;
   onSelect?: () => void;
   pendingLabel: string;
+  readOnlyPresentation?: "explicit" | "passive";
   readOnlyLabel: string;
   selectLabel?: string;
   selected: boolean;
@@ -380,6 +384,7 @@ export function PolicyEntityRow({
   onBrowse,
   onSelect,
   pendingLabel,
+  readOnlyPresentation = "explicit",
   readOnlyLabel,
   selectLabel,
   selected,
@@ -397,7 +402,10 @@ export function PolicyEntityRow({
         ? "unselected"
         : "read-only";
   const visualSelectionState =
-    muted && selectionState === "current" ? "unselected" : selectionState;
+    (muted && selectionState === "current") ||
+    (readOnlyPresentation === "passive" && selectionState === "read-only")
+      ? "unselected"
+      : selectionState;
   const content = (
     <>
       <span className="policy-browser-entity-copy grid min-w-0 gap-0.5 [&>*]:min-w-0">
@@ -414,7 +422,8 @@ export function PolicyEntityRow({
         <span className="text-metadata text-muted-foreground">{metadata}</span>
       </span>
       <span className="policy-browser-entity-status inline-flex min-w-0 items-center justify-end gap-3 max-shell-mobile:justify-between">
-        {selectionState === "read-only" && automaticGroup ? null : (
+        {selectionState === "read-only" &&
+        (automaticGroup || readOnlyPresentation === "passive") ? null : (
           <SelectionStatus
             currentLabel={currentLabel}
             pendingLabel={pendingLabel}
