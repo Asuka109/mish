@@ -32,6 +32,7 @@ import {
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 import { toast } from "sonner";
+import { tv } from "tailwind-variants";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useCurrentProfileCommand } from "../data/current-profile-command";
@@ -79,6 +80,29 @@ const languageOptions: Array<{ label: "english" | "simplifiedChinese"; value: Lo
 ];
 
 const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
+
+const shellStyles = tv({
+  slots: {
+    toolbar:
+      "toolbar flex min-w-0 items-center justify-between border-b border-(--color-hairline) py-0 pr-4 pl-6 select-none",
+    toolbarTitle: "toolbar-title font-(--font-weight-control)",
+    toolbarHeading: "toolbar-heading flex min-w-0 items-center gap-2",
+    toolbarActions: "toolbar-actions flex min-w-0 flex-[0_1_auto] items-center gap-[6px]",
+    toolbarButton:
+      "toolbar-button inline-flex h-[34px] items-center justify-center gap-[7px] rounded-(--radius-md) border border-transparent bg-transparent px-[9px] text-(--text-metadata) text-(--color-text-muted) hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-body) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-body) [&_svg]:size-[15px]",
+    appearanceToolbarButton: "appearance-menu-trigger size-[34px] p-0",
+    languageToolbarButton: "language-menu-trigger size-[34px] p-0",
+    profileTrigger:
+      "profile-select-trigger h-[34px] min-w-[112px] max-w-[220px] bg-transparent [&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden [&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
+    menuContent: "min-w-[156px]",
+    menuLabel:
+      "profile-menu-label block px-[9px] pt-[6px] pb-[7px] text-(--text-metadata) text-(--color-text-muted)",
+    runtimeBadge:
+      "runtime-data-badge inline-flex h-6 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-[9px] text-[12px] text-(--color-text-muted)",
+    loading: "toolbar-loading text-(--text-metadata) text-(--color-text-muted)",
+    contentScroll: "workspace-page-scroll min-h-0 min-w-0 overflow-auto",
+  },
+});
 
 function handleSidebarKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
   if (
@@ -327,7 +351,7 @@ function ProfileMenu() {
   const { LL } = useI18nContext();
   if (!snapshot) {
     return (
-      <span className="toolbar-loading">
+      <span className={shellStyles().loading()}>
         {connection.phase === "fixture" ? LL.toolbar.loadingFixture() : LL.toolbar.loadingDesktop()}
       </span>
     );
@@ -382,7 +406,7 @@ function ProfileMenu() {
         aria-busy={profilePending}
         aria-describedby={actionDescriptionId}
         aria-label={LL.toolbar.switchProfile({ profile: activeLabel })}
-        className="profile-select-trigger"
+        className={shellStyles().profileTrigger()}
         disabled={profilePending || !profileSupported || managedProfiles.length === 0}
       >
         {profilePending ? <Spinner data-icon="inline-start" /> : <FileText aria-hidden="true" />}
@@ -428,14 +452,16 @@ function LanguageMenu() {
       <DropdownMenuTrigger
         aria-busy={pending}
         aria-label={LL.language.current({ language: currentLanguage })}
-        className="toolbar-button language-menu-trigger"
+        className={shellStyles().toolbarButton({
+          className: shellStyles().languageToolbarButton(),
+        })}
         disabled={pending}
       >
         {pending ? <Spinner data-icon="icon-only" /> : <Translate aria-hidden="true" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="language-menu" sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={(value) => void changeLocale(value)} value={locale}>
-          <DropdownMenuLabel className="profile-menu-label">
+          <DropdownMenuLabel className={shellStyles().menuLabel()}>
             {LL.language.label()}
           </DropdownMenuLabel>
           {languageOptions.map((option) => (
@@ -465,14 +491,16 @@ function AppearanceMenu() {
       <DropdownMenuTrigger
         aria-busy={appearancePending}
         aria-label={LL.appearance.current({ appearance: currentAppearance })}
-        className="toolbar-button appearance-menu-trigger"
+        className={shellStyles().toolbarButton({
+          className: shellStyles().appearanceToolbarButton(),
+        })}
         disabled={appearancePending}
       >
         {appearancePending ? <Spinner /> : <AppearanceIcon aria-hidden="true" />}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="appearance-menu" sideOffset={8}>
+      <DropdownMenuContent align="end" className={shellStyles().menuContent()} sideOffset={8}>
         <DropdownMenuRadioGroup onValueChange={changeAppearance} value={preference}>
-          <DropdownMenuLabel className="profile-menu-label">
+          <DropdownMenuLabel className={shellStyles().menuLabel()}>
             {LL.appearance.label()}
           </DropdownMenuLabel>
           {appearanceOptions.map((option) => (
@@ -497,17 +525,19 @@ function Toolbar() {
       : null;
 
   return (
-    <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
-      <div className="toolbar-heading">
-        <span className="toolbar-title">{title}</span>
+    <header className={shellStyles().toolbar()} onMouseDown={handleDesktopWindowDrag}>
+      <div className={shellStyles().toolbarHeading()}>
+        <span className={shellStyles().toolbarTitle()}>{title}</span>
         {runtimeBadge ? (
           <Tooltip>
-            <TooltipTrigger className="runtime-data-badge">{runtimeBadge.label}</TooltipTrigger>
+            <TooltipTrigger className={shellStyles().runtimeBadge()}>
+              {runtimeBadge.label}
+            </TooltipTrigger>
             <TooltipContent>{runtimeBadge.description}</TooltipContent>
           </Tooltip>
         ) : null}
       </div>
-      <div className="toolbar-actions">
+      <div className={shellStyles().toolbarActions()}>
         <ProfileMenu />
         <AppearanceMenu />
         <LanguageMenu />
@@ -565,7 +595,7 @@ export function AppShell() {
       <SurfaceScope as="main" className="workspace" surfaceRole="content">
         <RouteFocusManager />
         <Toolbar />
-        <div className="workspace-page-scroll">
+        <div className={shellStyles().contentScroll()}>
           <Outlet />
         </div>
       </SurfaceScope>

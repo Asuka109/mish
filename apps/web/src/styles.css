@@ -505,38 +505,6 @@ h2 {
   box-shadow: var(--shadow-panel);
 }
 
-.toolbar {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px 0 24px;
-  border-bottom: 1px solid var(--color-hairline);
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.toolbar-title {
-  font-weight: var(--font-weight-control);
-}
-
-.toolbar-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-}
-
-.toolbar-actions {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  flex: 0 1 auto;
-  gap: 6px;
-}
-
-.toolbar-button,
-.runtime-data-badge,
 .service-manage-trigger {
   display: inline-flex;
   height: 34px;
@@ -547,55 +515,6 @@ h2 {
   border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
-}
-
-.toolbar-button:hover,
-.toolbar-button[data-popup-open] {
-  border-color: var(--color-hairline);
-  background: var(--color-accent);
-  color: var(--color-body);
-}
-
-.toolbar-button svg {
-  width: 15px;
-  height: 15px;
-}
-
-.appearance-menu-trigger,
-.language-menu-trigger {
-  width: 34px;
-  padding: 0;
-}
-
-.profile-select-trigger {
-  height: 34px;
-  min-width: 112px;
-  max-width: 220px;
-  background: transparent;
-}
-
-.profile-select-trigger > .user-authored-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.appearance-menu {
-  min-width: 156px;
-}
-
-.runtime-data-badge {
-  height: 24px;
-  border-color: var(--color-hairline);
-  background: var(--color-surface-soft);
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.toolbar-loading {
   color: var(--color-text-muted);
   font-size: var(--text-metadata);
 }
@@ -620,12 +539,6 @@ h2 {
   font-size: 10px;
   line-height: 1;
   pointer-events: none;
-}
-
-.workspace-page-scroll {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
 }
 
 .route-loading {
@@ -1271,13 +1184,6 @@ h2 {
 
 .service-monitor-list > .service-monitor-row:last-child:nth-child(3n) {
   border-end-end-radius: 7px;
-}
-
-.profile-menu-label {
-  display: block;
-  padding: 6px 9px 7px;
-  color: var(--color-text-muted);
-  font-size: var(--text-metadata);
 }
 
 .notification-popover {
