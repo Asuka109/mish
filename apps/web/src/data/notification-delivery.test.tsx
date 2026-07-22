@@ -12,6 +12,7 @@ import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { EventsProvider } from "./events-provider";
 import { createFixtureEventsClient } from "./fixture-events-client";
 import { FixtureProfileClient } from "./fixture-profile-client";
+import { FixtureStatusClient } from "./fixture-status-client";
 import { ProductProvider } from "./product-provider";
 import { ProfileProvider } from "./profile-provider";
 import {
@@ -167,6 +168,50 @@ describe("authoritative notification delivery", () => {
     );
 
     await vi.waitFor(() => expect(delivery).not.toBeNull());
+    expect(delivery?.entries).toEqual([]);
+    expect(presentNotificationToast).not.toHaveBeenCalled();
+  });
+
+  it("removes a stale capture failure from both projections after capture succeeds", async () => {
+    loadAllLocales();
+    const status = new FixtureStatusClient();
+    await status.setCapture({ systemProxy: true, tun: false }, true);
+    const events = createFixtureEventsClient();
+    const eventSnapshot = await events.getSnapshot();
+    eventSnapshot.events = [
+      {
+        detail: "Review the typed capture state on Status before retrying",
+        id: `${eventSnapshot.sessionId}:1`,
+        level: "error",
+        message: "System Proxy reconciliation failed",
+        notificationKind: "capture-failure",
+        observedAt: 1,
+        sequence: 1,
+        source: "application",
+      },
+    ];
+    eventSnapshot.sequence = 1;
+    events.publishSnapshot(eventSnapshot);
+
+    render(
+      <TypesafeI18n locale="en">
+        <MemoryRouter>
+          <ProductProvider client={status}>
+            <ProfileProvider>
+              <EventsProvider client={events}>
+                <NotificationDeliveryProvider>
+                  <Probe />
+                  <NotificationBubble />
+                </NotificationDeliveryProvider>
+              </EventsProvider>
+            </ProfileProvider>
+          </ProductProvider>
+        </MemoryRouter>
+      </TypesafeI18n>,
+    );
+
+    await vi.waitFor(() => expect(delivery).not.toBeNull());
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
     expect(delivery?.entries).toEqual([]);
     expect(presentNotificationToast).not.toHaveBeenCalled();
   });

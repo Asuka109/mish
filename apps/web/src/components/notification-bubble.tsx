@@ -188,6 +188,12 @@ function NotificationPublicationController({
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
   const tunWarning = tun?.phase === "drift" || tun?.phase === "failed";
+  const captureFailureResolved =
+    commandStates.capture.phase !== "failure" &&
+    (systemProxy?.phase === "applied" || tun?.phase === "applied") &&
+    !systemProxyDrift &&
+    !systemProxyFailed &&
+    !tunWarning;
   const captureFailureEvent =
     commandStates.capture.phase === "failure"
       ? [...(eventsContext?.events ?? [])]
@@ -294,7 +300,9 @@ function NotificationPublicationController({
   useEffect(() => {
     if (!eventsContext?.snapshot) return;
     const events = eventsContext.events.filter(
-      (event) => !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
+      (event) =>
+        !(captureFailureAlreadyExplained && event.message === LL.errors.command()) &&
+        !(captureFailureResolved && event.notificationKind === "capture-failure"),
     );
     reconcileExternalNotifications(
       events
@@ -359,6 +367,7 @@ function NotificationPublicationController({
   }, [
     LL,
     captureFailureAlreadyExplained,
+    captureFailureResolved,
     driftActions,
     eventsContext?.events,
     eventsContext?.snapshot,
