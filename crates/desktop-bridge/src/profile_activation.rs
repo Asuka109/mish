@@ -363,6 +363,44 @@ impl ProfileActivationCoordinator {
         }
     }
 
+    /// Starts the most recently successful Profile after an intentional application restart.
+    ///
+    /// The activation manager deliberately clears the live runtime identity during shutdown,
+    /// but retains the last attempt so a separately persisted startup preference can resume the
+    /// user's existing Profile without inventing a new selection.
+    pub async fn activate_last_successful_profile(
+        self: &Arc<Self>,
+        command_id: &str,
+    ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
+        let managed = self.manager.managed_state().await;
+        let profile_id = managed
+            .last_successful_profile_id()
+            .or_else(|| managed.active_profile_id())
+            .or_else(|| {
+                managed
+                    .last_attempt()
+                    .filter(|attempt| attempt.outcome() == crate::ActivationOutcome::Succeeded)
+                    .map(|attempt| attempt.profile_id())
+            })
+            .map(str::to_owned)
+            .or_else(|| {
+                self.profiles
+                    .snapshot()
+                    .ok()?
+                    .profiles
+                    .into_iter()
+                    .filter(|profile| profile.last_known_valid)
+                    .max_by(|left, right| {
+                        left.last_success_at
+                            .cmp(&right.last_success_at)
+                            .then_with(|| left.id.cmp(&right.id))
+                    })
+                    .map(|profile| profile.id)
+            })
+            .ok_or(ProfileActivationCoordinatorError::Unavailable)?;
+        self.activate(command_id, &profile_id).await
+    }
+
     pub async fn set_capture(
         self: &Arc<Self>,
         request: CaptureRequest,

@@ -41,6 +41,7 @@ interface SettingsContextValue {
   setLanguage(language: LanguagePreference): Promise<boolean>;
   setOnboardingWelcomeState(action: OnboardingWelcomeAction): Promise<boolean>;
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
+  setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches: boolean): Promise<boolean>;
   setWindowCloseBehavior(behavior: WindowCloseBehavior): Promise<boolean>;
   setWindowSurface(surface: WindowSurfacePreference): Promise<boolean>;
   snapshot: SettingsSnapshotDto;
@@ -119,6 +120,8 @@ export function SettingsProvider({
     [],
   );
 
+  useEffect(() => client.subscribeSnapshots(setSnapshot), [client]);
+
   const runTunHelper = useCallback(
     async (operation: () => Promise<SettingsSnapshotDto>): Promise<TunHelperOperationResult> => {
       setTunHelperFailure(null);
@@ -152,6 +155,8 @@ export function SettingsProvider({
       setOnboardingWelcomeState: async (action) =>
         (await run(() => client.setOnboardingWelcomeState(action))).ok,
       setStartup: async (startup) => (await run(() => client.setStartup(startup))).ok,
+      setLaunchProxyWhenMishLaunches: async (launchProxyWhenMishLaunches) =>
+        (await run(() => client.setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches))).ok,
       setWindowCloseBehavior: async (behavior) =>
         (await run(() => client.setWindowCloseBehavior(behavior))).ok,
       setWindowSurface: async (surface) => (await run(() => client.setWindowSurface(surface))).ok,

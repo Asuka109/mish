@@ -1,10 +1,12 @@
 import {
   mishRpcMethods,
+  settingsRpcNotifications,
   type AppearancePreference,
   type LanguagePreference,
   type OnboardingWelcomeAction,
   type SettingsClient,
   type SettingsSnapshotDto,
+  type SettingsSnapshotNotificationDto,
   type StartupPreferencesDto,
   type WindowCloseBehavior,
   type WindowSurfacePreference,
@@ -12,10 +14,25 @@ import {
 import type { RpcClient, RpcRequestOptions } from "@mish/rpc-client";
 
 export class RpcSettingsClient implements SettingsClient {
+  private readonly snapshotListeners = new Set<(snapshot: SettingsSnapshotDto) => void>();
+  private remoteSubscriptionId: string | null = null;
+  private subscriptionPromise: Promise<void> | null = null;
+  private disposed = false;
+  private readonly unsubscribeNotification: () => void;
+
   constructor(
     private readonly rpc: RpcClient<typeof mishRpcMethods>,
     private readonly nativeWindowCapabilities = true,
-  ) {}
+  ) {
+    this.unsubscribeNotification =
+      "onNotification" in rpc
+        ? rpc.onNotification(
+            "settings.snapshot",
+            settingsRpcNotifications["settings.snapshot"],
+            (notification) => this.receiveSnapshot(notification),
+          )
+        : () => undefined;
+  }
 
   getSnapshot(options?: RpcRequestOptions) {
     return this.rpc
@@ -71,6 +88,27 @@ export class RpcSettingsClient implements SettingsClient {
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 
+  setLaunchProxyWhenMishLaunches(
+    launchProxyWhenMishLaunches: boolean,
+    options?: RpcRequestOptions,
+  ) {
+    return this.rpc
+      .request("settings.setLaunchProxyWhenMishLaunches", { launchProxyWhenMishLaunches }, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
+  subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void) {
+    this.snapshotListeners.add(listener);
+    void this.ensureRemoteSubscription();
+    return () => {
+      this.snapshotListeners.delete(listener);
+      if (this.snapshotListeners.size > 0 || !this.remoteSubscriptionId) return;
+      const subscriptionId = this.remoteSubscriptionId;
+      this.remoteSubscriptionId = null;
+      void this.rpc.request("settings.unsubscribe", { subscriptionId }).catch(() => undefined);
+    };
+  }
+
   setWindowCloseBehavior(behavior: WindowCloseBehavior, options?: RpcRequestOptions) {
     return this.rpc
       .request("settings.setWindowCloseBehavior", { behavior }, options)
@@ -94,5 +132,31 @@ export class RpcSettingsClient implements SettingsClient {
         windowLifecycle: "unavailable" as const,
       },
     };
+  }
+
+  private async ensureRemoteSubscription() {
+    if (this.disposed || this.snapshotListeners.size === 0 || this.remoteSubscriptionId) return;
+    if (this.subscriptionPromise) return this.subscriptionPromise;
+    this.subscriptionPromise = this.rpc
+      .request("settings.subscribe", {})
+      .then(({ snapshot, subscriptionId }) => {
+        if (this.snapshotListeners.size === 0) {
+          void this.rpc.request("settings.unsubscribe", { subscriptionId }).catch(() => undefined);
+          return;
+        }
+        this.remoteSubscriptionId = subscriptionId;
+        this.receiveSnapshot({ snapshot, subscriptionId });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.subscriptionPromise = null;
+      });
+    return this.subscriptionPromise;
+  }
+
+  private receiveSnapshot(notification: SettingsSnapshotNotificationDto) {
+    if (notification.subscriptionId !== this.remoteSubscriptionId) return;
+    const snapshot = this.normalizeSnapshot(notification.snapshot);
+    for (const listener of this.snapshotListeners) listener(snapshot);
   }
 }

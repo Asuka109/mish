@@ -150,11 +150,15 @@ async fn empty_app_data_startup_keeps_service_presets_across_runtime_hydration_a
     ));
     let mut updates = coordinator.subscribe();
     coordinator
-        .activate(&Uuid::new_v4().to_string(), &profile_id)
+        .activate_last_successful_profile(&Uuid::new_v4().to_string())
         .await
         .unwrap();
     let activated = wait_for_activation(&coordinator, &mut updates).await;
     assert_eq!(activated.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        activated.active_profile_id.as_deref(),
+        Some(profile_id.as_str())
+    );
 
     let first_launch = host.status_snapshot(StatusAdapterKind::Rpc).await;
     assert_eq!(first_launch["runtime"]["phase"], "healthy");
@@ -516,6 +520,21 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
     assert_eq!(stopped_status["runtime"]["systemProxy"]["phase"], "off");
     assert_eq!(platform.state(), disabled_capture_service());
     assert!(journal.load().unwrap().is_none());
+
+    coordinator
+        .activate_last_successful_profile(&Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    let resumed = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(resumed.phase, ProfileActivationPhase::Success);
+    assert_eq!(
+        resumed.active_profile_id.as_deref(),
+        Some(https_profile_id.as_str())
+    );
+
+    coordinator.stop(&Uuid::new_v4().to_string()).await.unwrap();
+    let stopped_again = wait_for_activation(&coordinator, &mut updates).await;
+    assert!(stopped_again.safe_stopped);
 
     coordinator.shutdown().await.unwrap();
     let remaining = coordinator.delete_profile(&https_profile_id).await.unwrap();
@@ -1755,6 +1774,20 @@ rules:
     assert_eq!(snapshot["runtime"]["phase"], "healthy");
 
     manager.shutdown().await.unwrap();
+    drop(manager);
+    let restarted = MihomoActivationManager::new(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("private-runtime"),
+        ),
+        ActivationTiming::default(),
+    );
+    let restored = restarted.managed_state().await;
+    assert!(restored.active_profile_id().is_none());
+    assert_eq!(
+        restored.last_successful_profile_id(),
+        Some(prior.metadata.id.as_str())
+    );
     controller.shutdown().await;
 }
 

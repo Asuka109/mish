@@ -15,7 +15,11 @@ describe("browser settings fixture", () => {
       preferences: { windowSurface: "opaque" },
     });
     await expect(
-      client.setStartup({ launchAtLogin: true, loginLaunchBehavior: "background" }),
+      client.setStartup({
+        launchAtLogin: true,
+        launchProxyWhenMishLaunches: false,
+        loginLaunchBehavior: "background",
+      }),
     ).rejects.toThrow(/unavailable/i);
     await expect(client.setWindowCloseBehavior("quit")).rejects.toThrow(/unavailable/i);
     await expect(client.setOnboardingWelcomeState("open")).rejects.toThrow(/unavailable/i);
@@ -24,6 +28,7 @@ describe("browser settings fixture", () => {
     await expect(client.removeTunHelper()).rejects.toThrow(/unavailable/i);
     await expect(client.refreshNetworkDns()).rejects.toThrow(/unavailable/i);
     await expect(client.getSnapshot()).resolves.toMatchObject({
+      build: { appVersion: "0.1.0", mihomoVersion: "v1.19.29" },
       capabilities: {
         launchAtLogin: "unavailable",
         networkDns: "unavailable",

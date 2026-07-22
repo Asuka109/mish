@@ -304,6 +304,8 @@ pub struct ManagedActivationState {
     #[serde(default)]
     active_revision: Option<String>,
     active_runtime_id: Option<String>,
+    #[serde(default)]
+    last_successful_profile_id: Option<String>,
     last_attempt: Option<ActivationAttempt>,
     schema_version: u32,
 }
@@ -315,6 +317,7 @@ impl Default for ManagedActivationState {
             active_profile_id: None,
             active_revision: None,
             active_runtime_id: None,
+            last_successful_profile_id: None,
             last_attempt: None,
             schema_version: 2,
         }
@@ -332,6 +335,10 @@ impl ManagedActivationState {
 
     pub fn active_revision(&self) -> Option<&str> {
         self.active_revision.as_deref()
+    }
+
+    pub fn last_successful_profile_id(&self) -> Option<&str> {
+        self.last_successful_profile_id.as_deref()
     }
 
     pub fn is_safe_stopped(&self) -> bool {
@@ -448,13 +455,17 @@ impl MihomoActivationManager {
         ownership: Option<Arc<ManagedCoreOwnership>>,
         privileged_host: Option<Arc<dyn PrivilegedCoreHost>>,
     ) -> Self {
+        let managed = load_managed_state(&resolver.runtime_root);
         Self {
             capture,
             ownership,
             privileged_host,
             recovery_outcome: Mutex::new(None),
             resolver,
-            state: Mutex::new(ActivationState::default()),
+            state: Mutex::new(ActivationState {
+                managed,
+                ..ActivationState::default()
+            }),
             timing,
         }
     }
@@ -649,6 +660,7 @@ impl MihomoActivationManager {
             active_profile_id: Some(candidate.profile_id.clone()),
             active_revision: Some(candidate.revision.clone()),
             active_runtime_id: Some(candidate.runtime_id.clone()),
+            last_successful_profile_id: Some(candidate.profile_id.clone()),
             last_attempt: Some(ActivationAttempt {
                 attempted_at_unix_milliseconds: now_unix_milliseconds(),
                 failure: None,
@@ -1148,6 +1160,28 @@ fn persist_managed_state(
         .and_then(|directory| directory.sync_all())
         .map_err(|_| MihomoActivationError::StateCommitFailed)?;
     Ok(())
+}
+
+fn load_managed_state(runtime_root: &Path) -> ManagedActivationState {
+    let path = runtime_root.join("activation-state.json");
+    let metadata = match fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(_) => return ManagedActivationState::default(),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() > 32_768 {
+        return ManagedActivationState::default();
+    }
+    #[cfg(unix)]
+    if {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o777 != 0o600
+    } {
+        return ManagedActivationState::default();
+    }
+    let Ok(contents) = fs::read(path) else {
+        return ManagedActivationState::default();
+    };
+    serde_json::from_slice(&contents).unwrap_or_default()
 }
 
 fn create_private_runtime_directory(path: &Path) -> Result<(), MihomoActivationError> {
