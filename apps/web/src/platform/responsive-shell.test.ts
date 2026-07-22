@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 const styles = readFileSync("src/styles.css", "utf8");
 const shell = readFileSync("src/components/app-shell.tsx", "utf8");
 const notifications = readFileSync("src/components/notification-bubble.tsx", "utf8");
+const patchEditor = readFileSync("src/components/profile-patch-editor.tsx", "utf8");
 const desktopConfig = readFileSync("../desktop/src-tauri/tauri.conf.json", "utf8");
 
 describe("responsive shell CSS", () => {
@@ -73,12 +74,8 @@ describe("responsive shell CSS", () => {
   });
 
   it("separates the profile patch editor sections inside a padded content region", () => {
-    const patchContentRule = styles.match(/\.profile-patch-content \{[\s\S]*?\n\}/)?.[0];
-
-    expect(patchContentRule).toContain("display: flex");
-    expect(patchContentRule).toContain("flex-direction: column");
-    expect(patchContentRule).toContain("gap: 12px");
-    expect(patchContentRule).toContain("padding: 16px");
+    expect(patchEditor).toContain('content: "flex flex-col gap-3 p-4"');
+    expect(styles).not.toContain(".profile-patch-content {");
   });
 
   it("keeps browser and desktop chrome unselectable without blocking editable content", () => {
