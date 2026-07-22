@@ -20,6 +20,67 @@
   --mish-color-traffic-upload: #2f855a;
   --mish-color-warning: #b45309;
   --mish-color-error: #dc2626;
+  --mish-color-button-destructive-subtle: color-mix(
+    in srgb,
+    var(--mish-color-error) 10%,
+    transparent
+  );
+  --mish-color-badge-success-background: color-mix(
+    in srgb,
+    var(--mish-color-success) 10%,
+    var(--mish-color-canvas)
+  );
+  --mish-color-badge-success-border: color-mix(
+    in srgb,
+    var(--mish-color-success) 34%,
+    var(--mish-color-hairline)
+  );
+  --mish-color-badge-warning-background: color-mix(
+    in srgb,
+    var(--mish-color-warning) 9%,
+    var(--mish-color-canvas)
+  );
+  --mish-color-badge-warning-border: color-mix(
+    in srgb,
+    var(--mish-color-warning) 32%,
+    var(--mish-color-hairline)
+  );
+  --mish-color-badge-error-background: color-mix(
+    in srgb,
+    var(--mish-color-error) 8%,
+    var(--mish-color-canvas)
+  );
+  --mish-color-badge-error-border: color-mix(
+    in srgb,
+    var(--mish-color-error) 32%,
+    var(--mish-color-hairline)
+  );
+  --mish-color-feedback-warning-border: color-mix(
+    in srgb,
+    var(--mish-color-warning) 28%,
+    var(--mish-color-hairline)
+  );
+  --mish-color-feedback-error-border: color-mix(
+    in srgb,
+    var(--mish-color-error) 30%,
+    var(--mish-color-hairline)
+  );
+  --mish-color-input-invalid-border: color-mix(
+    in srgb,
+    var(--mish-color-error) 52%,
+    var(--mish-color-hairline)
+  );
+  --mish-color-toggle-capture-running-icon: color-mix(
+    in srgb,
+    var(--mish-color-success) 64%,
+    var(--mish-color-muted-soft)
+  );
+  --mish-color-status-water-border: color-mix(
+    in srgb,
+    var(--mish-color-status-water-base) 76%,
+    var(--mish-color-ink)
+  );
+  --mish-color-dialog-backdrop: rgb(17 24 39 / 18%);
 
   --mish-typography-title-font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
@@ -36,9 +97,26 @@
   --mish-typography-metadata-font-size: 13px;
   --mish-typography-metadata-font-weight: 400;
   --mish-typography-metadata-line-height: 1.4;
+  --mish-typography-caption-font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --mish-typography-caption-font-size: 12px;
+  --mish-typography-caption-font-weight: 400;
+  --mish-typography-caption-line-height: 1.4;
+  --mish-typography-label-small-font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --mish-typography-label-small-font-size: 11px;
+  --mish-typography-label-small-font-weight: 400;
+  --mish-typography-label-small-line-height: 1.27;
+  --mish-typography-micro-font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  --mish-typography-micro-font-size: 10px;
+  --mish-typography-micro-font-weight: 400;
+  --mish-typography-micro-line-height: 1.2;
 
   --mish-radius-sm: 6px;
   --mish-radius-md: 8px;
+  --mish-radius-section-grid-inner: 7px;
+  --mish-radius-compact: 10px;
   --mish-radius-lg: 12px;
   --mish-radius-full: 999px;
 
@@ -53,6 +131,20 @@
   --mish-shadow-float: 0 4px 12px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%);
   --mish-shadow-status: 0 2px 10px rgb(37 111 215 / 16%), 0 1px 2px rgb(18 72 150 / 8%);
   --mish-shadow-sidebar-active: 0 1px 1px rgb(0 0 0 / 2%);
+  --mish-shadow-toggle-group-selected: inset 0 0 0 1px
+    color-mix(in srgb, var(--mish-color-hairline) 56%, transparent);
+  --mish-shadow-tabs-active: 0 1px 2px color-mix(in srgb, var(--mish-color-ink) 6%, transparent);
+  --mish-shadow-focus-ring: 0 0 0 2px var(--mish-color-accent);
+
+  --mish-sidebar-width: 164px;
+  --mish-sidebar-icon-size: 18px;
+  --mish-sidebar-row-gap: 9px;
+  --mish-sidebar-row-height: 36px;
+  --mish-sidebar-row-inset: 10px;
+
+  --mish-border-width-spinner: 1.5px;
+  --mish-blur-dialog-backdrop: 2px;
+  --mish-scale-overlay-enter: 0.98;
 
   --mish-sidebar-background: var(--mish-color-surface-soft);
   --mish-sidebar-item-hover-background: var(--mish-color-interactive);
@@ -118,6 +210,7 @@
   --mish-color-traffic-upload: #4ade80;
   --mish-color-warning: #f59e0b;
   --mish-color-error: #f87171;
+  --mish-color-dialog-backdrop: rgb(0 0 0 / 45%);
 
   --mish-shadow-panel: 0 1px 2px rgb(0 0 0 / 24%), 0 8px 28px rgb(0 0 0 / 18%);
   --mish-shadow-float: 0 8px 24px rgb(0 0 0 / 32%), 0 2px 6px rgb(0 0 0 / 24%);
@@ -173,6 +266,9 @@
   --text-body--line-height: var(--mish-typography-body-line-height);
   --text-metadata: var(--mish-typography-metadata-font-size);
   --text-metadata--line-height: var(--mish-typography-metadata-line-height);
+  --text-caption: var(--mish-typography-caption-font-size);
+  --text-label-small: var(--mish-typography-label-small-font-size);
+  --text-micro: var(--mish-typography-micro-font-size);
   --font-weight-ui: var(--mish-typography-body-font-weight);
   --font-weight-control: 500;
   --font-weight-heading: var(--mish-typography-title-font-weight);
@@ -196,6 +292,19 @@
   --color-traffic-upload: var(--mish-color-traffic-upload);
   --color-warning: var(--mish-color-warning);
   --color-error: var(--mish-color-error);
+  --color-button-destructive-subtle: var(--mish-color-button-destructive-subtle);
+  --color-badge-success-background: var(--mish-color-badge-success-background);
+  --color-badge-success-border: var(--mish-color-badge-success-border);
+  --color-badge-warning-background: var(--mish-color-badge-warning-background);
+  --color-badge-warning-border: var(--mish-color-badge-warning-border);
+  --color-badge-error-background: var(--mish-color-badge-error-background);
+  --color-badge-error-border: var(--mish-color-badge-error-border);
+  --color-feedback-warning-border: var(--mish-color-feedback-warning-border);
+  --color-feedback-error-border: var(--mish-color-feedback-error-border);
+  --color-input-invalid-border: var(--mish-color-input-invalid-border);
+  --color-toggle-capture-running-icon: var(--mish-color-toggle-capture-running-icon);
+  --color-status-water-border: var(--mish-color-status-water-border);
+  --color-dialog-backdrop: var(--mish-color-dialog-backdrop);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -223,9 +332,19 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-background: var(--mish-sidebar-background);
+  --color-sidebar-item-hover: var(--mish-sidebar-item-hover-background);
+  --color-sidebar-item-active: var(--mish-sidebar-item-active-background);
+  --color-sidebar-item-active-border: var(--mish-sidebar-item-active-border);
+  --color-sidebar-control: var(--mish-sidebar-control-background);
+  --color-sidebar-control-hover: var(--mish-sidebar-control-hover-background);
+  --color-sidebar-control-border: var(--mish-sidebar-control-border);
+  --color-sidebar-divider: var(--mish-sidebar-divider);
 
   --radius-sm: var(--mish-radius-sm);
   --radius-md: var(--mish-radius-md);
+  --radius-section-grid-inner: var(--mish-radius-section-grid-inner);
+  --radius-compact: var(--mish-radius-compact);
   --radius-lg: var(--mish-radius-lg);
   --radius-full: var(--mish-radius-full);
 
@@ -236,8 +355,44 @@
   --spacing-lg: var(--mish-spacing-lg);
   --spacing-xl: var(--mish-spacing-xl);
   --spacing-xxl: var(--mish-spacing-xxl);
+  --spacing-sidebar-width: var(--mish-sidebar-width);
+  --spacing-sidebar-icon: var(--mish-sidebar-icon-size);
+  --spacing-sidebar-row-gap: var(--mish-sidebar-row-gap);
+  --spacing-sidebar-row-height: var(--mish-sidebar-row-height);
+  --spacing-sidebar-row-inset: var(--mish-sidebar-row-inset);
+
+  --container-dialog: 440px;
+  --container-alert-dialog: 380px;
+  --container-select-list: 320px;
+  --container-tooltip: 280px;
+  --container-settings-description: 590px;
+  --container-page: 1080px;
+  --container-page-wide: 1180px;
+  --container-page-medium: 1040px;
+  --container-page-narrow: 960px;
+  --container-settings-compact: 680px;
+  --container-session-compact: 320px;
+
+  --breakpoint-shell-mobile: 600px;
+  --breakpoint-dialog-compact: 620px;
+  --breakpoint-content-narrow: 680px;
+  --breakpoint-editor-stack: 760px;
+  --breakpoint-toolbar-compact: 820px;
+  --breakpoint-page-compact: 900px;
+  --breakpoint-profile-stack: 1060px;
+
+  --border-width-spinner: var(--mish-border-width-spinner);
+  --blur-dialog-backdrop: var(--mish-blur-dialog-backdrop);
+  --scale-overlay-enter: var(--mish-scale-overlay-enter);
+  --tracking-pin: 0.28em;
+  --tracking-label: 0.03em;
+  --tracking-title-tight: -0.012em;
 
   --shadow-panel: var(--mish-shadow-panel);
   --shadow-float: var(--mish-shadow-float);
   --shadow-status: var(--mish-shadow-status);
+  --shadow-sidebar-item-active: var(--mish-sidebar-item-active-shadow);
+  --shadow-toggle-group-selected: var(--mish-shadow-toggle-group-selected);
+  --shadow-tabs-active: var(--mish-shadow-tabs-active);
+  --shadow-focus-ring: var(--mish-shadow-focus-ring);
 }

@@ -30,6 +30,22 @@ recipes or Tailwind class fragments, requires every package that imports
 `tailwind-variants` to have an explicit `@source` entry, and verifies that every
 CSS Module class is consumed through its imported mapping.
 
+Recipes consume mapped theme values through named utilities such as
+`bg-canvas`, `text-muted-foreground`, `rounded-md`, and `shadow-float`. They do
+not bypass the theme with `bg-(--color-canvas)`, raw `--mish-*` variables, or
+equivalent indirect shorthands. Surface-scoped values such as the material-aware
+sidebar background are exposed as named theme colors while their runtime CSS
+variables remain the source of truth.
+
+Simple fixed geometry follows the 4px Tailwind spacing base, including exact
+fractional steps (`h-5.5` for 22px, `gap-1.75` for 7px, and `px-2.25` for 9px).
+Do not round preserved geometry to a nearby whole step. Repeated responsive
+thresholds, typography levels, component radii, color mixes, and other semantic
+values use named theme tokens. Arbitrary values remain valid for structural
+grid templates, `min()`/`calc()` viewport containment, safe areas, runtime Base
+UI positioning variables, custom-property-driven spans, and the documented CSS
+Module effects.
+
 ARIA and Base UI `data-*` attributes remain the behavior and accessibility
 source of truth. Recipes may target those attributes for presentation, but must
 not replace pressed, disabled, focus, highlighted, loading, or validation

@@ -105,6 +105,71 @@ const sourceFiles = [
 ];
 for (const path of sourceFiles) visitSource(path);
 
+const productionSourceFiles = sourceFiles.filter(
+  (path) => !path.includes(".test.") && !path.includes(".browser.test."),
+);
+
+const forbiddenStylePatterns = [
+  {
+    pattern:
+      /-\(--(?:mish-(?:color|typography|spacing|radius|shadow)|color|text|font-weight|radius|spacing|shadow)-[^)]+\)/g,
+    reason: "bypasses a named Tailwind theme utility",
+  },
+  {
+    pattern:
+      /(?:m[trblxy]?|p[trblxy]?|gap(?:-[xy])?|space-[xy]|w|h|size|min-w|max-w|min-h|max-h|top|right|bottom|left|inset(?:-[xy])?|scroll-m[trblxy]?|scroll-p[trblxy]?|leading)-\[\d+(?:\.\d+)?px\]/g,
+    reason: "uses a fixed pixel value that belongs on the exact 4px numeric scale",
+  },
+  {
+    pattern: /text-\[\d+(?:\.\d+)?px\]/g,
+    reason: "uses an unnamed typography size",
+  },
+  {
+    pattern: /rounded(?:-[trblse]{1,2})?-\[\d+(?:\.\d+)?px\]/g,
+    reason: "uses an unnamed radius",
+  },
+  {
+    pattern: /(?:z-\[\d+\]|duration-\[\d+ms\]|opacity-\[(?:0?\.\d+)\])/g,
+    reason: "uses an arbitrary value supported by a standard numeric utility",
+  },
+  {
+    pattern: /(?:border|(?:backdrop-)?blur)-\[\d+(?:\.\d+)?px\]/g,
+    reason: "uses an unnamed border or blur value",
+  },
+  {
+    pattern: /(?:scale|tracking)-\[[^\]]+\]/g,
+    reason: "uses an unnamed scale or tracking value",
+  },
+  {
+    pattern: /(?:@?(?:max|min))-\[\d+px\]/g,
+    reason: "uses an unnamed responsive threshold",
+  },
+  {
+    pattern: /\[--[A-Za-z0-9-]+:\d+(?:\.\d+)?px\]/g,
+    reason: "assigns a raw pixel value to a component custom property",
+  },
+  {
+    pattern: /shadow-\[[^\]]+\]/g,
+    reason: "uses an unnamed shadow recipe",
+  },
+  {
+    pattern: /(?:bg|text|border)-\[(?:#|rgb|hsl|oklch)[^\]]+\]/g,
+    reason: "uses an unnamed literal color",
+  },
+] as const;
+
+for (const path of productionSourceFiles) {
+  const source = readFileSync(path, "utf8");
+  for (const { pattern, reason } of forbiddenStylePatterns) {
+    for (const match of source.matchAll(pattern)) {
+      const line = source.slice(0, match.index).split("\n").length;
+      throw new Error(
+        `${relative(root, path)}:${line} ${reason}: ${match[0]}. Use a named theme token, an exact numeric utility, or a documented structural exception.`,
+      );
+    }
+  }
+}
+
 const modulePaths = filesUnder(webSourceRoot, new Set([".css"])).filter((path) =>
   path.endsWith(".module.css"),
 );
