@@ -127,7 +127,7 @@ describe("Traffic page", () => {
     renderTraffic(new FixtureTrafficClient());
 
     expect(await screen.findByText(/Fictional local fixture data/)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Close all active connections" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close All Active Connections" })).toBeDisabled();
     const row = screen.getByRole("row", { name: /docs\.fixture\.invalid/ });
     expect(within(row).getByText("Fixture Browser")).toBeVisible();
     expect(within(row).getByText(/Fixture Policy → Fixture Relay → Fixture Exit/)).toBeVisible();
@@ -151,7 +151,7 @@ describe("Traffic page", () => {
     await user.click(within(row).getByRole("button", { name: "Close" }));
     const confirmation = screen.getByRole("alertdialog", { name: "Close this active connection?" });
     expect(confirmation).toHaveTextContent("stable connection ID");
-    await user.click(within(confirmation).getByRole("button", { name: "Close connection" }));
+    await user.click(within(confirmation).getByRole("button", { name: "Close Connection" }));
 
     expect(screen.queryByText("docs.fixture.invalid")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Closed/ }));
@@ -166,7 +166,7 @@ describe("Traffic page", () => {
     await user.type(search, "process:browser");
     expect(screen.getAllByRole("row")).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: "Close all active connections" }));
+    await user.click(screen.getByRole("button", { name: "Close All Active Connections" }));
     let confirmation = screen.getByRole("alertdialog", {
       name: "Close all currently active connections?",
     });
@@ -175,12 +175,12 @@ describe("Traffic page", () => {
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Close all active connections" }));
+    await user.click(screen.getByRole("button", { name: "Close All Active Connections" }));
     confirmation = screen.getByRole("alertdialog", {
       name: "Close all currently active connections?",
     });
     await user.click(
-      within(confirmation).getByRole("button", { name: "Close all active connections" }),
+      within(confirmation).getByRole("button", { name: "Close All Active Connections" }),
     );
     expect(await screen.findByText("No matches")).toBeVisible();
     await user.clear(search);
@@ -200,10 +200,10 @@ describe("Traffic page", () => {
     client.publishSnapshot({ ...snapshot, adapterKind: "rpc" });
     renderTraffic(client);
 
-    await user.click(await screen.findByRole("button", { name: "Close all active connections" }));
+    await user.click(await screen.findByRole("button", { name: "Close All Active Connections" }));
     await user.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
-        name: "Close all active connections",
+        name: "Close All Active Connections",
       }),
     );
 
@@ -299,7 +299,7 @@ describe("Traffic page", () => {
 
     await screen.findByText("Showing 250 of 2000");
     expect(screen.getAllByRole("row")).toHaveLength(251);
-    await user.click(screen.getByRole("button", { name: "Show more" }));
+    await user.click(screen.getByRole("button", { name: "Show More" }));
     expect(screen.getAllByRole("row")).toHaveLength(501);
   }, 10_000);
 

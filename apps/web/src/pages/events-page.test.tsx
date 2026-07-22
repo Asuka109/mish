@@ -77,7 +77,7 @@ describe("Events page", () => {
     expect(within(sources).getAllByText("Fixture only")).toHaveLength(4);
     expect(within(sources).queryByText(/Synthetic browser-only fixture/)).not.toBeInTheDocument();
     expect(view.container.querySelectorAll(".events-source-indicator")).toHaveLength(4);
-    expect(screen.getByRole("button", { name: "Preview support bundle" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Preview Support Bundle" })).toBeDisabled();
     expect(screen.getByText(/unavailable in demo mode/i)).toBeVisible();
   });
 
@@ -93,7 +93,7 @@ describe("Events page", () => {
     expect(screen.queryByText(/Synthetic DNS lookup timed out/)).not.toBeInTheDocument();
     await user.clear(search);
 
-    await user.click(screen.getByRole("button", { name: "Pause view" }));
+    await user.click(screen.getByRole("button", { name: "Pause View" }));
     const before = await client.getSnapshot();
     client.publishSnapshot({
       ...before,
@@ -114,10 +114,10 @@ describe("Events page", () => {
     expect(await screen.findByText(/1 newer events remain buffered/)).toBeVisible();
     expect(screen.queryByText("Buffered while paused")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Resume view" }));
+    await user.click(screen.getByRole("button", { name: "Resume View" }));
     expect(await screen.findByText("Buffered while paused")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Pause view" }));
-    await user.click(screen.getByRole("button", { name: "Clear local" }));
+    await user.click(screen.getByRole("button", { name: "Pause View" }));
+    await user.click(screen.getByRole("button", { name: "Clear Local" }));
     expect(await screen.findByText("No local events")).toBeVisible();
     expect((await client.getSnapshot()).events).toHaveLength(4);
   });
@@ -126,9 +126,9 @@ describe("Events page", () => {
     const user = userEvent.setup();
     renderEvents(new FixtureEventsClient());
 
-    const pause = await screen.findByRole("button", { name: "Pause view" });
+    const pause = await screen.findByRole("button", { name: "Pause View" });
     const follow = screen.getByRole("button", { name: "Following latest" });
-    const clear = screen.getByRole("button", { name: "Clear local" });
+    const clear = screen.getByRole("button", { name: "Clear Local" });
 
     for (const control of [pause, follow, clear]) {
       expect(control).toHaveClass("events-toolbar-button", "ui-button--icon-sm");
@@ -138,7 +138,7 @@ describe("Events page", () => {
     }
 
     await user.click(pause);
-    expect(await screen.findByRole("button", { name: "Resume view" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Resume View" })).toBeVisible();
   });
 
   it("renders unavailable, failed, cancelled, and successful diagnostics as terminal history", async () => {
@@ -160,7 +160,7 @@ describe("Events page", () => {
     expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Failed").length).toBeGreaterThan(0);
     expect(screen.queryByText("Running")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Run diagnostics" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Run Diagnostics" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Cancel diagnostics" })).not.toBeInTheDocument();
   });
 
@@ -188,7 +188,7 @@ describe("Events page", () => {
     renderEvents(client);
     await screen.findByText("Request to [redacted-url] failed");
 
-    await user.click(screen.getByRole("button", { name: "Copy safe event text" }));
+    await user.click(screen.getByRole("button", { name: "Copy Safe Event Text" }));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("[redacted-url]"));
     expect(writeText.mock.calls[0]?.[0]).not.toContain("fixture.invalid/list?token=");
   });
@@ -197,7 +197,7 @@ describe("Events page", () => {
     const user = userEvent.setup();
     renderEvents(new FixtureEventsClient());
 
-    const run = await findEnabledButton("Run diagnostics");
+    const run = await findEnabledButton("Run Diagnostics");
     expect(screen.getByText(/Fictional demo results/)).toBeVisible();
     expect(screen.queryByText("Synthetic fixture DNS failure")).not.toBeInTheDocument();
 
@@ -210,7 +210,7 @@ describe("Events page", () => {
     expect(screen.getAllByText("Interpretation").length).toBeGreaterThan(0);
     expect(screen.getByText(/mish-guided-diagnostics-fixture-v1/)).toBeVisible();
     expect(screen.getByText(/not an operational diagnostic run/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview support bundle" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Preview Support Bundle" })).toBeDisabled();
   });
 
   it("links common failure events to the focusable diagnostics section", async () => {
@@ -218,7 +218,7 @@ describe("Events page", () => {
     renderEvents(new FixtureEventsClient());
     await screen.findByText(/Synthetic DNS lookup timed out/);
 
-    const links = screen.getAllByRole("link", { name: "Open diagnostics" });
+    const links = screen.getAllByRole("link", { name: "Open Diagnostics" });
     expect(links[0]).toHaveAttribute("href", "/events?diagnostics=1");
     await user.click(links[0]);
 
@@ -230,7 +230,7 @@ describe("Events page", () => {
     window.dispatchEvent(new Event("resize"));
     const user = userEvent.setup();
     renderEvents(new FixtureEventsClient());
-    await user.click(await screen.findByRole("button", { name: "Run diagnostics" }));
+    await user.click(await screen.findByRole("button", { name: "Run Diagnostics" }));
 
     const diagnostics = screen.getByRole("region", { name: "Guided diagnostics" });
     expect(within(diagnostics).getAllByText("Scope").length).toBeGreaterThan(0);
@@ -244,7 +244,7 @@ describe("Events page", () => {
     const support = new TestSupportBundleClient("written");
     renderEvents(new FixtureEventsClient(), support);
 
-    const preview = await findEnabledButton("Preview support bundle");
+    const preview = await findEnabledButton("Preview Support Bundle");
     await waitForInitialRouteReady();
     preview.focus();
     await user.keyboard("{Enter}");
@@ -259,7 +259,7 @@ describe("Events page", () => {
     expect(support.save).not.toHaveBeenCalled();
 
     const confirmSave = within(dialog).getByRole("button", {
-      name: "Choose location and save",
+      name: "Choose Location and Save",
     });
     confirmSave.focus();
     await user.keyboard("{Enter}");
@@ -273,10 +273,10 @@ describe("Events page", () => {
     const support = new TestSupportBundleClient("cancelled");
     renderEvents(new FixtureEventsClient(), support);
 
-    await user.click(await findEnabledButton("Preview support bundle"));
+    await user.click(await findEnabledButton("Preview Support Bundle"));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
-        name: "Choose location and save",
+        name: "Choose Location and Save",
       }),
     );
 
@@ -291,10 +291,10 @@ describe("Events page", () => {
     renderEvents(new FixtureEventsClient(), support);
     await screen.findByText("No diagnostic runs in local history.");
 
-    await user.click(await findEnabledButton("Preview support bundle"));
+    await user.click(await findEnabledButton("Preview Support Bundle"));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
-        name: "Choose location and save",
+        name: "Choose Location and Save",
       }),
     );
 

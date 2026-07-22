@@ -362,7 +362,7 @@ fn is_status_destination(destination: &str) -> bool {
 
 #[cfg(test)]
 const MENU_SECTIONS: &[&[&str]] = &[
-    &["Launch proxy / Stop proxy"],
+    &["Launch Proxy / Stop Proxy"],
     &[
         "Open Mish",
         "Routes",
@@ -504,12 +504,12 @@ fn build_menu<M: Manager<tauri::Wry>>(
 
 fn proxy_title(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> &'static str {
     if status.runtime.system_proxy_enabled || status.runtime.tun_enabled {
-        "Stop proxy"
+        "Stop Proxy"
     } else if activation.phase == ProfileActivationPhase::Pending
         || status.runtime.system_proxy.phase == mish_runtime::SystemProxyPhase::Pending
         || status.runtime.tun.phase == mish_runtime::TunPhase::Pending
     {
-        "Launch proxy — Pending"
+        "Launch Proxy — Pending"
     } else if activation.phase == ProfileActivationPhase::Failure
         || matches!(
             status.runtime.system_proxy.phase,
@@ -520,9 +520,9 @@ fn proxy_title(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) 
             mish_runtime::TunPhase::Failed | mish_runtime::TunPhase::Drift
         )
     {
-        "Launch proxy — Failed"
+        "Launch Proxy — Failed"
     } else {
-        "Launch proxy"
+        "Launch Proxy"
     }
 }
 
@@ -730,7 +730,7 @@ mod tests {
         let current = StatusBarModel {
             menu: StatusMenuModel {
                 launch_on_start: false,
-                proxy_title: "Launch proxy",
+                proxy_title: "Launch Proxy",
                 proxy_enabled: true,
             },
             icon_active: false,
@@ -752,7 +752,7 @@ mod tests {
 
         let menu_changed = StatusBarModel {
             menu: StatusMenuModel {
-                proxy_title: "Stop proxy",
+                proxy_title: "Stop Proxy",
                 ..current.menu.clone()
             },
             ..current
@@ -774,25 +774,25 @@ mod tests {
         activation.availability = ProfileActivationAvailability::Available;
         assert_eq!(
             StatusMenuModel::new(&status, &activation, false).proxy_title,
-            "Launch proxy"
+            "Launch Proxy"
         );
         assert!(StatusMenuModel::new(&status, &activation, false).proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Pending;
         let pending = StatusMenuModel::new(&status, &activation, false);
-        assert_eq!(pending.proxy_title, "Launch proxy — Pending");
+        assert_eq!(pending.proxy_title, "Launch Proxy — Pending");
         assert!(!pending.proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Failure;
         let failed = StatusMenuModel::new(&status, &activation, false);
-        assert_eq!(failed.proxy_title, "Launch proxy — Failed");
+        assert_eq!(failed.proxy_title, "Launch Proxy — Failed");
         assert!(failed.proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Idle;
         status.runtime.system_proxy_enabled = true;
         status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
         let active = StatusMenuModel::new(&status, &activation, true);
-        assert_eq!(active.proxy_title, "Stop proxy");
+        assert_eq!(active.proxy_title, "Stop Proxy");
         assert!(active.proxy_enabled);
         assert!(active.launch_on_start);
     }
@@ -802,7 +802,7 @@ mod tests {
         assert_eq!(
             MENU_SECTIONS,
             [
-                ["Launch proxy / Stop proxy"].as_slice(),
+                ["Launch Proxy / Stop Proxy"].as_slice(),
                 [
                     "Open Mish",
                     "Routes",

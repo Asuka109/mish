@@ -843,7 +843,7 @@ describe("production routes", () => {
         expect.objectContaining({
           action: expect.objectContaining({
             props: expect.objectContaining({
-              actions: [expect.objectContaining({ id: "open-welcome", label: "Open welcome" })],
+              actions: [expect.objectContaining({ id: "open-welcome", label: "Open Welcome" })],
               execute: expect.any(Function),
             }),
           }),
@@ -915,7 +915,7 @@ describe("production routes", () => {
       }),
     );
 
-    expect(within(notificationCenter).queryByRole("button", { name: "Open welcome" })).toBeNull();
+    expect(within(notificationCenter).queryByRole("button", { name: "Open Welcome" })).toBeNull();
     expect(
       settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.completedAt,
     ).toBeNull();
@@ -936,7 +936,7 @@ describe("production routes", () => {
         name: /Notifications, \d+ unread/,
       }),
     );
-    expect(await screen.findByRole("button", { name: "Open welcome" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Open Welcome" })).toBeVisible();
   });
 
   it("opens the durable welcome by keyboard, names it, restores focus, and retains it on dismiss", async () => {
@@ -957,15 +957,15 @@ describe("production routes", () => {
 
     notificationTrigger.focus();
     await user.keyboard("{Enter}");
-    await user.click(await screen.findByRole("button", { name: "Open welcome" }));
+    await user.click(await screen.findByRole("button", { name: "Open Welcome" }));
 
     const welcome = await screen.findByRole("dialog", { name: "Welcome to Mish" });
     const cover = welcome.querySelector("img");
     expect(cover).toHaveAttribute("src", "/onboarding/welcome-cover.webp");
     expect(welcome.querySelector(".welcome-progress")).toBeNull();
     expect(welcome).toHaveTextContent("independent proxy client powered by the Mihomo core");
-    const start = within(welcome).getByRole("button", { name: "Show me around" });
-    const dismiss = within(welcome).getByRole("button", { name: "Not now" });
+    const start = within(welcome).getByRole("button", { name: "Show Me Around" });
+    const dismiss = within(welcome).getByRole("button", { name: "Not Now" });
     const backdrop = document.querySelector(".dialog-backdrop");
     await waitFor(() => expect(start).toHaveFocus());
     await user.tab({ shift: true });
@@ -1004,7 +1004,7 @@ describe("production routes", () => {
         name: /Notifications, \d+ unread/,
       }),
     );
-    expect(await screen.findByRole("button", { name: "Open welcome" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "Open Welcome" })).toBeVisible();
   });
 
   it("renders the welcome invitation and dialog in Simplified Chinese", async () => {
@@ -1082,12 +1082,12 @@ describe("production routes", () => {
     });
 
     await user.click(notificationTrigger);
-    await user.click(await screen.findByRole("button", { name: "Open welcome" }));
+    await user.click(await screen.findByRole("button", { name: "Open Welcome" }));
     const welcome = await screen.findByRole("dialog", { name: "Welcome to Mish" });
-    await user.click(within(welcome).getByRole("button", { name: "Show me around" }));
+    await user.click(within(welcome).getByRole("button", { name: "Show Me Around" }));
     await user.click(within(welcome).getByRole("button", { name: "Continue" }));
     await user.click(within(welcome).getByRole("button", { name: "Continue" }));
-    await user.click(within(welcome).getByRole("button", { name: "Start using Mish" }));
+    await user.click(within(welcome).getByRole("button", { name: "Start Using Mish" }));
 
     const announcement = await screen.findByText(
       "Welcome complete. The invitation was removed from Notifications.",
@@ -1105,7 +1105,7 @@ describe("production routes", () => {
     expect(settingsClient.removeTunHelper).not.toHaveBeenCalled();
 
     await user.click(notificationTrigger);
-    expect(screen.queryByRole("button", { name: "Open welcome" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Welcome" })).not.toBeInTheDocument();
   });
 
   it.each([
@@ -1145,7 +1145,7 @@ describe("production routes", () => {
     expect(screen.queryByRole("heading", { name: "Privacy and access" })).not.toBeInTheDocument();
     expect(screen.getByText("Mish 0.1.0")).toBeVisible();
     expect(screen.getByText("Mihomo v1.19.29")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Check for updates" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check for Updates" })).toBeDisabled();
   });
 
   it("saves managed ports and can replace them with an available pair", async () => {
@@ -1166,7 +1166,7 @@ describe("production routes", () => {
     await user.type(proxyPort, "17890");
     await user.clear(controllerPort);
     await user.type(controllerPort, "19090");
-    await user.click(screen.getByRole("button", { name: "Save ports" }));
+    await user.click(screen.getByRole("button", { name: "Save Ports" }));
 
     await waitFor(() =>
       expect(settingsClient.setManagedPorts).toHaveBeenCalledWith({
@@ -1174,7 +1174,7 @@ describe("production routes", () => {
         proxy: 17890,
       }),
     );
-    await user.click(screen.getByRole("button", { name: "Find available ports" }));
+    await user.click(screen.getByRole("button", { name: "Find Available Ports" }));
     await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
     expect(proxyPort).toHaveValue(27890);
     expect(controllerPort).toHaveValue(29090);
@@ -1201,7 +1201,7 @@ describe("production routes", () => {
     const notificationCenter = await screen.findByRole("dialog");
     expect(notificationCenter).toHaveTextContent("Mish could not use 127.0.0.1:7890.");
     await user.click(
-      within(notificationCenter).getByRole("button", { name: "Find ports and retry" }),
+      within(notificationCenter).getByRole("button", { name: "Find Ports and Retry" }),
     );
 
     await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
@@ -1318,7 +1318,7 @@ describe("production routes", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    const reinstall = await screen.findByRole("button", { name: "Clean reinstall" });
+    const reinstall = await screen.findByRole("button", { name: "Clean Reinstall" });
     expect(reinstall).toBeEnabled();
     await user.click(reinstall);
 
@@ -1426,7 +1426,7 @@ describe("production routes", () => {
     const navigation = screen.getByRole("navigation", { name: "Workspace sections" });
     const settings = within(navigation).getByRole("link", { name: "Settings" });
     const proxy = within(navigation).getByRole("button", {
-      name: "Launch the proxy demo state",
+      name: "Launch the Proxy Demo State",
     });
     expect(settings.parentElement).toBe(proxy.parentElement);
     expect(settings.parentElement).toHaveClass("sidebar-bottom-items");
@@ -1450,7 +1450,7 @@ describe("production routes", () => {
         name: "Switch profile. Current profile: Work 工作",
       }),
     ).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Launch the proxy demo state" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Launch the Proxy Demo State" })).toBeInTheDocument();
   });
 
   it("starts with fixture data without opening a socket or making a request", async () => {
@@ -1494,13 +1494,13 @@ describe("desktop RPC experience", () => {
     expect(screen.queryByText("HTTP")).not.toBeInTheDocument();
     expect(screen.queryByText("SOCKS5")).not.toBeInTheDocument();
 
-    const testButton = screen.getByRole("button", { name: "Test listener" });
+    const testButton = screen.getByRole("button", { name: "Test Listener" });
     await user.click(testButton);
 
     await waitFor(() => expect(statusClient.testLocalProxy).toHaveBeenCalledTimes(1));
     expect(testButton).toHaveAttribute("aria-busy", "true");
     expect(testButton.querySelector(".ui-spinner")).toBeInTheDocument();
-    expect(testButton).toHaveTextContent("Test listener");
+    expect(testButton).toHaveTextContent("Test Listener");
     expect(screen.queryByText("Testing…")).not.toBeInTheDocument();
     expect(screen.queryByText("Listener ready")).not.toBeInTheDocument();
 
@@ -1521,7 +1521,7 @@ describe("desktop RPC experience", () => {
     const statusClient = new LocalProxyPhaseClient(snapshot, "core-unhealthy");
     renderRoute("/settings", "en", statusClient);
 
-    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
 
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
@@ -1542,7 +1542,7 @@ describe("desktop RPC experience", () => {
     const statusClient = new LocalProxyPhaseClient(snapshot, "runtime-transition");
     renderRoute("/settings", "en", statusClient);
 
-    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
 
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
@@ -1563,7 +1563,7 @@ describe("desktop RPC experience", () => {
     const statusClient = new LocalProxyPhaseClient(snapshot, "listener-unavailable");
     renderRoute("/settings", "en", statusClient);
 
-    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -1584,7 +1584,7 @@ describe("desktop RPC experience", () => {
     const statusClient = new FailingLocalProxyClient(snapshot);
     renderRoute("/settings", "en", statusClient);
 
-    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -1610,7 +1610,7 @@ describe("desktop RPC experience", () => {
     const statusClient = new MutableLocalProxyClient(snapshot, "listener-unavailable");
     renderRoute("/settings", "en", statusClient);
 
-    await user.click(await screen.findByRole("button", { name: "Test listener" }));
+    await user.click(await screen.findByRole("button", { name: "Test Listener" }));
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     const notificationCenter = await screen.findByRole("dialog");
     expect(notificationCenter).toHaveTextContent("The local listener did not respond.");
@@ -1642,7 +1642,7 @@ describe("desktop RPC experience", () => {
     expect(screen.getByText("office.example")).toBeVisible();
     expect(settingsClient.refreshNetworkDns).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button", { name: "Refresh observation" }));
+    await user.click(screen.getByRole("button", { name: "Refresh Observation" }));
     await waitFor(() => expect(settingsClient.refreshNetworkDns).toHaveBeenCalledTimes(2));
   });
 
@@ -1683,7 +1683,7 @@ describe("desktop RPC experience", () => {
       backupClient,
     );
 
-    await user.click(await screen.findByRole("button", { name: "Create backup" }));
+    await user.click(await screen.findByRole("button", { name: "Create Backup" }));
     const dialog = screen.getByRole("dialog", { name: "Create local backup" });
     expect(within(dialog).getByRole("checkbox", { name: /Application settings/ })).toBeChecked();
     expect(
@@ -1693,7 +1693,7 @@ describe("desktop RPC experience", () => {
       within(dialog).getByRole("checkbox", { name: /Subscription URLs and full local paths/ }),
     ).toBeDisabled();
 
-    await user.click(within(dialog).getByRole("button", { name: "Generate preview" }));
+    await user.click(within(dialog).getByRole("button", { name: "Generate Preview" }));
     expect(await within(dialog).findByText("JSON · v1")).toBeVisible();
     expect(
       within(dialog).getByText(/1 settings · 0 profiles · 3 patches · 2 schedules/),
@@ -1706,7 +1706,7 @@ describe("desktop RPC experience", () => {
       sourceLocators: false,
     });
 
-    await user.click(within(dialog).getByRole("button", { name: "Choose location and save" }));
+    await user.click(within(dialog).getByRole("button", { name: "Choose Location and Save" }));
     await waitFor(() => expect(backupClient.saveExport).toHaveBeenCalledWith("preview-1"));
     expect(await screen.findByText("The local backup was written atomically.")).toBeVisible();
   });
@@ -1745,13 +1745,13 @@ describe("desktop RPC experience", () => {
       backupClient,
     );
 
-    await user.click(await screen.findByRole("button", { name: "Restore backup" }));
+    await user.click(await screen.findByRole("button", { name: "Restore Backup" }));
     const dialog = await screen.findByRole("dialog", { name: "Review validated restore" });
     const scope = within(dialog).getByRole("region", { name: "Validated restore scope" });
     expect(scope).toHaveTextContent("Application settings · Profile configuration contents");
     expect(scope).toHaveTextContent("Profile credentials and configuration contentsIncluded");
     expect(scope).toHaveTextContent("Subscription URLs and full local pathsExcluded");
-    expect(within(dialog).getByRole("button", { name: "Restore selected data" })).toBeEnabled();
+    expect(within(dialog).getByRole("button", { name: "Restore Selected Data" })).toBeEnabled();
   });
 
   it("scopes native material to the sidebar and keeps the workspace opaque", async () => {
@@ -1826,7 +1826,7 @@ describe("desktop RPC experience", () => {
     );
 
     const off = await screen.findByRole("button", { name: "Off" });
-    const showWindow = screen.getByRole("button", { name: "Show window" });
+    const showWindow = screen.getByRole("button", { name: "Show Window" });
     const background = screen.getByRole("button", { name: "Background" });
     expect(off).toHaveAttribute("aria-pressed", "true");
     expect(showWindow).not.toBeDisabled();
@@ -1925,7 +1925,7 @@ describe("desktop RPC experience", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    await user.click(await screen.findByRole("button", { name: "Show window" }));
+    await user.click(await screen.findByRole("button", { name: "Show Window" }));
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -1976,7 +1976,7 @@ describe("desktop RPC experience", () => {
       within(notificationCenter).getByRole("button", { name: "Repair System Proxy" }),
     ).toBeInTheDocument();
     expect(
-      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+      within(notificationCenter).getByRole("button", { name: "Leave OS Settings as Is" }),
     ).toBeInTheDocument();
   });
 
@@ -2145,7 +2145,7 @@ describe("desktop RPC experience", () => {
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
     await screen.findByText("Live desktop traffic");
-    expect(screen.queryByRole("link", { name: "Open diagnostics" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open Diagnostics" })).not.toBeInTheDocument();
 
     const services = screen.getByRole("region", { name: "Service latency monitors" });
     const google = within(services).getByRole("button", { name: /Google/ });
@@ -2165,7 +2165,7 @@ describe("desktop RPC experience", () => {
     };
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
-    const proxyControl = await screen.findByRole("button", { name: "Launch proxy" });
+    const proxyControl = await screen.findByRole("button", { name: "Launch Proxy" });
     expect(proxyControl).toHaveAttribute("aria-busy", "true");
     expect(proxyControl).toBeDisabled();
     expect(proxyControl).toHaveTextContent("Pending");
@@ -2187,7 +2187,7 @@ describe("desktop RPC experience", () => {
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
     expect(screen.getByText(/Reconnecting to the Mish background service/i)).toBeInTheDocument();
 
-    const proxyControl = screen.getByRole("button", { name: "Launch proxy" });
+    const proxyControl = screen.getByRole("button", { name: "Launch Proxy" });
     expect(proxyControl).toBeDisabled();
     expect(proxyControl).toHaveAccessibleDescription(/capture is unavailable/i);
 
@@ -2208,7 +2208,7 @@ describe("desktop RPC experience", () => {
     expect(
       within(menu).getByText("This action is not supported by the current local service."),
     ).toBeVisible();
-    expect(within(menu).getByText("Edit services…").closest("[role='menuitem']")).toHaveAttribute(
+    expect(within(menu).getByText("Edit Services…").closest("[role='menuitem']")).toHaveAttribute(
       "data-disabled",
     );
     expect(
@@ -2327,7 +2327,7 @@ describe("Status fixture experience", () => {
   it("keeps capture actions explicitly described as fixture-only", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
-    const startButton = await screen.findByRole("button", { name: "Launch the proxy demo state" });
+    const startButton = await screen.findByRole("button", { name: "Launch the Proxy Demo State" });
     expect(startButton).toHaveAttribute("data-slot", "button");
     expect(startButton).toHaveAccessibleDescription(/local fixture data only/);
     expect(startButton).toHaveAttribute("data-status", "inactive");
@@ -2336,7 +2336,7 @@ describe("Status fixture experience", () => {
     ).not.toBeInTheDocument();
     expect(startButton.querySelector(".sidebar-status-shimmer")).not.toBeInTheDocument();
     await user.click(startButton);
-    const stopButton = await screen.findByRole("button", { name: "Disable the proxy demo state" });
+    const stopButton = await screen.findByRole("button", { name: "Disable the Proxy Demo State" });
     const material = stopButton.querySelector('[data-slot="proxy-control-material"]');
     expect(stopButton).toHaveAttribute("data-slot", "button");
     expect(stopButton).toHaveAccessibleDescription(/local fixture data only/);
@@ -2344,7 +2344,7 @@ describe("Status fixture experience", () => {
     expect(material?.querySelector(".sidebar-status-shimmer")).toBeInTheDocument();
     await user.click(stopButton);
     expect(
-      await screen.findByRole("button", { name: "Launch the proxy demo state" }),
+      await screen.findByRole("button", { name: "Launch the Proxy Demo State" }),
     ).toBeInTheDocument();
   });
 
@@ -2419,20 +2419,20 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
-    await user.click(await screen.findByRole("button", { name: "Launch the proxy demo state" }));
+    await user.click(await screen.findByRole("button", { name: "Launch the Proxy Demo State" }));
 
     const systemProxy = await screen.findByRole("button", { name: /^System Proxy/ });
     expect(systemProxy).toHaveAttribute("aria-pressed", "true");
     expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
 
-    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
 
     await waitFor(() => {
       expect(systemProxy).toHaveAttribute("aria-pressed", "true");
       expect(systemProxy).toHaveAccessibleName("System Proxy, selected, not running");
     });
 
-    await user.click(screen.getByRole("button", { name: "Launch the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Launch the Proxy Demo State" }));
 
     await waitFor(() => {
       expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
@@ -2446,7 +2446,7 @@ describe("Status fixture experience", () => {
     await user.click(
       await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
     );
-    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
     const systemProxy = screen.getByRole("button", {
       name: "System Proxy, selected, not running",
     });
@@ -2469,13 +2469,13 @@ describe("Status fixture experience", () => {
     await user.click(
       await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
     );
-    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
     await user.click(
       screen.getByRole("button", {
         name: "Virtual Interface, not selected, not running",
       }),
     );
-    await user.click(screen.getByRole("button", { name: "Disable the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
     await user.click(screen.getByRole("button", { name: "System Proxy, selected, not running" }));
 
     expect(
@@ -2484,9 +2484,9 @@ describe("Status fixture experience", () => {
     expect(
       screen.getByRole("button", { name: "Virtual Interface, selected, not running" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Launch the proxy demo state" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Launch the Proxy Demo State" })).toHaveAttribute(
       "title",
-      "Launch proxy with Virtual Interface",
+      "Launch Proxy with Virtual Interface",
     );
   });
 
@@ -2497,12 +2497,12 @@ describe("Status fixture experience", () => {
     expect(
       await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
     ).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByRole("button", { name: "Launch the proxy demo state" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Launch the Proxy Demo State" })).toHaveAttribute(
       "title",
-      "Launch proxy with System Proxy",
+      "Launch Proxy with System Proxy",
     );
 
-    await user.click(screen.getByRole("button", { name: "Launch the proxy demo state" }));
+    await user.click(screen.getByRole("button", { name: "Launch the Proxy Demo State" }));
 
     expect(
       await screen.findByRole("button", { name: "System Proxy, selected, running" }),
@@ -2567,7 +2567,7 @@ describe("Status fixture experience", () => {
             props: expect.objectContaining({
               actions: expect.arrayContaining([
                 expect.objectContaining({ id: "repair", label: "Repair System Proxy" }),
-                expect.objectContaining({ id: "leave-as-is", label: "Leave OS settings as is" }),
+                expect.objectContaining({ id: "leave-as-is", label: "Leave OS Settings as Is" }),
               ]),
             }),
           }),
@@ -2585,7 +2585,7 @@ describe("Status fixture experience", () => {
       within(notificationCenter).getByRole("button", { name: "Repair System Proxy" }),
     ).toBeInTheDocument();
     await user.click(
-      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+      within(notificationCenter).getByRole("button", { name: "Leave OS Settings as Is" }),
     );
 
     await waitFor(() =>
@@ -2617,7 +2617,7 @@ describe("Status fixture experience", () => {
       within(notificationCenter).queryByRole("button", { name: "Repair System Proxy" }),
     ).not.toBeInTheDocument();
     expect(
-      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+      within(notificationCenter).getByRole("button", { name: "Leave OS Settings as Is" }),
     ).toBeEnabled();
   });
 
@@ -2645,7 +2645,7 @@ describe("Status fixture experience", () => {
           action: expect.objectContaining({
             props: expect.objectContaining({
               actions: [
-                expect.objectContaining({ id: "leave-as-is", label: "Leave OS settings as is" }),
+                expect.objectContaining({ id: "leave-as-is", label: "Leave OS Settings as Is" }),
               ],
             }),
           }),
@@ -2663,7 +2663,7 @@ describe("Status fixture experience", () => {
       within(notificationCenter).queryByRole("button", { name: "Repair System Proxy" }),
     ).not.toBeInTheDocument();
     expect(
-      within(notificationCenter).getByRole("button", { name: "Leave OS settings as is" }),
+      within(notificationCenter).getByRole("button", { name: "Leave OS Settings as Is" }),
     ).toBeInTheDocument();
   });
 
@@ -2674,7 +2674,7 @@ describe("Status fixture experience", () => {
     const client = new DeferredCaptureClient(snapshot);
     renderRoute("/status", "en", client);
 
-    await user.click(await screen.findByRole("button", { name: "Launch proxy" }));
+    await user.click(await screen.findByRole("button", { name: "Launch Proxy" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(
       "System Proxy is pending macOS confirmation.",
@@ -2795,9 +2795,9 @@ describe("Status fixture experience", () => {
     await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
-    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
-    await user.click(within(manager).getByRole("button", { name: "Restore defaults" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
+    await user.click(within(manager).getByRole("button", { name: "Restore Defaults" }));
 
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -2841,15 +2841,15 @@ describe("Status fixture experience", () => {
     renderRoute("/status", "en", client);
     await screen.findByText("Live demo traffic");
 
-    await user.click(screen.getByRole("button", { name: "Test latency for Google" }));
+    await user.click(screen.getByRole("button", { name: "Test Latency for Google" }));
     await waitFor(() => expect(testService).toHaveBeenCalledWith("google", expect.any(Object)));
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
-    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
+    await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
     await user.click(within(manager).getByRole("button", { name: "Google" }));
 
-    expect(await screen.findByRole("dialog", { name: "Edit service" })).toBeVisible();
+    expect(await screen.findByRole("dialog", { name: "Edit Service" })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Google");
     expect(screen.getByRole("textbox", { name: "Icon URL" })).toHaveValue(SERVICE_ICON_URLS.google);
   });
@@ -2860,8 +2860,8 @@ describe("Status fixture experience", () => {
     await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
-    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
+    await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
     await user.click(within(manager).getByRole("button", { name: "Google" }));
 
     const customIconUrl = "https://example.com/custom-service.svg";
@@ -2870,8 +2870,8 @@ describe("Status fixture experience", () => {
     await user.type(iconUrl, customIconUrl);
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit service" })).toBeNull());
-    const google = screen.getByRole("button", { name: "Test latency for Google" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Service" })).toBeNull());
+    const google = screen.getByRole("button", { name: "Test Latency for Google" });
     expect(google.querySelector("img")).toHaveAttribute("src", customIconUrl);
   });
 
@@ -2882,8 +2882,8 @@ describe("Status fixture experience", () => {
     await screen.findByText("Live demo traffic");
 
     const services = screen.getByRole("region", { name: "Service latency monitors" });
-    const google = within(services).getByRole("button", { name: "Test latency for Google" });
-    const github = within(services).getByRole("button", { name: "Test latency for GitHub" });
+    const google = within(services).getByRole("button", { name: "Test Latency for Google" });
+    const github = within(services).getByRole("button", { name: "Test Latency for GitHub" });
     await user.click(google);
 
     expect(google.querySelector(".ui-spinner")).not.toBeInTheDocument();
@@ -2902,7 +2902,7 @@ describe("Status fixture experience", () => {
     renderRoute("/status", "en", new FailingServiceProbeClient());
     await screen.findByText("Live demo traffic");
 
-    const google = screen.getByRole("button", { name: "Test latency for Google" });
+    const google = screen.getByRole("button", { name: "Test Latency for Google" });
     await user.click(google);
 
     const failure = await within(google).findByText("Unreachable");
@@ -2920,7 +2920,7 @@ describe("Status fixture experience", () => {
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
     const service = await screen.findByRole("button", {
-      name: "Test latency for A very long custom service monitor name",
+      name: "Test Latency for A very long custom service monitor name",
     });
     expect(within(service).getByText(">9999ms")).toBeVisible();
     expect(within(service).getByText(google.label)).toHaveAttribute("title", google.label);
@@ -2973,9 +2973,9 @@ describe("Status fixture experience", () => {
     await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Edit services…" }));
-    const manager = await screen.findByRole("dialog", { name: "Edit services…" });
-    await user.click(within(manager).getByRole("button", { name: "Add service" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
+    const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
+    await user.click(within(manager).getByRole("button", { name: "Add Service" }));
 
     const title = await screen.findByRole("textbox", { name: "Title" });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

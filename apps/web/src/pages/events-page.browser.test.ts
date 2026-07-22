@@ -2,6 +2,7 @@ import { page } from "vitest/browser";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 
 beforeAll(async () => {
+  localStorage.setItem("mish.locale", "en");
   document.body.innerHTML = '<div id="root"></div>';
   await import("../main");
 
@@ -29,7 +30,7 @@ describe("Events toolbar", () => {
     if (!toolbar) throw new Error("Missing Events toolbar");
 
     const toolbarRect = toolbar.getBoundingClientRect();
-    const controls = ["Pause view", "Following latest", "Clear local"].map((label) => {
+    const controls = ["Pause View", "Following latest", "Clear Local"].map((label) => {
       const control = toolbar.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
       if (!control) throw new Error(`Missing ${label} control`);
       return control;
@@ -54,7 +55,7 @@ describe("Events toolbar", () => {
 
     await page.elementLocator(controls[0]!).hover();
     await vi.waitFor(() => {
-      expect(document.querySelector(".tooltip-content")?.textContent).toBe("Pause view");
+      expect(document.querySelector(".tooltip-content")?.textContent).toBe("Pause View");
     });
   });
 });
