@@ -2190,6 +2190,13 @@ describe("desktop RPC experience", () => {
     expect(proxyControl).toHaveAttribute("aria-busy", "true");
     expect(proxyControl).toBeDisabled();
     expect(proxyControl).toHaveTextContent("Pending");
+    expect(
+      [
+        ...screen
+          .getByRole("region", { name: "Current session" })
+          .querySelectorAll(".traffic-rate-value"),
+      ].map((value) => value.textContent),
+    ).toEqual(["", ""]);
   });
 
   it("renders a sparse reconnecting snapshot without fixture claims or runnable actions", async () => {
@@ -2207,6 +2214,13 @@ describe("desktop RPC experience", () => {
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
     expect(screen.getByText(/Reconnecting to the Mish background service/i)).toBeInTheDocument();
+    expect(
+      [
+        ...screen
+          .getByRole("region", { name: "Current session" })
+          .querySelectorAll(".traffic-rate-value"),
+      ].map((value) => value.textContent),
+    ).toEqual(["", ""]);
 
     const proxyControl = screen.getByRole("button", { name: "Launch Proxy" });
     expect(proxyControl).toBeDisabled();
@@ -2278,30 +2292,41 @@ describe("Status fixture experience", () => {
     const session = await screen.findByLabelText("Current session");
 
     expect([...session.querySelectorAll("strong")].map((value) => value.textContent)).toEqual([
-      "- B/s",
-      "- B/s",
+      "",
+      "",
       "-",
       "-",
       "-",
       "-",
     ]);
+    expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
     await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
     await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
+    expect(
+      [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
+    ).toEqual(["0 B/s", "0 B/s"]);
+    await act(() => client.setRoutingMode("global"));
+    await waitFor(() =>
+      expect(
+        [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
+      ).toEqual(["2.45 MB/s", "1.18 MB/s"]),
+    );
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
     await act(() => client.setCapture({ systemProxy: true, tun: false }, false));
     await waitFor(() =>
       expect([...session.querySelectorAll("strong")].map((value) => value.textContent)).toEqual([
-        "- B/s",
-        "- B/s",
+        "",
+        "",
         "-",
         "-",
         "-",
         "-",
       ]),
     );
+    expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
     await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
@@ -2322,7 +2347,10 @@ describe("Status fixture experience", () => {
 
     expect(await screen.findByText("No policy groups available.")).toBeInTheDocument();
     const session = screen.getByRole("region", { name: "Current session" });
-    expect(within(session).getAllByText("- B/s")).toHaveLength(2);
+    expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
+    expect(
+      [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
+    ).toEqual(["", ""]);
     expect(within(session).getAllByText("-")).toHaveLength(6);
     expect(within(session).queryByText("0 B/s")).not.toBeInTheDocument();
     expect(within(session).queryByText("00:00:00")).not.toBeInTheDocument();
