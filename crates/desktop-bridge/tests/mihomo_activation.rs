@@ -22,8 +22,8 @@ use mish_bridge::{
     ActivationFailureKind, ActivationOutcome, ActivationTiming, DesktopMihomoProcess,
     DesktopMihomoProcessConfig, DesktopRuntimeHost, ManagedMihomoResolver, ManagedRuntimePolicy,
     MihomoActivationError, MihomoActivationManager, MihomoResolveError,
-    ProfileActivationCoordinator, ProfileActivationPhase, ReqwestHttpsSourceReader,
-    RuntimeConfigGenerator,
+    ProfileActivationCoordinator, ProfileActivationEvidenceKind, ProfileActivationFailure,
+    ProfileActivationPhase, ReqwestHttpsSourceReader, RuntimeConfigGenerator,
 };
 use mish_profile::{
     FileProfileRepository, Fingerprint, HttpsSourceReader, ImmutableRevision,
@@ -54,6 +54,110 @@ const P0_PROFILE: &[u8] = include_bytes!("fixtures/p0-profile.yaml");
 #[derive(Default)]
 struct HealthyTunPlatform {
     enabled: Mutex<bool>,
+}
+
+#[tokio::test]
+async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancellation() {
+    let (success, success_controller, success_id) =
+        geodata_coordinator("geodata-test-success: true", Duration::from_secs(3)).await;
+    let mut updates = success.subscribe();
+    success
+        .activate(&Uuid::new_v4().to_string(), &success_id)
+        .await
+        .unwrap();
+    let preparing = wait_for_evidence(
+        &mut updates,
+        ProfileActivationEvidenceKind::GeodataPreparing,
+    )
+    .await;
+    assert_eq!(
+        preparing.evidence.unwrap().asset,
+        mish_bridge::GeodataAsset::GeoSite
+    );
+    let completed = wait_for_activation(&success, &mut updates).await;
+    assert_eq!(completed.phase, ProfileActivationPhase::Success);
+    assert_eq!(completed.evidence, None);
+    success.shutdown().await.unwrap();
+    success_controller.shutdown().await;
+
+    let (failed, failed_controller, failed_id) =
+        geodata_coordinator("geodata-test-failure: true", Duration::from_secs(3)).await;
+    let mut updates = failed.subscribe();
+    failed
+        .activate(&Uuid::new_v4().to_string(), &failed_id)
+        .await
+        .unwrap();
+    let completed = wait_for_activation(&failed, &mut updates).await;
+    assert_eq!(
+        completed.failure,
+        Some(ProfileActivationFailure::GeodataFailed)
+    );
+    assert_eq!(
+        completed.evidence.unwrap().kind,
+        ProfileActivationEvidenceKind::GeodataFailed
+    );
+    let serialized = serde_json::to_string(&completed).unwrap();
+    assert!(!serialized.contains("token"));
+    assert!(!serialized.contains("example.invalid"));
+    assert!(!serialized.contains("private"));
+    let retry_command = Uuid::new_v4().to_string();
+    let retry_pending = failed.activate(&retry_command, &failed_id).await.unwrap();
+    assert_eq!(retry_pending.evidence, None);
+    wait_for_evidence(
+        &mut updates,
+        ProfileActivationEvidenceKind::GeodataPreparing,
+    )
+    .await;
+    let retry_completed = wait_for_activation(&failed, &mut updates).await;
+    assert_eq!(
+        retry_completed.command_id.as_deref(),
+        Some(retry_command.as_str())
+    );
+    assert_eq!(
+        retry_completed.failure,
+        Some(ProfileActivationFailure::GeodataFailed)
+    );
+    failed.shutdown().await.unwrap();
+    failed_controller.shutdown().await;
+
+    let (timed_out, timeout_controller, timeout_id) =
+        geodata_coordinator("geodata-test-timeout: true", Duration::from_millis(1500)).await;
+    let mut updates = timed_out.subscribe();
+    timed_out
+        .activate(&Uuid::new_v4().to_string(), &timeout_id)
+        .await
+        .unwrap();
+    let completed = wait_for_activation(&timed_out, &mut updates).await;
+    assert_eq!(
+        completed.failure,
+        Some(ProfileActivationFailure::GeodataTimeout)
+    );
+    assert_eq!(
+        completed.evidence.unwrap().kind,
+        ProfileActivationEvidenceKind::GeodataTimeout
+    );
+    timed_out.shutdown().await.unwrap();
+    timeout_controller.shutdown().await;
+
+    let (cancelled, cancellation_controller, cancellation_id) =
+        geodata_coordinator("geodata-test-timeout: true", Duration::from_secs(5)).await;
+    let mut updates = cancelled.subscribe();
+    let cancellation_command = Uuid::new_v4().to_string();
+    cancelled
+        .activate(&cancellation_command, &cancellation_id)
+        .await
+        .unwrap();
+    wait_for_evidence(
+        &mut updates,
+        ProfileActivationEvidenceKind::GeodataPreparing,
+    )
+    .await;
+    cancelled.cancel(&cancellation_command).await.unwrap();
+    let completed = wait_for_activation(&cancelled, &mut updates).await;
+    assert_eq!(completed.failure, Some(ProfileActivationFailure::Cancelled));
+    assert_eq!(completed.evidence, None);
+    cancelled.shutdown().await.unwrap();
+    cancellation_controller.shutdown().await;
 }
 
 impl TunHelperPlatform for HealthyTunPlatform {
@@ -1051,7 +1155,7 @@ async fn activation_commits_only_after_controller_readiness_and_first_snapshot()
     let manager = MihomoActivationManager::new(
         ManagedMihomoResolver::development(binary, root.join("runtime")),
         ActivationTiming {
-            config_validation_timeout: Duration::from_secs(1),
+            config_validation_timeout: Duration::from_secs(3),
             controller_connect_timeout: Duration::from_millis(250),
             controller_request_timeout: Duration::from_millis(250),
             readiness_timeout: Duration::from_secs(2),
@@ -1823,7 +1927,7 @@ async fn invalid_candidate_preserves_prior_core_and_records_a_redacted_attempt()
             root.join("private-runtime"),
         ),
         ActivationTiming {
-            config_validation_timeout: Duration::from_secs(1),
+            config_validation_timeout: Duration::from_secs(3),
             controller_connect_timeout: Duration::from_millis(250),
             controller_request_timeout: Duration::from_millis(250),
             readiness_timeout: Duration::from_secs(2),
@@ -1917,7 +2021,7 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
             root.join("runtime"),
         ),
         ActivationTiming {
-            config_validation_timeout: Duration::from_secs(1),
+            config_validation_timeout: Duration::from_secs(3),
             controller_connect_timeout: Duration::from_millis(100),
             controller_request_timeout: Duration::from_millis(100),
             readiness_timeout: Duration::from_secs(2),
@@ -2241,13 +2345,75 @@ fn activation_manager(
 
 fn activation_timing(readiness_timeout: Duration) -> ActivationTiming {
     ActivationTiming {
-        config_validation_timeout: Duration::from_secs(1),
+        config_validation_timeout: Duration::from_secs(3),
         controller_connect_timeout: Duration::from_millis(100),
         controller_request_timeout: Duration::from_millis(100),
         readiness_timeout,
         refresh_interval: Duration::from_secs(1),
         reconnect_delay: Duration::from_millis(25),
     }
+}
+
+async fn geodata_coordinator(
+    marker: &str,
+    validation_timeout: Duration,
+) -> (Arc<ProfileActivationCoordinator>, FakeController, String) {
+    let root = tempfile::tempdir().unwrap().keep();
+    let profile_root = root.join("profiles");
+    let record =
+        profile_record(format!("proxies: []\nrules: [MATCH,DIRECT]\n{marker}\n").as_bytes());
+    let profile_id = record.metadata.id.as_str().to_owned();
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let controller = FakeController::start("v1.19.29").await;
+    let timing = ActivationTiming {
+        config_validation_timeout: validation_timeout,
+        ..activation_timing(Duration::from_secs(2))
+    };
+    let manager = Arc::new(MihomoActivationManager::new(
+        ManagedMihomoResolver::development(
+            fixture("fake-geodata-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        timing,
+    ));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        DesktopRuntimeHost::new(safe_runtime.clone()),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "geodata-test-secret"),
+    ));
+    (coordinator, controller, profile_id)
+}
+
+async fn wait_for_evidence(
+    updates: &mut tokio::sync::broadcast::Receiver<mish_bridge::ProfileActivationSnapshot>,
+    kind: ProfileActivationEvidenceKind,
+) -> mish_bridge::ProfileActivationSnapshot {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let snapshot = updates.recv().await.unwrap();
+            if snapshot
+                .evidence
+                .is_some_and(|evidence| evidence.kind == kind)
+            {
+                return snapshot;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("geodata evidence {kind:?} did not arrive"))
 }
 
 async fn wait_for_activation(

@@ -48,15 +48,15 @@ pub use local_backup::{
     PreparedLocalRestore,
 };
 pub use managed_process::{
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedProcessValidationError,
-    PrivilegedCoreHost, PrivilegedCoreHostError, PrivilegedCoreLaunchRequest,
-    PrivilegedCoreProcess,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, GeodataAsset, GeodataValidationEvent,
+    GeodataValidationObserver, ManagedProcessValidationError, PrivilegedCoreHost,
+    PrivilegedCoreHostError, PrivilegedCoreLaunchRequest, PrivilegedCoreProcess,
 };
 pub use profile_activation::{
     ManagedProfileSnapshot, ProfileActivationAvailability, ProfileActivationCoordinator,
-    ProfileActivationCoordinatorError, ProfileActivationFailure, ProfileActivationOperation,
-    ProfileActivationPhase, ProfileActivationShutdownFailure, ProfileActivationSnapshot,
-    ProfileStartupPolicy,
+    ProfileActivationCoordinatorError, ProfileActivationEvidence, ProfileActivationEvidenceKind,
+    ProfileActivationFailure, ProfileActivationOperation, ProfileActivationPhase,
+    ProfileActivationShutdownFailure, ProfileActivationSnapshot, ProfileStartupPolicy,
 };
 pub use profile_file_actions::{
     ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,

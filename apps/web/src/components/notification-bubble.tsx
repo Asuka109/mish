@@ -36,6 +36,7 @@ import { WelcomeDialog } from "./welcome-dialog";
 
 const visibleNotificationLimit = 5;
 const welcomePromptToastId = "onboarding-welcome-prompt";
+export const geodataProgressNotificationId = "profile-activation-geodata-progress";
 const notificationStyles = tv({
   slots: {
     trigger: cx(
@@ -162,6 +163,10 @@ function NotificationPublicationController({
     profiles?.snapshot?.activation.failure === "managed-listener-conflict"
       ? profiles.snapshot.activation.failureEndpoint
       : null;
+  const activationEvidence = profiles?.snapshot?.activation.evidence;
+  const geodataPreparing =
+    profiles?.snapshot?.activation.phase === "pending" &&
+    activationEvidence?.kind === "geodata-preparing";
   const tun = snapshot?.runtime.tun;
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
@@ -257,6 +262,19 @@ function NotificationPublicationController({
   const managedListenerToastVisible = useRef(false);
   useEffect(() => setSession(sessionId), [sessionId, setSession]);
   useEffect(() => {
+    if (!geodataPreparing) {
+      retire(geodataProgressNotificationId);
+      return;
+    }
+    publish({
+      detail: LL.profiles.geodataRetry(),
+      duration: Number.POSITIVE_INFINITY,
+      id: geodataProgressNotificationId,
+      level: "info",
+      message: LL.profiles.geodataPreparing(),
+    });
+  }, [LL, geodataPreparing, publish, retire]);
+  useEffect(() => {
     if (!eventsContext?.snapshot) return;
     const events = eventsContext.events.filter(
       (event) => !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
@@ -281,6 +299,10 @@ function NotificationPublicationController({
             managedListenerConflict
           ) {
             message = LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict });
+          } else if (event.notificationKind === "profile-activation-geodata") {
+            message = event.message.includes("timed out")
+              ? LL.profiles.geodataTimeout()
+              : LL.profiles.geodataFailed();
           } else if (
             isCurrent &&
             event.notificationKind === "settings-failure" &&
@@ -299,7 +321,10 @@ function NotificationPublicationController({
                     managedListenerConflict
                   ? managedListenerActions
                   : [],
-            detail: event.detail ?? undefined,
+            detail:
+              event.notificationKind === "profile-activation-geodata"
+                ? LL.profiles.geodataRetry()
+                : (event.detail ?? undefined),
             duration:
               isCurrent && event.notificationKind === "capture-failure" && systemProxyDrift
                 ? Number.POSITIVE_INFINITY
@@ -308,6 +333,10 @@ function NotificationPublicationController({
             level: event.level,
             message,
             observedAt: event.observedAt,
+            replaces:
+              event.notificationKind === "profile-activation-geodata"
+                ? [geodataProgressNotificationId]
+                : undefined,
           };
         }),
     );

@@ -7,12 +7,15 @@ use std::{
 
 use futures_util::future::BoxFuture;
 use tokio::{
+    io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
-    sync::Mutex,
+    sync::{Mutex, mpsc},
     time::timeout,
 };
+use tokio_util::sync::CancellationToken;
 
 use mish_runtime::{CoreError, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink};
+use serde::Serialize;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -28,11 +31,38 @@ pub enum ManagedProcessValidationError {
     VersionMismatch,
     #[error("Mihomo configuration validation timed out")]
     Timeout,
+    #[error("Mihomo geodata preparation timed out")]
+    GeodataTimeout(GeodataAsset),
     #[error("unable to validate the managed Mihomo configuration")]
     ExecutionFailed,
     #[error("Mihomo rejected the managed runtime configuration")]
     ConfigurationRejected,
+    #[error("Mihomo could not prepare required geodata")]
+    GeodataFailed(GeodataAsset),
 }
+
+/// The only pre-start validation output that Mish gives product meaning to.
+/// Keep this allowlist tied to the pinned core version; arbitrary child output
+/// is drained for liveness but never leaves this module.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GeodataAsset {
+    GeoIp,
+    GeoSite,
+    Mmdb,
+    Asn,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GeodataValidationEvent {
+    Preparing(GeodataAsset),
+    Failed(GeodataAsset),
+}
+
+pub type GeodataValidationObserver = Arc<dyn Fn(GeodataValidationEvent) + Send + Sync>;
+
+const VALIDATION_OUTPUT_LIMIT: usize = 16 * 1024;
+const VALIDATION_LINE_LIMIT: usize = 512;
 
 #[derive(Clone)]
 pub struct DesktopMihomoProcessConfig {
@@ -241,6 +271,16 @@ impl DesktopMihomoProcess {
         &self,
         deadline: Duration,
     ) -> Result<(), ManagedProcessValidationError> {
+        self.validate_config_observed(deadline, CancellationToken::new(), None)
+            .await
+    }
+
+    pub async fn validate_config_observed(
+        &self,
+        deadline: Duration,
+        cancellation: CancellationToken,
+        observer: Option<GeodataValidationObserver>,
+    ) -> Result<(), ManagedProcessValidationError> {
         if !self.configured() {
             return Err(ManagedProcessValidationError::NotConfigured);
         }
@@ -249,16 +289,59 @@ impl DesktopMihomoProcess {
         command
             .arg("-t")
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
-        match timeout(deadline, command.status()).await {
-            Err(_) => Err(ManagedProcessValidationError::Timeout),
-            Ok(Err(_)) => Err(ManagedProcessValidationError::ExecutionFailed),
-            Ok(Ok(status)) if !status.success() => {
-                Err(ManagedProcessValidationError::ConfigurationRejected)
+        let mut child = command
+            .spawn()
+            .map_err(|_| ManagedProcessValidationError::ExecutionFailed)?;
+        let (events, mut received) = mpsc::channel(32);
+        let stdout = child.stdout.take().expect("piped validation stdout");
+        let stderr = child.stderr.take().expect("piped validation stderr");
+        let stdout_reader = tokio::spawn(drain_validation_output(
+            stdout,
+            events.clone(),
+            observer.clone(),
+        ));
+        let stderr_reader = tokio::spawn(drain_validation_output(stderr, events, observer));
+
+        let outcome = tokio::select! {
+            _ = cancellation.cancelled() => Err(ManagedProcessValidationError::ExecutionFailed),
+            result = timeout(deadline, child.wait()) => match result {
+                Err(_) => Err(ManagedProcessValidationError::Timeout),
+                Ok(Err(_)) => Err(ManagedProcessValidationError::ExecutionFailed),
+                Ok(Ok(status)) if !status.success() => Err(ManagedProcessValidationError::ConfigurationRejected),
+                Ok(Ok(_)) => Ok(()),
+            },
+        };
+        if outcome.is_err() {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+        }
+        tokio::join!(
+            settle_validation_reader(stdout_reader),
+            settle_validation_reader(stderr_reader)
+        );
+
+        let mut preparing = None;
+        let mut failed = None;
+        while let Ok(event) = received.try_recv() {
+            match event {
+                GeodataValidationEvent::Preparing(asset) => preparing.get_or_insert(asset),
+                GeodataValidationEvent::Failed(asset) => failed.get_or_insert(asset),
+            };
+        }
+        if cancellation.is_cancelled() {
+            return outcome;
+        }
+        if let Some(asset) = failed {
+            return Err(ManagedProcessValidationError::GeodataFailed(asset));
+        }
+        match (outcome, preparing) {
+            (Err(ManagedProcessValidationError::Timeout), Some(asset)) => {
+                Err(ManagedProcessValidationError::GeodataTimeout(asset))
             }
-            Ok(Ok(_)) => Ok(()),
+            (other, _) => other,
         }
     }
 
@@ -699,6 +782,98 @@ impl DesktopMihomoProcess {
     }
 }
 
+async fn settle_validation_reader(mut reader: tokio::task::JoinHandle<()>) {
+    if timeout(Duration::from_secs(1), &mut reader).await.is_err() {
+        reader.abort();
+        let _ = reader.await;
+    }
+}
+
+async fn drain_validation_output<R>(
+    mut reader: R,
+    events: mpsc::Sender<GeodataValidationEvent>,
+    observer: Option<GeodataValidationObserver>,
+) where
+    R: AsyncRead + Unpin,
+{
+    let mut bytes = [0; 1024];
+    let mut line = Vec::with_capacity(VALIDATION_LINE_LIMIT);
+    let mut remaining = VALIDATION_OUTPUT_LIMIT;
+    loop {
+        let read = match reader.read(&mut bytes).await {
+            Ok(0) | Err(_) => break,
+            Ok(read) => read,
+        };
+        // Continue draining after the diagnostic budget is exhausted: the child
+        // must never block on a full pipe, but discarded bytes are not retained.
+        for byte in &bytes[..read] {
+            if *byte == b'\n' {
+                observe_validation_line(&line, &events, observer.as_ref());
+                line.clear();
+                continue;
+            }
+            if remaining > 0 && line.len() < VALIDATION_LINE_LIMIT {
+                line.push(*byte);
+                remaining -= 1;
+            }
+        }
+    }
+    if !line.is_empty() {
+        observe_validation_line(&line, &events, observer.as_ref());
+    }
+}
+
+fn observe_validation_line(
+    line: &[u8],
+    events: &mpsc::Sender<GeodataValidationEvent>,
+    observer: Option<&GeodataValidationObserver>,
+) {
+    let Ok(line) = std::str::from_utf8(line) else {
+        return;
+    };
+    let Some(event) = parse_pinned_geodata_line(line) else {
+        return;
+    };
+    let _ = events.try_send(event);
+    if let Some(observer) = observer {
+        observer(event);
+    }
+}
+
+/// Observed Mihomo v1.19 validation wording. This deliberately accepts only
+/// the fixed asset names and preparation verbs below; unknown child output is
+/// drained then discarded and cannot become product copy.
+fn parse_pinned_geodata_line(line: &str) -> Option<GeodataValidationEvent> {
+    let line = line.trim();
+    let asset = if line.contains("GeoSite.dat") {
+        GeodataAsset::GeoSite
+    } else if line.contains("GeoIP.dat") {
+        GeodataAsset::GeoIp
+    } else if line.contains("MMDB") {
+        GeodataAsset::Mmdb
+    } else if line.contains("ASN.mmdb") || line.contains("ASN:") {
+        GeodataAsset::Asn
+    } else {
+        return None;
+    };
+    if line.contains("Can't find GeoSite.dat, start download")
+        || line.contains("Can't find GeoIP.dat, start download")
+        || line.contains("Can't find MMDB, start download")
+        || line.contains("Can't find ASN.mmdb, start download")
+    {
+        return Some(GeodataValidationEvent::Preparing(asset));
+    }
+    if line.contains("can't download GeoSite.dat:")
+        || line.contains("can't download GeoIP.dat:")
+        || line.contains("can't download MMDB:")
+        || line.contains("can't download ASN.mmdb:")
+        || line.contains("can't download ASN:")
+    {
+        return Some(GeodataValidationEvent::Failed(asset));
+    }
+    None
+}
+
 fn inspect_child(inner: &mut Inner) -> Option<CoreStatus> {
     let result = inner.child.as_mut()?.try_wait();
     match result {
@@ -784,5 +959,120 @@ impl CoreRuntime for DesktopMihomoProcess {
                 .await
                 .map_err(CoreError::stop_failed)
         })
+    }
+}
+
+#[cfg(test)]
+mod validation_output_tests {
+    use super::*;
+    use std::sync::Mutex as StdMutex;
+
+    #[test]
+    fn maps_only_allowlisted_pinned_geodata_lines() {
+        assert_eq!(
+            parse_pinned_geodata_line("[info] Can't find GeoSite.dat, start download"),
+            Some(GeodataValidationEvent::Preparing(GeodataAsset::GeoSite))
+        );
+        assert_eq!(
+            parse_pinned_geodata_line("[error] can't download GeoIP.dat: network failure"),
+            Some(GeodataValidationEvent::Failed(GeodataAsset::GeoIp))
+        );
+        assert_eq!(
+            parse_pinned_geodata_line("password=https://secret.example"),
+            None
+        );
+        assert_eq!(parse_pinned_geodata_line("validation failed"), None);
+    }
+
+    #[test]
+    fn pinned_fixture_has_only_bounded_semantic_events() {
+        let fixture = include_str!("../tests/fixtures/mihomo-v1.19.29-geodata.txt");
+        let events = fixture
+            .lines()
+            .filter_map(parse_pinned_geodata_line)
+            .collect::<Vec<_>>();
+        assert_eq!(events.len(), 8);
+        assert!(events.contains(&GeodataValidationEvent::Preparing(GeodataAsset::Asn)));
+        assert!(events.contains(&GeodataValidationEvent::Failed(GeodataAsset::Mmdb)));
+        assert!(events.iter().all(|event| matches!(
+            event,
+            GeodataValidationEvent::Preparing(_) | GeodataValidationEvent::Failed(_)
+        )));
+    }
+
+    #[tokio::test]
+    async fn drains_split_unknown_failure_and_timeout_output_without_raw_text() {
+        let (success_root, success) = fixture_process("geodata-test-success: true");
+        let observed = Arc::new(StdMutex::new(Vec::new()));
+        let captured = observed.clone();
+        success
+            .validate_config_observed(
+                Duration::from_secs(3),
+                CancellationToken::new(),
+                Some(Arc::new(move |event| captured.lock().unwrap().push(event))),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            *observed.lock().unwrap(),
+            vec![GeodataValidationEvent::Preparing(GeodataAsset::GeoSite)]
+        );
+        drop(success_root);
+
+        let (_unknown_root, unknown) = fixture_process("geodata-test-unknown: true");
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            unknown.validate_config(Duration::from_secs(3)),
+        )
+        .await
+        .expect("bounded drain deadlocked")
+        .unwrap();
+
+        let (_failure_root, failure) = fixture_process("geodata-test-failure: true");
+        assert_eq!(
+            failure.validate_config(Duration::from_secs(3)).await,
+            Err(ManagedProcessValidationError::GeodataFailed(
+                GeodataAsset::GeoIp
+            ))
+        );
+
+        let (_timeout_root, timed_out) = fixture_process("geodata-test-timeout: true");
+        let started = tokio::time::Instant::now();
+        assert_eq!(
+            timed_out.validate_config(Duration::from_millis(500)).await,
+            Err(ManagedProcessValidationError::GeodataTimeout(
+                GeodataAsset::Mmdb
+            ))
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    fn fixture_process(marker: &str) -> (tempfile::TempDir, DesktopMihomoProcess) {
+        let root = tempfile::tempdir().unwrap();
+        let binary = root.path().join("mihomo");
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/fake-geodata-activation-mihomo.sh"
+            ),
+            &binary,
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let config = root.path().join("config.yaml");
+        std::fs::write(&config, format!("{marker}\n")).unwrap();
+        let process = DesktopMihomoProcess::new_pinned(
+            DesktopMihomoProcessConfig {
+                binary: Some(binary),
+                config_directory: Some(root.path().join("home")),
+                config_file: Some(config),
+            },
+            "v1.19.29",
+        );
+        (root, process)
     }
 }

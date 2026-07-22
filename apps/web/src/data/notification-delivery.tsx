@@ -190,6 +190,15 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
       const notificationById = new Map(
         notifications.map((notification) => [notification.id, notification]),
       );
+      const replacementObservedAt = new Map<string, number>();
+      for (const notification of notifications) {
+        for (const replacedId of notification.replaces ?? []) {
+          replacementObservedAt.set(
+            replacedId,
+            Math.max(replacementObservedAt.get(replacedId) ?? 0, notification.observedAt ?? 0),
+          );
+        }
+      }
       const history = events
         .filter((event) => event.level === "warning" || event.level === "error")
         .map<DeliveredNotification>((event) => {
@@ -230,7 +239,13 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
       seenExternalEventIds.current = new Set(events.map(({ id }) => id));
       externalEventsInitialized.current = true;
       setEntries((current) => {
-        const applications = current.filter((entry) => entry.source === "application");
+        const applications = current.filter((entry) => {
+          if (entry.source !== "application") return false;
+          const replacement = replacementObservedAt.get(entry.id);
+          if (replacement === undefined || entry.observedAt > replacement) return true;
+          dismissNotificationToast(entry.id);
+          return false;
+        });
         const next = [...applications, ...history].toSorted(
           (left, right) => right.observedAt - left.observedAt,
         );
