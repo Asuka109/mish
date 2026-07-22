@@ -17,24 +17,32 @@ async function navigateToStatus(): Promise<void> {
   window.dispatchEvent(new PopStateEvent("popstate"));
 
   await vi.waitFor(() => {
-    expect(document.querySelectorAll(".traffic-session-row")).toHaveLength(2);
+    expect(document.querySelectorAll(".traffic-session-column")).toHaveLength(3);
   });
   await nextFrame();
 }
 
-function trafficRows(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>(".traffic-session-row")];
+function trafficPair(): HTMLElement {
+  const pair = document.querySelector<HTMLElement>(".traffic-session-pair");
+  if (!pair) throw new Error("Traffic session pair is missing");
+  return pair;
 }
 
-function measure(row: HTMLElement): TrafficRowGeometry {
-  const label = row.querySelector<HTMLElement>(".traffic-session-label");
-  const rate = row.querySelector<HTMLElement>(".traffic-rate-value");
-  const sparkline = row.querySelector<HTMLElement>(".traffic-sparkline");
+function sessionList(): HTMLElement {
+  const list = document.querySelector<HTMLElement>(".session-list");
+  if (!list) throw new Error("Session list is missing");
+  return list;
+}
 
-  if (!label || !rate || !sparkline) {
-    throw new Error("Traffic row is missing a label, rate, or sparkline");
-  }
+function trafficColumns(): HTMLElement[] {
+  return [...document.querySelectorAll<HTMLElement>(".traffic-session-column")];
+}
 
+function measure(index: number): TrafficRowGeometry {
+  const label = document.querySelectorAll<HTMLElement>(".traffic-session-label")[index];
+  const rate = document.querySelectorAll<HTMLElement>(".traffic-rate-value")[index];
+  const sparkline = document.querySelectorAll<HTMLElement>(".traffic-sparkline")[index];
+  if (!label || !rate || !sparkline) throw new Error("Traffic row is incomplete");
   return {
     label: label.getBoundingClientRect(),
     rate: rate.getBoundingClientRect(),
@@ -50,34 +58,95 @@ beforeAll(async () => {
 });
 
 describe("status traffic row layout", () => {
-  test("places each live rate immediately after its cumulative total before the sparkline", async () => {
+  test("uses a wrapping flex session container without grid semantics", async () => {
     await page.viewport(1024, 720);
     await nextFrame();
 
-    for (const row of trafficRows()) {
-      expect(
-        [...row.children].map((child) => child.className),
-        "reading order keeps the rate beside the cumulative total",
-      ).toEqual(["traffic-session-label", "traffic-rate-value tabular", "traffic-sparkline"]);
-
-      const { label, rate, sparklineRect } = measure(row);
-      expect(rate.left, "rate follows the label").toBeGreaterThanOrEqual(label.right);
-      expect(sparklineRect.left, "sparkline follows the rate").toBeGreaterThanOrEqual(rate.right);
-      expect(Math.abs(rate.top + rate.height / 2 - (label.top + label.height / 2))).toBeLessThan(1);
-      expect(sparklineRect.width, "sparkline receives the remaining row width").toBeGreaterThan(72);
-    }
+    const list = sessionList();
+    const pair = trafficPair();
+    const metrics = [...list.querySelectorAll<HTMLElement>(".session-metric")];
+    expect(list.classList.contains("section-grid")).toBe(false);
+    expect(getComputedStyle(list).display).toBe("flex");
+    expect(getComputedStyle(list).flexWrap).toBe("wrap");
+    expect(Math.abs(pair.getBoundingClientRect().width - list.clientWidth)).toBeLessThan(1);
+    expect(metrics).toHaveLength(4);
+    expect(metrics[0]?.getBoundingClientRect().left).toBe(metrics[2]?.getBoundingClientRect().left);
+    expect(metrics[1]?.getBoundingClientRect().left).toBe(metrics[3]?.getBoundingClientRect().left);
+    expect(metrics[0]?.getBoundingClientRect().width).toBe(
+      metrics[1]?.getBoundingClientRect().width,
+    );
   });
 
-  test("keeps the total and rate together when the compact rule hides the graph", async () => {
+  test("uses three horizontal flex columns with matching top and bottom rows", async () => {
+    await page.viewport(1024, 720);
+    await nextFrame();
+
+    const columns = trafficColumns();
+    expect(getComputedStyle(trafficPair()).display).toBe("flex");
+    expect(getComputedStyle(trafficPair()).gap).toBe("12px");
+    expect(getComputedStyle(columns[0]).flexGrow).toBe("0");
+    expect(getComputedStyle(columns[1]).flexGrow).toBe("0");
+    expect(getComputedStyle(columns[2]).flexGrow).toBe("1");
+    for (const column of columns) {
+      expect(getComputedStyle(column).display).toBe("flex");
+      expect(getComputedStyle(column).flexDirection).toBe("column");
+    }
+
+    const download = measure(0);
+    const upload = measure(1);
+    expect(download.label.left).toBe(upload.label.left);
+    expect(download.rate.left).toBe(upload.rate.left);
+    expect(download.sparklineRect.left).toBe(upload.sparklineRect.left);
+    expect(download.sparklineRect.width).toBe(upload.sparklineRect.width);
+    expect(Math.abs(download.label.top - download.rate.top)).toBeLessThan(1);
+    expect(Math.abs(upload.label.top - upload.rate.top)).toBeLessThan(1);
+  });
+
+  test("keeps the curve column fixed for longer rates and uses one continuous row divider", async () => {
+    await page.viewport(1024, 720);
+    await nextFrame();
+    const before = [measure(0), measure(1)];
+    for (const rate of document.querySelectorAll<HTMLElement>(".traffic-rate-value")) {
+      rate.textContent = "999.99 MB/s";
+    }
+    await nextFrame();
+    for (const [index, after] of [measure(0), measure(1)].entries()) {
+      expect(after.sparklineRect.left).toBe(before[index].sparklineRect.left);
+      expect(after.sparklineRect.width).toBe(before[index].sparklineRect.width);
+    }
+    const divider = getComputedStyle(trafficPair(), "::after");
+    expect(divider.position).toBe("absolute");
+    expect(divider.left).toBe("0px");
+    expect(divider.right).toBe("0px");
+    expect(divider.height).toBe("1px");
+  });
+
+  test("right-aligns a fixed-width chart stack and clips only its older left history", async () => {
+    await page.viewport(1024, 720);
+    await nextFrame();
+
+    const [summary, rate, curve] = trafficColumns();
+    const stack = curve.querySelector<HTMLElement>(".traffic-session-chart-stack");
+    if (!stack) throw new Error("Traffic chart stack is missing");
+    expect(getComputedStyle(summary).flexGrow).toBe("0");
+    expect(getComputedStyle(rate).flexGrow).toBe("0");
+    expect(getComputedStyle(curve).overflowX).toBe("hidden");
+    const maskImage = getComputedStyle(curve).maskImage;
+    expect(maskImage).toContain("linear-gradient");
+    expect(maskImage.match(/32px/g)).toHaveLength(2);
+    expect(stack.getBoundingClientRect().right).toBe(curve.getBoundingClientRect().right);
+    expect(stack.getBoundingClientRect().width).toBe(360);
+  });
+
+  test("keeps the fixed-width chart stack clipped instead of hiding it in the compact layout", async () => {
     await page.viewport(360, 720);
     await nextFrame();
 
-    for (const row of trafficRows()) {
-      const { label, rate, sparkline } = measure(row);
-      expect(rate.left, "rate remains beside the label").toBeGreaterThanOrEqual(label.right);
-      expect(Math.abs(rate.top + rate.height / 2 - (label.top + label.height / 2))).toBeLessThan(1);
-      expect(getComputedStyle(row).gridTemplateColumns).not.toContain("72px");
-      expect(getComputedStyle(sparkline).display).toBe("none");
-    }
+    const [summary, rate, curve] = trafficColumns();
+    expect(getComputedStyle(summary).flexGrow).toBe("0");
+    expect(getComputedStyle(rate).flexGrow).toBe("0");
+    expect(getComputedStyle(curve).display).toBe("flex");
+    expect(getComputedStyle(curve).overflowX).toBe("hidden");
+    expect(curve.getBoundingClientRect().width).toBeLessThan(360);
   });
 });

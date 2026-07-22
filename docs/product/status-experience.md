@@ -120,8 +120,10 @@ Session presents:
   running.
 
 Downloaded and Uploaded rows contain optional decorative sparklines. The text
-values remain the accessible source of truth. The “Open live traffic” action is
-placed in the Session heading and opens the detailed Traffic destination.
+values remain the accessible source of truth. A new session keeps the chart
+viewport empty until its third sample, then grows a right-aligned curve with a
+maximum 60-sample window. The “Open live traffic” action is placed in the Session
+heading and opens the detailed Traffic destination.
 
 ## Groups
 
