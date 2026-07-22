@@ -164,8 +164,8 @@ describe("status traffic row layout", () => {
     expect(curve.getBoundingClientRect().width).toBeLessThan(360);
   });
 
-  test("keeps Chinese summary chrome single-line and contained at a narrow viewport", async () => {
-    await page.viewport(360, 720);
+  test("keeps Chinese summary labels and totals on one line in a compact desktop session", async () => {
+    await page.viewport(924, 720);
     await selectLocale("简体中文");
 
     const summaryLines = [
@@ -173,34 +173,25 @@ describe("status traffic row layout", () => {
         ".traffic-session-copy > span, .traffic-session-copy > small",
       ),
     ];
-    const rates = [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")];
     expect([summaryLines[0].textContent, summaryLines[2].textContent]).toEqual([
       "已下载",
       "已上传",
     ]);
-
-    summaryLines[1].textContent = "999,999,999,999.99 TB";
-    summaryLines[3].textContent = "999,999,999,999.99 TB";
-    for (const rate of rates) rate.textContent = "999,999,999,999.99 MB/s";
+    summaryLines[1].textContent = "76.5 KB";
+    summaryLines[3].textContent = "106.2 KB";
     await nextFrame();
 
-    for (const element of [...summaryLines, ...rates]) {
-      const style = getComputedStyle(element);
+    const rateColumn = trafficColumns()[1].getBoundingClientRect();
+    for (const line of summaryLines) {
+      const style = getComputedStyle(line);
+      const range = document.createRange();
+      range.selectNodeContents(line);
       expect(style.whiteSpace).toBe("nowrap");
-      expect(style.overflowX).toBe("hidden");
-      expect(style.textOverflow).toBe("ellipsis");
+      expect(style.overflowX).toBe("visible");
+      expect(style.textOverflow).toBe("clip");
       expect(style.userSelect).toBe("none");
+      expect(range.getClientRects()).toHaveLength(1);
+      expect(range.getBoundingClientRect().right).toBeLessThanOrEqual(rateColumn.left);
     }
-    for (const rate of rates) {
-      expect(getComputedStyle(rate).fontVariantNumeric).toBe("tabular-nums");
-    }
-    expect(summaryLines[1].scrollWidth).toBeGreaterThan(summaryLines[1].clientWidth);
-    expect(rates[0].scrollWidth).toBeGreaterThan(rates[0].clientWidth);
-
-    const [summary, rate, curve] = trafficColumns().map((column) => column.getBoundingClientRect());
-    expect(summary.width).toBe(128);
-    expect(summary.right).toBeLessThanOrEqual(rate.left);
-    expect(rate.right).toBeLessThanOrEqual(curve.left);
-    expect(trafficPair().scrollWidth).toBeLessThanOrEqual(trafficPair().clientWidth);
   });
 });

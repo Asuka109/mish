@@ -979,8 +979,6 @@ h2 {
   align-items: stretch;
   gap: 12px;
   min-height: 128px;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .traffic-session-pair::after {
@@ -1002,7 +1000,7 @@ h2 {
 
 .traffic-session-summary-column {
   width: 144px;
-  flex: 0 0 144px;
+  flex: 0;
 }
 
 .traffic-session-rate-column {
@@ -1079,7 +1077,6 @@ h2 {
 .traffic-session-copy {
   display: grid;
   min-width: 0;
-  overflow: hidden;
   gap: 1px;
 }
 
@@ -1089,11 +1086,7 @@ h2 {
 }
 
 .traffic-session-copy > span,
-.traffic-session-copy small,
-.traffic-rate-value {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.traffic-session-copy small {
   white-space: nowrap;
 }
 
@@ -5351,7 +5344,6 @@ h2 {
 @container session (max-width: 320px) {
   .traffic-session-summary-column {
     width: 128px;
-    flex-basis: 128px;
   }
 
   .traffic-session-rate-column {
