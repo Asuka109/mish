@@ -501,7 +501,21 @@ impl OwnershipFixture {
 }
 
 fn test_fixture(name: &str) -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
-        .join(name)
+        .join(name);
+    if path.extension().and_then(|extension| extension.to_str()) != Some("sh") {
+        return path;
+    }
+    let directory =
+        std::env::temp_dir().join(format!("mish-test-fixture-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let copied = directory.join(name);
+    std::fs::copy(path, &copied).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&copied, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    copied
 }

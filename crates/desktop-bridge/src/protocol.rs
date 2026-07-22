@@ -20,9 +20,9 @@ use mish_runtime::{
     TrafficCommandOperation,
 };
 use mish_settings::{
-    AppearancePreference, LanguagePreference, OnboardingWelcomeAction, SettingsAdapterKind,
-    SettingsService, SettingsServiceError, StartupPreferences, WindowCloseBehavior,
-    WindowSurfacePreference,
+    AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
+    SettingsAdapterKind, SettingsService, SettingsServiceError, StartupPreferences,
+    WindowCloseBehavior, WindowSurfacePreference,
 };
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
@@ -179,6 +179,12 @@ struct SetServiceProbeIntervalParams {
 struct SetCaptureParams {
     active: bool,
     selection: CaptureSelection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetManagedPortsParams {
+    managed_ports: ManagedPortPreferences,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1423,6 +1429,28 @@ async fn handle_message(
             match service
                 .set_launch_proxy_when_mish_launches(params.launch_proxy_when_mish_launches)
             {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.setManagedPorts" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetManagedPortsParams = match serde_json::from_value(request.params) {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.set_managed_ports(params.managed_ports) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(id, error)),
+            }
+        }
+        "settings.findManagedPorts" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            match service.find_and_set_managed_ports() {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
                 Err(error) => return Some(settings_error_response(id, error)),
             }

@@ -6,6 +6,7 @@ import type {
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
+  ManagedPortPreferencesDto,
   TunHelperFailureKind,
   WindowCloseBehavior,
   WindowSurfacePreference,
@@ -42,6 +43,8 @@ interface SettingsContextValue {
   setOnboardingWelcomeState(action: OnboardingWelcomeAction): Promise<boolean>;
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
   setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches: boolean): Promise<boolean>;
+  setManagedPorts(managedPorts: ManagedPortPreferencesDto): Promise<boolean>;
+  findManagedPorts(): Promise<boolean>;
   setWindowCloseBehavior(behavior: WindowCloseBehavior): Promise<boolean>;
   setWindowSurface(surface: WindowSurfacePreference): Promise<boolean>;
   snapshot: SettingsSnapshotDto;
@@ -157,6 +160,9 @@ export function SettingsProvider({
       setStartup: async (startup) => (await run(() => client.setStartup(startup))).ok,
       setLaunchProxyWhenMishLaunches: async (launchProxyWhenMishLaunches) =>
         (await run(() => client.setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches))).ok,
+      setManagedPorts: async (managedPorts) =>
+        (await run(() => client.setManagedPorts(managedPorts))).ok,
+      findManagedPorts: async () => (await run(() => client.findManagedPorts())).ok,
       setWindowCloseBehavior: async (behavior) =>
         (await run(() => client.setWindowCloseBehavior(behavior))).ok,
       setWindowSurface: async (surface) => (await run(() => client.setWindowSurface(surface))).ok,

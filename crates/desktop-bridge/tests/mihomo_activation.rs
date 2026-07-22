@@ -1815,7 +1815,11 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
     let candidate =
         profile_record(b"activation-test-early-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
     let unavailable = unused_loopback_address();
-    let candidate_policy = ManagedRuntimePolicy::new(unavailable, "candidate-secret").unwrap();
+    let candidate_policy = ManagedRuntimePolicy::new(unavailable, "candidate-secret")
+        .unwrap()
+        .with_proxy_endpoint(
+            LoopbackProxyEndpoint::new("127.0.0.1", unused_loopback_address().port()).unwrap(),
+        );
 
     let error = manager
         .activate(&candidate, &candidate_policy)
@@ -1837,6 +1841,76 @@ async fn candidate_early_exit_rolls_back_to_the_prior_healthy_core() {
 
     manager.shutdown().await.unwrap();
     controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn managed_listener_collision_is_typed_and_redacted() {
+    let root = tempfile::tempdir().unwrap();
+    let manager = activation_manager(root.path(), Duration::from_secs(2));
+    let controller = FakeController::start("v1.19.29").await;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = listener.local_addr().unwrap();
+    let candidate =
+        profile_record(b"activation-test-early-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
+    let policy = ManagedRuntimePolicy::new(unused_loopback_address(), "fixture-secret")
+        .unwrap()
+        .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
+
+    let error = manager.activate(&candidate, &policy).await.unwrap_err();
+
+    assert_eq!(
+        error,
+        MihomoActivationError::ManagedListenerConflict(endpoint)
+    );
+    assert_eq!(
+        manager
+            .managed_state()
+            .await
+            .last_attempt()
+            .unwrap()
+            .failure(),
+        Some(ActivationFailureKind::ManagedListenerConflict)
+    );
+    drop(listener);
+
+    let retry = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let retry_policy = ManagedRuntimePolicy::new(controller.address, "fixture-secret")
+        .unwrap()
+        .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", endpoint.port()).unwrap());
+    assert!(manager.activate(&retry, &retry_policy).await.is_ok());
+    manager.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn immediate_exit_reports_a_conflicting_managed_controller_port() {
+    let root = tempfile::tempdir().unwrap();
+    let manager = activation_manager(root.path(), Duration::from_secs(2));
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = listener.local_addr().unwrap();
+    let candidate = profile_record(
+        b"activation-test-immediate-exit: true\nproxies: []\nrules: [MATCH,DIRECT]\n",
+    );
+    let proxy_port = unused_loopback_address().port();
+    let policy = ManagedRuntimePolicy::new(endpoint, "fixture-secret")
+        .unwrap()
+        .with_proxy_endpoint(LoopbackProxyEndpoint::new("127.0.0.1", proxy_port).unwrap());
+
+    let error = manager.activate(&candidate, &policy).await.unwrap_err();
+
+    assert_eq!(
+        error,
+        MihomoActivationError::ManagedListenerConflict(endpoint)
+    );
+    assert_eq!(
+        manager
+            .managed_state()
+            .await
+            .last_attempt()
+            .unwrap()
+            .failure(),
+        Some(ActivationFailureKind::ManagedListenerConflict)
+    );
 }
 
 #[tokio::test]
@@ -2224,9 +2298,22 @@ fn unused_loopback_address() -> SocketAddr {
 }
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
-        .join(name)
+        .join(name);
+    if path.extension().and_then(|extension| extension.to_str()) != Some("sh") {
+        return path;
+    }
+    let directory = std::env::temp_dir().join(format!("mish-test-fixture-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let copied = directory.join(name);
+    std::fs::copy(path, &copied).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&copied, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    copied
 }
 
 fn profile_record(normalized_bytes: &[u8]) -> ProfileRecord {

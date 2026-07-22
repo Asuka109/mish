@@ -415,6 +415,31 @@ type RootTranslation = {
 			title: string
 		}
 		/**
+		 * M​a​n​a​g​e​d​ ​p​o​r​t​s
+		 */
+		managedPorts: string
+		/**
+		 * L​o​o​p​b​a​c​k​-​o​n​l​y​ ​p​o​r​t​s​ ​u​s​e​d​ ​b​y​ ​M​i​s​h​'​s​ ​l​o​c​a​l​ ​p​r​o​x​y​ ​a​n​d​ ​M​i​h​o​m​o​ ​C​o​n​t​r​o​l​l​e​r​.​ ​C​h​a​n​g​e​s​ ​a​p​p​l​y​ ​t​o​ ​t​h​e​ ​n​e​x​t​ ​p​r​o​x​y​ ​a​c​t​i​v​a​t​i​o​n​.
+		 */
+		managedPortsDescription: string
+		/**
+		 * F​i​n​d​ ​a​v​a​i​l​a​b​l​e​ ​p​o​r​t​s
+		 */
+		managedPortsFind: string
+		/**
+		 * F​i​n​d​ ​p​o​r​t​s​ ​a​n​d​ ​r​e​t​r​y
+		 */
+		managedPortsFindAndRetry: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​u​s​e​ ​{​e​n​d​p​o​i​n​t​}​.
+		 * @param {unknown} endpoint
+		 */
+		managedPortsConflict: RequiredParams<'endpoint'>
+		/**
+		 * S​a​v​e​ ​p​o​r​t​s
+		 */
+		managedPortsSave: string
+		/**
 		 * N​e​t​w​o​r​k​ ​a​n​d​ ​D​N​S
 		 */
 		network: string
@@ -2100,6 +2125,11 @@ type RootTranslation = {
 		 * A​c​t​i​v​a​t​i​o​n​ ​f​a​i​l​e​d​.​ ​T​h​e​ ​p​r​e​v​i​o​u​s​ ​h​e​a​l​t​h​y​ ​p​r​o​f​i​l​e​ ​o​r​ ​s​a​f​e​ ​s​t​o​p​p​e​d​ ​s​t​a​t​e​ ​r​e​m​a​i​n​s​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​.
 		 */
 		activationFailed: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​ ​n​o​t​ ​u​s​e​ ​{​e​n​d​p​o​i​n​t​}​ ​b​e​c​a​u​s​e​ ​a​n​o​t​h​e​r​ ​a​p​p​l​i​c​a​t​i​o​n​ ​o​w​n​s​ ​i​t​.​ ​S​t​o​p​ ​o​r​ ​r​e​c​o​n​f​i​g​u​r​e​ ​t​h​a​t​ ​a​p​p​l​i​c​a​t​i​o​n​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+		 * @param {unknown} endpoint
+		 */
+		activationListenerConflict: RequiredParams<'endpoint'>
 		/**
 		 * T​h​e​ ​m​a​n​a​g​e​d​ ​M​i​h​o​m​o​ ​p​r​o​c​e​s​s​ ​c​o​u​l​d​ ​n​o​t​ ​t​r​a​n​s​i​t​i​o​n​ ​s​a​f​e​l​y​.​ ​C​h​e​c​k​ ​f​o​r​ ​a​n​o​t​h​e​r​ ​p​r​o​c​e​s​s​ ​u​s​i​n​g​ ​M​i​s​h​'​s​ ​l​o​o​p​b​a​c​k​ ​p​o​r​t​s​,​ ​t​h​e​n​ ​r​e​t​r​y​.
 		 */
@@ -4625,6 +4655,30 @@ export type TranslationFunctions = {
 			title: () => LocalizedString
 		}
 		/**
+		 * Managed ports
+		 */
+		managedPorts: () => LocalizedString
+		/**
+		 * Loopback-only ports used by Mish's local proxy and Mihomo Controller. Changes apply to the next proxy activation.
+		 */
+		managedPortsDescription: () => LocalizedString
+		/**
+		 * Find available ports
+		 */
+		managedPortsFind: () => LocalizedString
+		/**
+		 * Find ports and retry
+		 */
+		managedPortsFindAndRetry: () => LocalizedString
+		/**
+		 * Mish could not use {endpoint}.
+		 */
+		managedPortsConflict: (arg: { endpoint: unknown }) => LocalizedString
+		/**
+		 * Save ports
+		 */
+		managedPortsSave: () => LocalizedString
+		/**
 		 * Network and DNS
 		 */
 		network: () => LocalizedString
@@ -6260,6 +6314,10 @@ export type TranslationFunctions = {
 		 * Activation failed. The previous healthy profile or safe stopped state remains authoritative.
 		 */
 		activationFailed: () => LocalizedString
+		/**
+		 * Mish could not use {endpoint} because another application owns it. Stop or reconfigure that application, then retry.
+		 */
+		activationListenerConflict: (arg: { endpoint: unknown }) => LocalizedString
 		/**
 		 * The managed Mihomo process could not transition safely. Check for another process using Mish's loopback ports, then retry.
 		 */

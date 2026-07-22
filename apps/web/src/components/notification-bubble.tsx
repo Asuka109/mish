@@ -19,6 +19,8 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 import { systemProxyStatusMessage, tunStatusMessage } from "../data/capture-status-message";
 import { useProduct, type LocalProxyTestState } from "../data/product-provider";
+import { useCaptureCommand } from "../data/capture-command";
+import { useOptionalProfiles } from "../data/profile-provider";
 import { useOptionalEvents } from "../data/events-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { trafficFailureMessage } from "../data/traffic-failure-message";
@@ -45,6 +47,7 @@ interface NotificationAction {
 
 interface NotificationEntry {
   actions?: NotificationAction[];
+  detail?: string;
   id: string;
   level: EventLevel;
   message: string;
@@ -109,6 +112,8 @@ export function NotificationBubble() {
     recoverSystemProxy,
     snapshot,
   } = useProduct();
+  const profiles = useOptionalProfiles();
+  const { setCapture } = useCaptureCommand();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -129,6 +134,10 @@ export function NotificationBubble() {
     [events],
   );
   const systemProxy = snapshot?.runtime.systemProxy;
+  const managedListenerConflict =
+    profiles?.snapshot?.activation.failure === "managed-listener-conflict"
+      ? profiles.snapshot.activation.failureEndpoint
+      : null;
   const tun = snapshot?.runtime.tun;
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
@@ -151,6 +160,7 @@ export function NotificationBubble() {
   const settingsFailureObservedAt = useObservedAt(settingsFailure);
   const trafficFailureObservedAt = useObservedAt(Boolean(trafficFailure));
   const localProxyFailureObservedAt = useObservedAt(Boolean(localProxyFailure));
+  const managedListenerConflictObservedAt = useObservedAt(Boolean(managedListenerConflict));
   const welcomeInvitation = settingsContext?.snapshot.preferences.onboarding.welcomeInvitation;
   const welcomeAvailable = Boolean(welcomeInvitation && welcomeInvitation.completedAt === null);
   const openWelcomeDialog = useCallback(async () => {
@@ -173,6 +183,20 @@ export function NotificationBubble() {
       ? systemProxyStatusMessage(LL, systemProxy)
       : "";
   const driftActions: NotificationAction[] = [];
+  const managedListenerActions: NotificationAction[] = [];
+  if (managedListenerConflict && settingsContext && snapshot) {
+    managedListenerActions.push({
+      label: LL.settingsPage.managedPortsFindAndRetry(),
+      onClick: async () => {
+        if (!(await settingsContext.findManagedPorts())) return;
+        const selection =
+          snapshot.runtime.captureSelection.systemProxy || snapshot.runtime.captureSelection.tun
+            ? snapshot.runtime.captureSelection
+            : { systemProxy: true, tun: false };
+        await setCapture(selection, true);
+      },
+    });
+  }
   if (canRepairSystemProxy) {
     driftActions.push({
       label: LL.capture.repairSystemProxy(),
@@ -210,6 +234,17 @@ export function NotificationBubble() {
             level: "warning" as const,
             message: systemProxyDriftMessage,
             observedAt: driftObservedAt,
+          },
+        ]
+      : []),
+    ...(managedListenerConflict
+      ? [
+          {
+            actions: managedListenerActions,
+            id: `managed-listener-conflict:${managedListenerConflict}`,
+            level: "error" as const,
+            message: LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict }),
+            observedAt: managedListenerConflictObservedAt,
           },
         ]
       : []),
@@ -274,6 +309,7 @@ export function NotificationBubble() {
         ]
       : []),
     ...importantEvents.map((event) => ({
+      detail: event.detail ?? undefined,
       id: event.id,
       level: event.level as "error" | "warning",
       message: event.message,
@@ -578,6 +614,7 @@ function NotificationItem({ disabled, LL, locale, notification, onRemove }: Noti
       <p className="notification-message" data-native-text-interaction>
         {notification.message}
       </p>
+      {notification.detail ? <p className="notification-detail">{notification.detail}</p> : null}
       {notification.actions && notification.actions.length > 0 ? (
         <div className="notification-actions">
           {notification.actions.map((action) => (

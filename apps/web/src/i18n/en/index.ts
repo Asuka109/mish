@@ -133,6 +133,13 @@ const en = {
       test: "Test listener",
       title: "Local-only manual proxy",
     },
+    managedPorts: "Managed ports",
+    managedPortsDescription:
+      "Loopback-only ports used by Mish's local proxy and Mihomo Controller. Changes apply to the next proxy activation.",
+    managedPortsFind: "Find available ports",
+    managedPortsFindAndRetry: "Find ports and retry",
+    managedPortsConflict: "Mish could not use {endpoint}.",
+    managedPortsSave: "Save ports",
     network: "Network and DNS",
     networkDescription:
       "Read-only macOS observations for troubleshooting. No interface, route, or DNS setting can be changed here.",
@@ -630,6 +637,8 @@ const en = {
       "Mihomo did not provide a valid Controller readiness snapshot. Review Events, then restart this profile.",
     activationFailed:
       "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
+    activationListenerConflict:
+      "Mish could not use {endpoint} because another application owns it. Stop or reconfigure that application, then retry.",
     activationLifecycleFailed:
       "The managed Mihomo process could not transition safely. Check for another process using Mish's loopback ports, then retry.",
     activationStateFailed:

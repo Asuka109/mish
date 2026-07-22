@@ -64,6 +64,7 @@ pub enum ProfileActivationFailure {
     Validation,
     Start,
     EarlyExit,
+    ManagedListenerConflict,
     VersionMismatch,
     Controller,
     Timeout,
@@ -88,6 +89,7 @@ pub struct ProfileActivationSnapshot {
     pub availability: ProfileActivationAvailability,
     pub command_id: Option<String>,
     pub failure: Option<ProfileActivationFailure>,
+    pub failure_endpoint: Option<String>,
     pub operation: Option<ProfileActivationOperation>,
     pub phase: ProfileActivationPhase,
     pub safe_stopped: bool,
@@ -127,6 +129,7 @@ impl ProfileActivationSnapshot {
             availability: ProfileActivationAvailability::Unavailable,
             command_id: None,
             failure: None,
+            failure_endpoint: None,
             operation: None,
             phase: ProfileActivationPhase::Idle,
             safe_stopped: true,
@@ -224,6 +227,7 @@ impl ProfileActivationCoordinator {
                     availability,
                     command_id: None,
                     failure: None,
+                    failure_endpoint: None,
                     operation: None,
                     phase: ProfileActivationPhase::Idle,
                     safe_stopped: true,
@@ -300,6 +304,7 @@ impl ProfileActivationCoordinator {
             state.snapshot.command_id = Some(command_id.to_owned());
             state.snapshot.attempted_at = Some(now_unix_milliseconds());
             state.snapshot.failure = None;
+            state.snapshot.failure_endpoint = None;
             state.snapshot.operation = Some(ProfileActivationOperation::Activate);
             state.snapshot.phase = ProfileActivationPhase::Pending;
             state.snapshot.target_profile_id = Some(profile_id.to_owned());
@@ -852,6 +857,7 @@ impl ProfileActivationCoordinator {
                 state.snapshot.active_fingerprint = Some(commit.fingerprint().to_owned());
                 state.snapshot.active_profile_id = Some(commit.profile_id().to_owned());
                 state.snapshot.failure = None;
+                state.snapshot.failure_endpoint = None;
                 state.snapshot.phase = ProfileActivationPhase::Success;
                 state.snapshot.safe_stopped = false;
             }
@@ -865,6 +871,7 @@ impl ProfileActivationCoordinator {
                 state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
                 state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
                 state.snapshot.failure = Some(map_failure(error));
+                state.snapshot.failure_endpoint = managed_listener_endpoint(error);
                 state.snapshot.phase = ProfileActivationPhase::Failure;
                 state.snapshot.safe_stopped = managed.is_safe_stopped();
                 let diagnostic = activation_failure_event(error);
@@ -951,6 +958,9 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         MihomoActivationError::ValidationFailed => ProfileActivationFailure::Validation,
         MihomoActivationError::StartFailed => ProfileActivationFailure::Start,
         MihomoActivationError::EarlyExit => ProfileActivationFailure::EarlyExit,
+        MihomoActivationError::ManagedListenerConflict(_) => {
+            ProfileActivationFailure::ManagedListenerConflict
+        }
         MihomoActivationError::VersionMismatch => ProfileActivationFailure::VersionMismatch,
         MihomoActivationError::ControllerFailure => ProfileActivationFailure::Controller,
         MihomoActivationError::ReadinessTimeout => ProfileActivationFailure::Timeout,
@@ -964,6 +974,13 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
     }
 }
 
+fn managed_listener_endpoint(error: MihomoActivationError) -> Option<String> {
+    match error {
+        MihomoActivationError::ManagedListenerConflict(endpoint) => Some(endpoint.to_string()),
+        _ => None,
+    }
+}
+
 fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnosticEvent {
     let detail = match error {
         MihomoActivationError::CaptureFailed => {
@@ -973,6 +990,9 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
         | MihomoActivationError::ReadinessTimeout
         | MihomoActivationError::VersionMismatch => {
             "Review Events for Controller readiness, then restart the profile after the cause is resolved"
+        }
+        MihomoActivationError::ManagedListenerConflict(_) => {
+            "Stop or reconfigure the application using the reported Mish-managed loopback endpoint, then retry activation"
         }
         MihomoActivationError::StartFailed | MihomoActivationError::EarlyExit => {
             "Check for another process using the managed loopback ports, then retry activation"

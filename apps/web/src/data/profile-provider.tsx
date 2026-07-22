@@ -377,14 +377,24 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       if (activation.phase !== "pending") {
         return activation.phase === "success"
           ? { ok: true }
-          : activationFailure(activation.failure);
+          : activationFailure(activation.failure, activation.failureEndpoint);
       }
       if (!activation.commandId) return conflict();
       try {
         const completed = await new Promise<ProfileActivationSnapshotDto>((resolve, reject) => {
           activationWaiters.current.set(activation.commandId!, { reject, resolve });
+          // The terminal snapshot can arrive between the initial read above and
+          // waiter registration. Re-read the single activation authority so a
+          // first launch never needs a second user command to converge.
+          const current = latestSnapshot.current?.activation;
+          if (current?.commandId === activation.commandId && current.phase !== "pending") {
+            activationWaiters.current.delete(activation.commandId!);
+            resolve(current);
+          }
         });
-        return completed.phase === "success" ? { ok: true } : activationFailure(completed.failure);
+        return completed.phase === "success"
+          ? { ok: true }
+          : activationFailure(completed.failure, completed.failureEndpoint);
       } catch (failure) {
         return { error: toProfileClientError(failure), ok: false };
       }
@@ -518,9 +528,16 @@ function conflict() {
   } as const;
 }
 
-function activationFailure(failure: ProfileActivationSnapshotDto["failure"]) {
+function activationFailure(
+  failure: ProfileActivationSnapshotDto["failure"],
+  endpoint: ProfileActivationSnapshotDto["failureEndpoint"],
+) {
+  const detail = failure === "managed-listener-conflict" && endpoint ? ` at ${endpoint}` : "";
   return {
-    error: new ProfileClientError("remote", `Profile activation failed: ${failure ?? "unknown"}`),
+    error: new ProfileClientError(
+      "remote",
+      `Profile activation failed: ${failure ?? "unknown"}${detail}`,
+    ),
     ok: false,
   } as const;
 }

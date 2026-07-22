@@ -1,6 +1,7 @@
 import type {
   AppearancePreference,
   LanguagePreference,
+  ManagedPortPreferencesDto,
   OnboardingWelcomeAction,
   SettingsClient,
   SettingsSnapshotDto,
@@ -70,6 +71,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
     preferences: {
       appearance: storedAppearance(),
       language: storedLanguage(),
+      managedPorts: { controller: 9090, proxy: 7890 },
       onboarding: { welcomeInvitation: null },
       startup: {
         launchAtLogin: false,
@@ -144,6 +146,14 @@ export class FixtureSettingsClient implements SettingsClient {
     _launchProxyWhenMishLaunches: boolean,
   ): Promise<SettingsSnapshotDto> {
     throw new Error("Native automatic proxy launch is unavailable in demo mode");
+  }
+
+  async setManagedPorts(_managedPorts: ManagedPortPreferencesDto): Promise<SettingsSnapshotDto> {
+    throw new Error("Managed ports are unavailable in demo mode");
+  }
+
+  async findManagedPorts(): Promise<SettingsSnapshotDto> {
+    throw new Error("Managed ports are unavailable in demo mode");
   }
 
   subscribeSnapshots(_listener: (snapshot: SettingsSnapshotDto) => void) {

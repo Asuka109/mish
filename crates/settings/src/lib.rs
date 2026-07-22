@@ -23,7 +23,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 use tokio::sync::broadcast;
 
-const CURRENT_SCHEMA_VERSION: u8 = 7;
+const CURRENT_SCHEMA_VERSION: u8 = 8;
 const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
@@ -78,6 +78,22 @@ pub struct StartupPreferences {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ManagedPortPreferences {
+    pub controller: u16,
+    pub proxy: u16,
+}
+
+impl Default for ManagedPortPreferences {
+    fn default() -> Self {
+        Self {
+            controller: 9090,
+            proxy: 7890,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OnboardingWelcomeInvitation {
     pub completed_at: Option<u64>,
     pub created_at: u64,
@@ -120,6 +136,8 @@ pub enum OnboardingWelcomeAction {
 pub struct SettingsPreferences {
     pub appearance: AppearancePreference,
     pub language: LanguagePreference,
+    #[serde(default)]
+    pub managed_ports: ManagedPortPreferences,
     pub onboarding: OnboardingPreferences,
     pub startup: StartupPreferences,
     pub window_close_behavior: WindowCloseBehavior,
@@ -874,6 +892,35 @@ impl SettingsService {
         })
     }
 
+    pub fn set_managed_ports(
+        &self,
+        managed_ports: ManagedPortPreferences,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        if managed_ports.proxy == 0
+            || managed_ports.controller == 0
+            || managed_ports.proxy == managed_ports.controller
+        {
+            return Err(SettingsServiceError::Persistence);
+        }
+        let _permit = self.acquire_mutation()?;
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        self.update(|preferences| preferences.managed_ports = managed_ports)
+    }
+
+    pub fn find_and_set_managed_ports(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
+        for _ in 0..8 {
+            let proxy = available_loopback_port().ok_or(SettingsServiceError::Persistence)?;
+            let Some(controller) = available_loopback_port().filter(|port| *port != proxy) else {
+                continue;
+            };
+            return self.set_managed_ports(ManagedPortPreferences { controller, proxy });
+        }
+        Err(SettingsServiceError::Persistence)
+    }
+
     pub fn set_window_close_behavior(
         &self,
         behavior: WindowCloseBehavior,
@@ -999,6 +1046,14 @@ impl SettingsService {
             .as_deref()
             .ok_or(SettingsServiceError::CapabilityUnavailable)
     }
+}
+
+fn available_loopback_port() -> Option<u16> {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .ok()?
+        .local_addr()
+        .ok()
+        .map(|address| address.port())
 }
 
 fn startup_registration(
@@ -1195,6 +1250,19 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: stored.preferences,
                 })
             }
+            Some(7) => {
+                let stored: StoredSettingsV7 =
+                    serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
+                if stored.schema_version != 7
+                    || !valid_onboarding_preferences(stored.preferences.onboarding)
+                {
+                    return Err(SettingsRepositoryError::Corrupt);
+                }
+                Ok(LoadedSettings {
+                    needs_persistence: true,
+                    preferences: stored.preferences,
+                })
+            }
             Some(6) => {
                 let stored: StoredSettingsV6 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
@@ -1208,6 +1276,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        managed_ports: ManagedPortPreferences::default(),
                         onboarding: stored.preferences.onboarding,
                         startup: StartupPreferences {
                             launch_proxy_when_mish_launches: false,
@@ -1230,6 +1299,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
                                 observation_time(),
@@ -1253,6 +1323,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
                                 observation_time(),
@@ -1275,6 +1346,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
                                 observation_time(),
@@ -1297,6 +1369,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
                                 observation_time(),
@@ -1319,6 +1392,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
                                 observation_time(),
@@ -1341,6 +1415,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.theme,
                         language: stored.locale,
+                        managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
                                 observation_time(),
@@ -1638,6 +1713,37 @@ mod tests {
     }
 
     #[test]
+    fn version_seven_migrates_to_default_managed_ports() {
+        let (_root, repository) = repository();
+        fs::write(
+            &repository.path,
+            br#"{"schemaVersion":7,"preferences":{"appearance":"system","language":"en","onboarding":{"welcomeInvitation":null},"startup":{"launchProxyWhenMishLaunches":false,"launchAtLogin":false,"loginLaunchBehavior":"show-window"},"windowCloseBehavior":"hide-to-status-bar","windowSurface":"material"}}"#,
+        )
+        .expect("version seven settings");
+
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("migrated settings service");
+        assert_eq!(
+            service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .managed_ports,
+            ManagedPortPreferences::default()
+        );
+        assert!(
+            !repository
+                .load()
+                .expect("rewritten settings")
+                .needs_persistence
+        );
+    }
+
+    #[test]
     fn proxy_launch_preference_persists_without_touching_login_registration() {
         let (_root, repository) = repository();
         let platform = Arc::new(FakeStartupPlatform {
@@ -1689,6 +1795,60 @@ mod tests {
             .expect("proxy launch preference update");
         let snapshot = changes.try_recv().expect("settings change notification");
         assert!(snapshot.preferences.startup.launch_proxy_when_mish_launches);
+    }
+
+    #[test]
+    fn managed_ports_persist_and_reject_an_ambiguous_endpoint() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("settings service");
+
+        let ports = ManagedPortPreferences {
+            controller: 19090,
+            proxy: 17890,
+        };
+        let snapshot = service.set_managed_ports(ports).expect("persisted ports");
+        assert_eq!(snapshot.preferences.managed_ports, ports);
+        assert!(matches!(
+            service.set_managed_ports(ManagedPortPreferences {
+                controller: 17890,
+                proxy: 17890,
+            }),
+            Err(SettingsServiceError::Persistence)
+        ));
+
+        let restarted =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("restarted settings service");
+        assert_eq!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .managed_ports,
+            ports
+        );
+    }
+
+    #[test]
+    fn available_managed_ports_are_distinct_and_persisted() {
+        let (_root, repository) = repository();
+        let service =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("settings service");
+
+        let ports = service
+            .find_and_set_managed_ports()
+            .expect("available managed ports")
+            .preferences
+            .managed_ports;
+        assert_ne!(ports.proxy, ports.controller);
+        assert_ne!(ports.proxy, 0);
+        assert_ne!(ports.controller, 0);
     }
 
     #[test]
@@ -1883,6 +2043,7 @@ mod tests {
         let preferences = SettingsPreferences {
             appearance: AppearancePreference::Dark,
             language: LanguagePreference::Zh,
+            managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),
             startup: StartupPreferences {
                 launch_proxy_when_mish_launches: false,
@@ -2166,6 +2327,7 @@ mod tests {
         let restored = SettingsPreferences {
             appearance: AppearancePreference::Dark,
             language: LanguagePreference::Zh,
+            managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),
             startup: StartupPreferences {
                 launch_proxy_when_mish_launches: false,

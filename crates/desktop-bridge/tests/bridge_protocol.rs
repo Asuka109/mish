@@ -947,6 +947,30 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         true
     );
 
+    let managed_ports = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":28, "method":"settings.setManagedPorts",
+            "params":{"managedPorts":{"controller":19090,"proxy":17890}}
+        }),
+    )
+    .await;
+    assert_eq!(
+        managed_ports["result"]["preferences"]["managedPorts"],
+        json!({"controller":19090,"proxy":17890})
+    );
+
+    let available_ports = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":29, "method":"settings.findManagedPorts", "params":{}}),
+    )
+    .await;
+    assert!(available_ports["result"]["preferences"]["managedPorts"]["controller"].is_number());
+    assert_ne!(
+        available_ports["result"]["preferences"]["managedPorts"]["controller"],
+        available_ports["result"]["preferences"]["managedPorts"]["proxy"]
+    );
+
     let close_behavior = request(
         &mut ws,
         json!({
@@ -1003,6 +1027,16 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         .await;
         assert_eq!(rejected["error"]["code"], -32602);
     }
+
+    let ambiguous_ports = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":13, "method":"settings.setManagedPorts",
+            "params":{"managedPorts":{"controller":17890,"proxy":17890}}
+        }),
+    )
+    .await;
+    assert_eq!(ambiguous_ports["error"]["code"], -32041);
 
     bridge.shutdown().await;
 }

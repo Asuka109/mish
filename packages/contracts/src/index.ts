@@ -1279,10 +1279,20 @@ export const StartupPreferencesSchema = z
   .strict();
 export interface StartupPreferencesDto extends z.infer<typeof StartupPreferencesSchema> {}
 
+export const ManagedPortPreferencesSchema = z
+  .object({
+    controller: z.number().int().min(1).max(65535),
+    proxy: z.number().int().min(1).max(65535),
+  })
+  .strict()
+  .refine((ports) => ports.controller !== ports.proxy, "Managed ports must differ");
+export interface ManagedPortPreferencesDto extends z.infer<typeof ManagedPortPreferencesSchema> {}
+
 export const SettingsPreferencesSchema = z
   .object({
     appearance: AppearancePreferenceSchema,
     language: LanguagePreferenceSchema,
+    managedPorts: ManagedPortPreferencesSchema,
     onboarding: OnboardingPreferencesSchema,
     startup: StartupPreferencesSchema,
     windowCloseBehavior: WindowCloseBehaviorSchema,
@@ -1975,6 +1985,7 @@ export const ProfileActivationFailureSchema = z.enum([
   "validation",
   "start",
   "early-exit",
+  "managed-listener-conflict",
   "version-mismatch",
   "controller",
   "timeout",
@@ -1993,6 +2004,7 @@ export const ProfileActivationSnapshotSchema = z
     availability: ProfileActivationAvailabilitySchema,
     commandId: IdentifierSchema.nullable(),
     failure: ProfileActivationFailureSchema.nullable(),
+    failureEndpoint: z.string().max(64).nullable().optional(),
     operation: ProfileActivationOperationSchema.nullable(),
     phase: ProfileActivationPhaseSchema,
     safeStopped: z.boolean(),
@@ -2569,6 +2581,9 @@ export const SetStartupPreferencesCommandSchema = z
 export const SetLaunchProxyWhenMishLaunchesCommandSchema = z
   .object({ launchProxyWhenMishLaunches: z.boolean() })
   .strict();
+export const SetManagedPortsCommandSchema = z
+  .object({ managedPorts: ManagedPortPreferencesSchema })
+  .strict();
 export const SetWindowCloseBehaviorCommandSchema = z
   .object({ behavior: WindowCloseBehaviorSchema })
   .strict();
@@ -2614,6 +2629,11 @@ export const settingsRpcMethods = {
     params: SetLaunchProxyWhenMishLaunchesCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
+  "settings.setManagedPorts": {
+    params: SetManagedPortsCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.findManagedPorts": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
   "settings.subscribe": { params: EmptyCommandSchema, result: SettingsSubscriptionSchema },
   "settings.unsubscribe": { params: SettingsSubscriptionIdSchema, result: z.boolean() },
   "settings.setWindowCloseBehavior": {
@@ -2788,6 +2808,11 @@ export interface SettingsClient {
     launchProxyWhenMishLaunches: boolean,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
+  setManagedPorts(
+    managedPorts: ManagedPortPreferencesDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  findManagedPorts(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void): () => void;
   setWindowCloseBehavior(
     behavior: WindowCloseBehavior,

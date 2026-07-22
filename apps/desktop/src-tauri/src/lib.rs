@@ -3,7 +3,7 @@ use std::{
     fs, io,
     io::Read as _,
     io::Write as _,
-    net::{Ipv4Addr, SocketAddr, TcpListener},
+    net::{Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -35,10 +35,10 @@ use mish_runtime::{
     TunHelperController,
 };
 use mish_settings::{
-    FileSettingsRepository, LoginLaunchBehavior, SettingsAdapterKind, SettingsAvailability,
-    SettingsBuildInfo, SettingsCapabilities, SettingsService, SettingsServiceError,
-    SettingsSnapshot, StartupPlatform, StartupPlatformError, WindowSurfacePlatform,
-    WindowSurfacePlatformError, WindowSurfacePreference,
+    FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences, SettingsAdapterKind,
+    SettingsAvailability, SettingsBuildInfo, SettingsCapabilities, SettingsService,
+    SettingsServiceError, SettingsSnapshot, StartupPlatform, StartupPlatformError,
+    WindowSurfacePlatform, WindowSurfacePlatformError, WindowSurfacePreference,
 };
 use mish_state_authority::StateMutationAuthority;
 use serde::Serialize;
@@ -854,13 +854,20 @@ fn initialize(
         );
         let policy_capture = capture.clone();
         let policy_helper = tun_helper.clone();
+        let policy_settings = settings_service.clone();
         let activation = Arc::new(ProfileActivationCoordinator::new(
             profile_service.clone(),
             activation_manager,
             runtime_host.clone(),
             safe_runtime,
             move || {
-                ephemeral_runtime_policy()?.with_tun_enabled(
+                ephemeral_runtime_policy(
+                    policy_settings
+                        .snapshot(SettingsAdapterKind::Rpc)
+                        .preferences
+                        .managed_ports,
+                )?
+                .with_tun_enabled(
                     &policy_helper.snapshot(),
                     policy_capture.status().capture_selection.tun,
                 )
@@ -1135,17 +1142,15 @@ fn desktop_demo_requested(is_dev: bool, requested: Option<&str>) -> bool {
     is_dev && requested == Some("1")
 }
 
-fn ephemeral_runtime_policy()
--> Result<ManagedRuntimePolicy, mish_bridge::RuntimeConfigGenerationError> {
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .map_err(|_| mish_bridge::RuntimeConfigGenerationError::UnsafeController)?;
-    let address = listener
-        .local_addr()
-        .map_err(|_| mish_bridge::RuntimeConfigGenerationError::UnsafeController)?;
-    drop(listener);
+fn ephemeral_runtime_policy(
+    ports: ManagedPortPreferences,
+) -> Result<ManagedRuntimePolicy, mish_bridge::RuntimeConfigGenerationError> {
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, ports.controller));
     let secret = generate_auth_token()
         .map_err(|_| mish_bridge::RuntimeConfigGenerationError::InvalidControllerSecret)?;
-    ManagedRuntimePolicy::new(address, secret)
+    let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", ports.proxy)
+        .map_err(|_| mish_bridge::RuntimeConfigGenerationError::UnsafeController)?;
+    Ok(ManagedRuntimePolicy::new(address, secret)?.with_proxy_endpoint(endpoint))
 }
 
 fn profile_command_error(error: ProfileServiceError) -> ProfileCommandError {

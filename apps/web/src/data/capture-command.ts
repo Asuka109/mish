@@ -2,6 +2,7 @@ import type { CaptureSelectionDto } from "@mish/contracts";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { useI18nContext } from "../i18n/i18n-react";
+import type { TranslationFunctions } from "../i18n/i18n-types";
 import { useOptionalProfiles } from "./profile-provider";
 import { useProduct } from "./product-provider";
 
@@ -48,12 +49,12 @@ export function useCaptureCommand() {
             ? { ok: true as const }
             : await profiles.activateProfile(selectedProfileId);
         if (!activation.ok) {
-          toast.error(LL.profiles.activationFailed());
+          toast.error(profileActivationMessage(LL, activation.error.message));
           return activation;
         }
         const completed = await profiles.waitForProfileActivation(selectedProfileId);
         if (!completed.ok) {
-          toast.error(LL.profiles.activationFailed());
+          toast.error(profileActivationMessage(LL, completed.error.message));
           return completed;
         }
         return product.setCapture(selection, true);
@@ -73,4 +74,12 @@ export function useCaptureCommand() {
       (profiles?.isPending("activate") ?? false),
     setCapture,
   };
+}
+
+function profileActivationMessage(LL: TranslationFunctions, message: string) {
+  const conflict =
+    /^Profile activation failed: managed-listener-conflict at (127\.0\.0\.1:\d+)$/.exec(message);
+  return conflict
+    ? LL.profiles.activationListenerConflict({ endpoint: conflict[1] })
+    : LL.profiles.activationFailed();
 }
