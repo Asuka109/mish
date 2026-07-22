@@ -64,7 +64,11 @@ interface ProductContextValue {
   testServiceMonitor(monitorId: string): Promise<ProductCommandResult>;
   testLocalProxy(): Promise<LocalProxyTestResultDto | null>;
   setActiveProfile(profileId: string): Promise<ProductCommandResult>;
-  setCapture(selection: CaptureSelectionDto, active: boolean): Promise<ProductCommandResult>;
+  setCapture(
+    selection: CaptureSelectionDto,
+    active: boolean,
+    profileId?: string,
+  ): Promise<ProductCommandResult>;
   setRoutingMode(mode: RoutingMode): Promise<ProductCommandResult>;
   setServiceProbeInterval(
     intervalSeconds: StatusSnapshotDto["serviceProbePolicy"]["intervalSeconds"],
@@ -399,8 +403,10 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
       testLocalProxy,
       setActiveProfile: (profileId) =>
         runCommand("profile", (signal) => resolvedClient.setActiveProfile(profileId, { signal })),
-      setCapture: (selection, active) =>
-        runCommand("capture", (signal) => resolvedClient.setCapture(selection, active, { signal })),
+      setCapture: (selection, active, profileId) =>
+        runCommand("capture", (signal) =>
+          resolvedClient.setCapture(selection, active, profileId, { signal }),
+        ),
       setRoutingMode: (mode) =>
         runCommand("routing", (signal) => resolvedClient.setRoutingMode(mode, { signal })),
       setServiceProbeInterval: (intervalSeconds) =>

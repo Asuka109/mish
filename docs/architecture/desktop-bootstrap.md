@@ -159,6 +159,24 @@ probe. Startup never restores the recorded profile automatically: it terminates
 and waits for a proven orphan, clears Core ownership, performs conservative
 System Proxy recovery, and publishes the existing safe-stopped policy.
 
+## Aggregate proxy command authority
+
+The desktop `ProfileActivationCoordinator` owns one transport-neutral aggregate
+launch command. The authenticated Web RPC supplies the explicitly selected
+Profile when launching from the sidebar; application startup and a future
+native status-menu caller supply no Profile and therefore resume the last
+successful Profile. The coordinator publishes the existing Profile pending and
+terminal lifecycle, then performs Capture only after activation succeeds.
+Stopping continues to use the established Capture stop path so System Proxy
+restoration is unchanged.
+
+Settings persist the last explicitly selected Capture combination independently
+from the opt-in `launchProxyWhenMishLaunches` preference. Changing either
+preference never starts a proxy immediately. At automatic launch, remembered
+modes are filtered against current capabilities; if none remains, the safe
+fallback is System Proxy and then TUN. This preserves a safe default-off
+migration while avoiding a hard-coded automatic System Proxy selection.
+
 The private runtime root contains `core-ownership.json` and
 `desktop-instance.lock`. Core ownership is a bounded, versioned,
 deny-unknown-fields record replaced through a unique mode-`0600` file, atomic

@@ -367,6 +367,7 @@ export class FixtureStatusClient implements StatusClient {
   async setCapture(
     selection: CaptureSelectionDto,
     active: boolean,
+    _profileId?: string,
     options?: { signal?: AbortSignal },
   ) {
     if (options?.signal?.aborted) {

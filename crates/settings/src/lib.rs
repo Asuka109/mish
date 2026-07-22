@@ -14,7 +14,8 @@ use std::{
 use futures_util::future::BoxFuture;
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_runtime::{
-    TunHelperAvailability, TunHelperController, TunHelperFailureKind, TunHelperSnapshot,
+    CaptureSelection, TunHelperAvailability, TunHelperController, TunHelperFailureKind,
+    TunHelperSnapshot,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
@@ -23,7 +24,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 use tokio::sync::broadcast;
 
-const CURRENT_SCHEMA_VERSION: u8 = 8;
+const CURRENT_SCHEMA_VERSION: u8 = 9;
 const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
@@ -83,6 +84,22 @@ pub struct ManagedPortPreferences {
     pub proxy: u16,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaptureSelectionPreferences {
+    pub system_proxy: bool,
+    pub tun: bool,
+}
+
+impl From<CaptureSelectionPreferences> for CaptureSelection {
+    fn from(selection: CaptureSelectionPreferences) -> Self {
+        Self {
+            system_proxy: selection.system_proxy,
+            tun: selection.tun,
+        }
+    }
+}
+
 impl Default for ManagedPortPreferences {
     fn default() -> Self {
         Self {
@@ -135,6 +152,8 @@ pub enum OnboardingWelcomeAction {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SettingsPreferences {
     pub appearance: AppearancePreference,
+    #[serde(default)]
+    pub capture_selection: CaptureSelectionPreferences,
     pub language: LanguagePreference,
     #[serde(default)]
     pub managed_ports: ManagedPortPreferences,
@@ -892,6 +911,26 @@ impl SettingsService {
         })
     }
 
+    /// Remembers an explicitly selected capture combination for the next application launch.
+    /// This persistence is intentionally independent from the launch preference and never
+    /// starts Core or mutates System Proxy/TUN by itself.
+    pub fn set_capture_selection(
+        &self,
+        capture_selection: CaptureSelection,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        self.update(|preferences| {
+            preferences.capture_selection = CaptureSelectionPreferences {
+                system_proxy: capture_selection.system_proxy,
+                tun: capture_selection.tun,
+            };
+        })
+    }
+
     pub fn set_managed_ports(
         &self,
         managed_ports: ManagedPortPreferences,
@@ -1250,10 +1289,10 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: stored.preferences,
                 })
             }
-            Some(7) => {
+            Some(8) | Some(7) => {
                 let stored: StoredSettingsV7 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
-                if stored.schema_version != 7
+                if !(stored.schema_version == 8 || stored.schema_version == 7)
                     || !valid_onboarding_preferences(stored.preferences.onboarding)
                 {
                     return Err(SettingsRepositoryError::Corrupt);
@@ -1276,6 +1315,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: stored.preferences.onboarding,
                         startup: StartupPreferences {
@@ -1299,6 +1339,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1323,6 +1364,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1346,6 +1388,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1369,6 +1412,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1392,6 +1436,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.preferences.appearance,
                         language: stored.preferences.language,
+                        capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1415,6 +1460,7 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: SettingsPreferences {
                         appearance: stored.theme,
                         language: stored.locale,
+                        capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: OnboardingPreferences {
                             welcome_invitation: Some(OnboardingWelcomeInvitation::fresh(
@@ -1783,6 +1829,56 @@ mod tests {
     }
 
     #[test]
+    fn capture_selection_persists_without_launching_proxy() {
+        let (_root, repository) = repository();
+        let platform = Arc::new(FakeStartupPlatform {
+            enabled: AtomicBool::new(false),
+            fail: false,
+            fail_disable: false,
+        });
+        let service = SettingsService::load(
+            repository.clone(),
+            Some(platform.clone()),
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("settings service");
+
+        service
+            .set_capture_selection(CaptureSelection {
+                system_proxy: false,
+                tun: true,
+            })
+            .expect("persisted selection");
+
+        assert!(!platform.enabled.load(Ordering::SeqCst));
+        assert!(
+            !service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .startup
+                .launch_proxy_when_mish_launches
+        );
+        let reloaded = SettingsService::load(
+            repository,
+            Some(platform),
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("reloaded settings service");
+        assert_eq!(
+            reloaded
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .capture_selection,
+            CaptureSelectionPreferences {
+                system_proxy: false,
+                tun: true,
+            }
+        );
+    }
+
+    #[test]
     fn proxy_launch_preference_notifies_authoritative_subscribers() {
         let (_root, repository) = repository();
         let service =
@@ -2042,6 +2138,7 @@ mod tests {
         let (_root, repository) = repository();
         let preferences = SettingsPreferences {
             appearance: AppearancePreference::Dark,
+            capture_selection: CaptureSelectionPreferences::default(),
             language: LanguagePreference::Zh,
             managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),
@@ -2326,6 +2423,7 @@ mod tests {
         .expect("settings service");
         let restored = SettingsPreferences {
             appearance: AppearancePreference::Dark,
+            capture_selection: CaptureSelectionPreferences::default(),
             language: LanguagePreference::Zh,
             managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),

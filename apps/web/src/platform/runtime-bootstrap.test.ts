@@ -240,7 +240,13 @@ describe("desktop runtime bootstrap", () => {
       authToken: token,
       localBackup: true,
       rpcUrl: "ws://127.0.0.1:43123/rpc",
-      settingsSnapshot,
+      settingsSnapshot: {
+        ...settingsSnapshot,
+        preferences: {
+          ...settingsSnapshot.preferences,
+          captureSelection: { systemProxy: false, tun: false },
+        },
+      },
       supportBundleExport: true,
     });
 

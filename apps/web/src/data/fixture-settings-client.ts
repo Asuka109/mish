@@ -70,6 +70,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
     },
     preferences: {
       appearance: storedAppearance(),
+      captureSelection: { systemProxy: false, tun: false },
       language: storedLanguage(),
       managedPorts: { controller: 9090, proxy: 7890 },
       onboarding: { welcomeInvitation: null },

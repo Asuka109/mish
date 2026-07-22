@@ -30,7 +30,7 @@ use mish_platform_macos::{
 };
 use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
-    CaptureAuditReason, CaptureReconciler, CaptureRequest, CaptureSelection, LoopbackProxyEndpoint,
+    CaptureAuditReason, CaptureReconciler, CaptureSelection, LoopbackProxyEndpoint,
     PlatformLifecycleEventSource, StatusAdapterKind as RuntimeStatusAdapterKind,
     TunHelperController,
 };
@@ -960,7 +960,12 @@ fn initialize(
         .startup
         .launch_proxy_when_mish_launches
     {
-        launch_proxy_on_application_start(activation);
+        let selection = settings_service
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .capture_selection
+            .into();
+        launch_proxy_on_application_start(activation, selection);
     }
     Ok(())
 }
@@ -968,46 +973,19 @@ fn initialize(
 /// Starts the previously used Profile only after all native observers have been installed.
 /// The coordinator publishes the pending activation snapshot before the Core process is started,
 /// so the WebView and native status UI observe one lifecycle instead of maintaining local loaders.
-fn launch_proxy_on_application_start(activation: Arc<ProfileActivationCoordinator>) {
+fn launch_proxy_on_application_start(
+    activation: Arc<ProfileActivationCoordinator>,
+    selection: CaptureSelection,
+) {
     tauri::async_runtime::spawn(async move {
-        let command_id = Uuid::new_v4().to_string();
-        let mut updates = activation.subscribe();
-        let pending = match activation
-            .activate_last_successful_profile(&command_id)
-            .await
-        {
-            Ok(snapshot) => snapshot,
-            Err(_) => return,
-        };
-        if pending.phase != mish_bridge::ProfileActivationPhase::Pending {
-            return;
-        }
-
-        loop {
-            let Ok(snapshot) = updates.recv().await else {
-                return;
-            };
-            if snapshot.command_id.as_deref() != Some(command_id.as_str())
-                || snapshot.phase == mish_bridge::ProfileActivationPhase::Pending
-            {
-                continue;
-            }
-            if snapshot.phase == mish_bridge::ProfileActivationPhase::Success {
-                let _ = activation
-                    .set_capture(
-                        CaptureRequest {
-                            active: true,
-                            selection: CaptureSelection {
-                                system_proxy: true,
-                                tun: false,
-                            },
-                        },
-                        RuntimeStatusAdapterKind::Rpc,
-                    )
-                    .await;
-            }
-            return;
-        }
+        let _ = activation
+            .launch_proxy(
+                &Uuid::new_v4().to_string(),
+                None,
+                selection,
+                RuntimeStatusAdapterKind::Rpc,
+            )
+            .await;
     });
 }
 
