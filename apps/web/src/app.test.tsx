@@ -632,6 +632,13 @@ class DeferredCaptureClient extends SnapshotStatusClient {
     return new Promise(() => undefined);
   }
 
+  emitInactiveSnapshotDuringCapture() {
+    this.currentSnapshot.runtime.phase = "inactive";
+    this.currentSnapshot.runtime.systemProxy.phase = "off";
+    this.currentSnapshot.runtime.tun.phase = "off";
+    for (const listener of this.listeners) listener(structuredClone(this.currentSnapshot));
+  }
+
   override supportsCommand(command: StatusCommand) {
     return command === "capture";
   }
@@ -2759,6 +2766,25 @@ describe("Status fixture experience", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "System Proxy is pending macOS confirmation.",
     );
+  });
+
+  it("keeps Launch Proxy pending when an inactive snapshot arrives before capture completes", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    const client = new DeferredCaptureClient(snapshot);
+    renderRoute("/status", "en", client);
+
+    const proxyControl = await screen.findByRole("button", { name: "Launch Proxy" });
+    await user.click(proxyControl);
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toHaveTextContent("Pending");
+
+    act(() => client.emitInactiveSnapshotDuringCapture());
+
+    expect(proxyControl).toHaveAttribute("aria-busy", "true");
+    expect(proxyControl).toBeDisabled();
+    expect(proxyControl).toHaveTextContent("Pending");
   });
 
   it("describes a typed permission failure without claiming success", async () => {
