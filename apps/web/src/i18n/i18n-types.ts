@@ -2134,6 +2134,10 @@ type RootTranslation = {
 		 */
 		geodataPreparing: string
 		/**
+		 * T​h​e​ ​f​i​r​s​t​ ​d​o​w​n​l​o​a​d​ ​m​a​y​ ​t​a​k​e​ ​a​ ​f​e​w​ ​m​i​n​u​t​e​s​.
+		 */
+		geodataPreparingDetail: string
+		/**
 		 * M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​t​h​e​ ​g​e​o​g​r​a​p​h​i​c​ ​r​u​l​e​ ​d​a​t​a​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
 		 */
 		geodataFailed: string
@@ -6389,6 +6393,10 @@ export type TranslationFunctions = {
 		 * Preparing geographic rule data before activation…
 		 */
 		geodataPreparing: () => LocalizedString
+		/**
+		 * The first download may take a few minutes.
+		 */
+		geodataPreparingDetail: () => LocalizedString
 		/**
 		 * Mihomo could not prepare the geographic rule data required by this profile.
 		 */

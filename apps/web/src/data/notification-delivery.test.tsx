@@ -93,15 +93,14 @@ describe("authoritative notification delivery", () => {
     const first = event("session-1:1", 1);
     act(() => {
       delivery?.setSession("session-1");
-      delivery?.ingestExternalEvents([first], [{ ...first, detail: first.detail ?? undefined }]);
+      delivery?.reconcileExternalNotifications([{ ...first, detail: first.detail ?? undefined }]);
     });
     expect(delivery?.entries.map(({ id }) => id)).toEqual([first.id]);
     expect(presentNotificationToast).not.toHaveBeenCalled();
 
     const second = event("session-1:2", 2);
     act(() => {
-      delivery?.ingestExternalEvents(
-        [first, second],
+      delivery?.reconcileExternalNotifications(
         [first, second].map((item) => ({ ...item, detail: item.detail ?? undefined })),
       );
     });
@@ -113,10 +112,10 @@ describe("authoritative notification delivery", () => {
     });
 
     act(() => {
-      delivery?.ingestExternalEvents(
-        [first, second],
-        [{ ...second, detail: "Localized recovery guidance", message: "Localized failure" }],
-      );
+      delivery?.reconcileExternalNotifications([
+        { ...first, detail: first.detail ?? undefined },
+        { ...second, detail: "Localized recovery guidance", message: "Localized failure" },
+      ]);
     });
     expect(presentNotificationToast).toHaveBeenCalledTimes(2);
     expect(presentNotificationToast.mock.calls[1]?.[0]).toMatchObject({
@@ -126,12 +125,50 @@ describe("authoritative notification delivery", () => {
 
     act(() => {
       delivery?.setSession("session-2");
-      delivery?.ingestExternalEvents(
-        [event("session-2:1", 1)],
-        [{ ...event("session-2:1", 1), detail: "Resolve the failure and retry" }],
-      );
+      delivery?.reconcileExternalNotifications([
+        { ...event("session-2:1", 1), detail: "Resolve the failure and retry" },
+      ]);
     });
     expect(presentNotificationToast).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps raw Mihomo DNS diagnostics in Events without a center entry or toast", async () => {
+    loadAllLocales();
+    const dnsWarning: EventRecordDto = {
+      detail: null,
+      id: "session-1:1",
+      level: "warning",
+      message: "dial DNS failed for an internal Mihomo lookup",
+      notificationKind: null,
+      observedAt: 1,
+      sequence: 1,
+      source: "core",
+    };
+    const events = createFixtureEventsClient();
+    const eventSnapshot = await events.getSnapshot();
+    eventSnapshot.events = [dnsWarning];
+    eventSnapshot.sequence = 1;
+    act(() => events.publishSnapshot(eventSnapshot));
+    render(
+      <TypesafeI18n locale="en">
+        <MemoryRouter>
+          <ProductProvider>
+            <ProfileProvider>
+              <EventsProvider client={events}>
+                <NotificationDeliveryProvider>
+                  <Probe />
+                  <NotificationBubble />
+                </NotificationDeliveryProvider>
+              </EventsProvider>
+            </ProfileProvider>
+          </ProductProvider>
+        </MemoryRouter>
+      </TypesafeI18n>,
+    );
+
+    await vi.waitFor(() => expect(delivery).not.toBeNull());
+    expect(delivery?.entries).toEqual([]);
+    expect(presentNotificationToast).not.toHaveBeenCalled();
   });
 
   it("keeps one localized geodata notification through progress, failure, retry, and relaunch", async () => {
@@ -174,6 +211,7 @@ describe("authoritative notification delivery", () => {
     await vi.waitFor(() => {
       expect(delivery?.entries).toHaveLength(1);
       expect(delivery?.entries[0]).toMatchObject({
+        detail: "The first download may take a few minutes.",
         duration: Number.POSITIVE_INFINITY,
         id: geodataProgressNotificationId,
         message: "Preparing geographic rule data before activation…",

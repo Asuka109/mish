@@ -639,6 +639,7 @@ const en = {
     activationFailed:
       "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
     geodataPreparing: "Preparing geographic rule data before activation…",
+    geodataPreparingDetail: "The first download may take a few minutes.",
     geodataFailed: "Mihomo could not prepare the geographic rule data required by this profile.",
     geodataTimeout: "Geographic rule data was not ready before the activation deadline.",
     geodataRetry: "Check your network connection and retry activation.",

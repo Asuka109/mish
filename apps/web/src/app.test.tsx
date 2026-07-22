@@ -782,12 +782,12 @@ describe("production routes", () => {
     expect(container.querySelector("[data-window-drag-surface='workspace-top']")).toBeNull();
   });
 
-  it("marks current notifications read on open, retains them, and removes only one item", async () => {
+  it("retains explicit application notifications and excludes raw core diagnostics", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
     const notificationTrigger = await screen.findByRole("button", {
-      name: "Notifications, 2 unread",
+      name: "Notifications, 1 unread",
     });
     await user.click(notificationTrigger);
 
@@ -800,15 +800,13 @@ describe("production routes", () => {
     expect(routeMessage).toHaveClass("notification-message");
     expect(routeMessage).toHaveAttribute("data-native-text-interaction");
     expect(
-      within(notificationCenter).getByText(
+      within(notificationCenter).queryByText(
         "Synthetic DNS lookup timed out for api.fixture.invalid",
       ),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     const notificationItems = within(notificationCenter).getAllByRole("listitem");
+    expect(notificationItems).toHaveLength(1);
     expect(notificationItems[0]).toHaveTextContent("Synthetic route check failed");
-    expect(notificationItems[1]).toHaveTextContent(
-      "Synthetic DNS lookup timed out for api.fixture.invalid",
-    );
     expect(within(notificationCenter).queryByText("Platform")).not.toBeInTheDocument();
     expect(within(notificationCenter).queryByText("Mihomo core")).not.toBeInTheDocument();
 
@@ -821,11 +819,7 @@ describe("production routes", () => {
     await user.click(removeRouteNotification);
 
     expect(routeMessage).not.toBeInTheDocument();
-    expect(
-      within(notificationCenter).getByText(
-        "Synthetic DNS lookup timed out for api.fixture.invalid",
-      ),
-    ).toBeInTheDocument();
+    expect(within(notificationCenter).queryAllByRole("listitem")).toHaveLength(0);
     expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
 
     await user.click(notificationTrigger);
@@ -838,8 +832,8 @@ describe("production routes", () => {
       within(reopenedCenter).queryByText("Synthetic route check failed"),
     ).not.toBeInTheDocument();
     expect(
-      within(reopenedCenter).getByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
-    ).toBeInTheDocument();
+      within(reopenedCenter).queryByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
+    ).not.toBeInTheDocument();
   });
 
   it("proactively prompts an unprompted onboarding invitation only once", async () => {

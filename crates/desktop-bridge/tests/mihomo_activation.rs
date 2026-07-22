@@ -56,6 +56,16 @@ struct HealthyTunPlatform {
     enabled: Mutex<bool>,
 }
 
+#[test]
+fn default_geodata_preparation_deadline_is_separate_from_validation() {
+    let timing = ActivationTiming::default();
+    assert_eq!(timing.config_validation_timeout, Duration::from_secs(10));
+    assert_eq!(
+        timing.geodata_preparation_timeout,
+        Duration::from_secs(5 * 60)
+    );
+}
+
 #[tokio::test]
 async fn recognized_geodata_preparation_does_not_use_the_short_validation_deadline() {
     let (coordinator, _host, controller, profile_id) = geodata_coordinator(

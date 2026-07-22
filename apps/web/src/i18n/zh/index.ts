@@ -594,6 +594,7 @@ const zh = {
     activationControllerFailed: "代理启动后没有正常响应。请到“事件”页查看原因，然后重试。",
     activationFailed: "无法使用此配置，已恢复之前的配置或保持代理关闭。",
     geodataPreparing: "正在准备启用配置所需的地理规则数据…",
+    geodataPreparingDetail: "首次下载可能需要几分钟。",
     geodataFailed: "Mihomo 无法准备此配置所需的地理规则数据。",
     geodataTimeout: "地理规则数据未能在启用配置的截止时间前准备完成。",
     geodataRetry: "请检查网络连接，然后重新启用配置。",

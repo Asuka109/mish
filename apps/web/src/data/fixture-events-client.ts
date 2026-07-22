@@ -29,9 +29,10 @@ const fixtureEvents: EventRecordDto[] = [
     id: "fixture-events:3",
     level: "error",
     message: "Synthetic route check failed",
+    notificationKind: "traffic-failure",
     observedAt: Date.parse("2026-07-18T08:00:02Z"),
     sequence: 3,
-    source: "platform",
+    source: "application",
   },
 ];
 

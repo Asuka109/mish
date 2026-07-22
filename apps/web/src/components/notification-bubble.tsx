@@ -150,7 +150,7 @@ function NotificationPublicationController({
   const profiles = useOptionalProfiles();
   const { setCapture } = useCaptureCommand();
   const { LL } = useI18nContext();
-  const { dismiss, ingestExternalEvents, publish, record, retire, setSession } =
+  const { dismiss, publish, reconcileExternalNotifications, record, retire, setSession } =
     useNotificationDelivery();
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const welcomePromptStarted = useRef(false);
@@ -267,7 +267,7 @@ function NotificationPublicationController({
       return;
     }
     publish({
-      detail: LL.profiles.geodataRetry(),
+      detail: LL.profiles.geodataPreparingDetail(),
       duration: Number.POSITIVE_INFINITY,
       id: geodataProgressNotificationId,
       level: "info",
@@ -279,8 +279,7 @@ function NotificationPublicationController({
     const events = eventsContext.events.filter(
       (event) => !(captureFailureAlreadyExplained && event.message === LL.errors.command()),
     );
-    ingestExternalEvents(
-      events,
+    reconcileExternalNotifications(
       events
         .filter((event) => event.notificationKind !== null && event.notificationKind !== undefined)
         .map((event) => {
@@ -346,9 +345,9 @@ function NotificationPublicationController({
     driftActions,
     eventsContext?.events,
     eventsContext?.snapshot,
-    ingestExternalEvents,
     managedListenerActions,
     managedListenerConflict,
+    reconcileExternalNotifications,
     settingsFailure,
     settingsFailureMessage,
     systemProxy,
