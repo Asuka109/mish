@@ -5,7 +5,9 @@ import test from "node:test";
 import {
   createTauriDevelopmentConfig,
   findAvailablePort,
+  isTauriDevelopmentStartupAbort,
   parseTauriDevelopmentArguments,
+  resolveTauriDevelopmentExitCode,
 } from "./tauri-dev.ts";
 
 test("falls back when the preferred development port is occupied", async () => {
@@ -55,4 +57,27 @@ test("forwards pnpm pass-through options to the Tauri CLI", () => {
     demo: true,
     forwarded: ["--verbose"],
   });
+});
+
+test("recognizes a native setup abort even when Tauri exits successfully", () => {
+  assert.equal(
+    isTauriDevelopmentStartupAbort(
+      "Failed to setup app: error encountered during setup hook: native Quit menu item is unavailable",
+    ),
+    true,
+  );
+  assert.equal(isTauriDevelopmentStartupAbort("Tauri development server stopped"), false);
+  assert.equal(
+    isTauriDevelopmentStartupAbort(
+      "Failed to setup app: thread caused non-unwinding panic. aborting.",
+    ),
+    true,
+  );
+  assert.equal(resolveTauriDevelopmentExitCode(0, null, true), 1);
+});
+
+test("propagates child exit failures and signals", () => {
+  assert.equal(resolveTauriDevelopmentExitCode(2, null, false), 2);
+  assert.equal(resolveTauriDevelopmentExitCode(null, "SIGTERM", false), 1);
+  assert.equal(resolveTauriDevelopmentExitCode(null, null, false), 1);
 });

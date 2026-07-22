@@ -63,6 +63,22 @@ export function parseTauriDevelopmentArguments(arguments_: string[]): {
   };
 }
 
+export function isTauriDevelopmentStartupAbort(output: string): boolean {
+  return (
+    output.includes("Failed to setup app:") ||
+    output.includes("thread caused non-unwinding panic. aborting.")
+  );
+}
+
+export function resolveTauriDevelopmentExitCode(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  startupAborted: boolean,
+): number {
+  if (startupAborted || signal) return 1;
+  return code ?? 1;
+}
+
 async function run(): Promise<void> {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const desktopRoot = path.join(repositoryRoot, "apps", "desktop");
@@ -90,20 +106,25 @@ async function run(): Promise<void> {
     {
       cwd: desktopRoot,
       env: environment,
-      stdio: "inherit",
+      stdio: ["inherit", "inherit", "pipe"],
     },
   );
 
   console.log(`Mish desktop ${invocation.demo ? "demo" : "development"} origin: ${origin}`);
 
+  let startupOutput = "";
+  let startupAborted = false;
+  child.stderr?.on("data", (chunk: Buffer) => {
+    const output = chunk.toString();
+    process.stderr.write(output);
+    startupOutput = `${startupOutput}${output}`.slice(-1024);
+    startupAborted ||= isTauriDevelopmentStartupAbort(startupOutput);
+  });
+
   const exitCode = await new Promise<number>((resolve, reject) => {
     child.once("error", reject);
     child.once("exit", (code, signal) => {
-      if (signal) {
-        resolve(1);
-        return;
-      }
-      resolve(code ?? 1);
+      resolve(resolveTauriDevelopmentExitCode(code, signal, startupAborted));
     });
   });
   process.exitCode = exitCode;
