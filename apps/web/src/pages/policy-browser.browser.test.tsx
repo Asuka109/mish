@@ -83,6 +83,12 @@ describe("unified policy browser", () => {
       .toBeVisible();
     expect(document.querySelector(".policy-picker-dialog .policy-browser-browse")).toBeNull();
     expect(
+      document.querySelector<HTMLElement>('[data-entity-id="auto-fast"] .ui-badge')?.textContent,
+    ).toBe("Auto-select");
+    expect(
+      document.querySelector('[data-entity-id="auto-fast"] .policy-browser-selection'),
+    ).toBeNull();
+    expect(
       document.querySelector<HTMLElement>(".policy-picker-dialog")?.getBoundingClientRect().width,
     ).toBeLessThanOrEqual(560);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);

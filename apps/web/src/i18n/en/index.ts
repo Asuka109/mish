@@ -487,6 +487,7 @@ const en = {
   },
   routes: {
     activeProfile: "Active profile: {profile:string}",
+    automaticSelection: "Auto-select",
     backToGroup: "Back to {group:string}",
     backToRoutes: "All Routes",
     browseGroup: "Browse {group:string}",

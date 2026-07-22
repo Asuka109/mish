@@ -453,6 +453,7 @@ const zh = {
   },
   routes: {
     activeProfile: "当前配置：{profile}",
+    automaticSelection: "自动选择",
     backToGroup: "返回 {group}",
     backToRoutes: "全部路由",
     browseGroup: "浏览 {group}",

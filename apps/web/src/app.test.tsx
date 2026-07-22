@@ -2293,6 +2293,12 @@ describe("desktop RPC experience", () => {
       expect(selection).toBeDisabled();
       expect(selection).not.toHaveTextContent("Read-only");
     });
+    const automaticGroup = within(dialog)
+      .getByText("⚡ 自动选择・Auto")
+      .closest<HTMLElement>("[data-entity-id]")!;
+    expect(automaticGroup).toHaveAttribute("data-disabled", "true");
+    expect(within(automaticGroup).getByText("Auto-select")).toBeVisible();
+    expect(within(automaticGroup).queryByText("Read-only")).not.toBeInTheDocument();
     expect(within(dialog).getAllByText("Read-only").length).toBeGreaterThan(0);
 
     expect(setCapture).not.toHaveBeenCalled();

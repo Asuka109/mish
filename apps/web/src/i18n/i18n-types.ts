@@ -1548,6 +1548,10 @@ type RootTranslation = {
 		 */
 		activeProfile: RequiredParams<'profile'>
 		/**
+		 * A​u​t​o​-​s​e​l​e​c​t
+		 */
+		automaticSelection: string
+		/**
 		 * B​a​c​k​ ​t​o​ ​{​g​r​o​u​p​}
 		 * @param {string} group
 		 */
@@ -5910,6 +5914,10 @@ export type TranslationFunctions = {
 		 * Active profile: {profile}
 		 */
 		activeProfile: (arg: { profile: string }) => LocalizedString
+		/**
+		 * Auto-select
+		 */
+		automaticSelection: () => LocalizedString
 		/**
 		 * Back to {group}
 		 */

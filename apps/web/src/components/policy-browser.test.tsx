@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
-import { BoundedEntityList, LatencyStatus } from "./policy-browser";
+import { BoundedEntityList, LatencyStatus, PolicyEntityRow } from "./policy-browser";
 
 describe("policy browser primitives", () => {
   it("mounts direct children in 100-row batches and announces the preserved expansion", async () => {
@@ -69,6 +69,36 @@ describe("policy browser primitives", () => {
     expect(three).toHaveFocus();
     await user.keyboard("{Home}");
     expect(one).toHaveFocus();
+  });
+
+  it("uses an automatic-selection badge and dims a static group when commands are unavailable", () => {
+    render(
+      <PolicyEntityRow
+        automaticLabel="Auto-select"
+        currentLabel="Selected"
+        disabled
+        entity={{
+          childIds: ["sg-node"],
+          id: "sg-auto",
+          label: "SG Singapore",
+          selectedChildId: "sg-node",
+          type: "url-test",
+        }}
+        entityKind="group"
+        latency={<span>Unknown</span>}
+        metadata="Policy group · url-test"
+        pendingLabel="Switching"
+        readOnlyLabel="Read-only"
+        selected={false}
+        selectionPending={false}
+      />,
+    );
+
+    const row = screen.getByText("SG Singapore").closest("[data-entity-id]");
+    expect(row).toHaveAttribute("data-disabled", "true");
+    expect(row).toHaveClass("opacity-55");
+    expect(screen.getByText("Auto-select")).toBeVisible();
+    expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
   });
 
   it("renders historical zero milliseconds as unknown rather than measured success", () => {

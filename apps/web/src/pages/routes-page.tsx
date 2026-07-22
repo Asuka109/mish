@@ -336,6 +336,7 @@ export function PolicyGroupDetail({
             return (
               <li key={childId}>
                 <PolicyEntityRow
+                  automaticLabel={LL.routes.automaticSelection()}
                   browseLabel={
                     childGroup ? LL.routes.browseGroup({ group: childGroup.label }) : undefined
                   }

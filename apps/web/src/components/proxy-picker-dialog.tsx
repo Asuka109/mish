@@ -291,6 +291,7 @@ export function PolicyPickerDialog({
                 return (
                   <li key={childId}>
                     <PolicyEntityRow
+                      automaticLabel={LL.routes.automaticSelection()}
                       currentLabel={LL.routes.selected()}
                       density="compact"
                       disabled={commandsDisabled || groupSelectionPending}

@@ -73,6 +73,10 @@ const policyEntityRowRecipe = tv({
         "[&_.policy-browser-entity-primary]:pl-11",
       ),
     },
+    disabled: {
+      false: "",
+      true: "policy-browser-entity-row--disabled opacity-55",
+    },
     entityKind: {
       group: "policy-browser-entity-row--group",
       node: "policy-browser-entity-row--node",
@@ -97,6 +101,7 @@ const policyEntityRowRecipe = tv({
   },
   defaultVariants: {
     density: "default",
+    disabled: false,
     entityKind: "node",
     interactive: true,
     selectionState: "unselected",
@@ -333,6 +338,7 @@ export function PolicyGroupSummaryRow({
 }
 
 interface PolicyEntityRowProps {
+  automaticLabel?: string;
   browseLabel?: string;
   browseTo?: string;
   currentLabel: string;
@@ -352,6 +358,7 @@ interface PolicyEntityRowProps {
 }
 
 export function PolicyEntityRow({
+  automaticLabel,
   browseLabel,
   browseTo,
   currentLabel,
@@ -369,6 +376,10 @@ export function PolicyEntityRow({
   selected,
   selectionPending,
 }: PolicyEntityRowProps) {
+  const automaticGroup =
+    entityKind === "group" &&
+    "type" in entity &&
+    (entity.type === "url-test" || entity.type === "fallback" || entity.type === "load-balance");
   const selectionState: PolicySelectionState = selectionPending
     ? "pending"
     : selected
@@ -378,20 +389,29 @@ export function PolicyEntityRow({
         : "read-only";
   const content = (
     <>
-      <span className="policy-browser-entity-copy grid min-w-0 gap-0.5 [&>*]:truncate">
-        <strong className="user-authored-label min-w-0 font-medium" title={entity.label}>
-          {entity.label}
-        </strong>
+      <span className="policy-browser-entity-copy grid min-w-0 gap-0.5 [&>*]:min-w-0">
+        <span className="flex items-center gap-2">
+          <strong className="user-authored-label min-w-0 truncate font-medium" title={entity.label}>
+            {entity.label}
+          </strong>
+          {automaticGroup && automaticLabel ? (
+            <Badge className="h-5 shrink-0 rounded-sm bg-transparent font-normal" variant="outline">
+              {automaticLabel}
+            </Badge>
+          ) : null}
+        </span>
         <span className="text-metadata text-muted-foreground">{metadata}</span>
       </span>
       <span className="policy-browser-entity-status inline-flex min-w-0 items-center justify-end gap-3 max-shell-mobile:justify-between">
         {latency}
-        <SelectionStatus
-          currentLabel={currentLabel}
-          pendingLabel={pendingLabel}
-          readOnlyLabel={readOnlyLabel}
-          state={selectionState}
-        />
+        {selectionState === "read-only" && automaticGroup ? null : (
+          <SelectionStatus
+            currentLabel={currentLabel}
+            pendingLabel={pendingLabel}
+            readOnlyLabel={readOnlyLabel}
+            state={selectionState}
+          />
+        )}
       </span>
     </>
   );
@@ -399,10 +419,12 @@ export function PolicyEntityRow({
     <div
       className={policyEntityRowRecipe({
         density,
+        disabled,
         entityKind,
         interactive: Boolean(onSelect),
         selectionState,
       })}
+      data-disabled={disabled || undefined}
       data-entity-id={entity.id}
     >
       {onSelect ? (
