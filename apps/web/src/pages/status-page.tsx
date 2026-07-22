@@ -328,16 +328,22 @@ export function StatusPage() {
                   </strong>
                 </div>
                 <div className="traffic-session-column traffic-session-curve-column">
-                  <TrafficSparkline
-                    color="var(--color-traffic-download)"
-                    data={sessionTraffic.downloadSeries}
-                    id="download"
-                  />
-                  <TrafficSparkline
-                    color="var(--color-traffic-upload)"
-                    data={sessionTraffic.uploadSeries}
-                    id="upload"
-                  />
+                  <div className="traffic-session-chart-stack">
+                    <div className="traffic-session-chart-cell">
+                      <TrafficSparkline
+                        color="var(--color-traffic-download)"
+                        data={sessionTraffic.downloadSeries}
+                        id="download"
+                      />
+                    </div>
+                    <div className="traffic-session-chart-cell">
+                      <TrafficSparkline
+                        color="var(--color-traffic-upload)"
+                        data={sessionTraffic.uploadSeries}
+                        id="upload"
+                      />
+                    </div>
+                  </div>
                 </div>
               </SectionGridItem>
               <SectionGridItem className="session-metric">

@@ -62,7 +62,8 @@ describe("status traffic row layout", () => {
     expect(getComputedStyle(columns[1]).flexGrow).toBe("0");
     expect(getComputedStyle(columns[2]).flexGrow).toBe("1");
     for (const column of columns) {
-      expect(getComputedStyle(column).gridTemplateRows).toMatch(/^64px 64px$/);
+      expect(getComputedStyle(column).display).toBe("flex");
+      expect(getComputedStyle(column).flexDirection).toBe("column");
     }
 
     const download = measure(0);
@@ -94,13 +95,29 @@ describe("status traffic row layout", () => {
     expect(divider.height).toBe("1px");
   });
 
-  test("keeps the paired flex columns aligned in the compact layout while hiding curves", async () => {
+  test("right-aligns a fixed-width chart stack and clips only its older left history", async () => {
+    await page.viewport(1024, 720);
+    await nextFrame();
+
+    const [summary, rate, curve] = trafficColumns();
+    const stack = curve.querySelector<HTMLElement>(".traffic-session-chart-stack");
+    if (!stack) throw new Error("Traffic chart stack is missing");
+    expect(getComputedStyle(summary).flexGrow).toBe("0");
+    expect(getComputedStyle(rate).flexGrow).toBe("0");
+    expect(getComputedStyle(curve).overflowX).toBe("hidden");
+    expect(stack.getBoundingClientRect().right).toBe(curve.getBoundingClientRect().right);
+    expect(stack.getBoundingClientRect().width).toBe(360);
+  });
+
+  test("keeps the fixed-width chart stack clipped instead of hiding it in the compact layout", async () => {
     await page.viewport(360, 720);
     await nextFrame();
 
     const [summary, rate, curve] = trafficColumns();
-    expect(getComputedStyle(summary).flexGrow).toBe("1");
+    expect(getComputedStyle(summary).flexGrow).toBe("0");
     expect(getComputedStyle(rate).flexGrow).toBe("0");
-    expect(getComputedStyle(curve).display).toBe("none");
+    expect(getComputedStyle(curve).display).toBe("flex");
+    expect(getComputedStyle(curve).overflowX).toBe("hidden");
+    expect(curve.getBoundingClientRect().width).toBeLessThan(360);
   });
 });
