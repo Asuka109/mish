@@ -144,6 +144,51 @@ build settings, ABI contract, checksums, and SBOM. The app build always
 reapplies API 36, Build Tools 36.1.0, NDK 29, and the ARM64/x86_64 debug-symbol
 rules before invoking Tauri.
 
+## Bounded ADB acceptance harness
+
+Run the TypeScript harness from the repository root with one explicit APK and
+one exact ADB serial. Disconnect every other phone and emulator first. The
+default command is read-only: it verifies the APK, requires exactly one online
+and authorized device, checks the APK/device ABI intersection, reads bounded
+device and installed-package metadata, and writes evidence only beneath the
+ignored `.scratch/android-acceptance/` directory.
+
+```sh
+pnpm android:acceptance -- \
+  --apk /absolute/path/to/Mish-arm64-v8a-debug.apk \
+  --serial DEVICE_SERIAL
+```
+
+The harness refuses zero, multiple, offline, unauthorized, serial-mismatched,
+or ABI-mismatched devices. Reports retain a SHA-256 of the selected serial and
+build fingerprint rather than either raw identifier. They record the current
+worktree HEAD, but explicitly do not claim that this observation
+cryptographically binds the APK to that source revision.
+
+Installation changes device state and therefore requires `--install`. Target
+process logcat collection is separately opt-in with `--collect-logcat`; it never
+clears the device log buffer, selects only the Mish process ID, limits the
+collection, removes every message payload, and redacts unparsed or sensitive
+lines before persistence.
+
+```sh
+pnpm android:acceptance -- \
+  --apk /absolute/path/to/Mish-arm64-v8a-debug.apk \
+  --serial DEVICE_SERIAL \
+  --install \
+  --collect-logcat
+```
+
+The harness does not launch the app, grant or revoke permissions, clear app
+data, force-stop a process, operate the fixture controls, or mutate a VPN. It
+marks the corresponding manual checks `not-run`; a human must perform and
+record the Meizu checklist below. A report can support the **installable app**
+or **native fixture** evidence levels only when its observations satisfy those
+levels. It can never turn this fixture into **device VPN** evidence. A packaged
+checksum-matched Mobile Core identity remains package-content evidence only:
+the Phase 0 backend does not load configuration, initialize the Core, establish
+a TUN, or route traffic.
+
 ## 2026-07-20 artifact evidence
 
 The local build completed for both requested ABIs:

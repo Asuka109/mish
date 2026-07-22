@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "android:check": "pnpm check:android",
+    "android:acceptance": "node scripts/android-acceptance-harness.ts",
+    "android:acceptance:test": "node --test scripts/android-acceptance-harness.test.ts",
+    "android:check": "pnpm check:android && pnpm android:acceptance:test",
     "brand:generate": "pnpm generate:brand",
     "bridge": "cargo run -p mish-bridge --",
     "build": "pnpm web:build",
