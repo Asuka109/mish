@@ -16,10 +16,40 @@ import {
   SectionGridItem,
 } from "@mish/ui";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { tv } from "tailwind-variants";
 import { useSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 
 const welcomeStepCount = 4;
+
+const welcomeStyles = tv({
+  slots: {
+    dialog:
+      "welcome-dialog flex h-[min(600px,calc(100vh_-_32px))] w-[min(640px,calc(100vw_-_32px))] max-h-none flex-col overflow-hidden",
+    progress:
+      "welcome-progress flex min-h-[42px] flex-none items-center justify-center px-[52px] pt-[14px] max-[620px]:px-11 [&_ol]:flex [&_ol]:list-none [&_ol]:gap-[6px] [&_ol]:p-0 [&_li]:h-1 [&_li]:w-[18px] [&_li]:rounded-(--radius-full) [&_li]:bg-(--color-hairline) [&_li[aria-current=step]]:bg-(--color-brand)",
+    cover:
+      "welcome-cover m-0 flex-none overflow-clip rounded-none border-0 bg-(--color-surface-soft) [&_img]:block [&_img]:h-[250px] [&_img]:w-full [&_img]:object-cover max-[620px]:[&_img]:h-[200px]",
+    header:
+      "welcome-dialog-header min-h-[88px] flex-none border-b-0 px-6 pt-[18px] pb-4 max-[620px]:pl-4 max-[620px]:pr-11 [&_.dialog-title]:text-(--text-title) [&_.dialog-title]:leading-(--text-title--line-height) [&_.dialog-description]:mt-[6px] [&_.dialog-description]:max-w-[58ch] [&_.dialog-description]:text-(--text-body) [&_.dialog-description]:leading-[21px]",
+    body: "welcome-dialog-body flex min-h-0 flex-1 flex-col gap-(--mish-spacing-md) overflow-y-auto px-6 pt-5 pb-[18px] text-(--text-metadata) leading-5 text-(--color-body) max-[620px]:min-h-auto max-[620px]:px-4",
+    purpose:
+      "welcome-cover-purpose max-w-[62ch] text-(--text-body) leading-[22px] text-(--color-body)",
+    conceptGrid: "welcome-concept-grid w-full overflow-clip [--section-grid-columns:1]",
+    concept: "welcome-concept flex min-h-[104px] items-center gap-3 p-4 max-[620px]:min-h-auto",
+    conceptIcon:
+      "welcome-concept-icon grid size-6 flex-none place-items-center text-(--color-brand) [&_svg]:size-5",
+    conceptCopy:
+      "[&_h3]:text-(--text-body) [&_h3]:font-(--font-weight-heading) [&_h3]:text-(--color-ink) [&_p]:mt-[5px] [&_p]:text-(--text-metadata) [&_p]:leading-5 [&_p]:text-(--color-text-muted)",
+    guidance:
+      "welcome-routing-guidance grid gap-[10px] [&_p]:text-(--text-body) [&_p]:leading-[22px] [&_p]:text-(--color-body)",
+    policy:
+      "welcome-policy-groups flex items-start gap-3 rounded-(--radius-md) border border-(--color-hairline) bg-[color-mix(in_srgb,var(--color-brand)_6%,var(--color-canvas))] px-4 py-[14px] [&>svg]:mt-px [&>svg]:size-[22px] [&>svg]:flex-none [&>svg]:text-(--color-brand) [&_h3]:text-(--text-body) [&_h3]:font-(--font-weight-heading) [&_h3]:text-(--color-ink) [&_p]:mt-[5px] [&_p]:text-(--text-metadata) [&_p]:leading-5 [&_p]:text-(--color-text-muted) [&_p+p]:mt-2",
+    footer: "welcome-dialog-footer min-h-[66px] flex-none px-6 max-[620px]:px-4",
+    dismiss: "welcome-dialog-dismiss mr-auto",
+    primary: "welcome-dialog-primary w-[132px]",
+  },
+});
 
 interface WelcomeDialogProps {
   onOpenChange(open: boolean): void;
@@ -37,11 +67,11 @@ function WelcomeConcept({
   title: string;
 }) {
   return (
-    <SectionGridItem className="welcome-concept">
-      <span aria-hidden="true" className="welcome-concept-icon">
+    <SectionGridItem className={welcomeStyles().concept()}>
+      <span aria-hidden="true" className={welcomeStyles().conceptIcon()}>
         {icon}
       </span>
-      <div>
+      <div className={welcomeStyles().conceptCopy()}>
         <h3>{title}</h3>
         <p>{children}</p>
       </div>
@@ -107,14 +137,14 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
     <>
       <Dialog disablePointerDismissal onOpenChange={changeOpen} open={open}>
         <DialogContent
-          className="welcome-dialog"
+          className={welcomeStyles().dialog()}
           closeLabel={LL.common.close()}
           data-welcome-step={step}
           finalFocus={returnFocusRef}
           initialFocus={primaryButtonRef}
         >
           {step > 0 ? (
-            <div className="welcome-progress">
+            <div className={welcomeStyles().progress()}>
               <ol aria-label={LL.onboarding.progressLabel()}>
                 {steps.slice(1).map(({ title }, index) => (
                   <li aria-current={index === step - 1 ? "step" : undefined} key={title}>
@@ -126,7 +156,7 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
           ) : null}
 
           {step === 0 ? (
-            <figure className="welcome-cover">
+            <figure className={welcomeStyles().cover()}>
               <img
                 alt=""
                 aria-hidden="true"
@@ -136,7 +166,7 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
               />
             </figure>
           ) : null}
-          <DialogHeader className="welcome-dialog-header">
+          <DialogHeader className={welcomeStyles().header()}>
             <div>
               <DialogTitle className="dialog-title" ref={titleRef} tabIndex={-1}>
                 {activeStep.title}
@@ -147,13 +177,13 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
             </div>
           </DialogHeader>
 
-          <div className="welcome-dialog-body">
+          <div className={welcomeStyles().body()}>
             {step === 0 ? (
-              <p className="welcome-cover-purpose">{LL.onboarding.coverPurpose()}</p>
+              <p className={welcomeStyles().purpose()}>{LL.onboarding.coverPurpose()}</p>
             ) : null}
 
             {step === 1 ? (
-              <SectionGrid className="welcome-concept-grid" columns={1}>
+              <SectionGrid className={welcomeStyles().conceptGrid()} columns={1}>
                 <WelcomeConcept
                   icon={<CloudArrowDown />}
                   title={LL.onboarding.profileProviderTitle()}
@@ -167,7 +197,7 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
             ) : null}
 
             {step === 2 ? (
-              <SectionGrid className="welcome-concept-grid" columns={1}>
+              <SectionGrid className={welcomeStyles().conceptGrid()} columns={1}>
                 <WelcomeConcept
                   icon={<PlugsConnected />}
                   title={LL.onboarding.captureSystemTitle()}
@@ -182,11 +212,11 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
 
             {step === 3 ? (
               <>
-                <div className="welcome-routing-guidance">
+                <div className={welcomeStyles().guidance()}>
                   <p>{LL.onboarding.routingRuleGuidance()}</p>
                   <p>{LL.onboarding.routingGlobalFallback()}</p>
                 </div>
-                <div className="welcome-policy-groups">
+                <div className={welcomeStyles().policy()}>
                   <TreeStructure aria-hidden="true" />
                   <div>
                     <h3>{LL.onboarding.policyGroupsTitle()}</h3>
@@ -198,11 +228,11 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
             ) : null}
           </div>
 
-          <DialogFooter className="welcome-dialog-footer">
+          <DialogFooter className={welcomeStyles().footer()}>
             <DialogClose
               render={
                 <Button
-                  className="welcome-dialog-dismiss"
+                  className={welcomeStyles().dismiss()}
                   disabled={Boolean(completion)}
                   variant="ghost"
                 />
@@ -221,7 +251,7 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
             ) : null}
             {finalStep ? (
               <Button
-                className="welcome-dialog-primary"
+                className={welcomeStyles().primary()}
                 disabled={Boolean(completion)}
                 loading={completion ?? false}
                 loadingText={LL.onboarding.completeWelcome()}
@@ -232,7 +262,7 @@ export function WelcomeDialog({ onOpenChange, open, returnFocusRef }: WelcomeDia
               </Button>
             ) : (
               <Button
-                className="welcome-dialog-primary"
+                className={welcomeStyles().primary()}
                 disabled={Boolean(completion)}
                 onClick={() => setStep(step + 1)}
                 ref={primaryButtonRef}
