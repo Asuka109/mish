@@ -132,6 +132,69 @@ const emptyRecipe = tv({
   },
 });
 
+const dialogRecipe = tv({
+  slots: {
+    backdrop: "dialog-backdrop fixed inset-0 z-[70] bg-[rgb(17_24_39_/_18%)] backdrop-blur-[2px]",
+    content:
+      "dialog-content fixed top-1/2 left-1/2 z-[71] max-h-[min(620px,calc(100vh_-_48px))] w-[min(440px,calc(100vw_-_32px))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) shadow-(--shadow-float) outline-none",
+    close:
+      "dialog-close absolute top-[10px] right-[10px] grid size-[30px] place-items-center rounded-(--radius-md) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-accent) hover:text-(--color-ink) [&_svg]:size-4",
+    header:
+      "dialog-header flex min-h-[74px] items-center border-b border-(--color-hairline) py-[13px] pr-11 pl-4",
+    footer:
+      "dialog-footer flex min-h-[62px] items-center justify-end gap-2 border-t border-(--color-hairline) px-4 py-[10px]",
+  },
+});
+
+const menuRecipe = tv({
+  slots: {
+    positioner: "menu-positioner z-[60] outline-none",
+    content:
+      "menu-content max-h-(--available-height) min-w-[184px] overflow-auto rounded-[10px] border border-(--color-hairline) bg-(--color-canvas) p-[6px] text-(--color-ink) shadow-(--shadow-float) outline-none [transform-origin:var(--transform-origin)]",
+    item: "menu-item relative flex min-h-[34px] items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none select-none hover:bg-(--color-accent) hover:text-(--color-ink) data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-ink) [&_svg]:size-[15px]",
+    radioItem: "menu-radio-item pr-[30px]",
+    indicator: "menu-radio-indicator absolute right-2 grid place-items-center [&_svg]:size-[14px]",
+    separator: "menu-separator my-[5px] mx-[3px] h-px bg-(--color-hairline)",
+  },
+});
+
+const popoverRecipe = tv({
+  slots: {
+    positioner: "popover-positioner outline-none",
+    content:
+      "popover-content max-h-(--available-height) overflow-hidden rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) text-(--color-ink) shadow-(--shadow-float) outline-none [transform-origin:var(--transform-origin)] transition-[opacity,transform] duration-[120ms] ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0",
+  },
+});
+
+const fieldRecipe = tv({
+  slots: {
+    group: "field-group flex flex-col gap-4",
+    field: "field flex flex-col gap-[7px] data-[invalid=true]:text-(--color-error)",
+    label: "field-label text-(--text-metadata) font-(--font-weight-control) text-(--color-body)",
+    description: "field-description text-[12px] leading-[17px] text-(--color-text-muted)",
+    error: "field-error text-[12px] leading-[17px] text-(--color-error)",
+  },
+});
+
+const commandRecipe = tv({
+  slots: {
+    root: "command flex flex-col overflow-hidden bg-(--color-canvas)",
+    inputWrapper:
+      "command-input-wrapper flex h-[42px] items-center gap-2 border-b border-(--color-hairline) px-3 text-(--color-text-muted) [&_svg]:size-[15px]",
+    input:
+      "command-input w-full border-0 bg-transparent text-(--text-metadata) text-(--color-ink) outline-none",
+    list: "command-list max-h-[380px] overflow-auto",
+    empty: "command-empty px-4 py-7 text-center text-(--color-text-muted)",
+    group: "command-group",
+    item: "command-item relative flex min-h-[34px] items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none data-[selected=true]:bg-(--color-accent) data-[selected=true]:text-(--color-ink)",
+    check: "command-item-check ml-auto size-[14px] opacity-0 data-[selected=true]:opacity-100",
+  },
+});
+
+const tooltipRecipe = tv({
+  base: "tooltip-content z-[80] max-w-[280px] rounded-(--radius-sm) bg-(--color-ink) px-2 py-[6px] text-[12px] leading-[17px] text-(--color-canvas) shadow-(--shadow-float)",
+});
+
 function resolveClassName<State>(
   className: string | ((state: State) => string | undefined) | undefined,
   recipe: (override: string | undefined) => string,
@@ -336,11 +399,11 @@ export const DialogTitle = DialogPrimitive.Title;
 export const DialogDescription = DialogPrimitive.Description;
 
 export function DialogHeader(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("dialog-header", props.className)} />;
+  return <div {...props} className={dialogRecipe().header({ className: props.className })} />;
 }
 
 export function DialogFooter(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("dialog-footer", props.className)} />;
+  return <div {...props} className={dialogRecipe().footer({ className: props.className })} />;
 }
 
 export interface DialogContentProps extends ComponentProps<typeof DialogPrimitive.Popup> {
@@ -357,11 +420,16 @@ export function DialogContent({
 }: DialogContentProps) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Backdrop className="dialog-backdrop" />
-      <DialogPrimitive.Popup className={cn("dialog-content", className)} {...props}>
+      <DialogPrimitive.Backdrop className={dialogRecipe().backdrop()} />
+      <DialogPrimitive.Popup
+        className={resolveClassName(className, (override) =>
+          dialogRecipe().content({ className: override }),
+        )}
+        {...props}
+      >
         {children}
         {showCloseButton ? (
-          <DialogPrimitive.Close aria-label={closeLabel} className="dialog-close">
+          <DialogPrimitive.Close aria-label={closeLabel} className={dialogRecipe().close()}>
             <X aria-hidden="true" />
           </DialogPrimitive.Close>
         ) : null}
@@ -396,11 +464,16 @@ export function DropdownMenuContent({
       <MenuPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}
-        className="menu-positioner"
+        className={menuRecipe().positioner()}
         side={side}
         sideOffset={sideOffset}
       >
-        <MenuPrimitive.Popup className={cn("menu-content", className)} {...props} />
+        <MenuPrimitive.Popup
+          className={resolveClassName(className, (override) =>
+            menuRecipe().content({ className: override }),
+          )}
+          {...props}
+        />
       </MenuPrimitive.Positioner>
     </MenuPrimitive.Portal>
   );
@@ -409,7 +482,14 @@ export function DropdownMenuContent({
 export type DropdownMenuItemProps = ComponentProps<typeof MenuPrimitive.Item>;
 
 export function DropdownMenuItem({ className, ...props }: DropdownMenuItemProps) {
-  return <MenuPrimitive.Item className={cn("menu-item", className)} {...props} />;
+  return (
+    <MenuPrimitive.Item
+      className={resolveClassName(className, (override) =>
+        menuRecipe().item({ className: override }),
+      )}
+      {...props}
+    />
+  );
 }
 
 export interface DropdownMenuRadioItemProps extends ComponentProps<typeof MenuPrimitive.RadioItem> {
@@ -424,12 +504,12 @@ export function DropdownMenuRadioItem({
 }: DropdownMenuRadioItemProps) {
   return (
     <MenuPrimitive.RadioItem
-      className={cn("menu-item menu-radio-item", className)}
+      className={menuRecipe().item({ className: cn(menuRecipe().radioItem(), className) })}
       closeOnClick={closeOnClick}
       {...props}
     >
       {children}
-      <MenuPrimitive.RadioItemIndicator className="menu-radio-indicator">
+      <MenuPrimitive.RadioItemIndicator className={menuRecipe().indicator()}>
         <Check aria-hidden="true" />
       </MenuPrimitive.RadioItemIndicator>
     </MenuPrimitive.RadioItem>
@@ -440,7 +520,14 @@ export function DropdownMenuSeparator({
   className,
   ...props
 }: ComponentProps<typeof MenuPrimitive.Separator>) {
-  return <MenuPrimitive.Separator className={cn("menu-separator", className)} {...props} />;
+  return (
+    <MenuPrimitive.Separator
+      className={resolveClassName(className, (override) =>
+        menuRecipe().separator({ className: override }),
+      )}
+      {...props}
+    />
+  );
 }
 
 export const Popover = PopoverPrimitive.Root;
@@ -468,12 +555,14 @@ export function PopoverContent({
       <PopoverPrimitive.Positioner
         align={align}
         alignOffset={alignOffset}
-        className="popover-positioner"
+        className={popoverRecipe().positioner()}
         side={side}
         sideOffset={sideOffset}
       >
         <PopoverPrimitive.Popup
-          className={cn("popover-content", className)}
+          className={resolveClassName(className, (override) =>
+            popoverRecipe().content({ className: override }),
+          )}
           data-slot="popover-content"
           {...props}
         />
@@ -492,9 +581,9 @@ export function AlertDialogContent({
 }: ComponentProps<typeof AlertDialogPrimitive.Popup>) {
   return (
     <AlertDialogPrimitive.Portal>
-      <AlertDialogPrimitive.Backdrop className="dialog-backdrop" />
+      <AlertDialogPrimitive.Backdrop className={dialogRecipe().backdrop()} />
       <AlertDialogPrimitive.Popup
-        className={cn("dialog-content alert-dialog-content", className)}
+        className={dialogRecipe().content({ className: cn("alert-dialog-content", className) })}
         {...props}
       />
     </AlertDialogPrimitive.Portal>
@@ -693,16 +782,33 @@ export function TableCell({ className, ...props }: ComponentProps<"td">) {
 }
 
 export function FieldGroup(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("field-group", props.className)} data-slot="field-group" />;
+  return (
+    <div
+      {...props}
+      className={fieldRecipe().group({ className: props.className })}
+      data-slot="field-group"
+    />
+  );
 }
 
 export function Field(props: HTMLAttributes<HTMLDivElement>) {
-  return <div {...props} className={cn("field", props.className)} data-slot="field" role="group" />;
+  return (
+    <div
+      {...props}
+      className={fieldRecipe().field({ className: props.className })}
+      data-slot="field"
+      role="group"
+    />
+  );
 }
 
 export function FieldLabel(props: LabelHTMLAttributes<HTMLLabelElement>) {
   return (
-    <label {...props} className={cn("field-label", props.className)} data-slot="field-label" />
+    <label
+      {...props}
+      className={fieldRecipe().label({ className: props.className })}
+      data-slot="field-label"
+    />
   );
 }
 
@@ -710,7 +816,7 @@ export function FieldDescription(props: HTMLAttributes<HTMLParagraphElement>) {
   return (
     <p
       {...props}
-      className={cn("field-description", props.className)}
+      className={fieldRecipe().description({ className: props.className })}
       data-slot="field-description"
     />
   );
@@ -720,7 +826,7 @@ export function FieldError(props: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       {...props}
-      className={cn("field-error", props.className)}
+      className={fieldRecipe().error({ className: props.className })}
       data-slot="field-error"
       role="alert"
     />
@@ -756,7 +862,7 @@ export function Spinner(props: HTMLAttributes<HTMLSpanElement>) {
 }
 
 export function Command({ className, ...props }: ComponentProps<typeof CommandPrimitive>) {
-  return <CommandPrimitive className={cn("command", className)} {...props} />;
+  return <CommandPrimitive className={cn(commandRecipe().root(), className)} {...props} />;
 }
 
 export function CommandInput({
@@ -764,29 +870,29 @@ export function CommandInput({
   ...props
 }: ComponentProps<typeof CommandPrimitive.Input>) {
   return (
-    <div className="command-input-wrapper">
+    <div className={commandRecipe().inputWrapper()}>
       <Search aria-hidden="true" />
-      <CommandPrimitive.Input className={cn("command-input", className)} {...props} />
+      <CommandPrimitive.Input className={cn(commandRecipe().input(), className)} {...props} />
     </div>
   );
 }
 
 export function CommandList({ className, ...props }: ComponentProps<typeof CommandPrimitive.List>) {
-  return <CommandPrimitive.List className={cn("command-list", className)} {...props} />;
+  return <CommandPrimitive.List className={cn(commandRecipe().list(), className)} {...props} />;
 }
 
 export function CommandEmpty({
   className,
   ...props
 }: ComponentProps<typeof CommandPrimitive.Empty>) {
-  return <CommandPrimitive.Empty className={cn("command-empty", className)} {...props} />;
+  return <CommandPrimitive.Empty className={cn(commandRecipe().empty(), className)} {...props} />;
 }
 
 export function CommandGroup({
   className,
   ...props
 }: ComponentProps<typeof CommandPrimitive.Group>) {
-  return <CommandPrimitive.Group className={cn("command-group", className)} {...props} />;
+  return <CommandPrimitive.Group className={cn(commandRecipe().group(), className)} {...props} />;
 }
 
 export function CommandItem({
@@ -795,9 +901,9 @@ export function CommandItem({
   ...props
 }: ComponentProps<typeof CommandPrimitive.Item>) {
   return (
-    <CommandPrimitive.Item className={cn("command-item", className)} {...props}>
+    <CommandPrimitive.Item className={cn(commandRecipe().item(), className)} {...props}>
       {children}
-      <Check aria-hidden="true" className="command-item-check" />
+      <Check aria-hidden="true" className={commandRecipe().check()} />
     </CommandPrimitive.Item>
   );
 }
@@ -814,7 +920,7 @@ export function TooltipContent({ className, sideOffset = 6, ...props }: TooltipC
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Positioner sideOffset={sideOffset}>
-        <TooltipPrimitive.Popup className={cn("tooltip-content", className)} {...props} />
+        <TooltipPrimitive.Popup className={cn(tooltipRecipe(), className)} {...props} />
       </TooltipPrimitive.Positioner>
     </TooltipPrimitive.Portal>
   );
