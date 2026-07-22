@@ -6,10 +6,10 @@ import {
   createDesktopWindowReadySignal,
 } from "./desktop-window";
 
-function createEvent(target: Element, detail = 1) {
+function createEvent(target: Element, { button = 0, defaultPrevented = false, detail = 1 } = {}) {
   return {
-    button: 0,
-    defaultPrevented: false,
+    button,
+    defaultPrevented,
     detail,
     preventDefault: vi.fn(),
     target,
@@ -58,12 +58,24 @@ describe("desktop window drag routing", () => {
   it("uses native title-bar zoom behavior for a desktop double click", () => {
     const dependencies = createDependencies();
     const handler = createDesktopWindowDragHandler(dependencies);
-    const event = createEvent(document.createElement("span"), 2);
+    const event = createEvent(document.createElement("span"), { detail: 2 });
 
     handler(event);
 
     expect(dependencies.startDragging).not.toHaveBeenCalled();
     expect(dependencies.toggleMaximize).toHaveBeenCalledOnce();
+  });
+
+  it("does not route non-primary or already-prevented presses to the native window", () => {
+    const dependencies = createDependencies();
+    const handler = createDesktopWindowDragHandler(dependencies);
+    const target = document.createElement("span");
+
+    handler(createEvent(target, { button: 1 }));
+    handler(createEvent(target, { defaultPrevented: true }));
+
+    expect(dependencies.startDragging).not.toHaveBeenCalled();
+    expect(dependencies.toggleMaximize).not.toHaveBeenCalled();
   });
 
   it("does not intercept the same surfaces in an ordinary browser", () => {

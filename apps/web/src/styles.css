@@ -110,6 +110,7 @@
 @source "../../../packages/ui/src";
 
 :root {
+  --layer-window-frame: 1000000000;
   color: var(--color-ink);
   background: var(--color-surface-soft);
   font-family: var(--font-sans);
@@ -229,12 +230,12 @@ h2 {
   background: var(--color-surface-soft);
 }
 
-.workspace-top-window-drag-region {
-  position: absolute;
-  z-index: 1;
+.desktop-window-drag-surface {
+  position: fixed;
+  z-index: var(--layer-window-frame);
   top: 0;
   right: 0;
-  left: 164px;
+  left: 0;
   height: 10px;
 }
 
@@ -280,11 +281,6 @@ h2 {
 .traffic-lights svg {
   width: 12px;
   height: 12px;
-}
-
-.window-drag-region {
-  align-self: stretch;
-  flex: 1;
 }
 
 :root[data-runtime="desktop"] .traffic-lights {
@@ -5425,10 +5421,6 @@ h2 {
   :root[data-runtime="browser"] .app-shell {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto;
-  }
-
-  :root[data-runtime="browser"] .workspace-top-window-drag-region {
-    display: none;
   }
 
   :root[data-runtime="browser"] .workspace {
