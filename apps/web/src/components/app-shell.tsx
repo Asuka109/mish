@@ -84,51 +84,51 @@ const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
 
 const shellStyles = tv({
   slots: {
-    root: "app-shell relative grid h-screen h-dvh min-h-0 w-full grid-cols-[164px_minmax(0,1fr)] overflow-hidden bg-(--color-surface-soft) max-[600px]:grid-cols-[minmax(0,1fr)] max-[600px]:grid-rows-[minmax(0,1fr)_auto]",
+    root: "app-shell relative grid h-screen h-dvh min-h-0 w-full grid-cols-[164px_minmax(0,1fr)] overflow-hidden bg-surface-soft max-shell-mobile:grid-cols-[minmax(0,1fr)] max-shell-mobile:grid-rows-[minmax(0,1fr)_auto]",
     sidebar:
-      "sidebar flex min-w-0 flex-col bg-(--mish-sidebar-background) px-[10px] pt-[14px] pb-[10px] text-(--color-body) [--sidebar-icon-slot:18px] [--sidebar-row-gap:9px] [--sidebar-row-height:36px] [--sidebar-row-inset:10px] [container-name:sidebar] [container-type:inline-size] max-[600px]:grid max-[600px]:min-h-14 max-[600px]:grid-row-2 max-[600px]:grid-cols-[minmax(0,1fr)] max-[600px]:border-t max-[600px]:border-(--color-hairline) max-[600px]:px-2 max-[600px]:pt-1 max-[600px]:pb-[max(6px,env(safe-area-inset-bottom))]",
+      "sidebar flex min-w-0 flex-col bg-sidebar-background px-2.5 pt-3.5 pb-2.5 text-fg @container/sidebar max-shell-mobile:grid max-shell-mobile:min-h-14 max-shell-mobile:grid-row-2 max-shell-mobile:grid-cols-[minmax(0,1fr)] max-shell-mobile:border-t max-shell-mobile:border-hairline max-shell-mobile:px-2 max-shell-mobile:pt-1 max-shell-mobile:pb-[max(6px,env(safe-area-inset-bottom))]",
     sidebarHeader:
-      "sidebar-window-header -mt-[14px] -mx-[10px] flex-none select-none pt-[14px] px-[10px] max-[600px]:hidden",
-    windowControls: "window-controls-slot flex h-[22px] flex-none items-center select-none",
+      "sidebar-window-header -mt-3.5 -mx-2.5 flex-none select-none pt-3.5 px-2.5 max-shell-mobile:hidden",
+    windowControls: "window-controls-slot flex h-5.5 flex-none items-center select-none",
     trafficLights:
-      "traffic-lights flex flex-none items-center gap-[7px] pl-1 [html[data-runtime=desktop]_&]:invisible [&_svg]:size-3",
+      "traffic-lights flex flex-none items-center gap-1.75 pl-1 [html[data-runtime=desktop]_&]:invisible [&_svg]:size-3",
     brand:
-      "brand-row flex h-12 items-center px-2 font-(--font-weight-heading) text-(--color-ink) [&_img]:h-[30px] [&_img]:w-auto [&_img]:max-w-full",
+      "brand-row flex h-12 items-center px-2 font-semibold text-ink [&_img]:h-7.5 [&_img]:w-auto [&_img]:max-w-full",
     brandLight: "brand-image-light [html[data-theme=dark]_&]:hidden",
     brandDark: "brand-image-dark hidden [html[data-theme=dark]_&]:block",
     navList:
-      "nav-list flex min-h-0 flex-1 flex-col gap-[3px] pt-[7px] max-[600px]:grid max-[600px]:grid-cols-7 max-[600px]:gap-0.5 max-[600px]:p-0",
+      "nav-list flex min-h-0 flex-1 flex-col gap-0.75 pt-1.75 max-shell-mobile:grid max-shell-mobile:grid-cols-7 max-shell-mobile:gap-0.5 max-shell-mobile:p-0",
     navItem:
-      "nav-item grid h-(--sidebar-row-height) w-full flex-none grid-cols-[var(--sidebar-icon-slot)_minmax(0,1fr)] items-center gap-x-(--sidebar-row-gap) rounded-(--radius-md) border border-transparent px-(--sidebar-row-inset) text-(--text-body) font-(--font-weight-control) text-(--color-text-muted) no-underline hover:bg-(--mish-sidebar-item-hover-background) hover:text-(--color-body) max-[600px]:h-11 max-[600px]:gap-0.5 max-[600px]:text-[10px] max-[600px]:leading-3 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap max-[600px]:[&>span]:block max-[600px]:[&>span]:max-w-full [&_svg]:col-start-1 [&_svg]:size-(--sidebar-icon-slot) [&_svg]:justify-self-center)",
-    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-[3px] max-[600px]:contents",
+      "nav-item grid h-sidebar-row-height w-full flex-none grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap rounded-md border border-transparent px-sidebar-row-inset text-body font-medium text-muted-foreground no-underline hover:bg-sidebar-item-hover hover:text-fg max-shell-mobile:h-11 max-shell-mobile:gap-0.5 max-shell-mobile:text-micro max-shell-mobile:leading-3 [&>span]:min-w-0 [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap max-shell-mobile:[&>span]:block max-shell-mobile:[&>span]:max-w-full [&_svg]:col-start-1 [&_svg]:size-sidebar-icon [&_svg]:justify-self-center)",
+    sidebarBottom: "sidebar-bottom-items mt-auto flex flex-col gap-0.75 max-shell-mobile:contents",
     workspace:
-      "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) shadow-(--shadow-panel) [margin:10px_10px_10px_0] max-[600px]:grid-row-1 max-[600px]:m-[6px_6px_0] max-[600px]:rounded-[10px]",
+      "workspace relative grid min-h-0 min-w-0 grid-rows-[56px_minmax(0,1fr)] overflow-hidden rounded-lg border border-hairline bg-canvas shadow-panel [margin:10px_10px_10px_0] max-shell-mobile:grid-row-1 max-shell-mobile:m-[6px_6px_0] max-shell-mobile:rounded-compact",
     toolbar:
-      "toolbar flex min-w-0 items-center justify-between border-b border-(--color-hairline) py-0 pr-4 pl-6 select-none max-[820px]:pl-[18px] max-[600px]:py-0 max-[600px]:pr-2 max-[600px]:pl-3",
+      "toolbar flex min-w-0 items-center justify-between border-b border-hairline py-0 pr-4 pl-6 select-none max-toolbar-compact:pl-4.5 max-shell-mobile:py-0 max-shell-mobile:pr-2 max-shell-mobile:pl-3",
     toolbarTitle:
-      "toolbar-title font-(--font-weight-control) max-[600px]:min-w-0 max-[600px]:overflow-hidden max-[600px]:text-ellipsis max-[600px]:whitespace-nowrap",
+      "toolbar-title font-medium max-shell-mobile:min-w-0 max-shell-mobile:overflow-hidden max-shell-mobile:text-ellipsis max-shell-mobile:whitespace-nowrap",
     toolbarHeading: "toolbar-heading flex min-w-0 items-center gap-2",
     toolbarActions:
-      "toolbar-actions flex min-w-0 flex-[0_1_auto] items-center gap-[6px] max-[600px]:flex-none max-[600px]:gap-0.5",
+      "toolbar-actions flex min-w-0 flex-[0_1_auto] items-center gap-1.5 max-shell-mobile:flex-none max-shell-mobile:gap-0.5",
     toolbarButton:
-      "toolbar-button inline-flex h-[34px] items-center justify-center gap-[7px] rounded-(--radius-md) border border-transparent bg-transparent px-[9px] text-(--text-metadata) text-(--color-text-muted) hover:border-(--color-hairline) hover:bg-(--color-accent) hover:text-(--color-body) data-[popup-open]:border-(--color-hairline) data-[popup-open]:bg-(--color-accent) data-[popup-open]:text-(--color-body) [&_svg]:size-[15px]",
-    appearanceToolbarButton: "appearance-menu-trigger size-[34px] p-0",
-    languageToolbarButton: "language-menu-trigger size-[34px] p-0",
+      "toolbar-button inline-flex h-8.5 items-center justify-center gap-1.75 rounded-md border border-transparent bg-transparent px-2.25 text-metadata text-muted-foreground hover:border-hairline hover:bg-accent hover:text-fg data-[popup-open]:border-hairline data-[popup-open]:bg-accent data-[popup-open]:text-fg [&_svg]:size-3.75",
+    appearanceToolbarButton: "appearance-menu-trigger size-8.5 p-0",
+    languageToolbarButton: "language-menu-trigger size-8.5 p-0",
     profileTrigger:
-      "profile-select-trigger h-[34px] min-w-[112px] max-w-[220px] bg-transparent max-[600px]:w-[34px] max-[600px]:min-w-[34px] max-[600px]:p-0 max-[600px]:[&>span]:hidden [&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden [&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
-    menuContent: "min-w-[156px]",
+      "profile-select-trigger h-8.5 min-w-28 max-w-55 bg-transparent max-shell-mobile:w-8.5 max-shell-mobile:min-w-8.5 max-shell-mobile:p-0 max-shell-mobile:[&>span]:hidden [&>.user-authored-label]:min-w-0 [&>.user-authored-label]:overflow-hidden [&>.user-authored-label]:text-ellipsis [&>.user-authored-label]:whitespace-nowrap",
+    menuContent: "min-w-39",
     menuLabel:
-      "profile-menu-label block px-[9px] pt-[6px] pb-[7px] text-(--text-metadata) text-(--color-text-muted)",
+      "profile-menu-label block px-2.25 pt-1.5 pb-1.75 text-metadata text-muted-foreground",
     runtimeBadge:
-      "runtime-data-badge inline-flex h-6 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-[9px] text-[12px] text-(--color-text-muted) max-[820px]:hidden",
-    loading: "toolbar-loading text-(--text-metadata) text-(--color-text-muted) max-[600px]:hidden",
+      "runtime-data-badge inline-flex h-6 items-center justify-center gap-1.75 rounded-md border border-hairline bg-surface-soft px-2.25 text-caption text-muted-foreground max-toolbar-compact:hidden",
+    loading: "toolbar-loading text-metadata text-muted-foreground max-shell-mobile:hidden",
     contentScroll: "workspace-page-scroll min-h-0 min-w-0 overflow-auto",
   },
   variants: {
     active: {
       true: {
         navItem:
-          "is-active border-(--mish-sidebar-item-active-border) bg-(--mish-sidebar-item-active-background) text-(--color-ink) shadow-(--mish-sidebar-item-active-shadow)",
+          "is-active border-sidebar-item-active-border bg-sidebar-item-active text-ink shadow-sidebar-item-active",
       },
       false: {},
     },
@@ -138,10 +138,10 @@ const shellStyles = tv({
 export const proxyControlStyles = tv({
   slots: {
     proxyControl:
-      "proxy-control-button relative flex h-(--sidebar-row-height) w-full items-center overflow-hidden rounded-(--radius-md) border border-transparent bg-transparent p-0 text-left text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) isolate disabled:opacity-100 max-[600px]:h-11 max-[600px]:text-[10px] max-[600px]:leading-3 [&:not([data-status=healthy]):hover]:bg-(--mish-sidebar-item-hover-background) [&:not([data-status=healthy]):hover]:text-(--color-body)",
+      "proxy-control-button relative flex h-sidebar-row-height w-full items-center overflow-hidden rounded-md border border-transparent bg-transparent p-0 text-left text-metadata font-medium text-muted-foreground isolate disabled:opacity-100 max-shell-mobile:h-11 max-shell-mobile:text-micro max-shell-mobile:leading-3 [&:not([data-status=healthy]):hover]:bg-sidebar-item-hover [&:not([data-status=healthy]):hover]:text-fg",
     material: "pointer-events-none absolute inset-0 z-0 rounded-[calc(var(--radius-md)-1px)]",
     state:
-      "proxy-control-state relative z-2 grid w-full min-w-0 grid-cols-[var(--sidebar-icon-slot)_minmax(0,1fr)] items-center gap-x-(--sidebar-row-gap) px-(--sidebar-row-inset) transition-opacity duration-160 ease-[cubic-bezier(0.22,1,0.36,1)] max-[600px]:gap-0.5 max-[600px]:px-0 [&>:first-child]:col-start-1 [&>:first-child]:justify-self-center [&_svg]:size-(--sidebar-icon-slot)",
+      "proxy-control-state relative z-2 grid w-full min-w-0 grid-cols-[var(--spacing-sidebar-icon)_minmax(0,1fr)] items-center gap-x-sidebar-row-gap px-sidebar-row-inset transition-opacity duration-160 ease-[cubic-bezier(0.22,1,0.36,1)] max-shell-mobile:gap-0.5 max-shell-mobile:px-0 [&>:first-child]:col-start-1 [&>:first-child]:justify-self-center [&_svg]:size-sidebar-icon",
     defaultState: "proxy-control-default",
     hoverState: "proxy-control-hover absolute inset-0 opacity-0",
     label: "proxy-control-label min-w-0 overflow-hidden text-ellipsis whitespace-nowrap",
@@ -150,7 +150,7 @@ export const proxyControlStyles = tv({
     healthy: {
       true: {
         proxyControl:
-          "border-[color-mix(in_srgb,var(--color-status-water-base)_76%,var(--color-ink))] bg-(--color-status-water-base) text-(--color-brand-foreground) shadow-(--shadow-status) hover:border-[color-mix(in_srgb,var(--color-status-water-base)_76%,var(--color-ink))] hover:bg-(--color-status-water-base) hover:text-(--color-brand-foreground) focus-visible:border-[color-mix(in_srgb,var(--color-status-water-base)_76%,var(--color-ink))] focus-visible:bg-(--color-status-water-base) focus-visible:text-(--color-brand-foreground) [&:is(:hover,:focus-visible)_[data-slot=proxy-control-default]]:opacity-0 [&:is(:hover,:focus-visible)_[data-slot=proxy-control-hover]]:opacity-100",
+          "border-status-water-border bg-status-water-base text-brand-foreground shadow-status hover:border-status-water-border hover:bg-status-water-base hover:text-brand-foreground focus-visible:border-status-water-border focus-visible:bg-status-water-base focus-visible:text-brand-foreground [&:is(:hover,:focus-visible)_[data-slot=proxy-control-default]]:opacity-0 [&:is(:hover,:focus-visible)_[data-slot=proxy-control-hover]]:opacity-100",
       },
       false: {},
     },
@@ -497,7 +497,7 @@ function ProfileMenu() {
         <SelectGroup>
           {managedProfiles.map((profile) => (
             <SelectItem
-              className="profile-menu-item relative flex min-h-[34px] grid-cols-none items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none select-none data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-ink)"
+              className="profile-menu-item relative flex min-h-8.5 grid-cols-none items-center gap-2 rounded-sm px-2.25 text-metadata text-fg outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-ink"
               key={profile.id}
               value={profile.id}
             >

@@ -5,11 +5,11 @@ export function NotFoundPage() {
   const { LL } = useI18nContext();
 
   return (
-    <div className="grid min-h-full place-content-center gap-2.5 text-center text-(--color-text-muted)">
+    <div className="grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground">
       <h1>{LL.notFound.title()}</h1>
       <p>{LL.notFound.description()}</p>
       <Link
-        className="inline-flex items-center justify-center gap-1 rounded-(--radius-sm) p-1 text-(--text-metadata) leading-[18px] text-(--color-body) no-underline whitespace-nowrap hover:text-(--color-ink) hover:underline [&_svg]:size-[13px]"
+        className="inline-flex items-center justify-center gap-1 rounded-sm p-1 text-metadata leading-4.5 text-fg no-underline whitespace-nowrap hover:text-ink hover:underline [&_svg]:size-3.25"
         to="/status"
       >
         {LL.notFound.returnToStatus()}

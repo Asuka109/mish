@@ -54,72 +54,72 @@ const eventSources: EventSource[] = ["application", "core", "platform", "rpc"];
 
 const eventStyles = tv({
   slots: {
-    page: "events-page mx-auto min-h-full w-[min(100%,1180px)] px-8 pt-7 pb-9 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
+    page: "events-page mx-auto min-h-full w-full max-w-page-wide px-8 pt-7 pb-9 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     heading:
-      "events-heading flex items-start justify-between gap-6 max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] [&_p]:mt-[5px] [&_p]:max-w-[680px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
+      "events-heading flex items-start justify-between gap-6 max-toolbar-compact:flex-col max-toolbar-compact:items-stretch max-toolbar-compact:gap-1.75 [&_p]:mt-1.25 [&_p]:max-w-170 [&_p]:text-metadata [&_p]:text-muted-foreground",
     retention:
-      "events-retention flex-none pt-[5px] text-[12px] text-(--color-text-muted) whitespace-nowrap",
+      "events-retention flex-none pt-1.25 text-caption text-muted-foreground whitespace-nowrap",
     status:
-      "events-source-status mt-5 flex min-h-[38px] items-center justify-between gap-4 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-3 py-2 text-(--text-metadata) text-(--color-body) max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] data-[state=stale]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=stale]:text-(--color-warning) data-[state=connecting]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=connecting]:text-(--color-warning) [&>span:last-child]:flex-none [&>span:last-child]:text-[12px] [&>span:last-child]:text-(--color-text-muted)",
+      "events-source-status mt-5 flex min-h-9.5 items-center justify-between gap-4 rounded-md border border-hairline bg-surface-soft px-3 py-2 text-metadata text-fg max-toolbar-compact:flex-col max-toolbar-compact:items-stretch max-toolbar-compact:gap-1.75 data-[state=stale]:border-feedback-warning-border data-[state=stale]:text-warning data-[state=connecting]:border-feedback-warning-border data-[state=connecting]:text-warning [&>span:last-child]:flex-none [&>span:last-child]:text-caption [&>span:last-child]:text-muted-foreground",
     sources: "events-sources-section mt-4",
     sourceHeading:
-      "events-source-heading [&_p]:mt-[3px] [&_p]:text-[12px] [&_p]:leading-[17px] [&_p]:text-(--color-text-muted)",
+      "events-source-heading [&_p]:mt-0.75 [&_p]:text-caption [&_p]:leading-4.25 [&_p]:text-muted-foreground",
     sourceGrid:
-      "events-source-grid mt-2 grid grid-cols-4 gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) max-[900px]:grid-cols-2 max-[820px]:grid-cols-1",
+      "events-source-grid mt-2 grid grid-cols-4 gap-px overflow-hidden rounded-md border border-hairline bg-hairline-soft max-page-compact:grid-cols-2 max-toolbar-compact:grid-cols-1",
     sourceItem:
-      "events-source-item flex min-h-[42px] min-w-0 items-center justify-between gap-[10px] bg-(--color-canvas) px-[10px] py-2 text-(--text-metadata) [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap [&>span]:font-(--font-weight-control)",
+      "events-source-item flex min-h-10.5 min-w-0 items-center justify-between gap-2.5 bg-canvas px-2.5 py-2 text-metadata [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap [&>span]:font-medium",
     sourcePhase:
-      "events-source-phase inline-flex flex-none items-center gap-[6px] text-[12px] text-(--color-text-muted) whitespace-nowrap data-[phase=ready]:text-(--color-success-text) data-[phase=stale]:text-(--color-warning)",
+      "events-source-phase inline-flex flex-none items-center gap-1.5 text-caption text-muted-foreground whitespace-nowrap data-[phase=ready]:text-success-text data-[phase=stale]:text-warning",
     sourceIndicator:
-      "events-source-indicator size-[7px] flex-none rounded-(--radius-full) bg-(--color-muted-soft) [.events-source-phase[data-phase=ready]_&]:bg-(--color-success) [.events-source-phase[data-phase=stale]_&]:bg-(--color-warning) [.events-source-phase[data-phase=fixture-only]_&]:bg-(--color-brand)",
+      "events-source-indicator size-1.75 flex-none rounded-full bg-muted-soft [.events-source-phase[data-phase=ready]_&]:bg-success [.events-source-phase[data-phase=stale]_&]:bg-warning [.events-source-phase[data-phase=fixture-only]_&]:bg-brand",
     controls:
-      "events-controls mt-4 flex flex-wrap items-center gap-2 [&_.ui-input]:min-w-[220px] [&_.ui-input]:flex-[1_1_260px] max-[600px]:[&_.ui-input]:min-w-0 [&_.ui-select-trigger]:min-w-[132px] [&_.ui-button_svg]:size-[15px]",
-    toolbarButton: "events-toolbar-button max-[900px]:w-auto max-[900px]:px-[13px]",
-    toolbarLabel: "events-toolbar-button-label hidden max-[900px]:inline",
-    localNote: "events-local-note mt-2 text-[12px] leading-[17px] text-(--color-text-muted)",
-    pausedNote: "events-paused-note mt-2 text-[12px] leading-[17px] text-(--color-warning)",
-    empty: "events-empty mt-4 min-h-[220px] border-solid",
-    list: "events-list mt-4 min-h-[220px] max-h-[min(560px,calc(100vh_-_430px))] list-none overflow-auto overscroll-contain rounded-(--radius-md) border border-(--color-hairline) p-0",
-    row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-[10px] border-b border-(--color-hairline-soft) px-[10px] py-[9px] last:border-b-0 max-[900px]:grid-cols-[76px_76px_92px_minmax(140px,1fr)_32px] max-[900px]:gap-[7px] max-[820px]:grid-cols-[74px_76px_minmax(0,1fr)_32px] max-[600px]:grid-cols-[62px_68px_minmax(0,1fr)_32px] max-[600px]:gap-[6px] [&>time]:pt-[3px] [&>time]:text-[12px] [&>time]:text-(--color-text-muted) [&_.ui-badge]:justify-self-start [&_.ui-button_svg]:size-[15px]",
-    source: "event-source pt-[3px] text-[12px] text-(--color-text-muted) max-[820px]:hidden",
-    copy: "event-copy grid min-w-0 gap-[3px] [&_strong]:wrap-anywhere [&_strong]:text-(--text-metadata) [&_strong]:leading-[19px] [&_strong]:font-(--font-weight-control) [&_small]:wrap-anywhere [&_small]:text-[12px] [&_small]:leading-[17px] [&_small]:text-(--color-text-muted)",
+      "events-controls mt-4 flex flex-wrap items-center gap-2 [&_.ui-input]:min-w-55 [&_.ui-input]:flex-1 [&_.ui-input]:basis-65 max-shell-mobile:[&_.ui-input]:min-w-0 [&_.ui-select-trigger]:min-w-33 [&_.ui-button_svg]:size-3.75",
+    toolbarButton: "events-toolbar-button max-page-compact:w-auto max-page-compact:px-3.25",
+    toolbarLabel: "events-toolbar-button-label hidden max-page-compact:inline",
+    localNote: "events-local-note mt-2 text-caption leading-4.25 text-muted-foreground",
+    pausedNote: "events-paused-note mt-2 text-caption leading-4.25 text-warning",
+    empty: "events-empty mt-4 min-h-55 border-solid",
+    list: "events-list mt-4 min-h-55 max-h-[min(560px,calc(100vh_-_430px))] list-none overflow-auto overscroll-contain rounded-md border border-hairline p-0",
+    row: "event-row grid min-w-0 grid-cols-[86px_82px_104px_minmax(180px,1fr)_34px] items-start gap-2.5 border-b border-hairline-soft px-2.5 py-2.25 last:border-b-0 max-page-compact:grid-cols-[76px_76px_92px_minmax(140px,1fr)_32px] max-page-compact:gap-1.75 max-toolbar-compact:grid-cols-[74px_76px_minmax(0,1fr)_32px] max-shell-mobile:grid-cols-[62px_68px_minmax(0,1fr)_32px] max-shell-mobile:gap-1.5 [&>time]:pt-0.75 [&>time]:text-caption [&>time]:text-muted-foreground [&_.ui-badge]:justify-self-start [&_.ui-button_svg]:size-3.75",
+    source: "event-source pt-0.75 text-caption text-muted-foreground max-toolbar-compact:hidden",
+    copy: "event-copy grid min-w-0 gap-0.75 [&_strong]:wrap-anywhere [&_strong]:text-metadata [&_strong]:leading-4.75 [&_strong]:font-medium [&_small]:wrap-anywhere [&_small]:text-caption [&_small]:leading-4.25 [&_small]:text-muted-foreground",
     diagnostics:
-      "diagnostics-section mt-6 scroll-mt-4 outline-none focus-visible:rounded-(--radius-md) focus-visible:shadow-[0_0_0_2px_var(--color-accent)]",
+      "diagnostics-section mt-6 scroll-mt-4 outline-none focus-visible:rounded-md focus-visible:shadow-focus-ring",
     diagnosticsHeading:
-      "diagnostics-heading flex min-h-11 items-start justify-between gap-4 px-1 pb-2.5 max-[820px]:flex-col max-[820px]:items-stretch max-[820px]:gap-[7px] [&>div]:min-w-0 [&_p]:mt-1 [&_p]:max-w-[760px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
-    diagnosticMessage: "mt-[10px] text-(--text-metadata) leading-[19px] text-(--color-text-muted)",
-    diagnosticFixture: "text-(--color-warning)",
-    diagnosticError: "text-(--color-error)",
+      "diagnostics-heading flex min-h-11 items-start justify-between gap-4 px-1 pb-2.5 max-toolbar-compact:flex-col max-toolbar-compact:items-stretch max-toolbar-compact:gap-1.75 [&>div]:min-w-0 [&_p]:mt-1 [&_p]:max-w-190 [&_p]:text-metadata [&_p]:text-muted-foreground",
+    diagnosticMessage: "mt-2.5 text-metadata leading-4.75 text-muted-foreground",
+    diagnosticFixture: "text-warning",
+    diagnosticError: "text-error",
     diagnosticHistory: "diagnostic-history grid gap-6",
     diagnosticRun:
-      "diagnostic-run mt-3 [.diagnostic-history_&+&]:border-t [.diagnostic-history_&+&]:border-(--color-hairline-soft) [.diagnostic-history_&+&]:pt-5",
+      "diagnostic-run mt-3 [.diagnostic-history_&+&]:border-t [.diagnostic-history_&+&]:border-hairline-soft [.diagnostic-history_&+&]:pt-5",
     diagnosticSummary:
-      "diagnostic-run-summary mb-[10px] flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-(--color-text-muted) [&>span:last-child]:min-w-[220px] [&>span:last-child]:flex-1 [&>span:last-child]:wrap-anywhere max-[600px]:[&>span:last-child]:min-w-0",
+      "diagnostic-run-summary mb-2.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted-foreground [&>span:last-child]:min-w-55 [&>span:last-child]:flex-1 [&>span:last-child]:wrap-anywhere max-shell-mobile:[&>span:last-child]:min-w-0",
     diagnosticChecks: "diagnostic-checks",
     diagnosticCheck:
-      "diagnostic-check min-w-0 px-[14px] py-3 first:rounded-ss-[7px] first:rounded-se-[7px] last:rounded-es-[7px] last:rounded-ee-[7px]",
+      "diagnostic-check min-w-0 px-3.5 py-3 first:rounded-ss-section-grid-inner first:rounded-se-section-grid-inner last:rounded-es-section-grid-inner last:rounded-ee-section-grid-inner",
     diagnosticCheckHeading:
-      "diagnostic-check-heading flex items-center justify-between gap-3 [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-section)",
+      "diagnostic-check-heading flex items-center justify-between gap-3 [&_strong]:text-body [&_strong]:font-semibold",
     diagnosticFacts:
-      "mt-[10px] grid grid-cols-2 gap-x-[18px] gap-y-[10px] max-[900px]:grid-cols-1 [&>div]:min-w-0 [&_dt]:text-[11px] [&_dt]:font-(--font-weight-control) [&_dt]:tracking-[0.03em] [&_dt]:text-(--color-text-muted) [&_dt]:uppercase [&_dd]:mt-[2px] [&_dd]:wrap-anywhere [&_dd]:text-(--text-metadata) [&_dd]:leading-[18px] [&_dd]:text-(--color-body)",
+      "mt-2.5 grid grid-cols-2 gap-x-4.5 gap-y-2.5 max-page-compact:grid-cols-1 [&>div]:min-w-0 [&_dt]:text-label-small [&_dt]:font-medium [&_dt]:tracking-label [&_dt]:text-muted-foreground [&_dt]:uppercase [&_dd]:mt-0.5 [&_dd]:wrap-anywhere [&_dd]:text-metadata [&_dd]:leading-4.5 [&_dd]:text-fg",
     supportBundle:
-      "support-bundle-section mt-5 flex items-start justify-between gap-5 border-t border-(--color-hairline-soft) pt-[18px] max-[900px]:flex-col max-[900px]:items-stretch [&>div]:min-w-0 [&>button]:max-[900px]:self-start [&_h3]:text-(--text-body) [&_h3]:font-(--font-weight-section) [&_p]:mt-1 [&_p]:max-w-[720px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted)",
+      "support-bundle-section mt-5 flex items-start justify-between gap-5 border-t border-hairline-soft pt-4.5 max-page-compact:flex-col max-page-compact:items-stretch [&>div]:min-w-0 [&>button]:max-page-compact:self-start [&_h3]:text-body [&_h3]:font-semibold [&_p]:mt-1 [&_p]:max-w-180 [&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground",
     supportStatus:
-      "support-bundle-status mt-[9px] text-(--text-metadata) text-(--color-text-muted) data-[status=failed]:text-(--color-error) data-[status=written]:text-(--color-success-text)",
+      "support-bundle-status mt-2.25 text-metadata text-muted-foreground data-[status=failed]:text-error data-[status=written]:text-success-text",
     supportDialog:
       "support-bundle-dialog w-[min(680px,calc(100vw_-_32px))] max-h-[min(760px,calc(100vh_-_32px))]",
     supportMetadata:
-      "support-bundle-metadata grid grid-cols-3 gap-px border-y border-(--color-hairline-soft) bg-(--color-hairline-soft) max-[820px]:grid-cols-1 [&>div]:grid [&>div]:gap-1 [&>div]:bg-(--color-canvas) [&>div]:px-[14px] [&>div]:py-[11px] [&_dt]:text-[12px] [&_dt]:text-(--color-text-muted) [&_dd]:wrap-anywhere [&_dd]:text-(--text-metadata) [&_dd]:text-(--color-body)",
+      "support-bundle-metadata grid grid-cols-3 gap-px border-y border-hairline-soft bg-hairline-soft max-toolbar-compact:grid-cols-1 [&>div]:grid [&>div]:gap-1 [&>div]:bg-canvas [&>div]:px-3.5 [&>div]:py-2.75 [&_dt]:text-caption [&_dt]:text-muted-foreground [&_dd]:wrap-anywhere [&_dd]:text-metadata [&_dd]:text-fg",
     supportPreview:
-      "support-bundle-preview-body grid min-h-0 gap-[18px] overflow-auto p-4 [&_section]:grid [&_section]:gap-[9px] [&_h4]:text-(--text-body) [&_h4]:font-(--font-weight-section)",
+      "support-bundle-preview-body grid min-h-0 gap-4.5 overflow-auto p-4 [&_section]:grid [&_section]:gap-2.25 [&_h4]:text-body [&_h4]:font-semibold",
     supportCategories:
-      "support-bundle-category-grid [--section-grid-columns:2] max-[820px]:[--section-grid-columns:1]",
+      "support-bundle-category-grid [--section-grid-columns:2] max-toolbar-compact:[--section-grid-columns:1]",
     supportCategory:
-      "support-bundle-category flex min-w-0 items-center justify-between gap-3 px-[11px] py-[9px] text-(--text-metadata) text-(--color-body) first:rounded-ss-[7px] first:rounded-se-[7px] last:rounded-es-[7px] last:rounded-ee-[7px] [&_strong]:flex-none [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-ink)",
+      "support-bundle-category flex min-w-0 items-center justify-between gap-3 px-2.75 py-2.25 text-metadata text-fg first:rounded-ss-section-grid-inner first:rounded-se-section-grid-inner last:rounded-es-section-grid-inner last:rounded-ee-section-grid-inner [&_strong]:flex-none [&_strong]:font-medium [&_strong]:text-ink",
     supportRedactions:
-      "support-bundle-redactions grid grid-cols-2 gap-x-[18px] gap-y-[6px] pl-[18px] text-[12px] leading-[17px] text-(--color-text-muted) max-[820px]:grid-cols-1",
+      "support-bundle-redactions grid grid-cols-2 gap-x-4.5 gap-y-1.5 pl-4.5 text-caption leading-4.25 text-muted-foreground max-toolbar-compact:grid-cols-1",
     diagnosticsLink:
-      "event-diagnostics-link w-fit text-[12px] font-(--font-weight-control) text-(--color-brand) no-underline hover:underline",
+      "event-diagnostics-link w-fit text-caption font-medium text-brand no-underline hover:underline",
   },
 });
 

@@ -275,7 +275,7 @@
 
   --color-ink: var(--mish-color-ink);
   --color-ink-active: var(--mish-color-ink-active);
-  --color-body: var(--mish-color-body);
+  --color-fg: var(--mish-color-body);
   --color-text-muted: var(--mish-color-muted);
   --color-muted-soft: var(--mish-color-muted-soft);
   --color-canvas: var(--mish-color-canvas);
@@ -362,6 +362,7 @@
   --spacing-sidebar-row-inset: var(--mish-sidebar-row-inset);
 
   --container-dialog: 440px;
+  --container-dialog-height: 620px;
   --container-alert-dialog: 380px;
   --container-select-list: 320px;
   --container-tooltip: 280px;

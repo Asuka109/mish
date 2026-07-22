@@ -122,8 +122,10 @@ if (!tokenSource.includes("@theme inline static")) {
   throw new Error("The shared token package must expose a static inline Tailwind theme.");
 }
 
+const themeVariables = readRuleVariables(tokenSource, "@theme inline static");
 const requiredThemeTokens = [
   "color-background",
+  "color-fg",
   "color-foreground",
   "color-primary",
   "color-primary-foreground",
@@ -135,16 +137,40 @@ const requiredThemeTokens = [
   "text-title",
   "text-body",
   "text-metadata",
+  "text-caption",
+  "text-label-small",
+  "text-micro",
   "radius-sm",
   "radius-md",
+  "radius-section-grid-inner",
+  "radius-compact",
   "radius-lg",
   "shadow-panel",
   "shadow-float",
+  "shadow-focus-ring",
+  "color-sidebar-background",
+  "color-sidebar-item-hover",
+  "color-feedback-warning-border",
+  "color-feedback-error-border",
+  "breakpoint-shell-mobile",
+  "breakpoint-page-compact",
+  "container-dialog-height",
+  "container-settings-compact",
   "spacing",
 ];
 
 for (const token of requiredThemeTokens) {
-  if (!variables.has(token)) throw new Error(`Tailwind theme is missing --${token}.`);
+  if (!themeVariables.has(token)) throw new Error(`Tailwind theme is missing --${token}.`);
+}
+
+for (const token of themeVariables.keys()) {
+  if (!token.startsWith("text-")) continue;
+  const utilityName = token.slice("text-".length);
+  if (themeVariables.has(`color-${utilityName}`)) {
+    throw new Error(
+      `Tailwind theme utility text-${utilityName} is ambiguous between typography and color.`,
+    );
+  }
 }
 
 if (variables.get("accent") !== "var(--mish-color-interactive)") {
@@ -173,8 +199,11 @@ for (const [path, expectedImport] of consumers) {
 
 const webStyles = readFileSync(`${root}/apps/web/src/styles.css`, "utf8");
 const appShellSource = readFileSync(`${root}/apps/web/src/components/app-shell.tsx`, "utf8");
-if (!appShellSource.includes("bg-(--mish-sidebar-background)")) {
-  throw new Error("The sidebar must resolve its background through --mish-sidebar-background.");
+if (variables.get("color-sidebar-background") !== "var(--mish-sidebar-background)") {
+  throw new Error("The sidebar background theme token must preserve its runtime surface alias.");
+}
+if (!appShellSource.includes("bg-sidebar-background")) {
+  throw new Error("The sidebar must consume its named runtime surface theme token.");
 }
 if (
   !tokenSource.match(
@@ -183,8 +212,11 @@ if (
 ) {
   throw new Error("The material surface scope must make --mish-sidebar-background transparent.");
 }
-if (!appShellSource.includes("hover:bg-(--mish-sidebar-item-hover-background)")) {
-  throw new Error("Sidebar hover must resolve through --mish-sidebar-item-hover-background.");
+if (variables.get("color-sidebar-item-hover") !== "var(--mish-sidebar-item-hover-background)") {
+  throw new Error("The sidebar hover theme token must preserve its runtime surface alias.");
+}
+if (!appShellSource.includes("hover:bg-sidebar-item-hover")) {
+  throw new Error("Sidebar hover must consume its named runtime surface theme token.");
 }
 
 const nonSemanticInteractiveBackground = /var\(--color-(?:surface-soft|hairline-soft|canvas)\)/;

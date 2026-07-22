@@ -25,8 +25,8 @@ describe("responsive shell CSS", () => {
 
   it("keeps the notification icon aligned with the toolbar color states", () => {
     expect(notifications).toContain("notification-trigger relative inline-flex");
-    expect(notifications).toContain("text-(--color-text-muted)");
-    expect(notifications).toContain("hover:text-(--color-body)");
+    expect(notifications).toContain("text-muted-foreground");
+    expect(notifications).toContain("hover:text-fg");
   });
 
   it("keeps notification messages wrappable and exposes remove controls on interaction", () => {

@@ -72,42 +72,42 @@ const ruleSortValues: RuleSort[] = ["priority-asc", "type-asc", "target-asc", "h
 
 const trafficStyles = tv({
   slots: {
-    page: "traffic-page w-full px-7 pt-7 pb-9 max-[900px]:px-6 max-[900px]:pt-6 max-[900px]:pb-8 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
+    page: "traffic-page w-full px-7 pt-7 pb-9 max-page-compact:px-6 max-page-compact:pt-6 max-page-compact:pb-8 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     header:
-      "flex items-start justify-between gap-6 max-[820px]:flex-col max-[820px]:items-stretch [&_p]:mt-[5px] [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted)",
-    actions: "flex gap-2 max-[820px]:self-start",
+      "flex items-start justify-between gap-6 max-toolbar-compact:flex-col max-toolbar-compact:items-stretch [&_p]:mt-1.25 [&_p]:text-metadata [&_p]:text-muted-foreground",
+    actions: "flex gap-2 max-toolbar-compact:self-start",
     sourceStatus:
-      "mt-5 flex min-h-[38px] items-center justify-between gap-4 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-3 py-2 text-(--text-metadata) text-(--color-body) data-[state=stale]:border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] data-[state=stale]:text-(--color-warning) [&>span:last-child]:shrink-0 [&>span:last-child]:text-[12px] [&>span:last-child]:text-(--color-text-muted) max-[820px]:flex-col max-[820px]:items-start max-[820px]:gap-1",
+      "mt-5 flex min-h-9.5 items-center justify-between gap-4 rounded-md border border-hairline bg-surface-soft px-3 py-2 text-metadata text-fg data-[state=stale]:border-feedback-warning-border data-[state=stale]:text-warning [&>span:last-child]:shrink-0 [&>span:last-child]:text-caption [&>span:last-child]:text-muted-foreground max-toolbar-compact:flex-col max-toolbar-compact:items-start max-toolbar-compact:gap-1",
     tabs: "mt-5",
     viewButton:
-      "traffic-view-switch-button gap-[7px] px-3 [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center [&_.ui-badge]:px-[5px]",
-    tools: "my-3 flex flex-wrap items-center gap-2 max-[820px]:flex-col max-[820px]:items-stretch",
-    searchRow: "flex min-w-[240px] flex-1 items-center gap-2 max-[600px]:min-w-0",
+      "traffic-view-switch-button gap-1.75 px-3 [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center [&_.ui-badge]:px-1.25",
+    tools:
+      "my-3 flex flex-wrap items-center gap-2 max-toolbar-compact:flex-col max-toolbar-compact:items-stretch",
+    searchRow: "flex min-w-60 flex-1 items-center gap-2 max-shell-mobile:min-w-0",
     searchField: "min-w-0 flex-1",
     searchControl:
-      "relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-[11px] [&>svg]:size-4 [&>svg]:text-(--color-text-muted) [&_.ui-input]:pl-[34px]",
-    searchHelp: "shrink-0 text-(--color-text-muted) hover:text-(--color-body)",
+      "relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75 [&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5",
+    searchHelp: "shrink-0 text-muted-foreground hover:text-fg",
     searchHelpDialog: "w-[min(520px,calc(100vw_-_32px))]",
-    searchHelpContent: "grid gap-3 px-4 py-1 text-(--text-metadata) leading-5 text-(--color-body)",
+    searchHelpContent: "grid gap-3 px-4 py-1 text-metadata leading-5 text-fg",
     searchExamples:
-      "grid gap-2 [&_code]:select-text [&_code]:rounded-(--radius-sm) [&_code]:border [&_code]:border-(--color-border) [&_code]:bg-(--color-surface-soft) [&_code]:px-2.5 [&_code]:py-2 [&_code]:text-(--color-body)",
+      "grid gap-2 [&_code]:select-text [&_code]:rounded-sm [&_code]:border [&_code]:border-border [&_code]:bg-surface-soft [&_code]:px-2.5 [&_code]:py-2 [&_code]:text-fg",
     connectionTable:
-      "traffic-table min-w-[1080px] table-fixed [&_.ui-table-head:nth-child(1)]:w-[178px] [&_.ui-table-head:nth-child(2)]:w-[132px] [&_.ui-table-head:nth-child(3)]:w-[112px] [&_.ui-table-head:nth-child(4)]:w-[112px] [&_.ui-table-head:nth-child(5)]:w-[112px] [&_.ui-table-head:nth-child(6)]:w-[112px] [&_.ui-table-head:last-child]:w-[78px]",
+      "traffic-table min-w-270 table-fixed [&_.ui-table-head:nth-child(1)]:w-44.5 [&_.ui-table-head:nth-child(2)]:w-33 [&_.ui-table-head:nth-child(3)]:w-28 [&_.ui-table-head:nth-child(4)]:w-28 [&_.ui-table-head:nth-child(5)]:w-28 [&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-19.5",
     rulesTable:
-      "traffic-table min-w-[760px] table-fixed [&_.ui-table-head:nth-child(1)]:w-[92px] [&_.ui-table-head:nth-child(2)]:w-[150px] [&_.ui-table-head:nth-child(5)]:w-[92px] [&_.ui-table-head:nth-child(6)]:w-[92px] [&_.ui-table-head:last-child]:w-[92px]",
+      "traffic-table min-w-190 table-fixed [&_.ui-table-head:nth-child(1)]:w-23 [&_.ui-table-head:nth-child(2)]:w-37.5 [&_.ui-table-head:nth-child(5)]:w-23 [&_.ui-table-head:nth-child(6)]:w-23 [&_.ui-table-head:last-child]:w-23",
     destination:
-      "inline-flex h-auto min-h-0 w-full justify-start gap-0.5 overflow-hidden rounded-none border-0 bg-transparent p-0 text-left text-(--color-ink) hover:bg-transparent [&_span]:truncate [&_small]:text-(--text-metadata) [&_small]:text-(--color-text-muted)",
-    rule: "block overflow-hidden text-ellipsis font-(--font-weight-control) text-(--color-body) [&+small]:block [&+small]:overflow-hidden [&+small]:text-ellipsis [&+small]:text-(--color-text-muted)",
-    empty: "mt-4 min-h-[220px] rounded-(--radius-md) border border-(--color-hairline)",
-    loadMore:
-      "mt-3 flex items-center justify-end gap-3 pt-4 text-(--text-metadata) text-(--color-text-muted)",
+      "inline-flex h-auto min-h-0 w-full justify-start gap-0.5 overflow-hidden rounded-none border-0 bg-transparent p-0 text-left text-ink hover:bg-transparent [&_span]:truncate [&_small]:text-metadata [&_small]:text-muted-foreground",
+    rule: "block overflow-hidden text-ellipsis font-medium text-fg [&+small]:block [&+small]:overflow-hidden [&+small]:text-ellipsis [&+small]:text-muted-foreground",
+    empty: "mt-4 min-h-55 rounded-md border border-hairline",
+    loadMore: "mt-3 flex items-center justify-end gap-3 pt-4 text-metadata text-muted-foreground",
     detailDialog:
       "max-h-[min(760px,calc(100vh_-_48px))] w-[min(680px,calc(100vw_-_32px))] overflow-auto",
     detailBody: "flex flex-col",
     detailGrid:
-      "m-4 grid grid-cols-2 gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) max-[600px]:m-3 max-[600px]:grid-cols-1 [&>div]:min-w-0 [&>div]:bg-(--color-canvas) [&>div]:px-3 [&>div]:py-2.5 [&_dt]:text-[12px] [&_dt]:text-(--color-text-muted) [&_dd]:mt-[3px] [&_dd]:[overflow-wrap:anywhere] [&_dd]:text-(--text-metadata) [&_dd]:text-(--color-body)",
+      "m-4 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-hairline bg-hairline-soft max-shell-mobile:m-3 max-shell-mobile:grid-cols-1 [&>div]:min-w-0 [&>div]:bg-canvas [&>div]:px-3 [&>div]:py-2.5 [&_dt]:text-caption [&_dt]:text-muted-foreground [&_dd]:mt-0.75 [&_dd]:[overflow-wrap:anywhere] [&_dd]:text-metadata [&_dd]:text-fg",
     chain:
-      "px-4 pb-4 [&_ol]:mt-2 [&_ol]:flex [&_ol]:list-none [&_ol]:flex-col [&_ol]:gap-px [&_ol]:overflow-hidden [&_ol]:rounded-(--radius-md) [&_ol]:border [&_ol]:border-(--color-hairline) [&_ol]:bg-(--color-hairline-soft) [&_ol]:p-0 [&_li]:grid [&_li]:min-h-[38px] [&_li]:grid-cols-[28px_minmax(0,1fr)] [&_li]:items-center [&_li]:gap-2 [&_li]:bg-(--color-canvas) [&_li]:px-2.5 [&_li>span]:text-[12px] [&_li>span]:text-(--color-text-muted) [&_li>strong]:truncate [&_li>strong]:text-(--text-metadata) [&_li>strong]:font-(--font-weight-control)",
+      "px-4 pb-4 [&_ol]:mt-2 [&_ol]:flex [&_ol]:list-none [&_ol]:flex-col [&_ol]:gap-px [&_ol]:overflow-hidden [&_ol]:rounded-md [&_ol]:border [&_ol]:border-hairline [&_ol]:bg-hairline-soft [&_ol]:p-0 [&_li]:grid [&_li]:min-h-9.5 [&_li]:grid-cols-[28px_minmax(0,1fr)] [&_li]:items-center [&_li]:gap-2 [&_li]:bg-canvas [&_li]:px-2.5 [&_li>span]:text-caption [&_li>span]:text-muted-foreground [&_li>strong]:truncate [&_li>strong]:text-metadata [&_li>strong]:font-medium",
   },
 });
 

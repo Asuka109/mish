@@ -18,16 +18,15 @@ interface BrowserAuthenticationProps {
 
 const authenticationStyles = tv({
   slots: {
-    page: "fixed inset-0 flex items-center justify-center bg-(--mish-color-surface-soft) p-(--mish-spacing-xl) font-(--mish-typography-body-font-family) text-(--mish-color-ink)",
-    card: "w-[min(100%,440px)] rounded-(--mish-radius-lg) border border-(--mish-color-hairline) bg-(--mish-color-canvas) p-(--mish-spacing-xl) shadow-(--mish-shadow-panel) [&_h1]:my-(--mish-spacing-xs) [&_h1]:mb-(--mish-spacing-sm) [&_h1]:text-(--mish-typography-title-font-size) [&_h1]:font-(--mish-typography-title-font-weight) [&_h1]:leading-(--mish-typography-title-line-height) [&_p]:m-0 [&_p]:text-(--mish-typography-body-font-size) [&_p]:leading-(--mish-typography-body-line-height) [&_p]:text-(--mish-color-body)",
-    icon: "flex size-11 items-center justify-center rounded-(--mish-radius-md) bg-(--mish-color-interactive) text-(--mish-color-accent) mb-(--mish-spacing-md) [&_svg]:size-6",
-    eyebrow: "text-(--mish-typography-metadata-font-size)! text-(--mish-color-muted)!",
-    form: "mt-(--mish-spacing-lg) [&_label]:mb-(--mish-spacing-xs) [&_label]:block [&_label]:text-(--mish-typography-body-font-size) [&_label]:font-semibold [&_label]:text-(--mish-color-ink) [&_.ui-input]:w-full [&_.ui-input]:font-mono [&_.ui-input]:text-2xl [&_.ui-input]:tracking-[0.28em] [&_.ui-input]:text-center [&_.ui-button]:mt-(--mish-spacing-md) [&_.ui-button]:w-full",
-    status:
-      "mt-(--mish-spacing-lg) flex items-center gap-(--mish-spacing-sm) text-(--mish-color-body)",
-    recovery: "mt-(--mish-spacing-lg) [&_.ui-button]:mt-(--mish-spacing-md) [&_.ui-button]:w-full",
-    hint: "mt-(--mish-spacing-xs)! text-(--mish-typography-metadata-font-size)! text-(--mish-color-muted)!",
-    error: "mt-(--mish-spacing-sm)! text-(--mish-color-error)!",
+    page: "fixed inset-0 flex items-center justify-center bg-surface-soft p-xl font-sans text-ink",
+    card: "w-[min(100%,440px)] rounded-lg border border-hairline bg-canvas p-xl shadow-panel [&_h1]:my-xs [&_h1]:mb-sm [&_h1]:text-title [&_h1]:font-semibold [&_p]:m-0 [&_p]:text-body [&_p]:text-fg",
+    icon: "flex size-11 items-center justify-center rounded-md bg-accent text-focus-accent mb-md [&_svg]:size-6",
+    eyebrow: "text-metadata! text-muted-foreground!",
+    form: "mt-lg [&_label]:mb-xs [&_label]:block [&_label]:text-body [&_label]:font-semibold [&_label]:text-ink [&_.ui-input]:w-full [&_.ui-input]:font-mono [&_.ui-input]:text-2xl [&_.ui-input]:tracking-pin [&_.ui-input]:text-center [&_.ui-button]:mt-md [&_.ui-button]:w-full",
+    status: "mt-lg flex items-center gap-sm text-fg",
+    recovery: "mt-lg [&_.ui-button]:mt-md [&_.ui-button]:w-full",
+    hint: "mt-xs! text-metadata! text-muted-foreground!",
+    error: "mt-sm! text-error!",
   },
 });
 

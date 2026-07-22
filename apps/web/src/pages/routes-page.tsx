@@ -47,70 +47,69 @@ const routeSorts: RouteSort[] = ["configuration", "latency", "label"];
 
 const routeStyles = tv({
   slots: {
-    loading: "grid min-h-full place-content-center gap-2.5 text-center text-(--color-text-muted)",
+    loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
     page: "min-h-0",
     workspace:
-      "mx-auto min-h-full w-[min(100%,1080px)] px-8 pt-7 pb-9 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
+      "mx-auto min-h-full w-full max-w-page px-8 pt-7 pb-9 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     header:
-      "border-b border-(--color-hairline-soft) pb-5 [&_p]:mt-1.5 [&_p]:max-w-[680px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)",
+      "border-b border-hairline-soft pb-5 [&_p]:mt-1.5 [&_p]:max-w-170 [&_p]:leading-5.25 [&_p]:text-muted-foreground",
     stale:
-      "mt-4 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-error)_30%,var(--color-hairline))] px-3 py-2.5 text-(--text-metadata) text-(--color-error)",
-    searchField: "mt-5 max-w-[520px]",
+      "mt-4 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
+    searchField: "mt-5 max-w-130",
     searchControl:
-      "relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-[11px] [&>svg]:size-4 [&>svg]:text-(--color-text-muted) [&_.ui-input]:pl-[34px]",
+      "relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75 [&>svg]:size-4 [&>svg]:text-muted-foreground [&_.ui-input]:pl-8.5",
     graph: "mt-5",
     graphEmpty: "mt-5",
     graphError:
-      "mt-5 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-error)_35%,var(--color-hairline))] p-4 [&_p]:mt-[5px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted) [&_ul]:mt-2.5 [&_ul]:grid [&_ul]:list-none [&_ul]:gap-[3px] [&_ul]:p-0 [&_li]:text-(--text-metadata) [&_li]:leading-[19px] [&_li]:text-(--color-text-muted) [&_li]:before:mr-[7px] [&_li]:before:text-(--color-error) [&_li]:before:content-['•']",
-    delayResult: "route-delay-result grid min-w-[74px] text-right text-(--text-metadata)",
-    delayTime: "text-[10px] text-(--color-text-subtle)",
+      "mt-5 rounded-md border border-[color-mix(in_srgb,var(--color-error)_35%,var(--color-hairline))] p-4 [&_p]:mt-1.25 [&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground [&_ul]:mt-2.5 [&_ul]:grid [&_ul]:list-none [&_ul]:gap-0.75 [&_ul]:p-0 [&_li]:text-metadata [&_li]:leading-4.75 [&_li]:text-muted-foreground [&_li]:before:mr-1.75 [&_li]:before:text-error [&_li]:before:content-['•']",
+    delayResult: "route-delay-result grid min-w-18.5 text-right text-metadata",
+    delayTime: "text-micro text-muted-soft",
     childRow:
-      "route-child-row grid min-h-[52px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-none border-0 bg-(--color-canvas) py-[7px] pr-[14px] pl-11 text-left text-(--color-body) max-[820px]:pl-9",
+      "route-child-row grid min-h-13 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-none border-0 bg-canvas py-1.75 pr-3.5 pl-11 text-left text-fg max-toolbar-compact:pl-9",
     childSelectable:
-      "route-child-select hover:bg-(--color-accent) hover:text-(--color-ink) aria-pressed:bg-(--color-accent) aria-pressed:text-(--color-ink)",
+      "route-child-select hover:bg-accent hover:text-ink aria-pressed:bg-accent aria-pressed:text-ink",
     childCopy:
-      "route-child-copy grid min-w-0 gap-0.5 [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap [&_strong]:font-(--font-weight-control) [&_span]:text-(--text-metadata) [&_span]:text-(--color-text-muted)",
-    referenceCopy: "[&>span]:text-(--color-text-subtle)",
-    childStatus: "route-child-status inline-flex items-center justify-end gap-[14px]",
-    latency: "route-latency text-(--text-metadata) text-(--color-text-muted)",
+      "route-child-copy grid min-w-0 gap-0.5 [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap [&_strong]:font-medium [&_span]:text-metadata [&_span]:text-muted-foreground",
+    referenceCopy: "[&>span]:text-muted-soft",
+    childStatus: "route-child-status inline-flex items-center justify-end gap-3.5",
+    latency: "route-latency text-metadata text-muted-foreground",
     selectedStatus:
-      "route-selected-status inline-flex items-center gap-[5px] text-[12px] text-(--color-success-text) [&_svg]:size-[13px]",
+      "route-selected-status inline-flex items-center gap-1.25 text-caption text-success-text [&_svg]:size-3.25",
     group:
-      "route-group min-w-0 overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) data-[disabled=true]:opacity-[0.55]",
-    groupHeader: "route-group-header flex min-h-[58px] min-w-0 items-stretch",
+      "route-group min-w-0 overflow-hidden rounded-md border border-hairline bg-canvas data-[disabled=true]:opacity-55",
+    groupHeader: "route-group-header flex min-h-14.5 min-w-0 items-stretch",
     groupToggle:
-      "route-group-toggle grid min-h-[58px] min-w-0 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center justify-stretch gap-2.5 rounded-none border-0 bg-transparent px-3 py-2 text-left text-(--color-body)",
-    groupToggleInteractive: "hover:bg-(--color-accent) hover:text-(--color-ink)",
+      "route-group-toggle grid min-h-14.5 min-w-0 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center justify-stretch gap-2.5 rounded-none border-0 bg-transparent px-3 py-2 text-left text-fg",
+    groupToggleInteractive: "hover:bg-accent hover:text-ink",
     groupToggleStatic: "[&_.route-group-chevron]:invisible",
-    chevron:
-      "route-group-chevron grid place-items-center text-(--color-text-muted) [&_svg]:size-[14px]",
-    groupCopy: "route-group-copy grid min-w-0 gap-[3px]",
+    chevron: "route-group-chevron grid place-items-center text-muted-foreground [&_svg]:size-3.5",
+    groupCopy: "route-group-copy grid min-w-0 gap-0.75",
     groupTitle:
-      "route-group-title-line flex min-w-0 items-center gap-2 [&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_strong]:font-(--font-weight-control) [&_.ui-badge]:h-5 [&_.ui-badge]:shrink-0 [&_.ui-badge]:rounded-(--radius-sm) [&_.ui-badge]:bg-transparent [&_.ui-badge]:font-normal",
+      "route-group-title-line flex min-w-0 items-center gap-2 [&_strong]:min-w-0 [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_strong]:font-medium [&_.ui-badge]:h-5 [&_.ui-badge]:shrink-0 [&_.ui-badge]:rounded-sm [&_.ui-badge]:bg-transparent [&_.ui-badge]:font-normal",
     groupCurrent:
-      "route-group-current overflow-hidden text-(--text-metadata) text-(--color-text-muted) text-ellipsis whitespace-nowrap",
-    groupBody: "route-group-body border-t border-(--color-hairline) bg-(--color-surface-soft)",
+      "route-group-current overflow-hidden text-metadata text-muted-foreground text-ellipsis whitespace-nowrap",
+    groupBody: "route-group-body border-t border-hairline bg-surface-soft",
     groupTools:
-      "route-group-tools grid min-h-[78px] gap-px px-[10px] py-[7px] pl-[14px] text-[12px] text-(--color-text-muted)",
+      "route-group-tools grid min-h-19.5 gap-px px-2.5 py-1.75 pl-3.5 text-caption text-muted-foreground",
     toolsRow: "flex min-w-0 items-center justify-between gap-4",
-    delayTools: "border-t border-(--color-hairline-soft) pt-[5px]",
+    delayTools: "border-t border-hairline-soft pt-1.25",
     delayCopy:
-      "route-delay-copy grid min-w-0 gap-px overflow-hidden text-ellipsis whitespace-nowrap [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-ink) [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:text-(--color-text-muted)",
+      "route-delay-copy grid min-w-0 gap-px overflow-hidden text-ellipsis whitespace-nowrap [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:font-medium [&_strong]:text-ink [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:text-muted-foreground",
     sortGroup: "route-sort-group inline-flex w-fit items-center",
     sortButton:
-      "route-sort-button inline-flex h-7 items-center justify-center border border-(--color-hairline) bg-(--color-canvas) px-[9px] text-[12px] text-(--color-text-muted) first:rounded-l-(--radius-sm) last:rounded-r-(--radius-sm) [&:not(:first-child)]:border-l-0 hover:bg-(--color-accent) hover:text-(--color-ink) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink)",
+      "route-sort-button inline-flex h-7 items-center justify-center border border-hairline bg-canvas px-2.25 text-caption text-muted-foreground first:rounded-l-sm last:rounded-r-sm [&:not(:first-child)]:border-l-0 hover:bg-accent hover:text-ink data-[pressed]:bg-accent data-[pressed]:text-ink",
     rootList: "route-root-list m-0 flex list-none flex-col gap-3 p-0",
     childrenList:
-      "route-children-list m-0 flex list-none flex-col gap-px bg-(--color-hairline-soft) p-0 [&>li]:min-w-0 [&>li]:bg-(--color-canvas)",
+      "route-children-list m-0 flex list-none flex-col gap-px bg-hairline-soft p-0 [&>li]:min-w-0 [&>li]:bg-canvas",
     empty:
-      "route-group-empty border-t border-(--color-hairline-soft) bg-(--color-canvas) px-[14px] py-[18px] text-center text-(--text-metadata) text-(--color-text-muted)",
+      "route-group-empty border-t border-hairline-soft bg-canvas px-3.5 py-4.5 text-center text-metadata text-muted-foreground",
   },
   variants: {
     delayPhase: {
-      pending: "text-(--color-text-muted)",
-      success: "text-(--color-success-text)",
-      failed: "text-(--color-error)",
-      cancelled: "text-(--color-error)",
+      pending: "text-muted-foreground",
+      success: "text-success-text",
+      failed: "text-error",
+      cancelled: "text-error",
     },
   },
 });

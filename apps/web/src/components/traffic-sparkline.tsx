@@ -8,7 +8,7 @@ interface TrafficSparklineProps {
 }
 
 const sparklineStyle = tv({
-  base: "h-[34px] min-w-0 w-full opacity-[.82] [&_svg]:size-full [&_svg]:outline-none",
+  base: "h-8.5 min-w-0 w-full opacity-82 [&_svg]:size-full [&_svg]:outline-none",
 });
 
 export function TrafficSparkline({ color, data, id }: TrafficSparklineProps) {

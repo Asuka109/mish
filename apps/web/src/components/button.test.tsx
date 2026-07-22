@@ -22,7 +22,7 @@ describe("Button promise loading", () => {
 
     const button = screen.getByRole("button", { name: "Override" });
     expect(button).toHaveClass("h-12", "bg-red-500", "px-6");
-    expect(button.className).not.toContain("h-[34px]");
+    expect(button.className).not.toContain("h-8.5");
   });
 
   it("keeps Base UI pressed state semantic while the capture recipe styles it", () => {
@@ -35,7 +35,7 @@ describe("Button promise loading", () => {
     const toggle = screen.getByRole("button", { name: "System proxy" });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     expect(toggle).toHaveAttribute("data-capture-state", "running");
-    expect(toggle).toHaveClass("data-[capture-state=running]:text-(--color-body)");
+    expect(toggle).toHaveClass("data-[capture-state=running]:text-fg");
   });
 
   it("stays loading until a promise resolves", async () => {

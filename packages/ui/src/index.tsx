@@ -29,76 +29,71 @@ export { cn } from "tailwind-variants";
 // Recipes are intentionally the only shared component merge boundary. Consumer
 // className values are passed to tv() last so documented page-level overrides win.
 const buttonRecipe = tv({
-  base: "ui-button inline-flex h-[34px] shrink-0 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-ink) bg-(--color-ink) px-[13px] text-(--text-metadata) font-(--font-weight-control) text-(--color-canvas) whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-[15px] [&_svg]:shrink-0",
+  base: "ui-button inline-flex h-8.5 shrink-0 items-center justify-center gap-1.75 rounded-md border border-ink bg-ink px-3.25 text-metadata font-medium text-canvas whitespace-nowrap disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.75 [&_svg]:shrink-0",
   variants: {
     variant: {
       default: "ui-button--default",
-      outline:
-        "ui-button--outline border-(--color-hairline) bg-(--color-canvas) text-(--color-ink) hover:bg-(--color-accent)",
-      ghost:
-        "ui-button--ghost border-transparent bg-transparent text-(--color-body) hover:bg-(--color-accent)",
+      outline: "ui-button--outline border-hairline bg-canvas text-ink hover:bg-accent",
+      ghost: "ui-button--ghost border-transparent bg-transparent text-fg hover:bg-accent",
       destructive:
-        "ui-button--destructive border-transparent bg-[color-mix(in_srgb,var(--color-error)_10%,transparent)] text-(--color-error)",
+        "ui-button--destructive border-transparent bg-button-destructive-subtle text-error",
     },
     size: {
       default: "ui-button--default",
       sm: "ui-button--sm",
-      "icon-sm": "ui-button--icon-sm size-[30px] p-0",
+      "icon-sm": "ui-button--icon-sm size-7.5 p-0",
     },
   },
   defaultVariants: { variant: "default", size: "default" },
 });
 
 const badgeRecipe = tv({
-  base: "ui-badge inline-flex h-[22px] min-w-6 items-center justify-center rounded-(--radius-full) border border-(--color-hairline) bg-(--color-surface-soft) px-[7px] text-[12px] font-(--font-weight-control) text-(--color-text-muted)",
+  base: "ui-badge inline-flex h-5.5 min-w-6 items-center justify-center rounded-full border border-hairline bg-surface-soft px-1.75 text-caption font-medium text-muted-foreground",
   variants: {
     variant: {
       default: "",
       outline: "",
-      success:
-        "border-[color-mix(in_srgb,var(--color-success)_34%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-success)_10%,var(--color-canvas))] text-(--color-success-text)",
-      warning:
-        "border-[color-mix(in_srgb,var(--color-warning)_32%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-warning)_9%,var(--color-canvas))] text-(--color-warning)",
-      destructive:
-        "border-[color-mix(in_srgb,var(--color-error)_32%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-error)_8%,var(--color-canvas))] text-(--color-error)",
+      success: "border-badge-success-border bg-badge-success-background text-success-text",
+      warning: "border-badge-warning-border bg-badge-warning-background text-warning",
+      destructive: "border-badge-error-border bg-badge-error-background text-error",
     },
   },
   defaultVariants: { variant: "default" },
 });
 
 const sectionGridRecipe = tv({
-  base: "section-grid grid grid-cols-[repeat(var(--section-grid-columns,1),minmax(0,1fr))] gap-px overflow-visible rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) p-0",
+  base: "section-grid grid grid-cols-[repeat(var(--section-grid-columns,1),minmax(0,1fr))] gap-px overflow-visible rounded-md border border-hairline bg-hairline-soft p-0",
 });
 
 const sectionGridItemRecipe = tv({
-  base: "section-grid-item col-span-(--section-grid-column-span) row-span-(--section-grid-row-span) min-w-0 overflow-clip bg-(--color-canvas)",
+  base: "section-grid-item col-span-(--section-grid-column-span) row-span-(--section-grid-row-span) min-w-0 overflow-clip bg-canvas",
 });
 
 const settingsGroupRecipe = tv({
-  base: "settings-group [&>:first-child]:rounded-t-[7px] [&>:last-child]:rounded-b-[7px]",
+  base: "settings-group [&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
 });
 
 const settingsRowRecipe = tv({
-  base: "settings-row grid min-h-[62px] grid-cols-[minmax(0,1fr)_max-content] items-center gap-5 px-[14px] py-[11px] @max-[680px]/settings-page:grid-cols-[minmax(0,1fr)] @max-[680px]/settings-page:items-start @max-[680px]/settings-page:gap-2.5",
+  base: "settings-row grid min-h-15.5 grid-cols-[minmax(0,1fr)_max-content] items-center gap-5 px-3.5 py-2.75 @max-settings-compact/settings-page:grid-cols-[minmax(0,1fr)] @max-settings-compact/settings-page:items-start @max-settings-compact/settings-page:gap-2.5",
 });
 
 const settingsRowCopyRecipe = tv({
-  base: "settings-row-copy grid min-w-0 gap-0.5 [&_strong]:font-(--font-weight-control) [&_strong]:text-(--color-body) [&_span]:max-w-[590px] [&_span]:text-(--text-metadata) [&_span]:leading-[18px] [&_span]:text-(--color-text-muted)",
+  base: "settings-row-copy grid min-w-0 gap-0.5 [&_strong]:font-medium [&_strong]:text-fg [&_span]:max-w-settings-description [&_span]:text-metadata [&_span]:leading-4.5 [&_span]:text-muted-foreground",
 });
 
 const settingsRowControlRecipe = tv({
-  base: "settings-row-control grid min-w-fit justify-items-end text-end @max-[680px]/settings-page:w-full @max-[680px]/settings-page:min-w-0 @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start",
+  base: "settings-row-control grid min-w-fit justify-items-end text-end @max-settings-compact/settings-page:w-full @max-settings-compact/settings-page:min-w-0 @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start",
 });
 
 const toggleRecipe = tv({
-  base: "ui-toggle inline-flex h-[34px] shrink-0 items-center justify-center gap-[7px] rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[13px] text-(--text-metadata) font-(--font-weight-control) text-(--color-body) whitespace-nowrap outline-none hover:bg-(--color-accent) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) disabled:pointer-events-none disabled:opacity-50",
+  base: "ui-toggle inline-flex h-8.5 shrink-0 items-center justify-center gap-1.75 rounded-md border border-hairline bg-canvas px-3.25 text-metadata font-medium text-fg whitespace-nowrap outline-none hover:bg-accent data-[pressed]:bg-accent data-[pressed]:text-ink disabled:pointer-events-none disabled:opacity-50",
   variants: {
     variant: {
       default: "",
       outline: "",
       capture:
-        "h-[30px] gap-[7px] px-[10px] text-(--color-text-muted) [&_svg]:size-[15px] data-[capture-state=remembered]:text-(--color-text-muted) data-[capture-state=remembered]:[&_svg]:text-(--color-muted-soft) data-[capture-state=running]:text-(--color-body) data-[capture-state=running]:[&_svg]:text-[color-mix(in_srgb,var(--color-success)_64%,var(--color-muted-soft))]",
-      "icon-capture": "size-[30px] p-0 [&_svg]:size-[15px] [&_svg]:text-(--color-muted-soft)",
+        "h-7.5 gap-1.75 px-2.5 text-muted-foreground [&_svg]:size-3.75 data-[capture-state=remembered]:text-muted-foreground data-[capture-state=remembered]:[&_svg]:text-muted-soft data-[capture-state=running]:text-fg data-[capture-state=running]:[&_svg]:text-toggle-capture-running-icon",
+      "icon-capture": "size-7.5 p-0 [&_svg]:size-3.75 [&_svg]:text-muted-soft",
     },
   },
   defaultVariants: { variant: "default" },
@@ -115,26 +110,26 @@ const toggleGroupItemRecipe = tv({
       default: "",
       outline: "",
       segmented:
-        "inline-flex h-[30px] items-center justify-center border border-(--color-hairline) bg-(--color-canvas) px-[11px] text-(--text-metadata) text-(--color-text-muted) first:rounded-l-(--radius-md) last:rounded-r-(--radius-md) [&:not(:first-child)]:border-l-0 hover:bg-(--color-accent) hover:text-(--color-body) data-[pressed]:bg-(--color-accent) data-[pressed]:text-(--color-ink) data-[pressed]:shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-hairline)_56%,transparent)] disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-7.5 items-center justify-center border border-hairline bg-canvas px-2.75 text-metadata text-muted-foreground first:rounded-l-md last:rounded-r-md [&:not(:first-child)]:border-l-0 hover:bg-accent hover:text-fg data-[pressed]:bg-accent data-[pressed]:text-ink data-[pressed]:shadow-toggle-group-selected disabled:cursor-not-allowed disabled:opacity-50",
     },
   },
   defaultVariants: { variant: "default" },
 });
 
 const inputRecipe = tv({
-  base: "ui-input h-[38px] w-full rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[10px] text-(--color-ink) outline-none aria-invalid:border-[color-mix(in_srgb,var(--color-error)_52%,var(--color-hairline))]",
+  base: "ui-input h-9.5 w-full rounded-md border border-hairline bg-canvas px-2.5 text-ink outline-none aria-invalid:border-input-invalid-border",
 });
 
 const spinnerRecipe = tv({
-  base: "ui-spinner size-[14px] shrink-0 animate-spin rounded-full border-[1.5px] border-current border-r-transparent motion-reduce:[animation-duration:1.5s]",
+  base: "ui-spinner size-3.5 shrink-0 animate-spin rounded-full border-spinner border-current border-r-transparent motion-reduce:[animation-duration:1.5s]",
 });
 
 const tabsRecipe = tv({
   slots: {
     root: "ui-tabs flex min-h-0 flex-col",
-    list: "ui-tabs-list inline-flex w-fit items-center gap-0.5 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) p-[3px]",
+    list: "ui-tabs-list inline-flex w-fit items-center gap-0.5 rounded-md border border-hairline bg-surface-soft p-0.75",
     trigger:
-      "ui-tabs-trigger inline-flex h-[30px] items-center gap-[7px] rounded-(--radius-sm) border-0 bg-transparent px-[10px] text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) hover:bg-(--color-accent) hover:text-(--color-body) data-[active]:bg-(--color-accent) data-[active]:text-(--color-ink) data-[active]:shadow-[0_1px_2px_color-mix(in_srgb,var(--color-ink)_6%,transparent)] [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center [&_.ui-badge]:px-[5px]",
+      "ui-tabs-trigger inline-flex h-7.5 items-center gap-1.75 rounded-sm border-0 bg-transparent px-2.5 text-metadata font-medium text-muted-foreground hover:bg-accent hover:text-fg data-[active]:bg-accent data-[active]:text-ink data-[active]:shadow-tabs-active [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center [&_.ui-badge]:px-1.25",
     content: "ui-tabs-content min-h-0 outline-none",
   },
 });
@@ -142,69 +137,68 @@ const tabsRecipe = tv({
 const selectRecipe = tv({
   slots: {
     trigger:
-      "ui-select-trigger inline-flex h-[38px] min-w-[132px] items-center justify-between gap-2 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) px-[10px] text-(--text-metadata) text-(--color-body) disabled:opacity-50",
-    icon: "ui-select-icon size-[14px] text-(--color-text-muted) [&_svg]:size-[14px]",
+      "ui-select-trigger inline-flex h-9.5 min-w-33 items-center justify-between gap-2 rounded-md border border-hairline bg-canvas px-2.5 text-metadata text-fg disabled:opacity-50",
+    icon: "ui-select-icon size-3.5 text-muted-foreground [&_svg]:size-3.5",
     positioner: "ui-select-positioner outline-none",
     content:
-      "ui-select-content max-h-[min(320px,var(--available-height))] min-w-(--anchor-width) overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) text-(--color-body) shadow-(--shadow-float)",
+      "ui-select-content max-h-[min(var(--container-select-list),var(--available-height))] min-w-(--anchor-width) overflow-hidden rounded-md border border-hairline bg-canvas text-fg shadow-float",
     list: "ui-select-list overflow-auto p-1",
-    item: "ui-select-item grid min-h-8 grid-cols-[minmax(0,1fr)_16px] items-center gap-2 rounded-(--radius-sm) px-2 text-(--text-metadata) outline-none data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-ink)",
-    indicator: "ui-select-item-indicator size-[14px] [&_svg]:size-[14px]",
+    item: "ui-select-item grid min-h-8 grid-cols-[minmax(0,1fr)_16px] items-center gap-2 rounded-sm px-2 text-metadata outline-none data-[highlighted]:bg-accent data-[highlighted]:text-ink",
+    indicator: "ui-select-item-indicator size-3.5 [&_svg]:size-3.5",
   },
 });
 
 const tableRecipe = tv({
   slots: {
     container:
-      "ui-table-container w-full overflow-auto rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas)",
-    table: "ui-table w-full border-collapse text-(--text-metadata)",
-    head: "ui-table-head h-9 border-b border-(--color-hairline) bg-(--color-surface-soft) px-[10px] text-left text-[12px] font-(--font-weight-control) text-(--color-text-muted) whitespace-nowrap",
-    cell: "ui-table-cell h-12 max-w-[240px] overflow-hidden border-b border-(--color-hairline-soft) px-[10px] py-[6px] text-(--color-body) text-ellipsis whitespace-nowrap",
-    row: "ui-table-row hover:[&_td]:bg-(--color-accent) last:[&_td]:border-b-0",
+      "ui-table-container w-full overflow-auto rounded-md border border-hairline bg-canvas",
+    table: "ui-table w-full border-collapse text-metadata",
+    head: "ui-table-head h-9 border-b border-hairline bg-surface-soft px-2.5 text-left text-caption font-medium text-muted-foreground whitespace-nowrap",
+    cell: "ui-table-cell h-12 max-w-60 overflow-hidden border-b border-hairline-soft px-2.5 py-1.5 text-fg text-ellipsis whitespace-nowrap",
+    row: "ui-table-row hover:[&_td]:bg-accent last:[&_td]:border-b-0",
   },
 });
 
 const emptyRecipe = tv({
   slots: {
-    root: "ui-empty flex min-h-[156px] flex-col items-center justify-center gap-[14px] rounded-(--radius-lg) border border-dashed border-(--color-hairline) text-center",
-    header: "ui-empty-header grid gap-[5px]",
-    title: "ui-empty-title font-(--font-weight-control)",
-    description: "ui-empty-description text-(--text-metadata) text-(--color-text-muted)",
+    root: "ui-empty flex min-h-39 flex-col items-center justify-center gap-3.5 rounded-lg border border-dashed border-hairline text-center",
+    header: "ui-empty-header grid gap-1.25",
+    title: "ui-empty-title font-medium",
+    description: "ui-empty-description text-metadata text-muted-foreground",
   },
 });
 
 const dialogRecipe = tv({
   slots: {
-    backdrop:
-      "dialog-backdrop fixed inset-0 z-[70] bg-[rgb(17_24_39_/_18%)] backdrop-blur-[2px] [html[data-theme=dark]_&]:bg-[rgb(0_0_0_/_45%)]",
+    backdrop: "dialog-backdrop fixed inset-0 z-70 bg-dialog-backdrop backdrop-blur-dialog-backdrop",
     content:
-      "dialog-content fixed top-1/2 left-1/2 z-[71] max-h-[min(620px,calc(100vh_-_48px))] w-[min(440px,calc(100vw_-_32px))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) shadow-(--shadow-float) outline-none",
+      "dialog-content fixed top-1/2 left-1/2 z-71 max-h-[min(var(--container-dialog-height),calc(100vh_-_48px))] w-[min(var(--container-dialog),calc(100vw_-_32px))] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-hairline bg-canvas shadow-float outline-none",
     close:
-      "dialog-close absolute top-[10px] right-[10px] grid size-[30px] place-items-center rounded-(--radius-md) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-accent) hover:text-(--color-ink) [&_svg]:size-4",
+      "dialog-close absolute top-2.5 right-2.5 grid size-7.5 place-items-center rounded-md border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-ink [&_svg]:size-4",
     header:
-      "dialog-header flex min-h-[74px] items-center border-b border-(--color-hairline) py-[13px] pr-11 pl-4",
-    title: "dialog-title text-(--text-body) font-(--font-weight-heading)",
-    description:
-      "dialog-description mt-[3px] text-(--text-metadata) leading-[18px] text-(--color-text-muted)",
+      "dialog-header flex min-h-18.5 items-center border-b border-hairline py-3.25 pr-11 pl-4",
+    title: "dialog-title text-body font-semibold",
+    description: "dialog-description mt-0.75 text-metadata leading-4.5 text-muted-foreground",
     footer:
-      "dialog-footer flex min-h-[62px] items-center justify-end gap-2 border-t border-(--color-hairline) px-4 py-[10px]",
-    alertContent: "alert-dialog-content w-[min(380px,calc(100vw_-_32px))] p-4 pb-0",
-    alertHeader: "alert-dialog-header grid gap-[6px] pb-4",
-    alertTitle: "text-(--text-body) font-(--font-weight-heading)",
-    alertDescription: "text-(--text-metadata) leading-[19px] text-(--color-text-muted)",
+      "dialog-footer flex min-h-15.5 items-center justify-end gap-2 border-t border-hairline px-4 py-2.5",
+    alertContent:
+      "alert-dialog-content w-[min(var(--container-alert-dialog),calc(100vw_-_32px))] p-4 pb-0",
+    alertHeader: "alert-dialog-header grid gap-1.5 pb-4",
+    alertTitle: "text-body font-semibold",
+    alertDescription: "text-metadata leading-4.75 text-muted-foreground",
     alertFooter: "alert-dialog-footer -mx-4",
   },
 });
 
 const menuRecipe = tv({
   slots: {
-    positioner: "menu-positioner z-[60] outline-none",
+    positioner: "menu-positioner z-60 outline-none",
     content:
-      "menu-content max-h-(--available-height) min-w-[184px] overflow-auto rounded-[10px] border border-(--color-hairline) bg-(--color-canvas) p-[6px] text-(--color-ink) shadow-(--shadow-float) outline-none [transform-origin:var(--transform-origin)]",
-    item: "menu-item relative flex min-h-[34px] items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none select-none hover:bg-(--color-accent) hover:text-(--color-ink) data-[highlighted]:bg-(--color-accent) data-[highlighted]:text-(--color-ink) [&_svg]:size-[15px]",
-    radioItem: "menu-radio-item pr-[30px]",
-    indicator: "menu-radio-indicator absolute right-2 grid place-items-center [&_svg]:size-[14px]",
-    separator: "menu-separator my-[5px] mx-[3px] h-px bg-(--color-hairline)",
+      "menu-content max-h-(--available-height) min-w-46 overflow-auto rounded-compact border border-hairline bg-canvas p-1.5 text-ink shadow-float outline-none [transform-origin:var(--transform-origin)]",
+    item: "menu-item relative flex min-h-8.5 items-center gap-2 rounded-sm px-2.25 text-metadata text-fg outline-none select-none hover:bg-accent hover:text-ink data-[highlighted]:bg-accent data-[highlighted]:text-ink [&_svg]:size-3.75",
+    radioItem: "menu-radio-item pr-7.5",
+    indicator: "menu-radio-indicator absolute right-2 grid place-items-center [&_svg]:size-3.5",
+    separator: "menu-separator my-1.25 mx-0.75 h-px bg-hairline",
   },
 });
 
@@ -212,37 +206,36 @@ const popoverRecipe = tv({
   slots: {
     positioner: "popover-positioner outline-none",
     content:
-      "popover-content max-h-(--available-height) overflow-hidden rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) text-(--color-ink) shadow-(--shadow-float) outline-none [transform-origin:var(--transform-origin)] transition-[opacity,transform] duration-[120ms] ease-out data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0",
+      "popover-content max-h-(--available-height) overflow-hidden rounded-lg border border-hairline bg-canvas text-ink shadow-float outline-none [transform-origin:var(--transform-origin)] transition-[opacity,transform] duration-120 ease-out data-[starting-style]:scale-overlay-enter data-[starting-style]:opacity-0 data-[ending-style]:scale-overlay-enter data-[ending-style]:opacity-0",
   },
 });
 
 const fieldRecipe = tv({
   slots: {
     group: "field-group flex flex-col gap-4",
-    field: "field flex flex-col gap-[7px] data-[invalid=true]:text-(--color-error)",
-    label: "field-label text-(--text-metadata) font-(--font-weight-control) text-(--color-body)",
-    description: "field-description text-[12px] leading-[17px] text-(--color-text-muted)",
-    error: "field-error text-[12px] leading-[17px] text-(--color-error)",
+    field: "field flex flex-col gap-1.75 data-[invalid=true]:text-error",
+    label: "field-label text-metadata font-medium text-fg",
+    description: "field-description text-caption leading-4.25 text-muted-foreground",
+    error: "field-error text-caption leading-4.25 text-error",
   },
 });
 
 const commandRecipe = tv({
   slots: {
-    root: "command flex flex-col overflow-hidden bg-(--color-canvas)",
+    root: "command flex flex-col overflow-hidden bg-canvas",
     inputWrapper:
-      "command-input-wrapper flex h-[42px] items-center gap-2 border-b border-(--color-hairline) px-3 text-(--color-text-muted) [&_svg]:size-[15px]",
-    input:
-      "command-input w-full border-0 bg-transparent text-(--text-metadata) text-(--color-ink) outline-none",
-    list: "command-list max-h-[380px] overflow-auto",
-    empty: "command-empty px-4 py-7 text-center text-(--color-text-muted)",
+      "command-input-wrapper flex h-10.5 items-center gap-2 border-b border-hairline px-3 text-muted-foreground [&_svg]:size-3.75",
+    input: "command-input w-full border-0 bg-transparent text-metadata text-ink outline-none",
+    list: "command-list max-h-95 overflow-auto",
+    empty: "command-empty px-4 py-7 text-center text-muted-foreground",
     group: "command-group",
-    item: "command-item relative flex min-h-[34px] items-center gap-2 rounded-(--radius-sm) px-[9px] text-(--text-metadata) text-(--color-body) outline-none data-[selected=true]:bg-(--color-accent) data-[selected=true]:text-(--color-ink) data-[selected=true]:[&_.command-item-check]:opacity-100",
-    check: "command-item-check ml-auto size-[14px] opacity-0 data-[selected=true]:opacity-100",
+    item: "command-item relative flex min-h-8.5 items-center gap-2 rounded-sm px-2.25 text-metadata text-fg outline-none data-[selected=true]:bg-accent data-[selected=true]:text-ink data-[selected=true]:[&_.command-item-check]:opacity-100",
+    check: "command-item-check ml-auto size-3.5 opacity-0 data-[selected=true]:opacity-100",
   },
 });
 
 const tooltipRecipe = tv({
-  base: "tooltip-content z-[80] max-w-[280px] rounded-(--radius-sm) bg-(--color-ink) px-2 py-[6px] text-[12px] leading-[17px] text-(--color-canvas) shadow-(--shadow-float)",
+  base: "tooltip-content z-80 max-w-tooltip rounded-sm bg-ink px-2 py-1.5 text-caption leading-4.25 text-canvas shadow-float",
 });
 
 function resolveClassName<State>(

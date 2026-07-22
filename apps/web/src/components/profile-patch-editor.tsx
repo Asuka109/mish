@@ -91,23 +91,23 @@ const patchStyles = tv({
     dialog: "w-[min(760px,calc(100vw_-_32px))] max-h-[min(760px,calc(100vh_-_32px))]",
     content: "flex flex-col gap-3 p-4",
     notice:
-      "m-0 rounded-(--radius-md) border border-(--color-hairline) bg-(--color-surface-soft) px-3 py-[10px] text-(--color-text-muted)",
-    blocked: "text-(--color-error)",
+      "m-0 rounded-md border border-hairline bg-surface-soft px-3 py-2.5 text-muted-foreground",
+    blocked: "text-error",
     toolbar:
-      "flex items-center justify-between gap-3 max-[760px]:flex-col max-[760px]:items-stretch [&>div]:flex [&>div]:items-center [&>div]:gap-2 max-[760px]:[&>div]:flex-wrap [&_span]:text-[13px] [&_span]:text-(--color-text-muted)",
+      "flex items-center justify-between gap-3 max-editor-stack:flex-col max-editor-stack:items-stretch [&>div]:flex [&>div]:items-center [&>div]:gap-2 max-editor-stack:[&>div]:flex-wrap [&_span]:text-metadata [&_span]:text-muted-foreground",
     scroll:
-      "min-h-40 max-h-[min(430px,50vh)] overflow-auto rounded-(--radius-md) border border-(--color-hairline) bg-(--color-canvas) [&>.ui-empty]:min-h-[158px] [&>.ui-empty]:border-0",
+      "min-h-40 max-h-[min(430px,50vh)] overflow-auto rounded-md border border-hairline bg-canvas [&>.ui-empty]:min-h-39.5 [&>.ui-empty]:border-0",
     loading: "inline-flex items-center gap-2",
-    row: "flex min-w-0 items-center justify-between gap-3 p-3 max-[760px]:flex-col max-[760px]:items-stretch [&+&]:border-t [&+&]:border-(--color-hairline-soft)",
+    row: "flex min-w-0 items-center justify-between gap-3 p-3 max-editor-stack:flex-col max-editor-stack:items-stretch [&+&]:border-t [&+&]:border-hairline-soft",
     summary:
-      "min-w-0 flex-1 [&>div]:flex [&>div]:items-center [&>div]:gap-[6px] [&_p]:my-[2px] [&_p]:mt-1 [&_p]:overflow-hidden [&_p]:text-ellipsis [&_p]:whitespace-nowrap [&_small]:text-[13px] [&_small]:text-(--color-text-muted)",
-    rowActions: "flex items-center gap-[6px] max-[760px]:flex-wrap",
-    dirty: "text-[13px] text-(--color-text-muted)",
+      "min-w-0 flex-1 [&>div]:flex [&>div]:items-center [&>div]:gap-1.5 [&_p]:my-0.5 [&_p]:mt-1 [&_p]:overflow-hidden [&_p]:text-ellipsis [&_p]:whitespace-nowrap [&_small]:text-metadata [&_small]:text-muted-foreground",
+    rowActions: "flex items-center gap-1.5 max-editor-stack:flex-wrap",
+    dirty: "text-metadata text-muted-foreground",
     formDialog:
       "w-[min(560px,calc(100vw_-_32px))] max-h-[min(720px,calc(100vh_-_32px))] overflow-auto",
     orderList:
-      "flex flex-col gap-px overflow-hidden rounded-(--radius-md) border border-(--color-hairline) bg-(--color-hairline-soft) [&>div]:flex [&>div]:min-w-0 [&>div]:min-h-10 [&>div]:items-center [&>div]:gap-1 [&>div]:bg-(--color-canvas) [&>div]:py-1 [&>div]:pr-[6px] [&>div]:pl-[10px] [&_span]:min-w-0 [&_span]:flex-1 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
-    members: "flex max-h-[180px] flex-wrap gap-[6px] overflow-auto p-[2px]",
+      "flex flex-col gap-px overflow-hidden rounded-md border border-hairline bg-hairline-soft [&>div]:flex [&>div]:min-w-0 [&>div]:min-h-10 [&>div]:items-center [&>div]:gap-1 [&>div]:bg-canvas [&>div]:py-1 [&>div]:pr-1.5 [&>div]:pl-2.5 [&_span]:min-w-0 [&_span]:flex-1 [&_span]:overflow-hidden [&_span]:text-ellipsis [&_span]:whitespace-nowrap",
+    members: "flex max-h-45 flex-wrap gap-1.5 overflow-auto p-0.5",
   },
 });
 

@@ -22,37 +22,37 @@ const destinations = [
 
 const mobileShellStyles = tv({
   slots: {
-    root: "mobile-shell grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-(--color-canvas)",
-    chrome: "mobile-chrome z-10 border-b border-(--color-hairline) bg-(--color-canvas)",
+    root: "mobile-shell grid h-full min-h-0 w-full min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-canvas",
+    chrome: "mobile-chrome z-10 border-b border-hairline bg-canvas",
     topBar:
-      "mobile-top-app-bar flex min-h-[calc(56px+env(safe-area-inset-top))] items-center gap-[11px] px-4 pt-[env(safe-area-inset-top)] [&_img]:size-7",
+      "mobile-top-app-bar flex min-h-[calc(56px+env(safe-area-inset-top))] items-center gap-2.75 px-4 pt-[env(safe-area-inset-top)] [&_img]:size-7",
     brandLight: "brand-image-light [html[data-theme=dark]_&]:hidden",
     brandDark: "brand-image-dark hidden [html[data-theme=dark]_&]:block",
-    title: "text-xl leading-7 font-(--font-weight-heading)",
+    title: "text-title leading-7 font-semibold",
     fixtureBanner:
-      "mobile-fixture-banner mx-4 mb-2.5 flex flex-wrap items-center justify-between gap-0.5 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] bg-[color-mix(in_srgb,var(--color-warning)_7%,var(--color-canvas))] px-[11px] py-[9px] text-xs leading-[17px] text-(--color-body)",
+      "mobile-fixture-banner mx-4 mb-2.5 flex flex-wrap items-center justify-between gap-0.5 rounded-md border border-feedback-warning-border bg-[color-mix(in_srgb,var(--color-warning)_7%,var(--color-canvas))] px-2.75 py-2.25 text-caption leading-4.25 text-fg",
     fixtureCopy: "grid min-w-0 gap-0.5",
-    fixtureLabel: "font-(--font-weight-control) text-(--color-warning)",
+    fixtureLabel: "font-medium text-warning",
     fixtureAction:
-      "mobile-fixture-action ml-auto min-h-11 min-w-max rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_45%,var(--color-hairline))] bg-(--color-canvas) px-3 text-(--color-ink) font-(--font-weight-control) disabled:opacity-55",
+      "mobile-fixture-action ml-auto min-h-11 min-w-max rounded-md border border-feedback-warning-border bg-canvas px-3 text-ink font-medium disabled:opacity-55",
     activityNavigation:
       "mobile-activity-navigation flex min-w-0 gap-1 overflow-x-auto px-3 pb-2 [scrollbar-width:none]",
     activityLink:
-      "inline-flex min-h-9 min-w-max items-center rounded-(--radius-full) px-3 text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) no-underline",
-    main: "mobile-main min-h-0 min-w-0 overflow-hidden bg-(--color-canvas) [&>*]:h-full",
+      "inline-flex min-h-9 min-w-max items-center rounded-full px-3 text-metadata font-medium text-muted-foreground no-underline",
+    main: "mobile-main min-h-0 min-w-0 overflow-hidden bg-canvas [&>*]:h-full",
     bottomNavigation:
-      "mobile-bottom-navigation z-10 grid min-h-[calc(64px+env(safe-area-inset-bottom))] grid-cols-5 border-t border-(--color-hairline) bg-(--color-surface-soft) px-1 pt-1 pb-[env(safe-area-inset-bottom)]",
+      "mobile-bottom-navigation z-10 grid min-h-[calc(64px+env(safe-area-inset-bottom))] grid-cols-5 border-t border-hairline bg-surface-soft px-1 pt-1 pb-[env(safe-area-inset-bottom)]",
     destination:
-      "mobile-destination flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-(--radius-md) text-[11px] leading-[14px] font-(--font-weight-control) text-(--color-text-muted) no-underline",
+      "mobile-destination flex min-h-14 min-w-0 flex-col items-center justify-center gap-0.5 rounded-md text-label-small leading-3.5 font-medium text-muted-foreground no-underline",
     destinationIcon:
-      "mobile-destination-icon grid h-[30px] w-[54px] place-items-center rounded-(--radius-full) [&_svg]:size-[22px]",
+      "mobile-destination-icon grid h-7.5 w-13.5 place-items-center rounded-full [&_svg]:size-5.5",
   },
   variants: {
     selected: {
       true: {
-        activityLink: "is-active bg-(--color-accent) text-(--color-ink)",
-        destination: "is-active text-(--color-ink)",
-        destinationIcon: "bg-(--color-accent) text-(--color-brand)",
+        activityLink: "is-active bg-accent text-ink",
+        destination: "is-active text-ink",
+        destinationIcon: "bg-accent text-brand",
       },
       false: {},
     },

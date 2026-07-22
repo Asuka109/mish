@@ -52,33 +52,32 @@ type PromiseButtonAction =
 
 const settingsStyles = tv({
   slots: {
-    page: "@container/settings-page mx-auto w-[min(100%,960px)] px-8 pt-8 pb-12 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6 [&>header+section]:mt-6",
+    page: "@container/settings-page mx-auto w-full max-w-page-narrow px-8 pt-8 pb-12 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6 [&>header+section]:mt-6",
     header:
-      "[&_h1]:text-(--text-title) [&_h1]:leading-[1.3] [&_h1]:font-(--font-weight-title) [&_h1]:tracking-[-0.012em] [&_p]:mt-[7px] [&_p]:max-w-[700px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)",
+      "[&_h1]:text-title [&_h1]:font-semibold [&_h1]:tracking-title-tight [&_p]:mt-1.75 [&_p]:max-w-175 [&_p]:leading-5.25 [&_p]:text-muted-foreground",
     notice:
-      "mt-6 flex items-start gap-2 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-warning)_28%,var(--color-hairline))] px-3 py-2.5 text-(--text-metadata) text-(--color-warning) [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0",
+      "mt-6 flex items-start gap-2 rounded-md border border-feedback-warning-border px-3 py-2.5 text-metadata text-warning [&>svg]:mt-px [&>svg]:size-4 [&>svg]:shrink-0",
     section: "mt-7",
     heading:
-      "px-1 pb-2.5 [&_h2]:text-(--text-body) [&_h2]:font-(--font-weight-title) [&_p]:mt-[3px] [&_p]:max-w-[720px] [&_p]:text-(--text-metadata) [&_p]:leading-[19px] [&_p]:text-(--color-text-muted)",
+      "px-1 pb-2.5 [&_h2]:text-body [&_h2]:font-semibold [&_p]:mt-0.75 [&_p]:max-w-180 [&_p]:text-metadata [&_p]:leading-4.75 [&_p]:text-muted-foreground",
     control:
-      "[&_.traffic-capture-stack]:items-end @max-[680px]/settings-page:[&_.traffic-capture-stack]:items-start",
+      "[&_.traffic-capture-stack]:items-end @max-settings-compact/settings-page:[&_.traffic-capture-stack]:items-start",
     inline:
-      "inline-flex items-center gap-2 @max-[680px]/settings-page:flex-wrap @max-[680px]/settings-page:justify-start [&_label]:inline-grid [&_label]:gap-[3px] [&_label]:text-start [&_label]:text-[11px] [&_label]:leading-[14px] [&_label]:text-(--color-text-muted) [&_input[type=number]]:min-h-[30px] [&_input[type=number]]:w-[82px] [&_input[type=number]]:rounded-[6px] [&_input[type=number]]:border [&_input[type=number]]:border-(--color-hairline) [&_input[type=number]]:bg-(--color-surface) [&_input[type=number]]:px-[7px] [&_input[type=number]]:py-1 [&_input[type=number]]:text-(--color-body)",
+      "inline-flex items-center gap-2 @max-settings-compact/settings-page:flex-wrap @max-settings-compact/settings-page:justify-start [&_label]:inline-grid [&_label]:gap-0.75 [&_label]:text-start [&_label]:text-label-small [&_label]:leading-3.5 [&_label]:text-muted-foreground [&_input[type=number]]:min-h-7.5 [&_input[type=number]]:w-20.5 [&_input[type=number]]:rounded-sm [&_input[type=number]]:border [&_input[type=number]]:border-hairline [&_input[type=number]]:bg-canvas [&_input[type=number]]:px-1.75 [&_input[type=number]]:py-1 [&_input[type=number]]:text-fg",
     localProxy:
-      "flex flex-wrap items-center justify-end gap-2 @max-[680px]/settings-page:justify-start [&_.ui-button]:min-w-[112px] [&_.ui-button[aria-busy=true]:disabled]:opacity-100",
-    localProxyEndpoint:
-      "flex flex-wrap items-center gap-2 [&_code]:text-(--color-ink) [&_code]:tabular-nums",
+      "flex flex-wrap items-center justify-end gap-2 @max-settings-compact/settings-page:justify-start [&_.ui-button]:min-w-28 [&_.ui-button[aria-busy=true]:disabled]:opacity-100",
+    localProxyEndpoint: "flex flex-wrap items-center gap-2 [&_code]:text-ink [&_code]:tabular-nums",
     networkList:
-      "grid max-w-[360px] justify-items-end gap-2 text-end text-(--text-metadata) text-(--color-body) data-[phase=stale]:opacity-[.68] data-[phase=failed]:opacity-[.68] @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start",
+      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start",
     networkPrimary:
-      "grid max-w-[360px] justify-items-end gap-[3px] text-end text-(--text-metadata) text-(--color-body) @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start [&>strong]:font-(--font-weight-control) [&>span]:text-(--text-metadata) [&>span]:text-(--color-text-muted)",
-    networkEmpty: "text-(--text-metadata) text-(--color-text-muted)",
+      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start [&>strong]:font-medium [&>span]:text-metadata [&>span]:text-muted-foreground",
+    networkEmpty: "text-metadata text-muted-foreground",
     networkAddresses:
-      "grid max-w-[360px] justify-items-end gap-2 text-end text-(--text-metadata) text-(--color-body) data-[phase=stale]:opacity-[.68] data-[phase=failed]:opacity-[.68] @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start [&>span]:justify-end @max-[680px]/settings-page:[&>span]:justify-start [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-(--color-text-muted)",
+      "grid max-w-90 justify-items-end gap-2 text-end text-metadata text-fg data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start [&>span]:justify-end @max-settings-compact/settings-page:[&>span]:justify-start [&_code]:font-mono [&_code]:text-caption [&_code]:text-muted-foreground",
     networkDetail:
-      "grid max-w-[360px] justify-items-end gap-[3px] text-end text-(--text-metadata) text-(--color-body) data-[phase=stale]:opacity-[.68] data-[phase=failed]:opacity-[.68] @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-items-start @max-[680px]/settings-page:text-start [&>span:first-child]:text-(--text-metadata) [&>span:first-child]:text-(--color-text-muted)",
+      "grid max-w-90 justify-items-end gap-0.75 text-end text-metadata text-fg data-[phase=stale]:opacity-68 data-[phase=failed]:opacity-68 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-items-start @max-settings-compact/settings-page:text-start [&>span:first-child]:text-metadata [&>span:first-child]:text-muted-foreground",
     observedValues:
-      "flex max-w-[420px] flex-wrap justify-end gap-1 @max-[680px]/settings-page:max-w-full @max-[680px]/settings-page:justify-start [&_code]:max-w-full [&_code]:truncate [&_code]:rounded-(--radius-sm) [&_code]:border [&_code]:border-(--color-hairline) [&_code]:bg-(--color-surface-soft) [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-(--color-body)",
+      "flex max-w-105 flex-wrap justify-end gap-1 @max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:justify-start [&_code]:max-w-full [&_code]:truncate [&_code]:rounded-sm [&_code]:border [&_code]:border-hairline [&_code]:bg-surface-soft [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-caption [&_code]:text-fg",
   },
 });
 

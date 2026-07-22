@@ -18,15 +18,14 @@ const proxyPickerStyles = tv({
   slots: {
     dialog:
       "max-h-[min(520px,calc(100vh_-_48px))] w-[min(420px,calc(100vw_-_32px))] overflow-hidden",
-    header:
-      "flex min-h-[74px] items-center border-b border-(--color-hairline) py-[13px] pr-11 pl-4",
-    title: "text-(--text-body) font-(--font-weight-heading)",
-    description: "mt-[3px] text-(--text-metadata) leading-[18px] text-(--color-text-muted)",
+    header: "flex min-h-18.5 items-center border-b border-hairline py-3.25 pr-11 pl-4",
+    title: "text-body font-semibold",
+    description: "mt-0.75 text-metadata leading-4.5 text-muted-foreground",
     option:
-      "grid min-h-14 grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 rounded-none border-0 border-b border-(--color-hairline) px-[14px] py-0 pr-[14px] pl-4 text-(--color-body) outline-none last:border-b-0 data-[selected=true]:bg-(--color-accent) data-[selected=true]:text-(--color-ink) data-[checked=true]:bg-(--color-accent) data-[checked=true]:text-(--color-ink) data-[checked=true]:[&_.command-item-check]:opacity-100",
+      "grid min-h-14 grid-cols-[minmax(0,1fr)_auto_16px] items-center gap-3 rounded-none border-0 border-b border-hairline px-3.5 py-0 pr-3.5 pl-4 text-fg outline-none last:border-b-0 data-[selected=true]:bg-accent data-[selected=true]:text-ink data-[checked=true]:bg-accent data-[checked=true]:text-ink data-[checked=true]:[&_.command-item-check]:opacity-100",
     optionCopy:
-      "grid min-w-0 gap-0.5 [&_strong]:truncate [&_strong]:text-(--text-body) [&_strong]:font-(--font-weight-control) [&_span]:text-(--text-metadata) [&_span]:text-(--color-text-muted)",
-    latency: "text-(--text-metadata) text-(--color-success-text)",
+      "grid min-w-0 gap-0.5 [&_strong]:truncate [&_strong]:text-body [&_strong]:font-medium [&_span]:text-metadata [&_span]:text-muted-foreground",
+    latency: "text-metadata text-success-text",
   },
 });
 

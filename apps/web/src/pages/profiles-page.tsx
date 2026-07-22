@@ -51,44 +51,44 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
 
 const profileStyles = tv({
   slots: {
-    page: "mx-auto w-[min(100%,1040px)] p-8 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
+    page: "mx-auto w-full max-w-page-medium p-8 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     header:
-      "flex items-start justify-between gap-6 max-[900px]:flex-col max-[900px]:items-stretch [&_p]:mt-[7px] [&_p]:max-w-[660px] [&_p]:leading-[21px] [&_p]:text-(--color-text-muted)",
+      "flex items-start justify-between gap-6 max-page-compact:flex-col max-page-compact:items-stretch [&_p]:mt-1.75 [&_p]:max-w-165 [&_p]:leading-5.25 [&_p]:text-muted-foreground",
     importActions:
-      "flex shrink-0 items-center gap-2 max-[900px]:self-start max-[600px]:w-full max-[600px]:flex-wrap max-[600px]:[&>.ui-button]:min-w-0 max-[600px]:[&>.ui-button]:flex-[1_1_180px]",
-    loading: "mt-2.5 text-[12px] leading-[18px] text-(--color-text-muted)",
+      "flex shrink-0 items-center gap-2 max-page-compact:self-start max-shell-mobile:w-full max-shell-mobile:flex-wrap max-shell-mobile:[&>.ui-button]:min-w-0 max-shell-mobile:[&>.ui-button]:flex-[1_1_180px]",
+    loading: "mt-2.5 text-caption leading-4.5 text-muted-foreground",
     empty: "mt-5",
-    cardList: "mt-6 grid gap-[14px]",
-    card: "overflow-hidden rounded-(--radius-lg) border border-(--color-hairline) bg-(--color-canvas) data-[source=subscription]:[&>header]:border-b data-[source=subscription]:[&>header]:border-(--color-hairline-soft)",
+    cardList: "mt-6 grid gap-3.5",
+    card: "overflow-hidden rounded-lg border border-hairline bg-canvas data-[source=subscription]:[&>header]:border-b data-[source=subscription]:[&>header]:border-hairline-soft",
     cardHeader:
-      "flex min-h-[68px] items-center justify-between gap-4 px-4 py-3 max-[680px]:items-start",
+      "flex min-h-17 items-center justify-between gap-4 px-4 py-3 max-content-narrow:items-start",
     cardTitle: "flex min-w-0 flex-1 items-center gap-2",
-    cardActions: "flex shrink-0 items-center gap-2 max-[680px]:flex-wrap max-[680px]:justify-end",
-    fileTitle:
-      "min-w-0 overflow-hidden text-(--color-ink) text-ellipsis whitespace-nowrap font-(--font-weight-heading)",
-    extension: "text-(--color-text-muted) font-(--font-weight-control)",
+    cardActions:
+      "flex shrink-0 items-center gap-2 max-content-narrow:flex-wrap max-content-narrow:justify-end",
+    fileTitle: "min-w-0 overflow-hidden text-ink text-ellipsis whitespace-nowrap font-semibold",
+    extension: "text-muted-foreground font-medium",
     subscription:
-      "bg-[color-mix(in_srgb,var(--color-surface-soft)_58%,var(--color-canvas))] px-4 pt-[14px] pb-[13px]",
+      "bg-[color-mix(in_srgb,var(--color-surface-soft)_58%,var(--color-canvas))] px-4 pt-3.5 pb-3.25",
     subscriptionGrid:
-      "profile-subscription-grid grid grid-cols-[minmax(260px,1fr)_126px_144px] items-end gap-5 max-[900px]:grid-cols-[minmax(0,1fr)_112px_132px] max-[900px]:gap-[14px] max-[680px]:grid-cols-2",
+      "profile-subscription-grid grid grid-cols-[minmax(260px,1fr)_126px_144px] items-end gap-5 max-page-compact:grid-cols-[minmax(0,1fr)_112px_132px] max-page-compact:gap-3.5 max-content-narrow:grid-cols-2",
     subscriptionCell:
-      "grid min-w-0 gap-1 [&>span]:text-[12px] [&>span]:leading-4 [&>span]:text-(--color-text-muted) [&>dt]:text-[12px] [&>dt]:leading-4 [&>dt]:text-(--color-text-muted)",
+      "grid min-w-0 gap-1 [&>span]:text-caption [&>span]:leading-4 [&>span]:text-muted-foreground [&>dt]:text-caption [&>dt]:leading-4 [&>dt]:text-muted-foreground",
     source:
-      "grid min-w-0 gap-1 max-[680px]:col-span-2 [&>span:first-child]:flex [&>span:first-child]:items-center [&>span:first-child]:gap-1.5 [&_svg]:size-[15px]",
-    url: "block min-h-[26px] overflow-hidden text-(--text-metadata) leading-[26px] font-(--font-weight-control) text-(--color-text-muted) text-ellipsis whitespace-nowrap",
-    date: "grid gap-1 text-(--text-metadata) text-(--color-text-muted) [&>strong]:flex [&>strong]:min-h-[26px] [&>strong]:items-center [&>strong]:truncate [&>strong]:text-(--text-metadata) [&>strong]:leading-[18px] [&>strong]:font-(--font-weight-control) [&>strong]:text-(--color-ink) [&>strong]:tabular-nums",
+      "grid min-w-0 gap-1 max-content-narrow:col-span-2 [&>span:first-child]:flex [&>span:first-child]:items-center [&>span:first-child]:gap-1.5 [&_svg]:size-3.75",
+    url: "block min-h-6.5 overflow-hidden text-metadata leading-6.5 font-medium text-muted-foreground text-ellipsis whitespace-nowrap",
+    date: "grid gap-1 text-metadata text-muted-foreground [&>strong]:flex [&>strong]:min-h-6.5 [&>strong]:items-center [&>strong]:truncate [&>strong]:text-metadata [&>strong]:leading-4.5 [&>strong]:font-medium [&>strong]:text-ink [&>strong]:tabular-nums",
     nextUpdate: "inline-flex w-max max-w-full items-center gap-1",
     intervalTrigger:
-      "profile-interval-trigger grid size-7 place-items-center rounded-(--radius-sm) border-0 bg-transparent text-(--color-text-muted) hover:bg-(--color-interactive) hover:text-(--color-ink) data-[popup-open]:bg-(--color-interactive) data-[popup-open]:text-(--color-ink) focus-visible:bg-(--color-interactive) focus-visible:text-(--color-ink) disabled:opacity-[0.45] [&_svg]:size-[15px]",
-    intervalMenu: "w-[190px]",
+      "profile-interval-trigger grid size-7 place-items-center rounded-sm border-0 bg-transparent text-muted-foreground hover:bg-accent hover:text-ink data-[popup-open]:bg-accent data-[popup-open]:text-ink focus-visible:bg-accent focus-visible:text-ink disabled:opacity-45 [&_svg]:size-3.75",
+    intervalMenu: "w-47.5",
     overwrite:
-      "mt-[9px] flex items-center gap-[7px] border-t border-(--color-hairline-soft) pt-[9px] text-[12px] leading-[18px] text-(--color-warning) [&_svg]:size-[15px] [&_svg]:shrink-0 [&_span]:text-(--color-text-muted) [&_button]:ml-[3px] [&_button]:inline [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:text-(--color-ink) [&_button]:underline [&_button]:underline-offset-[3px] hover:[&_button]:text-(--color-brand) focus-visible:[&_button]:text-(--color-brand)",
+      "mt-2.25 flex items-center gap-1.75 border-t border-hairline-soft pt-2.25 text-caption leading-4.5 text-warning [&_svg]:size-3.75 [&_svg]:shrink-0 [&_span]:text-muted-foreground [&_button]:ml-0.75 [&_button]:inline [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0 [&_button]:text-ink [&_button]:underline [&_button]:underline-offset-0.75 hover:[&_button]:text-brand focus-visible:[&_button]:text-brand",
     importDialog: "w-[min(720px,calc(100vw_-_32px))]",
     importForm: "p-4",
-    preview: "grid gap-[14px] p-4",
+    preview: "grid gap-3.5 p-4",
     previewList:
-      "grid grid-cols-3 overflow-hidden rounded-(--radius-md) border border-(--color-hairline) [&>div]:grid [&>div]:gap-1 [&>div]:p-3 [&>div+div]:border-l [&>div+div]:border-(--color-hairline-soft) [&_dt]:text-[12px] [&_dt]:text-(--color-text-muted) [&_dd]:text-(--color-ink) [&_dd]:font-(--font-weight-heading)",
-    previewMessage: "text-[12px] text-(--color-text-muted)",
+      "grid grid-cols-3 overflow-hidden rounded-md border border-hairline [&>div]:grid [&>div]:gap-1 [&>div]:p-3 [&>div+div]:border-l [&>div+div]:border-hairline-soft [&_dt]:text-caption [&_dt]:text-muted-foreground [&_dd]:text-ink [&_dd]:font-semibold",
+    previewMessage: "text-caption text-muted-foreground",
   },
 });
 

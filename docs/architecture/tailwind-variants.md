@@ -31,8 +31,11 @@ recipes or Tailwind class fragments, requires every package that imports
 CSS Module class is consumed through its imported mapping.
 
 Recipes consume mapped theme values through named utilities such as
-`bg-canvas`, `text-muted-foreground`, `rounded-md`, and `shadow-float`. They do
-not bypass the theme with `bg-(--color-canvas)`, raw `--mish-*` variables, or
+`bg-canvas`, `text-fg`, `text-muted-foreground`, `rounded-md`, and
+`shadow-float`. Typography and color utilities stay unambiguous: `text-body`
+selects the body type scale, while `text-fg` selects the normal body foreground
+color. Recipes do not bypass the theme with `bg-(--color-canvas)`, raw
+`--mish-*` variables, or
 equivalent indirect shorthands. Surface-scoped values such as the material-aware
 sidebar background are exposed as named theme colors while their runtime CSS
 variables remain the source of truth.

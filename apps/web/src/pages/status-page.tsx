@@ -31,49 +31,48 @@ import type { Locales } from "../i18n/i18n-types";
 
 const statusStyles = tv({
   slots: {
-    page: "mx-auto min-h-full w-[min(100%,1080px)] px-8 pt-6 pb-8 max-[900px]:p-6 max-[600px]:px-4 max-[600px]:pt-[18px] max-[600px]:pb-6",
-    loading: "grid min-h-full place-content-center gap-2.5 text-center text-(--color-text-muted)",
+    page: "mx-auto min-h-full w-full max-w-page px-8 pt-6 pb-8 max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+    loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
     error:
-      "mb-3 rounded-(--radius-md) border border-[color-mix(in_srgb,var(--color-error)_30%,var(--color-hairline))] px-3 py-2.5 text-(--text-metadata) text-(--color-error)",
+      "mb-3 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
     diagnostics:
-      "my-2 inline-flex text-(--text-metadata) font-(--font-weight-control) text-(--color-brand) no-underline hover:underline",
+      "my-2 inline-flex text-metadata font-medium text-brand no-underline hover:underline",
     controls: "pb-4",
     controlCell:
-      "flex min-h-[54px] items-center gap-6 px-[14px] first:rounded-t-[7px] last:rounded-b-[7px] max-[820px]:gap-4 max-[600px]:min-h-0 max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-2 max-[600px]:p-3",
-    controlLabel: "font-(--font-weight-control) text-(--color-body) whitespace-nowrap",
+      "flex min-h-13.5 items-center gap-6 px-3.5 first:rounded-t-section-grid-inner last:rounded-b-section-grid-inner max-toolbar-compact:gap-4 max-shell-mobile:min-h-0 max-shell-mobile:flex-col max-shell-mobile:items-start max-shell-mobile:gap-2 max-shell-mobile:p-3",
+    controlLabel: "font-medium text-fg whitespace-nowrap",
     routingItem: "px-3",
     contentGrid:
-      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 max-[1060px]:gap-8 max-[900px]:grid-cols-1 [html[data-runtime=mobile]_&]:grid-cols-1 [html[data-runtime=mobile]_&]:gap-6",
+      "content-grid mt-6 grid grid-cols-[minmax(340px,.95fr)_minmax(0,1.05fr)] gap-12 max-profile-stack:gap-8 max-page-compact:grid-cols-1 [html[data-runtime=mobile]_&]:grid-cols-1 [html[data-runtime=mobile]_&]:gap-6",
     section: "min-w-0",
     sessionSection: "min-w-0 @container/session",
-    heading: "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-[600px]:items-start",
+    heading:
+      "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-shell-mobile:items-start",
     headingCopy:
-      "flex min-w-0 flex-1 items-baseline gap-2 [&_h2]:shrink-0 [&_p]:min-w-0 [&_p]:truncate [&_p]:text-(--text-metadata) [&_p]:text-(--color-text-muted) max-[600px]:flex-col max-[600px]:items-start max-[600px]:gap-0.5 max-[600px]:[&_p]:overflow-visible max-[600px]:[&_p]:text-clip max-[600px]:[&_p]:whitespace-normal max-[600px]:[&_p]:[overflow-wrap:anywhere]",
+      "flex min-w-0 flex-1 items-baseline gap-2 [&_h2]:shrink-0 [&_p]:min-w-0 [&_p]:truncate [&_p]:text-metadata [&_p]:text-muted-foreground max-shell-mobile:flex-col max-shell-mobile:items-start max-shell-mobile:gap-0.5 max-shell-mobile:[&_p]:overflow-visible max-shell-mobile:[&_p]:text-clip max-shell-mobile:[&_p]:whitespace-normal max-shell-mobile:[&_p]:[overflow-wrap:anywhere]",
     action:
-      "inline-flex shrink-0 items-center gap-1 rounded-(--radius-sm) p-1 text-(--text-metadata) leading-[18px] text-(--color-body) no-underline whitespace-nowrap hover:text-(--color-ink) hover:underline [&_svg]:size-[13px] [&_svg]:shrink-0",
+      "inline-flex shrink-0 items-center gap-1 rounded-sm p-1 text-metadata leading-4.5 text-fg no-underline whitespace-nowrap hover:text-ink hover:underline [&_svg]:size-3.25 [&_svg]:shrink-0",
     sessionList:
-      "[--section-grid-columns:2] [&>:first-child]:rounded-t-[7px] [&>:nth-last-child(2)]:rounded-bl-[7px] [&>:last-child]:rounded-br-[7px]",
+      "[--section-grid-columns:2] [&>:first-child]:rounded-t-section-grid-inner [&>:nth-last-child(2)]:rounded-bl-section-grid-inner [&>:last-child]:rounded-br-section-grid-inner",
     trafficRow:
-      "grid min-h-16 grid-cols-[auto_max-content_minmax(72px,1fr)] items-center gap-3 px-3 @max-[320px]/session:grid-cols-[minmax(0,1fr)_auto]",
+      "grid min-h-16 grid-cols-[auto_max-content_minmax(72px,1fr)] items-center gap-3 px-3 @max-session-compact/session:grid-cols-[minmax(0,1fr)_auto]",
     trafficLabel:
-      "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-(--text-metadata) text-(--color-muted-soft) [&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-(--color-traffic-download) data-[direction=upload]:[&>svg]:text-(--color-traffic-upload)",
+      "grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 text-metadata text-muted-soft [&>svg]:size-3.5 data-[direction=download]:[&>svg]:text-traffic-download data-[direction=upload]:[&>svg]:text-traffic-upload",
     trafficCopy:
-      "grid min-w-0 gap-px [&>span]:text-(--color-text-muted) [&>small]:text-[12px] [&>small]:text-(--color-muted-soft)",
-    trafficRate:
-      "text-(--text-metadata) font-(--font-weight-control) text-(--color-text-muted) whitespace-nowrap",
+      "grid min-w-0 gap-px [&>span]:text-muted-foreground [&>small]:text-caption [&>small]:text-muted-soft",
+    trafficRate: "text-metadata font-medium text-muted-foreground whitespace-nowrap",
     metric:
-      "grid min-h-[52px] content-center gap-0.5 px-3 py-[7px] [&>span]:text-(--text-metadata) [&>span]:text-(--color-text-muted) [&>strong]:truncate [&>strong]:text-(--text-metadata) [&>strong]:font-(--font-weight-control)",
+      "grid min-h-13 content-center gap-0.5 px-3 py-1.75 [&>span]:text-metadata [&>span]:text-muted-foreground [&>strong]:truncate [&>strong]:text-metadata [&>strong]:font-medium",
     policyList:
-      "gap-0 bg-(--color-canvas) [&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-(--color-hairline-soft) [&>:first-child]:rounded-t-[7px] [&>:last-child]:rounded-b-[7px]",
+      "gap-0 bg-canvas [&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-hairline-soft [&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
     policyRow:
-      "flex min-h-[50px] w-full items-center justify-between gap-2.5 rounded-none border-0 bg-transparent py-0 pr-3 pl-2.5 text-left text-(--color-body) hover:bg-(--color-accent) hover:text-(--color-ink-active)",
+      "flex min-h-12.5 w-full items-center justify-between gap-2.5 rounded-none border-0 bg-transparent py-0 pr-3 pl-2.5 text-left text-fg hover:bg-accent hover:text-ink-active",
     policyLeading: "flex min-w-0 items-center gap-2.5",
-    policyTrailing:
-      "flex shrink-0 items-center gap-2.5 [&>svg]:size-[13px] [&>svg]:text-(--color-muted-soft)",
-    policyRank: "text-center text-[12px] text-(--color-muted-soft)",
+    policyTrailing: "flex shrink-0 items-center gap-2.5 [&>svg]:size-3.25 [&>svg]:text-muted-soft",
+    policyRank: "text-center text-caption text-muted-soft",
     policyCopy: "grid min-w-0 gap-0.5",
-    policyPrimary: "truncate text-(--text-body) font-(--font-weight-control)",
-    policySecondary: "truncate text-(--text-metadata) text-(--color-text-muted)",
+    policyPrimary: "truncate text-body font-medium",
+    policySecondary: "truncate text-metadata text-muted-foreground",
   },
 });
 

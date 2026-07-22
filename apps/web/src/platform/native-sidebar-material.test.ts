@@ -21,9 +21,9 @@ describe("native sidebar material CSS boundary", () => {
     );
     expect(nativeMaterialRule).toContain("var(--mish-sidebar-material-control-border-opacity)");
     expect(nativeMaterialRule).not.toMatch(/backdrop-filter|gradient|url\(/);
-    expect(shell).toContain("bg-(--mish-sidebar-background)");
-    expect(shell).toContain("hover:bg-(--mish-sidebar-item-hover-background)");
-    expect(shell).toContain("bg-(--color-canvas)");
+    expect(shell).toContain("bg-sidebar-background");
+    expect(shell).toContain("hover:bg-sidebar-item-hover");
+    expect(shell).toContain("bg-canvas");
   });
 
   it("does not independently override the resolved surface for reduced transparency", () => {

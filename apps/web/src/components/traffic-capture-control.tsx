@@ -43,7 +43,7 @@ const captureStyles = tv({
     dialogHeader: "border-0",
     explanations: "px-4 py-1.5",
     explanation:
-      "grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 py-[14px] [&>svg]:mt-px [&>svg]:size-[18px] [&>svg]:text-(--color-text-muted) [&_p]:mt-1 [&_p]:text-(--text-metadata) [&_p]:leading-5 [&_p]:text-(--color-text-muted)",
+      "grid grid-cols-[24px_minmax(0,1fr)] gap-2.5 py-3.5 [&>svg]:mt-px [&>svg]:size-4.5 [&>svg]:text-muted-foreground [&_p]:mt-1 [&_p]:text-metadata [&_p]:leading-5 [&_p]:text-muted-foreground",
     dialogFooter: "border-0",
   },
 });
@@ -233,7 +233,7 @@ export function TrafficCaptureControl({
           </Toggle>
           <Button
             aria-label={LL.capture.helpAria()}
-            className="[&_svg]:text-(--color-muted-soft)"
+            className="[&_svg]:text-muted-soft"
             onClick={() => setHelpOpen(true)}
             size="icon-sm"
             type="button"

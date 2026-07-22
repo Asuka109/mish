@@ -27,27 +27,26 @@ const welcomeStyles = tv({
     dialog:
       "welcome-dialog flex h-[min(600px,calc(100vh_-_32px))] w-[min(640px,calc(100vw_-_32px))] max-h-none flex-col overflow-hidden",
     progress:
-      "welcome-progress flex min-h-[42px] flex-none items-center justify-center px-[52px] pt-[14px] max-[620px]:px-11 [&_ol]:flex [&_ol]:list-none [&_ol]:gap-[6px] [&_ol]:p-0 [&_li]:h-1 [&_li]:w-[18px] [&_li]:rounded-(--radius-full) [&_li]:bg-(--color-hairline) [&_li[aria-current=step]]:bg-(--color-brand)",
+      "welcome-progress flex min-h-10.5 flex-none items-center justify-center px-13 pt-3.5 max-dialog-compact:px-11 [&_ol]:flex [&_ol]:list-none [&_ol]:gap-1.5 [&_ol]:p-0 [&_li]:h-1 [&_li]:w-4.5 [&_li]:rounded-full [&_li]:bg-hairline [&_li[aria-current=step]]:bg-brand",
     cover:
-      "welcome-cover m-0 flex-none overflow-clip rounded-none border-0 bg-(--color-surface-soft) [&_img]:block [&_img]:h-[250px] [&_img]:w-full [&_img]:object-cover max-[620px]:[&_img]:h-[200px]",
+      "welcome-cover m-0 flex-none overflow-clip rounded-none border-0 bg-surface-soft [&_img]:block [&_img]:h-62.5 [&_img]:w-full [&_img]:object-cover max-dialog-compact:[&_img]:h-50",
     header:
-      "welcome-dialog-header min-h-[88px] flex-none border-b-0 px-6 pt-[18px] pb-4 max-[620px]:pl-4 max-[620px]:pr-11 [&_.dialog-title]:text-(--text-title) [&_.dialog-title]:leading-(--text-title--line-height) [&_.dialog-description]:mt-[6px] [&_.dialog-description]:max-w-[58ch] [&_.dialog-description]:text-(--text-body) [&_.dialog-description]:leading-[21px]",
-    body: "welcome-dialog-body flex min-h-0 flex-1 flex-col gap-(--mish-spacing-md) overflow-y-auto px-6 pt-5 pb-[18px] text-(--text-metadata) leading-5 text-(--color-body) max-[620px]:min-h-auto max-[620px]:px-4",
-    purpose:
-      "welcome-cover-purpose max-w-[62ch] text-(--text-body) leading-[22px] text-(--color-body)",
+      "welcome-dialog-header min-h-22 flex-none border-b-0 px-6 pt-4.5 pb-4 max-dialog-compact:pl-4 max-dialog-compact:pr-11 [&_.dialog-title]:text-title [&_.dialog-description]:mt-1.5 [&_.dialog-description]:max-w-[58ch] [&_.dialog-description]:text-body [&_.dialog-description]:leading-5.25",
+    body: "welcome-dialog-body flex min-h-0 flex-1 flex-col gap-md overflow-y-auto px-6 pt-5 pb-4.5 text-metadata leading-5 text-fg max-dialog-compact:min-h-auto max-dialog-compact:px-4",
+    purpose: "welcome-cover-purpose max-w-[62ch] text-body leading-5.5 text-fg",
     conceptGrid: "welcome-concept-grid w-full overflow-clip [--section-grid-columns:1]",
-    concept: "welcome-concept flex min-h-[104px] items-center gap-3 p-4 max-[620px]:min-h-auto",
+    concept: "welcome-concept flex min-h-26 items-center gap-3 p-4 max-dialog-compact:min-h-auto",
     conceptIcon:
-      "welcome-concept-icon grid size-6 flex-none place-items-center text-(--color-brand) [&_svg]:size-5",
+      "welcome-concept-icon grid size-6 flex-none place-items-center text-brand [&_svg]:size-5",
     conceptCopy:
-      "[&_h3]:text-(--text-body) [&_h3]:font-(--font-weight-heading) [&_h3]:text-(--color-ink) [&_p]:mt-[5px] [&_p]:text-(--text-metadata) [&_p]:leading-5 [&_p]:text-(--color-text-muted)",
+      "[&_h3]:text-body [&_h3]:font-semibold [&_h3]:text-ink [&_p]:mt-1.25 [&_p]:text-metadata [&_p]:leading-5 [&_p]:text-muted-foreground",
     guidance:
-      "welcome-routing-guidance grid gap-[10px] [&_p]:text-(--text-body) [&_p]:leading-[22px] [&_p]:text-(--color-body)",
+      "welcome-routing-guidance grid gap-2.5 [&_p]:text-body [&_p]:leading-5.5 [&_p]:text-fg",
     policy:
-      "welcome-policy-groups flex items-start gap-3 rounded-(--radius-md) border border-(--color-hairline) bg-[color-mix(in_srgb,var(--color-brand)_6%,var(--color-canvas))] px-4 py-[14px] [&>svg]:mt-px [&>svg]:size-[22px] [&>svg]:flex-none [&>svg]:text-(--color-brand) [&_h3]:text-(--text-body) [&_h3]:font-(--font-weight-heading) [&_h3]:text-(--color-ink) [&_p]:mt-[5px] [&_p]:text-(--text-metadata) [&_p]:leading-5 [&_p]:text-(--color-text-muted) [&_p+p]:mt-2",
-    footer: "welcome-dialog-footer min-h-[66px] flex-none px-6 max-[620px]:px-4",
+      "welcome-policy-groups flex items-start gap-3 rounded-md border border-hairline bg-[color-mix(in_srgb,var(--color-brand)_6%,var(--color-canvas))] px-4 py-3.5 [&>svg]:mt-px [&>svg]:size-5.5 [&>svg]:flex-none [&>svg]:text-brand [&_h3]:text-body [&_h3]:font-semibold [&_h3]:text-ink [&_p]:mt-1.25 [&_p]:text-metadata [&_p]:leading-5 [&_p]:text-muted-foreground [&_p+p]:mt-2",
+    footer: "welcome-dialog-footer min-h-16.5 flex-none px-6 max-dialog-compact:px-4",
     dismiss: "welcome-dialog-dismiss mr-auto",
-    primary: "welcome-dialog-primary w-[132px]",
+    primary: "welcome-dialog-primary w-33",
   },
 });
 
