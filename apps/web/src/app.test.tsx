@@ -478,7 +478,10 @@ function createActivationProfileClient() {
   } satisfies ProfileClient;
 }
 
-async function createCompletingActivationProfileClient(includeTravelProfile = false) {
+async function createCompletingActivationProfileClient(
+  includeTravelProfile = false,
+  initialManagedListenerConflict = false,
+) {
   const fixture = new FixtureProfileClient();
   let snapshot = await managedProfileSnapshot();
   if (includeTravelProfile) {
@@ -491,6 +494,15 @@ async function createCompletingActivationProfileClient(includeTravelProfile = fa
   }
   const profileId = snapshot.profiles[0].id;
   snapshot.activation.targetProfileId = profileId;
+  if (initialManagedListenerConflict) {
+    snapshot.activation = {
+      ...snapshot.activation,
+      failure: "managed-listener-conflict",
+      failureEndpoint: "127.0.0.1:7890",
+      phase: "failure",
+      safeStopped: true,
+    };
+  }
   const listeners = new Set<(nextSnapshot: ProfileSnapshotDto) => void>();
   const publish = () => {
     const nextSnapshot = structuredClone(snapshot);
@@ -1133,6 +1145,41 @@ describe("production routes", () => {
     await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
     expect(proxyPort).toHaveValue(27890);
     expect(controllerPort).toHaveValue(29090);
+  });
+
+  it("reallocates managed ports and retries activation from the conflict notification", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
+    const statusClient = new RecordingCaptureClient(snapshot);
+    const profileClient = await createCompletingActivationProfileClient(false, true);
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/status",
+      "en",
+      statusClient,
+      profileClient,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent("Mish could not use 127.0.0.1:7890.");
+    await user.click(
+      within(notificationCenter).getByRole("button", { name: "Find ports and retry" }),
+    );
+
+    await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
+    await waitFor(() => expect(profileClient.activateProfile).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(statusClient.setCapture).toHaveBeenCalledWith(
+        { systemProxy: true, tun: false },
+        true,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      ),
+    );
   });
 
   it("offers a clean helper reinstall when the desktop core is inactive", async () => {
