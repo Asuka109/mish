@@ -1,4 +1,5 @@
 import { toast } from "sonner";
+import { createElement } from "react";
 import type { DeliveredNotification } from "./notification-delivery";
 
 /** The only production boundary allowed to call Sonner's imperative API. */
@@ -9,7 +10,15 @@ export function presentNotificationToast(
   const primaryAction = notification.actions.find((action) => action.tone !== "secondary");
   const secondaryAction = notification.actions.find((action) => action.tone === "secondary");
   const options = {
-    description: notification.detail ?? notification.message,
+    description:
+      notification.title && notification.detail
+        ? createElement(
+            "div",
+            undefined,
+            createElement("p", undefined, notification.message),
+            notification.detail ? createElement("p", undefined, notification.detail) : undefined,
+          )
+        : (notification.detail ?? (notification.title ? notification.message : undefined)),
     duration: notification.duration,
     id: notification.id,
     action: primaryAction
@@ -29,7 +38,7 @@ export function presentNotificationToast(
   const hasOptions =
     options.action ||
     options.cancel ||
-    options.description !== title ||
+    options.description !== undefined ||
     options.duration !== undefined;
   if (!hasOptions) {
     if (notification.level === "success") toast.success(title);

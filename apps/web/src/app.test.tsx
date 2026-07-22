@@ -1182,6 +1182,31 @@ describe("production routes", () => {
     );
   });
 
+  it("replaces a generic capture failure with the managed-listener explanation", async () => {
+    const user = userEvent.setup();
+    const errorToast = vi.spyOn(toast, "error");
+    const profileClient = await createCompletingActivationProfileClient(false, true);
+    renderRoute("/status", "en", new FailingCaptureClient(), profileClient);
+
+    await waitFor(() =>
+      expect(errorToast).toHaveBeenCalledWith(
+        "Mish could not use 127.0.0.1:7890.",
+        expect.objectContaining({ id: "managed-listener-conflict" }),
+      ),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Virtual Interface, not selected, not running",
+      }),
+    );
+    await waitFor(() => expect(errorToast).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
+    const notificationCenter = await screen.findByRole("dialog");
+    expect(notificationCenter).toHaveTextContent("Mish could not use 127.0.0.1:7890.");
+    expect(notificationCenter).not.toHaveTextContent("The command failed.");
+  });
+
   it("offers a clean helper reinstall when the desktop core is inactive", async () => {
     const user = userEvent.setup();
     const settingsClient = new DesktopSettingsClient();

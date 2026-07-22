@@ -27,6 +27,12 @@ export interface NotificationEnvelope {
   observedAt?: number;
   duration?: number;
   actions?: readonly NotificationActionDescriptor[];
+  /**
+   * Canonical IDs made obsolete by this more specific publication. This is
+   * session-local and removes only the retained/toast projections, never
+   * external event history.
+   */
+  replaces?: readonly string[];
 }
 
 export interface DeliveredNotification extends Omit<
@@ -115,9 +121,12 @@ export function NotificationDeliveryProvider({ children }: { children: ReactNode
     (envelope: NotificationEnvelope) => {
       const entry = normalize(envelope);
       setEntries((current) => {
-        const next = [...current.filter(({ id }) => id !== entry.id), entry].toSorted(
-          (left, right) => right.observedAt - left.observedAt,
-        );
+        const replacedIds = new Set(envelope.replaces ?? []);
+        const next = [
+          ...current.filter(({ id }) => id !== entry.id && !replacedIds.has(id)),
+          entry,
+        ].toSorted((left, right) => right.observedAt - left.observedAt);
+        for (const replacedId of replacedIds) dismissNotificationToast(replacedId);
         presentNotificationToast(entry, (actionId) => void execute(entry.id, actionId));
         return next;
       });

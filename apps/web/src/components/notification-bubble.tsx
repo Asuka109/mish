@@ -124,9 +124,12 @@ export function NotificationBubble() {
   const systemProxyDrift = systemProxy?.phase === "drift";
   const systemProxyFailed = systemProxy?.phase === "failed";
   const tunWarning = tun?.phase === "drift" || tun?.phase === "failed";
+  // A managed-listener conflict is the authoritative explanation for the same
+  // capture attempt even when the status command reports its generic failure
+  // before the profile activation snapshot reaches the UI.
   const captureFailureAlreadyExplained =
-    commandStates.capture.phase === "failure" &&
-    (systemProxyFailed || tunWarning || Boolean(managedListenerConflict));
+    Boolean(managedListenerConflict) ||
+    (commandStates.capture.phase === "failure" && (systemProxyFailed || tunWarning));
   const productFailure = Boolean(snapshot && productError && !captureFailureAlreadyExplained);
   const settingsFailure = Boolean(settingsContext?.error);
   const settingsFailureMessage = settingsContext?.tunHelperFailure
@@ -237,6 +240,7 @@ export function NotificationBubble() {
       level: "error",
       message: LL.settingsPage.managedPortsConflict({ endpoint: managedListenerConflict }),
       observedAt: managedListenerConflictObservedAt,
+      replaces: ["status-operation-failure"],
     });
   }, [
     LL,
@@ -544,6 +548,7 @@ function NotificationItem({
           {formatNotificationTime(notification.observedAt, locale)}
         </time>
       </div>
+      {notification.title ? <p className="notification-entry-title">{notification.title}</p> : null}
       <p className="notification-message" data-native-text-interaction>
         {notification.message}
       </p>
