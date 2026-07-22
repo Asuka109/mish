@@ -9,15 +9,12 @@ use mish_bridge::{
 };
 use mish_platform_macos::{open_browser_url, show_browser_open_error};
 use mish_runtime::{
-    CapabilityAvailability, CaptureRecoveryAction, CaptureRequest, CaptureSelection, RoutingMode,
-    RuntimePhase, StatusAdapterKind, StatusCommand, StatusSnapshot, SystemProxyPhase, TunPhase,
+    CaptureRequest, StatusAdapterKind, StatusSnapshot, TrafficDataPhase, TrafficSnapshot,
 };
+use mish_settings::{SettingsAdapterKind, SettingsService};
 use tauri::{
     Emitter, Manager,
-    menu::{
-        CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder, Submenu,
-        SubmenuBuilder,
-    },
+    menu::{CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder},
     tray::TrayIconBuilder,
 };
 use uuid::Uuid;
@@ -28,14 +25,12 @@ const TRAY_ID: &str = "mish-status-bar";
 const OPEN_MISH_ID: &str = "status-bar.open-mish";
 const OPEN_BROWSER_ID: &str = "status-bar.open-browser";
 const OPEN_ROUTES_ID: &str = "status-bar.open-routes";
-const TOGGLE_SYSTEM_PROXY_ID: &str = "status-bar.toggle-system-proxy";
-const TOGGLE_TUN_ID: &str = "status-bar.toggle-tun";
-const REPAIR_SYSTEM_PROXY_ID: &str = "status-bar.repair-system-proxy";
-const LEAVE_SYSTEM_PROXY_ID: &str = "status-bar.leave-system-proxy";
-const ROUTING_RULE_ID: &str = "status-bar.routing-rule";
-const ROUTING_GLOBAL_ID: &str = "status-bar.routing-global";
-const ROUTING_DIRECT_ID: &str = "status-bar.routing-direct";
-const RESTART_CORE_ID: &str = "status-bar.restart-core";
+const OPEN_PROFILES_ID: &str = "status-bar.open-profiles";
+const OPEN_TRAFFIC_ID: &str = "status-bar.open-traffic";
+const OPEN_EVENTS_ID: &str = "status-bar.open-events";
+const OPEN_SETTINGS_ID: &str = "status-bar.open-settings";
+const TOGGLE_PROXY_ID: &str = "status-bar.toggle-proxy";
+const TOGGLE_LAUNCH_ON_START_ID: &str = "status-bar.toggle-launch-on-start";
 const QUIT_ID: &str = "status-bar.quit";
 const STATUS_BAR_ICON_RGBA: &[u8] =
     include_bytes!("../../../../packages/brand-assets/generated/status-bar/mish-status-bar.rgba");
@@ -45,6 +40,7 @@ pub(crate) struct StatusBarState {
     activation: Arc<ProfileActivationCoordinator>,
     browser_client: BrowserClientHandle,
     runtime: DesktopRuntimeHost,
+    settings: Arc<SettingsService>,
     traffic_observations: NativeTrafficObservations,
 }
 
@@ -53,11 +49,13 @@ impl StatusBarState {
         runtime: DesktopRuntimeHost,
         activation: Arc<ProfileActivationCoordinator>,
         browser_client: BrowserClientHandle,
+        settings: Arc<SettingsService>,
     ) -> Self {
         Self {
             activation,
             browser_client,
             runtime,
+            settings,
             traffic_observations: NativeTrafficObservations::default(),
         }
     }
@@ -66,11 +64,13 @@ impl StatusBarState {
         let (status, traffic) = self.runtime.native_traffic_handoff().await;
         self.traffic_observations.observe(&status, &traffic);
         let activation = self.activation.activation_snapshot().await;
-        StatusMenuModel::new(
-            &status,
-            &activation,
-            self.runtime.supports_status_command(StatusCommand::Routing),
-        )
+        let launch_on_start = self
+            .settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .startup
+            .launch_proxy_when_mish_launches;
+        StatusMenuModel::new(&status, &activation, launch_on_start)
     }
 }
 
@@ -80,6 +80,13 @@ impl StatusBarState {
 struct NativeTrafficObservations {
     handle: RouteActivitySummaryHandle,
     origin: Instant,
+    latest: Arc<std::sync::Mutex<LiveTraffic>>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct LiveTraffic {
+    phase: Option<TrafficDataPhase>,
+    rates: TrafficSnapshot,
 }
 
 impl Default for NativeTrafficObservations {
@@ -87,6 +94,7 @@ impl Default for NativeTrafficObservations {
         Self {
             handle: RouteActivitySummaryHandle::default(),
             origin: Instant::now(),
+            latest: Arc::new(std::sync::Mutex::new(LiveTraffic::default())),
         }
     }
 }
@@ -103,63 +111,64 @@ impl NativeTrafficObservations {
         observed_at: Duration,
     ) {
         self.handle.observe(traffic, &status.nodes, observed_at);
+        if let Ok(mut latest) = self.latest.lock() {
+            *latest = LiveTraffic {
+                phase: Some(traffic.phase),
+                rates: status.traffic.clone(),
+            };
+        }
+    }
+
+    fn live_status_at(&self, observed_at: Duration) -> LiveStatusModel {
+        let latest = self
+            .latest
+            .lock()
+            .map(|latest| latest.clone())
+            .unwrap_or_default();
+        let available = latest.phase == Some(TrafficDataPhase::Ready);
+        LiveStatusModel {
+            most_active_node: match (available, self.handle.summary_at(observed_at)) {
+                (true, Some(summary)) => format!("Most active node — {}", summary.label),
+                (true, None) => "Most active node — Idle".into(),
+                (false, _) => "Most active node — Unavailable".into(),
+            },
+            download: rate_title(
+                "Download",
+                latest.rates.download_bytes_per_second,
+                available,
+            ),
+            upload: rate_title("Upload", latest.rates.upload_bytes_per_second, available),
+        }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct StatusMenuModel {
-    core_title: &'static str,
-    current_profile: String,
-    leave_system_proxy_enabled: bool,
-    restart_core_enabled: bool,
-    restart_core_title: &'static str,
-    routing_mode: RoutingMode,
-    routing_supported: bool,
-    system_proxy_checked: bool,
-    system_proxy_enabled: bool,
-    system_proxy_title: &'static str,
-    tun_checked: bool,
-    tun_enabled: bool,
-    tun_title: &'static str,
-    repair_system_proxy_enabled: bool,
+    launch_on_start: bool,
+    proxy_enabled: bool,
+    proxy_title: &'static str,
 }
 
 struct StatusMenuItems {
-    core: MenuItem<tauri::Wry>,
-    direct: CheckMenuItem<tauri::Wry>,
-    global: CheckMenuItem<tauri::Wry>,
-    leave: MenuItem<tauri::Wry>,
     menu: Menu<tauri::Wry>,
-    profile: MenuItem<tauri::Wry>,
-    repair: MenuItem<tauri::Wry>,
-    restart: MenuItem<tauri::Wry>,
-    routing: Submenu<tauri::Wry>,
-    rule: CheckMenuItem<tauri::Wry>,
-    system_proxy: CheckMenuItem<tauri::Wry>,
-    tun: CheckMenuItem<tauri::Wry>,
+    proxy: MenuItem<tauri::Wry>,
+    most_active_node: MenuItem<tauri::Wry>,
+    download: MenuItem<tauri::Wry>,
+    launch_on_start: CheckMenuItem<tauri::Wry>,
+    upload: MenuItem<tauri::Wry>,
 }
 
 impl StatusMenuItems {
     fn apply(&self, model: &StatusMenuModel) -> tauri::Result<()> {
-        self.profile.set_text(&model.current_profile)?;
-        self.core.set_text(model.core_title)?;
-        self.system_proxy.set_text(model.system_proxy_title)?;
-        self.system_proxy.set_checked(model.system_proxy_checked)?;
-        self.system_proxy.set_enabled(model.system_proxy_enabled)?;
-        self.repair.set_enabled(model.repair_system_proxy_enabled)?;
-        self.leave.set_enabled(model.leave_system_proxy_enabled)?;
-        self.tun.set_text(model.tun_title)?;
-        self.tun.set_checked(model.tun_checked)?;
-        self.tun.set_enabled(model.tun_enabled)?;
-        self.routing.set_enabled(model.routing_supported)?;
-        self.rule
-            .set_checked(model.routing_mode == RoutingMode::Rule)?;
-        self.global
-            .set_checked(model.routing_mode == RoutingMode::Global)?;
-        self.direct
-            .set_checked(model.routing_mode == RoutingMode::Direct)?;
-        self.restart.set_text(model.restart_core_title)?;
-        self.restart.set_enabled(model.restart_core_enabled)
+        self.proxy.set_text(model.proxy_title)?;
+        self.proxy.set_enabled(model.proxy_enabled)?;
+        self.launch_on_start.set_checked(model.launch_on_start)
+    }
+
+    fn apply_live_status(&self, model: &LiveStatusModel) -> tauri::Result<()> {
+        self.most_active_node.set_text(&model.most_active_node)?;
+        self.download.set_text(&model.download)?;
+        self.upload.set_text(&model.upload)
     }
 }
 
@@ -167,56 +176,12 @@ impl StatusMenuModel {
     fn new(
         status: &StatusSnapshot,
         activation: &ProfileActivationSnapshot,
-        routing_supported: bool,
+        launch_on_start: bool,
     ) -> Self {
-        let active_label = activation
-            .active_profile_id
-            .as_deref()
-            .and_then(|active_id| {
-                status
-                    .profiles
-                    .iter()
-                    .find(|profile| profile.id == active_id)
-                    .map(|profile| profile.label.as_str())
-            });
-        let current_profile = match active_label.and_then(safe_profile_label) {
-            Some(label) => format!("Current Profile — {label}"),
-            None if activation.active_profile_id.is_some() => "Current Profile — Active".into(),
-            None => "Current Profile — Safely stopped".into(),
-        };
-        let pending = status.runtime.system_proxy.phase == SystemProxyPhase::Pending;
-        let drift = status.runtime.system_proxy.phase == SystemProxyPhase::Drift;
-        let supported = status.capabilities.system_proxy == CapabilityAvailability::Supported;
-        let tun_supported = status.capabilities.tun == CapabilityAvailability::Supported;
-        let recovery_actions = &status.runtime.system_proxy.recovery_actions;
-        let restart_target = activation
-            .active_profile_id
-            .as_ref()
-            .or(activation.target_profile_id.as_ref());
-
         Self {
-            core_title: core_title(status.runtime.phase),
-            current_profile,
-            leave_system_proxy_enabled: drift
-                && recovery_actions.contains(&CaptureRecoveryAction::LeaveAsIs),
-            restart_core_enabled: restart_target.is_some()
-                && activation.availability == ProfileActivationAvailability::Available
-                && activation.phase != ProfileActivationPhase::Pending,
-            restart_core_title: if activation.active_profile_id.is_some() {
-                "Restart Core"
-            } else {
-                "Recover Core"
-            },
-            routing_mode: status.routing_mode,
-            routing_supported,
-            system_proxy_checked: status.runtime.system_proxy_enabled,
-            system_proxy_enabled: supported && !pending && !drift,
-            system_proxy_title: system_proxy_title(status.runtime.system_proxy.phase),
-            tun_checked: status.runtime.tun_enabled,
-            tun_enabled: tun_supported && status.runtime.tun.phase != TunPhase::Pending,
-            tun_title: tun_title(status.runtime.tun.phase),
-            repair_system_proxy_enabled: drift
-                && recovery_actions.contains(&CaptureRecoveryAction::Repair),
+            launch_on_start,
+            proxy_title: proxy_title(status, activation),
+            proxy_enabled: proxy_enabled(status, activation),
         }
     }
 }
@@ -251,17 +216,25 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
         return;
     }
     match id {
-        OPEN_MISH_ID => show_main_window(app, None),
+        OPEN_MISH_ID => show_main_window(app, Some("/status")),
         OPEN_BROWSER_ID => open_browser_client(&state),
         OPEN_ROUTES_ID => show_main_window(app, Some("/routes")),
-        TOGGLE_SYSTEM_PROXY_ID
-        | TOGGLE_TUN_ID
-        | REPAIR_SYSTEM_PROXY_ID
-        | LEAVE_SYSTEM_PROXY_ID
-        | ROUTING_RULE_ID
-        | ROUTING_GLOBAL_ID
-        | ROUTING_DIRECT_ID
-        | RESTART_CORE_ID => {
+        OPEN_PROFILES_ID => show_main_window(app, Some("/profiles")),
+        OPEN_TRAFFIC_ID => show_main_window(app, Some("/traffic")),
+        OPEN_EVENTS_ID => show_main_window(app, Some("/events")),
+        OPEN_SETTINGS_ID => show_main_window(app, Some("/settings")),
+        TOGGLE_LAUNCH_ON_START_ID => {
+            let settings = state.settings.clone();
+            tauri::async_runtime::spawn(async move {
+                let enabled = !settings
+                    .snapshot(SettingsAdapterKind::Rpc)
+                    .preferences
+                    .startup
+                    .launch_proxy_when_mish_launches;
+                let _ = settings.set_launch_proxy_when_mish_launches(enabled);
+            });
+        }
+        TOGGLE_PROXY_ID => {
             let id = id.to_owned();
             tauri::async_runtime::spawn(async move {
                 run_native_command(&state, &id).await;
@@ -290,81 +263,36 @@ fn open_browser_client(state: &StatusBarState) {
 }
 
 async fn run_native_command(state: &StatusBarState, id: &str) {
-    match id {
-        TOGGLE_SYSTEM_PROXY_ID => {
-            let snapshot = state
-                .runtime
-                .status_snapshot_typed(StatusAdapterKind::Native)
-                .await;
-            let enable = !snapshot.runtime.system_proxy.desired;
-            let _ = state
-                .activation
-                .set_capture(
-                    CaptureRequest {
-                        active: enable,
-                        selection: CaptureSelection {
-                            system_proxy: enable,
-                            tun: false,
-                        },
-                    },
-                    StatusAdapterKind::Native,
-                )
-                .await;
-        }
-        TOGGLE_TUN_ID => {
-            let snapshot = state
-                .runtime
-                .status_snapshot_typed(StatusAdapterKind::Native)
-                .await;
-            let enable = !snapshot.runtime.tun.desired;
-            let mut selection = snapshot.runtime.capture_selection;
-            selection.tun = enable;
-            let active = enable || snapshot.runtime.system_proxy_enabled;
-            let _ = state
-                .activation
-                .set_capture(
-                    CaptureRequest { active, selection },
-                    StatusAdapterKind::Native,
-                )
-                .await;
-        }
-        REPAIR_SYSTEM_PROXY_ID => {
-            let _ = state
-                .runtime
-                .recover_system_proxy(CaptureRecoveryAction::Repair, StatusAdapterKind::Native)
-                .await;
-        }
-        LEAVE_SYSTEM_PROXY_ID => {
-            let _ = state
-                .runtime
-                .recover_system_proxy(CaptureRecoveryAction::LeaveAsIs, StatusAdapterKind::Native)
-                .await;
-        }
-        ROUTING_RULE_ID => set_routing_mode(state, RoutingMode::Rule).await,
-        ROUTING_GLOBAL_ID => set_routing_mode(state, RoutingMode::Global).await,
-        ROUTING_DIRECT_ID => set_routing_mode(state, RoutingMode::Direct).await,
-        RESTART_CORE_ID => {
-            let activation = state.activation.activation_snapshot().await;
-            let target = activation
-                .active_profile_id
-                .as_deref()
-                .or(activation.target_profile_id.as_deref());
-            if let Some(profile_id) = target {
-                let _ = state
-                    .activation
-                    .activate(&Uuid::new_v4().to_string(), profile_id)
-                    .await;
-            }
-        }
-        _ => {}
+    if id != TOGGLE_PROXY_ID {
+        return;
     }
-}
-
-async fn set_routing_mode(state: &StatusBarState, mode: RoutingMode) {
-    let _ = state
+    let snapshot = state
         .runtime
-        .set_routing_mode(mode, StatusAdapterKind::Native)
+        .status_snapshot_typed(StatusAdapterKind::Native)
         .await;
+    let selection = snapshot.runtime.capture_selection.clone();
+    if snapshot.runtime.system_proxy_enabled || snapshot.runtime.tun_enabled {
+        let _ = state
+            .activation
+            .set_capture(
+                CaptureRequest {
+                    active: false,
+                    selection,
+                },
+                StatusAdapterKind::Native,
+            )
+            .await;
+    } else {
+        let _ = state
+            .activation
+            .launch_proxy(
+                &Uuid::new_v4().to_string(),
+                None,
+                selection,
+                StatusAdapterKind::Native,
+            )
+            .await;
+    }
 }
 
 pub(crate) fn show_main_window(app: &tauri::AppHandle, destination: Option<&str>) {
@@ -374,10 +302,37 @@ pub(crate) fn show_main_window(app: &tauri::AppHandle, destination: Option<&str>
     let _ = window.show();
     let _ = window.unminimize();
     let _ = window.set_focus();
-    if let Some(destination) = destination {
+    if let Some(destination) = destination.filter(|destination| is_status_destination(destination))
+    {
         let _ = app.emit_to("main", "mish:navigate", destination);
     }
 }
+
+fn is_status_destination(destination: &str) -> bool {
+    matches!(
+        destination,
+        "/status" | "/routes" | "/profiles" | "/traffic" | "/events" | "/settings"
+    )
+}
+
+#[cfg(test)]
+const MENU_SECTIONS: &[&[&str]] = &[
+    &["Launch proxy / Stop proxy"],
+    &[
+        "Open Mish",
+        "Routes",
+        "Profiles",
+        "Traffic",
+        "Events",
+        "Settings",
+    ],
+    &["Most active node", "Download", "Upload"],
+    &[
+        "Open Browser Client",
+        "Launch proxy when Mish launches",
+        "Quit Mish",
+    ],
+];
 
 async fn watch_status_menu(
     state: StatusBarState,
@@ -387,9 +342,21 @@ async fn watch_status_menu(
     let mut runtime_changes = state.runtime.subscribe_changes();
     let mut status_updates = runtime_changes.borrow_and_update().subscribe_status();
     let mut activation_updates = state.activation.subscribe();
+    let mut settings_updates = state.settings.subscribe();
+    let mut refresh = tokio::time::interval(Duration::from_secs(1));
+    let mut current_live = state.traffic_observations.live_status_at(Duration::ZERO);
+    let _ = menu.apply_live_status(&current_live);
 
     loop {
         tokio::select! {
+            _ = refresh.tick() => {
+                let next_live = state.traffic_observations.live_status_at(state.traffic_observations.origin.elapsed());
+                if next_live != current_live {
+                    let _ = menu.apply_live_status(&next_live);
+                    current_live = next_live;
+                }
+                continue;
+            }
             changed = runtime_changes.changed() => {
                 if changed.is_err() {
                     break;
@@ -406,10 +373,22 @@ async fn watch_status_menu(
                     break;
                 }
             }
+            update = settings_updates.recv() => {
+                if update.is_err() && settings_updates.is_closed() {
+                    break;
+                }
+            }
         }
         let next_model = state.model().await;
         if accept_changed_menu_model(&mut current_model, next_model) {
             let _ = menu.apply(&current_model);
+        }
+        let next_live = state
+            .traffic_observations
+            .live_status_at(state.traffic_observations.origin.elapsed());
+        if next_live != current_live {
+            let _ = menu.apply_live_status(&next_live);
+            current_live = next_live;
         }
     }
 }
@@ -427,148 +406,127 @@ fn build_menu<M: Manager<tauri::Wry>>(
     model: &StatusMenuModel,
 ) -> tauri::Result<StatusMenuItems> {
     let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish").build(manager)?;
-    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Open Routes").build(manager)?;
+    let proxy = MenuItemBuilder::with_id(TOGGLE_PROXY_ID, model.proxy_title)
+        .enabled(model.proxy_enabled)
+        .build(manager)?;
+    let most_active_node = MenuItemBuilder::new("Most active node — Unavailable")
+        .enabled(false)
+        .build(manager)?;
+    let download = MenuItemBuilder::new("Download — Unavailable")
+        .enabled(false)
+        .build(manager)?;
+    let upload = MenuItemBuilder::new("Upload — Unavailable")
+        .enabled(false)
+        .build(manager)?;
+    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Routes").build(manager)?;
+    let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, "Profiles").build(manager)?;
+    let traffic = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic").build(manager)?;
+    let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, "Events").build(manager)?;
+    let settings = MenuItemBuilder::with_id(OPEN_SETTINGS_ID, "Settings").build(manager)?;
     let browser =
         MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client").build(manager)?;
-    let profile = MenuItemBuilder::new(&model.current_profile)
-        .enabled(false)
-        .build(manager)?;
-    let core = MenuItemBuilder::new(model.core_title)
-        .enabled(false)
-        .build(manager)?;
-    let system_proxy =
-        CheckMenuItemBuilder::with_id(TOGGLE_SYSTEM_PROXY_ID, model.system_proxy_title)
-            .checked(model.system_proxy_checked)
-            .enabled(model.system_proxy_enabled)
+    let launch_on_start =
+        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, "Launch proxy when Mish launches")
+            .checked(model.launch_on_start)
             .build(manager)?;
-    let repair = MenuItemBuilder::with_id(REPAIR_SYSTEM_PROXY_ID, "Repair System Proxy")
-        .enabled(model.repair_system_proxy_enabled)
-        .build(manager)?;
-    let leave = MenuItemBuilder::with_id(
-        LEAVE_SYSTEM_PROXY_ID,
-        "Leave Current System Proxy State As Is",
-    )
-    .enabled(model.leave_system_proxy_enabled)
-    .build(manager)?;
-    let tun = CheckMenuItemBuilder::with_id(TOGGLE_TUN_ID, model.tun_title)
-        .checked(model.tun_checked)
-        .enabled(model.tun_enabled)
-        .build(manager)?;
-    let rule = CheckMenuItemBuilder::with_id(ROUTING_RULE_ID, "Rule")
-        .checked(model.routing_mode == RoutingMode::Rule)
-        .enabled(model.routing_supported)
-        .build(manager)?;
-    let global = CheckMenuItemBuilder::with_id(ROUTING_GLOBAL_ID, "Global")
-        .checked(model.routing_mode == RoutingMode::Global)
-        .enabled(model.routing_supported)
-        .build(manager)?;
-    let direct = CheckMenuItemBuilder::with_id(ROUTING_DIRECT_ID, "Direct")
-        .checked(model.routing_mode == RoutingMode::Direct)
-        .enabled(model.routing_supported)
-        .build(manager)?;
-    let routing = SubmenuBuilder::new(manager, "Routing Mode")
-        .enabled(model.routing_supported)
-        .items(&[&rule, &global, &direct])
-        .build()?;
-    let restart = MenuItemBuilder::with_id(RESTART_CORE_ID, model.restart_core_title)
-        .enabled(model.restart_core_enabled)
-        .build(manager)?;
     let quit = MenuItemBuilder::with_id(QUIT_ID, "Quit Mish").build(manager)?;
 
     let menu = MenuBuilder::new(manager)
-        .items(&[&open, &routes, &browser])
+        .item(&proxy)
         .separator()
-        .items(&[&profile, &core])
+        .items(&[&open, &routes, &profiles, &traffic, &events, &settings])
         .separator()
-        .items(&[&system_proxy, &repair, &leave, &tun])
-        .item(&routing)
+        .items(&[&most_active_node, &download, &upload])
         .separator()
-        .item(&restart)
-        .separator()
-        .item(&quit)
+        .items(&[&browser, &launch_on_start, &quit])
         .build()?;
     Ok(StatusMenuItems {
-        core,
-        direct,
-        global,
-        leave,
         menu,
-        profile,
-        repair,
-        restart,
-        routing,
-        rule,
-        system_proxy,
-        tun,
+        proxy,
+        most_active_node,
+        download,
+        launch_on_start,
+        upload,
     })
 }
 
-fn system_proxy_title(phase: SystemProxyPhase) -> &'static str {
-    match phase {
-        SystemProxyPhase::Off => "System Proxy — Off",
-        SystemProxyPhase::Pending => "System Proxy — Pending",
-        SystemProxyPhase::Applied => "System Proxy — On",
-        SystemProxyPhase::Failed => "System Proxy — Failed",
-        SystemProxyPhase::Drift => "System Proxy — Needs Recovery",
+fn proxy_title(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> &'static str {
+    if status.runtime.system_proxy_enabled || status.runtime.tun_enabled {
+        "Stop proxy"
+    } else if activation.phase == ProfileActivationPhase::Pending
+        || status.runtime.system_proxy.phase == mish_runtime::SystemProxyPhase::Pending
+        || status.runtime.tun.phase == mish_runtime::TunPhase::Pending
+    {
+        "Launch proxy — Pending"
+    } else if activation.phase == ProfileActivationPhase::Failure
+        || matches!(
+            status.runtime.system_proxy.phase,
+            mish_runtime::SystemProxyPhase::Failed | mish_runtime::SystemProxyPhase::Drift
+        )
+        || matches!(
+            status.runtime.tun.phase,
+            mish_runtime::TunPhase::Failed | mish_runtime::TunPhase::Drift
+        )
+    {
+        "Launch proxy — Failed"
+    } else {
+        "Launch proxy"
     }
 }
 
-fn tun_title(phase: TunPhase) -> &'static str {
-    match phase {
-        TunPhase::Off => "TUN — Off",
-        TunPhase::Pending => "TUN — Pending",
-        TunPhase::Applied => "TUN — On",
-        TunPhase::Failed => "TUN — Failed",
-        TunPhase::Drift => "TUN — Needs Recovery",
+fn proxy_enabled(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> bool {
+    activation.availability == ProfileActivationAvailability::Available
+        && activation.phase != ProfileActivationPhase::Pending
+        && status.runtime.system_proxy.phase != mish_runtime::SystemProxyPhase::Pending
+        && status.runtime.tun.phase != mish_runtime::TunPhase::Pending
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LiveStatusModel {
+    most_active_node: String,
+    download: String,
+    upload: String,
+}
+
+fn rate_title(label: &str, bytes_per_second: u64, available: bool) -> String {
+    if available {
+        format!("{label} — {}/s", format_bytes(bytes_per_second))
+    } else {
+        format!("{label} — Unavailable")
     }
 }
 
-fn core_title(phase: RuntimePhase) -> &'static str {
-    match phase {
-        RuntimePhase::Inactive => "Core — Stopped",
-        RuntimePhase::Connecting => "Core — Starting",
-        RuntimePhase::Healthy => "Core — Running",
-        RuntimePhase::Stopping => "Core — Stopping",
-        RuntimePhase::Error => "Core — Failed",
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut amount = bytes as f64;
+    let mut unit = 0;
+    while amount >= 1024.0 && unit < UNITS.len() - 1 {
+        amount /= 1024.0;
+        unit += 1;
     }
+    let precision = if amount < 10.0 { 2 } else { 1 };
+    format!("{amount:.precision$} {}", UNITS[unit])
 }
 
 fn status_bar_icon() -> tauri::image::Image<'static> {
     tauri::image::Image::new(STATUS_BAR_ICON_RGBA, 36, 36)
 }
 
-fn safe_profile_label(label: &str) -> Option<&str> {
-    let label = label.trim();
-    let lowercase = label.to_ascii_lowercase();
-    if label.is_empty()
-        || label.chars().count() > 64
-        || label.chars().any(char::is_control)
-        || label.contains(['/', '\\'])
-        || lowercase.contains("://")
-        || lowercase.contains("token=")
-        || lowercase.contains("secret=")
-        || lowercase.contains("password=")
-        || lowercase.starts_with("sk-")
-        || label.contains([':', '@'])
-        || label.parse::<std::net::IpAddr>().is_ok()
-    {
-        return None;
-    }
-    Some(label)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        NativeTrafficObservations, StatusMenuModel, accept_changed_menu_model, core_title,
-        is_quit_menu_command, safe_profile_label, status_bar_icon, system_proxy_title, tun_title,
+        MENU_SECTIONS, NativeTrafficObservations, StatusMenuModel, accept_changed_menu_model,
+        format_bytes, is_quit_menu_command, is_status_destination, rate_title, status_bar_icon,
     };
     use futures_util::future::BoxFuture;
-    use mish_bridge::DesktopRuntimeHost;
+    use mish_bridge::{
+        DesktopRuntimeHost, ProfileActivationAvailability, ProfileActivationPhase,
+        ProfileActivationSnapshot,
+    };
     use mish_runtime::{
-        CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, ProxyNode, RuntimePhase,
-        StatusAdapterKind, StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficConnection,
-        TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule, TunPhase,
+        CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, ProxyNode, StatusAdapterKind,
+        StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficConnection, TrafficDataPhase,
+        TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
     };
     use std::sync::{
         Arc,
@@ -610,6 +568,8 @@ mod tests {
     impl StatusDataSource for TestStatusSource {
         fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
             let mut status = StatusSnapshot::lifecycle_only(core, adapter_kind);
+            status.traffic.download_bytes_per_second = 1_024;
+            status.traffic.upload_bytes_per_second = 12_288;
             status.nodes.push(ProxyNode {
                 id: "private-node".into(),
                 label: "Tokyo".into(),
@@ -679,6 +639,14 @@ mod tests {
         assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
         observations.observe_at(&status, &traffic, Duration::ZERO);
         assert_eq!(
+            observations.live_status_at(Duration::ZERO),
+            super::LiveStatusModel {
+                most_active_node: "Most active node — Tokyo".into(),
+                download: "Download — 1.00 KB/s".into(),
+                upload: "Upload — 12.0 KB/s".into(),
+            }
+        );
+        assert_eq!(
             observations
                 .handle
                 .summary_at(Duration::ZERO)
@@ -690,84 +658,106 @@ mod tests {
             observations.handle.summary_at(Duration::from_secs(60)),
             None
         );
+        assert_eq!(
+            observations
+                .live_status_at(Duration::from_secs(60))
+                .most_active_node,
+            "Most active node — Idle"
+        );
         assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
     }
 
     #[test]
     fn status_menu_is_not_rebuilt_for_unchanged_runtime_updates() {
         let mut current = StatusMenuModel {
-            core_title: "Core — Running",
-            current_profile: "Current Profile — Fixture".into(),
-            leave_system_proxy_enabled: false,
-            restart_core_enabled: true,
-            restart_core_title: "Restart Core",
-            routing_mode: mish_runtime::RoutingMode::Rule,
-            routing_supported: true,
-            system_proxy_checked: true,
-            system_proxy_enabled: true,
-            system_proxy_title: "System Proxy — On",
-            tun_checked: false,
-            tun_enabled: false,
-            tun_title: "TUN — Off",
-            repair_system_proxy_enabled: false,
+            launch_on_start: false,
+            proxy_title: "Launch proxy",
+            proxy_enabled: true,
         };
 
         let unchanged = current.clone();
         assert!(!accept_changed_menu_model(&mut current, unchanged));
         let mut changed = current.clone();
-        changed.core_title = "Core — Stopped";
+        changed.proxy_title = "Stop proxy";
         assert!(accept_changed_menu_model(&mut current, changed));
-        assert_eq!(current.core_title, "Core — Stopped");
+        assert_eq!(current.proxy_title, "Stop proxy");
     }
 
     #[test]
-    fn status_bar_redacts_sensitive_or_unbounded_profile_labels() {
+    fn aggregate_proxy_label_and_enabled_state_follow_authoritative_state() {
+        let core = running_core_status();
+        let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
+        let mut activation = ProfileActivationSnapshot::unavailable();
+        activation.availability = ProfileActivationAvailability::Available;
         assert_eq!(
-            safe_profile_label("Studio route set"),
-            Some("Studio route set")
+            StatusMenuModel::new(&status, &activation, false).proxy_title,
+            "Launch proxy"
         );
-        for sensitive in [
-            "https://private.example/profile",
-            "../private.yaml",
-            "127.0.0.1",
-            "private.example:7890",
-            "token=secret-value",
-            "sk-private-credential",
-            "line\nbreak",
+        assert!(StatusMenuModel::new(&status, &activation, false).proxy_enabled);
+
+        activation.phase = ProfileActivationPhase::Pending;
+        let pending = StatusMenuModel::new(&status, &activation, false);
+        assert_eq!(pending.proxy_title, "Launch proxy — Pending");
+        assert!(!pending.proxy_enabled);
+
+        activation.phase = ProfileActivationPhase::Failure;
+        let failed = StatusMenuModel::new(&status, &activation, false);
+        assert_eq!(failed.proxy_title, "Launch proxy — Failed");
+        assert!(failed.proxy_enabled);
+
+        activation.phase = ProfileActivationPhase::Idle;
+        status.runtime.system_proxy_enabled = true;
+        status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
+        let active = StatusMenuModel::new(&status, &activation, true);
+        assert_eq!(active.proxy_title, "Stop proxy");
+        assert!(active.proxy_enabled);
+        assert!(active.launch_on_start);
+    }
+
+    #[test]
+    fn status_menu_has_the_compact_fixed_sections_and_destinations() {
+        assert_eq!(
+            MENU_SECTIONS,
+            [
+                ["Launch proxy / Stop proxy"].as_slice(),
+                [
+                    "Open Mish",
+                    "Routes",
+                    "Profiles",
+                    "Traffic",
+                    "Events",
+                    "Settings"
+                ]
+                .as_slice(),
+                ["Most active node", "Download", "Upload"].as_slice(),
+                [
+                    "Open Browser Client",
+                    "Launch proxy when Mish launches",
+                    "Quit Mish"
+                ]
+                .as_slice(),
+            ]
+        );
+        for destination in [
+            "/status",
+            "/routes",
+            "/profiles",
+            "/traffic",
+            "/events",
+            "/settings",
         ] {
-            assert_eq!(safe_profile_label(sensitive), None);
+            assert!(is_status_destination(destination));
         }
-        assert_eq!(safe_profile_label(&"x".repeat(65)), None);
+        assert!(!is_status_destination("/diagnostics"));
     }
 
     #[test]
-    fn system_proxy_menu_never_collapses_pending_drift_or_failure_into_success() {
-        assert_eq!(
-            system_proxy_title(SystemProxyPhase::Pending),
-            "System Proxy — Pending"
-        );
-        assert_eq!(
-            system_proxy_title(SystemProxyPhase::Drift),
-            "System Proxy — Needs Recovery"
-        );
-        assert_eq!(
-            system_proxy_title(SystemProxyPhase::Failed),
-            "System Proxy — Failed"
-        );
-    }
-
-    #[test]
-    fn core_menu_preserves_transitional_and_failed_phases() {
-        assert_eq!(core_title(RuntimePhase::Connecting), "Core — Starting");
-        assert_eq!(core_title(RuntimePhase::Stopping), "Core — Stopping");
-        assert_eq!(core_title(RuntimePhase::Error), "Core — Failed");
-    }
-
-    #[test]
-    fn tun_menu_never_collapses_pending_drift_or_failure_into_success() {
-        assert_eq!(tun_title(TunPhase::Pending), "TUN — Pending");
-        assert_eq!(tun_title(TunPhase::Drift), "TUN — Needs Recovery");
-        assert_eq!(tun_title(TunPhase::Failed), "TUN — Failed");
+    fn live_rate_labels_use_the_existing_binary_byte_rate_convention() {
+        assert_eq!(format_bytes(0), "0.00 B");
+        assert_eq!(format_bytes(1_024), "1.00 KB");
+        assert_eq!(format_bytes(12_288), "12.0 KB");
+        assert_eq!(rate_title("Download", 1_024, true), "Download — 1.00 KB/s");
+        assert_eq!(rate_title("Upload", 0, false), "Upload — Unavailable");
     }
 
     #[test]
