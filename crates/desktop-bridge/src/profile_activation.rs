@@ -1046,7 +1046,7 @@ fn usable_capture_selection(
             (
                 StatusAdapterKind::Native,
                 CapabilityAvailability::FixtureOnly
-            ) | (StatusAdapterKind::Rpc, CapabilityAvailability::Supported)
+            ) | (_, CapabilityAvailability::Supported)
         )
     };
     selection.system_proxy &= available(capabilities.system_proxy);
@@ -1077,6 +1077,91 @@ fn now_unix_milliseconds() -> u64 {
         .unwrap_or_default()
         .as_millis();
     u64::try_from(milliseconds).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod capture_selection_tests {
+    use super::usable_capture_selection;
+    use mish_runtime::{
+        CapabilityAvailability, CaptureSelection, PlatformCapabilities, StatusAdapterKind,
+    };
+
+    fn capabilities(
+        system_proxy: CapabilityAvailability,
+        tun: CapabilityAvailability,
+    ) -> PlatformCapabilities {
+        PlatformCapabilities { system_proxy, tun }
+    }
+
+    #[test]
+    fn native_launch_selection_preserves_remembered_modes_and_falls_back_deterministically() {
+        let supported = capabilities(
+            CapabilityAvailability::Supported,
+            CapabilityAvailability::Supported,
+        );
+        assert_eq!(
+            usable_capture_selection(
+                StatusAdapterKind::Native,
+                &supported,
+                CaptureSelection {
+                    system_proxy: false,
+                    tun: true
+                },
+            )
+            .unwrap(),
+            CaptureSelection {
+                system_proxy: false,
+                tun: true
+            }
+        );
+        assert_eq!(
+            usable_capture_selection(
+                StatusAdapterKind::Native,
+                &supported,
+                CaptureSelection {
+                    system_proxy: false,
+                    tun: false
+                },
+            )
+            .unwrap(),
+            CaptureSelection {
+                system_proxy: true,
+                tun: false
+            }
+        );
+        assert_eq!(
+            usable_capture_selection(
+                StatusAdapterKind::Native,
+                &capabilities(
+                    CapabilityAvailability::Unavailable,
+                    CapabilityAvailability::Supported
+                ),
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false
+                },
+            )
+            .unwrap(),
+            CaptureSelection {
+                system_proxy: false,
+                tun: true
+            }
+        );
+        assert!(
+            usable_capture_selection(
+                StatusAdapterKind::Native,
+                &capabilities(
+                    CapabilityAvailability::Unavailable,
+                    CapabilityAvailability::Unavailable
+                ),
+                CaptureSelection {
+                    system_proxy: false,
+                    tun: false
+                },
+            )
+            .is_err()
+        );
+    }
 }
 
 fn map_availability(availability: Result<(), MihomoResolveError>) -> ProfileActivationAvailability {

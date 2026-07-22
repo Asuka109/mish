@@ -49,7 +49,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
-import { handleDesktopWindowDrag } from "../platform/desktop-window";
+import { handleDesktopWindowDragOnly } from "../platform/desktop-window";
 import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
@@ -84,15 +84,12 @@ const appearanceOptions: AppearancePreference[] = ["system", "light", "dark"];
 const shellStyles = tv({
   slots: {
     root: "app-shell relative grid h-screen h-dvh min-h-0 w-full grid-cols-[164px_minmax(0,1fr)] overflow-hidden bg-(--color-surface-soft)",
-    workspaceDragRegion:
-      "workspace-top-window-drag-region absolute top-0 right-0 left-[164px] z-[1] h-[10px]",
     sidebar:
       "sidebar flex min-w-0 flex-col bg-(--mish-sidebar-background) px-[10px] pt-[14px] pb-[10px] text-(--color-body) [--sidebar-icon-slot:18px] [--sidebar-row-gap:9px] [--sidebar-row-height:36px] [--sidebar-row-inset:10px] [container-name:sidebar] [container-type:inline-size]",
     sidebarHeader:
       "sidebar-window-header -mt-[14px] -mx-[10px] flex-none select-none pt-[14px] px-[10px]",
     windowControls: "window-controls-slot flex h-[22px] flex-none items-center select-none",
     trafficLights: "traffic-lights flex flex-none items-center gap-[7px] pl-1 [&_svg]:size-3",
-    windowDrag: "window-drag-region flex-1 self-stretch",
     brand:
       "brand-row flex h-12 items-center px-2 font-(--font-weight-heading) text-(--color-ink) [&_img]:h-[30px] [&_img]:w-auto [&_img]:max-w-full",
     navList: "nav-list flex min-h-0 flex-1 flex-col gap-[3px] pt-[7px]",
@@ -306,16 +303,18 @@ function Sidebar() {
       aria-label={LL.navigation.primary()}
       as="aside"
       className={shellStyles().sidebar()}
+      data-window-drag-behavior="drag-only"
+      data-window-drag-surface="sidebar"
+      onMouseDown={handleDesktopWindowDragOnly}
       surfaceRole="window"
     >
-      <div className={shellStyles().sidebarHeader()} data-tauri-drag-region="deep">
+      <div className={shellStyles().sidebarHeader()}>
         <div className={shellStyles().windowControls()}>
           <div aria-hidden="true" className={shellStyles().trafficLights()}>
             <Circle color="#ff5f57" weight="fill" />
             <Circle color="#febc2e" weight="fill" />
             <Circle color="#28c840" weight="fill" />
           </div>
-          <div aria-hidden="true" className={shellStyles().windowDrag()} />
         </div>
         <div aria-label="Mish" className={shellStyles().brand()}>
           <img
@@ -554,7 +553,7 @@ function Toolbar() {
       : null;
 
   return (
-    <header className={shellStyles().toolbar()} onMouseDown={handleDesktopWindowDrag}>
+    <header className={shellStyles().toolbar()}>
       <div className={shellStyles().toolbarHeading()}>
         <span className={shellStyles().toolbarTitle()}>{title}</span>
         {runtimeBadge ? (
@@ -614,12 +613,6 @@ export function AppShell() {
   return (
     <div className={shellStyles().root()}>
       <StatusActionDescriptions />
-      <div
-        aria-hidden="true"
-        className={shellStyles().workspaceDragRegion()}
-        data-window-drag-surface="workspace-top"
-        onMouseDown={handleDesktopWindowDrag}
-      />
       <Sidebar />
       <SurfaceScope as="main" className={shellStyles().workspace()} surfaceRole="content">
         <RouteFocusManager />

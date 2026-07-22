@@ -7,7 +7,7 @@ use mish_bridge::{
     BrowserClientHandle, DesktopRuntimeHost, ProfileActivationAvailability,
     ProfileActivationCoordinator, ProfileActivationPhase, ProfileActivationSnapshot,
 };
-use mish_platform_macos::{open_browser_url, show_browser_open_error};
+use mish_platform_macos::{open_browser_url, show_browser_open_error, show_proxy_launch_error};
 use mish_runtime::{
     CaptureRequest, StatusAdapterKind, StatusSnapshot, TrafficDataPhase, TrafficSnapshot,
 };
@@ -236,8 +236,9 @@ fn handle_menu_event(app: &tauri::AppHandle, id: &str, state: StatusBarState) {
         }
         TOGGLE_PROXY_ID => {
             let id = id.to_owned();
+            let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                run_native_command(&state, &id).await;
+                run_native_command(&app, &state, &id).await;
             });
         }
         _ => {}
@@ -262,7 +263,7 @@ fn open_browser_client(state: &StatusBarState) {
     }
 }
 
-async fn run_native_command(state: &StatusBarState, id: &str) {
+async fn run_native_command(app: &tauri::AppHandle, state: &StatusBarState, id: &str) {
     if id != TOGGLE_PROXY_ID {
         return;
     }
@@ -271,8 +272,8 @@ async fn run_native_command(state: &StatusBarState, id: &str) {
         .status_snapshot_typed(StatusAdapterKind::Native)
         .await;
     let selection = snapshot.runtime.capture_selection.clone();
-    if snapshot.runtime.system_proxy_enabled || snapshot.runtime.tun_enabled {
-        let _ = state
+    let result = if snapshot.runtime.system_proxy_enabled || snapshot.runtime.tun_enabled {
+        state
             .activation
             .set_capture(
                 CaptureRequest {
@@ -281,17 +282,26 @@ async fn run_native_command(state: &StatusBarState, id: &str) {
                 },
                 StatusAdapterKind::Native,
             )
-            .await;
+            .await
     } else {
-        let _ = state
+        let remembered_selection = state
+            .settings
+            .snapshot(SettingsAdapterKind::Rpc)
+            .preferences
+            .capture_selection
+            .into();
+        state
             .activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
                 None,
-                selection,
+                remembered_selection,
                 StatusAdapterKind::Native,
             )
-            .await;
+            .await
+    };
+    if result.is_err() {
+        let _ = app.run_on_main_thread(show_proxy_launch_error);
     }
 }
 

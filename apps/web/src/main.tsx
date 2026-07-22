@@ -18,6 +18,7 @@ import { EventsProvider } from "./data/events-provider";
 import { SettingsProvider, useSettings } from "./data/settings-provider";
 import { StartupFailure } from "./components/startup-failure";
 import { BrowserAuthentication } from "./components/browser-authentication";
+import { DesktopWindowFrame } from "./components/desktop-window-frame";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
 import { persistLocale, resolveInitialLocale } from "./i18n/locale";
@@ -39,8 +40,13 @@ const reactRoot = createRoot(applicationRoot);
 const appRoutesModulePromise =
   import.meta.env.VITE_MISH_BUILD_TARGET === "mobile" ? import("./mobile-app") : import("./app");
 
-function renderInitialApplication(application: ReactNode) {
-  flushSync(() => reactRoot.render(application));
+function renderInitialApplication(
+  application: ReactNode,
+  runtime: "browser" | "desktop" | "mobile",
+) {
+  flushSync(() =>
+    reactRoot.render(<DesktopWindowFrame runtime={runtime}>{application}</DesktopWindowFrame>),
+  );
   void signalDesktopWindowReady().catch(() => undefined);
 }
 
@@ -133,6 +139,7 @@ async function startApplication() {
           </ConfiguredAppearanceProvider>
         </SettingsProvider>
       </StrictMode>,
+      runtime,
     );
   } catch (error) {
     const initialLocale = resolveInitialLocale();
@@ -149,6 +156,7 @@ async function startApplication() {
           </TypesafeI18n>
         </AppearanceProvider>
       </StrictMode>,
+      runtime,
     );
   }
 }

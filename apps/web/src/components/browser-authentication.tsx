@@ -82,7 +82,7 @@ export function BrowserAuthentication({
   const errorMessage = error ? LL.browserAuthentication.errors[error]() : null;
 
   return (
-    <main className={authenticationStyles().page()}>
+    <main className={authenticationStyles().page({ className: "browser-authentication" })}>
       <section
         aria-labelledby="browser-authentication-title"
         className={authenticationStyles().card()}
