@@ -48,7 +48,7 @@ import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import { isLocale } from "../i18n/i18n-util";
 import { persistLocale } from "../i18n/locale";
-import { handleDesktopWindowDrag } from "../platform/desktop-window";
+import { handleDesktopWindowDragOnly } from "../platform/desktop-window";
 import { RouteFocusManager } from "../platform/route-focus";
 import { NotificationBubble } from "./notification-bubble";
 import { StatusShimmer } from "./status-shimmer";
@@ -255,16 +255,18 @@ function Sidebar() {
       aria-label={LL.navigation.primary()}
       as="aside"
       className="sidebar"
+      data-window-drag-behavior="drag-only"
+      data-window-drag-surface="sidebar"
+      onMouseDown={handleDesktopWindowDragOnly}
       surfaceRole="window"
     >
-      <div className="sidebar-window-header" data-tauri-drag-region="deep">
+      <div className="sidebar-window-header">
         <div className="window-controls-slot">
           <div aria-hidden="true" className="traffic-lights">
             <Circle color="#ff5f57" weight="fill" />
             <Circle color="#febc2e" weight="fill" />
             <Circle color="#28c840" weight="fill" />
           </div>
-          <div aria-hidden="true" className="window-drag-region" />
         </div>
         <div aria-label="Mish" className="brand-row">
           <img
@@ -493,7 +495,7 @@ function Toolbar() {
       : null;
 
   return (
-    <header className="toolbar" onMouseDown={handleDesktopWindowDrag}>
+    <header className="toolbar">
       <div className="toolbar-heading">
         <span className="toolbar-title">{title}</span>
         {runtimeBadge ? (
@@ -551,12 +553,6 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <StatusActionDescriptions />
-      <div
-        aria-hidden="true"
-        className="workspace-top-window-drag-region"
-        data-window-drag-surface="workspace-top"
-        onMouseDown={handleDesktopWindowDrag}
-      />
       <Sidebar />
       <SurfaceScope as="main" className="workspace" surfaceRole="content">
         <RouteFocusManager />

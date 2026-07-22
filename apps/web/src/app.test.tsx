@@ -727,10 +727,12 @@ describe("production routes", () => {
     expect(brandImages[1]).toHaveAttribute("src", "/brand/mish-brand-dark.svg");
     expect(brandImages[0]).toHaveAttribute("draggable", "false");
     expect(brandImages[1]).toHaveAttribute("draggable", "false");
-    expect(container.querySelector("[data-window-drag-surface='workspace-top']")).toHaveAttribute(
-      "aria-hidden",
-      "true",
+    expect(container.querySelector("[data-window-drag-surface='sidebar']")).toHaveClass("sidebar");
+    expect(container.querySelector("[data-window-drag-surface='sidebar']")).toHaveAttribute(
+      "data-window-drag-behavior",
+      "drag-only",
     );
+    expect(container.querySelector("[data-window-drag-surface='workspace-top']")).toBeNull();
   });
 
   it("marks current notifications read on open, retains them, and removes only one item", async () => {

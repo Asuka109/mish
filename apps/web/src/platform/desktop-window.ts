@@ -25,6 +25,10 @@ interface DesktopWindowDependencies {
   toggleMaximize(): Promise<void>;
 }
 
+interface DesktopWindowDragOptions {
+  maximizeOnDoubleClick?: boolean;
+}
+
 const defaultDependencies: DesktopWindowDependencies = {
   isDesktop: isTauri,
   revealMainWindow: () => invoke("reveal_main_window"),
@@ -35,6 +39,7 @@ const defaultDependencies: DesktopWindowDependencies = {
 
 export function createDesktopWindowDragHandler(
   dependencies: DesktopWindowDependencies = defaultDependencies,
+  { maximizeOnDoubleClick = true }: DesktopWindowDragOptions = {},
 ) {
   return function handleDesktopWindowDrag(event: ReactMouseEvent<HTMLElement>) {
     if (
@@ -49,12 +54,17 @@ export function createDesktopWindowDragHandler(
 
     event.preventDefault();
     const action =
-      event.detail === 2 ? dependencies.toggleMaximize() : dependencies.startDragging();
+      maximizeOnDoubleClick && event.detail === 2
+        ? dependencies.toggleMaximize()
+        : dependencies.startDragging();
     void action.catch(() => undefined);
   };
 }
 
 export const handleDesktopWindowDrag = createDesktopWindowDragHandler();
+export const handleDesktopWindowDragOnly = createDesktopWindowDragHandler(defaultDependencies, {
+  maximizeOnDoubleClick: false,
+});
 
 export function createDesktopWindowAppearanceSync(
   dependencies: Pick<DesktopWindowDependencies, "isDesktop" | "setTheme"> = defaultDependencies,
