@@ -1585,10 +1585,6 @@ type RootTranslation = {
 		 */
 		configurationOrder: string
 		/**
-		 * C​o​n​f​i​g​u​r​e​d​ ​p​r​o​f​i​l​e​ ​r​o​u​t​e​s​ ​a​r​e​ ​r​e​a​d​-​o​n​l​y​ ​u​n​t​i​l​ ​M​i​h​o​m​o​ ​C​o​r​e​ ​p​r​o​v​i​d​e​s​ ​a​ ​c​o​n​f​i​r​m​e​d​ ​l​i​v​e​ ​c​a​t​a​l​o​g​.
-		 */
-		configuredReadOnly: string
-		/**
 		 * B​r​o​w​s​e​,​ ​s​o​r​t​,​ ​t​e​s​t​,​ ​a​n​d​ ​s​e​l​e​c​t​ ​t​h​e​ ​d​i​r​e​c​t​ ​c​h​i​l​d​r​e​n​ ​o​f​ ​{​g​r​o​u​p​}​.
 		 * @param {string} group
 		 */
@@ -5946,10 +5942,6 @@ export type TranslationFunctions = {
 		 * Configuration
 		 */
 		configurationOrder: () => LocalizedString
-		/**
-		 * Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.
-		 */
-		configuredReadOnly: () => LocalizedString
 		/**
 		 * Browse, sort, test, and select the direct children of {group}.
 		 */

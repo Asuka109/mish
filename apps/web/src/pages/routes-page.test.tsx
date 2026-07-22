@@ -439,7 +439,7 @@ describe("Routes workspace", () => {
     ).toBeDisabled();
   });
 
-  it("disables policy selection without showing a read-only service warning", async () => {
+  it("disables policy selection without reusing the read-only entity state", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
     snapshot.adapterKind = "rpc";
     snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
@@ -449,10 +449,12 @@ describe("Routes workspace", () => {
     await screen.findByRole("heading", { name: "Routes" });
     expect(screen.queryByText("Routes are read-only")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Expand 🎬 Streaming" }));
-    expect(
-      screen.queryByRole("button", { name: "Select 🇯🇵 NRT-03 in 🎬 Streaming" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByText("Read-only").length).toBeGreaterThan(0);
+    const disabledSelection = screen.getByRole("button", {
+      name: "Select 🇯🇵 NRT-03 in 🎬 Streaming",
+    });
+    expect(disabledSelection).toBeDisabled();
+    expect(disabledSelection).not.toHaveTextContent("Read-only");
+    expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
   });
 
   it("shows the selected profile's configured groups while Mihomo is stopped", async () => {
@@ -488,10 +490,12 @@ describe("Routes workspace", () => {
     ]);
 
     await user.click(groups[0]);
-    expect(
-      screen.queryByRole("button", { name: "Select Zulu node in Z first" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getAllByText("Read-only").length).toBeGreaterThan(0);
+    const configuredSelection = screen.getByRole("button", {
+      name: "Select Zulu node in Z first",
+    });
+    expect(configuredSelection).toBeDisabled();
+    expect(configuredSelection).not.toHaveTextContent("Read-only");
+    expect(screen.queryByText("Read-only")).not.toBeInTheDocument();
     expect(screen.getAllByText(/No single current child/)[0]).toBeVisible();
   });
 

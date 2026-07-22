@@ -32,7 +32,6 @@ import {
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
-import { getCommandDescriptionId } from "../data/status-capabilities";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import {
@@ -69,10 +68,6 @@ const routeStyles = tv({
     ),
     stale:
       "mt-4 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
-    readOnly: cx(
-      "mt-3 rounded-md border border-hairline bg-surface-soft px-3 py-2.5",
-      "text-metadata leading-4.75 text-muted-foreground",
-    ),
     searchField: "routes-search-field mt-5 max-w-130",
     searchControl: cx(
       "routes-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
@@ -199,8 +194,6 @@ function getDelayPhaseLabel(LL: TranslationFunctions, test: GroupDelayTestDto) {
 }
 
 interface PolicyGroupDetailProps {
-  commandDescriptionId: string | undefined;
-  commandSupported: boolean;
   delayCommandPending: boolean;
   delayCommandSupported: boolean;
   delayPendingAction:
@@ -223,12 +216,12 @@ interface PolicyGroupDetailProps {
   pendingSelectionId?: string;
   query: string;
   search?: RouteSearchState;
+  selectionDisabled: boolean;
   showSearch?: boolean;
   sortByGroupId: ReadonlyMap<string, RouteSort>;
 }
 
 export function PolicyGroupDetail({
-  commandSupported,
   delayCommandPending,
   delayCommandSupported,
   delayPendingAction,
@@ -248,6 +241,7 @@ export function PolicyGroupDetail({
   pendingSelectionId,
   query,
   search,
+  selectionDisabled,
   showSearch = false,
   sortByGroupId,
 }: PolicyGroupDetailProps) {
@@ -333,9 +327,8 @@ export function PolicyGroupDetail({
             if (!entity) return null;
             const selected = group.selectedChildId === childId;
             const result = getGroupDelayResult(delayTest, group.id, childId);
-            const canSelectNode = group.type === "selector" && Boolean(node) && commandSupported;
-            const canSelectGroup =
-              group.type === "selector" && childGroup?.type === "selector" && commandSupported;
+            const canSelectNode = group.type === "selector" && Boolean(node);
+            const canSelectGroup = group.type === "selector" && childGroup?.type === "selector";
             const path = search?.matchPathByEntityId.get(childId);
             const pathLabel = path
               ? path.map((entityId) => getEntityLabel(graph, entityId)).join(" / ")
@@ -349,7 +342,7 @@ export function PolicyGroupDetail({
                   browseTo={childGroup ? `/routes/${encodeURIComponent(childGroup.id)}` : undefined}
                   currentLabel={LL.routes.selected()}
                   density={density}
-                  disabled={groupSelectionPending}
+                  disabled={selectionDisabled || groupSelectionPending}
                   entity={entity}
                   entityKind={childGroup ? "group" : "node"}
                   latency={
@@ -615,7 +608,6 @@ export function RoutesPage() {
   const liveCommandSupported = isCommandSupported("group") && !configuredRoutesActive;
   const delayCommandSupported = isCommandSupported("group-delay") && !configuredRoutesActive;
   const delayCommandPending = isCommandPending("group-delay");
-  const commandDescriptionId = getCommandDescriptionId(snapshot.adapterKind, liveCommandSupported);
   const modeGroups = groups.filter((group) => routingMode === "global" || !isGlobalGroup(group));
   const visibleGroupIds = modeGroups
     .map((group) => group.id)
@@ -693,8 +685,6 @@ export function RoutesPage() {
   }
 
   const sharedDetailProps = {
-    commandDescriptionId,
-    commandSupported: liveCommandSupported,
     delayCommandPending,
     delayCommandSupported,
     delayPendingAction,
@@ -708,6 +698,7 @@ export function RoutesPage() {
     onSelect: (groupId: string, childId: string) => void selectChild(groupId, childId),
     onSort: changeSort,
     onStartDelay: (groupId: string) => void startDelay(groupId),
+    selectionDisabled: !liveCommandSupported,
     sortByGroupId,
   };
 
@@ -735,12 +726,6 @@ export function RoutesPage() {
             {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
           </p>
         ) : null}
-        {configuredRoutesActive ? (
-          <p className={routeStyles().readOnly()} role="status">
-            {LL.routes.configuredReadOnly()}
-          </p>
-        ) : null}
-
         {!standaloneGroup ? (
           <Field className={routeStyles().searchField()}>
             <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
@@ -785,7 +770,6 @@ export function RoutesPage() {
           <section aria-label={standaloneGroup.label} className={routeStyles().singleGroup()}>
             <PolicyGroupDetail
               {...sharedDetailProps}
-              commandSupported={liveCommandSupported && standaloneGroup.type === "selector"}
               density="compact"
               group={standaloneGroup}
               onQueryChange={setQuery}

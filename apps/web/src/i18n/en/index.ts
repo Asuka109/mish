@@ -495,8 +495,6 @@ const en = {
     cancelDelayButton: "Cancel",
     collapseGroup: "Collapse {group:string}",
     configurationOrder: "Configuration",
-    configuredReadOnly:
-      "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
     currentGroupDescription:
       "Browse, sort, test, and select the direct children of {group:string}.",
     currentPath: "Current policy-group path",

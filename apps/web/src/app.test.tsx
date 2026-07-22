@@ -2267,9 +2267,19 @@ describe("desktop RPC experience", () => {
     }
     expect(group).toBeEnabled();
     await user.click(group);
-    expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
-    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByText(
+        "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+      ),
+    ).not.toBeInTheDocument();
+    const disabledSelections = within(dialog).getAllByRole("button", { name: /^Select / });
+    expect(disabledSelections.length).toBeGreaterThan(0);
+    disabledSelections.forEach((selection) => {
+      expect(selection).toBeDisabled();
+      expect(selection).not.toHaveTextContent("Read-only");
+    });
+    expect(within(dialog).getAllByText("Read-only").length).toBeGreaterThan(0);
 
     expect(setCapture).not.toHaveBeenCalled();
     expect(setRoutingMode).not.toHaveBeenCalled();
@@ -2352,9 +2362,17 @@ describe("Status fixture experience", () => {
     const configuredGroup = within(groups).getByRole("button", { name: /Configured group 1/ });
     expect(configuredGroup).toBeEnabled();
     await userEvent.setup().click(configuredGroup);
-    expect(await screen.findByRole("dialog")).toHaveTextContent(
-      "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
-    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).queryByText(
+        "Configured profile routes are read-only until Mihomo Core provides a confirmed live catalog.",
+      ),
+    ).not.toBeInTheDocument();
+    const configuredNode = within(dialog).getByRole("button", {
+      name: "Select Configured node 1 in Configured group 1",
+    });
+    expect(configuredNode).toBeDisabled();
+    expect(configuredNode).not.toHaveTextContent("Read-only");
     expect(profileClient.getRoutes).toHaveBeenCalledWith("fixture-profile-studio");
   });
 

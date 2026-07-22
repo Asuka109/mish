@@ -220,6 +220,18 @@ Status: passed.
 - The updated dialog keeps the existing row density, latency, selection, protocol/group-type, search, sort, test, and read-only treatments without leaving a dead trailing column.
 - The in-app Browser accessibility snapshot contains no nested browse action or current-path control, and the focused unit/browser coverage confirms Escape closes after clearing search and restores focus to the Status summary trigger.
 
+### Annotation follow-up: stopped-Core command semantics
+
+- Source visual truth: the two Browser Comment captures supplied in the current review at a 971 × 689 viewport, showing the configured fallback explanation and the repeated `只读` labels on otherwise selectable rows. The rendered attachments are 1228 × 920 pixels and were normalized against the stated CSS viewport.
+- Implementation screenshot: `.scratch/design-qa/picker-readonly-semantics-followup.png`, 971 × 689 pixels at device scale factor 1, captured from the in-app Browser in the same dark Chinese picker composition.
+- State normalization: the source shows the stopped-Core configured catalog. The in-app Browser demo capture confirms the resulting visual hierarchy and intrinsic read-only labels; exact stopped-Core disabled-button semantics are covered by the browser-rendered component tree and focused unit assertions because the isolated demo runtime does not expose the desktop configured catalog.
+- Full-view comparison: the fallback explanation is gone and the toolbar moves directly below the dialog header. Search, sort, delay testing, row density, latency, current selection, and dialog bounds remain unchanged.
+- Focused comparison: a separate crop was unnecessary because the removed explanation and the row-end status labels are legible in the full 971 × 689 capture.
+- Semantic result: selectable node and selector-group rows keep their accessible selection buttons but become disabled when Core commands are unavailable. They do not display `只读`. Intrinsically non-selectable `url-test`, `fallback`, `load-balance`, `relay`, direct, reject, and unsupported groups retain `只读`.
+- Interaction evidence: disabled selections do not invoke commands; search, sort, and nested Routes browsing remain available, while delay-test and other write controls stay disabled.
+- Required fidelity surfaces: existing typography, spacing rhythm, dark tokens, iconography, and bilingual copy remain unchanged apart from the requested deletion. No raster or brand assets changed.
+- Comparison history: the source exposed two P1 semantic conflicts—global command unavailability reused entity-level read-only labeling, and a redundant fallback explanation occupied a large dialog region. Both were removed; post-fix visual evidence and the stopped-Core tests show no remaining P0, P1, or P2 issue from these annotations.
+
 ### Content and state checks
 
 - Verified English and Chinese localization, Unicode labels, long-label containment, configured fallback, reconnecting/stale behavior, empty and no-match states, delay states, and explicit non-color status labels.

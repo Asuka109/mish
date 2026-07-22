@@ -34,10 +34,6 @@ const pickerStyles = tv({
       "policy-picker-header flex min-h-18.5 items-center gap-2 border-b border-hairline py-3.25 pr-11 pl-4",
     title: "text-body font-semibold",
     description: "mt-0.75 text-metadata leading-4.5 text-muted-foreground",
-    readOnly: cx(
-      "m-3 rounded-md border border-hairline bg-surface-soft px-3 py-2.5",
-      "text-metadata leading-4.75 text-muted-foreground",
-    ),
     list: "min-h-0 overflow-auto overscroll-contain",
     empty: "px-4 py-7 text-center text-metadata text-muted-foreground",
   },
@@ -69,19 +65,19 @@ function failureLabel(LL: TranslationFunctions, result: GroupDelayChildResultDto
 }
 
 interface PolicyPickerDialogProps {
+  commandsDisabled?: boolean;
   graph: RouteGraph;
   groupId: string | null;
   onOpenChange(open: boolean): void;
   open: boolean;
-  readOnly?: boolean;
 }
 
 export function PolicyPickerDialog({
+  commandsDisabled = false,
   graph,
   groupId,
   onOpenChange,
   open,
-  readOnly = false,
 }: PolicyPickerDialogProps) {
   const {
     cancelGroupDelayTest,
@@ -149,9 +145,9 @@ export function PolicyPickerDialog({
   const completedDelayChildren = delayMatchesGroup
     ? delayTest.children.filter((child) => child.phase !== "pending").length
     : 0;
-  const groupCommandsSupported = isCommandSupported("group") && !readOnly;
+  const groupCommandsSupported = isCommandSupported("group") && !commandsDisabled;
   const groupSelectionPending = isGroupCommandPending(group.id);
-  const delaySupported = isCommandSupported("group-delay") && !readOnly;
+  const delaySupported = isCommandSupported("group-delay") && !commandsDisabled;
   async function selectChild(childId: string) {
     if (isGroupCommandPending(activeGroupId) || !groupCommandsSupported) return;
     setPendingSelectionId(childId);
@@ -248,11 +244,6 @@ export function PolicyPickerDialog({
             </DialogDescription>
           </div>
         </div>
-        {readOnly ? (
-          <p className={pickerStyles().readOnly()} role="status">
-            {LL.routes.configuredReadOnly()}
-          </p>
-        ) : null}
         <PolicyBrowserToolbar
           cancelAriaLabel={LL.routes.cancelDelay({ group: group.label })}
           cancelLabel={LL.routes.cancelDelayButton()}
@@ -295,15 +286,14 @@ export function PolicyPickerDialog({
                 const entity = childGroup ?? node;
                 if (!entity) return null;
                 const delayResult = getGroupDelayResult(delayTest, group.id, childId);
-                const canSelectNode = group.type === "selector" && Boolean(node) && !readOnly;
-                const canSelectGroup =
-                  group.type === "selector" && childGroup?.type === "selector" && !readOnly;
+                const canSelectNode = group.type === "selector" && Boolean(node);
+                const canSelectGroup = group.type === "selector" && childGroup?.type === "selector";
                 return (
                   <li key={childId}>
                     <PolicyEntityRow
                       currentLabel={LL.routes.selected()}
                       density="compact"
-                      disabled={groupSelectionPending}
+                      disabled={commandsDisabled || groupSelectionPending}
                       entity={entity}
                       entityKind={childGroup ? "group" : "node"}
                       latency={

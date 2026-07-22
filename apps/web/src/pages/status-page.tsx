@@ -544,6 +544,7 @@ export function StatusPage() {
       </div>
 
       <ProxyPickerDialog
+        commandsDisabled={!groupSupported || configuredRoutes !== null || connection.stale}
         graph={routeGraph}
         groupId={pickerGroup?.id ?? null}
         onOpenChange={(open) => {
@@ -552,7 +553,6 @@ export function StatusPage() {
           requestAnimationFrame(() => pickerTriggerRef.current?.focus({ preventScroll: true }));
         }}
         open={pickerGroup !== null}
-        readOnly={!groupSupported || configuredRoutes !== null || connection.stale}
       />
     </div>
   );

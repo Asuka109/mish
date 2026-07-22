@@ -461,8 +461,6 @@ const zh = {
     cancelDelayButton: "取消",
     collapseGroup: "折叠 {group}",
     configurationOrder: "配置顺序",
-    configuredReadOnly:
-      "当前显示的是配置文件中的只读路由；Mihomo Core 提供确认后的实时数据后才能更改。",
     currentGroupDescription: "浏览、排序、测试并选择 {group} 的直接子项。",
     currentPath: "当前策略组路径",
     currentChild: "当前选择：{child}",
