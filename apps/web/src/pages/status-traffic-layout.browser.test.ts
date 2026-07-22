@@ -22,6 +22,20 @@ async function navigateToStatus(): Promise<void> {
   await nextFrame();
 }
 
+async function selectLocale(name: "English" | "简体中文"): Promise<void> {
+  const trigger = document.querySelector(".language-menu-trigger");
+  if (!trigger) throw new Error("Missing language menu trigger");
+
+  await page.elementLocator(trigger).click();
+  await page.getByRole("menuitemradio", { exact: true, name }).click();
+  await vi.waitFor(() => {
+    expect(
+      document.querySelector(".language-menu-trigger")?.getAttribute("aria-expanded"),
+    ).not.toBe("true");
+  });
+  await nextFrame();
+}
+
 function trafficPair(): HTMLElement {
   const pair = document.querySelector<HTMLElement>(".traffic-session-pair");
   if (!pair) throw new Error("Traffic session pair is missing");
@@ -148,5 +162,45 @@ describe("status traffic row layout", () => {
     expect(getComputedStyle(curve).display).toBe("flex");
     expect(getComputedStyle(curve).overflowX).toBe("hidden");
     expect(curve.getBoundingClientRect().width).toBeLessThan(360);
+  });
+
+  test("keeps Chinese summary chrome single-line and contained at a narrow viewport", async () => {
+    await page.viewport(360, 720);
+    await selectLocale("简体中文");
+
+    const summaryLines = [
+      ...document.querySelectorAll<HTMLElement>(
+        ".traffic-session-copy > span, .traffic-session-copy > small",
+      ),
+    ];
+    const rates = [...document.querySelectorAll<HTMLElement>(".traffic-rate-value")];
+    expect([summaryLines[0].textContent, summaryLines[2].textContent]).toEqual([
+      "已下载",
+      "已上传",
+    ]);
+
+    summaryLines[1].textContent = "999,999,999,999.99 TB";
+    summaryLines[3].textContent = "999,999,999,999.99 TB";
+    for (const rate of rates) rate.textContent = "999,999,999,999.99 MB/s";
+    await nextFrame();
+
+    for (const element of [...summaryLines, ...rates]) {
+      const style = getComputedStyle(element);
+      expect(style.whiteSpace).toBe("nowrap");
+      expect(style.overflowX).toBe("hidden");
+      expect(style.textOverflow).toBe("ellipsis");
+      expect(style.userSelect).toBe("none");
+    }
+    for (const rate of rates) {
+      expect(getComputedStyle(rate).fontVariantNumeric).toBe("tabular-nums");
+    }
+    expect(summaryLines[1].scrollWidth).toBeGreaterThan(summaryLines[1].clientWidth);
+    expect(rates[0].scrollWidth).toBeGreaterThan(rates[0].clientWidth);
+
+    const [summary, rate, curve] = trafficColumns().map((column) => column.getBoundingClientRect());
+    expect(summary.width).toBe(128);
+    expect(summary.right).toBeLessThanOrEqual(rate.left);
+    expect(rate.right).toBeLessThanOrEqual(curve.left);
+    expect(trafficPair().scrollWidth).toBeLessThanOrEqual(trafficPair().clientWidth);
   });
 });
