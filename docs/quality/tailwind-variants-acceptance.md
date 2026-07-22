@@ -7,16 +7,16 @@ retained `sketch/` application or the unmounted `DestinationPage` reference.
 ## Bundle comparison
 
 The baseline was captured from the pre-migration production build. The candidate
-was built at `6099fda` after integrating `main` through `d55782e` and resolving
-the final Profiles hands-on feedback.
+was built at `cbde228` after integrating `main` through `d55782e` and resolving
+the Profiles and pending-control hands-on feedback.
 
 | Production artifact    | Baseline raw / gzip | Candidate raw / gzip | Change raw / gzip |
 | ---------------------- | ------------------- | -------------------- | ----------------- |
-| Total emitted CSS      | 118.78 / 20.02 kB   | 124.50 / 20.85 kB    | +5.72 / +0.83 kB  |
-| Primary application JS | 909.55 / 276.99 kB  | 926.46 / 282.25 kB   | +16.91 / +5.26 kB |
+| Total emitted CSS      | 118.78 / 20.02 kB   | 124.56 / 20.87 kB    | +5.78 / +0.85 kB  |
+| Primary application JS | 909.55 / 276.99 kB  | 926.46 / 282.24 kB   | +16.91 / +5.25 kB |
 
-Candidate CSS is split into 123.85 kB of generated Tailwind and bounded global
-root CSS and 0.65 kB of CSS Modules. The 4.8% raw and 4.1% gzip increases pay for
+Candidate CSS is split into 123.91 kB of generated Tailwind and bounded global
+root CSS and 0.65 kB of CSS Modules. The 4.9% raw and 4.2% gzip increases pay for
 the canonical named theme mappings, exact fractional utilities, named
 root-state variants, and generated responsive/container variants that replaced
 indirect CSS-variable and arbitrary-value shorthands.
@@ -55,14 +55,16 @@ because the baseline used a different chunk graph.
   pre-mount startup failure and the documented, unmounted `DestinationPage`
   reference.
 - TypeScript, lint, format, design-token, documentation, unit, browser, and
-  production-build gates cover the candidate. The 47-file/310-test Web unit
-  suite and 9-file/28-test Chromium suite exercise desktop, compact browser,
+  production-build gates cover the candidate. The 47-file/311-test Web unit
+  suite and 10-file/30-test Chromium suite exercise desktop, compact browser,
   and mobile-sized browser layouts.
 - Browser computed-style evidence covers container layout, proxy material and
   override merging, notification wrapping/removal/focus behavior, service
   monitor layout, dialog overlays, light/dark presentation, native material
   fallback, Profiles primary-action contrast, and subscription-card spacing at
-  the reported 1057 × 689 viewport.
+  the reported 1057 × 689 viewport. It also verifies nonzero current-color
+  spinner borders in the disabled pending states for both Launch Proxy and
+  System Proxy.
 - Unit and browser behavior retain Base UI `data-*`/ARIA state, keyboard focus,
   disabled/loading/selected/highlighted behavior, reduced-motion shimmer policy,
   and the distinct native mobile shell.
