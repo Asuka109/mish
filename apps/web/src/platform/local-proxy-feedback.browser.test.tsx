@@ -126,7 +126,7 @@ afterAll(() => root.unmount());
 
 describe("local proxy listener feedback", () => {
   test("keeps the Chinese Settings row stable at a narrow width", async () => {
-    const button = page.getByRole("button", { exact: true, name: "测试监听器" });
+    const button = page.getByRole("button", { exact: true, name: "测试连接" });
     const before = measureLocalProxyGeometry();
 
     await button.click();
@@ -135,7 +135,7 @@ describe("local proxy listener feedback", () => {
 
     client.complete();
 
-    await expect.element(page.getByText("监听器就绪", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("本地代理可用", { exact: true })).toBeVisible();
     const toaster = document.querySelector("[data-sonner-toaster]");
     expect(toaster?.parentElement).toHaveAttribute("aria-live", "polite");
     await expect.element(button).not.toHaveAttribute("aria-busy");
