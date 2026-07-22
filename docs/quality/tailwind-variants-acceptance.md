@@ -7,7 +7,7 @@ retained `sketch/` application or the unmounted `DestinationPage` reference.
 ## Bundle comparison
 
 The baseline was captured from the pre-migration production build. The candidate
-was built at `0450952` after integrating `main` through `f9e0b3e`.
+was built at `f748e06` after integrating `main` through `f9e0b3e`.
 
 | Production artifact    | Baseline raw / gzip | Candidate raw / gzip | Change raw / gzip |
 | ---------------------- | ------------------- | -------------------- | ----------------- |
@@ -21,7 +21,7 @@ effectively flat because the two assets compress independently.
 The primary JS increase is 1.1% raw and 0.9% gzip. It includes the TV recipes
 and product changes integrated from newer `main`, notably the unified
 notification delivery and configured route catalog. The candidate also emits a
-141.87 kB application-shell chunk, a 3.75 kB notification-delivery chunk, and a
+141.93 kB application-shell chunk, a 3.75 kB notification-delivery chunk, and a
 5.39 kB configured-route-catalog chunk. Those secondary chunks are listed for
 diagnosis but are not compared numerically because the baseline used a different
 chunk graph.
@@ -31,9 +31,14 @@ chunk graph.
 - `pnpm check:styles` confirms complete static utilities, the explicit
   `packages/ui/src` Tailwind source, and mapped references for all three CSS
   Modules.
+- The final selector audit found no ordinary production component or page owner
+  in global CSS. The remaining component-shaped rules belong only to the
+  pre-mount startup failure and the documented, unmounted `DestinationPage`
+  reference.
 - TypeScript, lint, format, design-token, documentation, unit, browser, and
-  production-build gates cover the candidate. The browser suite exercises
-  desktop, compact browser, and mobile-sized browser layouts.
+  production-build gates cover the candidate. The 41-file/279-test Web unit
+  suite and 8-file/21-test Chromium suite exercise desktop, compact browser,
+  and mobile-sized browser layouts.
 - Browser computed-style evidence covers container layout, proxy material and
   override merging, notification wrapping/removal/focus behavior, service
   monitor layout, dialog overlays, light/dark presentation, and native material
