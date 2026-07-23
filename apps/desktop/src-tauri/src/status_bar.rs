@@ -14,7 +14,10 @@ use mish_runtime::{
 use mish_settings::{SettingsAdapterKind, SettingsService};
 use tauri::{
     Emitter, Manager,
-    menu::{CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder},
+    menu::{
+        CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder,
+        PredefinedMenuItem,
+    },
     tray::{TrayIcon, TrayIconBuilder},
 };
 use uuid::Uuid;
@@ -121,6 +124,7 @@ struct NativeTrafficObservations {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct LiveTraffic {
     phase: Option<TrafficDataPhase>,
+    proxy_running: bool,
     rates: TrafficSnapshot,
 }
 
@@ -149,6 +153,7 @@ impl NativeTrafficObservations {
         if let Ok(mut latest) = self.latest.lock() {
             *latest = LiveTraffic {
                 phase: Some(traffic.phase),
+                proxy_running: status.runtime.system_proxy_enabled || status.runtime.tun_enabled,
                 rates: status.traffic.clone(),
             };
         }
@@ -162,6 +167,7 @@ impl NativeTrafficObservations {
             .unwrap_or_default();
         let available = latest.phase == Some(TrafficDataPhase::Ready);
         LiveStatusModel {
+            visible: latest.proxy_running,
             most_active_node: match (available, self.handle.summary_at(observed_at)) {
                 (true, Some(summary)) => format!(">> {}", summary.label),
                 (true, None) => ">> Idle".into(),
@@ -180,6 +186,7 @@ impl NativeTrafficObservations {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct StatusMenuModel {
     launch_on_start: bool,
+    live_status_visible: bool,
     proxy_enabled: bool,
     proxy_title: &'static str,
 }
@@ -189,6 +196,7 @@ struct StatusMenuItems {
     proxy: MenuItem<tauri::Wry>,
     most_active_node: MenuItem<tauri::Wry>,
     download: MenuItem<tauri::Wry>,
+    live_status_separator: PredefinedMenuItem<tauri::Wry>,
     launch_on_start: CheckMenuItem<tauri::Wry>,
     upload: MenuItem<tauri::Wry>,
 }
@@ -199,10 +207,29 @@ struct StatusBarItems {
 }
 
 impl StatusMenuItems {
-    fn apply(&self, model: &StatusMenuModel) -> tauri::Result<()> {
-        self.proxy.set_text(model.proxy_title)?;
-        self.proxy.set_enabled(model.proxy_enabled)?;
-        self.launch_on_start.set_checked(model.launch_on_start)
+    fn apply(&self, previous: &StatusMenuModel, next: &StatusMenuModel) -> tauri::Result<()> {
+        self.proxy.set_text(next.proxy_title)?;
+        self.proxy.set_enabled(next.proxy_enabled)?;
+        self.launch_on_start.set_checked(next.launch_on_start)?;
+        if previous.live_status_visible == next.live_status_visible {
+            return Ok(());
+        }
+        if next.live_status_visible {
+            self.menu.insert_items(
+                &[
+                    &self.most_active_node,
+                    &self.download,
+                    &self.upload,
+                    &self.live_status_separator,
+                ],
+                9,
+            )
+        } else {
+            self.menu.remove(&self.most_active_node)?;
+            self.menu.remove(&self.download)?;
+            self.menu.remove(&self.upload)?;
+            self.menu.remove(&self.live_status_separator)
+        }
     }
 
     fn apply_live_status(&self, model: &LiveStatusModel) -> tauri::Result<()> {
@@ -220,6 +247,7 @@ impl StatusMenuModel {
     ) -> Self {
         Self {
             launch_on_start,
+            live_status_visible: status.runtime.system_proxy_enabled || status.runtime.tun_enabled,
             proxy_title: proxy_title(status, activation),
             proxy_enabled: proxy_enabled(status, activation),
         }
@@ -454,8 +482,9 @@ async fn watch_status_menu(
                 let next_model = state.model_with_capture(capture).await;
                 let update = status_bar_update(&current_model, &next_model);
                 if update.menu_changed {
+                    let previous_menu = current_model.menu.clone();
                     current_model.menu = next_model.menu.clone();
-                    let _ = items.menu.apply(&current_model.menu);
+                    let _ = items.menu.apply(&previous_menu, &current_model.menu);
                 }
                 if update.icon_changed {
                     current_model.icon_active = next_model.icon_active;
@@ -479,8 +508,9 @@ async fn watch_status_menu(
         let next_model = state.model().await;
         let update = status_bar_update(&current_model, &next_model);
         if update.menu_changed {
+            let previous_menu = current_model.menu.clone();
             current_model.menu = next_model.menu.clone();
-            let _ = items.menu.apply(&current_model.menu);
+            let _ = items.menu.apply(&previous_menu, &current_model.menu);
         }
         if update.icon_changed {
             current_model.icon_active = next_model.icon_active;
@@ -525,6 +555,7 @@ fn build_menu<M: Manager<tauri::Wry>>(
     let upload = MenuItemBuilder::new("Upload — Unavailable")
         .enabled(false)
         .build(manager)?;
+    let live_status_separator = PredefinedMenuItem::separator(manager)?;
     let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Routes")
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[2].1)
         .build(manager)?;
@@ -547,21 +578,24 @@ fn build_menu<M: Manager<tauri::Wry>>(
             .build(manager)?;
     let quit = MenuItemBuilder::with_id(QUIT_ID, "Quit Mish").build(manager)?;
 
-    let menu = MenuBuilder::new(manager)
+    let mut menu = MenuBuilder::new(manager)
         .item(&proxy)
         .separator()
         .items(&[&open, &routes, &profiles, &traffic, &events, &settings])
-        .separator()
-        .items(&[&most_active_node, &download, &upload])
-        .separator()
-        .items(&[&browser, &launch_on_start, &quit])
-        .build()?;
+        .separator();
+    if model.live_status_visible {
+        menu = menu
+            .items(&[&most_active_node, &download, &upload])
+            .item(&live_status_separator);
+    }
+    let menu = menu.items(&[&browser, &launch_on_start, &quit]).build()?;
     Ok(StatusMenuItems {
         menu,
         proxy,
         most_active_node,
         download,
         launch_on_start,
+        live_status_separator,
         upload,
     })
 }
@@ -599,6 +633,7 @@ fn proxy_enabled(status: &StatusSnapshot, activation: &ProfileActivationSnapshot
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct LiveStatusModel {
+    visible: bool,
     most_active_node: String,
     download: String,
     upload: String,
@@ -765,6 +800,7 @@ mod tests {
         assert_eq!(
             observations.live_status_at(Duration::ZERO),
             super::LiveStatusModel {
+                visible: false,
                 most_active_node: ">> Tokyo".into(),
                 download: "Download — 1.00 KB/s".into(),
                 upload: "Upload — 12.0 KB/s".into(),
@@ -791,11 +827,30 @@ mod tests {
         assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
     }
 
+    #[tokio::test]
+    async fn live_status_section_appears_only_after_authoritative_proxy_start() {
+        let host = DesktopRuntimeHost::new(MishRuntime::with_data_sources(
+            Arc::new(TestCore),
+            Arc::new(TestStatusSource),
+            Arc::new(TestTrafficSource(Arc::new(AtomicUsize::new(0)))),
+        ));
+        let observations = NativeTrafficObservations::default();
+        let (mut status, traffic) = host.native_traffic_handoff().await;
+        observations.observe_at(&status, &traffic, Duration::ZERO);
+        assert!(!observations.live_status_at(Duration::ZERO).visible);
+
+        status.runtime.system_proxy_enabled = true;
+        status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
+        observations.observe_at(&status, &traffic, Duration::from_secs(1));
+        assert!(observations.live_status_at(Duration::from_secs(1)).visible);
+    }
+
     #[test]
     fn status_bar_updates_only_the_changed_handles() {
         let current = StatusBarModel {
             menu: StatusMenuModel {
                 launch_on_start: false,
+                live_status_visible: false,
                 proxy_title: "Launch Proxy",
                 proxy_enabled: true,
             },
@@ -861,6 +916,7 @@ mod tests {
         assert_eq!(active.proxy_title, "Stop Proxy");
         assert!(active.proxy_enabled);
         assert!(active.launch_on_start);
+        assert!(active.live_status_visible);
     }
 
     #[test]

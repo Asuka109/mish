@@ -43,12 +43,14 @@ The implemented compact surface has four separator-delimited sections:
    activity suffix. Navigation accepts only this allowlist and shows,
    unminimizes, and focuses the existing WebView.
 3. Three disabled, read-only live values immediately below navigation: a
-   **>>**-prefixed most-active node, **Download**, and **Upload**. The node value is the existing bounded, redacted trailing
-   60-second summary. Download and Upload use `StatusSnapshot.traffic` rates
-   and the established binary byte-rate convention. Missing or non-ready
-   Traffic is **Unavailable**; a ready snapshot with no qualifying route is
-   **Idle**. These handles update in place once per second and never replace
-   the tray menu.
+   **>>**-prefixed most-active node, **Download**, and **Upload**. This section
+   appears only after System Proxy or TUN is authoritatively active. The node
+   value is the existing bounded, redacted trailing 60-second summary. Download
+   and Upload use `StatusSnapshot.traffic` rates and the established binary
+   byte-rate convention. Missing or non-ready Traffic is **Unavailable**; a
+   ready snapshot with no qualifying route is **Idle**. The retained handles
+   are inserted or removed only on that aggregate capture edge; active values
+   update in place once per second and never replace the tray menu.
 4. **Open Browser Client**, followed by a checked **Auto-start proxy on app
    launch** preference and then **Quit Mish**. The preference writes only the
    existing next-launch setting; it does not launch a Profile or mutate capture
@@ -141,8 +143,10 @@ backstop because Tauri menu listeners receive events from window and tray menus.
 Duplicate delivery is harmless because the coordinator admits one shutdown.
 The status menu is constructed once. Mish retains its native item handles and
 updates text, checked state, and enabled state in place when a menu-visible field
-changes. It never replaces the tray menu after startup, so high-frequency status
-updates cannot close an open menu through `set_menu`.
+changes. The three live-status items are inserted or removed only when
+authoritative aggregate capture changes, while high-frequency updates keep their
+handles in place. It never replaces the tray menu after startup, so updates
+cannot close an open menu through `set_menu`.
 Mish inserts Settings with Command-, and Find with Command-F. The status menu
 adds application-local accelerators only for its high-frequency executable
 commands: Command-Shift-P for the aggregate proxy command, Command-0 through
