@@ -33,6 +33,12 @@ over 2,048 serialized bytes, nesting deeper than three levels, more than 32
 aggregate entries, or strings over 160 bytes. Sensitive key names and values that
 look like URLs, paths, credentials, bearer values, or long tokens are rejected.
 Native producers map raw failures to closed semantic categories before the Seam.
+After this generic validation, the Rust Module treats type-specific parameters as
+opaque data: it has no central enum or concrete payload structure per notification
+type. A future native consumer that needs one type can define a local
+`TypedNotificationParameters` projection and decode it through
+`NotificationRecord::parameters_as`; that opt-in projection does not change the
+stored envelope or the notification-center Interface.
 
 TypeScript owns a single presentation registry. Its Implementation maps type plus
 parameters to localized title, message, detail, toast policy, and bounded action

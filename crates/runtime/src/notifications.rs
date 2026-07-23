@@ -4,7 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::sync::broadcast;
 
@@ -25,6 +25,12 @@ pub enum NotificationSeverity {
     Success,
     Warning,
     Error,
+}
+
+/// Optional local projection for Rust consumers that need to understand one notification type.
+/// The notification center itself stores parameters as opaque bounded JSON.
+pub trait TypedNotificationParameters: DeserializeOwned {
+    const NOTIFICATION_TYPE: &'static str;
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -59,6 +65,17 @@ pub struct NotificationRecord {
     pub resolved: bool,
     pub revision: u64,
     pub severity: NotificationSeverity,
+}
+
+impl NotificationRecord {
+    pub fn parameters_as<T: TypedNotificationParameters>(
+        &self,
+    ) -> Result<Option<T>, serde_json::Error> {
+        if self.notification_type != T::NOTIFICATION_TYPE {
+            return Ok(None);
+        }
+        serde_json::from_value(self.params.clone()).map(Some)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -430,6 +447,15 @@ mod tests {
 
     use super::*;
 
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct TestNotificationParameters {
+        value: u64,
+    }
+
+    impl TypedNotificationParameters for TestNotificationParameters {
+        const NOTIFICATION_TYPE: &'static str = "test.notification";
+    }
+
     fn publication(key: &str, value: u64) -> NotificationPublication {
         NotificationPublication {
             dedupe_key: key.into(),
@@ -456,6 +482,27 @@ mod tests {
         assert_eq!(updated.revision, first.revision + 1);
         assert_eq!(updated.notifications[0].id, id);
         assert_eq!(updated.notifications[0].created_revision, first.revision);
+    }
+
+    #[test]
+    fn typed_parameters_are_an_optional_projection_over_opaque_storage() {
+        let center = NotificationCenter::new();
+        let snapshot = center.publish(publication("typed", 7)).unwrap();
+        let record = &snapshot.notifications[0];
+
+        assert_eq!(
+            record
+                .parameters_as::<TestNotificationParameters>()
+                .unwrap()
+                .expect("matching notification type"),
+            TestNotificationParameters { value: 7 }
+        );
+        let mut other = record.clone();
+        other.notification_type = "other.notification".into();
+        assert_eq!(
+            other.parameters_as::<TestNotificationParameters>().unwrap(),
+            None
+        );
     }
 
     #[test]
