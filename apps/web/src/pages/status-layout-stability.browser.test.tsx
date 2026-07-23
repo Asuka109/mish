@@ -136,10 +136,8 @@ async function nextFrame() {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
 
-async function waitForStatusState(state: "drift" | "failure" | "ready" | "stale") {
-  await vi.waitFor(() => {
-    expect(document.querySelector(".status-context-slot")).toHaveAttribute("data-state", state);
-  });
+async function transition(scenario: StatusScenario) {
+  flushSync(() => client.setScenario(scenario));
   await nextFrame();
 }
 
@@ -189,30 +187,31 @@ describe("primary-page status layout stability", () => {
       { height: 720, width: 1024 },
       { height: 720, width: 360 },
     ];
-    const scenarios = [
-      { expectedState: "stale", scenario: "stale" },
-      { expectedState: "failure", scenario: "runtime-failure" },
-      { expectedState: "failure", scenario: "capture-failure" },
-      { expectedState: "drift", scenario: "drift" },
-    ] as const;
+    const scenarios = ["stale", "runtime-failure", "capture-failure", "drift"] as const;
 
     for (const locale of ["en", "zh"] as const) {
       for (const viewport of viewports) {
         await page.viewport(viewport.width, viewport.height);
         client.setScenario("happy");
         renderPage("status", locale);
-        await waitForStatusState("ready");
+        await vi.waitFor(() =>
+          expect(document.querySelectorAll(".status-primary-control")).toHaveLength(2),
+        );
+        await nextFrame();
         const baseline = statusControlGeometry();
+        expect(document.querySelector(".status-context-slot")).toBeNull();
+        expect(document.querySelector('a[href="/events?diagnostics=1"]')).toBeNull();
 
-        for (const { expectedState, scenario } of scenarios) {
-          client.setScenario(scenario);
-          await waitForStatusState(expectedState);
-          const link = document.querySelector<HTMLAnchorElement>('a[href="/events?diagnostics=1"]');
+        for (const scenario of scenarios) {
+          await transition(scenario);
           expect(
-            link,
-            `${locale} ${viewport.width}px ${scenario}: diagnostics link`,
-          ).not.toBeNull();
-          expect(link?.textContent?.trim()).not.toBe("");
+            document.querySelector(".status-context-slot"),
+            `${locale} ${viewport.width}px ${scenario}: no reserved slot`,
+          ).toBeNull();
+          expect(
+            document.querySelector('a[href="/events?diagnostics=1"]'),
+            `${locale} ${viewport.width}px ${scenario}: no inline diagnostics`,
+          ).toBeNull();
           expectStableGeometry(
             statusControlGeometry(),
             baseline,
@@ -220,9 +219,9 @@ describe("primary-page status layout stability", () => {
           );
         }
 
-        client.setScenario("happy");
-        await waitForStatusState("ready");
+        await transition("happy");
         expect(document.querySelector('a[href="/events?diagnostics=1"]')).toBeNull();
+        expect(document.querySelector(".status-context-slot")).toBeNull();
         expectStableGeometry(
           statusControlGeometry(),
           baseline,
@@ -232,23 +231,23 @@ describe("primary-page status layout stability", () => {
     }
   });
 
-  test("keeps the narrow stale message bounded and diagnostics keyboard-accessible", async () => {
+  test("starts Status controls at the top without reserved failure chrome", async () => {
     await page.viewport(360, 720);
-    client.setScenario("stale");
+    client.setScenario("happy");
     renderPage("status", "en");
-    await waitForStatusState("stale");
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll(".status-primary-control")).toHaveLength(2),
+    );
+    await nextFrame();
 
-    const message = document.querySelector<HTMLElement>(".status-context-slot [role='status']");
-    const link = document.querySelector<HTMLAnchorElement>('a[href="/events?diagnostics=1"]');
-    if (!message || !link) throw new Error("Missing stale Status affordance");
-
-    expect(message.title).toBe(message.textContent);
-    expect(getComputedStyle(message).overflow).toBe("hidden");
-    expect(getComputedStyle(message).textOverflow).toBe("ellipsis");
-    expect(getComputedStyle(message).whiteSpace).toBe("nowrap");
-    link.focus();
-    expect(document.activeElement).toBe(link);
-    expect(getComputedStyle(link).outlineStyle).not.toBe("none");
+    const firstControl = document.querySelector(".status-primary-control");
+    const controlGrid = firstControl?.parentElement;
+    if (!firstControl || !controlGrid) throw new Error("Missing Status controls");
+    expect(firstControl.getBoundingClientRect().top - controlGrid.getBoundingClientRect().top).toBe(
+      1,
+    );
+    expect(document.querySelector(".status-context-slot")).toBeNull();
+    expect(document.querySelector('a[href="/events?diagnostics=1"]')).toBeNull();
   });
 
   test("keeps the Routes search control fixed through stale and recovery", async () => {
@@ -256,33 +255,16 @@ describe("primary-page status layout stability", () => {
       await page.viewport(width, 720);
       client.setScenario("happy");
       renderPage("routes", "en");
-      await vi.waitFor(() => {
-        expect(document.querySelector(".routes-connection-slot")).toHaveAttribute(
-          "data-state",
-          "ready",
-        );
-      });
+      await vi.waitFor(() => expect(document.querySelector(".routes-search-field")).not.toBeNull());
       await nextFrame();
       const baseline = routesSearchGeometry();
+      expect(document.querySelector(".routes-connection-slot")).toBeNull();
 
-      client.setScenario("stale");
-      await vi.waitFor(() => {
-        expect(document.querySelector(".routes-connection-slot")).toHaveAttribute(
-          "data-state",
-          "stale",
-        );
-      });
-      await nextFrame();
+      await transition("stale");
+      expect(document.querySelector(".routes-connection-slot")).toBeNull();
       expectStableGeometry(routesSearchGeometry(), baseline, `${width}px Routes stale`);
 
-      client.setScenario("happy");
-      await vi.waitFor(() => {
-        expect(document.querySelector(".routes-connection-slot")).toHaveAttribute(
-          "data-state",
-          "ready",
-        );
-      });
-      await nextFrame();
+      await transition("happy");
       expectStableGeometry(routesSearchGeometry(), baseline, `${width}px Routes recovery`);
     }
   });

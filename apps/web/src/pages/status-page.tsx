@@ -38,13 +38,6 @@ const statusStyles = tv({
       "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     ),
     loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
-    contextSlot:
-      "status-context-slot flex h-9 min-w-0 items-center justify-between gap-3 overflow-hidden",
-    contextMessage: "min-w-0 flex-1 truncate text-metadata text-warning",
-    diagnostics: cx(
-      "inline-flex shrink-0 rounded-sm px-1 py-0.5 text-metadata font-medium text-brand",
-      "no-underline hover:underline focus-visible:shadow-focus-ring",
-    ),
     controls: "pb-4",
     controlCell: cx(
       "status-primary-control flex min-h-13.5 items-center gap-6 px-3.5",
@@ -242,29 +235,6 @@ export function StatusPage() {
       : snapshot.adapterKind === "rpc"
         ? LL.status.desktopActivity()
         : LL.status.deviceActivity();
-  const staleMessage =
-    snapshot.adapterKind !== "fixture" && connection.stale
-      ? connection.phase === "reconnecting"
-        ? LL.status.reconnecting()
-        : LL.status.staleData()
-      : null;
-  const diagnosticsAvailable =
-    snapshot.adapterKind !== "fixture" &&
-    (Boolean(error) ||
-      connection.stale ||
-      snapshot.runtime.phase === "error" ||
-      snapshot.runtime.systemProxy.phase === "drift" ||
-      snapshot.runtime.systemProxy.phase === "failed" ||
-      snapshot.runtime.tun.phase === "drift" ||
-      snapshot.runtime.tun.phase === "failed");
-  const contextState = staleMessage
-    ? "stale"
-    : snapshot.runtime.systemProxy.phase === "drift" || snapshot.runtime.tun.phase === "drift"
-      ? "drift"
-      : diagnosticsAvailable
-        ? "failure"
-        : "ready";
-
   async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureSupported) return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
@@ -297,21 +267,6 @@ export function StatusPage() {
     <div>
       <div className={statusStyles().page()}>
         <h1 className="sr-only">{LL.navigation.status()}</h1>
-        <div className={statusStyles().contextSlot()} data-state={contextState}>
-          <p
-            aria-atomic={staleMessage ? "true" : undefined}
-            className={statusStyles().contextMessage()}
-            role={staleMessage ? "status" : undefined}
-            title={staleMessage ?? undefined}
-          >
-            {staleMessage}
-          </p>
-          {diagnosticsAvailable ? (
-            <Link className={statusStyles().diagnostics()} to="/events?diagnostics=1">
-              {LL.diagnostics.open()}
-            </Link>
-          ) : null}
-        </div>
         <div className={statusStyles().controls()}>
           <SectionGrid>
             <SectionGridItem className={statusStyles().controlCell()}>

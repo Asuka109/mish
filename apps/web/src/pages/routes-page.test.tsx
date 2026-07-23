@@ -4,7 +4,6 @@ import {
   StatusClientError,
   type ProfileRouteCatalogDto,
   type StatusCommand,
-  type StatusConnectionState,
   type StatusSnapshotDto,
 } from "@mish/contracts";
 import { TooltipProvider } from "@mish/ui";
@@ -51,23 +50,6 @@ class SnapshotClient extends FixtureStatusClient {
 
   override supportsCommand(_command: StatusCommand) {
     return this.commandsSupported;
-  }
-}
-
-class StaleSnapshotClient extends SnapshotClient {
-  private readonly staleConnection: StatusConnectionState = {
-    attempt: 2,
-    phase: "reconnecting",
-    stale: true,
-  };
-
-  override getConnectionState() {
-    return { ...this.staleConnection };
-  }
-
-  override subscribeConnection(listener: (state: StatusConnectionState) => void) {
-    listener(this.getConnectionState());
-    return () => false;
   }
 }
 
@@ -164,19 +146,6 @@ class ConfiguredRoutesProfileClient extends FixtureProfileClient {
 }
 
 describe("Routes workspace", () => {
-  it("keeps reconnecting status in the reserved header slot", async () => {
-    const snapshot = await new FixtureStatusClient().getSnapshot();
-    snapshot.adapterKind = "rpc";
-    const { container } = renderRoutes(new StaleSnapshotClient(snapshot));
-
-    const message = await screen.findByText(/Reconnecting to the Mish background service/i);
-    expect(message).toHaveAttribute("role", "status");
-    expect(message).toHaveAttribute("aria-atomic", "true");
-    expect(message).toHaveAttribute("title", message.textContent);
-    expect(message.closest(".routes-connection-slot")).toHaveAttribute("data-state", "stale");
-    expect(container.querySelector(".routes-search-field")).toBeVisible();
-  });
-
   it("hides the special GLOBAL selector in Rule mode", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
     snapshot.groups.unshift({

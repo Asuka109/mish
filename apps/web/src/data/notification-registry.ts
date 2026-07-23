@@ -162,7 +162,10 @@ function knownPresentation(
     case "settings.operation-failed":
       return { message: LL.settingsPage.updateFailed() };
     case "status.operation-failed":
-      return { message: LL.errors.command() };
+      return {
+        actions: [openDiagnosticsAction(LL)],
+        message: LL.errors.command(),
+      };
     case "system-proxy.drift":
       return {
         actions: [
@@ -187,7 +190,10 @@ function knownPresentation(
               : LL.capture.systemProxyDrift(),
       };
     case "system-proxy.failed":
-      return { message: systemProxyFailure(string("failure"), LL) };
+      return {
+        actions: [openDiagnosticsAction(LL)],
+        message: systemProxyFailure(string("failure"), LL),
+      };
     case "traffic.connection-closed":
       return { message: LL.traffic.closeConnectionSucceeded() };
     case "traffic.connections-closed":
@@ -197,7 +203,10 @@ function knownPresentation(
     case "tun.drift":
       return { message: LL.capture.tunDrift() };
     case "tun.failed":
-      return { message: LL.capture.tunFailure() };
+      return {
+        actions: [openDiagnosticsAction(LL)],
+        message: LL.capture.tunFailure(),
+      };
   }
 }
 
@@ -207,11 +216,16 @@ function captureFailurePresentation(
   LL: TranslationFunctions,
 ): PresentationCopy {
   if (resolved) return { message: LL.capture.systemProxyApplied(), toast: "dismiss" };
-  if (failure === "invalid-recovery") return { message: LL.capture.systemProxyInvalidRecovery() };
-  if (failure === "persistence-failed") {
-    return { message: LL.capture.systemProxyPersistenceFailure() };
+  const actions = [openDiagnosticsAction(LL)];
+  if (failure === "invalid-recovery") {
+    return { actions, message: LL.capture.systemProxyInvalidRecovery() };
   }
-  if (failure === "core-unhealthy") return { message: LL.capture.systemProxyCoreFailure() };
+  if (failure === "persistence-failed") {
+    return { actions, message: LL.capture.systemProxyPersistenceFailure() };
+  }
+  if (failure === "core-unhealthy") {
+    return { actions, message: LL.capture.systemProxyCoreFailure() };
+  }
   if (failure === "external-drift") {
     return {
       actions: [
@@ -221,7 +235,11 @@ function captureFailurePresentation(
       message: LL.capture.systemProxyDrift(),
     };
   }
-  return { message: LL.capture.systemProxyFailure() };
+  return { actions, message: LL.capture.systemProxyFailure() };
+}
+
+function openDiagnosticsAction(LL: TranslationFunctions): NotificationActionDescriptor {
+  return { id: "open-diagnostics", label: LL.diagnostics.open() };
 }
 
 function systemProxyFailure(failure: string | undefined, LL: TranslationFunctions) {
