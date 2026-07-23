@@ -182,7 +182,7 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "mode=developer-id" >> "$GITHUB_OUTPUT"
       - name: Build and verify application bundle
-        run: pnpm desktop:bundle:macos
+        run: pnpm desktop:build:macos
       - name: Create app archive
         id: revision
         shell: bash
