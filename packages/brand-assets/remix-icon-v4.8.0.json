@@ -1,0 +1,61 @@
+{
+  "source": {
+    "project": "Remix Icon",
+    "repository": "https://github.com/Remix-Design/RemixIcon",
+    "tag": "v4.8.0",
+    "commit": "8e543a8983790c20d7d8c696ae74023c69f379b7",
+    "releasedAt": "2025-12-29T10:00:12Z"
+  },
+  "license": {
+    "spdx": "Apache-2.0",
+    "upstreamPath": "License",
+    "upstreamGitBlobSha1": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+    "localPath": "THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  "notice": "The exact v4.8.0 commit does not contain an upstream NOTICE file. Brand icons identify their named services only and do not imply affiliation or endorsement. Cloudflare uses the generic Remix Icon cloud-fill asset because Remix Icon v4.8.0 has no Cloudflare brand icon.",
+  "assets": [
+    {
+      "service": "Google",
+      "upstreamPath": "icons/Logos/google-fill.svg",
+      "upstreamGitBlobSha1": "54b050de30c3190d351c7192620508c43995c9c8",
+      "localPath": "packages/brand-assets/public/assets/remix-icon/google.svg",
+      "sha256": "9b31e86f90f1ffc28a2c7325bec2333681b64e8d95d68ee1a3138706ce5bfaeb"
+    },
+    {
+      "service": "GitHub",
+      "upstreamPath": "icons/Logos/github-fill.svg",
+      "upstreamGitBlobSha1": "019beafa8a78225c3fd4c39a2286b197d0f9bae6",
+      "localPath": "packages/brand-assets/public/assets/remix-icon/github.svg",
+      "sha256": "784a21914fa745be8d569ceb85dde5ba8f22aea6c4d2cd577e9ca75d733099bb"
+    },
+    {
+      "service": "Baidu",
+      "upstreamPath": "icons/Logos/baidu-fill.svg",
+      "upstreamGitBlobSha1": "237391b096efb36fb715ceaf7bc3870310e20279",
+      "localPath": "packages/brand-assets/public/assets/remix-icon/baidu.svg",
+      "sha256": "1aba5ab72548679a92c996d8e30730df5631720abe5c6e6db52a0d481b59bad6"
+    },
+    {
+      "service": "Apple",
+      "upstreamPath": "icons/Logos/apple-fill.svg",
+      "upstreamGitBlobSha1": "538f2273ad690435842954abd05607bdb1769cd7",
+      "localPath": "packages/brand-assets/public/assets/remix-icon/apple.svg",
+      "sha256": "14a1f34511a8dc0c053a4d4946098293f25c18f7ce7555e47d9fcb4f12e54c08"
+    },
+    {
+      "service": "Microsoft",
+      "upstreamPath": "icons/Logos/microsoft-fill.svg",
+      "upstreamGitBlobSha1": "4ef10a60569397c8821bec50d83dec76f390333f",
+      "localPath": "packages/brand-assets/public/assets/remix-icon/microsoft.svg",
+      "sha256": "c67d3330a759bc78bfa0a577e740c4de2ea0868bf6b645be0cbbb7a5755179e2"
+    },
+    {
+      "service": "Cloudflare (generic cloud mapping)",
+      "upstreamPath": "icons/Business/cloud-fill.svg",
+      "upstreamGitBlobSha1": "94c4c46df76efb96df516c16174b273dddd2bcf8",
+      "localPath": "packages/brand-assets/public/assets/remix-icon/cloud.svg",
+      "sha256": "29981791fcc07040c0c5329b2cc3d9cf2989f5caf9a2414add5268d75affb513"
+    }
+  ]
+}

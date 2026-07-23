@@ -3119,7 +3119,7 @@ type RootTranslation = {
 		 */
 		fixtureEndpointDescription: string
 		/**
-		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​T​h​e​ ​i​c​o​n​ ​i​m​a​g​e​ ​i​s​ ​s​t​i​l​l​ ​l​o​a​d​e​d​ ​f​r​o​m​ ​i​t​s​ ​U​R​L​.
+		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​A​ ​c​u​s​t​o​m​ ​H​T​T​P​S​ ​i​c​o​n​ ​i​s​ ​s​t​i​l​l​ ​l​o​a​d​e​d​ ​d​i​r​e​c​t​l​y​ ​b​y​ ​t​h​i​s​ ​b​r​o​w​s​e​r​.
 		 */
 		fixtureMetadataDescription: string
 		/**
@@ -3131,7 +3131,7 @@ type RootTranslation = {
 		 */
 		iconUrl: string
 		/**
-		 * U​s​e​ ​a​ ​d​i​r​e​c​t​ ​H​T​T​P​S​ ​i​m​a​g​e​ ​U​R​L​.​ ​S​V​G​,​ ​P​N​G​,​ ​a​n​d​ ​W​e​b​P​ ​i​m​a​g​e​s​ ​a​r​e​ ​s​u​p​p​o​r​t​e​d​.
+		 * B​u​i​l​t​-​i​n​ ​i​c​o​n​s​ ​s​t​a​y​ ​l​o​c​a​l​.​ ​A​ ​c​u​s​t​o​m​ ​H​T​T​P​S​ ​i​m​a​g​e​ ​U​R​L​ ​i​s​ ​r​e​q​u​e​s​t​e​d​ ​d​i​r​e​c​t​l​y​ ​b​y​ ​t​h​i​s​ ​b​r​o​w​s​e​r​,​ ​n​e​v​e​r​ ​b​y​ ​t​h​e​ ​R​u​s​t​ ​s​e​r​v​i​c​e​.
 		 */
 		iconUrlDescription: string
 		/**
@@ -7471,7 +7471,7 @@ export type TranslationFunctions = {
 		 */
 		fixtureEndpointDescription: () => LocalizedString
 		/**
-		 * Demo probe metadata only. The icon image is still loaded from its URL.
+		 * Demo probe metadata only. A custom HTTPS icon is still loaded directly by this browser.
 		 */
 		fixtureMetadataDescription: () => LocalizedString
 		/**
@@ -7483,7 +7483,7 @@ export type TranslationFunctions = {
 		 */
 		iconUrl: () => LocalizedString
 		/**
-		 * Use a direct HTTPS image URL. SVG, PNG, and WebP images are supported.
+		 * Built-in icons stay local. A custom HTTPS image URL is requested directly by this browser, never by the Rust service.
 		 */
 		iconUrlDescription: () => LocalizedString
 		/**
