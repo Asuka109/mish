@@ -2220,13 +2220,17 @@ describe("desktop RPC experience", () => {
       phase: "reconnecting",
       stale: true,
     });
-    renderRoute("/status", "en", client);
+    const { container } = renderRoute("/status", "en", client);
 
     expect(await screen.findByText("Live desktop traffic")).toBeVisible();
     expect(screen.queryByText("Local service")).not.toBeInTheDocument();
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
-    expect(screen.getByText(/Reconnecting to the Mish background service/i)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Reconnecting to the Mish background service/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open Diagnostics" })).not.toBeInTheDocument();
+    expect(container.querySelector(".status-context-slot")).toBeNull();
     expect(
       [
         ...screen
@@ -2262,6 +2266,23 @@ describe("desktop RPC experience", () => {
     expect(
       screen.getByText("The local desktop service reports no service monitors."),
     ).toBeVisible();
+  });
+
+  it("keeps capture failures out of the Status page flow", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.runtime.phase = "inactive";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: "core-unhealthy",
+      observed: "disabled",
+      phase: "failed",
+      recoveryActions: [],
+    };
+    const { container } = renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    expect(await screen.findByText("Live desktop traffic")).toBeVisible();
+    expect(container.querySelector(".status-context-slot")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open Diagnostics" })).not.toBeInTheDocument();
   });
 
   it("combines backend support with supported and permission-required capabilities", async () => {
@@ -2593,6 +2614,9 @@ describe("Status fixture experience", () => {
       "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
     );
     expect(notificationCenter).not.toHaveTextContent("操作失败。");
+    await user.click(within(notificationCenter).getByRole("button", { name: "打开诊断" }));
+    expect(await screen.findByRole("heading", { name: "网络诊断" })).toBeVisible();
+    expect(screen.queryByRole("dialog", { name: /通知/ })).not.toBeInTheDocument();
   });
 
   it("remembers selected capture modes when the master control stops and resumes capture", async () => {

@@ -49,8 +49,6 @@ const routeStyles = tv({
       "mb-1.5 inline-flex min-h-7.5 items-center text-metadata text-muted-foreground",
       "no-underline hover:text-ink hover:underline",
     ),
-    stale:
-      "mt-4 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
     searchField: "routes-search-field mt-5 max-w-130",
     searchControl: cx(
       "routes-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
@@ -290,13 +288,6 @@ export function RoutesPage() {
             </p>
           </header>
 
-          {connection.stale && snapshot.adapterKind !== "fixture" ? (
-            <p className={routeStyles().stale()} role="status">
-              {connection.phase === "reconnecting"
-                ? LL.status.reconnecting()
-                : LL.status.staleData()}
-            </p>
-          ) : null}
           {!standaloneGroup ? (
             <Field className={routeStyles().searchField()}>
               <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
