@@ -77,15 +77,28 @@ The bundled onboarding cover is
 by [Petri R](https://unsplash.com/@petrirh1), obtained under the
 [Unsplash License](https://unsplash.com/license).
 
-Default service icons are not bundled. The application requests selected SVGs
-from the `remixicon@4.9.1` package through `registry.npmmirror.com` at runtime.
-The npm package metadata declares Apache-2.0, while the current upstream
-`v4.9.1` source tag displays the
-[Remix Icon License v1.0](https://github.com/Remix-Design/RemixIcon/blob/v4.9.1/License),
-which contains additional restrictions and identifies possible strong-copyleft
-incompatibility. The maintainer must reconcile the exact applicable terms before
-public distribution. This request is also disclosed in the README's security
-and privacy summary.
+The built-in service icons are exact SVG files from the official Remix Icon
+[`v4.8.0`](https://github.com/Remix-Design/RemixIcon/tree/v4.8.0) tag, released
+2025-12-29 at immutable commit
+[`8e543a8983790c20d7d8c696ae74023c69f379b7`](https://github.com/Remix-Design/RemixIcon/commit/8e543a8983790c20d7d8c696ae74023c69f379b7).
+That tag's `License` file is Apache-2.0; an exact copy is retained at
+[`THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt`](THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt).
+The source paths, local renamed paths, Git blob IDs, and SHA-256 hashes are
+recorded in
+[`packages/brand-assets/remix-icon-v4.8.0.json`](packages/brand-assets/remix-icon-v4.8.0.json).
+The exact commit has no upstream `NOTICE` file.
+Later `v4.9.0` and `v4.9.1` tags use Remix Icon License v1.0, whose official
+text warns of possible incompatibility with strong-copyleft licenses. No asset
+or license file from those tags, current `master`, an icon CDN, or a third-party
+mirror is included in this vendored set.
+
+Google, GitHub, Baidu, Apple, and Microsoft use only their corresponding named
+brand icons. Remix Icon `v4.8.0` has no Cloudflare brand icon, so Cloudflare is
+explicitly represented by the generic `icons/Business/cloud-fill.svg` asset.
+These names and icons identify reachability-test targets and do not imply
+affiliation or endorsement. Built-in icons are served from Mish's bundled
+static assets; only a user-selected custom HTTPS icon can create an external
+browser image request.
 
 Service names and brand icons identify user-configurable reachability-test
 targets. They do not imply affiliation, endorsement, availability, or

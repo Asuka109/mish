@@ -921,10 +921,11 @@ const en = {
     fixtureEmptyDescription: "Add a local demo monitor. No request will be sent.",
     fixtureEndpointDescription: "Fixture endpoint latency.",
     fixtureMetadataDescription:
-      "Demo probe metadata only. The icon image is still loaded from its URL.",
+      "Demo probe metadata only. A custom HTTPS icon is still loaded directly by this browser.",
     fixtureUrlDescription: "The probe URL is stored as metadata and is not requested in demo mode.",
     iconUrl: "Icon URL",
-    iconUrlDescription: "Use a direct HTTPS image URL. SVG, PNG, and WebP images are supported.",
+    iconUrlDescription:
+      "Built-in icons stay local. A custom HTTPS image URL is requested directly by this browser, never by the Rust service.",
     iconUrlError: "Enter a valid HTTPS icon URL.",
     labelError: "Enter a title.",
     manage: "Manage",
