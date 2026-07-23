@@ -103,7 +103,7 @@ const zh = {
     launchAtLogin: "登录时启动",
     launchAtLoginDescription:
       "选择登录 macOS 时是否自动启动 Mish，以及自动启动后是否显示主窗口。手动打开时始终显示窗口。",
-    launchProxyWhenMishLaunches: "启动应用自动代理",
+    launchProxyWhenMishLaunches: "应用启动时自动代理",
     launchProxyWhenMishLaunchesDescription:
       "仅保存下次启动 Mish 时的偏好；切换后不会立即启动或停止代理。",
     loginWindow: "登录启动窗口",

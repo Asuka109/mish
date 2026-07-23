@@ -363,7 +363,7 @@ type RootTranslation = {
 		 */
 		launchAtLoginDescription: string
 		/**
-		 * L​a​u​n​c​h​ ​p​r​o​x​y​ ​w​h​e​n​ ​M​i​s​h​ ​l​a​u​n​c​h​e​s
+		 * A​u​t​o​-​s​t​a​r​t​ ​p​r​o​x​y​ ​o​n​ ​a​p​p​ ​l​a​u​n​c​h
 		 */
 		launchProxyWhenMishLaunches: string
 		/**
@@ -4771,7 +4771,7 @@ export type TranslationFunctions = {
 		 */
 		launchAtLoginDescription: () => LocalizedString
 		/**
-		 * Launch proxy when Mish launches
+		 * Auto-start proxy on app launch
 		 */
 		launchProxyWhenMishLaunches: () => LocalizedString
 		/**

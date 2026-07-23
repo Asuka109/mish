@@ -32,6 +32,16 @@ const OPEN_SETTINGS_ID: &str = "status-bar.open-settings";
 const TOGGLE_PROXY_ID: &str = "status-bar.toggle-proxy";
 const TOGGLE_LAUNCH_ON_START_ID: &str = "status-bar.toggle-launch-on-start";
 const QUIT_ID: &str = "status-bar.quit";
+const AUTO_START_PROXY_LABEL: &str = "Auto-start proxy on app launch";
+const STATUS_BAR_MENU_ACCELERATORS: &[(&str, &str)] = &[
+    (TOGGLE_PROXY_ID, "CmdOrCtrl+Shift+P"),
+    (OPEN_MISH_ID, "CmdOrCtrl+0"),
+    (OPEN_ROUTES_ID, "CmdOrCtrl+1"),
+    (OPEN_PROFILES_ID, "CmdOrCtrl+2"),
+    (OPEN_TRAFFIC_ID, "CmdOrCtrl+3"),
+    (OPEN_EVENTS_ID, "CmdOrCtrl+4"),
+    (OPEN_BROWSER_ID, "CmdOrCtrl+Shift+B"),
+];
 const STATUS_BAR_ICON_ACTIVE_RGBA: &[u8] = include_bytes!(
     "../../../../packages/brand-assets/generated/status-bar/mish-status-bar-active.rgba"
 );
@@ -153,9 +163,9 @@ impl NativeTrafficObservations {
         let available = latest.phase == Some(TrafficDataPhase::Ready);
         LiveStatusModel {
             most_active_node: match (available, self.handle.summary_at(observed_at)) {
-                (true, Some(summary)) => format!("Most active node — {}", summary.label),
-                (true, None) => "Most active node — Idle".into(),
-                (false, _) => "Most active node — Unavailable".into(),
+                (true, Some(summary)) => format!("🔥 Most active node — {}", summary.label),
+                (true, None) => "🔥 Most active node — Idle".into(),
+                (false, _) => "🔥 Most active node — Unavailable".into(),
             },
             download: rate_title(
                 "Download",
@@ -323,6 +333,10 @@ async fn run_native_command(app: &tauri::AppHandle, state: &StatusBarState, id: 
         .runtime
         .status_snapshot_typed(StatusAdapterKind::Native)
         .await;
+    let activation = state.activation.activation_snapshot().await;
+    if !proxy_enabled(&snapshot, &activation) {
+        return;
+    }
     let selection = snapshot.runtime.capture_selection.clone();
     let result = if snapshot.runtime.system_proxy_enabled || snapshot.runtime.tun_enabled {
         state
@@ -389,11 +403,7 @@ const MENU_SECTIONS: &[&[&str]] = &[
         "Settings",
     ],
     &["Most active node", "Download", "Upload"],
-    &[
-        "Open Browser Client",
-        "Launch proxy when Mish launches",
-        "Quit Mish",
-    ],
+    &["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"],
 ];
 
 async fn watch_status_menu(
@@ -499,11 +509,14 @@ fn build_menu<M: Manager<tauri::Wry>>(
     manager: &M,
     model: &StatusMenuModel,
 ) -> tauri::Result<StatusMenuItems> {
-    let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish").build(manager)?;
+    let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[1].1)
+        .build(manager)?;
     let proxy = MenuItemBuilder::with_id(TOGGLE_PROXY_ID, model.proxy_title)
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[0].1)
         .enabled(model.proxy_enabled)
         .build(manager)?;
-    let most_active_node = MenuItemBuilder::new("Most active node — Unavailable")
+    let most_active_node = MenuItemBuilder::new("🔥 Most active node — Unavailable")
         .enabled(false)
         .build(manager)?;
     let download = MenuItemBuilder::new("Download — Unavailable")
@@ -512,15 +525,24 @@ fn build_menu<M: Manager<tauri::Wry>>(
     let upload = MenuItemBuilder::new("Upload — Unavailable")
         .enabled(false)
         .build(manager)?;
-    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Routes").build(manager)?;
-    let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, "Profiles").build(manager)?;
-    let traffic = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic").build(manager)?;
-    let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, "Events").build(manager)?;
+    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Routes")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[2].1)
+        .build(manager)?;
+    let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, "Profiles")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[3].1)
+        .build(manager)?;
+    let traffic = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[4].1)
+        .build(manager)?;
+    let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, "Events")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[5].1)
+        .build(manager)?;
     let settings = MenuItemBuilder::with_id(OPEN_SETTINGS_ID, "Settings").build(manager)?;
-    let browser =
-        MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client").build(manager)?;
+    let browser = MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[6].1)
+        .build(manager)?;
     let launch_on_start =
-        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, "Launch proxy when Mish launches")
+        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, AUTO_START_PROXY_LABEL)
             .checked(model.launch_on_start)
             .build(manager)?;
     let quit = MenuItemBuilder::with_id(QUIT_ID, "Quit Mish").build(manager)?;
@@ -614,10 +636,12 @@ fn status_bar_icon(active: bool) -> tauri::image::Image<'static> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MENU_SECTIONS, NativeTrafficObservations, StatusBarModel, StatusMenuModel, format_bytes,
+        AUTO_START_PROXY_LABEL, MENU_SECTIONS, NativeTrafficObservations,
+        STATUS_BAR_MENU_ACCELERATORS, StatusBarModel, StatusMenuModel, format_bytes,
         is_quit_menu_command, is_status_destination, rate_title, status_bar_icon,
         status_bar_update,
     };
+    use crate::native_menu::APPLICATION_MENU_ACCELERATORS;
     use futures_util::future::BoxFuture;
     use mish_bridge::{
         DesktopRuntimeHost, ProfileActivationAvailability, ProfileActivationPhase,
@@ -741,7 +765,7 @@ mod tests {
         assert_eq!(
             observations.live_status_at(Duration::ZERO),
             super::LiveStatusModel {
-                most_active_node: "Most active node — Tokyo".into(),
+                most_active_node: "🔥 Most active node — Tokyo".into(),
                 download: "Download — 1.00 KB/s".into(),
                 upload: "Upload — 12.0 KB/s".into(),
             }
@@ -762,7 +786,7 @@ mod tests {
             observations
                 .live_status_at(Duration::from_secs(60))
                 .most_active_node,
-            "Most active node — Idle"
+            "🔥 Most active node — Idle"
         );
         assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
     }
@@ -855,12 +879,7 @@ mod tests {
                 ]
                 .as_slice(),
                 ["Most active node", "Download", "Upload"].as_slice(),
-                [
-                    "Open Browser Client",
-                    "Launch proxy when Mish launches",
-                    "Quit Mish"
-                ]
-                .as_slice(),
+                ["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"].as_slice(),
             ]
         );
         for destination in [
@@ -874,6 +893,27 @@ mod tests {
             assert!(is_status_destination(destination));
         }
         assert!(!is_status_destination("/diagnostics"));
+    }
+
+    #[test]
+    fn status_bar_accelerators_are_unique_application_local_menu_commands() {
+        let mut ids = std::collections::HashSet::new();
+        let mut accelerators = std::collections::HashSet::new();
+        for (id, accelerator) in STATUS_BAR_MENU_ACCELERATORS
+            .iter()
+            .chain(APPLICATION_MENU_ACCELERATORS.iter())
+        {
+            assert!(ids.insert(*id), "duplicate menu ID: {id}");
+            assert!(
+                accelerators.insert(*accelerator),
+                "duplicate accelerator: {accelerator}"
+            );
+        }
+        assert!(!STATUS_BAR_MENU_ACCELERATORS.iter().any(|(id, _)| {
+            *id == super::TOGGLE_LAUNCH_ON_START_ID
+                || *id == "status-bar.quit"
+                || *id == "status-bar.open-settings"
+        }));
     }
 
     #[test]
