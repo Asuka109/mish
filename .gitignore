@@ -31,6 +31,7 @@ target/
 *.log
 *.key
 *.pem
+.state/
 
 # Local competitive references and other private research material
 references/
