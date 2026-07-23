@@ -4,211 +4,99 @@
 
 ![Mish wordmark](packages/brand-assets/public/brand/mish-brand.svg)
 
-**Mish is a local traffic-forwarding, configuration, and diagnostics client for
-desktop and mobile.**
+**Mish is a cross-platform client for local traffic forwarding, configuration,
+and diagnostics.**
 
-It is a neutral, experimental project built around a locally managed
-[Mihomo](https://github.com/MetaCubeX/mihomo) Core. Its shared React and
-TypeScript interface is integrated with Tauri and Rust platform services. Mish
+Mish is a neutral, experimental project built around a locally managed
+[Mihomo](https://github.com/MetaCubeX/mihomo) Core. Its interface is built with
+React and TypeScript, with Tauri and Rust providing platform integration. Mish
 is licensed under GPL-3.0-only and is not affiliated with, endorsed by, or an
 official client of MetaCubeX.
 
 > [!IMPORTANT]
-> Mish does not have a stable public release. Current macOS and Android
-> artifacts are short-lived test packages for development and verification,
-> not production distributions. The completed packaging-readiness audit
-> selected a System Proxy-only first public macOS release, but the repository
-> does not yet provide the required signed no-helper distribution mode or
-> release evidence. See the
+> Mish does not have a stable public release. The completed packaging-readiness
+> audit selected a System Proxy-only first public macOS release, but release
+> preparation and acceptance are not complete. See the
 > [public-release review](docs/legal/public-release-review.md).
 
 Mish is client software only. The project does not operate a hosted proxy or
-VPN service, sell subscriptions, provide network endpoints, or guarantee that
-any user-supplied configuration or remote service will work.
+VPN service, sell subscriptions, or provide network endpoints.
 
-## Current capabilities
+Use Mish only for lawful, authorized purposes and comply with the laws and
+third-party terms that apply in your location. If you believe Mish or any
+material in this repository infringes your rights, contact the project
+maintainers. Do not include sensitive or personal information in a public
+report.
 
-- Import, validate, store, edit, and activate local or HTTPS Mihomo profiles.
-- Observe Status, Routes, Traffic, Events, Diagnostics, settings, and managed
-  runtime state through typed application contracts.
-- Change routing mode and policy-group selections through the pinned Mihomo
-  Controller API.
-- Apply and reconcile macOS System Proxy state through an authenticated local
-  bridge, with explicit recovery and safe-stop paths.
-- Run a source-development macOS TUN service behind separate installation and
-  authorization gates.
-- Exercise an offline browser demo with fictional data and no native effects.
-- Build an Android lifecycle prototype that requests system VPN consent and
-  probes the identity of a source-built Mobile Core without capturing traffic.
+## What Mish does
 
-## Platform status
+- Imports and manages user-provided Mihomo profiles.
+- Shows connection status, routing activity, traffic, events, and diagnostics.
+- Lets users change routing modes and policy-group selections.
+- Applies and safely restores the macOS System Proxy setting.
+- Keeps local application data and provides user-initiated export and backup
+  tools.
 
-| Target        | Evidence-backed status                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser       | Six-route offline demo backed by explicit fixtures. It does not connect to desktop RPC, start Mihomo, or change network settings.                                                                                                                                                                                                                                                                                             |
-| macOS         | Apple Silicon development and test-package path with an authenticated in-process bridge, managed Mihomo lifecycle, reversible System Proxy, native window and status-bar integration, and a separately installed development TUN service. The selected first public release is System Proxy-only; its signed no-helper package is not implemented. The test package is ad-hoc signed unless release credentials are supplied. |
-| Android       | Installable Tauri shell, `VpnService` lifecycle prototype, and verified Mobile Core identity probe. It does not yet establish a TUN interface or capture traffic.                                                                                                                                                                                                                                                             |
-| iOS           | Architecture and validation contracts only. There is no complete shell, Packet Tunnel extension, signed-device path, or XCFramework packaging flow.                                                                                                                                                                                                                                                                           |
-| Windows/Linux | No supported package or completed native integration in this repository.                                                                                                                                                                                                                                                                                                                                                      |
+## Platform compatibility
 
-The desktop Core is pinned to Mihomo `v1.19.29`. Exact implementation claims
-are maintained in the
-[production Web](docs/quality/production-web-validation.md),
-[macOS](docs/quality/macos-p0-acceptance.md), and
-[mobile](docs/quality/mobile-validation.md) validation documents.
+| Platform              | Current compatibility      |
+| --------------------- | -------------------------- |
+| macOS (Apple Silicon) | 🚧 Limited compatibility   |
+| Android               | ❌ Not currently supported |
+| iOS                   | — Not currently available  |
+| Windows               | — Not currently available  |
+| Linux                 | — Not currently available  |
 
-## Downloads and installation
+Notes:
 
-There is no recommended end-user download yet. GitHub Actions is configured to
-produce expiring test artifacts from `main`, but the latest `cbe281c` packaging
-run was blocked before its hosted jobs started by the private repository's
-Actions quota or billing state. That is missing current CI artifact evidence,
-not a product implementation blocker. A successful run, artifact identity, and
-digest must still be verified before testing; no future Actions capacity is
-promised. The credential-free macOS path is ad-hoc signed and not notarized, and
-the Android path produces a debug prototype. Do not mirror or present either
-artifact as a stable release.
-
-Maintainers and testers should follow the bounded
-[macOS packaging](docs/operations/macos-packaging.md) or
-[Android Phase 0](docs/operations/android-phase0-prototype.md) instructions.
-Those documents describe the exact artifact identity, verification, and cleanup
-steps.
-
-## Development quick start
-
-Requirements:
-
-- Node.js 24;
-- pnpm 11.13.1; and
-- the stable Rust toolchain.
-
-Install dependencies and run the pull-request gate:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm check:pr
-```
-
-Run the fictional browser demo:
-
-```sh
-pnpm demo
-```
-
-`pnpm demo` serves the explicit fixture on `http://127.0.0.1:4173` when that
-port is available and otherwise uses the next available port. It does not
-authenticate, read application data, start Mihomo, or modify host network
-settings.
-
-For Apple Silicon macOS desktop development:
-
-```sh
-pnpm prepare:mihomo
-export MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29"
-pnpm desktop:dev
-```
-
-The preparation command downloads the pinned upstream release with GitHub CLI,
-stores it in ignored scratch space, and verifies its published digest. The
-desktop process creates its own ephemeral bridge credential; do not configure
-or persist one.
-
-Use [`bootstrap.md`](bootstrap.md) for first-time workstation setup and the
-[development command registry](docs/operations/development-commands.md) for the
-complete command set.
-
-## Architecture
-
-```text
-React/TypeScript UI
-        |
-        v
-typed contracts and authenticated local RPC
-        |
-        v
-Rust application runtime and desktop bridge
-        |
-        +--> platform-owned System Proxy / TUN boundaries
-        |
-        +--> managed, pinned Mihomo Core and Controller API
-```
-
-| Path                                                   | Responsibility                                                                   |
-| ------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| [`apps/web`](apps/web)                                 | Shared interface and browser, desktop, and mobile client selection               |
-| [`apps/desktop`](apps/desktop)                         | Thin Tauri desktop shell and native composition                                  |
-| [`apps/mobile`](apps/mobile)                           | Tauri mobile shell and Android lifecycle plugin                                  |
-| [`crates/runtime`](crates/runtime)                     | Transport-neutral application state and commands                                 |
-| [`crates/desktop-bridge`](crates/desktop-bridge)       | Authenticated RPC, process lifecycle, profiles, persistence, and desktop effects |
-| [`crates/mihomo-controller`](crates/mihomo-controller) | Bounded adapter for the pinned Mihomo Controller API                             |
-| [`crates/profile`](crates/profile)                     | Profile validation, persistence, patches, and activation inputs                  |
-| [`mobile-core`](mobile-core)                           | Pinned native Core ABI, reproducible build inputs, and evidence                  |
-| [`packages`](packages)                                 | Shared contracts, RPC client, fixtures, UI, tokens, and brand assets             |
-
-The WebView never owns a TUN descriptor, VPN lifetime, privileged state, or
-Mihomo process. Browser fixtures never claim native or network success.
+- **macOS:** The current preview targets macOS 13 or later on Apple Silicon
+  only. System Proxy is the selected path for the first public release. There
+  is no stable package download yet.
+- **Android:** A development prototype exists, but it is not a usable network
+  client and is not supported for general use.
+- **iOS:** Only early architecture and validation work exists.
+- **Windows and Linux:** No usable application package or completed native
+  integration exists.
+- **Browser:** The repository includes a fictional offline demo for development
+  and interface review; it is not a network client.
 
 ## Security and privacy
 
-Mish is local-first, not network-isolated. The desktop bridge binds to loopback
-and requires an application-created credential, while profiles, Mihomo,
-scheduled provider operations, delay tests, service probes, and remote service
-icons can make outbound requests. There is no configured telemetry, hosted
-account service, crash reporter, or automatic updater in the current
-repository.
+Mish is local-first, not network-isolated. User profiles, Mihomo, provider
+updates, delay tests, service probes, and remote service icons can make outbound
+requests. The current repository does not configure telemetry, a hosted account
+service, a crash reporter, or an automatic updater.
 
 Read [SECURITY.md](SECURITY.md) before reporting a vulnerability and
 [PRIVACY.md](PRIVACY.md) for current storage, network, export, and deletion
-behavior. Never include real profiles, subscription addresses, credentials,
-node labels, bridge credentials, or unredacted support bundles in public issues,
+behavior. Never post real profiles, subscription addresses, credentials, node
+labels, bridge credentials, or unredacted support bundles in public issues,
 screenshots, CI logs, or documentation.
 
-## Limitations and roadmap boundaries
+## Current limitations
 
 - Mish is pre-release software and may contain defects that affect connectivity,
   system proxy settings, local files, or user expectations.
-- The selected first public macOS release is System Proxy-only. It requires an
-  explicit signed no-helper distribution mode, Developer ID signing and
-  notarization with independent verification, a versioned DMG and GitHub
-  Release with source revision and SHA-256, and clean-account install, upgrade,
-  uninstall, recovery, and System Proxy restoration acceptance. It does not
-  depend on a production privileged TUN helper.
-- A TUN-enabled distribution is a separate future path and depends on
-  [#85](https://github.com/Asuka109/mish/issues/85),
-  [#95](https://github.com/Asuka109/mish/issues/95), and
-  [#98](https://github.com/Asuka109/mish/issues/98). The first release must keep
-  Virtual Interface unavailable; the planned explanatory interaction is not
-  implemented in this repository revision and is not claimed as delivered.
-- Android and iOS require real native VPN data paths, socket protection,
-  lifecycle recovery, signed-device validation, and distribution-policy review.
-- Windows and Linux support are not scheduled commitments.
-- An updater, hosted service, paid support, compatibility guarantee, service
-  availability guarantee, and release date are outside the current scope.
-- Release channel, manual update and rollback, support, privacy, security
-  contact, supply-chain evidence, and complete dependency-notice policies still
-  require maintainer decisions and verification.
-- Distribution must not proceed until the open dependency-license and legal
-  notice questions in the
+- The first public macOS release is planned as System Proxy-only. Virtual
+  Interface support belongs to a separate future release path and is not
+  currently available.
+- Android, iOS, Windows, and Linux are not currently supported end-user
+  platforms.
+- Release packaging, signing, independent verification, installed-app
+  acceptance, support policy, privacy decisions, supply-chain evidence, and
+  complete dependency notices remain under review.
+- Distribution must not proceed until the open questions in the
   [public-release review](docs/legal/public-release-review.md) are resolved.
 
 Roadmap documents describe intent, not promises. Code, tests, package manifests,
 and target-specific validation evidence remain the authority for current
 behavior.
 
-## Documentation and contributing
+## Development and contributing
 
-Start with the [documentation index](docs/README.md). The principal contracts
-are:
-
-- [`PRODUCT.md`](PRODUCT.md) for product behavior and claim boundaries;
-- [`DESIGN.md`](DESIGN.md) for visual tokens and interaction rules;
-- [`development.md`](development.md) for repository workflow and validation;
-- [`docs/architecture`](docs/architecture) for runtime and platform boundaries;
-  and
-- [`docs/quality`](docs/quality) for evidence and acceptance gates.
-
-Contributions are welcome within the current experimental scope. Read
+Developer setup, commands, architecture, and validation details are maintained
+in [`development.md`](development.md) and the
+[documentation index](docs/README.md). Read
 [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License and attribution
@@ -216,5 +104,5 @@ Contributions are welcome within the current experimental scope. Read
 Mish-authored source is licensed under
 [GPL-3.0-only](LICENSE). Third-party components and assets retain their own
 licenses and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-The repository's public-release materials are engineering documentation, not
-legal advice. See [DISCLAIMER.md](DISCLAIMER.md).
+These public-release materials are engineering documentation, not legal advice.
+See [DISCLAIMER.md](DISCLAIMER.md).
