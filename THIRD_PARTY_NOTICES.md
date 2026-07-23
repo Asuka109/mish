@@ -57,6 +57,7 @@ recorded in the lockfiles.
 | [Base UI](https://github.com/mui/base-ui)                 | Accessible unstyled interface primitives                           | MIT                       |
 | [Phosphor Icons](https://github.com/phosphor-icons/react) | Bundled interface icon components                                  | MIT                       |
 | [Lucide](https://github.com/lucide-icons/lucide)          | Bundled interface icon components                                  | ISC                       |
+| [Recharts](https://github.com/recharts/recharts)          | Bundled Status traffic sparkline                                   | MIT                       |
 | [Sonner](https://github.com/emilkowalski/sonner)          | In-application transient notifications                             | MIT                       |
 
 Rust application dependencies include Tauri, Tokio, Axum, Reqwest, Serde, and

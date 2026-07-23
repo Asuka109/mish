@@ -167,6 +167,7 @@ includesAll(
     "Base UI",
     "Phosphor Icons",
     "Lucide",
+    "Recharts",
     "Remix Icon License v1.0",
     "registry.npmmirror.com",
     "Petri R",
