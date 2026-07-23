@@ -7,26 +7,11 @@
 **Mish is a cross-platform client for local traffic forwarding, configuration,
 and diagnostics.**
 
-Mish is a neutral, experimental project built around a locally managed
-[Mihomo](https://github.com/MetaCubeX/mihomo) Core. Its interface is built with
-React and TypeScript, with Tauri and Rust providing platform integration. Mish
-is licensed under GPL-3.0-only and is not affiliated with, endorsed by, or an
-official client of MetaCubeX.
-
 > [!IMPORTANT]
 > Mish does not have a stable public release. The completed packaging-readiness
 > audit selected a System Proxy-only first public macOS release, but release
 > preparation and acceptance are not complete. See the
 > [public-release review](docs/legal/public-release-review.md).
-
-Mish is client software only. The project does not operate a hosted proxy or
-VPN service, sell subscriptions, or provide network endpoints.
-
-Use Mish only for lawful, authorized purposes and comply with the laws and
-third-party terms that apply in your location. If you believe Mish or any
-material in this repository infringes your rights, contact the project
-maintainers. Do not include sensitive or personal information in a public
-report.
 
 ## What Mish does
 
@@ -61,6 +46,21 @@ Notes:
   and interface review; it is not a network client.
 
 ## Security and privacy
+
+Mish is a neutral, experimental project built around a locally managed
+[Mihomo](https://github.com/MetaCubeX/mihomo) Core. Its interface is built with
+React and TypeScript, with Tauri and Rust providing platform integration. Mish
+is not affiliated with, endorsed by, or an official client of MetaCubeX.
+
+Mish is client software only. The project does not operate a hosted proxy or
+VPN service, sell subscriptions, or provide network endpoints.
+
+Use Mish only for lawful, authorized purposes and comply with the laws and
+third-party terms that apply in your location. If you believe Mish or any
+material in this repository infringes your rights, contact the project
+maintainers. Do not include sensitive or personal information in a public
+report. This repository provides engineering documentation, not legal advice;
+see [DISCLAIMER.md](DISCLAIMER.md).
 
 Mish is local-first, not network-isolated. User profiles, Mihomo, provider
 updates, delay tests, service probes, and remote service icons can make outbound
@@ -104,5 +104,3 @@ in [`development.md`](development.md) and the
 Mish-authored source is licensed under
 [GPL-3.0-only](LICENSE). Third-party components and assets retain their own
 licenses and notices; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-These public-release materials are engineering documentation, not legal advice.
-See [DISCLAIMER.md](DISCLAIMER.md).

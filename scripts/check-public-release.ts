@@ -189,6 +189,21 @@ includesAll(
   ],
   "README.md",
 );
+const readmeOpening = readme.slice(0, readme.indexOf("> [!IMPORTANT]"));
+for (const deferredDetail of [
+  "Mihomo",
+  "neutral",
+  "experimental",
+  "MetaCubeX",
+  "lawful",
+  "infringes",
+  "legal advice",
+]) {
+  invariant(
+    !readmeOpening.includes(deferredDetail),
+    `README.md opening must defer ${deferredDetail} to Security and privacy.`,
+  );
+}
 for (const technicalDetail of [
   "MISH_MIHOMO_BIN",
   "v1.19.29",
@@ -230,6 +245,21 @@ includesAll(
   ],
   "README.zh-CN.md",
 );
+const chineseReadmeOpening = chineseReadme.slice(0, chineseReadme.indexOf("> [!IMPORTANT]"));
+for (const deferredDetail of [
+  "Mihomo",
+  "中立",
+  "实验性",
+  "MetaCubeX",
+  "合法",
+  "侵犯",
+  "法律建议",
+]) {
+  invariant(
+    !chineseReadmeOpening.includes(deferredDetail),
+    `README.zh-CN.md opening must defer ${deferredDetail} to 安全与隐私.`,
+  );
+}
 for (const technicalDetail of [
   "MISH_MIHOMO_BIN",
   "v1.19.29",

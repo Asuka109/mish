@@ -6,19 +6,9 @@
 
 **Mish 是一个用于本地流量转发、配置管理与诊断的跨平台客户端。**
 
-Mish 是一个围绕本地管理的 [Mihomo](https://github.com/MetaCubeX/mihomo)
-Core 构建的中立实验性项目。界面使用 React 和 TypeScript 构建，并通过 Tauri
-和 Rust 实现平台集成。Mish 采用 GPL-3.0-only
-许可证，与 MetaCubeX 不存在隶属、背书或官方客户端关系。
-
 > [!IMPORTANT]
 > Mish 尚无稳定公开版本。已完成的打包就绪审计选定了仅使用系统代理的首个
 > macOS 公开版本，但发布准备和验收尚未完成。详情请参阅[公开发布审查](docs/legal/public-release-review.md)。
-
-Mish 仅提供客户端软件。项目不运营托管代理或 VPN 服务，不销售订阅，也不提供网络端点。
-
-请仅将 Mish 用于合法且已获授权的用途，并遵守所在地区适用的法律及第三方条款。如果您认为
-Mish 或本仓库中的任何材料侵犯了您的权利，请联系项目维护者。请勿在公开报告中包含敏感信息或个人信息。
 
 ## Mish 可以做什么
 
@@ -49,6 +39,16 @@ Mish 或本仓库中的任何材料侵犯了您的权利，请联系项目维护
 
 ## 安全与隐私
 
+Mish 是一个围绕本地管理的 [Mihomo](https://github.com/MetaCubeX/mihomo)
+Core 构建的中立实验性项目。界面使用 React 和 TypeScript 构建，并通过 Tauri
+和 Rust 实现平台集成。Mish 与 MetaCubeX 不存在隶属、背书或官方客户端关系。
+
+Mish 仅提供客户端软件。项目不运营托管代理或 VPN 服务，不销售订阅，也不提供网络端点。
+
+请仅将 Mish 用于合法且已获授权的用途，并遵守所在地区适用的法律及第三方条款。如果您认为
+Mish 或本仓库中的任何材料侵犯了您的权利，请联系项目维护者。请勿在公开报告中包含敏感信息或个人信息。本仓库提供的是工程文档，不构成法律建议；另请参阅
+[DISCLAIMER.md](DISCLAIMER.md)。
+
 Mish 以本地运行为主，但并非与网络隔离。用户配置、Mihomo、提供者更新、延迟测试、服务探测和远程服务图标可能发起出站请求。当前仓库没有配置遥测、托管账户服务、崩溃报告器或自动更新器。
 
 报告安全问题前请阅读 [SECURITY.md](SECURITY.md)，当前存储、网络、导出和删除行为请参阅
@@ -76,5 +76,4 @@ Mish 以本地运行为主，但并非与网络隔离。用户配置、Mihomo、
 
 Mish 原创源代码采用 [GPL-3.0-only](LICENSE)
 许可。第三方组件和资源保留其各自的许可证与通知；详情请参阅
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。这些公开发布材料属于工程文档，不构成法律建议。另请参阅
-[DISCLAIMER.md](DISCLAIMER.md)。
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
