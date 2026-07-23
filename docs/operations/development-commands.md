@@ -60,24 +60,25 @@ Install the repository-pinned Chromium once with
 
 ## Checks
 
-| Command             | Coverage                                                  |
-| ------------------- | --------------------------------------------------------- |
-| `check`             | Alias for `check:pr`.                                     |
-| `check:pr`          | Bounded pull-request gate used by CI.                     |
-| `check:all`         | Complete non-browser validation used by main inspection.  |
-| `check:types`       | TypeScript type checks followed by Cargo workspace check. |
-| `check:types:ts`    | TypeScript packages only.                                 |
-| `check:rust`        | Cargo workspace check.                                    |
-| `check:rust:format` | Rust formatting.                                          |
-| `check:rust:clippy` | Clippy with warnings denied.                              |
-| `check:format`      | Repository formatting without writing changes.            |
-| `check:lint`        | TypeScript and JavaScript lint.                           |
-| `check:i18n`        | Generated localization contract.                          |
-| `check:android`     | Generated Android project contract.                       |
-| `check:tokens`      | Generated design-token contract.                          |
-| `check:design`      | `DESIGN.md` contract lint.                                |
-| `check:docs`        | Local Markdown links.                                     |
-| `check:ci`          | CI workflow contract.                                     |
+| Command                | Coverage                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `check`                | Alias for `check:pr`.                                                        |
+| `check:pr`             | Bounded pull-request gate used by CI.                                        |
+| `check:all`            | Complete non-browser validation used by main inspection.                     |
+| `check:types`          | TypeScript type checks followed by Cargo workspace check.                    |
+| `check:types:ts`       | TypeScript packages only.                                                    |
+| `check:rust`           | Cargo workspace check.                                                       |
+| `check:rust:format`    | Rust formatting.                                                             |
+| `check:rust:clippy`    | Clippy with warnings denied.                                                 |
+| `check:format`         | Repository formatting without writing changes.                               |
+| `check:lint`           | TypeScript and JavaScript lint.                                              |
+| `check:i18n`           | Generated localization contract.                                             |
+| `check:android`        | Generated Android project contract.                                          |
+| `check:tokens`         | Generated design-token contract.                                             |
+| `check:design`         | `DESIGN.md` contract lint.                                                   |
+| `check:docs`           | Local Markdown links and public-release contracts.                           |
+| `check:public-release` | Public files, packaged notices, metadata, attribution, and claim boundaries. |
+| `check:ci`             | CI workflow contract.                                                        |
 
 `pnpm format` is the intentional write-mode counterpart to
 `pnpm check:format`.

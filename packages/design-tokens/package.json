@@ -2,6 +2,7 @@
   "name": "@mish/design-tokens",
   "version": "0.1.0",
   "private": true,
+  "license": "GPL-3.0-only",
   "files": [
     "src/tokens.css"
   ],

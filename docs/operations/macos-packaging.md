@@ -21,7 +21,9 @@ Tauri resource configuration and builds `Mish.app`. Keeping generated resources
 out of the base Tauri configuration lets clean validation builds remain offline.
 The post-build verifier checks the stable application identifier, ARM64
 architecture, exact uncompressed Core checksum and version, complete
-byte-for-byte offline Web resource mirror, and code-signing structure. Ad-hoc
+byte-for-byte offline Web resource mirror, the repository's `LICENSE`,
+`THIRD_PARTY_NOTICES.md`, `PRIVACY.md`, and `DISCLAIMER.md`, and code-signing
+structure. Ad-hoc
 packages must contain no privileged artifact. Developer ID packages additionally
 require the exact sealed helper and LaunchDaemon layout, Developer ID
 application/helper identifiers and team, helper/protocol versions, and no
@@ -37,7 +39,10 @@ registers or launches the LaunchDaemon.
 GitHub Actions wraps the app with `ditto` as `Mish-<short-sha>.app.zip` and
 uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a
 test package: an ad-hoc signature is not an Apple identity, is not notarized,
-and does not make the TUN helper available.
+does not make the TUN helper available, and is not a stable public release.
+Before any public distribution, reconcile the
+[public-release review](../legal/public-release-review.md) and the completed
+packaging-readiness audit.
 
 ## Download and launch a test package
 

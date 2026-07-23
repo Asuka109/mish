@@ -2,6 +2,7 @@
   "name": "@mish/desktop",
   "version": "0.1.0",
   "private": true,
+  "license": "GPL-3.0-only",
   "scripts": {
     "build": "tauri build --no-bundle --features custom-protocol",
     "bundle:macos": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json",

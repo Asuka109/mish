@@ -1,27 +1,95 @@
 # Third-Party Notices
 
-Mish is independent software and is not affiliated with MetaCubeX. Mish source
-code and test packages are distributed under GPL-3.0-only. The complete license
-text is included in `LICENSE` and in every macOS test application bundle.
+Mish is independent software. It is not affiliated with, endorsed by, sponsored
+by, or an official client of MetaCubeX, Highsoft, Remix Design, Unsplash, or any
+other project or service named below.
+
+Mish-authored source is distributed under GPL-3.0-only. Third-party software,
+artwork, icons, names, and trademarks retain their own licenses and ownership.
+This document identifies material direct dependencies and packaged assets; it
+is not a substitute for a complete, artifact-specific license inventory.
+`pnpm-lock.yaml`, `Cargo.lock`, and the Mobile Core SBOM record exact dependency
+versions.
 
 ## Mihomo
 
-The Apple Silicon macOS test bundle includes the following unmodified upstream
-executable:
+The Apple Silicon macOS test bundle includes the upstream release executable.
+Packaging adds the selected macOS code signature but does not modify its
+program source:
 
-- Project: Mihomo
+- Project: [Mihomo](https://github.com/MetaCubeX/mihomo)
 - Copyright: MetaCubeX and Mihomo contributors
-- Upstream: https://github.com/MetaCubeX/mihomo
-- Version: v1.19.29
-- Source commit: e26714a181ac0e2fa803453c0a8e9a9ce94e31cb
-- License: GPL-3.0
-- Corresponding source: https://github.com/MetaCubeX/mihomo/tree/v1.19.29
+- Version: `v1.19.29`
+- Source commit: [`e26714a181ac0e2fa803453c0a8e9a9ce94e31cb`](https://github.com/MetaCubeX/mihomo/commit/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb)
+- License: [GNU GPL version 3](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/LICENSE)
+- Corresponding source: [tag `v1.19.29`](https://github.com/MetaCubeX/mihomo/tree/v1.19.29)
+
+The upstream README asks unaffiliated downstream projects not to include the
+word “mihomo” in their names. The downstream project name is **Mish**. Technical
+documentation uses the upstream name only to identify the Core, Controller API,
+source, and artifacts.
 
 The Mish source corresponding to a test package is the repository revision
 identified by the package workflow and archive name:
-https://github.com/Asuka109/mish
+[github.com/Asuka109/mish](https://github.com/Asuka109/mish).
 
 The source-built, untracked Android Mobile Core artifacts use the same Mihomo
-version and exact source commit. Their reproducible build inputs, checksums,
-GPL-3.0-only notice, corresponding-source location, and SPDX SBOM are recorded in
-`mobile-core/evidence/android-v1.19.29/`.
+version and source commit. Reproducible build inputs, checksums, the
+GPL-3.0-only notice, corresponding-source location, and SPDX SBOM are recorded
+under [`mobile-core/evidence/android-v1.19.29`](mobile-core/evidence/android-v1.19.29).
+The current SBOM contains unresolved `NOASSERTION` dependency-license fields and
+must not be described as complete license clearance.
+
+## Material application dependencies
+
+The following projects are material direct dependencies of the current
+application. Their complete transitive graphs and exact installed versions are
+recorded in the lockfiles.
+
+| Project                                                   | Use                                                                | Declared license or terms                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------- |
+| [Tauri](https://github.com/tauri-apps/tauri)              | Desktop/mobile shell, application APIs, plugins, and build tooling | MIT OR Apache-2.0                                             |
+| [React](https://github.com/facebook/react)                | Web interface runtime                                              | MIT                                                           |
+| [React Router](https://github.com/remix-run/react-router) | Interface routing                                                  | MIT                                                           |
+| [Base UI](https://github.com/mui/base-ui)                 | Accessible unstyled interface primitives                           | MIT                                                           |
+| [Phosphor Icons](https://github.com/phosphor-icons/react) | Bundled interface icon components                                  | MIT                                                           |
+| [Lucide](https://github.com/lucide-icons/lucide)          | Bundled interface icon components                                  | ISC                                                           |
+| [Sonner](https://github.com/emilkowalski/sonner)          | In-application transient notifications                             | MIT                                                           |
+| [Highcharts](https://github.com/highcharts/highcharts)    | Bundled Status traffic sparkline                                   | [Separate Highsoft terms](https://www.highcharts.com/license) |
+
+Highcharts package metadata does not declare an open-source license identifier;
+it links to Highsoft's separate terms. This repository contains no evidence of
+a commercial or OEM license grant or a GPL-compatible exception. No such right
+is inferred. Public binary distribution is blocked until the maintainer and
+qualified counsel confirm compatible rights or the dependency is replaced.
+
+Rust application dependencies include Tauri, Tokio, Axum, Reqwest, Serde, and
+their transitive dependency graphs under their declared licenses. Before public
+binary distribution, the exact target artifact needs a generated and reviewed
+license/notice collection rather than relying only on this summary. The
+development-only `bbolt-rs` registry manifest currently reports no SPDX license
+identifier and also requires provenance review.
+
+## Icons, artwork, and names
+
+Mish brand geometry and generated platform icons under
+[`packages/brand-assets`](packages/brand-assets) are repository assets.
+
+The bundled onboarding cover is
+[“Retro beige computer model centered on a minimalist background”](https://unsplash.com/photos/SgeRfp8xdfo)
+by [Petri R](https://unsplash.com/@petrirh1), obtained under the
+[Unsplash License](https://unsplash.com/license).
+
+Default service icons are not bundled. The application requests selected SVGs
+from the `remixicon@4.9.1` package through `registry.npmmirror.com` at runtime.
+The npm package metadata declares Apache-2.0, while the current upstream
+`v4.9.1` source tag displays the
+[Remix Icon License v1.0](https://github.com/Remix-Design/RemixIcon/blob/v4.9.1/License),
+which contains additional restrictions and identifies possible strong-copyleft
+incompatibility. The maintainer must reconcile the exact applicable terms before
+public distribution. See [PRIVACY.md](PRIVACY.md) for the related network
+request.
+
+Service names and brand icons identify user-configurable reachability-test
+targets. They do not imply affiliation, endorsement, availability, or
+compatibility.

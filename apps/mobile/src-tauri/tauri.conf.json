@@ -31,6 +31,12 @@
   "bundle": {
     "active": true,
     "category": "Utility",
-    "icon": ["../../../packages/brand-assets/generated/tauri/icon.png"]
+    "icon": ["../../../packages/brand-assets/generated/tauri/icon.png"],
+    "resources": {
+      "../../../DISCLAIMER.md": "DISCLAIMER.md",
+      "../../../LICENSE": "LICENSE",
+      "../../../PRIVACY.md": "PRIVACY.md",
+      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+    }
   }
 }
