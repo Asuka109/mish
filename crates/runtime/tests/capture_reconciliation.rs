@@ -207,6 +207,7 @@ struct FakePlatform {
     listener_test_count: Mutex<usize>,
     fail_observations_remaining: Mutex<usize>,
     observe_count: Mutex<usize>,
+    preflight_observe_count: Mutex<usize>,
     stale_active_observation_on_next_apply: Mutex<Option<(usize, NetworkServiceProxyState)>>,
     stale_active_observations_after_apply: Mutex<(usize, Option<NetworkServiceProxyState>)>,
     stale_service_observation_after_apply: Mutex<Option<NetworkServiceProxyState>>,
@@ -232,6 +233,7 @@ impl FakePlatform {
             listener_test_count: Mutex::new(0),
             fail_observations_remaining: Mutex::new(0),
             observe_count: Mutex::new(0),
+            preflight_observe_count: Mutex::new(0),
             stale_active_observation_on_next_apply: Mutex::new(None),
             stale_active_observations_after_apply: Mutex::new((0, None)),
             stale_service_observation_after_apply: Mutex::new(None),
@@ -295,6 +297,10 @@ impl FakePlatform {
         *self.observe_count.lock().unwrap()
     }
 
+    fn preflight_observe_count(&self) -> usize {
+        *self.preflight_observe_count.lock().unwrap()
+    }
+
     fn listener_test_count(&self) -> usize {
         *self.listener_test_count.lock().unwrap()
     }
@@ -318,6 +324,13 @@ impl FakePlatform {
 }
 
 impl CapturePlatform for FakePlatform {
+    fn preflight_observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        *self.preflight_observe_count.lock().unwrap() += 1;
+        self.observe_active()
+    }
+
     fn observe_active(
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
@@ -2077,6 +2090,93 @@ async fn listener_readiness_failure_never_modifies_system_proxy_or_reports_succe
         SystemProxyPhase::Failed
     );
     assert!(!reconciler.status().system_proxy_enabled);
+}
+
+#[tokio::test]
+async fn prepared_launch_revalidates_the_complete_system_proxy_fingerprint_before_mutation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+    let request = CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    };
+    let preflight = reconciler.preflight(&request).await.unwrap();
+    assert_eq!(platform.preflight_observe_count(), 1);
+    platform.replace_service(NetworkServiceProxyState {
+        http: ManualProxyState {
+            host: "changed.proxy.invalid".into(),
+            ..ManualProxyState::disabled()
+        },
+        ..disabled_service()
+    });
+
+    let error = reconciler
+        .reconcile_with_preflight(request, true, preflight)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ExternalDrift);
+    assert_eq!(platform.listener_test_count(), 1);
+    assert_eq!(platform.preflight_observe_count(), 1);
+    assert_eq!(
+        platform.observe_count(),
+        2,
+        "final validation must use the authoritative observation path"
+    );
+    assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
+    assert_eq!(
+        reconciler.status().system_proxy.phase,
+        SystemProxyPhase::Drift
+    );
+    assert!(!reconciler.status().system_proxy_enabled);
+}
+
+#[tokio::test]
+async fn prepared_launch_still_requires_listener_readiness_before_final_observation_or_mutation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+    let request = CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    };
+    let preflight = reconciler.preflight(&request).await.unwrap();
+    assert_eq!(platform.observe_count(), 1);
+    platform.set_listener_ready(false);
+
+    let error = reconciler
+        .reconcile_with_preflight(request, true, preflight)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ListenerUnavailable
+    );
+    assert_eq!(platform.listener_test_count(), 1);
+    assert_eq!(
+        platform.observe_count(),
+        1,
+        "final state must not become mutation authority before listener readiness"
+    );
+    assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
 }
 
 #[tokio::test]

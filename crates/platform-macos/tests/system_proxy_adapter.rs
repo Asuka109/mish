@@ -1,6 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
-use futures_util::future::{BoxFuture, ready};
+use futures_util::{
+    FutureExt,
+    future::{BoxFuture, ready},
+};
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsCommand, MacOsCommandError, MacOsCommandOutput,
     MacOsCommandRunner, MacOsProxyKind, MacOsSystemProxyPlatform,
@@ -9,6 +15,7 @@ use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState, SystemProxyPhase,
 };
+use tokio::sync::Barrier;
 
 struct FixtureRunner {
     commands: Mutex<Vec<MacOsCommand>>,
@@ -98,6 +105,135 @@ struct StatefulCrashRunner {
     crash_after_write: Mutex<Option<usize>>,
     state: Mutex<NetworkServiceProxyState>,
     writes: Mutex<usize>,
+}
+
+struct ConcurrentObservationRunner {
+    discovery: Barrier,
+    getters: Barrier,
+}
+
+struct FailingObservationRunner;
+
+struct SequentialObservationRunner {
+    in_flight: AtomicBool,
+}
+
+impl SequentialObservationRunner {
+    fn new() -> Self {
+        Self {
+            in_flight: AtomicBool::new(false),
+        }
+    }
+}
+
+impl ConcurrentObservationRunner {
+    fn new() -> Self {
+        Self {
+            discovery: Barrier::new(2),
+            getters: Barrier::new(6),
+        }
+    }
+}
+
+impl MacOsCommandRunner for ConcurrentObservationRunner {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        Box::pin(async move {
+            let stdout = match command {
+                MacOsCommand::DefaultRoute => {
+                    self.discovery.wait().await;
+                    "route to: default\ninterface: en99\n"
+                }
+                MacOsCommand::ListNetworkServiceOrder => {
+                    self.discovery.wait().await;
+                    "(1) Fixture Service\n(Hardware Port: Fixture Port, Device: en99)\n"
+                }
+                MacOsCommand::GetProxy { .. } => {
+                    self.getters.wait().await;
+                    "Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n"
+                }
+                MacOsCommand::GetAutoProxyUrl { .. } => {
+                    self.getters.wait().await;
+                    "URL: (null)\nEnabled: No\n"
+                }
+                MacOsCommand::GetProxyBypassDomains { .. } => {
+                    self.getters.wait().await;
+                    "There aren't any bypass domains set on Fixture Service.\n"
+                }
+                MacOsCommand::GetProxyAutoDiscovery { .. } => {
+                    self.getters.wait().await;
+                    "Auto Proxy Discovery: Off\n"
+                }
+                _ => panic!("mutation command reached read-only observation fixture"),
+            };
+            Ok(MacOsCommandOutput {
+                stdout: stdout.into(),
+            })
+        })
+    }
+}
+
+impl MacOsCommandRunner for FailingObservationRunner {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        match command {
+            MacOsCommand::DefaultRoute => Box::pin(ready(Ok(MacOsCommandOutput {
+                stdout: "route to: default\ninterface: en99\n".into(),
+            }))),
+            MacOsCommand::ListNetworkServiceOrder => Box::pin(ready(Ok(MacOsCommandOutput {
+                stdout: "(1) Fixture Service\n(Hardware Port: Fixture Port, Device: en99)\n".into(),
+            }))),
+            MacOsCommand::GetProxy {
+                kind: MacOsProxyKind::Http,
+                ..
+            } => Box::pin(ready(Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::Failed,
+            }))),
+            MacOsCommand::GetProxy { .. }
+            | MacOsCommand::GetAutoProxyUrl { .. }
+            | MacOsCommand::GetProxyAutoDiscovery { .. }
+            | MacOsCommand::GetProxyBypassDomains { .. } => Box::pin(std::future::pending()),
+            _ => panic!("mutation command reached failing read-only observation fixture"),
+        }
+    }
+}
+
+impl MacOsCommandRunner for SequentialObservationRunner {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        Box::pin(async move {
+            assert!(
+                !self.in_flight.swap(true, Ordering::SeqCst),
+                "authoritative System Proxy observation ran commands concurrently"
+            );
+            tokio::task::yield_now().await;
+            let stdout = match command {
+                MacOsCommand::DefaultRoute => "route to: default\ninterface: en99\n",
+                MacOsCommand::ListNetworkServiceOrder => {
+                    "(1) Fixture Service\n(Hardware Port: Fixture Port, Device: en99)\n"
+                }
+                MacOsCommand::GetProxy { .. } => {
+                    "Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n"
+                }
+                MacOsCommand::GetAutoProxyUrl { .. } => "URL: (null)\nEnabled: No\n",
+                MacOsCommand::GetProxyBypassDomains { .. } => {
+                    "There aren't any bypass domains set on Fixture Service.\n"
+                }
+                MacOsCommand::GetProxyAutoDiscovery { .. } => "Auto Proxy Discovery: Off\n",
+                _ => panic!("mutation command reached authoritative observation fixture"),
+            };
+            self.in_flight.store(false, Ordering::SeqCst);
+            Ok(MacOsCommandOutput {
+                stdout: stdout.into(),
+            })
+        })
+    }
 }
 
 impl StatefulCrashRunner {
@@ -403,6 +539,63 @@ async fn applies_structured_manual_automatic_and_bypass_proxy_commands() {
             },
         ]
     );
+}
+
+#[tokio::test]
+async fn active_service_discovery_and_proxy_getters_run_in_independent_parallel_groups() {
+    let platform =
+        MacOsSystemProxyPlatform::with_runner(Arc::new(ConcurrentObservationRunner::new()));
+
+    let observed = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        platform.preflight_observe_active(),
+    )
+    .await
+    .expect("independent read-only macOS commands ran serially")
+    .unwrap();
+
+    assert_eq!(
+        observed,
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
+            http: ManualProxyState::disabled(),
+            https: ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "Fixture Service".into(),
+            socks: ManualProxyState::disabled(),
+        }
+    );
+}
+
+#[tokio::test]
+async fn active_service_observation_returns_the_first_parallel_getter_failure() {
+    let platform = MacOsSystemProxyPlatform::with_runner(Arc::new(FailingObservationRunner));
+
+    let error = platform
+        .preflight_observe_active()
+        .now_or_never()
+        .expect("parallel System Proxy observation waited for unrelated pending getters")
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ObservationFailed
+    );
+}
+
+#[tokio::test]
+async fn authoritative_active_service_observation_reads_one_coherent_snapshot_serially() {
+    let platform =
+        MacOsSystemProxyPlatform::with_runner(Arc::new(SequentialObservationRunner::new()));
+
+    let observed = platform.observe_active().await.unwrap();
+
+    assert_eq!(observed.service_id, "Fixture Service");
+    assert_eq!(observed.http, ManualProxyState::disabled());
+    assert_eq!(observed.https, ManualProxyState::disabled());
+    assert_eq!(observed.socks, ManualProxyState::disabled());
 }
 
 #[tokio::test]

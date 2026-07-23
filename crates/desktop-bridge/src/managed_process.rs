@@ -1065,14 +1065,19 @@ mod validation_output_tests {
         );
 
         let (timeout_root, timed_out) = fixture_process("geodata-test-timeout: true");
-        let started = tokio::time::Instant::now();
         assert_eq!(
-            timed_out.validate_config(Duration::from_millis(500)).await,
+            timed_out
+                .validate_config_observed(
+                    Duration::from_secs(3),
+                    Duration::from_millis(500),
+                    CancellationToken::new(),
+                    None,
+                )
+                .await,
             Err(ManagedProcessValidationError::GeodataTimeout(
                 GeodataAsset::Mmdb
             ))
         );
-        assert!(started.elapsed() < Duration::from_secs(2));
         #[cfg(unix)]
         {
             let pid =

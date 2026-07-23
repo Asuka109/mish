@@ -4,7 +4,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use mish_profile::{
@@ -466,6 +466,7 @@ impl ProfileActivationCoordinator {
                 "Mish is shutting down and cannot accept a new proxy launch",
             ));
         }
+        let launch_started = Instant::now();
         let before = self
             .host
             .current()
@@ -474,7 +475,8 @@ impl ProfileActivationCoordinator {
         let selection =
             usable_capture_selection(before.adapter_kind, &before.capabilities, selection)?;
         if before.runtime.system_proxy_enabled || before.runtime.tun_enabled {
-            return self
+            let capture_started = Instant::now();
+            let result = self
                 .set_capture_inner(
                     CaptureRequest {
                         active: true,
@@ -483,52 +485,181 @@ impl ProfileActivationCoordinator {
                     adapter_kind,
                 )
                 .await;
+            self.record_launch_timing(
+                launch_started,
+                Duration::ZERO,
+                Duration::ZERO,
+                Duration::ZERO,
+                capture_started.elapsed(),
+                if result.is_ok() {
+                    "already-running"
+                } else {
+                    "capture-failed"
+                },
+            );
+            return result;
         }
         let request = CaptureRequest {
             active: true,
             selection,
         };
         let prior_capture = self.host.current().publish_capture_pending(&request);
+        let activation_started = Instant::now();
         let mut activation_started_for_launch = false;
-        let result = async {
-            let current = self.activation_snapshot().await;
-            let activation = if current.phase == ProfileActivationPhase::Success
-                && profile_id.is_none_or(|profile_id| {
-                    current.active_profile_id.as_deref() == Some(profile_id)
-                }) {
-                current
-            } else if let Some(profile_id) = profile_id {
-                let activation = self
-                    .activate(command_id, profile_id)
-                    .await
-                    .map_err(profile_launch_error)?;
+        let current = self.activation_snapshot().await;
+        let activation = if current.phase == ProfileActivationPhase::Success
+            && profile_id
+                .is_none_or(|profile_id| current.active_profile_id.as_deref() == Some(profile_id))
+        {
+            Ok(current)
+        } else if let Some(profile_id) = profile_id {
+            let activation = self
+                .activate(command_id, profile_id)
+                .await
+                .map_err(profile_launch_error);
+            if let Ok(activation) = &activation {
                 activation_started_for_launch =
                     activation.command_id.as_deref() == Some(command_id);
-                activation
-            } else {
-                let activation = self
-                    .activate_last_successful_profile(command_id)
-                    .await
-                    .map_err(profile_launch_error)?;
-                activation_started_for_launch =
-                    activation.command_id.as_deref() == Some(command_id);
-                activation
-            };
-            let completed = if activation.phase == ProfileActivationPhase::Pending {
-                self.wait_for_terminal_activation(command_id).await?
-            } else {
-                activation
-            };
-            if completed.phase != ProfileActivationPhase::Success {
-                return Err(CaptureTransitionError::new(
-                    CaptureFailureKind::RuntimeTransition,
-                    "Profile activation failed before Capture could be applied",
-                ));
             }
-            self.set_capture_inner(request, adapter_kind).await
-        }
-        .await;
-        let mut result = result;
+            activation
+        } else {
+            let activation = self
+                .activate_last_successful_profile(command_id)
+                .await
+                .map_err(profile_launch_error);
+            if let Ok(activation) = &activation {
+                activation_started_for_launch =
+                    activation.command_id.as_deref() == Some(command_id);
+            }
+            activation
+        };
+        let activation = match activation {
+            Ok(activation) => activation,
+            Err(error) => {
+                self.record_launch_timing(
+                    launch_started,
+                    activation_started.elapsed(),
+                    Duration::ZERO,
+                    activation_started.elapsed(),
+                    Duration::ZERO,
+                    "profile-failed",
+                );
+                if let Some(prior_capture) = prior_capture {
+                    self.host.current().restore_capture_status(prior_capture);
+                }
+                return Err(error);
+            }
+        };
+        let activation_pending = activation.phase == ProfileActivationPhase::Pending;
+        let activation = async {
+            let result = if activation_pending {
+                self.wait_for_terminal_activation(command_id).await
+            } else {
+                Ok(activation)
+            };
+            (result, activation_started.elapsed())
+        };
+        let preflight_request = request.clone();
+        let preflight_started = Instant::now();
+        let preflight = async {
+            let result = self.host.preflight_capture(&preflight_request).await;
+            (result, preflight_started.elapsed())
+        };
+        tokio::pin!(activation);
+        tokio::pin!(preflight);
+        let prepared = tokio::select! {
+            (completed, activation_elapsed) = &mut activation => {
+                match completed {
+                    Ok(completed) if completed.phase == ProfileActivationPhase::Success => {
+                        let (preflight, preflight_elapsed) = preflight.await;
+                        preflight.map(|preflight| (preflight, activation_elapsed, preflight_elapsed))
+                    }
+                    Ok(_) | Err(_) => Err(CaptureTransitionError::new(
+                        CaptureFailureKind::RuntimeTransition,
+                        "Profile activation failed before Capture could be applied",
+                    )),
+                }
+            }
+            (preflight, preflight_elapsed) = &mut preflight => {
+                match preflight {
+                    Ok(preflight) => {
+                        let (completed, activation_elapsed) = activation.await;
+                        match completed {
+                            Ok(completed) if completed.phase == ProfileActivationPhase::Success => {
+                                Ok((preflight, activation_elapsed, preflight_elapsed))
+                            }
+                            Ok(_) | Err(_) => Err(CaptureTransitionError::new(
+                                CaptureFailureKind::RuntimeTransition,
+                                "Profile activation failed before Capture could be applied",
+                            )),
+                        }
+                    }
+                    Err(error) => {
+                        if activation_pending {
+                            let _ = self.cancel(command_id).await;
+                            let _ = activation.await;
+                        }
+                        Err(error)
+                    }
+                }
+            }
+        };
+        let preparation_wall = activation_started.elapsed();
+        let (mut result, activation_elapsed, preflight_elapsed, capture_elapsed, mut outcome) =
+            match prepared {
+                Err(error) => {
+                    let outcome = if error.kind == CaptureFailureKind::RuntimeTransition {
+                        "profile-failed"
+                    } else {
+                        "preflight-failed"
+                    };
+                    (
+                        Err(error),
+                        preparation_wall,
+                        preflight_started.elapsed(),
+                        Duration::ZERO,
+                        outcome,
+                    )
+                }
+                Ok((_, activation_elapsed, preflight_elapsed))
+                    if self.shutting_down.load(Ordering::Acquire) =>
+                {
+                    (
+                        Err(CaptureTransitionError::new(
+                            CaptureFailureKind::RuntimeTransition,
+                            "Mish is shutting down and cannot apply a prepared proxy launch",
+                        )),
+                        activation_elapsed,
+                        preflight_elapsed,
+                        Duration::ZERO,
+                        "cancelled",
+                    )
+                }
+                Ok((preflight, activation_elapsed, preflight_elapsed)) => {
+                    let capture_started = Instant::now();
+                    let result = if !activation_started_for_launch
+                        && before.runtime.tun_enabled != request.selection.tun
+                    {
+                        self.set_capture_inner(request, adapter_kind).await
+                    } else {
+                        self.host
+                            .set_capture_with_preflight(request, adapter_kind, preflight)
+                            .await
+                    };
+                    let outcome = if result.is_ok() {
+                        "success"
+                    } else {
+                        "capture-failed"
+                    };
+                    (
+                        result,
+                        activation_elapsed,
+                        preflight_elapsed,
+                        capture_started.elapsed(),
+                        outcome,
+                    )
+                }
+            };
         let mut restore_prior_capture = true;
         if result.is_err() && activation_started_for_launch {
             let activation = self.activation_snapshot().await;
@@ -547,6 +678,7 @@ impl ProfileActivationCoordinator {
                     Err(rollback_error) => {
                         result = Err(rollback_error);
                         restore_prior_capture = false;
+                        outcome = "rollback-failed";
                     }
                 }
             }
@@ -557,7 +689,50 @@ impl ProfileActivationCoordinator {
         {
             self.host.current().restore_capture_status(prior_capture);
         }
+        self.record_launch_timing(
+            launch_started,
+            activation_elapsed,
+            preflight_elapsed,
+            preparation_wall,
+            capture_elapsed,
+            outcome,
+        );
         result
+    }
+
+    fn record_launch_timing(
+        &self,
+        launch_started: Instant,
+        profile_core: Duration,
+        system_proxy_preflight: Duration,
+        preparation_wall: Duration,
+        listener_journal_mutation_confirmation: Duration,
+        outcome: &'static str,
+    ) {
+        let duration_ms =
+            |duration: Duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+        let overlap = profile_core
+            .saturating_add(system_proxy_preflight)
+            .saturating_sub(preparation_wall);
+        let detail = serde_json::json!({
+            "listenerJournalMutationConfirmationMs": duration_ms(
+                listener_journal_mutation_confirmation
+            ),
+            "outcome": outcome,
+            "overlapMs": duration_ms(overlap),
+            "preparationWallMs": duration_ms(preparation_wall),
+            "profileCoreMs": duration_ms(profile_core),
+            "schemaVersion": 1,
+            "systemProxyPreflightMs": duration_ms(system_proxy_preflight),
+            "totalMs": duration_ms(launch_started.elapsed()),
+        })
+        .to_string();
+        self.host
+            .record_application_event(ApplicationDiagnosticEvent::with_owned_detail(
+                EventLevel::Debug,
+                "Launch Proxy timing",
+                detail,
+            ));
     }
 
     async fn rollback_failed_aggregate_activation(&self) -> Result<(), CaptureTransitionError> {
@@ -629,6 +804,19 @@ impl ProfileActivationCoordinator {
         request: CaptureRequest,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
+        if !request.active {
+            let pending_command = {
+                let state = self.state.lock().await;
+                (state.snapshot.phase == ProfileActivationPhase::Pending)
+                    .then(|| state.snapshot.command_id.clone())
+                    .flatten()
+            };
+            if let Some(command_id) = pending_command {
+                let _ = self.cancel(&command_id).await;
+            }
+            let _operation = self.proxy_operation.lock().await;
+            return self.set_capture_inner(request, adapter_kind).await;
+        }
         let _operation = self.proxy_operation.try_lock().map_err(|_| {
             CaptureTransitionError::new(
                 CaptureFailureKind::RuntimeTransition,
@@ -1034,6 +1222,7 @@ impl ProfileActivationCoordinator {
         if let Some(cancellation) = &self.state.lock().await.cancellation {
             cancellation.cancel();
         }
+        let _proxy_operation = self.proxy_operation.lock().await;
         let permit = match self.authority.try_acquire() {
             Ok(permit) => permit,
             Err(_) => {
@@ -1098,8 +1287,8 @@ impl ProfileActivationCoordinator {
         drop(state);
         if kind == ProfileActivationEvidenceKind::GeodataPreparing {
             let _ = self.host.publish_notification(NotificationPublication {
-                dedupe_key: geodata_notification_key(command_id),
-                notification_type: "profile.activation-geodata-progress".into(),
+                dedupe_key: geodata_notification_key(command_id, asset),
+                notification_type: geodata_progress_notification_type(asset).into(),
                 params: serde_json::json!({ "asset": asset }),
                 pinned: true,
                 replaces: Vec::new(),
@@ -1126,8 +1315,7 @@ impl ProfileActivationCoordinator {
         state.snapshot.phase = ProfileActivationPhase::Failure;
         let _ = self.updates.send(state.snapshot.clone());
         drop(state);
-        self.host
-            .resolve_notification(&geodata_notification_key(command_id));
+        resolve_geodata_notifications(&self.host, command_id, None);
         self.host
             .record_application_event(ApplicationDiagnosticEvent::new(
                 EventLevel::Error,
@@ -1212,8 +1400,7 @@ impl ProfileActivationCoordinator {
         }
         let _ = self.updates.send(state.snapshot.clone());
         drop(state);
-        self.host
-            .resolve_notification(&geodata_notification_key(command_id));
+        resolve_geodata_notifications(&self.host, command_id, None);
     }
 
     async fn finish_stop(&self, command_id: &str, result: Result<(), MihomoActivationError>) {
@@ -1459,8 +1646,55 @@ fn terminal_geodata_evidence(error: MihomoActivationError) -> Option<ProfileActi
     }
 }
 
-fn geodata_notification_key(command_id: &str) -> String {
-    format!("profile.activation-geodata-progress:{command_id}")
+fn geodata_notification_key(command_id: &str, asset: crate::GeodataAsset) -> String {
+    format!(
+        "profile.activation-geodata:{command_id}:{}",
+        geodata_asset_slug(asset)
+    )
+}
+
+fn geodata_asset_slug(asset: crate::GeodataAsset) -> &'static str {
+    match asset {
+        crate::GeodataAsset::GeoIp => "geoip",
+        crate::GeodataAsset::GeoSite => "geosite",
+        crate::GeodataAsset::Mmdb => "mmdb",
+        crate::GeodataAsset::Asn => "asn",
+    }
+}
+
+fn geodata_progress_notification_type(asset: crate::GeodataAsset) -> &'static str {
+    match asset {
+        crate::GeodataAsset::GeoIp => "profile.activation-geoip-progress",
+        crate::GeodataAsset::GeoSite => "profile.activation-geosite-progress",
+        crate::GeodataAsset::Mmdb => "profile.activation-mmdb-progress",
+        crate::GeodataAsset::Asn => "profile.activation-asn-progress",
+    }
+}
+
+fn geodata_failure_notification_type(asset: crate::GeodataAsset) -> &'static str {
+    match asset {
+        crate::GeodataAsset::GeoIp => "profile.activation-geoip-failed",
+        crate::GeodataAsset::GeoSite => "profile.activation-geosite-failed",
+        crate::GeodataAsset::Mmdb => "profile.activation-mmdb-failed",
+        crate::GeodataAsset::Asn => "profile.activation-asn-failed",
+    }
+}
+
+fn resolve_geodata_notifications(
+    host: &DesktopRuntimeHost,
+    command_id: &str,
+    except: Option<crate::GeodataAsset>,
+) {
+    for asset in [
+        crate::GeodataAsset::GeoIp,
+        crate::GeodataAsset::GeoSite,
+        crate::GeodataAsset::Mmdb,
+        crate::GeodataAsset::Asn,
+    ] {
+        if Some(asset) != except {
+            host.resolve_notification(&geodata_notification_key(command_id, asset));
+        }
+    }
 }
 
 fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnosticEvent {
@@ -1512,21 +1746,21 @@ fn publish_activation_failure_notification(
     command_id: &str,
     error: MihomoActivationError,
 ) {
-    if !matches!(
-        error,
-        MihomoActivationError::GeodataFailed(_) | MihomoActivationError::GeodataTimeout(_)
-    ) {
-        host.resolve_notification(&geodata_notification_key(command_id));
-    }
+    let failing_geodata = match error {
+        MihomoActivationError::GeodataFailed(asset)
+        | MihomoActivationError::GeodataTimeout(asset) => Some(asset),
+        _ => None,
+    };
+    resolve_geodata_notifications(host, command_id, failing_geodata);
     let (dedupe_key, notification_type, params) = match error {
         MihomoActivationError::GeodataFailed(asset) => (
-            geodata_notification_key(command_id),
-            "profile.activation-geodata-failed",
+            geodata_notification_key(command_id, asset),
+            geodata_failure_notification_type(asset),
             serde_json::json!({ "asset": asset, "outcome": "failed" }),
         ),
         MihomoActivationError::GeodataTimeout(asset) => (
-            geodata_notification_key(command_id),
-            "profile.activation-geodata-failed",
+            geodata_notification_key(command_id, asset),
+            geodata_failure_notification_type(asset),
             serde_json::json!({ "asset": asset, "outcome": "timeout" }),
         ),
         MihomoActivationError::ManagedListenerConflict(endpoint) => (
