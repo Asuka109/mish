@@ -1,0 +1,268 @@
+name: Stage macOS Alpha Draft
+
+run-name: Stage macOS Alpha ${{ inputs.version }}${{ inputs.dry_run && ' (dry run)' || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Prerelease SemVer matching the desktop base version (for example 0.1.0-alpha.1)
+        required: true
+        type: string
+      source_sha:
+        description: Optional full commit SHA reachable from main; blank freezes current main
+        required: false
+        type: string
+      dry_run:
+        description: Validate, build, inspect, and decide without creating a tag or Release
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-alpha-draft-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CI: true
+
+jobs:
+  freeze-source:
+    name: Freeze and validate source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      artifact_name: ${{ steps.source.outputs.artifact_name }}
+      base_version: ${{ steps.source.outputs.base_version }}
+      candidate_artifact_name: mish-alpha-candidate-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      tag: ${{ steps.source.outputs.tag }}
+      tooling_sha: ${{ steps.source.outputs.main_sha }}
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - name: Check out current main
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Resolve exact source and version
+        id: source
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          REQUESTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          arguments=(
+            resolve
+            --version "$RELEASE_VERSION"
+            --main-ref HEAD
+          )
+          if [[ -n "$REQUESTED_SOURCE_SHA" ]]; then
+            arguments+=(--source "$REQUESTED_SOURCE_SHA")
+          fi
+          node scripts/macos-alpha-release.ts "${arguments[@]}"
+      - name: Fail fast on conflicting tag or Release
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.source.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          node scripts/macos-alpha-release.ts plan \
+            --repository "$GITHUB_REPOSITORY" \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA"
+
+  verify-candidate:
+    name: Verify macOS Alpha candidate
+    needs: freeze-source
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-alpha-release
+          cache-on-failure: true
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run complete repository validation
+        run: pnpm check:all
+      - name: Build and inspect Alpha DMG
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm desktop:bundle:macos
+      - name: Generate versioned candidate, checksums, and metadata
+        env:
+          BASE_VERSION: ${{ needs.freeze-source.outputs.base_version }}
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          node .release-tooling/scripts/macos-alpha-release.ts prepare-artifacts \
+            --dmg "target/release/bundle/dmg/Mish_${BASE_VERSION}_aarch64.dmg" \
+            --output-directory target/release-candidate \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA"
+      - name: Upload verified staging candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.freeze-source.outputs.candidate_artifact_name }}
+          path: target/release-candidate/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  staging-decision:
+    name: Dry-run staging decision
+    needs:
+      - freeze-source
+      - verify-candidate
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      action: ${{ steps.decision.outputs.action }}
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Download verified staging candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.freeze-source.outputs.candidate_artifact_name }}
+          path: target/release-candidate
+      - name: Validate artifacts and decide staging
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          node .release-tooling/scripts/macos-alpha-release.ts plan \
+            --repository "$GITHUB_REPOSITORY" \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --artifact-directory target/release-candidate
+      - name: Write dry-run summary
+        env:
+          DECISION: ${{ steps.decision.outputs.action }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          {
+            echo "## macOS Alpha staging decision"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`$RELEASE_VERSION\` |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            echo "| Decision | \`$DECISION\` |"
+            echo "| Dry run | \`$DRY_RUN\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  stage-draft:
+    name: Create immutable tag and Draft Pre-release
+    if: ${{ inputs.dry_run == false }}
+    needs:
+      - freeze-source
+      - verify-candidate
+      - staging-decision
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Download verified staging candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.freeze-source.outputs.candidate_artifact_name }}
+          path: target/release-candidate
+      - name: Stage immutable tag and Draft Pre-release
+        id: staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          node .release-tooling/scripts/macos-alpha-release.ts stage \
+            --repository "$GITHUB_REPOSITORY" \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --artifact-directory target/release-candidate
+      - name: Write Draft summary
+        env:
+          RELEASE_URL: ${{ steps.staging.outputs.release_url }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          {
+            echo "## Draft Pre-release staged"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`$RELEASE_VERSION\` |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            echo "| Draft URL | $RELEASE_URL |"
+            echo "| Published | \`no\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
