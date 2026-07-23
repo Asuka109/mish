@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const roots = [
   "README.md",
+  "README.zh-CN.md",
   "CONTRIBUTING.md",
   "SECURITY.md",
   "PRIVACY.md",

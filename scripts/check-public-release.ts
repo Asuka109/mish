@@ -7,6 +7,7 @@ const projectLicense = "GPL-3.0-only";
 const canonicalGplV3Sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986";
 const requiredPublicFiles = [
   "README.md",
+  "README.zh-CN.md",
   "CONTRIBUTING.md",
   "SECURITY.md",
   "PRIVACY.md",
@@ -164,21 +165,65 @@ const readme = read("README.md");
 includesAll(
   readme,
   [
+    "[简体中文](README.zh-CN.md)",
     "neutral, experimental tool for local traffic forwarding, configuration management, and diagnostics",
     "does not have a stable public release",
     "not production distributions",
     "not affiliated with, endorsed by, or an official client",
     "does not operate a hosted proxy or VPN service",
-    "a successful run, artifact identity, and digest must be verified before testing",
+    "completed packaging-readiness audit selected a System Proxy-only first public macOS release",
+    "required signed no-helper distribution mode",
+    "missing current CI artifact evidence, not a product implementation blocker",
+    "no future Actions capacity is promised",
+    "A successful run, artifact identity, and digest must still be verified before testing",
     "The test package is ad-hoc signed unless release credentials are supplied.",
     "It does not yet establish a TUN interface or capture traffic.",
     "There is no complete shell, Packet Tunnel extension",
     "No supported package or completed native integration",
-    "Public distribution remains gated by the active packaging audit",
-    "third-party license review",
+    "It does not depend on a production privileged TUN helper.",
+    "A TUN-enabled distribution is a separate future path",
+    "planned explanatory interaction is not implemented in this repository revision",
+    "complete dependency-notice policies still require maintainer decisions and verification",
     "remote service icons can make outbound requests",
   ],
   "README.md",
+);
+
+includesAll(
+  read("README.zh-CN.md"),
+  [
+    "[English](README.md)",
+    "中立的实验性工具",
+    "本地流量转发、配置管理和诊断能力",
+    "尚无稳定公开版本",
+    "不是生产发行版",
+    "与 MetaCubeX 不存在隶属、背书或官方客户端关系",
+    "不运营托管代理或 VPN 服务",
+    "已完成的打包就绪审计",
+    "签名无辅助程序发行模式",
+    "当前缺少 CI 产物证据，但这不是产品实现阻塞项",
+    "不承诺未来的 Actions 容量",
+    "它不依赖生产特权 TUN 辅助程序",
+    "启用 TUN 的发行版是独立的后续路径",
+    "计划中的说明交互尚未在当前仓库修订中实现",
+    "它尚未建立 TUN 接口或捕获流量",
+    "仓库中没有受支持的软件包或已完成的原生集成",
+    "远程服务图标可能发起出站请求",
+  ],
+  "README.zh-CN.md",
+);
+
+includesAll(
+  read("docs/operations/macos-packaging.md"),
+  [
+    "completed packaging-readiness audit selected a System Proxy-only first public release",
+    "does not depend on a production privileged TUN helper",
+    "explicit signed no-helper distribution mode",
+    "This leaves current CI artifact evidence unavailable; it is not evidence of a product implementation failure",
+    "A TUN-enabled distribution remains a separate future path",
+    "does not claim that the planned explanatory interaction is implemented",
+  ],
+  "docs/operations/macos-packaging.md",
 );
 
 includesAll(

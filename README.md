@@ -1,5 +1,7 @@
 # Mish
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 ![Mish wordmark](packages/brand-assets/public/brand/mish-brand.svg)
 
 Mish is a neutral, experimental tool for local traffic forwarding,
@@ -12,9 +14,10 @@ client of MetaCubeX.
 > [!IMPORTANT]
 > Mish does not have a stable public release. Current macOS and Android
 > artifacts are short-lived test packages for development and verification,
-> not production distributions. Public distribution remains gated by the
-> active packaging audit, signing and notarization evidence, platform
-> acceptance, and third-party license review. See the
+> not production distributions. The completed packaging-readiness audit
+> selected a System Proxy-only first public macOS release, but the repository
+> does not yet provide the required signed no-helper distribution mode or
+> release evidence. See the
 > [public-release review](docs/legal/public-release-review.md).
 
 Mish is client software only. The project does not operate a hosted proxy or
@@ -38,13 +41,13 @@ any user-supplied configuration or remote service will work.
 
 ## Platform status
 
-| Target        | Evidence-backed status                                                                                                                                                                                                                                                                                               |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser       | Six-route offline demo backed by explicit fixtures. It does not connect to desktop RPC, start Mihomo, or change network settings.                                                                                                                                                                                    |
-| macOS         | Apple Silicon development and test-package path with an authenticated in-process bridge, managed Mihomo lifecycle, reversible System Proxy, native window and status-bar integration, and a separately installed development TUN service. The test package is ad-hoc signed unless release credentials are supplied. |
-| Android       | Installable Tauri shell, `VpnService` lifecycle prototype, and verified Mobile Core identity probe. It does not yet establish a TUN interface or capture traffic.                                                                                                                                                    |
-| iOS           | Architecture and validation contracts only. There is no complete shell, Packet Tunnel extension, signed-device path, or XCFramework packaging flow.                                                                                                                                                                  |
-| Windows/Linux | No supported package or completed native integration in this repository.                                                                                                                                                                                                                                             |
+| Target        | Evidence-backed status                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser       | Six-route offline demo backed by explicit fixtures. It does not connect to desktop RPC, start Mihomo, or change network settings.                                                                                                                                                                                                                                                                                             |
+| macOS         | Apple Silicon development and test-package path with an authenticated in-process bridge, managed Mihomo lifecycle, reversible System Proxy, native window and status-bar integration, and a separately installed development TUN service. The selected first public release is System Proxy-only; its signed no-helper package is not implemented. The test package is ad-hoc signed unless release credentials are supplied. |
+| Android       | Installable Tauri shell, `VpnService` lifecycle prototype, and verified Mobile Core identity probe. It does not yet establish a TUN interface or capture traffic.                                                                                                                                                                                                                                                             |
+| iOS           | Architecture and validation contracts only. There is no complete shell, Packet Tunnel extension, signed-device path, or XCFramework packaging flow.                                                                                                                                                                                                                                                                           |
+| Windows/Linux | No supported package or completed native integration in this repository.                                                                                                                                                                                                                                                                                                                                                      |
 
 The desktop Core is pinned to Mihomo `v1.19.29`. Exact implementation claims
 are maintained in the
@@ -55,10 +58,14 @@ are maintained in the
 ## Downloads and installation
 
 There is no recommended end-user download yet. GitHub Actions is configured to
-produce expiring test artifacts from `main`; a successful run, artifact identity,
-and digest must be verified before testing. The credential-free macOS path is
-ad-hoc signed and not notarized, and the Android path produces a debug prototype.
-Do not mirror or present either artifact as a stable release.
+produce expiring test artifacts from `main`, but the latest `cbe281c` packaging
+run was blocked before its hosted jobs started by the private repository's
+Actions quota or billing state. That is missing current CI artifact evidence,
+not a product implementation blocker. A successful run, artifact identity, and
+digest must still be verified before testing; no future Actions capacity is
+promised. The credential-free macOS path is ad-hoc signed and not notarized, and
+the Android path produces a debug prototype. Do not mirror or present either
+artifact as a stable release.
 
 Maintainers and testers should follow the bounded
 [macOS packaging](docs/operations/macos-packaging.md) or
@@ -159,14 +166,26 @@ screenshots, CI logs, or documentation.
 
 - Mish is pre-release software and may contain defects that affect connectivity,
   system proxy settings, local files, or user expectations.
-- Public macOS release claims require Developer ID signing, notarization,
-  packaged privileged-helper verification, installed-app acceptance, and
-  reconciliation with the active packaging audit.
+- The selected first public macOS release is System Proxy-only. It requires an
+  explicit signed no-helper distribution mode, Developer ID signing and
+  notarization with independent verification, a versioned DMG and GitHub
+  Release with source revision and SHA-256, and clean-account install, upgrade,
+  uninstall, recovery, and System Proxy restoration acceptance. It does not
+  depend on a production privileged TUN helper.
+- A TUN-enabled distribution is a separate future path and depends on
+  [#85](https://github.com/Asuka109/mish/issues/85),
+  [#95](https://github.com/Asuka109/mish/issues/95), and
+  [#98](https://github.com/Asuka109/mish/issues/98). The first release must keep
+  Virtual Interface unavailable; the planned explanatory interaction is not
+  implemented in this repository revision and is not claimed as delivered.
 - Android and iOS require real native VPN data paths, socket protection,
   lifecycle recovery, signed-device validation, and distribution-policy review.
 - Windows and Linux support are not scheduled commitments.
 - An updater, hosted service, paid support, compatibility guarantee, service
   availability guarantee, and release date are outside the current scope.
+- Release channel, manual update and rollback, support, privacy, security
+  contact, supply-chain evidence, and complete dependency-notice policies still
+  require maintainer decisions and verification.
 - Distribution must not proceed until the open dependency-license and legal
   notice questions in the
   [public-release review](docs/legal/public-release-review.md) are resolved.
