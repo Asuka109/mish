@@ -50,6 +50,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: main
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - name: Resolve exact source and version
         id: source
         shell: bash
@@ -171,6 +175,10 @@ jobs:
           path: .release-tooling
           persist-credentials: false
           ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - name: Download verified staging candidate
         uses: actions/download-artifact@v8
         with:
@@ -232,6 +240,10 @@ jobs:
           path: .release-tooling
           persist-credentials: false
           ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - name: Download verified staging candidate
         uses: actions/download-artifact@v8
         with:
@@ -263,6 +275,6 @@ jobs:
             echo "| --- | --- |"
             echo "| Version | \`$RELEASE_VERSION\` |"
             echo "| Source SHA | \`$SOURCE_SHA\` |"
-            echo "| Draft URL | $RELEASE_URL |"
+            printf '%s\n' "| Draft URL | ${RELEASE_URL} |"
             echo "| Published | \`no\` |"
           } >> "$GITHUB_STEP_SUMMARY"

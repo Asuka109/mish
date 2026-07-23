@@ -16,12 +16,12 @@ const repositoryRoot = path.resolve(
 );
 const apiVersion = "2026-03-10";
 const architecture = "arm64";
-const mihomoVersion = "v1.19.29";
 const signingMode = "ad-hoc";
 const expectedGatekeeperBoundary = "rejection-or-app-scoped-open-anyway";
 const semverPrerelease =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
 const fullSha = /^[0-9a-f]{40}$/u;
+const pinnedMihomoVersion = /^v\d+\.\d+\.\d+$/u;
 const repositoryName = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const safeGitRef = /^(?:HEAD|[A-Za-z0-9][A-Za-z0-9._/-]*)$/u;
 
@@ -29,7 +29,7 @@ export type ReleaseMetadata = {
   architecture: typeof architecture;
   expectedGatekeeperBoundary: typeof expectedGatekeeperBoundary;
   minimumMacosVersion: string;
-  mihomoVersion: typeof mihomoVersion;
+  mihomoVersion: string;
   releaseKind: "draft-prerelease";
   schemaVersion: 1;
   signingMode: typeof signingMode;
@@ -137,7 +137,7 @@ type GitHubTagResponse = {
   };
 };
 
-class GitHubApiError extends Error {
+export class GitHubApiError extends Error {
   readonly status: number;
 
   constructor(message: string, status: number) {
@@ -152,6 +152,22 @@ function invariant(condition: unknown, message: string): asserts condition {
 
 function sha256(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
+}
+
+/** Read the Mihomo pin from the selected source tree, not the release tooling commit. */
+export function readPinnedMihomoVersion(root = repositoryRoot): string {
+  const prepareSource = readFileSync(path.join(root, "scripts/prepare-mihomo.ts"), "utf8");
+  const version = /^\s*version:\s*"(v\d+\.\d+\.\d+)"\s*,?\s*$/mu.exec(prepareSource)?.[1];
+  invariant(
+    version && pinnedMihomoVersion.test(version),
+    "Could not read pinned Mihomo version from scripts/prepare-mihomo.ts.",
+  );
+  const bundleSource = readFileSync(path.join(root, "scripts/build-macos-bundle.ts"), "utf8");
+  invariant(
+    bundleSource.includes(`.scratch/mihomo/${version}/`),
+    `scripts/build-macos-bundle.ts does not use pinned Mihomo ${version}.`,
+  );
+  return version;
 }
 
 function expectedReleaseName(tag: string): string {
@@ -303,7 +319,10 @@ function assertMetadata(
     metadata.minimumMacosVersion === readMinimumMacosVersion(),
     "Release metadata minimum macOS version does not match the application configuration.",
   );
-  invariant(metadata.mihomoVersion === mihomoVersion, "Release metadata Mihomo version is wrong.");
+  invariant(
+    metadata.mihomoVersion === readPinnedMihomoVersion(),
+    "Release metadata Mihomo version is wrong.",
+  );
   invariant(metadata.signingMode === signingMode, "Release metadata signing mode must be ad-hoc.");
   invariant(
     metadata.expectedGatekeeperBoundary === expectedGatekeeperBoundary,
@@ -334,7 +353,7 @@ function releaseMetadata(request: Pick<ReleaseRequest, "sourceSha" | "version">)
     architecture,
     expectedGatekeeperBoundary,
     minimumMacosVersion: readMinimumMacosVersion(),
-    mihomoVersion,
+    mihomoVersion: readPinnedMihomoVersion(),
     releaseKind: "draft-prerelease",
     schemaVersion: 1,
     signingMode,
@@ -499,6 +518,10 @@ export function planStaging(request: ReleaseRequest, state: RemoteReleaseState):
     `Existing release has unexpected tag ${release.tagName}.`,
   );
   invariant(
+    fullSha.test(release.targetCommitish),
+    `Existing release target_commitish ${release.targetCommitish} is not a full commit SHA; resolve it before planning.`,
+  );
+  invariant(
     release.targetCommitish === request.sourceSha,
     `Existing release targets ${release.targetCommitish}, not ${request.sourceSha}.`,
   );
@@ -521,6 +544,10 @@ export function planStaging(request: ReleaseRequest, state: RemoteReleaseState):
       invariant(
         asset.size === local.size,
         `Existing release asset ${asset.name} has the wrong size.`,
+      );
+      invariant(
+        asset.digest != null,
+        `Existing release asset ${asset.name} is missing a SHA-256 digest; refuse to resume without digest verification.`,
       );
       invariant(
         asset.digest === `sha256:${local.digest}`,
@@ -625,6 +652,18 @@ class GitHubReleaseClient implements ReleaseClient {
     throw new Error("GitHub release listing exceeded the fail-closed pagination limit.");
   }
 
+  private async resolveCommitish(commitish: string): Promise<string> {
+    if (fullSha.test(commitish)) return commitish;
+    const response = await this.request<{ sha?: string }>(
+      `/repos/${this.repository}/commits/${encodeURIComponent(commitish)}`,
+    );
+    invariant(
+      typeof response.sha === "string" && fullSha.test(response.sha),
+      `GitHub did not resolve target_commitish ${commitish} to a full commit SHA.`,
+    );
+    return response.sha;
+  }
+
   async getState(request: ReleaseRequest): Promise<RemoteReleaseState> {
     const parsed = parsePrereleaseVersion(request.version);
     const reference = await this.optional<GitHubRefResponse>(
@@ -634,7 +673,12 @@ class GitHubReleaseClient implements ReleaseClient {
       ? await this.resolveTagObject(reference.object?.type ?? "", reference.object?.sha ?? "")
       : null;
     const release = await this.releaseByTag(parsed.tag);
-    return { release, tagCommit };
+    if (!release) return { release: null, tagCommit };
+    const targetCommitish = await this.resolveCommitish(release.targetCommitish);
+    return {
+      release: { ...release, targetCommitish },
+      tagCommit,
+    };
   }
 
   async createTag(tag: string, sourceSha: string): Promise<void> {
@@ -710,8 +754,12 @@ function normalizeRelease(response: GitHubReleaseResponse): RemoteRelease {
   };
 }
 
-function isConflict(error: unknown): boolean {
-  return error instanceof GitHubApiError && [409, 422].includes(error.status);
+/** Treat only known create races as conflicts; rethrow other 422 validation failures. */
+export function isGitHubConflict(error: unknown): boolean {
+  if (!(error instanceof GitHubApiError)) return false;
+  if (error.status === 409) return true;
+  if (error.status !== 422) return false;
+  return /already_exists|Reference already exists|name already exists/iu.test(error.message);
 }
 
 export async function stageVerifiedRelease(
@@ -729,7 +777,7 @@ export async function stageVerifiedRelease(
     try {
       await client.createTag(tag, request.sourceSha);
     } catch (error) {
-      if (!isConflict(error)) throw error;
+      if (!isGitHubConflict(error)) throw error;
     }
     state = await client.getState(request);
     plan = planStaging(request, state);
@@ -743,7 +791,7 @@ export async function stageVerifiedRelease(
     try {
       await client.createRelease(request);
     } catch (error) {
-      if (!isConflict(error)) throw error;
+      if (!isGitHubConflict(error)) throw error;
     }
     state = await client.getState(request);
     plan = planStaging(request, state);
@@ -757,7 +805,7 @@ export async function stageVerifiedRelease(
     try {
       await client.uploadAsset(state.release, asset);
     } catch (error) {
-      if (!isConflict(error)) throw error;
+      if (!isGitHubConflict(error)) throw error;
     }
     state = await client.getState(request);
     plan = planStaging(request, state);

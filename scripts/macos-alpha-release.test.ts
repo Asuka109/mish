@@ -11,10 +11,13 @@ import {
   type ReleaseRequest,
   type RemoteRelease,
   type RemoteReleaseState,
+  GitHubApiError,
+  isGitHubConflict,
   parsePrereleaseVersion,
   planStaging,
   prepareReleaseArtifacts,
   readLocalReleaseAssets,
+  readPinnedMihomoVersion,
   resolveGitSource,
   runDeterministicFixture,
   stageVerifiedRelease,
@@ -193,7 +196,7 @@ test("artifact generation is deterministic and verifies metadata plus checksums"
     architecture: "arm64",
     expectedGatekeeperBoundary: "rejection-or-app-scoped-open-anyway",
     minimumMacosVersion: "13.0",
-    mihomoVersion: "v1.19.29",
+    mihomoVersion: readPinnedMihomoVersion(),
     releaseKind: "draft-prerelease",
     schemaVersion: 1,
     signingMode: "ad-hoc",
@@ -202,6 +205,7 @@ test("artifact generation is deterministic and verifies metadata plus checksums"
     version,
   });
   assert.equal(first.assets.length, 3);
+  assert.match(String(metadata.mihomoVersion), /^v\d+\.\d+\.\d+$/u);
 
   writeFileSync(path.join(first.output, "Mish-0.1.0-alpha.1-arm64.dmg"), "tampered\n");
   assert.throws(
@@ -260,9 +264,17 @@ test("staging decisions fail closed for tag and release conflicts", () => {
       }),
     /targets/u,
   );
+  assert.throws(
+    () =>
+      planStaging(request, {
+        release: { ...matchingRelease(), targetCommitish: "main" },
+        tagCommit: sourceSha,
+      }),
+    /not a full commit SHA/u,
+  );
 });
 
-test("same-commit retries resume missing assets and reject mismatched existing assets", () => {
+test("same-commit retries resume missing assets and reject mismatched or missing digests", () => {
   const { assets } = artifactFixture();
   const request = { assets, sourceSha, version };
   const partial = matchingRelease(assets.slice(0, 1));
@@ -286,6 +298,37 @@ test("same-commit retries resume missing assets and reject mismatched existing a
     () => planStaging(request, { release: conflicting, tagCommit: sourceSha }),
     /different SHA-256 digest/u,
   );
+
+  const missingDigest = matchingRelease(assets);
+  missingDigest.assets[0].digest = null;
+  assert.throws(
+    () => planStaging(request, { release: missingDigest, tagCommit: sourceSha }),
+    /missing a SHA-256 digest/u,
+  );
+});
+
+test("GitHub conflict detection accepts only known race responses", () => {
+  assert.equal(isGitHubConflict(new GitHubApiError("Reference already exists", 422)), true);
+  assert.equal(
+    isGitHubConflict(
+      new GitHubApiError(
+        'GitHub API 422 for POST /releases: {"message":"Validation Failed","errors":[{"code":"already_exists","field":"tag_name"}]}',
+        422,
+      ),
+    ),
+    true,
+  );
+  assert.equal(isGitHubConflict(new GitHubApiError("conflict", 409)), true);
+  assert.equal(
+    isGitHubConflict(
+      new GitHubApiError(
+        'GitHub API 422 for POST /releases: {"message":"Validation Failed","errors":[{"code":"invalid","field":"target_commitish"}]}',
+        422,
+      ),
+    ),
+    false,
+  );
+  assert.equal(isGitHubConflict(new Error("already_exists")), false);
 });
 
 test("dry-run exercises staging without writes and live staging orders tag before Draft assets", async () => {

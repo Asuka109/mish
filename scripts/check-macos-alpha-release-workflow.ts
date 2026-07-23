@@ -142,6 +142,29 @@ for (const [name, candidate] of Object.entries(workflow.jobs ?? {})) {
       `${name} checkout must not persist the GitHub token.`,
     );
   }
+  const runsNodeScript = (candidate.steps ?? []).some((candidateStep) =>
+    /\bnode\s+/.test(candidateStep.run ?? ""),
+  );
+  if (runsNodeScript) {
+    const setupNode = (candidate.steps ?? []).find((candidateStep) =>
+      candidateStep.uses?.startsWith("actions/setup-node@"),
+    );
+    invariant(
+      setupNode?.uses === "actions/setup-node@v7" &&
+        String(setupNode.with?.["node-version"]) === "24",
+      `${name} must set up Node.js 24 before running TypeScript release scripts.`,
+    );
+    const setupIndex = (candidate.steps ?? []).findIndex((candidateStep) =>
+      candidateStep.uses?.startsWith("actions/setup-node@"),
+    );
+    const firstNodeIndex = (candidate.steps ?? []).findIndex((candidateStep) =>
+      /\bnode\s+/.test(candidateStep.run ?? ""),
+    );
+    invariant(
+      setupIndex >= 0 && firstNodeIndex > setupIndex,
+      `${name} must run actions/setup-node before any node script.`,
+    );
+  }
 }
 invariant(
   !source.includes("${{ secrets."),
