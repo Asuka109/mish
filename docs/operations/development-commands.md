@@ -32,7 +32,7 @@ pnpm web:test:run -- src/path/to/example.test.ts
 | Scope   | Commands                                                                                                                         |
 | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Web     | `web:demo`, `web:dev`, `web:build`, `web:preview`, `web:test`, `web:test:run`                                                    |
-| Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:bundle:macos`, `desktop:bundle:verify:macos`                            |
+| Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:build:macos`, `desktop:bundle:macos`, `desktop:bundle:verify:macos`     |
 | Android | `mobile:android:init`, `mobile:android:configure`, `mobile:android:prepare-tests`, `mobile:android:test`, `mobile:android:build` |
 
 `pnpm demo` starts the fixture-backed production Web composition used for model,

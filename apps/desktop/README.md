@@ -10,7 +10,7 @@ desktop sidebar.
 pnpm desktop:demo
 pnpm desktop:dev
 pnpm desktop:build
-pnpm desktop:bundle:macos
+pnpm desktop:build:macos
 ```
 
 `desktop:demo` is an explicit source-development target. It opens the shared

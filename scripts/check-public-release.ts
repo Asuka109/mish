@@ -528,7 +528,7 @@ includesAll(
   [
     "completed packaging-readiness audit selected a System Proxy-only first public release",
     "does not depend on a production privileged TUN helper",
-    "explicit signed no-helper distribution mode",
+    "explicit `alpha-ad-hoc` profile",
     "This leaves current CI artifact evidence unavailable; it is not evidence of a product implementation failure",
     "A TUN-enabled distribution remains a separate future path",
     "does not claim that the planned explanatory interaction is implemented",

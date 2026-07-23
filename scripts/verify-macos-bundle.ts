@@ -27,7 +27,12 @@ const legalResources = [
 const canonicalGplV3Sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986";
 const production = process.env.MISH_MACOS_PACKAGE_MODE === "production";
 const productionFixture = process.env.MISH_MACOS_PACKAGE_MODE === "production-fixture";
+const alphaAdHoc = process.env.MISH_MACOS_PACKAGE_MODE === "alpha-ad-hoc";
 const productionLayout = production || productionFixture;
+
+if (alphaAdHoc && productionLayout) {
+  throw new Error("The alpha-ad-hoc verifier cannot accept a production TUN layout");
+}
 
 function command(program: string, arguments_: string[]) {
   return execFileSync(program, arguments_, { encoding: "utf8" }).trim();
@@ -218,5 +223,5 @@ execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
 });
 
 console.log(
-  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : "no TUN helper"}`,
+  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : "no TUN helper"}`,
 );
