@@ -652,33 +652,16 @@ struct LiveStatusModel {
     upload: String,
 }
 
-const TRAFFIC_RATE_FIELD_MIN_WIDTH: usize = 10;
-const TRAFFIC_TOTAL_FIELD_MIN_WIDTH: usize = 10;
-
 fn rate_title(direction: &str, total_bytes: u64, bytes_per_second: u64, available: bool) -> String {
     if available {
         format!(
             "{direction} {} · {}",
-            padded_total(total_bytes),
-            padded_rate(bytes_per_second)
+            format!("{}/s", format_rate(bytes_per_second)),
+            format_rate(total_bytes)
         )
     } else {
         format!("{direction} Unavailable")
     }
-}
-
-fn padded_total(total_bytes: u64) -> String {
-    padded_traffic_value(format_rate(total_bytes), TRAFFIC_TOTAL_FIELD_MIN_WIDTH)
-}
-
-fn padded_rate(bytes_per_second: u64) -> String {
-    let rate = format!("{}/s", format_rate(bytes_per_second));
-    padded_traffic_value(rate, TRAFFIC_RATE_FIELD_MIN_WIDTH)
-}
-
-fn padded_traffic_value(value: String, minimum_width: usize) -> String {
-    let padding = minimum_width.saturating_sub(value.chars().count());
-    format!("{value}{}", "\u{2007}".repeat(padding))
 }
 
 fn format_rate(bytes_per_second: u64) -> String {
@@ -1017,22 +1000,15 @@ mod tests {
     }
 
     #[test]
-    fn live_rate_labels_use_the_existing_binary_byte_rate_convention_and_stable_fields() {
+    fn live_rate_labels_use_the_existing_binary_byte_rate_convention() {
         assert_eq!(format_bytes(0), "0.00 B");
         assert_eq!(format_bytes(1_024), "1.00 KB");
         assert_eq!(format_bytes(12_288), "12.0 KB");
         assert_eq!(
             rate_title("⬇️", 1_048_576, 1_024, true),
-            format!(
-                "⬇️ 1.00MB{} · 1.00KB/s{}",
-                "\u{2007}".repeat(4),
-                "\u{2007}".repeat(2)
-            )
+            "⬇️ 1.00KB/s · 1.00MB"
         );
-        assert_eq!(
-            rate_title("⬇️", 0, 0, true).chars().count(),
-            rate_title("⬇️", 1_048_576, 1_024, true).chars().count()
-        );
+        assert_eq!(rate_title("⬆️", 0, 0, true), "⬆️ 0KB/s · 0KB");
         assert_eq!(rate_title("⬆️", 0, 0, false), "⬆️ Unavailable");
     }
 

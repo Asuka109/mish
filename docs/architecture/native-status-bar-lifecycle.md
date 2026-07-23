@@ -46,10 +46,9 @@ The implemented compact surface has four separator-delimited sections:
    **>>**-prefixed most-active node, **⬇️** download rate, and **⬆️** upload
    rate. This section appears only after System Proxy or TUN is authoritatively
    active. The node value is the existing bounded, redacted trailing 60-second
-   summary. Each rate line shows the authoritative cumulative total followed by
-   the current rate from `StatusSnapshot.traffic`, using the established binary
-   byte-rate convention. Both numeric fields use a minimum figure-space width
-   to reduce layout changes as ordinary values change. Missing or non-ready
+   summary. Each rate line shows the current rate followed by the authoritative
+   cumulative total from `StatusSnapshot.traffic`, using the established binary
+   byte-rate convention and no artificial text padding. Missing or non-ready
    Traffic is **Unavailable**; a ready snapshot with no qualifying route is
    **Idle**. The retained handles are inserted or removed only on that
    aggregate capture edge; active values update in place once per second and
