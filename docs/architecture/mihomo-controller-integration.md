@@ -276,6 +276,15 @@ off, DNS has no listen socket, Profile-owned selection persistence is preserved,
 and fake-IP persistence is disabled. When selection persistence is enabled, Mish
 copies Mihomo's bounded private `cache.db` between the profile-and-effective-
 fingerprint cache and each short-lived candidate home.
+
+Production packages also carry a pinned, manifest-addressed GeoData fallback
+snapshot. Before config validation, Rust verifies the exact asset allowlist,
+regular-file shape, byte lengths, and SHA-256 digests, then copies all four
+supported GeoData formats into the private candidate home under Mihomo's
+runtime names (`GeoSite.dat`, `GeoIP.dat`, `geoip.metadb`, and `ASN.mmdb`),
+which intentionally differ from two upstream release asset names. A missing or corrupt
+bundled snapshot is treated as absent so Mihomo retains its existing download
+and validation behavior; Mish never accepts an unverified partial seed.
 Relative provider paths remain source-owned but paths that escape the managed
 home are rejected.
 
@@ -311,7 +320,9 @@ If a candidate exits or cannot start while either configured Mish-managed
 loopback listener cannot be bound, activation reports the bounded
 `managed-listener-conflict` failure with only `127.0.0.1:<port>` and the safe
 remediation to stop or reconfigure the competing application. The notification
-surface also offers one bounded recovery: choose two currently available
+uses the dedicated `profile.activation-listener-conflict` type and does not
+share identity with generic activation or GeoData failures. Its surface also
+offers one bounded recovery: choose two currently available
 loopback ports, persist them, and retry the same activation. It does not inspect
 or expose process arguments, paths, configuration, credentials, or unrelated
 process metadata. Other early exits remain typed as `early-exit`.

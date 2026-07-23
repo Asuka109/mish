@@ -2,14 +2,12 @@ import { StrictMode, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router";
-import { Toaster } from "sonner";
 import { TooltipProvider } from "@mish/ui";
 import { isTauri } from "@tauri-apps/api/core";
 import {
   applyInitialAppearance,
   applyInitialWindowSurface,
   AppearanceProvider,
-  useAppearance,
 } from "./appearance";
 import { ProductProvider } from "./data/product-provider";
 import { ProfileProvider } from "./data/profile-provider";
@@ -24,6 +22,7 @@ import { StartupFailure } from "./components/startup-failure";
 import { BrowserAuthentication } from "./components/browser-authentication";
 import { BrowserBackendRecovery } from "./components/browser-backend-recovery";
 import { DesktopWindowFrame } from "./components/desktop-window-frame";
+import { NotificationToaster } from "./components/notification-toaster";
 import TypesafeI18n from "./i18n/i18n-react";
 import { loadAllLocales } from "./i18n/i18n-util.sync";
 import { projectLocale, resolveInitialLocale } from "./i18n/locale";
@@ -53,11 +52,6 @@ function renderInitialApplication(
     reactRoot.render(<DesktopWindowFrame runtime={runtime}>{application}</DesktopWindowFrame>),
   );
   void signalDesktopWindowReady().catch(() => undefined);
-}
-
-function AppearanceToaster() {
-  const { resolvedAppearance } = useAppearance();
-  return <Toaster closeButton position="bottom-right" theme={resolvedAppearance} />;
 }
 
 function ConfiguredAppearanceProvider({ children }: { children: ReactNode }) {
@@ -140,7 +134,7 @@ async function startApplication() {
                               mobileVpnSnapshot={startup.mobileVpnSnapshot}
                               notificationClient={startup.notificationClient}
                             />
-                            <AppearanceToaster />
+                            <NotificationToaster />
                           </TooltipProvider>
                         </EventsProvider>
                       </TrafficProvider>

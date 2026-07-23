@@ -1,0 +1,3 @@
+resources/geodata/snapshot/*.dat binary
+resources/geodata/snapshot/*.metadb binary
+resources/geodata/snapshot/*.mmdb binary

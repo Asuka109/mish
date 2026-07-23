@@ -541,6 +541,48 @@ impl MishRuntime {
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
+    pub async fn preflight_capture(
+        &self,
+        request: &CaptureRequest,
+    ) -> Result<CapturePreflight, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable in this runtime",
+            ));
+        };
+        let result = capture.preflight(request).await;
+        if let Err(error) = &result {
+            self.record_capture_failure(error);
+        }
+        result
+    }
+
+    pub async fn set_capture_with_preflight(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        preflight: CapturePreflight,
+    ) -> Result<Value, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable in this runtime",
+            ));
+        };
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let result = capture
+            .reconcile_with_preflight(request, healthy, preflight)
+            .await;
+        if let Err(error) = result {
+            self.record_capture_failure(&error);
+            return Err(error);
+        }
+        self.notifications.resolve_by_dedupe_key("capture.failure");
+        Ok(self.snapshot_from_status(&core, adapter_kind))
+    }
+
     pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
         if let Some(capture) = &self.capture {
             capture.set_system_proxy_takeover_policy(policy);

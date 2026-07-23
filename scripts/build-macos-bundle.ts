@@ -65,6 +65,7 @@ function teamIdentifier(signingIdentity: string) {
 }
 
 execFileSync("pnpm", ["prepare:mihomo"], { stdio: "inherit" });
+execFileSync("pnpm", ["geodata:verify-runtime"], { stdio: "inherit" });
 const mihomoSha256 = createHash("sha256").update(readFileSync(mihomo)).digest("hex");
 if (mihomoSha256 !== expectedMihomoSha256) {
   throw new Error(

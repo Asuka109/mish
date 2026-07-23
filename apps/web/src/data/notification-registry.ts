@@ -96,7 +96,10 @@ function knownPresentation(
       };
     case "profile.activation-failed":
       return { message: LL.profiles.activationFailed() };
-    case "profile.activation-geodata-failed": {
+    case "profile.activation-asn-failed":
+    case "profile.activation-geoip-failed":
+    case "profile.activation-geosite-failed":
+    case "profile.activation-mmdb-failed": {
       const asset = geodataAssetName(string("asset"));
       return {
         detail: LL.profiles.geodataRetry(),
@@ -106,7 +109,10 @@ function knownPresentation(
             : LL.profiles.geodataFailed({ asset }),
       };
     }
-    case "profile.activation-geodata-progress":
+    case "profile.activation-asn-progress":
+    case "profile.activation-geoip-progress":
+    case "profile.activation-geosite-progress":
+    case "profile.activation-mmdb-progress":
       return {
         detail: LL.profiles.geodataPreparingDetail(),
         message: record.resolved
