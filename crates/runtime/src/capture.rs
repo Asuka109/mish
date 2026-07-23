@@ -3,7 +3,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -15,6 +15,8 @@ use crate::{
     CapabilityAvailability, CaptureSelection, TunHelperAvailability, TunHelperController,
     TunHelperFailureKind, TunHelperHealth,
 };
+
+static NEXT_CAPTURE_RECONCILER_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -340,6 +342,21 @@ pub struct CaptureRequest {
     pub selection: CaptureSelection,
 }
 
+/// Read-only launch preparation captured before Core readiness.
+///
+/// The contained platform state is deliberately opaque and never serialized or logged because it
+/// can contain private service names, proxy hosts, and PAC URLs. A reconciler accepts the token
+/// only when it created it, and always re-reads both journal and platform state before mutation.
+pub struct CapturePreflight {
+    reconciler_id: u64,
+    system_proxy: Option<SystemProxyPreflight>,
+}
+
+struct SystemProxyPreflight {
+    journal: Option<CaptureJournal>,
+    observed: NetworkServiceProxyState,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SystemProxyPhase {
@@ -554,6 +571,38 @@ impl SystemProxyReconciler {
             .map(CaptureTransitionError::takeover_rejected)
     }
 
+    async fn preflight(&self) -> Result<SystemProxyPreflight, CaptureTransitionError> {
+        if self.availability() != CapabilityAvailability::Supported {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable on this platform",
+            ));
+        }
+        let journal = self.load_validated_journal()?;
+        let observed = self.platform.observe_active().await?;
+        if let Some(journal) = &journal {
+            if journal.prior.service_id == observed.service_id
+                && observed != journal.prior.with_endpoint(&self.endpoint)
+            {
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::ExternalDrift,
+                    "System Proxy changed outside Mish and was left unchanged",
+                ));
+            }
+        } else {
+            if observed.is_mish_endpoint(&self.endpoint) {
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::ExternalDrift,
+                    "A matching System Proxy endpoint exists without Mish ownership",
+                ));
+            }
+            if let Some(error) = self.takeover_error(&observed) {
+                return Err(error);
+            }
+        }
+        Ok(SystemProxyPreflight { journal, observed })
+    }
+
     pub async fn reconcile(
         &self,
         request: CaptureRequest,
@@ -567,6 +616,23 @@ impl SystemProxyReconciler {
             return Err(runtime_transition_error());
         }
         self.reconcile_locked(request, core_healthy).await
+    }
+
+    async fn reconcile_with_preflight(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: Option<SystemProxyPreflight>,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        let _operation = self.operation.lock().await;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        self.reconcile_locked_with_preflight(request, core_healthy, preflight)
+            .await
     }
 
     pub async fn reconcile_runtime_transition(
@@ -588,6 +654,16 @@ impl SystemProxyReconciler {
         &self,
         request: CaptureRequest,
         core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        self.reconcile_locked_with_preflight(request, core_healthy, None)
+            .await
+    }
+
+    async fn reconcile_locked_with_preflight(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: Option<SystemProxyPreflight>,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
         let desired = request.active && request.selection.system_proxy;
         if self.availability() != CapabilityAvailability::Supported {
@@ -645,6 +721,17 @@ impl SystemProxyReconciler {
                 return Err(error);
             }
         };
+        if let Some(preflight) = preflight
+            && (preflight.journal != existing_journal || preflight.observed != prior)
+        {
+            let mut status = self.status();
+            status.capture_selection = request.selection;
+            self.mark_drift(status, &prior, Some(CaptureFailureKind::ExternalDrift))?;
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::ExternalDrift,
+                "System Proxy changed during launch preparation and was left unchanged",
+            ));
+        }
         if let Some(journal) = existing_journal {
             if journal.prior.service_id == prior.service_id {
                 if prior == journal.prior.with_endpoint(&self.endpoint) {
@@ -1566,6 +1653,7 @@ struct AggregateCaptureState {
 }
 
 pub struct CaptureReconciler {
+    identity: u64,
     operation: AsyncMutex<()>,
     runtime_transition: AtomicBool,
     state: Mutex<AggregateCaptureState>,
@@ -1609,6 +1697,7 @@ impl CaptureReconciler {
         }
         let (updates, _) = broadcast::channel(32);
         Self {
+            identity: NEXT_CAPTURE_RECONCILER_ID.fetch_add(1, Ordering::Relaxed),
             operation: AsyncMutex::new(()),
             runtime_transition: AtomicBool::new(false),
             state: Mutex::new(AggregateCaptureState {
@@ -1752,6 +1841,48 @@ impl CaptureReconciler {
         self.reconcile_locked(request, core_healthy).await
     }
 
+    pub async fn preflight(
+        &self,
+        request: &CaptureRequest,
+    ) -> Result<CapturePreflight, CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        let system_proxy = if request.active && request.selection.system_proxy {
+            Some(self.system_proxy.preflight().await?)
+        } else {
+            None
+        };
+        Ok(CapturePreflight {
+            reconciler_id: self.identity,
+            system_proxy,
+        })
+    }
+
+    pub async fn reconcile_with_preflight(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: CapturePreflight,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        if preflight.reconciler_id != self.identity
+            || self.runtime_transition.load(Ordering::Acquire)
+        {
+            return Err(runtime_transition_error());
+        }
+        let _operation = self.operation.try_lock().map_err(|_| {
+            CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Another aggregate Capture operation is already in progress",
+            )
+        })?;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        self.reconcile_locked_with_preflight(request, core_healthy, Some(preflight))
+            .await
+    }
+
     pub async fn reconcile_runtime_transition(
         &self,
         transition: &CaptureRuntimeTransition,
@@ -1771,6 +1902,16 @@ impl CaptureReconciler {
         &self,
         request: CaptureRequest,
         core_healthy: bool,
+    ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        self.reconcile_locked_with_preflight(request, core_healthy, None)
+            .await
+    }
+
+    async fn reconcile_locked_with_preflight(
+        &self,
+        request: CaptureRequest,
+        core_healthy: bool,
+        preflight: Option<CapturePreflight>,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
         let previous = self.confirmed_status();
         let system_proxy_desired = request.active && request.selection.system_proxy;
@@ -1798,7 +1939,12 @@ impl CaptureReconciler {
         }
 
         if let Err(error) = self
-            .set_system_proxy(system_proxy_desired, &request.selection, core_healthy)
+            .set_system_proxy(
+                system_proxy_desired,
+                &request.selection,
+                core_healthy,
+                preflight.and_then(|preflight| preflight.system_proxy),
+            )
             .await
         {
             if tun_was_disabled && self.set_tun(true, core_healthy).await.is_err() {
@@ -1823,6 +1969,7 @@ impl CaptureReconciler {
                     previous.system_proxy_enabled,
                     &previous.capture_selection,
                     core_healthy,
+                    None,
                 )
                 .await;
             let rollback_tun = self.set_tun(previous.tun_enabled, core_healthy).await;
@@ -1925,9 +2072,10 @@ impl CaptureReconciler {
         enabled: bool,
         selection: &CaptureSelection,
         core_healthy: bool,
+        preflight: Option<SystemProxyPreflight>,
     ) -> Result<(), CaptureTransitionError> {
         self.system_proxy
-            .reconcile(
+            .reconcile_with_preflight(
                 CaptureRequest {
                     active: enabled,
                     selection: CaptureSelection {
@@ -1936,6 +2084,7 @@ impl CaptureReconciler {
                     },
                 },
                 core_healthy,
+                preflight,
             )
             .await
             .map(|_| ())

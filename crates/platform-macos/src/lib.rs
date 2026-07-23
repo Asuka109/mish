@@ -1244,27 +1244,27 @@ impl MacOsSystemProxyPlatform {
         &self,
         service: String,
     ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
-        let http = self.proxy_state(&service, MacOsProxyKind::Http).await?;
-        let https = self.proxy_state(&service, MacOsProxyKind::Https).await?;
-        let socks = self.proxy_state(&service, MacOsProxyKind::Socks).await?;
-        let pac_output = self
-            .run(MacOsCommand::GetAutoProxyUrl {
+        let (http, https, socks, pac_output, discovery_output) = tokio::join!(
+            self.proxy_state(&service, MacOsProxyKind::Http),
+            self.proxy_state(&service, MacOsProxyKind::Https),
+            self.proxy_state(&service, MacOsProxyKind::Socks),
+            self.run(MacOsCommand::GetAutoProxyUrl {
                 service: service.clone(),
-            })
-            .await?;
-        let discovery_output = self
-            .run(MacOsCommand::GetProxyAutoDiscovery {
+            }),
+            self.run(MacOsCommand::GetProxyAutoDiscovery {
                 service: service.clone(),
-            })
-            .await?;
+            }),
+        );
+        let pac_output = pac_output?;
+        let discovery_output = discovery_output?;
         Ok(NetworkServiceProxyState {
             auto_discovery_enabled: parse_enabled_value(&discovery_output, "Auto Proxy Discovery")?,
-            http,
-            https,
+            http: http?,
+            https: https?,
             pac_enabled: parse_enabled_value(&pac_output, "Enabled")?,
             pac_url: parse_required_key(&pac_output, "URL")?,
             service_id: service,
-            socks,
+            socks: socks?,
         })
     }
 
@@ -1360,9 +1360,13 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
         Box::pin(async move {
-            let route = self.run(MacOsCommand::DefaultRoute).await?;
+            let (route, order) = tokio::join!(
+                self.run(MacOsCommand::DefaultRoute),
+                self.run(MacOsCommand::ListNetworkServiceOrder),
+            );
+            let route = route?;
             let device = parse_default_route_device(&route)?;
-            let order = self.run(MacOsCommand::ListNetworkServiceOrder).await?;
+            let order = order?;
             let service = parse_service_for_device(&order, &device)?;
             self.observe_named_service(service).await
         })

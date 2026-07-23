@@ -9,6 +9,7 @@ use mish_runtime::{
     CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState, SystemProxyPhase,
 };
+use tokio::sync::Barrier;
 
 struct FixtureRunner {
     commands: Mutex<Vec<MacOsCommand>>,
@@ -95,6 +96,56 @@ struct StatefulCrashRunner {
     crash_after_write: Mutex<Option<usize>>,
     state: Mutex<NetworkServiceProxyState>,
     writes: Mutex<usize>,
+}
+
+struct ConcurrentObservationRunner {
+    discovery: Barrier,
+    getters: Barrier,
+}
+
+impl ConcurrentObservationRunner {
+    fn new() -> Self {
+        Self {
+            discovery: Barrier::new(2),
+            getters: Barrier::new(5),
+        }
+    }
+}
+
+impl MacOsCommandRunner for ConcurrentObservationRunner {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        Box::pin(async move {
+            let stdout = match command {
+                MacOsCommand::DefaultRoute => {
+                    self.discovery.wait().await;
+                    "route to: default\ninterface: en99\n"
+                }
+                MacOsCommand::ListNetworkServiceOrder => {
+                    self.discovery.wait().await;
+                    "(1) Fixture Service\n(Hardware Port: Fixture Port, Device: en99)\n"
+                }
+                MacOsCommand::GetProxy { .. } => {
+                    self.getters.wait().await;
+                    "Enabled: No\nServer: \nPort: 0\nAuthenticated Proxy Enabled: 0\n"
+                }
+                MacOsCommand::GetAutoProxyUrl { .. } => {
+                    self.getters.wait().await;
+                    "URL: (null)\nEnabled: No\n"
+                }
+                MacOsCommand::GetProxyAutoDiscovery { .. } => {
+                    self.getters.wait().await;
+                    "Auto Proxy Discovery: Off\n"
+                }
+                _ => panic!("mutation command reached read-only observation fixture"),
+            };
+            Ok(MacOsCommandOutput {
+                stdout: stdout.into(),
+            })
+        })
+    }
 }
 
 impl StatefulCrashRunner {
@@ -378,6 +429,31 @@ async fn applies_structured_manual_and_automatic_proxy_commands() {
                 service: "Fixture Service".into(),
             },
         ]
+    );
+}
+
+#[tokio::test]
+async fn active_service_discovery_and_proxy_getters_run_in_independent_parallel_groups() {
+    let platform =
+        MacOsSystemProxyPlatform::with_runner(Arc::new(ConcurrentObservationRunner::new()));
+
+    let observed =
+        tokio::time::timeout(std::time::Duration::from_secs(1), platform.observe_active())
+            .await
+            .expect("independent read-only macOS commands ran serially")
+            .unwrap();
+
+    assert_eq!(
+        observed,
+        NetworkServiceProxyState {
+            auto_discovery_enabled: false,
+            http: ManualProxyState::disabled(),
+            https: ManualProxyState::disabled(),
+            pac_enabled: false,
+            pac_url: "(null)".into(),
+            service_id: "Fixture Service".into(),
+            socks: ManualProxyState::disabled(),
+        }
     );
 }
 

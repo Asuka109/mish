@@ -2,7 +2,10 @@ use std::{
     collections::HashSet,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -35,17 +38,22 @@ use mish_profile::{
     StructuredRule, Timestamp, ValidationResult, ValidationStatus,
 };
 use mish_runtime::{
-    CaptureAuditReason, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError,
-    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState, RoutingMode,
-    StatusAdapterKind, SystemProxyPhase, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability,
-    TunHelperController, TunHelperError, TunHelperHealth, TunHelperLifecycleOperation,
-    TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
-    TunNetworkObservation, tun_observation_now,
+    CaptureAuditReason, CaptureFailureKind, CaptureJournal, CaptureJournalStore, CapturePlatform,
+    CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
+    CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState, MishRuntime,
+    NetworkServiceProxyState, RoutingMode, StatusAdapterKind, SystemProxyPhase,
+    TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController, TunHelperError,
+    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
+    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
 use serde_json::json;
 use serde_norway::Value;
-use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{Notify, oneshot},
+    task::JoinHandle,
+    time::timeout,
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -1585,7 +1593,7 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
         profiles,
         manager,
-        host,
+        host.clone(),
         safe_runtime.clone(),
         move || ManagedRuntimePolicy::new(address, "synthetic-pending-secret"),
     ));
@@ -1631,6 +1639,30 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
     .unwrap();
 
     result.unwrap();
+    let events = host.events_snapshot(StatusAdapterKind::Rpc);
+    let timing_event = events["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["message"] == "Launch Proxy timing")
+        .expect("successful launch did not publish privacy-safe stage timing");
+    let timing: serde_json::Value =
+        serde_json::from_str(timing_event["detail"].as_str().unwrap()).unwrap();
+    assert_eq!(timing["schemaVersion"], 1);
+    assert_eq!(timing["outcome"], "success");
+    for field in [
+        "listenerJournalMutationConfirmationMs",
+        "overlapMs",
+        "preparationWallMs",
+        "profileCoreMs",
+        "systemProxyPreflightMs",
+        "totalMs",
+    ] {
+        assert!(timing[field].is_u64(), "{field} was not a bounded duration");
+    }
+    let serialized_timing = timing.to_string();
+    assert!(!serialized_timing.contains(record.metadata.id.as_str()));
+    assert!(!serialized_timing.contains(replacement.metadata.id.as_str()));
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 
@@ -1640,6 +1672,224 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
         !phases.contains(&SystemProxyPhase::Off),
         "aggregate launch regressed from Pending to Off before Applied: {phases:?}"
     );
+}
+
+struct LaunchPreflightPlatform {
+    applies: AtomicUsize,
+    fail_observations: AtomicBool,
+    observations: AtomicUsize,
+    observed: Notify,
+}
+
+impl LaunchPreflightPlatform {
+    fn new() -> Self {
+        Self {
+            applies: AtomicUsize::new(0),
+            fail_observations: AtomicBool::new(false),
+            observations: AtomicUsize::new(0),
+            observed: Notify::new(),
+        }
+    }
+
+    fn fail_observations(&self) {
+        self.fail_observations.store(true, Ordering::Relaxed);
+    }
+
+    fn allow_observations(&self) {
+        self.fail_observations.store(false, Ordering::Relaxed);
+    }
+}
+
+impl CapturePlatform for LaunchPreflightPlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        self.observations.fetch_add(1, Ordering::Relaxed);
+        self.observed.notify_one();
+        if self.fail_observations.load(Ordering::Relaxed) {
+            return Box::pin(ready(Err(CaptureTransitionError::new(
+                CaptureFailureKind::ObservationFailed,
+                "Synthetic launch preflight observation failure",
+            ))));
+        }
+        Box::pin(ready(Ok(disabled_capture_service())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(disabled_capture_service())))
+    }
+
+    fn apply_service(
+        &self,
+        _target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        self.applies.fetch_add(1, Ordering::Relaxed);
+        Box::pin(ready(Ok(())))
+    }
+}
+
+#[tokio::test]
+async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile_preparation() {
+    let root = std::env::temp_dir().join(format!("mish-launch-preflight-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let platform = Arc::new(LaunchPreflightPlatform::new());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(5)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let unavailable = unused_loopback_address();
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        DesktopRuntimeHost::new(safe_runtime.clone()),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(unavailable, "synthetic-preflight-secret"),
+    ));
+    let command_id = Uuid::new_v4().to_string();
+    let launch_coordinator = coordinator.clone();
+    let launch_command_id = command_id.clone();
+    let profile_id = record.metadata.id.as_str().to_owned();
+    let launch = tokio::spawn(async move {
+        launch_coordinator
+            .launch_proxy(
+                &launch_command_id,
+                Some(&profile_id),
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+
+    timeout(Duration::from_secs(1), platform.observed.notified())
+        .await
+        .expect("read-only System Proxy preflight did not overlap Profile preparation");
+    assert_eq!(platform.observations.load(Ordering::Relaxed), 1);
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
+    let duplicate = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            Some(record.metadata.id.as_str()),
+            CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(duplicate.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(platform.observations.load(Ordering::Relaxed), 1);
+
+    let stop = timeout(
+        Duration::from_secs(5),
+        coordinator.set_capture(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        ),
+    )
+    .await
+    .expect("Stop during Pending did not cancel and join the launch")
+    .unwrap();
+    assert_eq!(stop["runtime"]["systemProxy"]["phase"], "off");
+    let error = timeout(Duration::from_secs(5), launch)
+        .await
+        .expect("stopped aggregate launch did not join")
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
+
+    platform.fail_observations();
+    let failed_command_id = Uuid::new_v4().to_string();
+    let error = timeout(
+        Duration::from_secs(5),
+        coordinator.launch_proxy(
+            &failed_command_id,
+            Some(record.metadata.id.as_str()),
+            CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+            StatusAdapterKind::Rpc,
+        ),
+    )
+    .await
+    .expect("preflight failure did not cancel and join Profile preparation")
+    .unwrap_err();
+    assert_eq!(error.kind, CaptureFailureKind::ObservationFailed);
+    let activation = coordinator.activation_snapshot().await;
+    assert_eq!(activation.phase, ProfileActivationPhase::Failure);
+    assert_eq!(
+        activation.failure,
+        Some(ProfileActivationFailure::Cancelled)
+    );
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
+
+    platform.allow_observations();
+    let quit_command_id = Uuid::new_v4().to_string();
+    let quit_coordinator = coordinator.clone();
+    let quit_profile_id = record.metadata.id.as_str().to_owned();
+    let launch = tokio::spawn(async move {
+        quit_coordinator
+            .launch_proxy(
+                &quit_command_id,
+                Some(&quit_profile_id),
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+    timeout(Duration::from_secs(1), platform.observed.notified())
+        .await
+        .expect("read-only preflight did not start before graceful quit");
+    timeout(Duration::from_secs(5), coordinator.shutdown_for_exit())
+        .await
+        .expect("graceful quit did not cancel and join Pending launch")
+        .unwrap();
+    let error = timeout(Duration::from_secs(5), launch)
+        .await
+        .expect("Pending launch outlived graceful quit")
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]

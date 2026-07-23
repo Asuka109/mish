@@ -39,11 +39,17 @@ pub enum EventSource {
     Rpc,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationDiagnosticEvent {
-    detail: Option<&'static str>,
+    detail: Option<ApplicationDiagnosticDetail>,
     level: EventLevel,
     message: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ApplicationDiagnosticDetail {
+    Owned(String),
+    Static(&'static str),
 }
 
 impl ApplicationDiagnosticEvent {
@@ -53,7 +59,22 @@ impl ApplicationDiagnosticEvent {
         detail: Option<&'static str>,
     ) -> Self {
         Self {
-            detail,
+            detail: match detail {
+                Some(detail) => Some(ApplicationDiagnosticDetail::Static(detail)),
+                None => None,
+            },
+            level,
+            message,
+        }
+    }
+
+    pub fn with_owned_detail(
+        level: EventLevel,
+        message: &'static str,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            detail: Some(ApplicationDiagnosticDetail::Owned(detail.into())),
             level,
             message,
         }
@@ -114,15 +135,18 @@ impl ApplicationDiagnosticEvent {
         )
     }
 
-    pub const fn detail(self) -> Option<&'static str> {
-        self.detail
+    pub fn detail(&self) -> Option<&str> {
+        self.detail.as_ref().map(|detail| match detail {
+            ApplicationDiagnosticDetail::Owned(detail) => detail.as_str(),
+            ApplicationDiagnosticDetail::Static(detail) => *detail,
+        })
     }
 
-    pub const fn level(self) -> EventLevel {
+    pub const fn level(&self) -> EventLevel {
         self.level
     }
 
-    pub const fn message(self) -> &'static str {
+    pub const fn message(&self) -> &'static str {
         self.message
     }
 }

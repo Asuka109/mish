@@ -4,7 +4,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use mish_profile::{
@@ -466,6 +466,7 @@ impl ProfileActivationCoordinator {
                 "Mish is shutting down and cannot accept a new proxy launch",
             ));
         }
+        let launch_started = Instant::now();
         let before = self
             .host
             .current()
@@ -474,7 +475,8 @@ impl ProfileActivationCoordinator {
         let selection =
             usable_capture_selection(before.adapter_kind, &before.capabilities, selection)?;
         if before.runtime.system_proxy_enabled || before.runtime.tun_enabled {
-            return self
+            let capture_started = Instant::now();
+            let result = self
                 .set_capture_inner(
                     CaptureRequest {
                         active: true,
@@ -483,48 +485,210 @@ impl ProfileActivationCoordinator {
                     adapter_kind,
                 )
                 .await;
+            self.record_launch_timing(
+                launch_started,
+                Duration::ZERO,
+                Duration::ZERO,
+                Duration::ZERO,
+                capture_started.elapsed(),
+                if result.is_ok() {
+                    "already-running"
+                } else {
+                    "capture-failed"
+                },
+            );
+            return result;
         }
         let request = CaptureRequest {
             active: true,
             selection,
         };
         let prior_capture = self.host.current().publish_capture_pending(&request);
-        let result = async {
-            let current = self.activation_snapshot().await;
-            let activation = if current.phase == ProfileActivationPhase::Success
-                && profile_id.is_none_or(|profile_id| {
-                    current.active_profile_id.as_deref() == Some(profile_id)
-                }) {
-                current
-            } else if let Some(profile_id) = profile_id {
-                self.activate(command_id, profile_id)
-                    .await
-                    .map_err(profile_launch_error)?
-            } else {
-                self.activate_last_successful_profile(command_id)
-                    .await
-                    .map_err(profile_launch_error)?
-            };
-            let completed = if activation.phase == ProfileActivationPhase::Pending {
-                self.wait_for_terminal_activation(command_id).await?
-            } else {
-                activation
-            };
-            if completed.phase != ProfileActivationPhase::Success {
-                return Err(CaptureTransitionError::new(
-                    CaptureFailureKind::RuntimeTransition,
-                    "Profile activation failed before Capture could be applied",
-                ));
+        let activation_started = Instant::now();
+        let current = self.activation_snapshot().await;
+        let activation = if current.phase == ProfileActivationPhase::Success
+            && profile_id
+                .is_none_or(|profile_id| current.active_profile_id.as_deref() == Some(profile_id))
+        {
+            Ok(current)
+        } else if let Some(profile_id) = profile_id {
+            self.activate(command_id, profile_id)
+                .await
+                .map_err(profile_launch_error)
+        } else {
+            self.activate_last_successful_profile(command_id)
+                .await
+                .map_err(profile_launch_error)
+        };
+        let activation = match activation {
+            Ok(activation) => activation,
+            Err(error) => {
+                self.record_launch_timing(
+                    launch_started,
+                    activation_started.elapsed(),
+                    Duration::ZERO,
+                    activation_started.elapsed(),
+                    Duration::ZERO,
+                    "profile-failed",
+                );
+                if let Some(prior_capture) = prior_capture {
+                    self.host.current().restore_capture_status(prior_capture);
+                }
+                return Err(error);
             }
-            self.set_capture_inner(request, adapter_kind).await
+        };
+        let activation_pending = activation.phase == ProfileActivationPhase::Pending;
+        let activation = async {
+            let result = if activation_pending {
+                self.wait_for_terminal_activation(command_id).await
+            } else {
+                Ok(activation)
+            };
+            (result, activation_started.elapsed())
+        };
+        let preflight_request = request.clone();
+        let preflight_started = Instant::now();
+        let preflight = async {
+            let result = self.host.preflight_capture(&preflight_request).await;
+            (result, preflight_started.elapsed())
+        };
+        tokio::pin!(activation);
+        tokio::pin!(preflight);
+        let prepared = tokio::select! {
+            (completed, activation_elapsed) = &mut activation => {
+                match completed {
+                    Ok(completed) if completed.phase == ProfileActivationPhase::Success => {
+                        let (preflight, preflight_elapsed) = preflight.await;
+                        preflight.map(|preflight| (preflight, activation_elapsed, preflight_elapsed))
+                    }
+                    Ok(_) | Err(_) => Err(CaptureTransitionError::new(
+                        CaptureFailureKind::RuntimeTransition,
+                        "Profile activation failed before Capture could be applied",
+                    )),
+                }
+            }
+            (preflight, preflight_elapsed) = &mut preflight => {
+                match preflight {
+                    Ok(preflight) => {
+                        let (completed, activation_elapsed) = activation.await;
+                        match completed {
+                            Ok(completed) if completed.phase == ProfileActivationPhase::Success => {
+                                Ok((preflight, activation_elapsed, preflight_elapsed))
+                            }
+                            Ok(_) | Err(_) => Err(CaptureTransitionError::new(
+                                CaptureFailureKind::RuntimeTransition,
+                                "Profile activation failed before Capture could be applied",
+                            )),
+                        }
+                    }
+                    Err(error) => {
+                        if activation_pending {
+                            let _ = self.cancel(command_id).await;
+                            let _ = activation.await;
+                        }
+                        Err(error)
+                    }
+                }
+            }
+        };
+        let preparation_wall = activation_started.elapsed();
+        let (preflight, activation_elapsed, preflight_elapsed) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.record_launch_timing(
+                    launch_started,
+                    preparation_wall,
+                    preflight_started.elapsed(),
+                    preparation_wall,
+                    Duration::ZERO,
+                    if error.kind == CaptureFailureKind::RuntimeTransition {
+                        "profile-failed"
+                    } else {
+                        "preflight-failed"
+                    },
+                );
+                if let Some(prior_capture) = prior_capture {
+                    self.host.current().restore_capture_status(prior_capture);
+                }
+                return Err(error);
+            }
+        };
+        if self.shutting_down.load(Ordering::Acquire) {
+            let error = CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Mish is shutting down and cannot apply a prepared proxy launch",
+            );
+            self.record_launch_timing(
+                launch_started,
+                activation_elapsed,
+                preflight_elapsed,
+                preparation_wall,
+                Duration::ZERO,
+                "cancelled",
+            );
+            if let Some(prior_capture) = prior_capture {
+                self.host.current().restore_capture_status(prior_capture);
+            }
+            return Err(error);
         }
-        .await;
+        let capture_started = Instant::now();
+        let result = self
+            .host
+            .set_capture_with_preflight(request, adapter_kind, preflight)
+            .await;
+        self.record_launch_timing(
+            launch_started,
+            activation_elapsed,
+            preflight_elapsed,
+            preparation_wall,
+            capture_started.elapsed(),
+            if result.is_ok() {
+                "success"
+            } else {
+                "capture-failed"
+            },
+        );
         if result.is_err()
             && let Some(prior_capture) = prior_capture
         {
             self.host.current().restore_capture_status(prior_capture);
         }
         result
+    }
+
+    fn record_launch_timing(
+        &self,
+        launch_started: Instant,
+        profile_core: Duration,
+        system_proxy_preflight: Duration,
+        preparation_wall: Duration,
+        listener_journal_mutation_confirmation: Duration,
+        outcome: &'static str,
+    ) {
+        let duration_ms =
+            |duration: Duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+        let overlap = profile_core
+            .saturating_add(system_proxy_preflight)
+            .saturating_sub(preparation_wall);
+        let detail = serde_json::json!({
+            "listenerJournalMutationConfirmationMs": duration_ms(
+                listener_journal_mutation_confirmation
+            ),
+            "outcome": outcome,
+            "overlapMs": duration_ms(overlap),
+            "preparationWallMs": duration_ms(preparation_wall),
+            "profileCoreMs": duration_ms(profile_core),
+            "schemaVersion": 1,
+            "systemProxyPreflightMs": duration_ms(system_proxy_preflight),
+            "totalMs": duration_ms(launch_started.elapsed()),
+        })
+        .to_string();
+        self.host
+            .record_application_event(ApplicationDiagnosticEvent::with_owned_detail(
+                EventLevel::Debug,
+                "Launch Proxy timing",
+                detail,
+            ));
     }
 
     async fn wait_for_terminal_activation(
@@ -558,6 +722,19 @@ impl ProfileActivationCoordinator {
         request: CaptureRequest,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
+        if !request.active {
+            let pending_command = {
+                let state = self.state.lock().await;
+                (state.snapshot.phase == ProfileActivationPhase::Pending)
+                    .then(|| state.snapshot.command_id.clone())
+                    .flatten()
+            };
+            if let Some(command_id) = pending_command {
+                let _ = self.cancel(&command_id).await;
+            }
+            let _operation = self.proxy_operation.lock().await;
+            return self.set_capture_inner(request, adapter_kind).await;
+        }
         let _operation = self.proxy_operation.try_lock().map_err(|_| {
             CaptureTransitionError::new(
                 CaptureFailureKind::RuntimeTransition,
@@ -963,6 +1140,7 @@ impl ProfileActivationCoordinator {
         if let Some(cancellation) = &self.state.lock().await.cancellation {
             cancellation.cancel();
         }
+        let _proxy_operation = self.proxy_operation.lock().await;
         let permit = match self.authority.try_acquire() {
             Ok(permit) => permit,
             Err(_) => {

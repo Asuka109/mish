@@ -1,11 +1,12 @@
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CaptureAuditReason, CaptureRecoveryAction, CaptureRequest,
-    CaptureTransitionError, CoreError, CoreStatus, DiagnosticHistory, EventsSnapshot, MishRuntime,
-    NotificationPublication, NotificationSnapshot, NotificationValidationError, ProviderAuthority,
-    ProviderCommandExecution, ProviderCommandResult, ProviderKind, ProviderSnapshot,
-    ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
-    TrafficCommandOperation, TrafficCommandResult,
+    ApplicationDiagnosticEvent, CaptureAuditReason, CapturePreflight, CaptureRecoveryAction,
+    CaptureRequest, CaptureTransitionError, CoreError, CoreStatus, DiagnosticHistory,
+    EventsSnapshot, MishRuntime, NotificationPublication, NotificationSnapshot,
+    NotificationValidationError, ProviderAuthority, ProviderCommandExecution,
+    ProviderCommandResult, ProviderKind, ProviderSnapshot, ProviderUpdateFailure, RoutingMode,
+    StatusAdapterKind, StatusCommand, StatusCommandError, StatusSnapshot, TrafficCommandAuthority,
+    TrafficCommandExecution, TrafficCommandFailureKind, TrafficCommandOperation,
+    TrafficCommandResult,
 };
 use mish_state_authority::StateMutationAuthority;
 use serde_json::Value;
@@ -108,6 +109,24 @@ impl DesktopRuntimeHost {
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
         self.current().set_capture(request, adapter_kind).await
+    }
+
+    pub async fn preflight_capture(
+        &self,
+        request: &CaptureRequest,
+    ) -> Result<CapturePreflight, CaptureTransitionError> {
+        self.current().preflight_capture(request).await
+    }
+
+    pub async fn set_capture_with_preflight(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        preflight: CapturePreflight,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.current()
+            .set_capture_with_preflight(request, adapter_kind, preflight)
+            .await
     }
 
     pub async fn recover_system_proxy(

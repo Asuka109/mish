@@ -1734,6 +1734,86 @@ async fn listener_readiness_failure_never_modifies_system_proxy_or_reports_succe
 }
 
 #[tokio::test]
+async fn prepared_launch_revalidates_the_complete_system_proxy_fingerprint_before_mutation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+    let request = CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    };
+    let preflight = reconciler.preflight(&request).await.unwrap();
+    platform.replace_service(NetworkServiceProxyState {
+        http: ManualProxyState {
+            host: "changed.proxy.invalid".into(),
+            ..ManualProxyState::disabled()
+        },
+        ..disabled_service()
+    });
+
+    let error = reconciler
+        .reconcile_with_preflight(request, true, preflight)
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ExternalDrift);
+    assert_eq!(platform.listener_test_count(), 1);
+    assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
+    assert_eq!(
+        reconciler.status().system_proxy.phase,
+        SystemProxyPhase::Drift
+    );
+    assert!(!reconciler.status().system_proxy_enabled);
+}
+
+#[tokio::test]
+async fn prepared_launch_still_requires_listener_readiness_before_final_observation_or_mutation() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+    let request = CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    };
+    let preflight = reconciler.preflight(&request).await.unwrap();
+    assert_eq!(platform.observe_count(), 1);
+    platform.set_listener_ready(false);
+
+    let error = reconciler
+        .reconcile_with_preflight(request, true, preflight)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ListenerUnavailable
+    );
+    assert_eq!(platform.listener_test_count(), 1);
+    assert_eq!(
+        platform.observe_count(),
+        1,
+        "final state must not become mutation authority before listener readiness"
+    );
+    assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
+}
+
+#[tokio::test]
 async fn pre_apply_core_failure_does_not_become_drift_during_audit() {
     let platform = Arc::new(FakePlatform::new(disabled_service()));
     let journal = Arc::new(MemoryJournalStore::default());
