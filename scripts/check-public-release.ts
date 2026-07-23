@@ -200,6 +200,17 @@ includesAll(
     "Virtual Interface support belongs to a separate future release path",
     "remote service icons can make outbound requests",
     "Developer setup, commands, architecture, and validation details are maintained in",
+    "Contributors retain copyright in their work",
+    "agree to license accepted contributions under GPL-3.0-only",
+    "maintainer receives the same GPL rights as any other recipient",
+    "AI-assisted submissions require complete human review",
+    "architecture and interaction design were inspired by and in part informed by",
+    "ClashX",
+    "Clash Mi",
+    "Stash",
+    "Clash Verge",
+    "MetaCubeXD",
+    "does not imply affiliation, endorsement, or incorporation of their code or assets",
   ],
   "README.md",
 );
@@ -256,6 +267,18 @@ includesAll(
     "“虚拟接口”支持属于独立的后续发行路径，目前不可用",
     "远程服务图标可能发起出站请求",
     "开发环境、命令、架构和验证细节维护在",
+    "贡献者保留其作品的版权",
+    "同意接受的贡献采用 GPL-3.0-only 许可",
+    "维护者取得的 GPL 权利与其他被许可者相同",
+    "使用生成式 AI",
+    "必须经过完整的人工核查",
+    "架构与交互设计受到",
+    "ClashX",
+    "Clash Mi",
+    "Stash",
+    "Clash Verge",
+    "MetaCubeXD",
+    "此处致谢不表示任何隶属、背书",
   ],
   "README.zh-CN.md",
 );
@@ -286,6 +309,24 @@ for (const technicalDetail of [
     `README.zh-CN.md contains developer detail: ${technicalDetail}`,
   );
 }
+
+includesAll(
+  read("CONTRIBUTING.md"),
+  [
+    "agree to license it under GPL-3.0-only",
+    "Copyright remains with each contributor",
+    "no Contributor License Agreement, copyright-assignment agreement, or Developer Certificate of Origin workflow",
+    "receives no broader copyright license",
+    "may be sold or otherwise distributed commercially",
+    "may relicense another contributor's GPL-covered work",
+    "Mihomo's published generative AI content policy",
+    "issue-submission guidance",
+    "Complete human review is required",
+    "Generated conclusions are not technical evidence",
+    "Third-party rights must be documented",
+  ],
+  "CONTRIBUTING.md",
+);
 
 includesAll(
   read("docs/operations/macos-packaging.md"),

@@ -98,7 +98,25 @@ behavior.
 Developer setup, commands, architecture, and validation details are maintained
 in [`development.md`](development.md) and the
 [documentation index](docs/README.md). Read
-[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Contributors
+retain copyright in their work and agree to license accepted contributions
+under GPL-3.0-only; Mish does not currently require copyright assignment or a
+Contributor License Agreement. For another contributor's work, the maintainer
+receives the same GPL rights as any other recipient. AI-assisted submissions
+require complete human review, and the contributor remains responsible for
+their content and provenance.
+
+## Credits
+
+Mish's architecture and interaction design were inspired by and in part
+informed by [Mihomo](https://github.com/MetaCubeX/mihomo), ClashX,
+[Clash Mi](https://github.com/KaringX/clashmi), [Stash](https://stash.ws/),
+[Clash Verge](https://github.com/zzzgydi/clash-verge),
+[MetaCubeXD](https://github.com/MetaCubeX/metacubexd), and projects derived
+from them. These projects are independent of Mish. This acknowledgment does not
+imply affiliation, endorsement, or incorporation of their code or assets;
+material reuse, where applicable, is identified separately in the third-party
+notices.
 
 ## License and attribution
 

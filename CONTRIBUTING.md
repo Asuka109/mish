@@ -57,12 +57,49 @@ explicit review of the applicable technical and license boundaries.
 
 ## Licensing and provenance
 
-Mish-authored source is distributed under GPL-3.0-only. Third-party material
-retains its own license. Do not submit content that you do not have the right to
-contribute under terms compatible with the repository and its distribution.
-Preserve upstream notices and record the exact source, version, license, and
-modification status for copied or derived material.
+By submitting a contribution, you confirm that you have the right to submit it
+and agree to license it under GPL-3.0-only. Copyright remains with each
+contributor unless a separate signed agreement expressly assigns it. Mish
+currently has no Contributor License Agreement, copyright-assignment agreement,
+or Developer Certificate of Origin workflow. The maintainer receives no broader
+copyright license to another contributor's work than any other GPL recipient.
 
-The project currently has no Contributor License Agreement or Developer
-Certificate of Origin workflow. A maintainer may request provenance or
-licensing clarification before accepting a contribution.
+GPL-covered copies of Mish may be sold or otherwise distributed commercially,
+but distribution must continue to follow the GPL. No maintainer or contributor
+may relicense another contributor's GPL-covered work under incompatible or
+proprietary terms without separate permission from the relevant copyright
+holder.
+
+Third-party material retains its own license. Do not submit content that you do
+not have the right to contribute under terms compatible with the repository and
+its distribution. Preserve upstream notices and record the exact source,
+version, license, and modification status for copied or derived material. A
+maintainer may request provenance or licensing clarification before accepting a
+contribution.
+
+## Generative AI-assisted contributions
+
+This section adapts the contribution standards in
+[Mihomo's published generative AI content policy](https://github.com/MetaCubeX/Meta-Docs/commit/a51a2482c65f4b1a7056a370f9a1d6575cb55744).
+
+For issues, use concrete, reproducible, human-verified evidence. Mihomo's
+[issue-submission guidance](https://github.com/MetaCubeX/mihomo/issues/1049) is
+a useful reference for report quality, but Mish issues must concern this
+repository and follow its own templates.
+
+For pull requests:
+
+- **Responsibility does not change.** Contributors are responsible for the
+  content, quality, safety, and licensing of their submissions whether or not
+  they use a generative AI tool.
+- **Complete human review is required.** Contributions that have not been fully
+  inspected, tested, and revised as needed by the contributor will not be
+  accepted.
+- **Generated conclusions are not technical evidence.** Claims produced by a
+  tool must be supported by source material, repository evidence, reproduction,
+  or tests that a reviewer can independently verify.
+- **Third-party rights must be documented.** Do not present generated or
+  third-party material as original work. Before submitting pre-existing code or
+  other copyrighted material contained in tool output, confirm that you have
+  permission to use, modify, and contribute it. Include the source, applicable
+  license terms, notices, and attribution with the contribution.

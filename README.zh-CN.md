@@ -71,7 +71,19 @@ Issue、截图、CI
 
 开发环境、命令、架构和验证细节维护在 [`development.md`](development.md)
 和[文档索引](docs/README.md)中。提交拉取请求前请阅读
-[CONTRIBUTING.md](CONTRIBUTING.md)。
+[CONTRIBUTING.md](CONTRIBUTING.md)。贡献者保留其作品的版权，并同意接受的贡献采用
+GPL-3.0-only 许可；Mish 目前不要求转让版权或签署贡献者许可协议。使用生成式 AI
+辅助的提交必须经过完整的人工核查，贡献者仍需对其内容与来源负责。对于他人贡献的作品，
+维护者取得的 GPL 权利与其他被许可者相同。
+
+## 致谢
+
+Mish 的架构与交互设计受到 [Mihomo](https://github.com/MetaCubeX/mihomo)、ClashX、
+[Clash Mi](https://github.com/KaringX/clashmi)、[Stash](https://stash.ws/)、
+[Clash Verge](https://github.com/zzzgydi/clash-verge)、
+[MetaCubeXD](https://github.com/MetaCubeX/metacubexd) 及其衍生项目的启发，并在部分方面
+参考了这些项目。它们均独立于 Mish；此处致谢不表示任何隶属、背书，也不表示 Mish
+使用了其代码或资源。若存在具体材料复用，将另行记录在第三方通知中。
 
 ## 许可证与署名
 
