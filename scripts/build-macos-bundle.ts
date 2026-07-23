@@ -7,6 +7,9 @@ if (process.platform !== "darwin" || process.arch !== "arm64") {
   throw new Error("macOS bundles must be built on Apple Silicon macOS");
 }
 
+const arguments_ = process.argv.slice(2);
+const alphaAdHoc =
+  arguments_.length === 2 && arguments_[0] === "--profile" && arguments_[1] === "alpha-ad-hoc";
 const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || "-";
 const mihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
 const expectedMihomoSha256 = "ec66e3e883bdc3fca06753784e324e08921e13239f8e945587cb1bfbf4c6b936";
@@ -17,6 +20,40 @@ const productionRoot = path.resolve(".scratch/macos-production");
 
 if (production && productionFixture) {
   throw new Error("The credential-free production fixture cannot use a signing identity");
+}
+
+if (alphaAdHoc && productionFixture) {
+  throw new Error("The alpha-ad-hoc profile cannot use the production fixture");
+}
+
+const alphaCredentialVariables = [
+  "APPLE_CERTIFICATE",
+  "APPLE_CERTIFICATE_PASSWORD",
+  "APPLE_API_ISSUER",
+  "APPLE_API_KEY",
+  "APPLE_API_KEY_PATH",
+  "MISH_APPLE_CERTIFICATE_BASE64",
+  "MISH_APPLE_CERTIFICATE_PASSWORD",
+  "MISH_APPLE_SIGNING_IDENTITY",
+  "MISH_APPLE_NOTARY_API_ISSUER_ID",
+  "MISH_APPLE_NOTARY_API_KEY_ID",
+  "MISH_APPLE_NOTARY_API_PRIVATE_KEY",
+] as const;
+
+if (alphaAdHoc) {
+  if (identity !== "-") {
+    throw new Error("The alpha-ad-hoc profile requires APPLE_SIGNING_IDENTITY=-");
+  }
+  for (const variable of alphaCredentialVariables) {
+    if (process.env[variable]) {
+      throw new Error(`The alpha-ad-hoc profile rejects Apple credential variable ${variable}`);
+    }
+  }
+  for (const variable of ["MISH_EXPECTED_APPLE_TEAM_IDENTIFIER", "MISH_MACOS_PACKAGE_MODE"]) {
+    if (process.env[variable]) {
+      throw new Error(`The alpha-ad-hoc profile rejects inherited package variable ${variable}`);
+    }
+  }
 }
 
 function teamIdentifier(signingIdentity: string) {
@@ -45,6 +82,10 @@ signingArguments.push("--sign", identity, mihomo);
 execFileSync("codesign", signingArguments, { stdio: "inherit" });
 
 const packageEnvironment = { ...process.env, APPLE_SIGNING_IDENTITY: identity };
+if (alphaAdHoc) {
+  packageEnvironment.MISH_MACOS_PACKAGE_MODE = "alpha-ad-hoc";
+  packageEnvironment.MISH_MACOS_RELEASE_PROFILE = "alpha-ad-hoc";
+}
 let bundleCommand = "bundle:macos";
 if (productionLayout) {
   const expectedTeamIdentifier = production ? teamIdentifier(identity) : "ABCDE12345";
@@ -86,11 +127,22 @@ if (productionLayout) {
   bundleCommand = "bundle:macos:production";
 }
 
+if (alphaAdHoc) {
+  bundleCommand = "bundle:macos:alpha-ad-hoc";
+}
+
 execFileSync("pnpm", ["--filter", "@mish/desktop", bundleCommand], {
   env: packageEnvironment,
   stdio: "inherit",
 });
-execFileSync("pnpm", ["desktop:bundle:verify:macos"], {
-  env: packageEnvironment,
-  stdio: "inherit",
-});
+if (alphaAdHoc) {
+  execFileSync("pnpm", ["desktop:bundle:verify:alpha-ad-hoc:macos"], {
+    env: packageEnvironment,
+    stdio: "inherit",
+  });
+} else {
+  execFileSync("pnpm", ["desktop:bundle:verify:macos"], {
+    env: packageEnvironment,
+    stdio: "inherit",
+  });
+}
