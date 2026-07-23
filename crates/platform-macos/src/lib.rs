@@ -29,9 +29,9 @@ use std::{
 
 use futures_util::future::BoxFuture;
 use mish_runtime::{
-    CapabilityAvailability, CaptureFailureKind, CaptureJournal, CaptureJournalStore,
-    CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint, ManualProxyState,
-    NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
+    CapabilityAvailability, CaptureConfirmationWindow, CaptureFailureKind, CaptureJournal,
+    CaptureJournalStore, CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint,
+    ManualProxyState, NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
     PlatformLifecycleEventSource, TunHelperAvailability, TunHelperError, TunHelperFailureKind,
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
     TunHelperSnapshot,
@@ -56,6 +56,8 @@ const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
+const SYSTEM_PROXY_CONFIRMATION_OBSERVATIONS: u8 = 20;
+const SYSTEM_PROXY_CONFIRMATION_INTERVAL: Duration = Duration::from_millis(25);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BrowserPairingPanelPolicy {
@@ -1336,6 +1338,13 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
                 .await?;
             Ok(())
         })
+    }
+
+    fn confirmation_window(&self) -> CaptureConfirmationWindow {
+        CaptureConfirmationWindow::bounded(
+            SYSTEM_PROXY_CONFIRMATION_OBSERVATIONS,
+            SYSTEM_PROXY_CONFIRMATION_INTERVAL,
+        )
     }
 
     fn confirm_proxy_listener(

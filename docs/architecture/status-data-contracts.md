@@ -214,6 +214,15 @@ equal through confirmation. An unconfirmed outcome remains explicit drift with
 `repair` and `leave-as-is`; repair adopts the currently observed safe state as
 the new prior, while leave-as-is clears Mish ownership without changing the OS.
 
+macOS treats a successful `networksetup` mutation as command acknowledgement,
+not confirmation. Its capture adapter makes an immediate full-state observation
+and, only while the active service remains the transaction target, retries that
+same observation through a short bounded propagation window. A matching full
+matrix is the sole path to `applied`; a stable mismatch rolls back exactly to
+the journaled baseline, while a service change is typed external drift and
+leaves the newly active service untouched. The window carries no proxy values,
+service identifiers, or profile data into diagnostics or notifications.
+
 The desktop bridge audits capture ownership at restart, on core health changes,
 and periodically as a bounded fallback. The macOS shell also publishes typed,
 monotonically sequenced sleep, wake, and primary-network-service events through
