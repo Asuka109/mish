@@ -39,6 +39,7 @@ const settingsSnapshot = {
       launchProxyWhenMishLaunches: false,
       loginLaunchBehavior: "show-window" as const,
     },
+    systemProxyTakeoverPolicy: "protect-existing" as const,
     windowCloseBehavior: "hide-to-status-bar" as const,
     windowSurface: "material" as const,
   },

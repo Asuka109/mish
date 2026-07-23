@@ -9,10 +9,11 @@ use mish_runtime::{
     CapturePlatform, CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
     CaptureTransitionError, LocalProxyTestPhase, LoopbackProxyEndpoint, ManualProxyState,
     NetworkServiceProxyState, SystemProxyObservedState, SystemProxyPhase,
-    TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability, TunHelperController, TunHelperError,
-    TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase,
-    TunHelperObservation, TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation,
-    TunObservationComponentState, TunObservedState, TunPhase, tun_observation_now,
+    SystemProxyTakeoverPolicy, SystemProxyTakeoverRejection, TUN_HELPER_EXPECTED_VERSION,
+    TunHelperAvailability, TunHelperController, TunHelperError, TunHelperFailureKind,
+    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
+    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, TunObservationComponentState,
+    TunObservedState, TunPhase, tun_observation_now,
 };
 
 struct FakeTunHelper {
@@ -800,7 +801,11 @@ async fn automatic_proxy_configuration_is_left_unchanged_and_reported_as_failed(
 
     assert_eq!(
         error.kind,
-        mish_runtime::CaptureFailureKind::UnsafeExistingConfiguration
+        mish_runtime::CaptureFailureKind::TakeoverRejected
+    );
+    assert_eq!(
+        error.takeover_rejection,
+        Some(SystemProxyTakeoverRejection::ProtectedPac)
     );
     assert_eq!(platform.service("service-a"), prior);
     assert_eq!(
@@ -809,7 +814,7 @@ async fn automatic_proxy_configuration_is_left_unchanged_and_reported_as_failed(
     );
     assert_eq!(
         reconciler.status().system_proxy.failure,
-        Some(mish_runtime::CaptureFailureKind::UnsafeExistingConfiguration)
+        Some(mish_runtime::CaptureFailureKind::TakeoverRejected)
     );
     assert!(journal.load().unwrap().is_none());
 }
@@ -838,6 +843,7 @@ async fn audit_reports_external_modification_as_observed_drift() {
         .unwrap();
     platform.replace_service(NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
         http: ManualProxyState {
             authenticated: false,
             enabled: true,
@@ -1391,6 +1397,7 @@ async fn audit_observation_failure_replaces_applied_with_explicit_unknown_drift(
 fn disabled_service() -> NetworkServiceProxyState {
     NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
         http: ManualProxyState::disabled(),
         https: ManualProxyState::disabled(),
         pac_enabled: false,
@@ -1398,6 +1405,94 @@ fn disabled_service() -> NetworkServiceProxyState {
         service_id: "service-a".into(),
         socks: ManualProxyState::disabled(),
     }
+}
+
+#[tokio::test]
+async fn system_proxy_preserves_user_bypass_order_and_owns_the_local_name_contract() {
+    let prior = NetworkServiceProxyState {
+        bypass_domains: vec!["intranet.fixture.invalid".into(), "*.LOCAL".into()],
+        ..disabled_service()
+    };
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let endpoint = LoopbackProxyEndpoint::managed();
+    let reconciler = CaptureReconciler::new(platform.clone(), journal.clone(), endpoint.clone());
+    let selection = CaptureSelection {
+        system_proxy: true,
+        tun: false,
+    };
+
+    let applied = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: selection.clone(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(applied.system_proxy.phase, SystemProxyPhase::Applied);
+    assert!(platform.service("service-a").is_mish_endpoint(&endpoint));
+    assert_eq!(
+        platform.service("service-a").bypass_domains,
+        [
+            "intranet.fixture.invalid",
+            "*.LOCAL",
+            "localhost",
+            "*.localhost",
+            "*.local.",
+            "*.home.arpa",
+            "*.home.arpa.",
+        ]
+    );
+    assert_eq!(journal.load().unwrap().unwrap().prior, prior);
+
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(platform.service("service-a"), prior);
+    assert!(journal.load().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn bypass_drift_never_remains_reported_as_applied() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler =
+        CaptureReconciler::new(platform.clone(), journal, LoopbackProxyEndpoint::managed());
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    let mut drifted = platform.service("service-a");
+    drifted.bypass_domains.pop();
+    platform.replace_service(drifted);
+    let status = reconciler
+        .audit(CaptureAuditReason::Periodic, true)
+        .await
+        .unwrap();
+
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Drift);
+    assert!(!status.system_proxy_enabled);
 }
 
 #[tokio::test]
@@ -1594,10 +1689,63 @@ async fn authenticated_proxy_state_is_rejected_before_mutation() {
 
     assert_eq!(
         error.kind,
-        mish_runtime::CaptureFailureKind::UnsafeExistingConfiguration
+        mish_runtime::CaptureFailureKind::TakeoverRejected
+    );
+    assert_eq!(
+        error.takeover_rejection,
+        Some(SystemProxyTakeoverRejection::AuthenticatedProxy)
     );
     assert_eq!(platform.service("service-a"), prior);
     assert_eq!(platform.apply_count(), 0);
+    assert!(journal.load().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn advanced_policy_replaces_and_exactly_restores_captured_pac_and_auto_discovery() {
+    let prior = NetworkServiceProxyState {
+        auto_discovery_enabled: true,
+        pac_enabled: true,
+        pac_url: "http://pac.example/proxy.pac".into(),
+        ..disabled_service()
+    };
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+    reconciler.set_system_proxy_takeover_policy(
+        SystemProxyTakeoverPolicy::ReplaceReversiblePacOrAutoDiscovery,
+    );
+    let selection = CaptureSelection {
+        system_proxy: true,
+        tun: false,
+    };
+
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: selection.clone(),
+            },
+            true,
+        )
+        .await
+        .expect("advanced policy applies only after journaling complete state");
+    assert_eq!(journal.load().unwrap().unwrap().prior, prior);
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection,
+            },
+            true,
+        )
+        .await
+        .expect("exact restore");
+
+    assert_eq!(platform.service("service-a"), prior);
     assert!(journal.load().unwrap().is_none());
 }
 

@@ -166,9 +166,11 @@ Service latency monitors a user-managed set of endpoint probes. The default fixt
 contains Google, GitHub, Cloudflare, Baidu, Apple, and Microsoft. Normal display
 shows a URL-backed service icon, title, and latency; activating a service runs
 that probe immediately and updates its latency in place. The probe URL and icon
-URL appear only in the editor. Default icons use version-pinned Remix Icon
-assets from the npmmirror CDN, with a neutral cloud symbol for Cloudflare, while
-each service may supply its own HTTPS image URL. Manage supports add, an Edit
+URL appear only in the editor. Default icons use bundled Remix Icon `v4.8.0`
+assets through root-relative URLs, with a generic cloud symbol for Cloudflare,
+while each service may supply its own HTTPS image URL. Failed or malformed
+images fall back to that bundled generic icon without removing the label or
+changing the row geometry. Only the browser loads custom images. Manage supports add, an Edit
 services dialog, automatic retest interval, delete, and Restore defaults.
 Automatic retesting offers 5-second, 10-second, 30-second, and 1-minute cycles.
 Disabling it retains the latest results and runs one cycle each time the proxy

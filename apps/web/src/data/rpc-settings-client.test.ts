@@ -42,6 +42,7 @@ describe("RPC settings client", () => {
     });
     await client.setWindowCloseBehavior("quit");
     await client.setWindowSurface("opaque");
+    await client.setSystemProxyTakeoverPolicy("replace-reversible-pac-or-auto-discovery");
     await client.refreshNetworkDns();
 
     expect(request.mock.calls.map(([method, params]) => [method, params])).toEqual([
@@ -60,6 +61,10 @@ describe("RPC settings client", () => {
       ],
       ["settings.setWindowCloseBehavior", { behavior: "quit" }],
       ["settings.setWindowSurface", { surface: "opaque" }],
+      [
+        "settings.setSystemProxyTakeoverPolicy",
+        { policy: "replace-reversible-pac-or-auto-discovery" },
+      ],
       ["settings.refreshNetworkDns", {}],
     ]);
   });

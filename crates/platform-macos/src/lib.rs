@@ -51,7 +51,7 @@ use tokio::{
 
 const JOURNAL_MAX_BYTES: u64 = 65_536;
 const JOURNAL_OWNER: &str = "com.asuka109.mish";
-const JOURNAL_VERSION: u32 = 2;
+const JOURNAL_VERSION: u32 = 3;
 const COMMAND_MAX_BYTES: usize = 65_536;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
@@ -916,6 +916,9 @@ pub enum MacOsCommand {
     GetAutoProxyUrl {
         service: String,
     },
+    GetProxyBypassDomains {
+        service: String,
+    },
     GetProxy {
         kind: MacOsProxyKind,
         service: String,
@@ -935,6 +938,22 @@ pub enum MacOsCommand {
     SetProxyState {
         enabled: bool,
         kind: MacOsProxyKind,
+        service: String,
+    },
+    SetAutoProxyUrl {
+        service: String,
+        url: String,
+    },
+    SetAutoProxyState {
+        enabled: bool,
+        service: String,
+    },
+    SetProxyAutoDiscovery {
+        enabled: bool,
+        service: String,
+    },
+    SetProxyBypassDomains {
+        domains: Vec<String>,
         service: String,
     },
 }
@@ -971,6 +990,9 @@ impl MacOsCommand {
             },
             Self::GetProxy { kind, service } => networksetup_spec([proxy_get_flag(*kind), service]),
             Self::GetAutoProxyUrl { service } => networksetup_spec(["-getautoproxyurl", service]),
+            Self::GetProxyBypassDomains { service } => {
+                networksetup_spec(["-getproxybypassdomains", service])
+            }
             Self::GetProxyAutoDiscovery { service } => {
                 networksetup_spec(["-getproxyautodiscovery", service])
             }
@@ -995,6 +1017,31 @@ impl MacOsCommand {
                 service.clone(),
                 if *enabled { "on" } else { "off" }.to_owned(),
             ]),
+            Self::SetAutoProxyUrl { service, url } => {
+                networksetup_spec(["-setautoproxyurl", service, url])
+            }
+            Self::SetAutoProxyState { enabled, service } => networksetup_spec([
+                "-setautoproxystate",
+                service,
+                if *enabled { "on" } else { "off" },
+            ]),
+            Self::SetProxyAutoDiscovery { enabled, service } => networksetup_spec([
+                "-setproxyautodiscovery",
+                service,
+                if *enabled { "on" } else { "off" },
+            ]),
+            Self::SetProxyBypassDomains { domains, service } => {
+                let domains = if domains.is_empty() {
+                    vec!["Empty".to_owned()]
+                } else {
+                    domains.clone()
+                };
+                networksetup_spec(
+                    std::iter::once("-setproxybypassdomains".to_owned())
+                        .chain(std::iter::once(service.clone()))
+                        .chain(domains),
+                )
+            }
         }
     }
 }
@@ -1222,6 +1269,13 @@ impl MacOsSystemProxyPlatform {
         let http = self.proxy_state(&service, MacOsProxyKind::Http).await?;
         let https = self.proxy_state(&service, MacOsProxyKind::Https).await?;
         let socks = self.proxy_state(&service, MacOsProxyKind::Socks).await?;
+        let bypass_domains = parse_proxy_bypass_domains(
+            &self
+                .run(MacOsCommand::GetProxyBypassDomains {
+                    service: service.clone(),
+                })
+                .await?,
+        )?;
         let pac_output = self
             .run(MacOsCommand::GetAutoProxyUrl {
                 service: service.clone(),
@@ -1234,6 +1288,7 @@ impl MacOsSystemProxyPlatform {
             .await?;
         Ok(NetworkServiceProxyState {
             auto_discovery_enabled: parse_enabled_value(&discovery_output, "Auto Proxy Discovery")?,
+            bypass_domains,
             http,
             https,
             pac_enabled: parse_enabled_value(&pac_output, "Enabled")?,
@@ -1296,6 +1351,34 @@ impl MacOsSystemProxyPlatform {
             .map_err(apply_error)?;
         Ok(())
     }
+
+    async fn apply_automatic_proxy(
+        &self,
+        target: &NetworkServiceProxyState,
+    ) -> Result<(), CaptureTransitionError> {
+        self.runner
+            .run(MacOsCommand::SetAutoProxyUrl {
+                service: target.service_id.clone(),
+                url: target.pac_url.clone(),
+            })
+            .await
+            .map_err(apply_error)?;
+        self.runner
+            .run(MacOsCommand::SetAutoProxyState {
+                enabled: target.pac_enabled,
+                service: target.service_id.clone(),
+            })
+            .await
+            .map_err(apply_error)?;
+        self.runner
+            .run(MacOsCommand::SetProxyAutoDiscovery {
+                enabled: target.auto_discovery_enabled,
+                service: target.service_id.clone(),
+            })
+            .await
+            .map_err(apply_error)?;
+        Ok(())
+    }
 }
 
 impl CapturePlatform for MacOsSystemProxyPlatform {
@@ -1334,6 +1417,14 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
                 .await?;
             self.apply_proxy(&target.service_id, MacOsProxyKind::Socks, &target.socks)
                 .await?;
+            self.apply_automatic_proxy(&target).await?;
+            self.runner
+                .run(MacOsCommand::SetProxyBypassDomains {
+                    domains: target.bypass_domains,
+                    service: target.service_id,
+                })
+                .await
+                .map_err(apply_error)?;
             Ok(())
         })
     }
@@ -1362,6 +1453,25 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
             }
         })
     }
+}
+
+fn parse_proxy_bypass_domains(output: &str) -> Result<Vec<String>, CaptureTransitionError> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() || trimmed.starts_with("There aren't any bypass domains set on ") {
+        return Ok(Vec::new());
+    }
+    let domains = trimmed.lines().map(str::to_owned).collect::<Vec<_>>();
+    if domains.len() > 64
+        || domains.iter().any(|domain| {
+            domain.is_empty()
+                || domain.len() > 253
+                || domain == "Empty"
+                || domain.chars().any(char::is_control)
+        })
+    {
+        return Err(observation_error());
+    }
+    Ok(domains)
 }
 
 impl Default for MacOsSystemProxyPlatform {

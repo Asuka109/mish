@@ -534,11 +534,17 @@ impl MishRuntime {
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.reconcile(request, healthy).await;
         if let Err(error) = result {
-            self.record_capture_failure(error.kind);
+            self.record_capture_failure(&error);
             return Err(error);
         }
         self.notifications.resolve_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
+    }
+
+    pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
+        if let Some(capture) = &self.capture {
+            capture.set_system_proxy_takeover_policy(policy);
+        }
     }
 
     pub async fn test_local_proxy(&self) -> Result<LocalProxyTestResult, CaptureTransitionError> {
@@ -573,7 +579,7 @@ impl MishRuntime {
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.recover(action, healthy).await;
         if let Err(error) = result {
-            self.record_capture_failure(error.kind);
+            self.record_capture_failure(&error);
             return Err(error);
         }
         self.notifications.resolve_by_dedupe_key("capture.failure");
@@ -596,7 +602,7 @@ impl MishRuntime {
             return match result {
                 Ok(_) => Ok(false),
                 Err(error) => {
-                    self.record_capture_failure(error.kind);
+                    self.record_capture_failure(&error);
                     Err(error)
                 }
             };
@@ -604,7 +610,7 @@ impl MishRuntime {
         match result {
             Ok(_) => Ok(true),
             Err(error) => {
-                self.record_capture_failure(error.kind);
+                self.record_capture_failure(&error);
                 Err(error)
             }
         }
@@ -648,7 +654,7 @@ impl MishRuntime {
                         error.kind,
                     ));
                 } else {
-                    self.record_capture_failure(error.kind);
+                    self.record_capture_failure(&error);
                 }
                 Err(error)
             }
@@ -817,12 +823,16 @@ impl MishRuntime {
         self.notifications.resolve_by_dedupe_key(dedupe_key)
     }
 
-    fn record_capture_failure(&self, failure: CaptureFailureKind) {
+    fn record_capture_failure(&self, error: &CaptureTransitionError) {
+        let failure = error.kind;
         self.record_application_event(ApplicationDiagnosticEvent::capture_failure(failure));
         let _ = self.publish_notification(NotificationPublication {
             dedupe_key: "capture.failure".into(),
             notification_type: "capture.failure".into(),
-            params: serde_json::json!({ "failure": failure }),
+            params: serde_json::json!({
+                "failure": failure,
+                "takeoverReason": error.takeover_rejection,
+            }),
             pinned: false,
             replaces: Vec::new(),
             resolved: false,

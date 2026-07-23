@@ -160,11 +160,11 @@ describe("local proxy listener feedback", () => {
   });
 
   test("keeps the unavailable Chinese automatic proxy launch row stable at a narrow width", async () => {
-    const title = page.getByText("启动应用自动代理", { exact: true });
+    const title = page.getByText("应用启动时自动代理", { exact: true });
     await expect.element(title).toBeVisible();
     const automaticRow = title.element().closest('[data-slot="settings-row"]');
     expect(automaticRow).toBeDefined();
-    const off = page.getByRole("button", { exact: true, name: "启动应用自动代理: 关闭" });
+    const off = page.getByRole("button", { exact: true, name: "应用启动时自动代理: 关闭" });
     await expect.element(off).toBeDisabled();
     expect(automaticRow!.getBoundingClientRect().width).toBeGreaterThan(0);
     expect(

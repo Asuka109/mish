@@ -51,7 +51,12 @@ impl MacOsCommandRunner for FixtureRunner {
         if self.permission_denied
             && matches!(
                 command,
-                MacOsCommand::SetProxy { .. } | MacOsCommand::SetProxyState { .. }
+                MacOsCommand::SetProxy { .. }
+                    | MacOsCommand::SetProxyState { .. }
+                    | MacOsCommand::SetAutoProxyUrl { .. }
+                    | MacOsCommand::SetAutoProxyState { .. }
+                    | MacOsCommand::SetProxyAutoDiscovery { .. }
+                    | MacOsCommand::SetProxyBypassDomains { .. }
             )
         {
             return Box::pin(ready(Err(MacOsCommandError {
@@ -71,8 +76,16 @@ impl MacOsCommandRunner for FixtureRunner {
             }
             MacOsCommand::GetAutoProxyUrl { .. } if self.omit_pac_url => "Enabled: No\n",
             MacOsCommand::GetAutoProxyUrl { .. } => "URL: (null)\nEnabled: No\n",
+            MacOsCommand::GetProxyBypassDomains { .. } => {
+                "There aren't any bypass domains set on Fixture Service.\n"
+            }
             MacOsCommand::GetProxyAutoDiscovery { .. } => "Auto Proxy Discovery: Off\n",
-            MacOsCommand::SetProxy { .. } | MacOsCommand::SetProxyState { .. } => "",
+            MacOsCommand::SetProxy { .. }
+            | MacOsCommand::SetProxyState { .. }
+            | MacOsCommand::SetAutoProxyUrl { .. }
+            | MacOsCommand::SetAutoProxyState { .. }
+            | MacOsCommand::SetProxyAutoDiscovery { .. }
+            | MacOsCommand::SetProxyBypassDomains { .. } => "",
             MacOsCommand::DnsConfiguration | MacOsCommand::NetworkInformation => {
                 panic!("Network and DNS commands do not belong to the System Proxy fixture")
             }
@@ -165,6 +178,16 @@ impl MacOsCommandRunner for StatefulCrashRunner {
                     ),
                 })
             }
+            MacOsCommand::GetProxyBypassDomains { .. } => {
+                let domains = self.state.lock().unwrap().bypass_domains.clone();
+                Ok(MacOsCommandOutput {
+                    stdout: if domains.is_empty() {
+                        "There aren't any bypass domains set on Fixture Service.\n".into()
+                    } else {
+                        format!("{}\n", domains.join("\n"))
+                    },
+                })
+            }
             MacOsCommand::GetProxyAutoDiscovery { .. } => {
                 let enabled = self.state.lock().unwrap().auto_discovery_enabled;
                 Ok(MacOsCommandOutput {
@@ -199,6 +222,22 @@ impl MacOsCommandRunner for StatefulCrashRunner {
                 drop(state);
                 self.finish_write()
             }
+            MacOsCommand::SetAutoProxyUrl { url, .. } => {
+                self.state.lock().unwrap().pac_url = url;
+                self.finish_write()
+            }
+            MacOsCommand::SetAutoProxyState { enabled, .. } => {
+                self.state.lock().unwrap().pac_enabled = enabled;
+                self.finish_write()
+            }
+            MacOsCommand::SetProxyAutoDiscovery { enabled, .. } => {
+                self.state.lock().unwrap().auto_discovery_enabled = enabled;
+                self.finish_write()
+            }
+            MacOsCommand::SetProxyBypassDomains { domains, .. } => {
+                self.state.lock().unwrap().bypass_domains = domains;
+                self.finish_write()
+            }
             MacOsCommand::InterfaceConfiguration
             | MacOsCommand::RoutingTable
             | MacOsCommand::DnsConfiguration
@@ -213,6 +252,7 @@ impl MacOsCommandRunner for StatefulCrashRunner {
 fn crash_fixture_prior() -> NetworkServiceProxyState {
     NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: vec!["intranet.fixture.invalid".into(), "*.LOCAL".into()],
         http: ManualProxyState {
             authenticated: false,
             enabled: false,
@@ -245,6 +285,15 @@ fn crash_fixture_target(prior: &NetworkServiceProxyState) -> NetworkServiceProxy
         port: 7890,
     };
     NetworkServiceProxyState {
+        bypass_domains: vec![
+            "intranet.fixture.invalid".into(),
+            "*.LOCAL".into(),
+            "localhost".into(),
+            "*.localhost".into(),
+            "*.local.".into(),
+            "*.home.arpa".into(),
+            "*.home.arpa.".into(),
+        ],
         http: proxy.clone(),
         https: proxy.clone(),
         socks: proxy,
@@ -286,7 +335,7 @@ async fn assert_restart_recovers_after_write(
 }
 
 #[tokio::test]
-async fn applies_only_structured_http_https_and_socks_commands() {
+async fn applies_structured_manual_automatic_and_bypass_proxy_commands() {
     let runner = Arc::new(FixtureRunner::new());
     let platform = MacOsSystemProxyPlatform::with_runner(runner.clone());
     let enabled = ManualProxyState {
@@ -299,6 +348,7 @@ async fn applies_only_structured_http_https_and_socks_commands() {
     platform
         .apply_service(NetworkServiceProxyState {
             auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
             http: enabled.clone(),
             https: ManualProxyState::disabled(),
             pac_enabled: false,
@@ -345,6 +395,22 @@ async fn applies_only_structured_http_https_and_socks_commands() {
                 kind: mish_platform_macos::MacOsProxyKind::Socks,
                 service: "Fixture Service".into(),
             },
+            MacOsCommand::SetAutoProxyUrl {
+                service: "Fixture Service".into(),
+                url: "(null)".into(),
+            },
+            MacOsCommand::SetAutoProxyState {
+                enabled: false,
+                service: "Fixture Service".into(),
+            },
+            MacOsCommand::SetProxyAutoDiscovery {
+                enabled: false,
+                service: "Fixture Service".into(),
+            },
+            MacOsCommand::SetProxyBypassDomains {
+                domains: Vec::new(),
+                service: "Fixture Service".into(),
+            },
         ]
     );
 }
@@ -354,7 +420,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
     let prior = crash_fixture_prior();
     let target = crash_fixture_target(&prior);
 
-    for crash_after_write in 1..=6 {
+    for crash_after_write in 1..=10 {
         assert_restart_recovers_after_write(
             prior.clone(),
             target.clone(),
@@ -364,7 +430,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
         .await;
     }
 
-    for crash_after_write in 1..=6 {
+    for crash_after_write in 1..=10 {
         assert_restart_recovers_after_write(
             target.clone(),
             prior.clone(),
@@ -389,6 +455,7 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
     platform
         .apply_service(NetworkServiceProxyState {
             auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
             http: populated_disabled.clone(),
             https: populated_disabled.clone(),
             pac_enabled: false,
@@ -400,8 +467,8 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
         .unwrap();
 
     let commands = runner.commands.lock().unwrap();
-    assert_eq!(commands.len(), 6);
-    for pair in commands.chunks_exact(2) {
+    assert_eq!(commands.len(), 10);
+    for pair in commands[..6].chunks_exact(2) {
         assert!(matches!(
             &pair[0],
             MacOsCommand::SetProxy { host, port: 3128, .. } if host == "prior.proxy.example"
@@ -411,10 +478,22 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
             MacOsCommand::SetProxyState { enabled: false, .. }
         ));
     }
-    assert!(!commands.iter().any(|command| matches!(
-        command,
-        MacOsCommand::GetAutoProxyUrl { .. } | MacOsCommand::GetProxyAutoDiscovery { .. }
-    )));
+    assert!(matches!(
+        commands[6],
+        MacOsCommand::SetAutoProxyUrl { ref url, .. } if url == "http://pac.example/proxy.pac"
+    ));
+    assert!(matches!(
+        commands[7],
+        MacOsCommand::SetAutoProxyState { enabled: false, .. }
+    ));
+    assert!(matches!(
+        commands[8],
+        MacOsCommand::SetProxyAutoDiscovery { enabled: false, .. }
+    ));
+    assert!(matches!(
+        commands[9],
+        MacOsCommand::SetProxyBypassDomains { .. }
+    ));
 }
 
 #[test]
@@ -441,6 +520,34 @@ fn command_specs_use_fixed_programs_and_separate_arguments() {
     assert!(!spec.arguments.iter().any(|argument| argument == "-c"));
 }
 
+#[test]
+fn proxy_bypass_command_preserves_order_and_uses_empty_only_for_an_empty_list() {
+    let populated = MacOsCommand::SetProxyBypassDomains {
+        domains: vec!["intranet.fixture.invalid".into(), "*.local".into()],
+        service: "Fixture Service; ignored".into(),
+    }
+    .spec();
+    assert_eq!(
+        populated.arguments,
+        [
+            "-setproxybypassdomains",
+            "Fixture Service; ignored",
+            "intranet.fixture.invalid",
+            "*.local",
+        ]
+    );
+
+    let empty = MacOsCommand::SetProxyBypassDomains {
+        domains: Vec::new(),
+        service: "Fixture Service".into(),
+    }
+    .spec();
+    assert_eq!(
+        empty.arguments,
+        ["-setproxybypassdomains", "Fixture Service", "Empty"]
+    );
+}
+
 #[tokio::test]
 async fn permission_failure_is_typed_without_reflecting_command_arguments() {
     let runner = Arc::new(FixtureRunner::permission_denied());
@@ -450,6 +557,7 @@ async fn permission_failure_is_typed_without_reflecting_command_arguments() {
     let error = platform
         .apply_service(NetworkServiceProxyState {
             auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
             http: ManualProxyState {
                 authenticated: false,
                 enabled: true,
@@ -487,7 +595,8 @@ async fn observes_only_the_active_service_manual_and_automatic_proxy_fields() {
     assert!(!observed.pac_enabled);
     assert_eq!(observed.pac_url, "(null)");
     assert!(!observed.auto_discovery_enabled);
-    assert_eq!(runner.commands.lock().unwrap().len(), 7);
+    assert_eq!(observed.bypass_domains, Vec::<String>::new());
+    assert_eq!(runner.commands.lock().unwrap().len(), 8);
 }
 
 #[tokio::test]

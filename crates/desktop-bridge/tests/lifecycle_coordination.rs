@@ -663,6 +663,7 @@ async fn concurrent_older_platform_event_is_ignored_after_a_newer_transition_sta
 fn disabled_service(service_id: &str) -> NetworkServiceProxyState {
     NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
         http: ManualProxyState::disabled(),
         https: ManualProxyState::disabled(),
         pac_enabled: false,

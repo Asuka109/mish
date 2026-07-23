@@ -112,7 +112,7 @@ const en = {
     launchAtLogin: "Launch at login",
     launchAtLoginDescription:
       "Choose whether Mish starts when you log in and whether an automatic launch shows the main window. Manual launches always show the window.",
-    launchProxyWhenMishLaunches: "Launch proxy when Mish launches",
+    launchProxyWhenMishLaunches: "Auto-start proxy on app launch",
     launchProxyWhenMishLaunchesDescription:
       "Save this preference for the next Mish launch. Changing it does not start or stop the proxy now.",
     loginWindow: "Login launch window",
@@ -140,6 +140,15 @@ const en = {
     managedPortsFindAndRetry: "Find Ports and Retry",
     managedPortsConflict: "Mish could not use {endpoint}.",
     managedPortsSave: "Save Ports",
+    systemProxyTakeoverPolicy: "Existing proxy policy",
+    systemProxyTakeoverPolicyDescription:
+      "Protect existing PAC and automatic-discovery settings by default. The advanced choice is temporary and only replaces a fully captured state that Mish can restore exactly.",
+    systemProxyTakeoverPolicyProtected: "Protect existing",
+    systemProxyTakeoverPolicyAdvanced: "Advanced reversible replacement",
+    systemProxyTakeoverPolicyWarning:
+      "Authenticated, incomplete, invalid, and unrecoverable proxy settings are always left unchanged.",
+    systemProxyTakeoverRejected:
+      "Mish left the existing System Proxy configuration unchanged because it cannot safely take it over under the current policy.",
     network: "Network and DNS",
     networkDescription:
       "Read-only macOS observations for troubleshooting. No interface, route, or DNS setting can be changed here.",
@@ -912,10 +921,11 @@ const en = {
     fixtureEmptyDescription: "Add a local demo monitor. No request will be sent.",
     fixtureEndpointDescription: "Fixture endpoint latency.",
     fixtureMetadataDescription:
-      "Demo probe metadata only. The icon image is still loaded from its URL.",
+      "Demo probe metadata only. A custom HTTPS icon is still loaded directly by this browser.",
     fixtureUrlDescription: "The probe URL is stored as metadata and is not requested in demo mode.",
     iconUrl: "Icon URL",
-    iconUrlDescription: "Use a direct HTTPS image URL. SVG, PNG, and WebP images are supported.",
+    iconUrlDescription:
+      "Built-in icons stay local. A custom HTTPS image URL is requested directly by this browser, never by the Rust service.",
     iconUrlError: "Enter a valid HTTPS icon URL.",
     labelError: "Enter a title.",
     manage: "Manage",

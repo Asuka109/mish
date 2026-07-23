@@ -810,6 +810,24 @@ fn initialize(
             .map_err(|_| io::Error::other("managed proxy endpoint is unavailable"))?,
             Some(tun_helper.clone()),
         ));
+        capture.set_system_proxy_takeover_policy(
+            settings_service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .system_proxy_takeover_policy,
+        );
+        // Settings is authoritative for this durable choice.  A local-backup restore publishes
+        // the same snapshot stream, so the next capture transaction observes the restored
+        // policy without applying any operating-system setting during restore itself.
+        let capture_policy_sync = capture.clone();
+        let mut settings_policy_updates = settings_service.subscribe();
+        tauri::async_runtime::spawn(async move {
+            while let Ok(snapshot) = settings_policy_updates.recv().await {
+                capture_policy_sync.set_system_proxy_takeover_policy(
+                    snapshot.preferences.system_proxy_takeover_policy,
+                );
+            }
+        });
         let safe_runtime = compose_desktop_runtime_with_capture(
             Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
                 binary: None,

@@ -1,6 +1,5 @@
-import Highcharts from "highcharts";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { TrafficSparkline } from "./traffic-sparkline";
 
@@ -10,12 +9,6 @@ let root: Root;
 async function renderSparkline(data: number[]): Promise<void> {
   root.render(<TrafficSparkline color="#2f6fdc" data={data} />);
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-}
-
-function renderedChart(): Highcharts.Chart | undefined {
-  const chartContainer = container.querySelector<HTMLElement>("[data-highcharts-chart]");
-  if (!chartContainer) return undefined;
-  return Highcharts.charts[Number(chartContainer.dataset.highchartsChart)];
 }
 
 beforeEach(() => {
@@ -29,36 +22,29 @@ afterEach(() => {
   container.remove();
 });
 
-describe("TrafficSparkline Highcharts integration", () => {
-  test("waits for three samples, then appends at the right edge on one persistent chart", async () => {
+describe("TrafficSparkline Recharts integration", () => {
+  test("waits for three samples, then keeps one chart surface while appending", async () => {
     await renderSparkline([1, 2]);
-    expect(renderedChart()).toBeUndefined();
+    expect(container.querySelector("svg")).toBeNull();
 
     await renderSparkline([1, 2, 3]);
-    await vi.waitFor(() => expect(renderedChart()).toBeDefined());
-    const chart = renderedChart();
-    expect(chart?.options.chart?.margin).toEqual([1, 0, 3, 0]);
-    expect(chart?.options.plotOptions?.areaspline?.clip).toBe(false);
-    expect(chart?.series[0]?.data.map(({ x }) => x)).toEqual([57, 58, 59]);
-    expect(container.querySelector(".highcharts-graph")).not.toBeNull();
+    const surface = container.querySelector(".recharts-surface");
+    expect(surface).not.toBeNull();
+    expect(container.querySelector(".recharts-area-area")).not.toBeNull();
+    expect(container.querySelector(".recharts-area-curve")).not.toBeNull();
 
     await renderSparkline([1, 2, 3, 4]);
-    await vi.waitFor(() => expect(chart?.series[0]?.data).toHaveLength(4));
-    expect(renderedChart()).toBe(chart);
-    expect(chart?.series[0]?.data.at(-1)?.x).toBe(60);
+    expect(container.querySelector(".recharts-surface")).toBe(surface);
   });
 
-  test("destroys the prior chart across stop and creates a fresh relaunch chart", async () => {
+  test("removes the chart during stop and creates a fresh one after relaunch", async () => {
     await renderSparkline([2, 3, 4]);
-    await vi.waitFor(() => expect(renderedChart()).toBeDefined());
-    const firstChart = renderedChart();
+    const firstSurface = container.querySelector(".recharts-surface");
 
     await renderSparkline([]);
-    await vi.waitFor(() => expect(container.querySelector("svg")).toBeNull());
-    expect(Highcharts.charts).not.toContain(firstChart);
+    expect(container.querySelector("svg")).toBeNull();
 
     await renderSparkline([0, 1, 2]);
-    await vi.waitFor(() => expect(renderedChart()).toBeDefined());
-    expect(renderedChart()).not.toBe(firstChart);
+    expect(container.querySelector(".recharts-surface")).not.toBe(firstSurface);
   });
 });

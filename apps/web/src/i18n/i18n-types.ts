@@ -363,7 +363,7 @@ type RootTranslation = {
 		 */
 		launchAtLoginDescription: string
 		/**
-		 * L​a​u​n​c​h​ ​p​r​o​x​y​ ​w​h​e​n​ ​M​i​s​h​ ​l​a​u​n​c​h​e​s
+		 * A​u​t​o​-​s​t​a​r​t​ ​p​r​o​x​y​ ​o​n​ ​a​p​p​ ​l​a​u​n​c​h
 		 */
 		launchProxyWhenMishLaunches: string
 		/**
@@ -439,6 +439,30 @@ type RootTranslation = {
 		 * S​a​v​e​ ​P​o​r​t​s
 		 */
 		managedPortsSave: string
+		/**
+		 * E​x​i​s​t​i​n​g​ ​p​r​o​x​y​ ​p​o​l​i​c​y
+		 */
+		systemProxyTakeoverPolicy: string
+		/**
+		 * P​r​o​t​e​c​t​ ​e​x​i​s​t​i​n​g​ ​P​A​C​ ​a​n​d​ ​a​u​t​o​m​a​t​i​c​-​d​i​s​c​o​v​e​r​y​ ​s​e​t​t​i​n​g​s​ ​b​y​ ​d​e​f​a​u​l​t​.​ ​T​h​e​ ​a​d​v​a​n​c​e​d​ ​c​h​o​i​c​e​ ​i​s​ ​t​e​m​p​o​r​a​r​y​ ​a​n​d​ ​o​n​l​y​ ​r​e​p​l​a​c​e​s​ ​a​ ​f​u​l​l​y​ ​c​a​p​t​u​r​e​d​ ​s​t​a​t​e​ ​t​h​a​t​ ​M​i​s​h​ ​c​a​n​ ​r​e​s​t​o​r​e​ ​e​x​a​c​t​l​y​.
+		 */
+		systemProxyTakeoverPolicyDescription: string
+		/**
+		 * P​r​o​t​e​c​t​ ​e​x​i​s​t​i​n​g
+		 */
+		systemProxyTakeoverPolicyProtected: string
+		/**
+		 * A​d​v​a​n​c​e​d​ ​r​e​v​e​r​s​i​b​l​e​ ​r​e​p​l​a​c​e​m​e​n​t
+		 */
+		systemProxyTakeoverPolicyAdvanced: string
+		/**
+		 * A​u​t​h​e​n​t​i​c​a​t​e​d​,​ ​i​n​c​o​m​p​l​e​t​e​,​ ​i​n​v​a​l​i​d​,​ ​a​n​d​ ​u​n​r​e​c​o​v​e​r​a​b​l​e​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​a​l​w​a​y​s​ ​l​e​f​t​ ​u​n​c​h​a​n​g​e​d​.
+		 */
+		systemProxyTakeoverPolicyWarning: string
+		/**
+		 * M​i​s​h​ ​l​e​f​t​ ​t​h​e​ ​e​x​i​s​t​i​n​g​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​ ​u​n​c​h​a​n​g​e​d​ ​b​e​c​a​u​s​e​ ​i​t​ ​c​a​n​n​o​t​ ​s​a​f​e​l​y​ ​t​a​k​e​ ​i​t​ ​o​v​e​r​ ​u​n​d​e​r​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​p​o​l​i​c​y​.
+		 */
+		systemProxyTakeoverRejected: string
 		/**
 		 * N​e​t​w​o​r​k​ ​a​n​d​ ​D​N​S
 		 */
@@ -3095,7 +3119,7 @@ type RootTranslation = {
 		 */
 		fixtureEndpointDescription: string
 		/**
-		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​T​h​e​ ​i​c​o​n​ ​i​m​a​g​e​ ​i​s​ ​s​t​i​l​l​ ​l​o​a​d​e​d​ ​f​r​o​m​ ​i​t​s​ ​U​R​L​.
+		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​A​ ​c​u​s​t​o​m​ ​H​T​T​P​S​ ​i​c​o​n​ ​i​s​ ​s​t​i​l​l​ ​l​o​a​d​e​d​ ​d​i​r​e​c​t​l​y​ ​b​y​ ​t​h​i​s​ ​b​r​o​w​s​e​r​.
 		 */
 		fixtureMetadataDescription: string
 		/**
@@ -3107,7 +3131,7 @@ type RootTranslation = {
 		 */
 		iconUrl: string
 		/**
-		 * U​s​e​ ​a​ ​d​i​r​e​c​t​ ​H​T​T​P​S​ ​i​m​a​g​e​ ​U​R​L​.​ ​S​V​G​,​ ​P​N​G​,​ ​a​n​d​ ​W​e​b​P​ ​i​m​a​g​e​s​ ​a​r​e​ ​s​u​p​p​o​r​t​e​d​.
+		 * B​u​i​l​t​-​i​n​ ​i​c​o​n​s​ ​s​t​a​y​ ​l​o​c​a​l​.​ ​A​ ​c​u​s​t​o​m​ ​H​T​T​P​S​ ​i​m​a​g​e​ ​U​R​L​ ​i​s​ ​r​e​q​u​e​s​t​e​d​ ​d​i​r​e​c​t​l​y​ ​b​y​ ​t​h​i​s​ ​b​r​o​w​s​e​r​,​ ​n​e​v​e​r​ ​b​y​ ​t​h​e​ ​R​u​s​t​ ​s​e​r​v​i​c​e​.
 		 */
 		iconUrlDescription: string
 		/**
@@ -4771,7 +4795,7 @@ export type TranslationFunctions = {
 		 */
 		launchAtLoginDescription: () => LocalizedString
 		/**
-		 * Launch proxy when Mish launches
+		 * Auto-start proxy on app launch
 		 */
 		launchProxyWhenMishLaunches: () => LocalizedString
 		/**
@@ -4846,6 +4870,30 @@ export type TranslationFunctions = {
 		 * Save Ports
 		 */
 		managedPortsSave: () => LocalizedString
+		/**
+		 * Existing proxy policy
+		 */
+		systemProxyTakeoverPolicy: () => LocalizedString
+		/**
+		 * Protect existing PAC and automatic-discovery settings by default. The advanced choice is temporary and only replaces a fully captured state that Mish can restore exactly.
+		 */
+		systemProxyTakeoverPolicyDescription: () => LocalizedString
+		/**
+		 * Protect existing
+		 */
+		systemProxyTakeoverPolicyProtected: () => LocalizedString
+		/**
+		 * Advanced reversible replacement
+		 */
+		systemProxyTakeoverPolicyAdvanced: () => LocalizedString
+		/**
+		 * Authenticated, incomplete, invalid, and unrecoverable proxy settings are always left unchanged.
+		 */
+		systemProxyTakeoverPolicyWarning: () => LocalizedString
+		/**
+		 * Mish left the existing System Proxy configuration unchanged because it cannot safely take it over under the current policy.
+		 */
+		systemProxyTakeoverRejected: () => LocalizedString
 		/**
 		 * Network and DNS
 		 */
@@ -7423,7 +7471,7 @@ export type TranslationFunctions = {
 		 */
 		fixtureEndpointDescription: () => LocalizedString
 		/**
-		 * Demo probe metadata only. The icon image is still loaded from its URL.
+		 * Demo probe metadata only. A custom HTTPS icon is still loaded directly by this browser.
 		 */
 		fixtureMetadataDescription: () => LocalizedString
 		/**
@@ -7435,7 +7483,7 @@ export type TranslationFunctions = {
 		 */
 		iconUrl: () => LocalizedString
 		/**
-		 * Use a direct HTTPS image URL. SVG, PNG, and WebP images are supported.
+		 * Built-in icons stay local. A custom HTTPS image URL is requested directly by this browser, never by the Rust service.
 		 */
 		iconUrlDescription: () => LocalizedString
 		/**

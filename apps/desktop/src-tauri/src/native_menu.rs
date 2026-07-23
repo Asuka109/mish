@@ -7,7 +7,12 @@ use crate::status_bar::show_main_window;
 
 const FIND_MENU_ID: &str = "application.find";
 const QUIT_MENU_ID: &str = "application.quit";
-const QUIT_ACCELERATOR: &str = "CmdOrCtrl+Q";
+pub(crate) const APPLICATION_MENU_ACCELERATORS: &[(&str, &str)] = &[
+    ("application.find", "CmdOrCtrl+F"),
+    ("application.quit", "CmdOrCtrl+Q"),
+    ("application.settings", "CmdOrCtrl+,"),
+];
+const QUIT_ACCELERATOR: &str = APPLICATION_MENU_ACCELERATORS[1].1;
 const SETTINGS_MENU_ID: &str = "application.settings";
 
 pub(crate) fn install<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
@@ -22,7 +27,7 @@ pub(crate) fn install<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<(
     if let Some(app_menu) = app_menu {
         replace_native_quit(app, &app_menu, app_name)?;
         let settings = MenuItemBuilder::with_id(SETTINGS_MENU_ID, "Settings…")
-            .accelerator("CmdOrCtrl+,")
+            .accelerator(APPLICATION_MENU_ACCELERATORS[2].1)
             .build(app)?;
         let separator = PredefinedMenuItem::separator(app)?;
         app_menu.insert_items(&[&settings, &separator], 2)?;
@@ -31,7 +36,7 @@ pub(crate) fn install<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<(
     if let Some(edit_menu) = edit_menu {
         let separator = PredefinedMenuItem::separator(app)?;
         let find = MenuItemBuilder::with_id(FIND_MENU_ID, "Find…")
-            .accelerator("CmdOrCtrl+F")
+            .accelerator(APPLICATION_MENU_ACCELERATORS[0].1)
             .build(app)?;
         edit_menu.append_items(&[&separator, &find])?;
     }
@@ -110,5 +115,18 @@ mod tests {
         assert!(is_native_quit_label("Quit mish-desktop"));
         assert!(!is_native_quit_label("Hide Mish"));
         assert!(!is_native_quit_label("Quit "));
+    }
+
+    #[test]
+    fn application_menu_accelerators_have_stable_unique_commands() {
+        let mut ids = std::collections::HashSet::new();
+        let mut accelerators = std::collections::HashSet::new();
+        for (id, accelerator) in APPLICATION_MENU_ACCELERATORS {
+            assert!(ids.insert(*id), "duplicate application menu ID: {id}");
+            assert!(
+                accelerators.insert(*accelerator),
+                "duplicate application accelerator: {accelerator}"
+            );
+        }
     }
 }

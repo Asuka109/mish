@@ -103,7 +103,7 @@ const zh = {
     launchAtLogin: "登录时启动",
     launchAtLoginDescription:
       "选择登录 macOS 时是否自动启动 Mish，以及自动启动后是否显示主窗口。手动打开时始终显示窗口。",
-    launchProxyWhenMishLaunches: "启动应用自动代理",
+    launchProxyWhenMishLaunches: "应用启动时自动代理",
     launchProxyWhenMishLaunchesDescription:
       "仅保存下次启动 Mish 时的偏好；切换后不会立即启动或停止代理。",
     loginWindow: "登录启动窗口",
@@ -128,6 +128,13 @@ const zh = {
     managedPortsFindAndRetry: "寻找端口并重试",
     managedPortsConflict: "Mish 无法使用 {endpoint}。",
     managedPortsSave: "保存端口",
+    systemProxyTakeoverPolicy: "现有系统代理策略",
+    systemProxyTakeoverPolicyDescription:
+      "默认保护已有 PAC 与自动发现。高级选项只会临时替换 Mish 已完整捕获且可精确恢复的状态。",
+    systemProxyTakeoverPolicyProtected: "保护现有设置",
+    systemProxyTakeoverPolicyAdvanced: "高级可恢复替换",
+    systemProxyTakeoverPolicyWarning: "带认证、不完整、无效或无法恢复的代理设置始终不会被更改。",
+    systemProxyTakeoverRejected: "Mish 未更改现有系统代理，因为当前策略下无法安全接管它。",
     network: "网络与 DNS",
     networkDescription: "查看这台 Mac 当前的网络和 DNS 信息。这里不会更改任何网络设置。",
     networkDns: {
@@ -835,10 +842,11 @@ const zh = {
     empty: "没有服务监控项",
     fixtureEmptyDescription: "添加本地演示监控项，不会发送网络请求。",
     fixtureEndpointDescription: "演示服务的延迟。",
-    fixtureMetadataDescription: "这里只保存演示测速信息；图标图片仍会从其 URL 加载。",
+    fixtureMetadataDescription: "这里只保存演示测速信息；自定义 HTTPS 图标仍会由此浏览器直接加载。",
     fixtureUrlDescription: "演示模式只保存探测地址，不会访问它。",
     iconUrl: "图标 URL",
-    iconUrlDescription: "请输入图片的 HTTPS 直链，支持 SVG、PNG 和 WebP。",
+    iconUrlDescription:
+      "内置图标保持本地加载；自定义 HTTPS 图片会由此浏览器直接请求，Rust 服务不会代为获取。",
     iconUrlError: "请输入有效的 HTTPS 图标 URL。",
     labelError: "请输入标题。",
     manage: "管理",

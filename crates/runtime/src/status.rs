@@ -340,37 +340,37 @@ impl StatusSnapshot {
 pub fn default_service_monitors() -> Vec<ServiceMonitor> {
     [
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
+            "/assets/remix-icon/google.svg",
             "google",
             "Google",
             "https://www.google.com/generate_204",
         ),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/github-fill.svg",
+            "/assets/remix-icon/github.svg",
             "github",
             "GitHub",
             "https://github.com",
         ),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg",
+            "/assets/remix-icon/cloud.svg",
             "cloudflare",
             "Cloudflare",
             "https://cp.cloudflare.com/generate_204",
         ),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/baidu-fill.svg",
+            "/assets/remix-icon/baidu.svg",
             "baidu",
             "Baidu",
             "https://www.baidu.com",
         ),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/apple-fill.svg",
+            "/assets/remix-icon/apple.svg",
             "apple",
             "Apple",
             "https://www.apple.com/library/test/success.html",
         ),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/microsoft-fill.svg",
+            "/assets/remix-icon/microsoft.svg",
             "microsoft",
             "Microsoft",
             "http://www.msftconnecttest.com/connecttest.txt",
@@ -401,5 +401,26 @@ mod tests {
             microsoft.url,
             "http://www.msftconnecttest.com/connecttest.txt"
         );
+    }
+
+    #[test]
+    fn default_service_monitors_use_root_relative_bundled_icons() {
+        let icons: Vec<_> = default_service_monitors()
+            .into_iter()
+            .map(|monitor| monitor.icon)
+            .collect();
+
+        assert_eq!(
+            icons,
+            [
+                "/assets/remix-icon/google.svg",
+                "/assets/remix-icon/github.svg",
+                "/assets/remix-icon/cloud.svg",
+                "/assets/remix-icon/baidu.svg",
+                "/assets/remix-icon/apple.svg",
+                "/assets/remix-icon/microsoft.svg",
+            ]
+        );
+        assert!(icons.iter().all(|icon| icon.starts_with('/')));
     }
 }
