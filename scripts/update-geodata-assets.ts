@@ -16,6 +16,13 @@ export const REQUIRED_GEODATA_ASSETS = [
   "GeoLite2-ASN.mmdb",
 ] as const;
 
+export const GEODATA_RUNTIME_NAMES = {
+  "GeoLite2-ASN.mmdb": "ASN.mmdb",
+  "geoip.dat": "GeoIP.dat",
+  "geoip.metadb": "geoip.metadb",
+  "geosite.dat": "GeoSite.dat",
+} as const satisfies Record<(typeof REQUIRED_GEODATA_ASSETS)[number], string>;
+
 export interface GeodataReleaseAsset {
   digest?: string;
   id: number;
@@ -35,6 +42,7 @@ interface GeodataManifestAsset {
   bytes: number;
   name: string;
   releaseAssetId: number;
+  runtimeName: string;
   sha256: string;
 }
 
@@ -46,7 +54,7 @@ export interface GeodataManifest {
     tag: string;
     url: string;
   };
-  schemaVersion: 1;
+  schemaVersion: 2;
   source: {
     license: "GPL-3.0-only";
     licenseUrl: string;
@@ -109,7 +117,7 @@ function createManifest(release: GeodataRelease, assets: GeodataManifestAsset[])
       tag: release.tag_name,
       url: release.html_url,
     },
-    schemaVersion: 1,
+    schemaVersion: 2,
     source: {
       license: "GPL-3.0-only",
       licenseUrl: `https://github.com/${SOURCE_REPOSITORY}/blob/master/LICENSE`,
@@ -135,7 +143,7 @@ async function existingSnapshot(
   } catch {
     return undefined;
   }
-  if (manifest.schemaVersion !== 1 || manifest.release.id !== release.id) return undefined;
+  if (manifest.schemaVersion !== 2 || manifest.release.id !== release.id) return undefined;
   if (manifest.assets.length !== assets.length) return undefined;
 
   for (const [index, asset] of assets.entries()) {
@@ -143,6 +151,8 @@ async function existingSnapshot(
     if (
       !recorded ||
       recorded.name !== asset.name ||
+      recorded.runtimeName !==
+        GEODATA_RUNTIME_NAMES[asset.name as keyof typeof GEODATA_RUNTIME_NAMES] ||
       recorded.releaseAssetId !== asset.id ||
       recorded.bytes !== asset.size ||
       (asset.digest && recorded.sha256 !== asset.digest.slice("sha256:".length))
@@ -213,6 +223,7 @@ export async function updateGeodataSnapshot({
         bytes: content.byteLength,
         name: asset.name,
         releaseAssetId: asset.id,
+        runtimeName: GEODATA_RUNTIME_NAMES[asset.name as keyof typeof GEODATA_RUNTIME_NAMES],
         sha256: digest,
       });
     }

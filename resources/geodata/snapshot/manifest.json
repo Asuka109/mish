@@ -4,24 +4,28 @@
       "bytes": 4233260,
       "name": "geosite.dat",
       "releaseAssetId": 486533126,
+      "runtimeName": "GeoSite.dat",
       "sha256": "3b89d35b0ec475acf1cbed5dcae1a0bced3052b2c6b512866b04dd797a3fdc7e"
     },
     {
       "bytes": 17784192,
       "name": "geoip.dat",
       "releaseAssetId": 486533094,
+      "runtimeName": "GeoIP.dat",
       "sha256": "af332ab88eb4bb15e3cd10f03f5542e90655ee4bd5bf0e23949cfbd1e46bc20f"
     },
     {
       "bytes": 8769243,
       "name": "geoip.metadb",
       "releaseAssetId": 486533101,
+      "runtimeName": "geoip.metadb",
       "sha256": "435ead07913585e4d3c4ce7cf7070a5973cf5a4c2c9ed074d71904f9d4c18ae3"
     },
     {
       "bytes": 12094326,
       "name": "GeoLite2-ASN.mmdb",
       "releaseAssetId": 486533023,
+      "runtimeName": "ASN.mmdb",
       "sha256": "d6535df17b3026a3a0c91f07632ff258fb833d6f1140a02460754c3182c81b57"
     }
   ],
@@ -31,7 +35,7 @@
     "tag": "latest",
     "url": "https://github.com/MetaCubeX/meta-rules-dat/releases/tag/latest"
   },
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": {
     "license": "GPL-3.0-only",
     "licenseUrl": "https://github.com/MetaCubeX/meta-rules-dat/blob/master/LICENSE",

@@ -85,14 +85,15 @@ Install the repository-pinned Chromium once with
 
 ## Generation and preparation
 
-| Command              | Purpose                                                                        |
-| -------------------- | ------------------------------------------------------------------------------ |
-| `generate:i18n`      | Regenerate typed localization files.                                           |
-| `generate:brand`     | Regenerate repository-owned brand assets.                                      |
-| `geodata:update`     | Download the latest full GeoData snapshot and record exact release provenance. |
-| `prepare:mihomo`     | Download and verify the pinned desktop Core.                                   |
-| `mobile-core:build`  | Build the pinned Android Mobile Core.                                          |
-| `mobile-core:verify` | Verify Mobile Core evidence and artifacts.                                     |
+| Command                  | Purpose                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `generate:i18n`          | Regenerate typed localization files.                                           |
+| `generate:brand`         | Regenerate repository-owned brand assets.                                      |
+| `geodata:update`         | Download the latest full GeoData snapshot and record exact release provenance. |
+| `geodata:verify-runtime` | Prove pinned Mihomo consumes the bundled files offline in both GeoData modes.  |
+| `prepare:mihomo`         | Download and verify the pinned desktop Core.                                   |
+| `mobile-core:build`      | Build the pinned Android Mobile Core.                                          |
+| `mobile-core:verify`     | Verify Mobile Core evidence and artifacts.                                     |
 
 `pnpm geodata:update` downloads the four required release assets into a staging
 directory, verifies their release sizes and SHA-256 digests, and replaces the
@@ -104,6 +105,9 @@ mutable upstream `latest` tag.
 Desktop development builds seed the same repository snapshot into the private
 Core home. This keeps local cold-launch behavior representative of the packaged
 fallback instead of silently exercising Mihomo's network download path.
+Run `pnpm prepare:mihomo && pnpm geodata:verify-runtime` after each update. The
+runtime verifier forces all GeoData download URLs to unreachable loopback and
+requires real pinned-Mihomo validation to succeed without any download attempt.
 
 ## Compatibility aliases
 

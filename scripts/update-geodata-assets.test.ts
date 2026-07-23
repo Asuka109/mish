@@ -12,6 +12,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  GEODATA_RUNTIME_NAMES,
   REQUIRED_GEODATA_ASSETS,
   updateGeodataSnapshot,
   type GeodataRelease,
@@ -80,7 +81,7 @@ test("downloads the exact required release assets and records deterministic prov
       .map((asset) => asset.id),
   );
   assert.equal(manifest.release.id, release.id);
-  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.schemaVersion, 2);
   assert.equal(manifest.source.license, "GPL-3.0-only");
 
   for (const asset of manifest.assets) {
@@ -88,6 +89,10 @@ test("downloads the exact required release assets and records deterministic prov
     assert.equal(downloaded.toString(), `fixture:${asset.name}`);
     assert.equal(asset.sha256, digest(downloaded));
     assert.equal(asset.bytes, downloaded.byteLength);
+    assert.equal(
+      asset.runtimeName,
+      GEODATA_RUNTIME_NAMES[asset.name as keyof typeof GEODATA_RUNTIME_NAMES],
+    );
   }
   assert.deepEqual(
     JSON.parse(readFileSync(path.join(outputDirectory, "manifest.json"), "utf8")),

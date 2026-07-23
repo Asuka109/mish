@@ -280,7 +280,9 @@ fingerprint cache and each short-lived candidate home.
 Production packages also carry a pinned, manifest-addressed GeoData fallback
 snapshot. Before config validation, Rust verifies the exact asset allowlist,
 regular-file shape, byte lengths, and SHA-256 digests, then copies all four
-supported GeoData formats into the private candidate home. A missing or corrupt
+supported GeoData formats into the private candidate home under Mihomo's
+runtime names (`GeoSite.dat`, `GeoIP.dat`, `geoip.metadb`, and `ASN.mmdb`),
+which intentionally differ from two upstream release asset names. A missing or corrupt
 bundled snapshot is treated as absent so Mihomo retains its existing download
 and validation behavior; Mish never accepts an unverified partial seed.
 Relative provider paths remain source-owned but paths that escape the managed

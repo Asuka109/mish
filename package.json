@@ -44,6 +44,7 @@
     "format": "oxfmt --write .github package.json pnpm-workspace.yaml tsconfig.json apps packages scripts resources/geodata/snapshot/manifest.json README.md README.zh-CN.md PRODUCT.md CONTRIBUTING.md THIRD_PARTY_NOTICES.md docs/README.md docs/architecture/desktop-bootstrap.md docs/architecture/diagnostics-data-contracts.md docs/architecture/events-data-contracts.md docs/architecture/frontend-platform-boundary.md docs/architecture/local-backup-restore.md docs/architecture/local-proxy-debugging.md docs/architecture/macos-mdns-system-proxy.md docs/architecture/macos-tun-helper.md docs/architecture/mihomo-controller-integration.md docs/architecture/native-status-bar-lifecycle.md docs/architecture/network-dns-observation.md docs/architecture/notification-center.md docs/architecture/profile-domain.md docs/architecture/settings-contracts.md docs/architecture/status-data-contracts.md docs/architecture/tailwind-variants.md docs/architecture/traffic-data-contracts.md docs/operations docs/quality",
     "format:check": "pnpm check:format",
     "geodata:update": "node scripts/update-geodata-assets.ts",
+    "geodata:verify-runtime": "node scripts/verify-geodata-runtime.ts",
     "generate:brand": "node scripts/generate-brand-assets.ts",
     "generate:i18n": "pnpm --filter @mish/web i18n:generate",
     "i18n:check": "pnpm check:i18n",

@@ -130,15 +130,18 @@ if (/\b(?:src|href)=["']https?:\/\//iu.test(index)) {
 const geodataManifest = JSON.parse(
   await readFile(path.join(sourceGeodata, "manifest.json"), "utf8"),
 ) as {
-  assets: Array<{ bytes: number; name: string; sha256: string }>;
+  assets: Array<{ bytes: number; name: string; runtimeName: string; sha256: string }>;
   schemaVersion: number;
 };
 const requiredGeodataAssets = ["geosite.dat", "geoip.dat", "geoip.metadb", "GeoLite2-ASN.mmdb"];
+const requiredGeodataRuntimeNames = ["GeoSite.dat", "GeoIP.dat", "geoip.metadb", "ASN.mmdb"];
 const expectedGeodataFiles = [...requiredGeodataAssets, "manifest.json"].sort();
 if (
-  geodataManifest.schemaVersion !== 1 ||
+  geodataManifest.schemaVersion !== 2 ||
   JSON.stringify(geodataManifest.assets.map((asset) => asset.name)) !==
     JSON.stringify(requiredGeodataAssets) ||
+  JSON.stringify(geodataManifest.assets.map((asset) => asset.runtimeName)) !==
+    JSON.stringify(requiredGeodataRuntimeNames) ||
   JSON.stringify(await files(sourceGeodata)) !== JSON.stringify(expectedGeodataFiles) ||
   JSON.stringify(await files(bundledGeodata)) !== JSON.stringify(expectedGeodataFiles)
 ) {

@@ -1184,11 +1184,11 @@ const SELECTION_CACHE_SIZE_LIMIT: u64 = 4 * 1024 * 1024;
 const SELECTION_CACHE_ENTRY_LIMIT: usize = 8_192;
 const BUNDLED_GEODATA_MANIFEST_SIZE_LIMIT: u64 = 64 * 1024;
 const BUNDLED_GEODATA_ASSET_SIZE_LIMIT: u64 = 64 * 1024 * 1024;
-const BUNDLED_GEODATA_ASSETS: [&str; 4] = [
-    "geosite.dat",
-    "geoip.dat",
-    "geoip.metadb",
-    "GeoLite2-ASN.mmdb",
+const BUNDLED_GEODATA_ASSETS: [(&str, &str); 4] = [
+    ("geosite.dat", "GeoSite.dat"),
+    ("geoip.dat", "GeoIP.dat"),
+    ("geoip.metadb", "geoip.metadb"),
+    ("GeoLite2-ASN.mmdb", "ASN.mmdb"),
 ];
 
 #[derive(Deserialize)]
@@ -1202,6 +1202,8 @@ struct BundledGeodataManifest {
 struct BundledGeodataManifestAsset {
     bytes: u64,
     name: String,
+    #[serde(rename = "runtimeName")]
+    runtime_name: String,
     sha256: String,
 }
 
@@ -1234,14 +1236,15 @@ fn seed_bundled_geodata(
     let Ok(manifest) = serde_json::from_slice::<BundledGeodataManifest>(&manifest_bytes) else {
         return Ok(false);
     };
-    if manifest.schema_version != 1
+    if manifest.schema_version != 2
         || manifest.assets.len() != BUNDLED_GEODATA_ASSETS.len()
         || manifest
             .assets
             .iter()
             .zip(BUNDLED_GEODATA_ASSETS)
             .any(|(asset, expected)| {
-                asset.name != expected
+                asset.name != expected.0
+                    || asset.runtime_name != expected.1
                     || asset.bytes == 0
                     || asset.bytes > BUNDLED_GEODATA_ASSET_SIZE_LIMIT
                     || !asset
@@ -1270,7 +1273,7 @@ fn seed_bundled_geodata(
         if format!("{:x}", Sha256::digest(&content)) != asset.sha256 {
             return Ok(false);
         }
-        verified.push((asset.name.as_str(), content));
+        verified.push((asset.runtime_name.as_str(), content));
     }
 
     let mut written = Vec::with_capacity(verified.len());
@@ -1499,11 +1502,11 @@ mod bundled_geodata_tests {
 
     use super::*;
 
-    const ASSETS: [(&str, &[u8]); 4] = [
-        ("geosite.dat", b"geosite fixture"),
-        ("geoip.dat", b"geoip fixture"),
-        ("geoip.metadb", b"metadb fixture"),
-        ("GeoLite2-ASN.mmdb", b"asn fixture"),
+    const ASSETS: [(&str, &str, &[u8]); 4] = [
+        ("geosite.dat", "GeoSite.dat", b"geosite fixture"),
+        ("geoip.dat", "GeoIP.dat", b"geoip fixture"),
+        ("geoip.metadb", "geoip.metadb", b"metadb fixture"),
+        ("GeoLite2-ASN.mmdb", "ASN.mmdb", b"asn fixture"),
     ];
 
     fn snapshot(root: &Path) -> PathBuf {
@@ -1512,12 +1515,13 @@ mod bundled_geodata_tests {
         let assets = ASSETS
             .iter()
             .enumerate()
-            .map(|(index, (name, content))| {
+            .map(|(index, (name, runtime_name, content))| {
                 fs::write(snapshot.join(name), content).unwrap();
                 serde_json::json!({
                     "bytes": content.len(),
                     "name": name,
                     "releaseAssetId": index + 1,
+                    "runtimeName": runtime_name,
                     "sha256": format!("{:x}", Sha256::digest(content)),
                 })
             })
@@ -1532,7 +1536,7 @@ mod bundled_geodata_tests {
                     "tag": "latest",
                     "url": "https://github.com/MetaCubeX/meta-rules-dat/releases/tag/latest",
                 },
-                "schemaVersion": 1,
+                "schemaVersion": 2,
                 "source": {
                     "license": "GPL-3.0-only",
                     "licenseUrl": "https://github.com/MetaCubeX/meta-rules-dat/blob/master/LICENSE",
@@ -1553,8 +1557,8 @@ mod bundled_geodata_tests {
         fs::create_dir(&home).unwrap();
 
         assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
-        for (name, content) in ASSETS {
-            assert_eq!(fs::read(home.join(name)).unwrap(), content);
+        for (_, runtime_name, content) in ASSETS {
+            assert_eq!(fs::read(home.join(runtime_name)).unwrap(), content);
         }
     }
 
@@ -1567,8 +1571,8 @@ mod bundled_geodata_tests {
         fs::create_dir(&home).unwrap();
 
         assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), false);
-        for (name, _) in ASSETS {
-            assert!(!home.join(name).exists());
+        for (_, runtime_name, _) in ASSETS {
+            assert!(!home.join(runtime_name).exists());
         }
     }
 
