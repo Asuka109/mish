@@ -139,20 +139,66 @@ body {
   }
 }
 
-[data-sonner-toast] [data-close-button] {
+.notification-toast[data-sonner-toast][data-styled="true"] {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+  row-gap: 0;
+  -webkit-app-region: no-drag;
+}
+
+.notification-toast[data-sonner-toast][data-styled="true"] [data-icon] {
+  grid-column: 1;
+  grid-row: 1;
+  margin-right: 0;
+}
+
+.notification-toast[data-sonner-toast][data-styled="true"] [data-content] {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.notification-toast[data-sonner-toast][data-styled="true"] .notification-toast-action {
+  height: 28px;
+  justify-content: center;
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.notification-toast[data-sonner-toast] [data-close-button] {
   top: 8px !important;
   right: 8px !important;
   left: auto !important;
+  width: 28px;
+  height: 28px;
   transform: none !important;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms ease-out;
 }
 
-[data-sonner-toast]:hover [data-close-button],
-[data-sonner-toast] [data-close-button]:focus-visible {
+.notification-toast[data-sonner-toast]:hover [data-close-button],
+.notification-toast[data-sonner-toast] [data-close-button]:focus-visible {
   opacity: 1;
   pointer-events: auto;
+}
+
+@media (max-width: 360px) {
+  .notification-toast-actions {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+
+  .notification-toast[data-sonner-toast][data-styled="true"] .notification-toast-action {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-toast[data-sonner-toast] [data-close-button] {
+    transition: none;
+  }
 }
 
 @utility user-authored-label {
@@ -370,7 +416,16 @@ body {
 }
 
 :root:is([data-runtime="browser"], [data-runtime="desktop"])
-  :is(input, textarea, code, pre, [contenteditable="true"], [data-native-text-interaction]) {
+  :is(
+    input,
+    textarea,
+    code,
+    pre,
+    [contenteditable="true"],
+    [data-native-text-interaction],
+    .notification-toast-copy,
+    .notification-toast-copy *
+  ) {
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;

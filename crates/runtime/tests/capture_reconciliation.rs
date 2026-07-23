@@ -5,10 +5,10 @@ use std::{
 
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
-    CapabilityAvailability, CaptureAuditReason, CaptureJournal, CaptureJournalStore,
-    CapturePlatform, CaptureReconciler, CaptureRecoveryAction, CaptureRequest, CaptureSelection,
-    CaptureTransitionError, LocalProxyTestPhase, LoopbackProxyEndpoint, ManualProxyState,
-    NetworkServiceProxyState, SystemProxyObservedState, SystemProxyPhase,
+    CapabilityAvailability, CaptureAuditReason, CaptureConfirmationWindow, CaptureJournal,
+    CaptureJournalStore, CapturePlatform, CaptureReconciler, CaptureRecoveryAction, CaptureRequest,
+    CaptureSelection, CaptureTransitionError, LocalProxyTestPhase, LoopbackProxyEndpoint,
+    ManualProxyState, NetworkServiceProxyState, SystemProxyObservedState, SystemProxyPhase,
     SystemProxyTakeoverPolicy, SystemProxyTakeoverRejection, TUN_HELPER_EXPECTED_VERSION,
     TunHelperAvailability, TunHelperController, TunHelperError, TunHelperFailureKind,
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
@@ -198,12 +198,19 @@ impl CaptureJournalStore for InvalidJournalStore {
 struct FakePlatform {
     active_service_id: Mutex<String>,
     apply_count: Mutex<usize>,
+    confirmation_window: Mutex<CaptureConfirmationWindow>,
+    delay_active_observation_after_apply: Mutex<Option<std::time::Duration>>,
+    delay_active_observation_on_next_apply: Mutex<Option<std::time::Duration>>,
     drift_disabled_host_after_apply: Mutex<bool>,
     fail_applies_remaining: Mutex<usize>,
     listener_ready: Mutex<bool>,
     listener_test_count: Mutex<usize>,
     fail_observations_remaining: Mutex<usize>,
     observe_count: Mutex<usize>,
+    stale_active_observation_on_next_apply: Mutex<Option<(usize, NetworkServiceProxyState)>>,
+    stale_active_observations_after_apply: Mutex<(usize, Option<NetworkServiceProxyState>)>,
+    stale_service_observation_after_apply: Mutex<Option<NetworkServiceProxyState>>,
+    stale_service_observation_after_apply_number: Mutex<Option<usize>>,
     services: Mutex<HashMap<String, NetworkServiceProxyState>>,
 }
 
@@ -212,12 +219,23 @@ impl FakePlatform {
         Self {
             active_service_id: Mutex::new(service.service_id.clone()),
             apply_count: Mutex::new(0),
+            confirmation_window: Mutex::new(CaptureConfirmationWindow::bounded(
+                2,
+                std::time::Duration::ZERO,
+                std::time::Duration::from_millis(100),
+            )),
+            delay_active_observation_after_apply: Mutex::new(None),
+            delay_active_observation_on_next_apply: Mutex::new(None),
             drift_disabled_host_after_apply: Mutex::new(false),
             fail_applies_remaining: Mutex::new(0),
             listener_ready: Mutex::new(true),
             listener_test_count: Mutex::new(0),
             fail_observations_remaining: Mutex::new(0),
             observe_count: Mutex::new(0),
+            stale_active_observation_on_next_apply: Mutex::new(None),
+            stale_active_observations_after_apply: Mutex::new((0, None)),
+            stale_service_observation_after_apply: Mutex::new(None),
+            stale_service_observation_after_apply_number: Mutex::new(None),
             services: Mutex::new(HashMap::from([(service.service_id.clone(), service)])),
         }
     }
@@ -240,6 +258,33 @@ impl FakePlatform {
 
     fn set_listener_ready(&self, ready: bool) {
         *self.listener_ready.lock().unwrap() = ready;
+    }
+
+    fn return_stale_active_observation_after_next_apply(&self, stale: NetworkServiceProxyState) {
+        self.return_stale_active_observations_after_next_apply(1, stale);
+    }
+
+    fn return_stale_active_observations_after_next_apply(
+        &self,
+        count: usize,
+        stale: NetworkServiceProxyState,
+    ) {
+        *self.stale_active_observation_on_next_apply.lock().unwrap() = Some((count, stale));
+    }
+
+    fn delay_active_observation_after_next_apply(&self, delay: std::time::Duration) {
+        *self.delay_active_observation_on_next_apply.lock().unwrap() = Some(delay);
+    }
+
+    fn return_previous_service_observation_after_apply(&self, apply_number: usize) {
+        *self
+            .stale_service_observation_after_apply_number
+            .lock()
+            .unwrap() = Some(apply_number);
+    }
+
+    fn set_confirmation_window(&self, window: CaptureConfirmationWindow) {
+        *self.confirmation_window.lock().unwrap() = window;
     }
 
     fn apply_count(&self) -> usize {
@@ -286,10 +331,27 @@ impl CapturePlatform for FakePlatform {
             ))));
         }
         drop(failures);
-        let service_id = self.active_service_id.lock().unwrap().clone();
-        Box::pin(ready(
-            Ok(self.services.lock().unwrap()[&service_id].clone()),
-        ))
+        let state = {
+            let mut stale = self.stale_active_observations_after_apply.lock().unwrap();
+            if stale.0 > 0 {
+                stale.0 -= 1;
+                stale.1.clone()
+            } else {
+                drop(stale);
+                let service_id = self.active_service_id.lock().unwrap().clone();
+                Some(self.services.lock().unwrap()[&service_id].clone())
+            }
+        };
+        let delay = self
+            .delay_active_observation_after_apply
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_default();
+        Box::pin(async move {
+            tokio::time::sleep(delay).await;
+            Ok(state.expect("active observation fixture state"))
+        })
     }
 
     fn observe_service(
@@ -297,6 +359,14 @@ impl CapturePlatform for FakePlatform {
         service_id: &str,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
         *self.observe_count.lock().unwrap() += 1;
+        if let Some(stale) = self
+            .stale_service_observation_after_apply
+            .lock()
+            .unwrap()
+            .take()
+        {
+            return Box::pin(ready(Ok(stale)));
+        }
         Box::pin(ready(Ok(self.services.lock().unwrap()[service_id].clone())))
     }
 
@@ -304,7 +374,11 @@ impl CapturePlatform for FakePlatform {
         &self,
         target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
-        *self.apply_count.lock().unwrap() += 1;
+        let apply_number = {
+            let mut count = self.apply_count.lock().unwrap();
+            *count += 1;
+            *count
+        };
         let mut failures = self.fail_applies_remaining.lock().unwrap();
         if *failures > 0 {
             *failures -= 1;
@@ -320,10 +394,41 @@ impl CapturePlatform for FakePlatform {
                 "Synthetic partial failure",
             ))));
         }
-        self.services
+        let previous = self
+            .services
             .lock()
             .unwrap()
             .insert(target.service_id.clone(), target.clone());
+        let should_return_previous_service = {
+            let mut scheduled = self
+                .stale_service_observation_after_apply_number
+                .lock()
+                .unwrap();
+            let matches = *scheduled == Some(apply_number);
+            if matches {
+                *scheduled = None;
+            }
+            matches
+        };
+        if should_return_previous_service {
+            *self.stale_service_observation_after_apply.lock().unwrap() = previous;
+        }
+        if let Some((count, stale)) = self
+            .stale_active_observation_on_next_apply
+            .lock()
+            .unwrap()
+            .take()
+        {
+            *self.stale_active_observations_after_apply.lock().unwrap() = (count, Some(stale));
+        }
+        if let Some(delay) = self
+            .delay_active_observation_on_next_apply
+            .lock()
+            .unwrap()
+            .take()
+        {
+            *self.delay_active_observation_after_apply.lock().unwrap() = Some(delay);
+        }
         if std::mem::take(&mut *self.drift_disabled_host_after_apply.lock().unwrap()) {
             self.services
                 .lock()
@@ -334,6 +439,10 @@ impl CapturePlatform for FakePlatform {
                 .host = "residual.mish.invalid".into();
         }
         Box::pin(ready(Ok(())))
+    }
+
+    fn confirmation_window(&self) -> CaptureConfirmationWindow {
+        *self.confirmation_window.lock().unwrap()
     }
 
     fn confirm_proxy_listener(
@@ -411,6 +520,153 @@ async fn partial_apply_failure_rolls_back_and_keeps_success_unpublished() {
         SystemProxyPhase::Failed
     );
     assert!(!reconciler.status().system_proxy_enabled);
+}
+
+#[tokio::test]
+async fn delayed_post_apply_observation_confirms_one_cold_start_without_a_retry() {
+    let prior = disabled_service();
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    platform.return_stale_active_observation_after_next_apply(prior.clone());
+    let journal = Arc::new(MemoryJournalStore::default());
+    let endpoint = LoopbackProxyEndpoint::new("127.0.0.1", 7890).unwrap();
+    let reconciler = CaptureReconciler::new(platform.clone(), journal.clone(), endpoint.clone());
+
+    let status = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .expect("a delayed platform observation must not require a second launch");
+
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Applied);
+    assert!(status.system_proxy_enabled);
+    assert!(platform.service("service-a").is_mish_endpoint(&endpoint));
+    assert_eq!(journal.load().unwrap().unwrap().prior, prior);
+    assert_eq!(platform.apply_count(), 1);
+}
+
+#[tokio::test]
+async fn slow_first_post_apply_observation_still_allows_the_bounded_retry() {
+    let prior = disabled_service();
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    platform.set_confirmation_window(CaptureConfirmationWindow::bounded(
+        2,
+        std::time::Duration::from_millis(25),
+        std::time::Duration::from_millis(100),
+    ));
+    platform.return_stale_active_observation_after_next_apply(prior);
+    platform.delay_active_observation_after_next_apply(std::time::Duration::from_millis(30));
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryJournalStore::default()),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let status = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .expect("a slow first observation must not consume the entire retry window");
+
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Applied);
+    assert_eq!(platform.apply_count(), 1);
+}
+
+#[tokio::test]
+async fn post_apply_confirmation_never_exceeds_its_explicit_time_budget() {
+    let prior = disabled_service();
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    platform.set_confirmation_window(CaptureConfirmationWindow::bounded(
+        20,
+        std::time::Duration::from_millis(25),
+        std::time::Duration::from_millis(50),
+    ));
+    platform.return_stale_active_observation_after_next_apply(prior);
+    platform.delay_active_observation_after_next_apply(std::time::Duration::from_millis(500));
+    let reconciler = CaptureReconciler::new(
+        platform,
+        Arc::new(MemoryJournalStore::default()),
+        LoopbackProxyEndpoint::managed(),
+    );
+    let started = tokio::time::Instant::now();
+
+    let error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ConfirmationFailed
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(250),
+        "confirmation exceeded its explicit bounded budget"
+    );
+}
+
+#[tokio::test]
+async fn delayed_rollback_observation_confirms_the_prior_before_clearing_the_journal() {
+    let prior = disabled_service();
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    platform.return_stale_active_observations_after_next_apply(2, prior.clone());
+    platform.return_previous_service_observation_after_apply(2);
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    );
+
+    let error = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ConfirmationFailed
+    );
+    assert_eq!(platform.service("service-a"), prior);
+    assert_eq!(
+        reconciler.status().system_proxy.phase,
+        SystemProxyPhase::Failed
+    );
+    assert!(journal.load().unwrap().is_none());
+    assert_eq!(platform.apply_count(), 2);
 }
 
 #[tokio::test]
@@ -843,6 +1099,7 @@ async fn audit_reports_external_modification_as_observed_drift() {
         .unwrap();
     platform.replace_service(NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
         http: ManualProxyState {
             authenticated: false,
             enabled: true,
@@ -1396,6 +1653,7 @@ async fn audit_observation_failure_replaces_applied_with_explicit_unknown_drift(
 fn disabled_service() -> NetworkServiceProxyState {
     NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
         http: ManualProxyState::disabled(),
         https: ManualProxyState::disabled(),
         pac_enabled: false,
@@ -1403,6 +1661,94 @@ fn disabled_service() -> NetworkServiceProxyState {
         service_id: "service-a".into(),
         socks: ManualProxyState::disabled(),
     }
+}
+
+#[tokio::test]
+async fn system_proxy_preserves_user_bypass_order_and_owns_the_local_name_contract() {
+    let prior = NetworkServiceProxyState {
+        bypass_domains: vec!["intranet.fixture.invalid".into(), "*.LOCAL".into()],
+        ..disabled_service()
+    };
+    let platform = Arc::new(FakePlatform::new(prior.clone()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let endpoint = LoopbackProxyEndpoint::managed();
+    let reconciler = CaptureReconciler::new(platform.clone(), journal.clone(), endpoint.clone());
+    let selection = CaptureSelection {
+        system_proxy: true,
+        tun: false,
+    };
+
+    let applied = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: selection.clone(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(applied.system_proxy.phase, SystemProxyPhase::Applied);
+    assert!(platform.service("service-a").is_mish_endpoint(&endpoint));
+    assert_eq!(
+        platform.service("service-a").bypass_domains,
+        [
+            "intranet.fixture.invalid",
+            "*.LOCAL",
+            "localhost",
+            "*.localhost",
+            "*.local.",
+            "*.home.arpa",
+            "*.home.arpa.",
+        ]
+    );
+    assert_eq!(journal.load().unwrap().unwrap().prior, prior);
+
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(platform.service("service-a"), prior);
+    assert!(journal.load().unwrap().is_none());
+}
+
+#[tokio::test]
+async fn bypass_drift_never_remains_reported_as_applied() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let journal = Arc::new(MemoryJournalStore::default());
+    let reconciler =
+        CaptureReconciler::new(platform.clone(), journal, LoopbackProxyEndpoint::managed());
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+
+    let mut drifted = platform.service("service-a");
+    drifted.bypass_domains.pop();
+    platform.replace_service(drifted);
+    let status = reconciler
+        .audit(CaptureAuditReason::Periodic, true)
+        .await
+        .unwrap();
+
+    assert_eq!(status.system_proxy.phase, SystemProxyPhase::Drift);
+    assert!(!status.system_proxy_enabled);
 }
 
 #[tokio::test]

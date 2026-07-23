@@ -49,12 +49,13 @@ describe("responsive shell CSS", () => {
       /:root:is\(\[data-runtime="browser"\], \[data-runtime="desktop"\]\),[\s\S]*?-webkit-touch-callout: none;[\s\S]*?\n\}/,
     )?.[0];
     const contentSelectionRule = styles.match(
-      /:root:is\(\[data-runtime="browser"\], \[data-runtime="desktop"\]\)\n\s+:is\(input,[\s\S]*?-webkit-touch-callout: default;[\s\S]*?\n\}/,
+      /:root:is\(\[data-runtime="browser"\], \[data-runtime="desktop"\]\)\n\s+:is\([\s\S]*?\[data-native-text-interaction\][\s\S]*?-webkit-touch-callout: default;[\s\S]*?\n\}/,
     )?.[0];
 
     expect(chromeSelectionRule).toContain("user-select: none");
     expect(chromeSelectionRule).not.toContain('data-runtime="mobile"');
     expect(contentSelectionRule).toContain("[data-native-text-interaction]");
+    expect(contentSelectionRule).toContain(".notification-toast-copy");
     expect(contentSelectionRule).toContain("user-select: text");
     expect(styles).toContain('.workspace-page-scroll h1[tabindex="-1"]:focus');
   });

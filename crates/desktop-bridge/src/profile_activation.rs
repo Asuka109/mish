@@ -505,6 +505,7 @@ impl ProfileActivationCoordinator {
         };
         let prior_capture = self.host.current().publish_capture_pending(&request);
         let activation_started = Instant::now();
+        let mut activation_started_for_launch = false;
         let current = self.activation_snapshot().await;
         let activation = if current.phase == ProfileActivationPhase::Success
             && profile_id
@@ -512,13 +513,25 @@ impl ProfileActivationCoordinator {
         {
             Ok(current)
         } else if let Some(profile_id) = profile_id {
-            self.activate(command_id, profile_id)
+            let activation = self
+                .activate(command_id, profile_id)
                 .await
-                .map_err(profile_launch_error)
+                .map_err(profile_launch_error);
+            if let Ok(activation) = &activation {
+                activation_started_for_launch =
+                    activation.command_id.as_deref() == Some(command_id);
+            }
+            activation
         } else {
-            self.activate_last_successful_profile(command_id)
+            let activation = self
+                .activate_last_successful_profile(command_id)
                 .await
-                .map_err(profile_launch_error)
+                .map_err(profile_launch_error);
+            if let Ok(activation) = &activation {
+                activation_started_for_launch =
+                    activation.command_id.as_deref() == Some(command_id);
+            }
+            activation
         };
         let activation = match activation {
             Ok(activation) => activation,
@@ -592,67 +605,93 @@ impl ProfileActivationCoordinator {
             }
         };
         let preparation_wall = activation_started.elapsed();
-        let (preflight, activation_elapsed, preflight_elapsed) = match prepared {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                self.record_launch_timing(
-                    launch_started,
-                    preparation_wall,
-                    preflight_started.elapsed(),
-                    preparation_wall,
-                    Duration::ZERO,
-                    if error.kind == CaptureFailureKind::RuntimeTransition {
+        let (mut result, activation_elapsed, preflight_elapsed, capture_elapsed, mut outcome) =
+            match prepared {
+                Err(error) => {
+                    let outcome = if error.kind == CaptureFailureKind::RuntimeTransition {
                         "profile-failed"
                     } else {
                         "preflight-failed"
-                    },
-                );
-                if let Some(prior_capture) = prior_capture {
-                    self.host.current().restore_capture_status(prior_capture);
+                    };
+                    (
+                        Err(error),
+                        preparation_wall,
+                        preflight_started.elapsed(),
+                        Duration::ZERO,
+                        outcome,
+                    )
                 }
-                return Err(error);
+                Ok((_, activation_elapsed, preflight_elapsed))
+                    if self.shutting_down.load(Ordering::Acquire) =>
+                {
+                    (
+                        Err(CaptureTransitionError::new(
+                            CaptureFailureKind::RuntimeTransition,
+                            "Mish is shutting down and cannot apply a prepared proxy launch",
+                        )),
+                        activation_elapsed,
+                        preflight_elapsed,
+                        Duration::ZERO,
+                        "cancelled",
+                    )
+                }
+                Ok((preflight, activation_elapsed, preflight_elapsed)) => {
+                    let capture_started = Instant::now();
+                    let result = self
+                        .host
+                        .set_capture_with_preflight(request, adapter_kind, preflight)
+                        .await;
+                    let outcome = if result.is_ok() {
+                        "success"
+                    } else {
+                        "capture-failed"
+                    };
+                    (
+                        result,
+                        activation_elapsed,
+                        preflight_elapsed,
+                        capture_started.elapsed(),
+                        outcome,
+                    )
+                }
+            };
+        let mut restore_prior_capture = true;
+        if result.is_err() && activation_started_for_launch {
+            let activation = self.activation_snapshot().await;
+            if activation.command_id.as_deref() == Some(command_id)
+                && activation.phase == ProfileActivationPhase::Success
+                && !activation.safe_stopped
+            {
+                match self.rollback_failed_aggregate_activation().await {
+                    Ok(()) => {
+                        if let Some(error) = result.as_ref().err() {
+                            self.host.record_application_event(
+                                ApplicationDiagnosticEvent::capture_failure(error.kind),
+                            );
+                        }
+                    }
+                    Err(rollback_error) => {
+                        result = Err(rollback_error);
+                        restore_prior_capture = false;
+                        outcome = "rollback-failed";
+                    }
+                }
             }
-        };
-        if self.shutting_down.load(Ordering::Acquire) {
-            let error = CaptureTransitionError::new(
-                CaptureFailureKind::RuntimeTransition,
-                "Mish is shutting down and cannot apply a prepared proxy launch",
-            );
-            self.record_launch_timing(
-                launch_started,
-                activation_elapsed,
-                preflight_elapsed,
-                preparation_wall,
-                Duration::ZERO,
-                "cancelled",
-            );
-            if let Some(prior_capture) = prior_capture {
-                self.host.current().restore_capture_status(prior_capture);
-            }
-            return Err(error);
         }
-        let capture_started = Instant::now();
-        let result = self
-            .host
-            .set_capture_with_preflight(request, adapter_kind, preflight)
-            .await;
+        if result.is_err()
+            && restore_prior_capture
+            && let Some(prior_capture) = prior_capture
+        {
+            self.host.current().restore_capture_status(prior_capture);
+        }
         self.record_launch_timing(
             launch_started,
             activation_elapsed,
             preflight_elapsed,
             preparation_wall,
-            capture_started.elapsed(),
-            if result.is_ok() {
-                "success"
-            } else {
-                "capture-failed"
-            },
+            capture_elapsed,
+            outcome,
         );
-        if result.is_err()
-            && let Some(prior_capture) = prior_capture
-        {
-            self.host.current().restore_capture_status(prior_capture);
-        }
         result
     }
 
@@ -689,6 +728,44 @@ impl ProfileActivationCoordinator {
                 "Launch Proxy timing",
                 detail,
             ));
+    }
+
+    async fn rollback_failed_aggregate_activation(&self) -> Result<(), CaptureTransitionError> {
+        let shutdown = self.manager.shutdown().await;
+        let managed = self.manager.managed_state().await;
+        let active_runtime = self.manager.active_runtime().await;
+        let mut state = self.state.lock().await;
+        state.cancellation = None;
+        state.busy_profiles.clear();
+        state.snapshot.evidence = None;
+        state.snapshot.failure = Some(ProfileActivationFailure::Capture);
+        state.snapshot.failure_endpoint = None;
+        state.snapshot.phase = ProfileActivationPhase::Failure;
+        match shutdown {
+            Ok(()) => {
+                self.host.replace(self.safe_runtime.clone());
+                state.snapshot.active_fingerprint = None;
+                state.snapshot.active_profile_id = None;
+                state.snapshot.safe_stopped = true;
+            }
+            Err(_) => {
+                if managed.is_safe_stopped() {
+                    self.host.replace(self.safe_runtime.clone());
+                } else if let Some(runtime) = active_runtime {
+                    self.host.replace(runtime);
+                }
+                state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
+                state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
+                state.snapshot.safe_stopped = managed.is_safe_stopped();
+                let _ = self.updates.send(state.snapshot.clone());
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "Capture failed and the newly started Mihomo core could not be stopped safely",
+                ));
+            }
+        }
+        let _ = self.updates.send(state.snapshot.clone());
+        Ok(())
     }
 
     async fn wait_for_terminal_activation(

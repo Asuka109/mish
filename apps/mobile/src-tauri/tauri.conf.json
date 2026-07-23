@@ -34,7 +34,8 @@
     "icon": ["../../../packages/brand-assets/generated/tauri/icon.png"],
     "resources": {
       "../../../LICENSE": "LICENSE",
-      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../../../THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt": "THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt"
     }
   }
 }

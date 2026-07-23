@@ -35,7 +35,7 @@ non-fixture adapter.
 | `GroupDelayPolicyDto`     | Internal policy ID, visible fixed HTTPS probe URL, and bounded timeout                       | Local bridge application policy                  |
 | `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results     |
 | `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                          |
-| `ServiceMonitorDto`       | ID, opaque title, probe URL, HTTPS icon URL, probe policy                                    | Local bridge persistence                         |
+| `ServiceMonitorDto`       | ID, opaque title, probe URL, bundled root-relative or user HTTPS icon URL                    | Local bridge persistence                         |
 | `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                     |
 | `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                                 |
 
@@ -44,12 +44,17 @@ not split, normalize, reorder, or infer structured emoji and text fields. The
 demo fixtures may keep separate properties only for convenient mock
 construction; that shape is not a production contract.
 
-Service icon URLs are also user-authored metadata. Defaults use version-pinned
-Remix Icon SVG assets through the npmmirror CDN; Cloudflare intentionally uses
-the neutral Remix cloud symbol. Custom values must be credential-free HTTPS
-URLs and are rendered only as image resources; the bridge never fetches icon
-contents. The web and native shells allow HTTPS only in `img-src`, and icon
-image requests omit referrer information.
+Built-in service icons are exact Remix Icon `v4.8.0` SVGs bundled under
+`/assets/remix-icon/` and referenced with root-relative URLs. They therefore
+resolve against the current Tauri or Browser Client origin, including an
+advanced loopback port. Cloudflare intentionally uses the generic Remix cloud
+symbol because that release has no Cloudflare brand icon.
+
+User-authored icon metadata may instead contain a credential-free HTTPS URL.
+The browser renders it only through `<img>`, omits referrer information, and
+falls back to the bundled generic cloud icon for malformed values or load
+errors. Rust validates and persists the URL but never fetches, proxies, caches,
+or inspects its content. Other schemes and unrecorded local paths are rejected.
 
 `PolicyGroupDto` is a discriminated union for `selector`, `url-test`,
 `fallback`, `load-balance`, `relay`, `direct`, `reject`, and `unsupported`.
@@ -209,10 +214,25 @@ exact restoration contract. A restart may restore an interrupted apply or
 restoration only when every observed field is exactly either its persisted prior
 value or the field's Mish transaction target. This admits only crash-created
 partial matrices; any third value remains typed external drift and is not
-written. PAC and automatic-discovery fields are never written and must remain
-equal through confirmation. An unconfirmed outcome remains explicit drift with
+written. Mish never rewrites the PAC URL: manual capture preserves that observed
+content byte-for-byte. The default takeover policy also requires PAC and
+automatic discovery to remain disabled. The explicit reversible-replacement
+policy may disable and later restore their enabled states, but confirmation
+still requires the PAC URL and every other field to match exactly. An
+unconfirmed outcome remains explicit drift with
 `repair` and `leave-as-is`; repair adopts the currently observed safe state as
 the new prior, while leave-as-is clears Mish ownership without changing the OS.
+
+macOS treats a successful `networksetup` mutation as command acknowledgement,
+not confirmation. Its capture adapter makes an immediate full-state observation
+and, only while the active service remains the transaction target, retries that
+same observation through an explicit two-second propagation budget. The budget
+bounds the observation futures as well as retry intervals, and exact rollback
+confirmation uses the same window against the journaled service. A matching
+full matrix is the sole path to `applied`; a stable mismatch rolls back exactly
+to the journaled baseline, while a service change is typed external drift and
+leaves the newly active service untouched. The window carries no proxy values,
+service identifiers, or profile data into diagnostics or notifications.
 
 The desktop bridge audits capture ownership at restart, on core health changes,
 and periodically as a bounded fallback. The macOS shell also publishes typed,

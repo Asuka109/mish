@@ -17,11 +17,20 @@ const bundledMihomo = path.join(resources, "mihomo-aarch64-apple-darwin");
 const preparedMihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
 const bundledWeb = path.join(resources, "web-dist");
 const sourceWeb = path.resolve("apps/web/dist");
-const legalResources = ["LICENSE", "THIRD_PARTY_NOTICES.md"] as const;
+const legalResources = [
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+  "THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt",
+] as const;
 const canonicalGplV3Sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986";
 const production = process.env.MISH_MACOS_PACKAGE_MODE === "production";
 const productionFixture = process.env.MISH_MACOS_PACKAGE_MODE === "production-fixture";
+const alphaAdHoc = process.env.MISH_MACOS_PACKAGE_MODE === "alpha-ad-hoc";
 const productionLayout = production || productionFixture;
+
+if (alphaAdHoc && productionLayout) {
+  throw new Error("The alpha-ad-hoc verifier cannot accept a production TUN layout");
+}
 
 function command(program: string, arguments_: string[]) {
   return execFileSync(program, arguments_, { encoding: "utf8" }).trim();
@@ -132,6 +141,8 @@ for (const requiredNotice of [
   "v1.19.29",
   "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
   "GPL-3.0",
+  "8e543a8983790c20d7d8c696ae74023c69f379b7",
+  "Apache-2.0",
 ]) {
   if (!notices.includes(requiredNotice)) {
     throw new Error(`The bundled third-party notices omit ${requiredNotice}`);
@@ -173,5 +184,5 @@ execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
 });
 
 console.log(
-  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : "no TUN helper"}`,
+  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : "no TUN helper"}`,
 );

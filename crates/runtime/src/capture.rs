@@ -5,11 +5,15 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
+    time::Duration,
 };
 
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex as AsyncMutex, broadcast};
+use tokio::{
+    sync::{Mutex as AsyncMutex, broadcast},
+    time::{Instant, sleep, timeout_at},
+};
 
 use crate::{
     CapabilityAvailability, CaptureSelection, TunHelperAvailability, TunHelperController,
@@ -153,6 +157,7 @@ impl ManualProxyState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NetworkServiceProxyState {
     pub auto_discovery_enabled: bool,
+    pub bypass_domains: Vec<String>,
     pub http: ManualProxyState,
     pub https: ManualProxyState,
     pub pac_enabled: bool,
@@ -175,6 +180,11 @@ impl NetworkServiceProxyState {
         if self.pac_enabled && (self.pac_url.trim().is_empty() || self.pac_url == "(null)") {
             return Some(SystemProxyTakeoverRejection::IncompleteObservation);
         }
+        if self.bypass_domains.len() > MAX_BYPASS_DOMAINS
+            || !self.bypass_domains.iter().all(is_reversible_bypass_domain)
+        {
+            return Some(SystemProxyTakeoverRejection::InvalidState);
+        }
         if let Some(reason) = [&self.http, &self.https, &self.socks]
             .into_iter()
             .find_map(ManualProxyState::takeover_rejection)
@@ -192,6 +202,10 @@ impl NetworkServiceProxyState {
         None
     }
     pub fn is_mish_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> bool {
+        self.has_matching_manual_proxy_endpoint(endpoint) && self.has_managed_local_bypass()
+    }
+
+    fn has_matching_manual_proxy_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> bool {
         let expected = Self::manual_proxy_target(endpoint);
         self.http == expected && self.https == expected && self.socks == expected
     }
@@ -199,6 +213,7 @@ impl NetworkServiceProxyState {
     fn with_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> Self {
         Self {
             auto_discovery_enabled: false,
+            bypass_domains: merged_managed_local_bypass_domains(&self.bypass_domains),
             http: Self::manual_proxy_target(endpoint),
             https: Self::manual_proxy_target(endpoint),
             pac_enabled: false,
@@ -216,6 +231,8 @@ impl NetworkServiceProxyState {
     fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
         (self.auto_discovery_enabled == prior.auto_discovery_enabled
             || self.auto_discovery_enabled == target.auto_discovery_enabled)
+            && (self.bypass_domains == prior.bypass_domains
+                || self.bypass_domains == target.bypass_domains)
             && self
                 .http
                 .is_transaction_owned_between(&prior.http, &target.http)
@@ -233,6 +250,53 @@ impl NetworkServiceProxyState {
     fn manual_proxy_target(endpoint: &LoopbackProxyEndpoint) -> ManualProxyState {
         ManualProxyState::for_endpoint(endpoint)
     }
+
+    fn has_managed_local_bypass(&self) -> bool {
+        MANAGED_LOCAL_BYPASS_DOMAINS.iter().all(|required| {
+            self.bypass_domains
+                .iter()
+                .any(|domain| bypass_domain_equivalent(domain, required))
+        })
+    }
+}
+
+/// macOS applies these restricted exceptions before traffic reaches the loopback
+/// proxy. The list preserves Bonjour ownership of RFC 6762 `.local.` names and
+/// covers the standard local special-use namespaces without taking over private
+/// address ranges.
+const MANAGED_LOCAL_BYPASS_DOMAINS: [&str; 6] = [
+    "localhost",
+    "*.localhost",
+    "*.local",
+    "*.local.",
+    "*.home.arpa",
+    "*.home.arpa.",
+];
+const MAX_BYPASS_DOMAINS: usize = 64;
+const MAX_BYPASS_DOMAIN_LENGTH: usize = 253;
+
+fn merged_managed_local_bypass_domains(existing: &[String]) -> Vec<String> {
+    let mut merged = existing.to_vec();
+    for required in MANAGED_LOCAL_BYPASS_DOMAINS {
+        if !merged
+            .iter()
+            .any(|domain| bypass_domain_equivalent(domain, required))
+        {
+            merged.push(required.to_owned());
+        }
+    }
+    merged
+}
+
+fn bypass_domain_equivalent(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
+fn is_reversible_bypass_domain(domain: &String) -> bool {
+    !domain.is_empty()
+        && domain.len() <= MAX_BYPASS_DOMAIN_LENGTH
+        && !domain.chars().any(char::is_control)
+        && domain != "Empty"
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -328,11 +392,52 @@ pub trait CapturePlatform: Send + Sync {
         &self,
         target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>>;
+    /// Returns the bounded propagation window for observations following a successful mutation.
+    ///
+    /// The first observation is always immediate. Platforms that can return a stale snapshot
+    /// after a successful command may opt into additional state-aware observations; platforms
+    /// with synchronous observation keep the one-attempt default.
+    fn confirmation_window(&self) -> CaptureConfirmationWindow {
+        CaptureConfirmationWindow::immediate()
+    }
     fn confirm_proxy_listener(
         &self,
         _endpoint: &LoopbackProxyEndpoint,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
         Box::pin(std::future::ready(Ok(())))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CaptureConfirmationWindow {
+    pub maximum_duration: Duration,
+    pub maximum_observations: u8,
+    pub retry_interval: Duration,
+}
+
+impl CaptureConfirmationWindow {
+    pub const fn immediate() -> Self {
+        Self {
+            maximum_duration: Duration::ZERO,
+            maximum_observations: 1,
+            retry_interval: Duration::ZERO,
+        }
+    }
+
+    pub const fn bounded(
+        maximum_observations: u8,
+        retry_interval: Duration,
+        maximum_duration: Duration,
+    ) -> Self {
+        Self {
+            maximum_duration,
+            maximum_observations,
+            retry_interval,
+        }
+    }
+
+    fn maximum_observations(self) -> u8 {
+        self.maximum_observations.max(1)
     }
 }
 
@@ -769,7 +874,7 @@ impl SystemProxyReconciler {
                 }
             };
         }
-        if prior.is_mish_endpoint(&self.endpoint) {
+        if prior.has_matching_manual_proxy_endpoint(&self.endpoint) {
             let mut status = self.status();
             status.capture_selection = request.selection;
             self.mark_drift(status, &prior, Some(CaptureFailureKind::ExternalDrift))?;
@@ -794,7 +899,7 @@ impl SystemProxyReconciler {
                 .rollback_after_failure(&request.selection, &prior, error)
                 .await;
         }
-        let observed = match self.platform.observe_active().await {
+        let _observed = match self.confirm_active_target(&prior, &target).await {
             Ok(observed) => observed,
             Err(error) => {
                 return self
@@ -802,18 +907,6 @@ impl SystemProxyReconciler {
                     .await;
             }
         };
-        if observed != target {
-            return self
-                .rollback_after_failure(
-                    &request.selection,
-                    &prior,
-                    CaptureTransitionError::new(
-                        CaptureFailureKind::ConfirmationFailed,
-                        "System Proxy could not be confirmed after applying it",
-                    ),
-                )
-                .await;
-        }
 
         let status = CaptureRuntimeStatus {
             capture_selection: request.selection,
@@ -855,6 +948,97 @@ impl SystemProxyReconciler {
             tun_enabled: false,
         };
         *self.status.lock().unwrap() = status;
+    }
+
+    async fn confirm_active_target(
+        &self,
+        prior: &NetworkServiceProxyState,
+        target: &NetworkServiceProxyState,
+    ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        self.confirm_target(prior, target, target, None).await
+    }
+
+    async fn confirm_service_target(
+        &self,
+        prior: &NetworkServiceProxyState,
+        transaction_target: &NetworkServiceProxyState,
+        expected: &NetworkServiceProxyState,
+    ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        self.confirm_target(
+            prior,
+            transaction_target,
+            expected,
+            Some(&expected.service_id),
+        )
+        .await
+    }
+
+    async fn confirm_target(
+        &self,
+        prior: &NetworkServiceProxyState,
+        transaction_target: &NetworkServiceProxyState,
+        expected: &NetworkServiceProxyState,
+        service_id: Option<&str>,
+    ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        let window = self.platform.confirmation_window();
+        let maximum_observations = window.maximum_observations();
+        let deadline = (maximum_observations > 1 && window.maximum_duration != Duration::ZERO)
+            .then(|| Instant::now() + window.maximum_duration);
+
+        for attempt in 0..maximum_observations {
+            let observation = async {
+                if let Some(service_id) = service_id {
+                    self.platform.observe_service(service_id).await
+                } else {
+                    self.platform.observe_active().await
+                }
+            };
+            let observed = if let Some(deadline) = deadline {
+                timeout_at(deadline, observation).await.map_err(|_| {
+                    CaptureTransitionError::new(
+                        CaptureFailureKind::ConfirmationFailed,
+                        "System Proxy confirmation exceeded its bounded propagation window",
+                    )
+                })??
+            } else {
+                observation.await?
+            };
+            if observed == *expected {
+                return Ok(observed);
+            }
+            if observed.service_id != expected.service_id {
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::ExternalDrift,
+                    "The network service changed during System Proxy confirmation",
+                ));
+            }
+            if !observed.is_transaction_owned_between(prior, transaction_target) {
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::ExternalDrift,
+                    "System Proxy changed outside Mish and was left unchanged",
+                ));
+            }
+            if attempt + 1 == maximum_observations {
+                break;
+            }
+            if window.retry_interval != Duration::ZERO {
+                if let Some(deadline) = deadline {
+                    if timeout_at(deadline, sleep(window.retry_interval))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                } else {
+                    sleep(window.retry_interval).await;
+                }
+            }
+        }
+
+        Err(CaptureTransitionError::new(
+            CaptureFailureKind::ConfirmationFailed,
+            "System Proxy could not be confirmed after applying it",
+        ))
     }
 
     fn set_pending(&self, selection: CaptureSelection, desired: bool) {
@@ -932,7 +1116,7 @@ impl SystemProxyReconciler {
         };
         if journal.is_none()
             && current.system_proxy.phase == SystemProxyPhase::Failed
-            && !observed.is_mish_endpoint(&self.endpoint)
+            && !observed.has_matching_manual_proxy_endpoint(&self.endpoint)
         {
             let mut failed = current;
             failed.system_proxy.observed = observed_state(&observed, &self.endpoint);
@@ -992,7 +1176,7 @@ impl SystemProxyReconciler {
                         .rollback_after_failure(&current.capture_selection, &observed, error)
                         .await;
                 }
-                let confirmed = match self.platform.observe_active().await {
+                let _confirmed = match self.confirm_active_target(&observed, &target).await {
                     Ok(confirmed) => confirmed,
                     Err(error) => {
                         return self
@@ -1000,18 +1184,6 @@ impl SystemProxyReconciler {
                             .await;
                     }
                 };
-                if confirmed != target {
-                    return self
-                        .rollback_after_failure(
-                            &current.capture_selection,
-                            &observed,
-                            CaptureTransitionError::new(
-                                CaptureFailureKind::ConfirmationFailed,
-                                "System Proxy could not be confirmed on the new network service",
-                            ),
-                        )
-                        .await;
-                }
                 let status = CaptureRuntimeStatus {
                     capture_selection: current.capture_selection,
                     system_proxy: SystemProxyRuntimeStatus {
@@ -1119,7 +1291,7 @@ impl SystemProxyReconciler {
                     .rollback_after_failure(&current.capture_selection, &observed, error)
                     .await;
             }
-            let confirmed = match self.platform.observe_active().await {
+            let _confirmed = match self.confirm_active_target(&observed, &target).await {
                 Ok(confirmed) => confirmed,
                 Err(error) => {
                     return self
@@ -1127,18 +1299,6 @@ impl SystemProxyReconciler {
                         .await;
                 }
             };
-            if confirmed != target {
-                return self
-                    .rollback_after_failure(
-                        &current.capture_selection,
-                        &observed,
-                        CaptureTransitionError::new(
-                            CaptureFailureKind::ConfirmationFailed,
-                            "System Proxy repair could not be confirmed",
-                        ),
-                    )
-                    .await;
-            }
             let status = CaptureRuntimeStatus {
                 capture_selection: current.capture_selection,
                 system_proxy: SystemProxyRuntimeStatus {
@@ -1433,23 +1593,14 @@ impl SystemProxyReconciler {
                     "The prior System Proxy state could not be restored",
                 )
             })?;
-        let observed = self
-            .platform
-            .observe_service(&prior.service_id)
+        self.confirm_service_target(prior, &target, prior)
             .await
             .map_err(|_| {
                 CaptureTransitionError::new(
                     CaptureFailureKind::RollbackFailed,
                     "The prior System Proxy state could not be confirmed",
                 )
-            })?;
-        if observed != *prior {
-            return Err(CaptureTransitionError::new(
-                CaptureFailureKind::RollbackFailed,
-                "The prior System Proxy state could not be confirmed",
-            ));
-        }
-        Ok(observed)
+            })
     }
 }
 

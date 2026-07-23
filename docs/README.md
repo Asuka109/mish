@@ -53,7 +53,8 @@ of treating an implementation accident as intent.
 - [`native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md),
   [`network-dns-observation.md`](architecture/network-dns-observation.md),
   [`local-proxy-debugging.md`](architecture/local-proxy-debugging.md), and
-  [`macos-tun-helper.md`](architecture/macos-tun-helper.md) — macOS-specific
+  [`macos-tun-helper.md`](architecture/macos-tun-helper.md), and
+  [`macos-mdns-system-proxy.md`](architecture/macos-mdns-system-proxy.md) — macOS-specific
   lifecycle, observation, debugging, and privileged-operation contracts.
 - [`mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)
   and [`mobile-core-abi.md`](architecture/mobile-core-abi.md) — mobile platform
