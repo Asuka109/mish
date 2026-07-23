@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { Toaster } from "sonner";
 import { AppearanceProvider } from "../appearance";
 import {
   FixtureNotificationCenter,
@@ -20,6 +19,7 @@ import TypesafeI18n from "../i18n/i18n-react";
 import type { Locales } from "../i18n/i18n-types";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 import { NotificationBubble } from "./notification-bubble";
+import { NotificationToaster } from "./notification-toaster";
 import "../styles.css";
 
 let center: FixtureNotificationCenter;
@@ -58,7 +58,7 @@ function Harness({ client }: { client: FixtureNotificationClient }) {
                   中文
                 </button>
                 <NotificationBubble />
-                <Toaster closeButton position="bottom-right" theme="light" />
+                <NotificationToaster />
               </TooltipProvider>
             </NotificationDeliveryProvider>
           </ProductProvider>
@@ -218,10 +218,36 @@ describe("Rust-authoritative notification browser projection", () => {
     await vi.waitFor(() =>
       expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1),
     );
+    await secondClient.publish(
+      notificationPublication("profile.activation-mmdb-progress", {
+        dedupeKey: "profile.activation-geodata:fixture:mmdb",
+        params: { asset: "mmdb" },
+        pinned: true,
+        severity: "info",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(2),
+    );
+    await vi.waitFor(() => {
+      const activeGeodataToasts = [
+        ...document.querySelectorAll<HTMLElement>("[data-sonner-toast]"),
+      ];
+      expect(activeGeodataToasts.every((toast) => toast.getBoundingClientRect().height > 0)).toBe(
+        true,
+      );
+      const activeGeodataRects = activeGeodataToasts
+        .map((toast) => toast.getBoundingClientRect())
+        .sort((left, right) => left.top - right.top);
+      expect(activeGeodataRects[0]!.bottom).toBeLessThanOrEqual(activeGeodataRects[1]!.top);
+    });
     await expect
       .element(
         page.getByRole("dialog").getByText("正在准备启用配置所需的 GeoSite…", { exact: true }),
       )
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("dialog").getByText("正在准备启用配置所需的 MMDB…", { exact: true }))
       .toBeVisible();
     await expect
       .element(
@@ -241,6 +267,15 @@ describe("Rust-authoritative notification browser projection", () => {
         severity: "success",
       }),
     );
+    await secondClient.publish(
+      notificationPublication("profile.activation-mmdb-progress", {
+        dedupeKey: "profile.activation-geodata:fixture:mmdb",
+        params: { asset: "mmdb" },
+        pinned: false,
+        resolved: true,
+        severity: "success",
+      }),
+    );
     await vi.waitFor(() =>
       expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
     );
@@ -255,6 +290,7 @@ describe("Rust-authoritative notification browser projection", () => {
       })
       .click();
     await expect.element(completedGeodata).not.toBeInTheDocument();
+    await secondClient.removeByDedupeKey("profile.activation-geodata:fixture:mmdb");
 
     firstClient.reconnect();
     await vi.waitFor(() =>

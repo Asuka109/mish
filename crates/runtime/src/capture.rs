@@ -381,6 +381,16 @@ pub trait CapturePlatform: Send + Sync {
     fn availability(&self) -> CapabilityAvailability {
         CapabilityAvailability::Supported
     }
+    /// Returns a read-only preliminary snapshot that may be optimized for launch preparation.
+    ///
+    /// This snapshot is never mutation authority. Reconciliation always calls `observe_active`
+    /// again after listener readiness so platforms may use a faster, less coherent observation
+    /// strategy here while keeping final validation and confirmation authoritative.
+    fn preflight_observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        self.observe_active()
+    }
     fn observe_active(
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>>;
@@ -684,7 +694,7 @@ impl SystemProxyReconciler {
             ));
         }
         let journal = self.load_validated_journal()?;
-        let observed = self.platform.observe_active().await?;
+        let observed = self.platform.preflight_observe_active().await?;
         if let Some(journal) = &journal {
             if journal.prior.service_id == observed.service_id
                 && observed != journal.prior.with_endpoint(&self.endpoint)

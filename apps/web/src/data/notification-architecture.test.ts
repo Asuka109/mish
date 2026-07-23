@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const sourceRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const approvedSonnerFiles = new Set(["data/sonner-notification-adapter.ts", "main.tsx"]);
+const approvedSonnerFiles = new Set([
+  "components/notification-toaster.tsx",
+  "data/sonner-notification-adapter.ts",
+]);
 
 async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });

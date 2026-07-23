@@ -58,7 +58,7 @@ const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 const SYSTEM_PROXY_CONFIRMATION_OBSERVATIONS: u8 = 20;
 const SYSTEM_PROXY_CONFIRMATION_INTERVAL: Duration = Duration::from_millis(25);
-const SYSTEM_PROXY_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(2);
+const SYSTEM_PROXY_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BrowserPairingPanelPolicy {
@@ -1258,7 +1258,7 @@ impl MacOsSystemProxyPlatform {
         }
     }
 
-    async fn observe_named_service(
+    async fn preflight_observe_named_service(
         &self,
         service: String,
     ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
@@ -1277,6 +1277,28 @@ impl MacOsSystemProxyPlatform {
             https,
             pac_enabled: pac.0,
             pac_url: pac.1,
+            service_id: service,
+            socks,
+        })
+    }
+
+    async fn observe_named_service(
+        &self,
+        service: String,
+    ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
+        let http = self.proxy_state(&service, MacOsProxyKind::Http).await?;
+        let https = self.proxy_state(&service, MacOsProxyKind::Https).await?;
+        let socks = self.proxy_state(&service, MacOsProxyKind::Socks).await?;
+        let bypass_domains = self.proxy_bypass_domains(&service).await?;
+        let (pac_enabled, pac_url) = self.auto_proxy_url_state(&service).await?;
+        let auto_discovery_enabled = self.proxy_auto_discovery_enabled(&service).await?;
+        Ok(NetworkServiceProxyState {
+            auto_discovery_enabled,
+            bypass_domains,
+            http,
+            https,
+            pac_enabled,
+            pac_url,
             service_id: service,
             socks,
         })
@@ -1404,7 +1426,7 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
         self.availability
     }
 
-    fn observe_active(
+    fn preflight_observe_active(
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
         Box::pin(async move {
@@ -1415,6 +1437,18 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
                 },
                 self.run(MacOsCommand::ListNetworkServiceOrder),
             )?;
+            let service = parse_service_for_device(&order, &device)?;
+            self.preflight_observe_named_service(service).await
+        })
+    }
+
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(async move {
+            let route = self.run(MacOsCommand::DefaultRoute).await?;
+            let device = parse_default_route_device(&route)?;
+            let order = self.run(MacOsCommand::ListNetworkServiceOrder).await?;
             let service = parse_service_for_device(&order, &device)?;
             self.observe_named_service(service).await
         })
