@@ -34,6 +34,19 @@ function json(relativePath: string): Record<string, unknown> {
   return JSON.parse(read(relativePath)) as Record<string, unknown>;
 }
 
+function filesUnder(
+  relativeDirectory: string,
+  accepts: (relativePath: string) => boolean,
+): string[] {
+  return readdirSync(path.join(root, relativeDirectory), { withFileTypes: true }).flatMap(
+    (entry) => {
+      const relativePath = path.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) return filesUnder(relativePath, accepts);
+      return entry.isFile() && accepts(relativePath) ? [relativePath] : [];
+    },
+  );
+}
+
 function includesAll(source: string, values: readonly string[], label: string): void {
   const normalizedSource = source.replace(/^[ \t]*>[ \t]?/gmu, "").replace(/\s+/gu, " ");
   for (const value of values) {
@@ -151,6 +164,7 @@ const readme = read("README.md");
 includesAll(
   readme,
   [
+    "neutral, experimental tool for local traffic forwarding, configuration management, and diagnostics",
     "does not have a stable public release",
     "not production distributions",
     "not affiliated with, endorsed by, or an official client",
@@ -166,6 +180,38 @@ includesAll(
   ],
   "README.md",
 );
+
+includesAll(
+  read("PRODUCT.md"),
+  [
+    "neutral technical tool for local traffic forwarding, configuration management, and diagnostics",
+  ],
+  "PRODUCT.md",
+);
+
+const positioningFiles = [
+  ...readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => entry.name),
+  ...filesUnder("docs", (relativePath) => relativePath.endsWith(".md")),
+  ...filesUnder("apps/web/src", (relativePath) => /\.(?:ts|tsx)$/u.test(relativePath)),
+];
+const disallowedPositioning = [
+  ["circumvention framing", /\bcircumvent(?:ion|ing)?\b/iu],
+  ["censorship framing", /\bcensor(?:ship|ed|ing)?\b/iu],
+  ["anti-government framing", /\banti-government\b/iu],
+  ["government-resistance framing", /\bresist(?:ance|ing)?\s+(?:a\s+)?government\b/iu],
+  ["information-freedom framing", /\b(?:information|internet)\s+freedom\b/iu],
+  ["information-freedom framing", /\bfreedom\s+of\s+information\b/iu],
+  ["firewall-evasion framing", /\bgreat\s+firewall\b|\bgfw\b/iu],
+  ["non-neutral Chinese positioning", /翻墙|反抗政府|反政府|信息自由|突破封锁|绕过审查|规避审查/u],
+] as const;
+for (const relativePath of positioningFiles) {
+  const source = read(relativePath);
+  for (const [label, pattern] of disallowedPositioning) {
+    invariant(!pattern.test(source), `${relativePath} contains disallowed ${label}.`);
+  }
+}
 
 const privacy = read("PRIVACY.md");
 includesAll(

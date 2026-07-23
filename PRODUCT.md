@@ -13,12 +13,14 @@ Mihomo core's implementation details or navigating an administration dashboard.
 
 ## Product Purpose
 
-Mish provides a clear, trustworthy control surface for a locally managed Mihomo
-core. The default view should make the aggregate proxy state, capture paths,
-routing mode, live session activity, frequently used policy groups, and endpoint
-reachability easy to scan. It must not invent a single globally active node in
-Rule mode. Profiles, full group trees, connections, events, and diagnostics
-remain available through progressive disclosure.
+Mish is a neutral technical tool for local traffic forwarding, configuration
+management, and diagnostics. It provides a clear, trustworthy control surface
+for a locally managed Mihomo core. The default view should make the aggregate
+proxy state, capture paths, routing mode, live session activity, frequently used
+policy groups, and endpoint reachability easy to scan. It must not invent a
+single globally active node in Rule mode. Profiles, full group trees,
+connections, events, and diagnostics remain available through progressive
+disclosure.
 
 ## Brand Personality
 
