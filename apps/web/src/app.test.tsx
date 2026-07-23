@@ -2226,7 +2226,13 @@ describe("desktop RPC experience", () => {
     expect(screen.queryByText("Local service")).not.toBeInTheDocument();
     expect(screen.queryByText("Demo mode")).not.toBeInTheDocument();
     expect(document.getElementById("fixture-action-description")).not.toBeInTheDocument();
-    expect(screen.getByText(/Reconnecting to the Mish background service/i)).toBeInTheDocument();
+    const staleStatus = screen.getByText(/Reconnecting to the Mish background service/i);
+    expect(staleStatus).toHaveAttribute("role", "status");
+    expect(staleStatus).toHaveAttribute("aria-atomic", "true");
+    expect(staleStatus).toHaveAttribute("title", staleStatus.textContent);
+    expect(staleStatus.closest(".status-context-slot")).toHaveAttribute("data-state", "stale");
+    const diagnostics = screen.getByRole("link", { name: "Open Diagnostics" });
+    expect(diagnostics).toHaveAttribute("href", "/events?diagnostics=1");
     expect(
       [
         ...screen
@@ -2262,6 +2268,28 @@ describe("desktop RPC experience", () => {
     expect(
       screen.getByText("The local desktop service reports no service monitors."),
     ).toBeVisible();
+  });
+
+  it("keeps capture failures discoverable through the stable diagnostics affordance", async () => {
+    const snapshot = await createRpcSnapshot();
+    snapshot.runtime.phase = "inactive";
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: "core-unhealthy",
+      observed: "disabled",
+      phase: "failed",
+      recoveryActions: [],
+    };
+    const { container } = renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
+
+    expect(await screen.findByText("Live desktop traffic")).toBeVisible();
+    const slot = container.querySelector(".status-context-slot");
+    expect(slot).toHaveAttribute("data-state", "failure");
+    expect(slot?.querySelector("[role='status']")).toBeNull();
+    const diagnostics = screen.getByRole("link", { name: "Open Diagnostics" });
+    expect(diagnostics).toHaveAttribute("href", "/events?diagnostics=1");
+    diagnostics.focus();
+    expect(diagnostics).toHaveFocus();
   });
 
   it("combines backend support with supported and permission-required capabilities", async () => {

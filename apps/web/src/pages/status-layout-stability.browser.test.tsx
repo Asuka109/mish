@@ -1,0 +1,289 @@
+import type { StatusConnectionState, StatusSnapshotDto } from "@mish/contracts";
+import { TooltipProvider } from "@mish/ui";
+import { page } from "vitest/browser";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { flushSync } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
+import { FixtureStatusClient } from "../data/fixture-status-client";
+import { NotificationDeliveryProvider } from "../data/notification-delivery";
+import { ProductProvider } from "../data/product-provider";
+import TypesafeI18n from "../i18n/i18n-react";
+import type { Locales } from "../i18n/i18n-types";
+import { loadAllLocales } from "../i18n/i18n-util.sync";
+import { RoutesPage } from "./routes-page";
+import { StatusPage } from "./status-page";
+import "../styles.css";
+
+type StatusScenario = "capture-failure" | "drift" | "happy" | "runtime-failure" | "stale";
+
+class StatusLayoutClient extends FixtureStatusClient {
+  private connection: StatusConnectionState = {
+    attempt: 0,
+    phase: "connected",
+    stale: false,
+  };
+  private readonly currentConnectionListeners = new Set<(state: StatusConnectionState) => void>();
+  private currentSnapshot: StatusSnapshotDto;
+  private readonly currentSnapshotListeners = new Set<(snapshot: StatusSnapshotDto) => void>();
+
+  constructor(private readonly happySnapshot: StatusSnapshotDto) {
+    super();
+    this.currentSnapshot = structuredClone(happySnapshot);
+  }
+
+  override getConnectionState() {
+    return { ...this.connection };
+  }
+
+  override async getSnapshot() {
+    return structuredClone(this.currentSnapshot);
+  }
+
+  override subscribeConnection(listener: (state: StatusConnectionState) => void) {
+    this.currentConnectionListeners.add(listener);
+    listener(this.getConnectionState());
+    return () => this.currentConnectionListeners.delete(listener);
+  }
+
+  override subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+    this.currentSnapshotListeners.add(listener);
+    return () => this.currentSnapshotListeners.delete(listener);
+  }
+
+  setScenario(scenario: StatusScenario) {
+    this.connection = { attempt: 0, phase: "connected", stale: false };
+    this.currentSnapshot = structuredClone(this.happySnapshot);
+
+    if (scenario === "stale") {
+      this.connection = { attempt: 2, phase: "reconnecting", stale: true };
+    } else if (scenario === "runtime-failure") {
+      this.currentSnapshot.runtime.phase = "error";
+    } else if (scenario === "capture-failure") {
+      this.currentSnapshot.runtime.systemProxy = {
+        desired: true,
+        failure: "core-unhealthy",
+        observed: "disabled",
+        phase: "failed",
+        recoveryActions: [],
+      };
+    } else if (scenario === "drift") {
+      this.currentSnapshot.runtime.systemProxy = {
+        desired: true,
+        failure: "external-drift",
+        observed: "other",
+        phase: "drift",
+        recoveryActions: ["repair", "leave-as-is"],
+      };
+    }
+
+    for (const listener of this.currentConnectionListeners) listener(this.getConnectionState());
+    for (const listener of this.currentSnapshotListeners) {
+      listener(structuredClone(this.currentSnapshot));
+    }
+  }
+}
+
+interface Geometry {
+  height: number;
+  left: number;
+  top: number;
+  width: number;
+}
+
+function geometry(element: Element): Geometry {
+  const rect = element.getBoundingClientRect();
+  return {
+    height: rect.height,
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+  };
+}
+
+function expectStableGeometry(
+  actual: readonly Geometry[],
+  expected: readonly Geometry[],
+  context: string,
+) {
+  const tolerance = 0.5;
+  expect(actual, `${context}: measured control count`).toHaveLength(expected.length);
+  for (const [index, expectedRect] of expected.entries()) {
+    const actualRect = actual[index];
+    if (!actualRect) throw new Error(`${context}: missing control ${index}`);
+    for (const key of ["height", "left", "top", "width"] as const) {
+      expect(
+        Math.abs(actualRect[key] - expectedRect[key]),
+        `${context}: control ${index} ${key}`,
+      ).toBeLessThanOrEqual(tolerance);
+    }
+  }
+}
+
+function statusControlGeometry() {
+  const controls = [...document.querySelectorAll(".status-primary-control")];
+  if (controls.length !== 2) throw new Error("Status primary controls are missing");
+  return controls.map(geometry);
+}
+
+function routesSearchGeometry() {
+  const search = document.querySelector(".routes-search-field");
+  if (!search) throw new Error("Routes search control is missing");
+  return [geometry(search)];
+}
+
+async function nextFrame() {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+async function waitForStatusState(state: "drift" | "failure" | "ready" | "stale") {
+  await vi.waitFor(() => {
+    expect(document.querySelector(".status-context-slot")).toHaveAttribute("data-state", state);
+  });
+  await nextFrame();
+}
+
+let client: StatusLayoutClient;
+let root: Root;
+
+function renderPage(view: "routes" | "status", locale: Locales) {
+  flushSync(() => {
+    root.render(
+      <TypesafeI18n key={`${view}-${locale}`} locale={locale}>
+        <MemoryRouter>
+          <ProductProvider client={client}>
+            <NotificationDeliveryProvider>
+              <TooltipProvider>
+                <main>{view === "status" ? <StatusPage /> : <RoutesPage />}</main>
+              </TooltipProvider>
+            </NotificationDeliveryProvider>
+          </ProductProvider>
+        </MemoryRouter>
+      </TypesafeI18n>,
+    );
+  });
+}
+
+beforeAll(async () => {
+  loadAllLocales();
+  document.documentElement.dataset.runtime = "browser";
+  document.body.innerHTML = '<div id="status-layout-stability-root"></div>';
+  const snapshot = await new FixtureStatusClient().getSnapshot();
+  snapshot.adapterKind = "rpc";
+  snapshot.capabilities = { systemProxy: "supported", tun: "supported" };
+  snapshot.runtime.phase = "healthy";
+  const container = document.getElementById("status-layout-stability-root");
+  if (!container) throw new Error("Missing status layout browser root");
+  client = new StatusLayoutClient(snapshot);
+  root = createRoot(container);
+});
+
+afterAll(() => {
+  root.unmount();
+  delete document.documentElement.dataset.runtime;
+});
+
+describe("primary-page status layout stability", () => {
+  test("keeps Status routing and capture controls fixed through failure and recovery", async () => {
+    const viewports = [
+      { height: 720, width: 1024 },
+      { height: 720, width: 360 },
+    ];
+    const scenarios = [
+      { expectedState: "stale", scenario: "stale" },
+      { expectedState: "failure", scenario: "runtime-failure" },
+      { expectedState: "failure", scenario: "capture-failure" },
+      { expectedState: "drift", scenario: "drift" },
+    ] as const;
+
+    for (const locale of ["en", "zh"] as const) {
+      for (const viewport of viewports) {
+        await page.viewport(viewport.width, viewport.height);
+        client.setScenario("happy");
+        renderPage("status", locale);
+        await waitForStatusState("ready");
+        const baseline = statusControlGeometry();
+
+        for (const { expectedState, scenario } of scenarios) {
+          client.setScenario(scenario);
+          await waitForStatusState(expectedState);
+          const link = document.querySelector<HTMLAnchorElement>('a[href="/events?diagnostics=1"]');
+          expect(
+            link,
+            `${locale} ${viewport.width}px ${scenario}: diagnostics link`,
+          ).not.toBeNull();
+          expect(link?.textContent?.trim()).not.toBe("");
+          expectStableGeometry(
+            statusControlGeometry(),
+            baseline,
+            `${locale} ${viewport.width}px ${scenario}`,
+          );
+        }
+
+        client.setScenario("happy");
+        await waitForStatusState("ready");
+        expect(document.querySelector('a[href="/events?diagnostics=1"]')).toBeNull();
+        expectStableGeometry(
+          statusControlGeometry(),
+          baseline,
+          `${locale} ${viewport.width}px recovery`,
+        );
+      }
+    }
+  });
+
+  test("keeps the narrow stale message bounded and diagnostics keyboard-accessible", async () => {
+    await page.viewport(360, 720);
+    client.setScenario("stale");
+    renderPage("status", "en");
+    await waitForStatusState("stale");
+
+    const message = document.querySelector<HTMLElement>(".status-context-slot [role='status']");
+    const link = document.querySelector<HTMLAnchorElement>('a[href="/events?diagnostics=1"]');
+    if (!message || !link) throw new Error("Missing stale Status affordance");
+
+    expect(message.title).toBe(message.textContent);
+    expect(getComputedStyle(message).overflow).toBe("hidden");
+    expect(getComputedStyle(message).textOverflow).toBe("ellipsis");
+    expect(getComputedStyle(message).whiteSpace).toBe("nowrap");
+    link.focus();
+    expect(document.activeElement).toBe(link);
+    expect(getComputedStyle(link).outlineStyle).not.toBe("none");
+  });
+
+  test("keeps the Routes search control fixed through stale and recovery", async () => {
+    for (const width of [1024, 360]) {
+      await page.viewport(width, 720);
+      client.setScenario("happy");
+      renderPage("routes", "en");
+      await vi.waitFor(() => {
+        expect(document.querySelector(".routes-connection-slot")).toHaveAttribute(
+          "data-state",
+          "ready",
+        );
+      });
+      await nextFrame();
+      const baseline = routesSearchGeometry();
+
+      client.setScenario("stale");
+      await vi.waitFor(() => {
+        expect(document.querySelector(".routes-connection-slot")).toHaveAttribute(
+          "data-state",
+          "stale",
+        );
+      });
+      await nextFrame();
+      expectStableGeometry(routesSearchGeometry(), baseline, `${width}px Routes stale`);
+
+      client.setScenario("happy");
+      await vi.waitFor(() => {
+        expect(document.querySelector(".routes-connection-slot")).toHaveAttribute(
+          "data-state",
+          "ready",
+        );
+      });
+      await nextFrame();
+      expectStableGeometry(routesSearchGeometry(), baseline, `${width}px Routes recovery`);
+    }
+  });
+});

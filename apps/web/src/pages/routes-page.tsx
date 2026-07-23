@@ -49,8 +49,8 @@ const routeStyles = tv({
       "mb-1.5 inline-flex min-h-7.5 items-center text-metadata text-muted-foreground",
       "no-underline hover:text-ink hover:underline",
     ),
-    stale:
-      "mt-4 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
+    connectionSlot: "routes-connection-slot mt-1.5 flex h-5 min-w-0 items-center overflow-hidden",
+    stale: "min-w-0 truncate text-metadata text-warning",
     searchField: "routes-search-field mt-5 max-w-130",
     searchControl: cx(
       "routes-search-control relative flex items-center [&>svg]:pointer-events-none [&>svg]:absolute [&>svg]:left-2.75",
@@ -264,6 +264,12 @@ export function RoutesPage() {
   const decodedRouteGroupId = routeGroupId ? decodeURIComponent(routeGroupId) : null;
   const standaloneGroup = decodedRouteGroupId ? graph.groupById.get(decodedRouteGroupId) : null;
   const pickerGroup = pickerGroupId ? graph.groupById.get(pickerGroupId) : null;
+  const staleMessage =
+    connection.stale && snapshot.adapterKind !== "fixture"
+      ? connection.phase === "reconnecting"
+        ? LL.status.reconnecting()
+        : LL.status.staleData()
+      : null;
 
   function openPicker(groupId: string) {
     pickerTriggerRef.current = document.activeElement as HTMLElement | null;
@@ -288,15 +294,21 @@ export function RoutesPage() {
                 ? LL.routes.currentGroupDescription({ group: standaloneGroup.label })
                 : LL.routes.description()}
             </p>
+            <div
+              className={routeStyles().connectionSlot()}
+              data-state={staleMessage ? "stale" : "ready"}
+            >
+              <span
+                aria-atomic={staleMessage ? "true" : undefined}
+                className={routeStyles().stale()}
+                role={staleMessage ? "status" : undefined}
+                title={staleMessage ?? undefined}
+              >
+                {staleMessage}
+              </span>
+            </div>
           </header>
 
-          {connection.stale && snapshot.adapterKind !== "fixture" ? (
-            <p className={routeStyles().stale()} role="status">
-              {connection.phase === "reconnecting"
-                ? LL.status.reconnecting()
-                : LL.status.staleData()}
-            </p>
-          ) : null}
           {!standaloneGroup ? (
             <Field className={routeStyles().searchField()}>
               <FieldLabel htmlFor="routes-search">{LL.routes.searchLabel()}</FieldLabel>
