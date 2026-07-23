@@ -74,7 +74,7 @@ const settingsStyles = tv({
     control:
       "[&_.traffic-capture-stack]:items-end @max-settings-compact/settings-page:[&_.traffic-capture-stack]:items-start",
     inline: cx(
-      "inline-flex items-center gap-2 @max-settings-compact/settings-page:flex-wrap",
+      "inline-flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2",
       "@max-settings-compact/settings-page:justify-start [&_label]:inline-grid [&_label]:gap-0.75",
       "[&_label]:text-start [&_label]:text-label-small [&_label]:leading-3.5",
       "[&_label]:text-muted-foreground [&_input[type=number]]:min-h-7.5",
@@ -83,8 +83,16 @@ const settingsStyles = tv({
       "[&_input[type=number]]:bg-canvas [&_input[type=number]]:px-1.75 [&_input[type=number]]:py-1",
       "[&_input[type=number]]:text-fg",
     ),
+    controlStack: cx(
+      "flex min-w-0 max-w-full flex-col items-end gap-2",
+      "@max-settings-compact/settings-page:items-start",
+    ),
+    policyWarning: cx(
+      "max-w-80 text-end text-metadata leading-4.5 text-warning",
+      "@max-settings-compact/settings-page:max-w-full @max-settings-compact/settings-page:text-start",
+    ),
     localProxy: cx(
-      "flex flex-wrap items-center justify-end gap-2",
+      "flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2",
       "@max-settings-compact/settings-page:justify-start [&_.ui-button]:min-w-28",
       "[&_.ui-button[aria-busy=true]:disabled]:opacity-100",
     ),
@@ -571,7 +579,7 @@ export function SettingsPage() {
           description={LL.settingsPage.systemProxyTakeoverPolicyDescription()}
           title={LL.settingsPage.systemProxyTakeoverPolicy()}
         >
-          <div className={settingsStyles().inline()}>
+          <div className={settingsStyles().controlStack()}>
             <ToggleGroup
               aria-describedby="system-proxy-takeover-policy-warning"
               aria-label={LL.settingsPage.systemProxyTakeoverPolicy()}
@@ -609,7 +617,10 @@ export function SettingsPage() {
                 {LL.settingsPage.systemProxyTakeoverPolicyAdvanced()}
               </ToggleGroupItem>
             </ToggleGroup>
-            <span id="system-proxy-takeover-policy-warning" className={settingsStyles().notice()}>
+            <span
+              id="system-proxy-takeover-policy-warning"
+              className={settingsStyles().policyWarning()}
+            >
               {LL.settingsPage.systemProxyTakeoverPolicyWarning()}
             </span>
           </div>
@@ -618,7 +629,7 @@ export function SettingsPage() {
           description={LL.settingsPage.tunHelperDescription()}
           title={LL.settingsPage.tunHelper()}
         >
-          <div>
+          <div className={settingsStyles().controlStack()}>
             <div className={settingsStyles().inline()}>
               <Badge
                 variant={
