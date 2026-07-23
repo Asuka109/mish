@@ -1205,8 +1205,8 @@ impl ProfileActivationCoordinator {
         drop(state);
         if kind == ProfileActivationEvidenceKind::GeodataPreparing {
             let _ = self.host.publish_notification(NotificationPublication {
-                dedupe_key: geodata_notification_key(command_id),
-                notification_type: "profile.activation-geodata-progress".into(),
+                dedupe_key: geodata_notification_key(command_id, asset),
+                notification_type: geodata_progress_notification_type(asset).into(),
                 params: serde_json::json!({ "asset": asset }),
                 pinned: true,
                 replaces: Vec::new(),
@@ -1233,8 +1233,7 @@ impl ProfileActivationCoordinator {
         state.snapshot.phase = ProfileActivationPhase::Failure;
         let _ = self.updates.send(state.snapshot.clone());
         drop(state);
-        self.host
-            .resolve_notification(&geodata_notification_key(command_id));
+        resolve_geodata_notifications(&self.host, command_id, None);
         self.host
             .record_application_event(ApplicationDiagnosticEvent::new(
                 EventLevel::Error,
@@ -1319,8 +1318,7 @@ impl ProfileActivationCoordinator {
         }
         let _ = self.updates.send(state.snapshot.clone());
         drop(state);
-        self.host
-            .resolve_notification(&geodata_notification_key(command_id));
+        resolve_geodata_notifications(&self.host, command_id, None);
     }
 
     async fn finish_stop(&self, command_id: &str, result: Result<(), MihomoActivationError>) {
@@ -1566,8 +1564,55 @@ fn terminal_geodata_evidence(error: MihomoActivationError) -> Option<ProfileActi
     }
 }
 
-fn geodata_notification_key(command_id: &str) -> String {
-    format!("profile.activation-geodata-progress:{command_id}")
+fn geodata_notification_key(command_id: &str, asset: crate::GeodataAsset) -> String {
+    format!(
+        "profile.activation-geodata:{command_id}:{}",
+        geodata_asset_slug(asset)
+    )
+}
+
+fn geodata_asset_slug(asset: crate::GeodataAsset) -> &'static str {
+    match asset {
+        crate::GeodataAsset::GeoIp => "geoip",
+        crate::GeodataAsset::GeoSite => "geosite",
+        crate::GeodataAsset::Mmdb => "mmdb",
+        crate::GeodataAsset::Asn => "asn",
+    }
+}
+
+fn geodata_progress_notification_type(asset: crate::GeodataAsset) -> &'static str {
+    match asset {
+        crate::GeodataAsset::GeoIp => "profile.activation-geoip-progress",
+        crate::GeodataAsset::GeoSite => "profile.activation-geosite-progress",
+        crate::GeodataAsset::Mmdb => "profile.activation-mmdb-progress",
+        crate::GeodataAsset::Asn => "profile.activation-asn-progress",
+    }
+}
+
+fn geodata_failure_notification_type(asset: crate::GeodataAsset) -> &'static str {
+    match asset {
+        crate::GeodataAsset::GeoIp => "profile.activation-geoip-failed",
+        crate::GeodataAsset::GeoSite => "profile.activation-geosite-failed",
+        crate::GeodataAsset::Mmdb => "profile.activation-mmdb-failed",
+        crate::GeodataAsset::Asn => "profile.activation-asn-failed",
+    }
+}
+
+fn resolve_geodata_notifications(
+    host: &DesktopRuntimeHost,
+    command_id: &str,
+    except: Option<crate::GeodataAsset>,
+) {
+    for asset in [
+        crate::GeodataAsset::GeoIp,
+        crate::GeodataAsset::GeoSite,
+        crate::GeodataAsset::Mmdb,
+        crate::GeodataAsset::Asn,
+    ] {
+        if Some(asset) != except {
+            host.resolve_notification(&geodata_notification_key(command_id, asset));
+        }
+    }
 }
 
 fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnosticEvent {
@@ -1619,21 +1664,21 @@ fn publish_activation_failure_notification(
     command_id: &str,
     error: MihomoActivationError,
 ) {
-    if !matches!(
-        error,
-        MihomoActivationError::GeodataFailed(_) | MihomoActivationError::GeodataTimeout(_)
-    ) {
-        host.resolve_notification(&geodata_notification_key(command_id));
-    }
+    let failing_geodata = match error {
+        MihomoActivationError::GeodataFailed(asset)
+        | MihomoActivationError::GeodataTimeout(asset) => Some(asset),
+        _ => None,
+    };
+    resolve_geodata_notifications(host, command_id, failing_geodata);
     let (dedupe_key, notification_type, params) = match error {
         MihomoActivationError::GeodataFailed(asset) => (
-            geodata_notification_key(command_id),
-            "profile.activation-geodata-failed",
+            geodata_notification_key(command_id, asset),
+            geodata_failure_notification_type(asset),
             serde_json::json!({ "asset": asset, "outcome": "failed" }),
         ),
         MihomoActivationError::GeodataTimeout(asset) => (
-            geodata_notification_key(command_id),
-            "profile.activation-geodata-failed",
+            geodata_notification_key(command_id, asset),
+            geodata_failure_notification_type(asset),
             serde_json::json!({ "asset": asset, "outcome": "timeout" }),
         ),
         MihomoActivationError::ManagedListenerConflict(endpoint) => (

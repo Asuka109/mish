@@ -97,6 +97,56 @@ async fn recognized_geodata_preparation_does_not_use_the_short_validation_deadli
 }
 
 #[tokio::test]
+async fn distinct_geodata_assets_publish_independent_notifications() {
+    let (coordinator, host, controller, profile_id) = geodata_coordinator(
+        "geodata-test-multiple: true",
+        Duration::from_secs(3),
+        Duration::from_secs(3),
+    )
+    .await;
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &profile_id)
+        .await
+        .unwrap();
+
+    let completed = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(completed.phase, ProfileActivationPhase::Success);
+    let notifications = host.notification_snapshot().notifications;
+    let geodata = notifications
+        .iter()
+        .filter(|notification| {
+            notification
+                .dedupe_key
+                .starts_with("profile.activation-geodata:")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(geodata.len(), 2);
+    assert_eq!(
+        geodata
+            .iter()
+            .map(|notification| notification.notification_type.as_str())
+            .collect::<HashSet<_>>(),
+        HashSet::from([
+            "profile.activation-geosite-progress",
+            "profile.activation-mmdb-progress",
+        ])
+    );
+    assert_eq!(
+        geodata
+            .iter()
+            .map(|notification| notification.id.as_str())
+            .collect::<HashSet<_>>()
+            .len(),
+        2
+    );
+    assert!(geodata.iter().all(|notification| notification.resolved));
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
 async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancellation() {
     let (success, success_host, success_controller, success_id) = geodata_coordinator(
         "geodata-test-success: true",
@@ -121,7 +171,7 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     let progress = success_host.notification_snapshot();
     assert_eq!(
         progress.notifications[0].notification_type,
-        "profile.activation-geodata-progress"
+        "profile.activation-geosite-progress"
     );
     assert!(progress.notifications[0].pinned);
     let progress_id = progress.notifications[0].id.clone();
@@ -158,7 +208,7 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     let failed_progress = failed_host.notification_snapshot();
     assert_eq!(
         failed_progress.notifications[0].notification_type,
-        "profile.activation-geodata-failed"
+        "profile.activation-geoip-failed"
     );
     assert!(!failed_progress.notifications[0].pinned);
     let serialized = serde_json::to_string(&completed).unwrap();
@@ -186,9 +236,7 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
         .notification_snapshot()
         .notifications
         .into_iter()
-        .filter(|notification| {
-            notification.notification_type == "profile.activation-geodata-failed"
-        })
+        .filter(|notification| notification.notification_type == "profile.activation-geoip-failed")
         .map(|notification| notification.id)
         .collect::<HashSet<_>>();
     assert_eq!(geodata_failure_ids.len(), 2);
@@ -224,6 +272,10 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     assert!(status.groups.is_empty());
     assert!(status.nodes.is_empty());
     assert_eq!(status.metrics.active_connections, 0);
+    assert_eq!(
+        timeout_host.notification_snapshot().notifications[0].notification_type,
+        "profile.activation-mmdb-failed"
+    );
     assert!(
         timed_out
             .profile_snapshot()

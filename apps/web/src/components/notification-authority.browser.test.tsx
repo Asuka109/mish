@@ -208,8 +208,8 @@ describe("Rust-authoritative notification browser projection", () => {
     expect((await secondClient.getSnapshot()).notifications).toEqual([]);
 
     await secondClient.publish(
-      notificationPublication("profile.activation-geodata-progress", {
-        dedupeKey: "profile.activation-geodata-progress",
+      notificationPublication("profile.activation-geosite-progress", {
+        dedupeKey: "profile.activation-geodata:fixture:geo-site",
         params: { asset: "geo-site" },
         pinned: true,
         severity: "info",
@@ -233,8 +233,8 @@ describe("Rust-authoritative notification browser projection", () => {
       .not.toBeInTheDocument();
 
     await secondClient.publish(
-      notificationPublication("profile.activation-geodata-progress", {
-        dedupeKey: "profile.activation-geodata-progress",
+      notificationPublication("profile.activation-geosite-progress", {
+        dedupeKey: "profile.activation-geodata:fixture:geo-site",
         params: { asset: "geo-site" },
         pinned: false,
         resolved: true,

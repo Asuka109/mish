@@ -28,6 +28,14 @@ a distinct Rust-owned ID. A producer reuses a dedupe key only while updating one
 explicit lifecycle; after that lifecycle is resolved, publishing the key again
 creates a new instance.
 
+Profile activation gives each allowlisted GeoData asset its own notification
+type and `command + asset` dedupe key. GeoSite, GeoIP, MMDB, and ASN preparation
+can therefore remain visible at the same time, and each progress record keeps
+its Rust-owned ID when it is resolved or upgraded to that asset's failure type.
+Managed listener collisions use the separate
+`profile.activation-listener-conflict` type and an activation-failure key; they
+never replace or reuse a GeoData notification.
+
 Rust rejects identifiers over 96 bytes, more than eight replacements, parameters
 over 2,048 serialized bytes, nesting deeper than three levels, more than 32
 aggregate entries, or strings over 160 bytes. Sensitive key names and values that

@@ -40,6 +40,7 @@ while IFS= read -r line; do
   case "$line" in
     *"geodata-test-unknown: true"*) mode="unknown" ;;
     *"geodata-test-slow-success: true"*) mode="slow-success" ;;
+    *"geodata-test-multiple: true"*) mode="multiple" ;;
     *"geodata-test-success: true"*) mode="success" ;;
     *"geodata-test-failure: true"*) mode="failure" ;;
     *"geodata-test-timeout: true"*) mode="timeout" ;;
@@ -68,6 +69,14 @@ if [ "$mode" = "slow-success" ]; then
   echo "[info] Can't find GeoSite.dat, start download"
   sleep 2
   echo "[info] Download GeoSite.dat finish"
+  exit 0
+fi
+
+if [ "$mode" = "multiple" ]; then
+  echo "[info] Can't find GeoSite.dat, start download"
+  echo "[info] Download GeoSite.dat finish"
+  echo "[info] Can't find MMDB, start download"
+  echo "[info] Download MMDB finish"
   exit 0
 fi
 

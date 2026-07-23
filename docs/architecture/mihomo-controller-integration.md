@@ -311,7 +311,9 @@ If a candidate exits or cannot start while either configured Mish-managed
 loopback listener cannot be bound, activation reports the bounded
 `managed-listener-conflict` failure with only `127.0.0.1:<port>` and the safe
 remediation to stop or reconfigure the competing application. The notification
-surface also offers one bounded recovery: choose two currently available
+uses the dedicated `profile.activation-listener-conflict` type and does not
+share identity with generic activation or GeoData failures. Its surface also
+offers one bounded recovery: choose two currently available
 loopback ports, persist them, and retry the same activation. It does not inspect
 or expose process arguments, paths, configuration, credentials, or unrelated
 process metadata. Other early exits remain typed as `early-exit`.
