@@ -48,6 +48,7 @@ use mish_runtime::{
 };
 use serde_json::json;
 use serde_norway::Value;
+use sha2::{Digest, Sha256};
 use tokio::{
     net::TcpListener,
     sync::{Notify, oneshot},
@@ -142,6 +143,29 @@ async fn distinct_geodata_assets_publish_independent_notifications() {
     );
     assert!(geodata.iter().all(|notification| notification.resolved));
 
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn packaged_geodata_uses_mihomo_runtime_names_without_download_evidence() {
+    let (coordinator, host, controller, profile_id) = geodata_coordinator_with_packaged_snapshot(
+        "geodata-test-packaged-fallback: true",
+        Duration::from_secs(3),
+        Duration::from_secs(3),
+        true,
+    )
+    .await;
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&Uuid::new_v4().to_string(), &profile_id)
+        .await
+        .unwrap();
+
+    let completed = wait_for_activation(&coordinator, &mut updates).await;
+    assert_eq!(completed.phase, ProfileActivationPhase::Success);
+    assert_eq!(completed.evidence, None);
+    assert!(host.notification_snapshot().notifications.is_empty());
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 }
@@ -3013,6 +3037,21 @@ async fn geodata_coordinator(
     FakeController,
     String,
 ) {
+    geodata_coordinator_with_packaged_snapshot(marker, validation_timeout, geodata_timeout, false)
+        .await
+}
+
+async fn geodata_coordinator_with_packaged_snapshot(
+    marker: &str,
+    validation_timeout: Duration,
+    geodata_timeout: Duration,
+    packaged_snapshot: bool,
+) -> (
+    Arc<ProfileActivationCoordinator>,
+    DesktopRuntimeHost,
+    FakeController,
+    String,
+) {
     let root = tempfile::tempdir().unwrap().keep();
     let profile_root = root.join("profiles");
     let record =
@@ -3028,13 +3067,49 @@ async fn geodata_coordinator(
         geodata_preparation_timeout: geodata_timeout,
         ..activation_timing(Duration::from_secs(2))
     };
-    let manager = Arc::new(MihomoActivationManager::new(
-        ManagedMihomoResolver::development(
+    let mut resolver = ManagedMihomoResolver::development(
+        fixture("fake-geodata-activation-mihomo.sh"),
+        root.join("runtime"),
+    );
+    if packaged_snapshot {
+        let snapshot = root.join("packaged-geodata");
+        std::fs::create_dir(&snapshot).unwrap();
+        let assets = [
+            ("geosite.dat", "GeoSite.dat", b"geosite".as_slice()),
+            ("geoip.dat", "GeoIP.dat", b"geoip".as_slice()),
+            ("geoip.metadb", "geoip.metadb", b"metadb".as_slice()),
+            ("GeoLite2-ASN.mmdb", "ASN.mmdb", b"asn".as_slice()),
+        ];
+        let manifest_assets = assets
+            .iter()
+            .enumerate()
+            .map(|(index, (name, runtime_name, contents))| {
+                std::fs::write(snapshot.join(name), contents).unwrap();
+                json!({
+                    "bytes": contents.len(),
+                    "name": name,
+                    "releaseAssetId": index + 1,
+                    "runtimeName": runtime_name,
+                    "sha256": format!("{:x}", Sha256::digest(contents)),
+                })
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            snapshot.join("manifest.json"),
+            serde_json::to_vec(&json!({
+                "assets": manifest_assets,
+                "schemaVersion": 2,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        resolver = ManagedMihomoResolver::development_with_bundled_geodata(
             fixture("fake-geodata-activation-mihomo.sh"),
             root.join("runtime"),
-        ),
-        timing,
-    ));
+            snapshot,
+        );
+    }
+    let manager = Arc::new(MihomoActivationManager::new(resolver, timing));
     let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
         DesktopMihomoProcessConfig {
             binary: None,

@@ -17,6 +17,8 @@ const bundledMihomo = path.join(resources, "mihomo-aarch64-apple-darwin");
 const preparedMihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
 const bundledWeb = path.join(resources, "web-dist");
 const sourceWeb = path.resolve("apps/web/dist");
+const bundledGeodata = path.join(resources, "geodata/snapshot");
+const sourceGeodata = path.resolve("resources/geodata/snapshot");
 const legalResources = [
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
@@ -125,6 +127,45 @@ if (/\b(?:src|href)=["']https?:\/\//iu.test(index)) {
   throw new Error("The bundled Web entry point references a remote asset");
 }
 
+const geodataManifest = JSON.parse(
+  await readFile(path.join(sourceGeodata, "manifest.json"), "utf8"),
+) as {
+  assets: Array<{ bytes: number; name: string; runtimeName: string; sha256: string }>;
+  schemaVersion: number;
+};
+const requiredGeodataAssets = ["geosite.dat", "geoip.dat", "geoip.metadb", "GeoLite2-ASN.mmdb"];
+const requiredGeodataRuntimeNames = ["GeoSite.dat", "GeoIP.dat", "geoip.metadb", "ASN.mmdb"];
+const expectedGeodataFiles = [...requiredGeodataAssets, "manifest.json"].sort();
+if (
+  geodataManifest.schemaVersion !== 2 ||
+  JSON.stringify(geodataManifest.assets.map((asset) => asset.name)) !==
+    JSON.stringify(requiredGeodataAssets) ||
+  JSON.stringify(geodataManifest.assets.map((asset) => asset.runtimeName)) !==
+    JSON.stringify(requiredGeodataRuntimeNames) ||
+  JSON.stringify(await files(sourceGeodata)) !== JSON.stringify(expectedGeodataFiles) ||
+  JSON.stringify(await files(bundledGeodata)) !== JSON.stringify(expectedGeodataFiles)
+) {
+  throw new Error("The bundled GeoData resource set is incomplete");
+}
+for (const asset of geodataManifest.assets) {
+  const source = path.join(sourceGeodata, asset.name);
+  const bundled = path.join(bundledGeodata, asset.name);
+  if (
+    (await stat(source)).size !== asset.bytes ||
+    (await stat(bundled)).size !== asset.bytes ||
+    (await sha256(source)) !== asset.sha256 ||
+    (await sha256(bundled)) !== asset.sha256
+  ) {
+    throw new Error(`Bundled GeoData resource checksum mismatch: ${asset.name}`);
+  }
+}
+if (
+  (await sha256(path.join(sourceGeodata, "manifest.json"))) !==
+  (await sha256(path.join(bundledGeodata, "manifest.json")))
+) {
+  throw new Error("The bundled GeoData manifest does not match the repository");
+}
+
 for (const legalResource of legalResources) {
   const source = path.resolve(legalResource);
   const bundled = path.join(resources, legalResource);
@@ -140,6 +181,7 @@ for (const requiredNotice of [
   "MetaCubeX/mihomo",
   "v1.19.29",
   "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+  "MetaCubeX/meta-rules-dat",
   "GPL-3.0",
   "8e543a8983790c20d7d8c696ae74023c69f379b7",
   "Apache-2.0",
@@ -184,5 +226,5 @@ execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
 });
 
 console.log(
-  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : "no TUN helper"}`,
+  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : "no TUN helper"}`,
 );
