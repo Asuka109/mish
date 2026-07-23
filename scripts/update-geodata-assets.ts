@@ -56,7 +56,6 @@ export interface GeodataManifest {
 
 interface UpdateGeodataSnapshotOptions {
   downloadAsset: (asset: GeodataReleaseAsset) => Promise<Uint8Array>;
-  manifestPath: string;
   outputDirectory: string;
   release: GeodataRelease;
 }
@@ -123,18 +122,6 @@ function manifestJson(manifest: GeodataManifest) {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
 
-async function writeFileAtomic(destination: string, content: string) {
-  await mkdir(path.dirname(destination), { recursive: true });
-  const temporary = `${destination}.${randomUUID()}.partial`;
-  try {
-    await writeFile(temporary, content, { encoding: "utf8", flag: "wx", mode: 0o644 });
-    await rename(temporary, destination);
-  } catch (error) {
-    await rm(temporary, { force: true });
-    throw error;
-  }
-}
-
 async function existingSnapshot(
   snapshotDirectory: string,
   release: GeodataRelease,
@@ -176,26 +163,37 @@ async function existingSnapshot(
 
 export async function updateGeodataSnapshot({
   downloadAsset,
-  manifestPath,
   outputDirectory,
   release,
 }: UpdateGeodataSnapshotOptions): Promise<GeodataManifest> {
   const assets = expectedAssets(release);
-  const snapshotDirectory = path.join(outputDirectory, String(release.id));
-  const snapshotPresent = await lstat(snapshotDirectory)
-    .then(() => true)
-    .catch(() => false);
-  const existing = await existingSnapshot(snapshotDirectory, release, assets);
+  const snapshotMetadata = await lstat(outputDirectory).catch(() => undefined);
+  const snapshotPresent = snapshotMetadata !== undefined;
+  if (snapshotMetadata && !snapshotMetadata.isDirectory()) {
+    throw new Error("existing GeoData snapshot path is unsafe");
+  }
+  const existing = await existingSnapshot(outputDirectory, release, assets);
   if (existing) {
-    await writeFileAtomic(manifestPath, manifestJson(existing));
     return existing;
   }
   if (snapshotPresent) {
-    throw new Error(`existing GeoData snapshot is invalid: ${release.id}`);
+    let priorReleaseId: number | undefined;
+    try {
+      const prior = JSON.parse(
+        await readFile(path.join(outputDirectory, "manifest.json"), "utf8"),
+      ) as GeodataManifest;
+      priorReleaseId = prior.release.id;
+    } catch {
+      // The existing directory is not safe to replace without known provenance.
+    }
+    if (priorReleaseId === release.id || priorReleaseId === undefined) {
+      throw new Error(`existing GeoData snapshot is invalid: ${release.id}`);
+    }
   }
 
-  await mkdir(outputDirectory, { recursive: true });
-  const stagingDirectory = await mkdtemp(path.join(outputDirectory, `.staging-${release.id}-`));
+  const parentDirectory = path.dirname(outputDirectory);
+  await mkdir(parentDirectory, { recursive: true });
+  const stagingDirectory = await mkdtemp(path.join(parentDirectory, `.staging-${release.id}-`));
   try {
     const recorded: GeodataManifestAsset[] = [];
     for (const asset of assets) {
@@ -225,8 +223,20 @@ export async function updateGeodataSnapshot({
       flag: "wx",
       mode: 0o644,
     });
-    await rename(stagingDirectory, snapshotDirectory);
-    await writeFileAtomic(manifestPath, manifestJson(manifest));
+    if (!snapshotPresent) {
+      await rename(stagingDirectory, outputDirectory);
+      return manifest;
+    }
+
+    const previousDirectory = `${outputDirectory}.previous-${randomUUID()}`;
+    await rename(outputDirectory, previousDirectory);
+    try {
+      await rename(stagingDirectory, outputDirectory);
+    } catch (error) {
+      await rename(previousDirectory, outputDirectory);
+      throw error;
+    }
+    await rm(previousDirectory, { force: true, recursive: true });
     return manifest;
   } catch (error) {
     await rm(stagingDirectory, { force: true, recursive: true });
@@ -272,8 +282,7 @@ async function main() {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const manifest = await updateGeodataSnapshot({
     downloadAsset: downloadReleaseAsset,
-    manifestPath: path.join(repositoryRoot, "resources/geodata/manifest.json"),
-    outputDirectory: path.join(repositoryRoot, ".scratch/geodata/meta-rules-dat"),
+    outputDirectory: path.join(repositoryRoot, "resources/geodata/snapshot"),
     release: latestRelease(),
   });
   console.log(
@@ -284,7 +293,7 @@ async function main() {
         sha256: digest,
       })),
       releaseId: manifest.release.id,
-      snapshot: `.scratch/geodata/meta-rules-dat/${manifest.release.id}`,
+      snapshot: "resources/geodata/snapshot",
     }),
   );
 }

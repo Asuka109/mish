@@ -18,6 +18,7 @@ use mish_runtime::{
 };
 use serde::{Deserialize, Serialize};
 use serde_norway::Value;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::{sync::Mutex, time::Instant};
 use tokio_util::sync::CancellationToken;
@@ -100,8 +101,15 @@ impl ManagedMihomoResolver {
             return Err(MihomoResolveError::UnsafeManagedPath);
         }
         create_private_directory(&self.runtime_root)?;
+        let bundled_geodata = match &self.location {
+            ManagedBinaryLocation::PreparedDevelopment(_) => None,
+            ManagedBinaryLocation::ProductionResources(resources) => {
+                Some(resources.join("geodata/snapshot"))
+            }
+        };
         Ok(ResolvedManagedMihomo {
             binary,
+            bundled_geodata,
             runtime_root: self.runtime_root.clone(),
         })
     }
@@ -119,6 +127,7 @@ impl fmt::Debug for ManagedMihomoResolver {
 
 pub struct ResolvedManagedMihomo {
     binary: PathBuf,
+    bundled_geodata: Option<PathBuf>,
     runtime_root: PathBuf,
 }
 
@@ -129,6 +138,10 @@ impl ResolvedManagedMihomo {
 
     pub fn runtime_root(&self) -> &Path {
         &self.runtime_root
+    }
+
+    fn bundled_geodata(&self) -> Option<&Path> {
+        self.bundled_geodata.as_deref()
     }
 }
 
@@ -816,6 +829,7 @@ impl MihomoActivationManager {
         set_private_directory_permissions(&staging_root)?;
         let home = staging_root.join("home");
         create_private_runtime_directory(&home)?;
+        seed_bundled_geodata(resolved.bundled_geodata(), &home)?;
         let config_file = staging_root.join("config.yaml");
         let generated = RuntimeConfigGenerator::generate_record(record, policy)
             .map_err(|_| MihomoActivationError::InvalidArtifact)?;
@@ -1159,6 +1173,110 @@ async fn rollback_candidate(candidate: ActiveMihomo) {
 
 const SELECTION_CACHE_SIZE_LIMIT: u64 = 4 * 1024 * 1024;
 const SELECTION_CACHE_ENTRY_LIMIT: usize = 8_192;
+const BUNDLED_GEODATA_MANIFEST_SIZE_LIMIT: u64 = 64 * 1024;
+const BUNDLED_GEODATA_ASSET_SIZE_LIMIT: u64 = 64 * 1024 * 1024;
+const BUNDLED_GEODATA_ASSETS: [&str; 4] = [
+    "geosite.dat",
+    "geoip.dat",
+    "geoip.metadb",
+    "GeoLite2-ASN.mmdb",
+];
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BundledGeodataManifest {
+    assets: Vec<BundledGeodataManifestAsset>,
+    schema_version: u8,
+}
+
+#[derive(Deserialize)]
+struct BundledGeodataManifestAsset {
+    bytes: u64,
+    name: String,
+    sha256: String,
+}
+
+fn seed_bundled_geodata(
+    snapshot: Option<&Path>,
+    candidate_home: &Path,
+) -> Result<bool, MihomoActivationError> {
+    let Some(snapshot) = snapshot else {
+        return Ok(false);
+    };
+    let Ok(snapshot_metadata) = fs::symlink_metadata(snapshot) else {
+        return Ok(false);
+    };
+    if snapshot_metadata.file_type().is_symlink() || !snapshot_metadata.is_dir() {
+        return Ok(false);
+    }
+    let manifest_path = snapshot.join("manifest.json");
+    let Ok(manifest_metadata) = fs::symlink_metadata(&manifest_path) else {
+        return Ok(false);
+    };
+    if manifest_metadata.file_type().is_symlink()
+        || !manifest_metadata.is_file()
+        || manifest_metadata.len() > BUNDLED_GEODATA_MANIFEST_SIZE_LIMIT
+    {
+        return Ok(false);
+    }
+    let Ok(manifest_bytes) = fs::read(manifest_path) else {
+        return Ok(false);
+    };
+    let Ok(manifest) = serde_json::from_slice::<BundledGeodataManifest>(&manifest_bytes) else {
+        return Ok(false);
+    };
+    if manifest.schema_version != 1
+        || manifest.assets.len() != BUNDLED_GEODATA_ASSETS.len()
+        || manifest
+            .assets
+            .iter()
+            .zip(BUNDLED_GEODATA_ASSETS)
+            .any(|(asset, expected)| {
+                asset.name != expected
+                    || asset.bytes == 0
+                    || asset.bytes > BUNDLED_GEODATA_ASSET_SIZE_LIMIT
+                    || !asset
+                        .sha256
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                    || asset.sha256.len() != 64
+            })
+    {
+        return Ok(false);
+    }
+
+    let mut verified = Vec::with_capacity(BUNDLED_GEODATA_ASSETS.len());
+    for asset in &manifest.assets {
+        let source = snapshot.join(&asset.name);
+        let Ok(metadata) = fs::symlink_metadata(&source) else {
+            return Ok(false);
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() != asset.bytes
+        {
+            return Ok(false);
+        }
+        let Ok(content) = fs::read(source) else {
+            return Ok(false);
+        };
+        if format!("{:x}", Sha256::digest(&content)) != asset.sha256 {
+            return Ok(false);
+        }
+        verified.push((asset.name.as_str(), content));
+    }
+
+    let mut written = Vec::with_capacity(verified.len());
+    for (name, content) in verified {
+        let destination = candidate_home.join(name);
+        if let Err(error) = write_private_file(&destination, &content) {
+            for prior in written {
+                let _ = fs::remove_file(prior);
+            }
+            return Err(error);
+        }
+        written.push(destination);
+    }
+    Ok(true)
+}
 
 fn selection_cache_path(runtime_root: &Path, profile_id: &str, fingerprint: &str) -> PathBuf {
     runtime_root
@@ -1362,6 +1480,87 @@ mod selection_cache_tests {
                 .map(String::as_str),
             Some("Tokyo")
         );
+    }
+}
+
+#[cfg(test)]
+mod bundled_geodata_tests {
+    use sha2::{Digest, Sha256};
+    use tempfile::TempDir;
+
+    use super::*;
+
+    const ASSETS: [(&str, &[u8]); 4] = [
+        ("geosite.dat", b"geosite fixture"),
+        ("geoip.dat", b"geoip fixture"),
+        ("geoip.metadb", b"metadb fixture"),
+        ("GeoLite2-ASN.mmdb", b"asn fixture"),
+    ];
+
+    fn snapshot(root: &Path) -> PathBuf {
+        let snapshot = root.join("snapshot");
+        fs::create_dir(&snapshot).unwrap();
+        let assets = ASSETS
+            .iter()
+            .enumerate()
+            .map(|(index, (name, content))| {
+                fs::write(snapshot.join(name), content).unwrap();
+                serde_json::json!({
+                    "bytes": content.len(),
+                    "name": name,
+                    "releaseAssetId": index + 1,
+                    "sha256": format!("{:x}", Sha256::digest(content)),
+                })
+            })
+            .collect::<Vec<_>>();
+        fs::write(
+            snapshot.join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "assets": assets,
+                "release": {
+                    "id": 1234,
+                    "publishedAt": "2026-07-23T00:00:00Z",
+                    "tag": "latest",
+                    "url": "https://github.com/MetaCubeX/meta-rules-dat/releases/tag/latest",
+                },
+                "schemaVersion": 1,
+                "source": {
+                    "license": "GPL-3.0-only",
+                    "licenseUrl": "https://github.com/MetaCubeX/meta-rules-dat/blob/master/LICENSE",
+                    "repository": "MetaCubeX/meta-rules-dat",
+                },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        snapshot
+    }
+
+    #[test]
+    fn seeds_every_verified_bundled_geodata_asset() {
+        let root = TempDir::new().unwrap();
+        let source = snapshot(root.path());
+        let home = root.path().join("home");
+        fs::create_dir(&home).unwrap();
+
+        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        for (name, content) in ASSETS {
+            assert_eq!(fs::read(home.join(name)).unwrap(), content);
+        }
+    }
+
+    #[test]
+    fn ignores_a_corrupt_bundle_without_partially_seeding_the_home() {
+        let root = TempDir::new().unwrap();
+        let source = snapshot(root.path());
+        fs::write(source.join("geoip.dat"), b"broken fixture").unwrap();
+        let home = root.path().join("home");
+        fs::create_dir(&home).unwrap();
+
+        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), false);
+        for (name, _) in ASSETS {
+            assert!(!home.join(name).exists());
+        }
     }
 }
 

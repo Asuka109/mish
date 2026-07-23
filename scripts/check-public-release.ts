@@ -134,6 +134,11 @@ for (const configuration of [
     );
   }
 }
+const desktopResources = resourceMap("apps/desktop/src-tauri/tauri.bundle.conf.json");
+invariant(
+  desktopResources["../../../resources/geodata/snapshot/"] === "geodata/snapshot/",
+  "The desktop package must include the pinned GeoData fallback snapshot.",
+);
 
 const bundleVerifier = read("scripts/verify-macos-bundle.ts");
 for (const legalResource of packagedLegalResources) {

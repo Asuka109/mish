@@ -94,10 +94,12 @@ Install the repository-pinned Chromium once with
 | `mobile-core:build`  | Build the pinned Android Mobile Core.                                          |
 | `mobile-core:verify` | Verify Mobile Core evidence and artifacts.                                     |
 
-`pnpm geodata:update` downloads the four required release assets into the
-ignored `.scratch/geodata` workspace and atomically updates
-`resources/geodata/manifest.json`. Release packaging must use a reviewed
-snapshot and manifest; it must not resolve the mutable upstream `latest` tag.
+`pnpm geodata:update` downloads the four required release assets into a staging
+directory, verifies their release sizes and SHA-256 digests, and replaces the
+tracked `resources/geodata/snapshot` only after the complete snapshot passes.
+Review and commit the resulting binary and manifest diff together. Release
+packaging consumes only that pinned repository snapshot; it never resolves the
+mutable upstream `latest` tag.
 
 ## Compatibility aliases
 
