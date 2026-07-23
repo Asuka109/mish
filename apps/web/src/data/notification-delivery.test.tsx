@@ -42,6 +42,19 @@ describe("Rust-authoritative notification delivery projection", () => {
     expect(new Set(snapshot.notifications.map(({ id }) => id)).size).toBe(2);
   });
 
+  it("does not allocate an occurrence key for an explicit lifecycle", () => {
+    const randomUuid = vi.spyOn(crypto, "randomUUID");
+
+    const publication = notificationPublication("system-proxy.drift", {
+      dedupeKey: "system-proxy.drift",
+      severity: "warning",
+    });
+
+    expect(publication.dedupeKey).toBe("system-proxy.drift");
+    expect(randomUuid).not.toHaveBeenCalled();
+    randomUuid.mockRestore();
+  });
+
   it("hydrates the baseline without a toast and observes one new same-ID projection", async () => {
     const center = new FixtureNotificationCenter();
     const publisher = new FixtureNotificationClient(center);
@@ -113,7 +126,9 @@ describe("Rust-authoritative notification delivery projection", () => {
     await vi.waitFor(() => expect(delivery?.entries).toHaveLength(1));
     const id = delivery!.entries[0]!.id;
     act(() => delivery?.markRead([id]));
-    await vi.waitFor(() => expect(delivery?.readIds.has(id)).toBe(true));
+    await vi.waitFor(() =>
+      expect(delivery?.entries.find((entry) => entry.id === id)?.read).toBe(true),
+    );
     expect((await second.getSnapshot()).notifications[0]?.read).toBe(true);
 
     act(() => delivery?.remove(id));

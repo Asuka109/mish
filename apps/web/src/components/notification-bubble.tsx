@@ -83,7 +83,7 @@ export function NotificationBubble() {
   const settings = useOptionalSettings();
   const { commandStates, recoverSystemProxy, snapshot } = useProduct();
   const { setCapture } = useCaptureCommand();
-  const { entries, markRead, readIds, remove, toastEntries } = useNotificationDelivery();
+  const { entries, markRead, remove, toastEntries } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -113,7 +113,6 @@ export function NotificationBubble() {
           dismissNotificationToast(notificationId);
           setWelcomeOpen(true);
         }
-        if (action.dismissToastOnSuccess) dismissNotificationToast(notificationId);
       } finally {
         setPendingActions((current) => {
           const next = new Map(current);
@@ -158,7 +157,7 @@ export function NotificationBubble() {
   }, [execute, pendingActions, toastEntries]);
 
   const retainedNotifications = entries;
-  const unreadCount = retainedNotifications.filter(({ id }) => !readIds.has(id)).length;
+  const unreadCount = retainedNotifications.filter(({ read }) => !read).length;
   const visibleNotifications = retainedNotifications.slice(0, visibleNotificationLimit);
 
   function handleOpenChange(nextOpen: boolean) {

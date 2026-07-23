@@ -25,7 +25,6 @@ export interface NotificationDeliveryContextValue {
   entries: readonly DeliveredNotification[];
   markRead(ids: readonly string[]): void;
   publish(publication: NotificationPublicationDto): void;
-  readIds: ReadonlySet<string>;
   remove(id: string): void;
   retire(dedupeKey: string): void;
   toastEntries: readonly DeliveredNotification[];
@@ -46,7 +45,7 @@ export function NotificationDeliveryProvider({
     notifications: [],
     revision: 0,
   });
-  const [toastRevisions, setToastRevisions] = useState<ReadonlyMap<string, number>>(new Map());
+  const [toastIds, setToastIds] = useState<ReadonlySet<string>>(new Set());
   const snapshotRef = useRef(snapshot);
 
   useEffect(() => {
@@ -58,10 +57,10 @@ export function NotificationDeliveryProvider({
       if (delivery.kind === "baseline") {
         snapshotRef.current = delivery.snapshot;
         setSnapshot(delivery.snapshot);
-        setToastRevisions(new Map());
+        setToastIds(new Set());
         return;
       }
-      applyUpdate(delivery, snapshotRef, setSnapshot, setToastRevisions);
+      applyUpdate(delivery, snapshotRef, setSnapshot, setToastIds);
     });
     return () => {
       unsubscribe();
@@ -101,16 +100,12 @@ export function NotificationDeliveryProvider({
   );
   const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const toastEntries = useMemo(
-    () => [...toastRevisions.keys()].flatMap((id) => entryById.get(id) ?? []),
-    [entryById, toastRevisions],
-  );
-  const readIds = useMemo(
-    () => new Set(snapshot.notifications.filter(({ read }) => read).map(({ id }) => id)),
-    [snapshot.notifications],
+    () => [...toastIds].flatMap((id) => entryById.get(id) ?? []),
+    [entryById, toastIds],
   );
   const value = useMemo<NotificationDeliveryContextValue>(
-    () => ({ entries, markRead, publish, readIds, remove, retire, toastEntries }),
-    [entries, markRead, publish, readIds, remove, retire, toastEntries],
+    () => ({ entries, markRead, publish, remove, retire, toastEntries }),
+    [entries, markRead, publish, remove, retire, toastEntries],
   );
   return <NotificationDeliveryContext value={value}>{children}</NotificationDeliveryContext>;
 }
@@ -125,23 +120,20 @@ function applyUpdate(
   delivery: NotificationSnapshotDelivery,
   snapshotRef: { current: NotificationSnapshotDto },
   setSnapshot: (snapshot: NotificationSnapshotDto) => void,
-  setToastRevisions: (
-    update: (current: ReadonlyMap<string, number>) => ReadonlyMap<string, number>,
-  ) => void,
+  setToastIds: (update: (current: ReadonlySet<string>) => ReadonlySet<string>) => void,
 ) {
   const previous = snapshotRef.current;
   if (delivery.snapshot.revision <= previous.revision) return;
   const previousIds = new Set(previous.notifications.map(({ id }) => id));
   const nextById = new Map(delivery.snapshot.notifications.map((record) => [record.id, record]));
-  setToastRevisions((current) => {
-    const next = new Map(current);
-    for (const id of current.keys()) {
+  setToastIds((current) => {
+    const next = new Set(current);
+    for (const id of current) {
       const record = nextById.get(id);
       if (!record || record.resolved) next.delete(id);
-      else if (record.revision > (current.get(id) ?? -1)) next.set(id, record.revision);
     }
     for (const record of delivery.snapshot.notifications) {
-      if (!previousIds.has(record.id) && !record.resolved) next.set(record.id, record.revision);
+      if (!previousIds.has(record.id) && !record.resolved) next.add(record.id);
     }
     return next;
   });
@@ -160,12 +152,12 @@ export function notificationPublication(
     >,
 ): NotificationPublicationDto {
   return {
-    dedupeKey: `${type}:${crypto.randomUUID()}`,
-    params: {},
-    pinned: false,
-    replaces: [],
-    resolved: false,
-    ...options,
+    dedupeKey: options.dedupeKey ?? `${type}:${crypto.randomUUID()}`,
+    params: options.params ?? {},
+    pinned: options.pinned ?? false,
+    replaces: options.replaces ?? [],
+    resolved: options.resolved ?? false,
+    severity: options.severity,
     type,
   };
 }

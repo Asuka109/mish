@@ -1134,14 +1134,6 @@ impl ProfileActivationCoordinator {
                 let snapshot = state.snapshot.clone();
                 let _ = self.updates.send(snapshot);
                 drop(state);
-                if !matches!(
-                    error,
-                    MihomoActivationError::GeodataFailed(_)
-                        | MihomoActivationError::GeodataTimeout(_)
-                ) {
-                    self.host
-                        .resolve_notification(&geodata_notification_key(command_id));
-                }
                 self.host.record_application_event(diagnostic);
                 publish_activation_failure_notification(&self.host, command_id, error);
                 return;
@@ -1449,6 +1441,12 @@ fn publish_activation_failure_notification(
     command_id: &str,
     error: MihomoActivationError,
 ) {
+    if !matches!(
+        error,
+        MihomoActivationError::GeodataFailed(_) | MihomoActivationError::GeodataTimeout(_)
+    ) {
+        host.resolve_notification(&geodata_notification_key(command_id));
+    }
     let (dedupe_key, notification_type, params) = match error {
         MihomoActivationError::GeodataFailed(asset) => (
             geodata_notification_key(command_id),

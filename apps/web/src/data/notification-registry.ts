@@ -12,7 +12,6 @@ export interface NotificationActionDescriptor {
   id: string;
   label: string;
   tone?: NotificationActionTone;
-  dismissToastOnSuccess?: boolean;
 }
 
 export interface DeliveredNotification {
@@ -24,6 +23,7 @@ export interface DeliveredNotification {
   message: string;
   observedAt: number;
   pendingActionId?: string;
+  read: boolean;
   removable: boolean;
   title?: string;
   toast: "dismiss" | "never" | "present";
@@ -32,7 +32,6 @@ export interface DeliveredNotification {
 interface PresentationCopy {
   actions?: readonly NotificationActionDescriptor[];
   detail?: string;
-  duration?: number;
   message: string;
   title?: string;
   toast?: DeliveredNotification["toast"];
@@ -52,11 +51,12 @@ export function presentNotification(
   return {
     actions: record.resolved ? [] : (copy.actions ?? []),
     detail: copy.detail,
-    duration: record.pinned ? Number.POSITIVE_INFINITY : copy.duration,
+    duration: record.pinned ? Number.POSITIVE_INFINITY : undefined,
     id: record.id,
     level: record.severity,
     message: copy.message,
     observedAt: record.observedAt,
+    read: record.read,
     removable: !record.pinned,
     title: copy.title,
     toast: record.resolved ? "dismiss" : (copy.toast ?? "present"),
