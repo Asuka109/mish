@@ -199,6 +199,13 @@ Profile when launching from the sidebar; application startup and a future
 native status-menu caller supply no Profile and therefore resume the last
 successful Profile. The coordinator publishes the existing Profile pending and
 terminal lifecycle, then performs Capture only after activation succeeds.
+If Capture fails after that command started a previously stopped Core, the same
+aggregate operation restores Capture, stops and reaps that Core, clears its
+active managed identity, and publishes a capture-typed safe-stopped activation
+state before returning the original failure. If safe stop itself fails, the
+aggregate result becomes a typed rollback failure and retains the authoritative
+partial state. A Core that was already active before the aggregate command is
+not stopped by a later Capture failure.
 Stopping continues to use the established Capture stop path so System Proxy
 restoration is unchanged.
 

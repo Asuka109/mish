@@ -1643,6 +1643,184 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
 }
 
 #[tokio::test]
+async fn failed_cold_aggregate_launch_stops_the_new_core_and_returns_safe_stopped() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-failed-cold-launch-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let journal = Arc::new(MemoryCaptureJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        Arc::new(RejectingCapturePlatform::default()),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-failed-launch-secret"),
+    ));
+
+    let error = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            Some(record.metadata.id.as_str()),
+            CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ApplyFailed);
+    let activation = coordinator.activation_snapshot().await;
+    assert!(activation.safe_stopped);
+    assert!(activation.active_profile_id.is_none());
+    assert_eq!(
+        activation.failure,
+        Some(mish_bridge::ProfileActivationFailure::Capture)
+    );
+    let status = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(status["runtime"]["phase"], "inactive");
+    assert_eq!(status["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(status["runtime"]["systemProxy"]["desired"], false);
+    assert_eq!(candidate_count(&root), 0);
+    assert!(journal.load().unwrap().is_none());
+    assert!(
+        host.events_snapshot(StatusAdapterKind::Rpc)["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["message"] == "System Proxy mutation failed")
+    );
+    let notifications = host.notification_snapshot();
+    assert_eq!(notifications.notifications.len(), 1);
+    assert_eq!(
+        notifications.notifications[0].notification_type,
+        "capture.failure"
+    );
+    assert_eq!(
+        notifications.notifications[0].params["failure"],
+        "apply-failed"
+    );
+
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn failed_warm_aggregate_launch_retains_the_preexisting_core() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-failed-warm-launch-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let journal = Arc::new(MemoryCaptureJournal::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        Arc::new(RejectingCapturePlatform::default()),
+        journal.clone(),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(2)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-failed-launch-secret"),
+    ));
+    let activation_command_id = Uuid::new_v4().to_string();
+    let mut updates = coordinator.subscribe();
+    coordinator
+        .activate(&activation_command_id, record.metadata.id.as_str())
+        .await
+        .unwrap();
+    loop {
+        let activation = updates.recv().await.unwrap();
+        if activation.command_id.as_deref() == Some(activation_command_id.as_str())
+            && activation.phase != ProfileActivationPhase::Pending
+        {
+            assert_eq!(activation.phase, ProfileActivationPhase::Success);
+            break;
+        }
+    }
+
+    let error = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            Some(record.metadata.id.as_str()),
+            CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.kind, mish_runtime::CaptureFailureKind::ApplyFailed);
+    let activation = coordinator.activation_snapshot().await;
+    assert!(!activation.safe_stopped);
+    assert_eq!(
+        activation.active_profile_id.as_deref(),
+        Some(record.metadata.id.as_str())
+    );
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Rpc).await["runtime"]["phase"],
+        "healthy"
+    );
+    assert_eq!(candidate_count(&root), 1);
+    assert!(journal.load().unwrap().is_none());
+
+    coordinator.shutdown().await.unwrap();
+    controller.shutdown().await;
+}
+
+#[tokio::test]
 async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable_event() {
     let controller = FakeController::start("v1.19.29").await;
     let root = std::env::temp_dir().join(format!("mish-invalid-capture-{}", Uuid::new_v4()));
@@ -2645,6 +2823,49 @@ impl CapturePlatform for MemoryCapturePlatform {
         target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
         *self.0.lock().unwrap() = target;
+        Box::pin(ready(Ok(())))
+    }
+}
+
+struct RejectingCapturePlatform {
+    reject_next_apply: std::sync::Mutex<bool>,
+    state: std::sync::Mutex<NetworkServiceProxyState>,
+}
+
+impl Default for RejectingCapturePlatform {
+    fn default() -> Self {
+        Self {
+            reject_next_apply: std::sync::Mutex::new(true),
+            state: std::sync::Mutex::new(disabled_capture_service()),
+        }
+    }
+}
+
+impl CapturePlatform for RejectingCapturePlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        if std::mem::take(&mut *self.reject_next_apply.lock().unwrap()) {
+            return Box::pin(ready(Err(CaptureTransitionError::new(
+                mish_runtime::CaptureFailureKind::ApplyFailed,
+                "Synthetic System Proxy mutation failure",
+            ))));
+        }
+        *self.state.lock().unwrap() = target;
         Box::pin(ready(Ok(())))
     }
 }
