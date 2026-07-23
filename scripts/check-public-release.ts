@@ -155,12 +155,12 @@ includesAll(
   [
     "not affiliated with, endorsed by, sponsored",
     "MetaCubeX/mihomo",
-    "live namespace no longer exposed the Core source and tag state",
-    "preserved public mirror solely for source retrieval",
-    "not represented as the official project",
-    "cyenxchen/mihomo",
     "v1.19.29",
     "e26714a181ac0e2fa803453c0a8e9a9ce94e31cb",
+    "mihomo-darwin-arm64-v1.19.29.gz",
+    "Official release",
+    "License at the exact commit",
+    "Corresponding source",
     "GPL-3.0-only",
     "Tauri",
     "React",
@@ -177,6 +177,10 @@ includesAll(
     "NOASSERTION",
   ],
   "THIRD_PARTY_NOTICES.md",
+);
+invariant(
+  !notices.includes("cyenxchen/mihomo"),
+  "THIRD_PARTY_NOTICES.md must use the available official Mihomo source chain.",
 );
 
 const readme = read("README.md");
