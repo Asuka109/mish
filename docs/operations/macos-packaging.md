@@ -27,8 +27,7 @@ out of the base Tauri configuration lets clean validation builds remain offline.
 The post-build verifier checks the stable application identifier, ARM64
 architecture, exact uncompressed Core checksum and version, complete
 byte-for-byte offline Web resource mirror, the repository's `LICENSE`,
-`THIRD_PARTY_NOTICES.md`, `PRIVACY.md`, and `DISCLAIMER.md`, and code-signing
-structure. Ad-hoc
+`THIRD_PARTY_NOTICES.md`, and code-signing structure. Ad-hoc
 packages must contain no privileged artifact. Developer ID packages additionally
 require the exact sealed helper and LaunchDaemon layout, Developer ID
 application/helper identifiers and team, helper/protocol versions, and no
@@ -61,8 +60,9 @@ distribution checks, a versioned DMG and GitHub Release with SHA-256 and exact
 source revision, and clean-account install, upgrade, relocation, uninstall,
 recovery, System Proxy restoration, and rollback-policy acceptance. Release,
 support, privacy, security-contact, dependency-notice, and supply-chain policies
-also remain open. See the
-[public-release review](../legal/public-release-review.md).
+also remain open. Dependency attribution and unresolved license-source questions
+are recorded in
+[`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md).
 
 A TUN-enabled distribution remains a separate future path tracked by
 [#85](https://github.com/Asuka109/mish/issues/85),

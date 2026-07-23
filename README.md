@@ -11,7 +11,7 @@ and diagnostics.**
 > Mish does not have a stable public release. The completed packaging-readiness
 > audit selected a System Proxy-only first public macOS release, but release
 > preparation and acceptance are not complete. See the
-> [public-release review](docs/legal/public-release-review.md).
+> [macOS packaging status](docs/operations/macos-packaging.md).
 
 ## What Mish does
 
@@ -59,19 +59,18 @@ Use Mish only for lawful, authorized purposes and comply with the laws and
 third-party terms that apply in your location. If you believe Mish or any
 material in this repository infringes your rights, contact the project
 maintainers. Do not include sensitive or personal information in a public
-report. This repository provides engineering documentation, not legal advice;
-see [DISCLAIMER.md](DISCLAIMER.md).
+report.
 
 Mish is local-first, not network-isolated. User profiles, Mihomo, provider
 updates, delay tests, service probes, and remote service icons can make outbound
 requests. The current repository does not configure telemetry, a hosted account
 service, a crash reporter, or an automatic updater.
 
-Read [SECURITY.md](SECURITY.md) before reporting a vulnerability and
-[PRIVACY.md](PRIVACY.md) for current storage, network, export, and deletion
-behavior. Never post real profiles, subscription addresses, credentials, node
-labels, bridge credentials, or unredacted support bundles in public issues,
-screenshots, CI logs, or documentation.
+If you need to report a security or privacy concern, contact the project
+maintainers without posting sensitive details publicly. Never post real
+profiles, subscription addresses, credentials, node labels, bridge credentials,
+or unredacted support bundles in public issues, screenshots, CI logs, or
+documentation.
 
 ## Current limitations
 
@@ -85,8 +84,10 @@ screenshots, CI logs, or documentation.
 - Release packaging, signing, independent verification, installed-app
   acceptance, support policy, privacy decisions, supply-chain evidence, and
   complete dependency notices remain under review.
-- Distribution must not proceed until the open questions in the
-  [public-release review](docs/legal/public-release-review.md) are resolved.
+- Public distribution requires completion of the release work in the
+  [macOS packaging guide](docs/operations/macos-packaging.md) and resolution of
+  the dependency questions in
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Roadmap documents describe intent, not promises. Code, tests, package manifests,
 and target-specific validation evidence remain the authority for current

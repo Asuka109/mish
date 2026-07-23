@@ -1,9 +1,7 @@
 {
   "bundle": {
     "resources": {
-      "../../../DISCLAIMER.md": "DISCLAIMER.md",
       "../../../LICENSE": "LICENSE",
-      "../../../PRIVACY.md": "PRIVACY.md",
       "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../../../.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29": "mihomo-aarch64-apple-darwin",
       "../../web/dist/": "web-dist/"

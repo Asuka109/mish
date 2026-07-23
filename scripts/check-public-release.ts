@@ -9,19 +9,10 @@ const requiredPublicFiles = [
   "README.md",
   "README.zh-CN.md",
   "CONTRIBUTING.md",
-  "SECURITY.md",
-  "PRIVACY.md",
-  "DISCLAIMER.md",
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
-  "docs/legal/public-release-review.md",
 ] as const;
-const packagedLegalResources = [
-  "DISCLAIMER.md",
-  "LICENSE",
-  "PRIVACY.md",
-  "THIRD_PARTY_NOTICES.md",
-] as const;
+const packagedLegalResources = ["LICENSE", "THIRD_PARTY_NOTICES.md"] as const;
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -58,6 +49,17 @@ function includesAll(source: string, values: readonly string[], label: string): 
 
 for (const file of requiredPublicFiles) {
   invariant(existsSync(path.join(root, file)), `Required public file is missing: ${file}`);
+}
+for (const policyFile of [
+  "SECURITY.md",
+  "PRIVACY.md",
+  "DISCLAIMER.md",
+  "docs/legal/public-release-review.md",
+]) {
+  invariant(
+    !existsSync(path.join(root, policyFile)),
+    `${policyFile} must not create a formal policy surface without an explicit maintainer decision.`,
+  );
 }
 
 const licenseDigest = createHash("sha256")
@@ -125,6 +127,12 @@ for (const configuration of [
       `${configuration} must package ${legalResource} at its stable resource name.`,
     );
   }
+  for (const removedPolicyResource of ["SECURITY.md", "PRIVACY.md", "DISCLAIMER.md"]) {
+    invariant(
+      !Object.values(resources).includes(removedPolicyResource),
+      `${configuration} must not package ${removedPolicyResource}.`,
+    );
+  }
 }
 
 const bundleVerifier = read("scripts/verify-macos-bundle.ts");
@@ -132,6 +140,12 @@ for (const legalResource of packagedLegalResources) {
   invariant(
     bundleVerifier.includes(`"${legalResource}"`),
     `The macOS verifier must check ${legalResource}.`,
+  );
+}
+for (const removedPolicyResource of ["SECURITY.md", "PRIVACY.md", "DISCLAIMER.md"]) {
+  invariant(
+    !bundleVerifier.includes(`"${removedPolicyResource}"`),
+    `The macOS verifier must not require ${removedPolicyResource}.`,
   );
 }
 
@@ -317,29 +331,6 @@ for (const relativePath of positioningFiles) {
     invariant(!pattern.test(source), `${relativePath} contains disallowed ${label}.`);
   }
 }
-
-const privacy = read("PRIVACY.md");
-includesAll(
-  privacy,
-  [
-    "not a universal compliance statement",
-    "does not configure a Mish account service",
-    "service probes",
-    "registry.npmmirror.com/remixicon/4.9.1",
-  ],
-  "PRIVACY.md",
-);
-
-const security = read("SECURITY.md");
-includesAll(
-  security,
-  [
-    "does not yet have a verified private vulnerability-reporting channel",
-    "no stable release or security-support window",
-    "No response-time, remediation-time, disclosure-date, warranty, support, or credit commitment",
-  ],
-  "SECURITY.md",
-);
 
 console.log(
   `Public-release checks passed: ${requiredPublicFiles.length} public files, ${packageManifests.length} npm manifests, ${cargoMembers.length} Cargo members, ${packagedLegalResources.length} packaged legal resources.`,

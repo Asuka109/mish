@@ -17,12 +17,7 @@ const bundledMihomo = path.join(resources, "mihomo-aarch64-apple-darwin");
 const preparedMihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
 const bundledWeb = path.join(resources, "web-dist");
 const sourceWeb = path.resolve("apps/web/dist");
-const legalResources = [
-  "DISCLAIMER.md",
-  "LICENSE",
-  "PRIVACY.md",
-  "THIRD_PARTY_NOTICES.md",
-] as const;
+const legalResources = ["LICENSE", "THIRD_PARTY_NOTICES.md"] as const;
 const canonicalGplV3Sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986";
 const production = process.env.MISH_MACOS_PACKAGE_MODE === "production";
 const productionFixture = process.env.MISH_MACOS_PACKAGE_MODE === "production-fixture";

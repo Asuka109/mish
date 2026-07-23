@@ -9,18 +9,18 @@ of treating an implementation accident as intent.
 
 ## Start by task
 
-| Task                            | Read first                                                                                       | Then, only if needed                                                                                                                                                                                                         |
-| ------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Product behavior or copy        | [`../PRODUCT.md`](../PRODUCT.md)                                                                 | [`product/status-experience.md`](product/status-experience.md), [`product/prds/`](product/prds/)                                                                                                                             |
-| Visual/UI work                  | [`../DESIGN.md`](../DESIGN.md)                                                                   | [`architecture/tailwind-variants.md`](architecture/tailwind-variants.md), [`design/component-patterns.md`](design/component-patterns.md), [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md) |
-| Local development               | [`../development.md`](../development.md)                                                         | [`operations/development-commands.md`](operations/development-commands.md), [`../bootstrap.md`](../bootstrap.md)                                                                                                             |
-| Web/desktop boundary            | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                                                                                                                                                     |
-| Mihomo lifecycle/API            | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) | Status, Traffic, Events, or Diagnostics contract below                                                                                                                                                                       |
-| Profiles and settings           | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                                   |
-| macOS native behavior           | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     | TUN, packaging, network/DNS, or sidebar document below                                                                                                                                                                       |
-| Android/mobile                  | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
-| Validation/release claims       | The target-specific quality document                                                             | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                               |
-| Public release or legal notices | [`legal/public-release-review.md`](legal/public-release-review.md)                               | [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md), [`../PRIVACY.md`](../PRIVACY.md), [`../SECURITY.md`](../SECURITY.md), [`../DISCLAIMER.md`](../DISCLAIMER.md)                                                       |
+| Task                      | Read first                                                                                       | Then, only if needed                                                                                                                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product behavior or copy  | [`../PRODUCT.md`](../PRODUCT.md)                                                                 | [`product/status-experience.md`](product/status-experience.md), [`product/prds/`](product/prds/)                                                                                                                             |
+| Visual/UI work            | [`../DESIGN.md`](../DESIGN.md)                                                                   | [`architecture/tailwind-variants.md`](architecture/tailwind-variants.md), [`design/component-patterns.md`](design/component-patterns.md), [`design/mobile-navigation-and-layout.md`](design/mobile-navigation-and-layout.md) |
+| Local development         | [`../development.md`](../development.md)                                                         | [`operations/development-commands.md`](operations/development-commands.md), [`../bootstrap.md`](../bootstrap.md)                                                                                                             |
+| Web/desktop boundary      | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                                                                                                                                                     |
+| Mihomo lifecycle/API      | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) | Status, Traffic, Events, or Diagnostics contract below                                                                                                                                                                       |
+| Profiles and settings     | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                                   |
+| macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     | TUN, packaging, network/DNS, or sidebar document below                                                                                                                                                                       |
+| Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
+| Validation/release claims | The target-specific quality document                                                             | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                               |
+| Public release readiness  | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                 | [`../README.md`](../README.md), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)                                                                                                                                     |
 
 ## Contract index
 
@@ -75,13 +75,11 @@ of treating an implementation accident as intent.
 
 ### Public release
 
-- [`legal/public-release-review.md`](legal/public-release-review.md) records the
-  documentation, attribution, metadata, privacy, public-claim, and dependency
-  findings that must be reconciled before distribution.
-- [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md),
-  [`../PRIVACY.md`](../PRIVACY.md), [`../SECURITY.md`](../SECURITY.md), and
-  [`../DISCLAIMER.md`](../DISCLAIMER.md) are the public legal-facing and policy
-  surfaces. They are engineering documentation, not legal advice.
+- [`operations/macos-packaging.md`](operations/macos-packaging.md) records the
+  evidence-backed System Proxy-only release boundary and remaining engineering
+  work.
+- [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) records material
+  upstream attribution, license sources, and unresolved dependency questions.
 
 ## Planning and research
 

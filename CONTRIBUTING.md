@@ -16,9 +16,8 @@ the platform boundary they change.
    names, or host network state as fixtures or evidence.
 
 For a behavior change or material bug fix, open an issue before substantial
-work unless a maintainer has already approved the scope. Security
-vulnerabilities use the private process in [SECURITY.md](SECURITY.md), not a
-public issue.
+work unless a maintainer has already approved the scope. For potentially
+sensitive reports, contact a maintainer before posting details publicly.
 
 ## Development
 

@@ -87,8 +87,8 @@ The npm package metadata declares Apache-2.0, while the current upstream
 [Remix Icon License v1.0](https://github.com/Remix-Design/RemixIcon/blob/v4.9.1/License),
 which contains additional restrictions and identifies possible strong-copyleft
 incompatibility. The maintainer must reconcile the exact applicable terms before
-public distribution. See [PRIVACY.md](PRIVACY.md) for the related network
-request.
+public distribution. This request is also disclosed in the README's security
+and privacy summary.
 
 Service names and brand icons identify user-configurable reachability-test
 targets. They do not imply affiliation, endorsement, availability, or
