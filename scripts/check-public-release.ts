@@ -166,7 +166,9 @@ includesAll(
   readme,
   [
     "[简体中文](README.zh-CN.md)",
-    "neutral, experimental tool for local traffic forwarding, configuration management, and diagnostics",
+    "Mish is a local traffic-forwarding, configuration, and diagnostics client for desktop and mobile.",
+    "neutral, experimental project built around a locally managed",
+    "shared React and TypeScript interface is integrated with Tauri and Rust platform services",
     "does not have a stable public release",
     "not production distributions",
     "not affiliated with, endorsed by, or an official client",
@@ -193,8 +195,10 @@ includesAll(
   read("README.zh-CN.md"),
   [
     "[English](README.md)",
-    "中立的实验性工具",
-    "本地流量转发、配置管理和诊断能力",
+    "面向桌面端和移动端的本地流量转发、配置管理与诊断客户端",
+    "围绕本地管理的",
+    "构建的中立实验性项目",
+    "React 和 TypeScript 界面与 Tauri 和 Rust 平台服务集成",
     "尚无稳定公开版本",
     "不是生产发行版",
     "与 MetaCubeX 不存在隶属、背书或官方客户端关系",

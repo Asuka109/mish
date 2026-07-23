@@ -4,12 +4,14 @@
 
 ![Mish wordmark](packages/brand-assets/public/brand/mish-brand.svg)
 
-Mish is a neutral, experimental tool for local traffic forwarding,
-configuration management, and diagnostics through a locally managed
-[Mihomo](https://github.com/MetaCubeX/mihomo) Core. It combines a shared React
-and TypeScript interface with Tauri and Rust platform services. Mish is licensed
-under GPL-3.0-only and is not affiliated with, endorsed by, or an official
-client of MetaCubeX.
+**Mish is a local traffic-forwarding, configuration, and diagnostics client for
+desktop and mobile.**
+
+It is a neutral, experimental project built around a locally managed
+[Mihomo](https://github.com/MetaCubeX/mihomo) Core. Its shared React and
+TypeScript interface is integrated with Tauri and Rust platform services. Mish
+is licensed under GPL-3.0-only and is not affiliated with, endorsed by, or an
+official client of MetaCubeX.
 
 > [!IMPORTANT]
 > Mish does not have a stable public release. Current macOS and Android

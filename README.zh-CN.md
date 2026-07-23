@@ -4,9 +4,11 @@
 
 ![Mish 字标](packages/brand-assets/public/brand/mish-brand.svg)
 
-Mish 是一个中立的实验性工具，通过本地管理的
-[Mihomo](https://github.com/MetaCubeX/mihomo) Core 提供本地流量转发、配置管理和诊断能力。项目以 React 和 TypeScript
-共享界面为基础，并使用 Tauri 和 Rust 平台服务。Mish 采用 GPL-3.0-only
+**Mish 是一个面向桌面端和移动端的本地流量转发、配置管理与诊断客户端。**
+
+它是一个围绕本地管理的 [Mihomo](https://github.com/MetaCubeX/mihomo) Core
+构建的中立实验性项目。共享的 React 和 TypeScript 界面与 Tauri 和 Rust
+平台服务集成。Mish 采用 GPL-3.0-only
 许可证，与 MetaCubeX 不存在隶属、背书或官方客户端关系。
 
 > [!IMPORTANT]
