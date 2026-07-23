@@ -101,6 +101,10 @@ Review and commit the resulting binary and manifest diff together. Release
 packaging consumes only that pinned repository snapshot; it never resolves the
 mutable upstream `latest` tag.
 
+Desktop development builds seed the same repository snapshot into the private
+Core home. This keeps local cold-launch behavior representative of the packaged
+fallback instead of silently exercising Mihomo's network download path.
+
 ## Compatibility aliases
 
 The following commands remain available for existing local workflows and old

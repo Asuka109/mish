@@ -38,6 +38,7 @@ enum ManagedBinaryLocation {
 }
 
 pub struct ManagedMihomoResolver {
+    bundled_geodata: Option<PathBuf>,
     location: ManagedBinaryLocation,
     runtime_root: PathBuf,
 }
@@ -45,6 +46,19 @@ pub struct ManagedMihomoResolver {
 impl ManagedMihomoResolver {
     pub fn development(prepared_binary: PathBuf, runtime_root: PathBuf) -> Self {
         Self {
+            bundled_geodata: None,
+            location: ManagedBinaryLocation::PreparedDevelopment(prepared_binary),
+            runtime_root,
+        }
+    }
+
+    pub fn development_with_bundled_geodata(
+        prepared_binary: PathBuf,
+        runtime_root: PathBuf,
+        bundled_geodata: PathBuf,
+    ) -> Self {
+        Self {
+            bundled_geodata: Some(bundled_geodata),
             location: ManagedBinaryLocation::PreparedDevelopment(prepared_binary),
             runtime_root,
         }
@@ -52,6 +66,7 @@ impl ManagedMihomoResolver {
 
     pub fn production(resource_directory: PathBuf, runtime_root: PathBuf) -> Self {
         Self {
+            bundled_geodata: Some(resource_directory.join("geodata/snapshot")),
             location: ManagedBinaryLocation::ProductionResources(resource_directory),
             runtime_root,
         }
@@ -101,15 +116,9 @@ impl ManagedMihomoResolver {
             return Err(MihomoResolveError::UnsafeManagedPath);
         }
         create_private_directory(&self.runtime_root)?;
-        let bundled_geodata = match &self.location {
-            ManagedBinaryLocation::PreparedDevelopment(_) => None,
-            ManagedBinaryLocation::ProductionResources(resources) => {
-                Some(resources.join("geodata/snapshot"))
-            }
-        };
         Ok(ResolvedManagedMihomo {
             binary,
-            bundled_geodata,
+            bundled_geodata: self.bundled_geodata.clone(),
             runtime_root: self.runtime_root.clone(),
         })
     }
@@ -1561,6 +1570,25 @@ mod bundled_geodata_tests {
         for (name, _) in ASSETS {
             assert!(!home.join(name).exists());
         }
+    }
+
+    #[test]
+    fn development_resolver_uses_an_explicit_bundled_snapshot() {
+        let root = TempDir::new().unwrap();
+        let binary = root.path().join("mihomo");
+        fs::write(&binary, b"fixture").unwrap();
+        let runtime = root.path().join("runtime");
+        let source = snapshot(root.path());
+
+        let resolved = ManagedMihomoResolver::development_with_bundled_geodata(
+            binary,
+            runtime,
+            source.clone(),
+        )
+        .resolve()
+        .unwrap();
+
+        assert_eq!(resolved.bundled_geodata(), Some(source.as_path()));
     }
 }
 
