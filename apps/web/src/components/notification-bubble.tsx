@@ -117,6 +117,10 @@ export function NotificationBubble() {
           dismissNotificationToast(notificationId);
           setOpen(false);
           navigate("/events?diagnostics=1");
+        } else if (actionId === "open-system-proxy-policy") {
+          dismissNotificationToast(notificationId);
+          setOpen(false);
+          navigate("/settings?focus=system-proxy-takeover-policy");
         }
       } finally {
         setPendingActions((current) => {
