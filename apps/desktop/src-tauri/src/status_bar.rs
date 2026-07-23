@@ -173,8 +173,11 @@ impl NativeTrafficObservations {
                 (true, None) => ">> Idle".into(),
                 (false, _) => ">> Unavailable".into(),
             },
-            download: rate_title("⬇️", latest.rates.download_bytes_per_second, available),
-            upload: rate_title("⬆️", latest.rates.upload_bytes_per_second, available),
+            traffic: traffic_title(
+                latest.rates.download_bytes_per_second,
+                latest.rates.upload_bytes_per_second,
+                available,
+            ),
         }
     }
 }
@@ -191,10 +194,9 @@ struct StatusMenuItems {
     menu: Menu<tauri::Wry>,
     proxy: MenuItem<tauri::Wry>,
     most_active_node: MenuItem<tauri::Wry>,
-    download: MenuItem<tauri::Wry>,
+    traffic: MenuItem<tauri::Wry>,
     live_status_separator: PredefinedMenuItem<tauri::Wry>,
     launch_on_start: CheckMenuItem<tauri::Wry>,
-    upload: MenuItem<tauri::Wry>,
 }
 
 struct StatusBarItems {
@@ -214,24 +216,21 @@ impl StatusMenuItems {
             self.menu.insert_items(
                 &[
                     &self.most_active_node,
-                    &self.download,
-                    &self.upload,
+                    &self.traffic,
                     &self.live_status_separator,
                 ],
                 9,
             )
         } else {
             self.menu.remove(&self.most_active_node)?;
-            self.menu.remove(&self.download)?;
-            self.menu.remove(&self.upload)?;
+            self.menu.remove(&self.traffic)?;
             self.menu.remove(&self.live_status_separator)
         }
     }
 
     fn apply_live_status(&self, model: &LiveStatusModel) -> tauri::Result<()> {
         self.most_active_node.set_text(&model.most_active_node)?;
-        self.download.set_text(&model.download)?;
-        self.upload.set_text(&model.upload)
+        self.traffic.set_text(&model.traffic)
     }
 }
 
@@ -426,7 +425,7 @@ const MENU_SECTIONS: &[&[&str]] = &[
         "Events",
         "Settings",
     ],
-    &[">>", "⬇️", "⬆️"],
+    &[">>", "⬇️ | ⬆️"],
     &["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"],
 ];
 
@@ -545,10 +544,7 @@ fn build_menu<M: Manager<tauri::Wry>>(
     let most_active_node = MenuItemBuilder::new(">> Unavailable")
         .enabled(false)
         .build(manager)?;
-    let download = MenuItemBuilder::new("⬇️ Unavailable")
-        .enabled(false)
-        .build(manager)?;
-    let upload = MenuItemBuilder::new("⬆️ Unavailable")
+    let traffic = MenuItemBuilder::new("⬇️ Unavailable | ⬆️ Unavailable")
         .enabled(false)
         .build(manager)?;
     let live_status_separator = PredefinedMenuItem::separator(manager)?;
@@ -558,7 +554,7 @@ fn build_menu<M: Manager<tauri::Wry>>(
     let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, "Profiles")
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[3].1)
         .build(manager)?;
-    let traffic = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic")
+    let traffic_destination = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic")
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[4].1)
         .build(manager)?;
     let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, "Events")
@@ -577,11 +573,18 @@ fn build_menu<M: Manager<tauri::Wry>>(
     let mut menu = MenuBuilder::new(manager)
         .item(&proxy)
         .separator()
-        .items(&[&open, &routes, &profiles, &traffic, &events, &settings])
+        .items(&[
+            &open,
+            &routes,
+            &profiles,
+            &traffic_destination,
+            &events,
+            &settings,
+        ])
         .separator();
     if model.live_status_visible {
         menu = menu
-            .items(&[&most_active_node, &download, &upload])
+            .items(&[&most_active_node, &traffic])
             .item(&live_status_separator);
     }
     let menu = menu.items(&[&browser, &launch_on_start, &quit]).build()?;
@@ -589,10 +592,9 @@ fn build_menu<M: Manager<tauri::Wry>>(
         menu,
         proxy,
         most_active_node,
-        download,
+        traffic,
         launch_on_start,
         live_status_separator,
-        upload,
     })
 }
 
@@ -631,16 +633,31 @@ fn proxy_enabled(status: &StatusSnapshot, activation: &ProfileActivationSnapshot
 struct LiveStatusModel {
     visible: bool,
     most_active_node: String,
-    download: String,
-    upload: String,
+    traffic: String,
 }
 
-fn rate_title(direction: &str, bytes_per_second: u64, available: bool) -> String {
+const TRAFFIC_RATE_FIELD_MIN_WIDTH: usize = 10;
+
+fn traffic_title(
+    download_bytes_per_second: u64,
+    upload_bytes_per_second: u64,
+    available: bool,
+) -> String {
     if available {
-        format!("{direction} {}/s", format_rate(bytes_per_second))
+        format!(
+            "⬇️ {} | ⬆️ {}",
+            padded_rate(download_bytes_per_second),
+            padded_rate(upload_bytes_per_second)
+        )
     } else {
-        format!("{direction} Unavailable")
+        "⬇️ Unavailable | ⬆️ Unavailable".into()
     }
+}
+
+fn padded_rate(bytes_per_second: u64) -> String {
+    let rate = format!("{}/s", format_rate(bytes_per_second));
+    let padding = TRAFFIC_RATE_FIELD_MIN_WIDTH.saturating_sub(rate.chars().count());
+    format!("{rate}{}", "\u{2007}".repeat(padding))
 }
 
 fn format_rate(bytes_per_second: u64) -> String {
@@ -677,8 +694,8 @@ mod tests {
     use super::{
         AUTO_START_PROXY_LABEL, MENU_SECTIONS, NativeTrafficObservations,
         STATUS_BAR_MENU_ACCELERATORS, StatusBarModel, StatusMenuModel, format_bytes,
-        is_quit_menu_command, is_status_destination, rate_title, status_bar_icon,
-        status_bar_update,
+        is_quit_menu_command, is_status_destination, status_bar_icon, status_bar_update,
+        traffic_title,
     };
     use crate::native_menu::APPLICATION_MENU_ACCELERATORS;
     use futures_util::future::BoxFuture;
@@ -806,8 +823,7 @@ mod tests {
             super::LiveStatusModel {
                 visible: false,
                 most_active_node: ">> Tokyo".into(),
-                download: "⬇️ 1.00KB/s".into(),
-                upload: "⬆️ 12.0KB/s".into(),
+                traffic: traffic_title(1_024, 12_288, true),
             }
         );
         assert_eq!(
@@ -938,7 +954,7 @@ mod tests {
                     "Settings"
                 ]
                 .as_slice(),
-                [">>", "⬇️", "⬆️"].as_slice(),
+                [">>", "⬇️ | ⬆️"].as_slice(),
                 ["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"].as_slice(),
             ]
         );
@@ -977,13 +993,26 @@ mod tests {
     }
 
     #[test]
-    fn live_rate_labels_use_the_existing_binary_byte_rate_convention() {
+    fn live_traffic_label_uses_the_existing_binary_byte_rate_convention_and_stable_fields() {
         assert_eq!(format_bytes(0), "0.00 B");
         assert_eq!(format_bytes(1_024), "1.00 KB");
         assert_eq!(format_bytes(12_288), "12.0 KB");
-        assert_eq!(rate_title("⬇️", 1_024, true), "⬇️ 1.00KB/s");
-        assert_eq!(rate_title("⬆️", 0, true), "⬆️ 0KB/s");
-        assert_eq!(rate_title("⬆️", 0, false), "⬆️ Unavailable");
+        assert_eq!(
+            traffic_title(1_024, 0, true),
+            format!(
+                "⬇️ 1.00KB/s{} | ⬆️ 0KB/s{}",
+                "\u{2007}".repeat(2),
+                "\u{2007}".repeat(5)
+            )
+        );
+        assert_eq!(
+            traffic_title(0, 0, true).chars().count(),
+            traffic_title(1_024, 12_288, true).chars().count()
+        );
+        assert_eq!(
+            traffic_title(0, 0, false),
+            "⬇️ Unavailable | ⬆️ Unavailable"
+        );
     }
 
     #[test]
