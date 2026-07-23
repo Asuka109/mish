@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 Mish is independent software. It is not affiliated with, endorsed by, sponsored
-by, or an official client of MetaCubeX, Highsoft, Remix Design, Unsplash, or any
+by, or an official client of MetaCubeX, Highsoft, Phosphor Icons, Unsplash, or any
 other project or service named below.
 
 Mish-authored source is distributed under GPL-3.0-only. Third-party software,
@@ -83,15 +83,11 @@ The bundled onboarding cover is
 by [Petri R](https://unsplash.com/@petrirh1), obtained under the
 [Unsplash License](https://unsplash.com/license).
 
-Default service icons are not bundled. The application requests selected SVGs
-from the `remixicon@4.9.1` package through `registry.npmmirror.com` at runtime.
-The npm package metadata declares Apache-2.0, while the current upstream
-`v4.9.1` source tag displays the
-[Remix Icon License v1.0](https://github.com/Remix-Design/RemixIcon/blob/v4.9.1/License),
-which contains additional restrictions and identifies possible strong-copyleft
-incompatibility. The maintainer must reconcile the exact applicable terms before
-public distribution. This request is also disclosed in the README's security
-and privacy summary.
+Service-monitor icons are locally rendered generic components from the bundled
+[Phosphor Icons](https://github.com/phosphor-icons/core) dependency (MIT). The
+protocol carries only a small allowlist of semantic IDs; it does not bundle or
+display third-party service logos. Service names remain text labels and do not
+claim ownership of, or rights in, any third-party trademark.
 
 Service names and brand icons identify user-configurable reachability-test
 targets. They do not imply affiliation, endorsement, availability, or

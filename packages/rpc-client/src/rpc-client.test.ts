@@ -407,7 +407,7 @@ describe("RpcClient", () => {
     await expect(
       client.request("status.upsertServiceMonitor", {
         draft: {
-          icon: "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg",
+          icon: "globe",
           label: "x".repeat(512),
           url: "https://example.com",
         },

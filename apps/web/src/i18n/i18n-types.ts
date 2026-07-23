@@ -3095,25 +3095,13 @@ type RootTranslation = {
 		 */
 		fixtureEndpointDescription: string
 		/**
-		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​T​h​e​ ​i​c​o​n​ ​i​m​a​g​e​ ​i​s​ ​s​t​i​l​l​ ​l​o​a​d​e​d​ ​f​r​o​m​ ​i​t​s​ ​U​R​L​.
+		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​S​e​r​v​i​c​e​ ​i​c​o​n​s​ ​a​r​e​ ​p​a​c​k​a​g​e​d​ ​w​i​t​h​ ​M​i​s​h​.
 		 */
 		fixtureMetadataDescription: string
 		/**
 		 * T​h​e​ ​p​r​o​b​e​ ​U​R​L​ ​i​s​ ​s​t​o​r​e​d​ ​a​s​ ​m​e​t​a​d​a​t​a​ ​a​n​d​ ​i​s​ ​n​o​t​ ​r​e​q​u​e​s​t​e​d​ ​i​n​ ​d​e​m​o​ ​m​o​d​e​.
 		 */
 		fixtureUrlDescription: string
-		/**
-		 * I​c​o​n​ ​U​R​L
-		 */
-		iconUrl: string
-		/**
-		 * U​s​e​ ​a​ ​d​i​r​e​c​t​ ​H​T​T​P​S​ ​i​m​a​g​e​ ​U​R​L​.​ ​S​V​G​,​ ​P​N​G​,​ ​a​n​d​ ​W​e​b​P​ ​i​m​a​g​e​s​ ​a​r​e​ ​s​u​p​p​o​r​t​e​d​.
-		 */
-		iconUrlDescription: string
-		/**
-		 * E​n​t​e​r​ ​a​ ​v​a​l​i​d​ ​H​T​T​P​S​ ​i​c​o​n​ ​U​R​L​.
-		 */
-		iconUrlError: string
 		/**
 		 * E​n​t​e​r​ ​a​ ​t​i​t​l​e​.
 		 */
@@ -7423,25 +7411,13 @@ export type TranslationFunctions = {
 		 */
 		fixtureEndpointDescription: () => LocalizedString
 		/**
-		 * Demo probe metadata only. The icon image is still loaded from its URL.
+		 * Demo probe metadata only. Service icons are packaged with Mish.
 		 */
 		fixtureMetadataDescription: () => LocalizedString
 		/**
 		 * The probe URL is stored as metadata and is not requested in demo mode.
 		 */
 		fixtureUrlDescription: () => LocalizedString
-		/**
-		 * Icon URL
-		 */
-		iconUrl: () => LocalizedString
-		/**
-		 * Use a direct HTTPS image URL. SVG, PNG, and WebP images are supported.
-		 */
-		iconUrlDescription: () => LocalizedString
-		/**
-		 * Enter a valid HTTPS icon URL.
-		 */
-		iconUrlError: () => LocalizedString
 		/**
 		 * Enter a title.
 		 */

@@ -1,7 +1,15 @@
 import { ArrowCounterClockwise } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { CaretDown } from "@phosphor-icons/react/CaretDown";
+import { CirclesFour } from "@phosphor-icons/react/CirclesFour";
+import { CloudArrowDown } from "@phosphor-icons/react/CloudArrowDown";
+import { Desktop } from "@phosphor-icons/react/Desktop";
+import { GlobeHemisphereWest } from "@phosphor-icons/react/GlobeHemisphereWest";
+import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
 import { PencilSimple } from "@phosphor-icons/react/PencilSimple";
+import { PlugsConnected } from "@phosphor-icons/react/PlugsConnected";
 import { Plus } from "@phosphor-icons/react/Plus";
+import { Question } from "@phosphor-icons/react/Question";
+import type { Icon } from "@phosphor-icons/react/lib";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,19 +54,19 @@ import { cx, tv } from "@mish/ui/tv";
 import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
-import {
-  SERVICE_ICON_URLS,
-  type ServiceMonitorDraft,
-  type ServiceMonitorDto,
-  type ServiceProbeResultDto,
+import type {
+  ServiceIconId,
+  ServiceMonitorDraft,
+  ServiceMonitorDto,
+  ServiceProbeResultDto,
 } from "@mish/contracts";
+import { SERVICE_ICON_IDS } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
 
 const serviceProbeIntervals = [0, 5, 10, 30, 60] as const;
 const serviceMonitorMediumColumnCount = 3;
 const serviceMonitorWideColumnCount = 4;
 const maximumDisplayedLatency = 9999;
-const defaultServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
 
 const serviceStyles = tv({
   slots: {
@@ -97,8 +105,7 @@ const serviceStyles = tv({
     ),
     icon: cx(
       "service-monitor-icon grid size-5.5 place-items-center text-muted-foreground",
-      "theme-dark:[&_[data-monochrome=true]]:invert [&_img]:block [&_img]:size-4.5",
-      "[&_img]:object-contain [&_img]:opacity-75",
+      "[&_svg]:size-4.5 [&_svg]:opacity-75",
     ),
     latency: cx(
       "service-monitor-latency col-start-3 block justify-self-stretch text-right text-metadata",
@@ -182,36 +189,24 @@ function isValidProbeUrl(value: string) {
   }
 }
 
-function isValidIconUrl(value: string) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.username === "" && url.password === "";
-  } catch {
-    return false;
-  }
+const serviceIconComponents: Record<string, Icon> = {
+  cloud: CloudArrowDown,
+  code: PlugsConnected,
+  compass: GlobeHemisphereWest,
+  device: Desktop,
+  globe: GlobeHemisphereWest,
+  search: MagnifyingGlass,
+  squares: CirclesFour,
+};
+
+function editableServiceIcon(icon: string): ServiceIconId {
+  return SERVICE_ICON_IDS.includes(icon as ServiceIconId) ? (icon as ServiceIconId) : "globe";
 }
 
-interface ServiceIconImageProps {
-  src: string;
-}
-
-function ServiceIconImage({ src }: ServiceIconImageProps) {
-  return (
-    <img
-      alt=""
-      aria-hidden="true"
-      data-monochrome={defaultServiceIconUrls.has(src) || undefined}
-      decoding="async"
-      onError={(event) => {
-        event.currentTarget.hidden = true;
-      }}
-      onLoad={(event) => {
-        event.currentTarget.hidden = false;
-      }}
-      referrerPolicy="no-referrer"
-      src={src}
-    />
-  );
+export function ServiceIcon({ icon }: { icon: string }) {
+  const knownIcon = Object.hasOwn(serviceIconComponents, icon);
+  const IconComponent = knownIcon ? serviceIconComponents[icon] : Question;
+  return <IconComponent aria-hidden="true" data-service-icon={knownIcon ? icon : "fallback"} />;
 }
 
 interface ServiceEditorDialogProps {
@@ -267,8 +262,8 @@ function ServiceManagerDialog({
                 type="button"
                 variant="ghost"
               >
-                <span className={serviceStyles().icon()}>
-                  <ServiceIconImage src={service.icon} />
+                <span className={serviceStyles().icon()} data-testid="service-monitor-icon">
+                  <ServiceIcon icon={service.icon} />
                 </span>
                 <strong className="user-authored-label">{service.label}</strong>
                 <PencilSimple aria-hidden="true" />
@@ -302,20 +297,18 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
   const { LL } = useI18nContext();
   const { publish } = useNotificationDelivery();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [editedFields, setEditedFields] = useState({ icon: false, label: false, url: false });
+  const [editedFields, setEditedFields] = useState({ label: false, url: false });
   const [pendingAction, setPendingAction] = useState<{
     kind: "delete" | "save";
     promise: Promise<void>;
   } | null>(null);
   if (!draft) return null;
 
-  const iconInvalid = !isValidIconUrl(draft.icon);
   const labelInvalid = draft.label.trim().length === 0;
   const urlInvalid = !isValidProbeUrl(draft.url);
-  const showIconError = iconInvalid && editedFields.icon;
   const showLabelError = labelInvalid && editedFields.label;
   const showUrlError = urlInvalid && editedFields.url;
-  const canSave = !iconInvalid && !labelInvalid && !urlInvalid;
+  const canSave = !labelInvalid && !urlInvalid;
   const existingService = Boolean(draft.id);
   const commandPending = isCommandPending("services");
 
@@ -386,23 +379,6 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
                 value={draft.label}
               />
               {showLabelError ? <FieldError>{LL.services.labelError()}</FieldError> : null}
-            </Field>
-            <Field data-invalid={showIconError || undefined}>
-              <FieldLabel htmlFor="service-icon-url">{LL.services.iconUrl()}</FieldLabel>
-              <Input
-                aria-invalid={showIconError || undefined}
-                id="service-icon-url"
-                onValueChange={(value) => {
-                  setEditedFields((fields) => ({ ...fields, icon: true }));
-                  setDraft({ ...draft, icon: value });
-                }}
-                placeholder={SERVICE_ICON_URLS.globe}
-                spellCheck={false}
-                type="url"
-                value={draft.icon}
-              />
-              <FieldDescription>{LL.services.iconUrlDescription()}</FieldDescription>
-              {showIconError ? <FieldError>{LL.services.iconUrlError()}</FieldError> : null}
             </Field>
             <Field data-invalid={showUrlError || undefined}>
               <FieldLabel htmlFor="service-probe-url">{LL.services.probeUrl()}</FieldLabel>
@@ -621,8 +597,8 @@ export function ServiceMonitorSection() {
                 variant="ghost"
               >
                 <span className={serviceStyles().identity()}>
-                  <span className={serviceStyles().icon()}>
-                    <ServiceIconImage src={service.icon} />
+                  <span className={serviceStyles().icon()} data-testid="service-monitor-icon">
+                    <ServiceIcon icon={service.icon} />
                   </span>
                   <strong className="user-authored-label" title={service.label}>
                     {service.label}
@@ -696,7 +672,7 @@ export function ServiceMonitorSection() {
           <Button
             aria-describedby={actionDescriptionId}
             disabled={!commandSupported}
-            onClick={() => setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" })}
+            onClick={() => setDraft({ icon: "globe" as const, label: "", url: "https://" })}
             variant="outline"
           >
             <Plus data-icon="inline-start" />
@@ -715,12 +691,12 @@ export function ServiceMonitorSection() {
       <ServiceManagerDialog
         onAdd={() => {
           setManagerOpen(false);
-          setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" });
+          setDraft({ icon: "globe" as const, label: "", url: "https://" });
         }}
         onClose={() => setManagerOpen(false)}
         onEdit={(service) => {
           setManagerOpen(false);
-          setDraft({ ...service });
+          setDraft({ ...service, icon: editableServiceIcon(service.icon) });
         }}
         onRestore={() => void restoreServices()}
         open={managerOpen}

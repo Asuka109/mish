@@ -11,31 +11,31 @@ import type {
   StatusSnapshotDto,
   RoutingMode,
 } from "@mish/contracts";
-import { SERVICE_ICON_URLS, StatusClientError } from "@mish/contracts";
+import { StatusClientError } from "@mish/contracts";
 
 const defaultServices: ServiceMonitorDto[] = [
   {
-    icon: SERVICE_ICON_URLS.google,
+    icon: "search",
     id: "google",
     label: "Google",
     url: "https://www.google.com/generate_204",
   },
-  { icon: SERVICE_ICON_URLS.github, id: "github", label: "GitHub", url: "https://github.com" },
+  { icon: "code", id: "github", label: "GitHub", url: "https://github.com" },
   {
-    icon: SERVICE_ICON_URLS.cloudflare,
+    icon: "cloud",
     id: "cloudflare",
     label: "Cloudflare",
     url: "https://cp.cloudflare.com/generate_204",
   },
-  { icon: SERVICE_ICON_URLS.baidu, id: "baidu", label: "Baidu", url: "https://www.baidu.com" },
+  { icon: "compass", id: "baidu", label: "Baidu", url: "https://www.baidu.com" },
   {
-    icon: SERVICE_ICON_URLS.apple,
+    icon: "device",
     id: "apple",
     label: "Apple",
     url: "https://www.apple.com/library/test/success.html",
   },
   {
-    icon: SERVICE_ICON_URLS.microsoft,
+    icon: "squares",
     id: "microsoft",
     label: "Microsoft",
     url: "http://www.msftconnecttest.com/connecttest.txt",

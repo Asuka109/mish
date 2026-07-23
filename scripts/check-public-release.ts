@@ -170,8 +170,6 @@ includesAll(
     "Highcharts",
     "Separate Highsoft terms",
     "commercial or OEM license grant",
-    "Remix Icon License v1.0",
-    "registry.npmmirror.com",
     "Petri R",
     "Unsplash License",
     "NOASSERTION",
@@ -181,6 +179,36 @@ includesAll(
 invariant(
   !notices.includes("cyenxchen/mihomo"),
   "THIRD_PARTY_NOTICES.md must use the available official Mihomo source chain.",
+);
+const serviceIconSources = [
+  "crates/runtime/src/status.rs",
+  "crates/desktop-bridge/src/service_probes.rs",
+  "packages/contracts/src/index.ts",
+  "apps/web/src/components/service-monitor-section.tsx",
+  "apps/web/src/data/fixture-status-client.ts",
+] as const;
+for (const sourcePath of serviceIconSources) {
+  const source = read(sourcePath);
+  invariant(
+    !/(?:SERVICE_ICON_CDN_BASE|SERVICE_ICON_URLS|ServiceIconUrlSchema|valid_icon_url|<img\b|\bsrc=)/u.test(
+      source,
+    ),
+    `${sourcePath} must not add a remote or image-based service icon path.`,
+  );
+}
+includesAll(
+  read("crates/desktop-bridge/src/service_probes.rs"),
+  ["SERVICE_ICON_IDS", "Unsupported service icon", "FALLBACK_ICON_ID"],
+  "Service icon persistence contract",
+);
+includesAll(
+  read("apps/web/src/components/service-monitor-section.tsx"),
+  ["serviceIconComponents", "Object.hasOwn", "data-service-icon"],
+  "Service icon renderer",
+);
+invariant(
+  !notices.includes("Remix Icon License v1.0") && !notices.includes("registry.npmmirror.com"),
+  "THIRD_PARTY_NOTICES.md must not retain the removed remote Remix icon dependency.",
 );
 
 const readme = read("README.md");
@@ -206,7 +234,7 @@ includesAll(
     "macOS 13 or later on Apple Silicon only",
     "There is no stable package download yet.",
     "Virtual Interface support belongs to a separate future release path",
-    "remote service icons can make outbound requests",
+    "Service icons are bundled local components and do not request remote icon assets.",
     "Developer setup, commands, architecture, and validation details are maintained in",
     "does not require copyright assignment or a Contributor License Agreement",
     "confirm authority to contribute the material and license it under GPL-3.0-only",
@@ -276,7 +304,7 @@ includesAll(
     "macOS 13 或更高版本",
     "目前尚无稳定软件包可供下载",
     "“虚拟接口”支持属于独立的后续发行路径，目前不可用",
-    "远程服务图标可能发起出站请求",
+    "服务图标是随应用打包的本地组件",
     "开发环境、命令、架构和验证细节维护在",
     "不要求转让版权或签署贡献者许可协议",
     "确认其有权贡献相关材料",

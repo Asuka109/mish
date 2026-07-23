@@ -35,7 +35,7 @@ non-fixture adapter.
 | `GroupDelayPolicyDto`     | Internal policy ID, visible fixed HTTPS probe URL, and bounded timeout                       | Local bridge application policy                  |
 | `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results     |
 | `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                          |
-| `ServiceMonitorDto`       | ID, opaque title, probe URL, HTTPS icon URL, probe policy                                    | Local bridge persistence                         |
+| `ServiceMonitorDto`       | ID, opaque title, probe URL, semantic icon ID, probe policy                                  | Local bridge persistence                         |
 | `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                     |
 | `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                                 |
 
@@ -44,12 +44,14 @@ not split, normalize, reorder, or infer structured emoji and text fields. The
 demo fixtures may keep separate properties only for convenient mock
 construction; that shape is not a production contract.
 
-Service icon URLs are also user-authored metadata. Defaults use version-pinned
-Remix Icon SVG assets through the npmmirror CDN; Cloudflare intentionally uses
-the neutral Remix cloud symbol. Custom values must be credential-free HTTPS
-URLs and are rendered only as image resources; the bridge never fetches icon
-contents. The web and native shells allow HTTPS only in `img-src`, and icon
-image requests omit referrer information.
+Service icon values are stable, bounded semantic IDs. The bridge accepts only
+the current allowlist for new or edited monitors and normalizes legacy values
+to that allowlist while loading persisted state. The Web resolver maps IDs to
+generic bundled Phosphor components; it never interprets a value as a URL or
+creates an image resource. Unknown, malformed, and legacy values use the local
+generic fallback, so untrusted data cannot trigger a request. Generic symbols
+and the visible text label preserve service recognition without asserting rights
+in third-party logos or trademarks.
 
 `PolicyGroupDto` is a discriminated union for `selector`, `url-test`,
 `fallback`, `load-balance`, `relay`, `direct`, `reject`, and `unsupported`.

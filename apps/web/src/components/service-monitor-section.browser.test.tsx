@@ -8,7 +8,7 @@ import { NotificationDeliveryProvider } from "../data/notification-delivery";
 import { FixtureStatusClient } from "../data/fixture-status-client";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
-import { ServiceMonitorSection } from "./service-monitor-section";
+import { ServiceIcon, ServiceMonitorSection } from "./service-monitor-section";
 import "../styles.css";
 
 class BrowserServiceMonitorClient extends FixtureStatusClient {
@@ -82,6 +82,26 @@ beforeAll(async () => {
 afterAll(() => root.unmount());
 
 describe("service monitor latency colors", () => {
+  test("uses bundled icons for every default service and a local fallback for untrusted values", async () => {
+    expect(
+      [...document.querySelectorAll<HTMLElement>("[data-service-icon]")].map(
+        (element) => element.dataset.serviceIcon,
+      ),
+    ).toEqual(["search", "code", "cloud", "compass", "device"]);
+    expect(document.querySelectorAll(".service-monitor-icon img")).toHaveLength(0);
+
+    const fallbackHost = document.createElement("div");
+    document.body.append(fallbackHost);
+    const fallbackRoot = createRoot(fallbackHost);
+    fallbackRoot.render(<ServiceIcon icon="https://attacker.invalid/icon.svg" />);
+    await vi.waitFor(() => {
+      expect(fallbackHost.querySelector('[data-service-icon="fallback"]')).not.toBeNull();
+    });
+    expect(fallbackHost.querySelector("img")).toBeNull();
+    fallbackRoot.unmount();
+    fallbackHost.remove();
+  });
+
   test("declares one, three, and four-column breakpoints with complete final rows", () => {
     const list = document.querySelector<HTMLElement>(".service-monitor-list");
     if (!list) throw new Error("Missing service monitor list");

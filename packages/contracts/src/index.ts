@@ -1211,33 +1211,26 @@ export const GroupUsageSchema = z
   .strict();
 export interface GroupUsageDto extends z.infer<typeof GroupUsageSchema> {}
 
-const SERVICE_ICON_CDN_BASE = "https://registry.npmmirror.com/remixicon/4.9.1/files/icons";
+export const SERVICE_ICON_IDS = [
+  "cloud",
+  "code",
+  "compass",
+  "device",
+  "globe",
+  "search",
+  "squares",
+] as const;
+export type ServiceIconId = (typeof SERVICE_ICON_IDS)[number];
 
-export const SERVICE_ICON_URLS = {
-  apple: `${SERVICE_ICON_CDN_BASE}/Logos/apple-fill.svg`,
-  baidu: `${SERVICE_ICON_CDN_BASE}/Logos/baidu-fill.svg`,
-  cloudflare: `${SERVICE_ICON_CDN_BASE}/Business/cloud-fill.svg`,
-  github: `${SERVICE_ICON_CDN_BASE}/Logos/github-fill.svg`,
-  globe: `${SERVICE_ICON_CDN_BASE}/Map/globe-fill.svg`,
-  google: `${SERVICE_ICON_CDN_BASE}/Logos/google-fill.svg`,
-  microsoft: `${SERVICE_ICON_CDN_BASE}/Logos/microsoft-fill.svg`,
-} as const;
-
-export const ServiceIconUrlSchema = z
-  .string()
-  .max(2_048)
-  .refine((value) => {
-    try {
-      const url = new URL(value);
-      return url.protocol === "https:" && url.username === "" && url.password === "";
-    } catch {
-      return false;
-    }
-  });
+// The protocol emits only these IDs. A bounded compatibility string keeps an old
+// bridge from invalidating the complete snapshot; renderers must use their local
+// fallback for values outside the allowlist and never treat this value as a URL.
+export const ServiceIconIdSchema = z.enum(SERVICE_ICON_IDS);
+const ServiceIconValueSchema = z.string().min(1).max(2_048);
 
 export const ServiceMonitorSchema = z
   .object({
-    icon: ServiceIconUrlSchema,
+    icon: ServiceIconValueSchema,
     id: IdentifierSchema,
     label: z.string(),
     url: z.string(),
@@ -1814,8 +1807,8 @@ export const NativeStatusSnapshotSchema = StatusSnapshotSchema.extend({
 });
 export interface NativeStatusSnapshotDto extends z.infer<typeof NativeStatusSnapshotSchema> {}
 
-export const ServiceMonitorDraftSchema = ServiceMonitorSchema.omit({ id: true })
-  .extend({ id: IdentifierSchema.optional() })
+export const ServiceMonitorDraftSchema = ServiceMonitorSchema.omit({ icon: true, id: true })
+  .extend({ icon: ServiceIconIdSchema, id: IdentifierSchema.optional() })
   .strict();
 export interface ServiceMonitorDraft extends z.infer<typeof ServiceMonitorDraftSchema> {}
 
@@ -1907,7 +1900,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(19),
+    protocolVersion: z.literal(20),
     statusCommands: z
       .object({
         group: z.boolean(),

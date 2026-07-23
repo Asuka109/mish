@@ -62,8 +62,8 @@ maintainers. Do not include sensitive or personal information in a public
 report.
 
 Mish is local-first, not network-isolated. User profiles, Mihomo, provider
-updates, delay tests, service probes, and remote service icons can make outbound
-requests. The current repository does not configure telemetry, a hosted account
+updates, delay tests, and service probes can make outbound requests. Service
+icons are bundled local components and do not request remote icon assets. The current repository does not configure telemetry, a hosted account
 service, a crash reporter, or an automatic updater.
 
 If you need to report a security or privacy concern, contact the project

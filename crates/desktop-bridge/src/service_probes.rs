@@ -23,11 +23,13 @@ const DISABLED_INTERVAL_SECONDS: u16 = 0;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_MONITORS: usize = 24;
 const ALLOWED_INTERVALS: [u16; 5] = [0, 5, 10, 30, 60];
-const SERVICE_ICON_CDN_BASE: &str = "https://registry.npmmirror.com/remixicon/4.9.1/files/icons";
 const LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL: &str =
     "https://www.msftconnecttest.com/connecttest.txt";
 const MICROSOFT_CONNECTIVITY_TEST_URL: &str = "http://www.msftconnecttest.com/connecttest.txt";
-const MICROSOFT_DEFAULT_ICON_PATH: &str = "Logos/microsoft-fill.svg";
+const FALLBACK_ICON_ID: &str = "globe";
+const SERVICE_ICON_IDS: [&str; 7] = [
+    "cloud", "code", "compass", "device", "globe", "search", "squares",
+];
 
 #[derive(Clone, Debug)]
 pub struct ServiceProbeConfig {
@@ -89,7 +91,7 @@ impl ServiceProbeService {
             .map(|state| state.services)
             .unwrap_or_else(default_service_monitors)
             .into_iter()
-            .map(upgrade_default_icon)
+            .map(upgrade_icon_id)
             .map(upgrade_legacy_default_microsoft_url)
             .collect();
         let (updates, _) = broadcast::channel(32);
@@ -133,7 +135,7 @@ impl ServiceProbeService {
     }
 
     pub async fn upsert(&self, draft: ServiceMonitorDraft) -> Result<(), ServiceProbeError> {
-        validate_icon_url(&draft.icon)?;
+        validate_icon_id(&draft.icon)?;
         validate_label(&draft.label)?;
         validate_probe_url(&draft.url).await?;
         let mut state = self
@@ -396,7 +398,7 @@ fn valid_persisted_state(state: &PersistedState) -> bool {
         && state.services.len() <= MAX_MONITORS
         && state.services.iter().all(|monitor| {
             valid_identifier(&monitor.id)
-                && valid_persisted_icon(&monitor.icon)
+                && monitor.icon.len() <= 2_048
                 && validate_label(&monitor.label).is_ok()
                 && syntactically_safe_url(&monitor.url)
         })
@@ -413,17 +415,17 @@ fn normalize_persisted_interval(interval_seconds: u16) -> u16 {
     }
 }
 
-fn upgrade_default_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
-    if let Some(icon) = current_default_icon_url(&monitor.icon) {
-        monitor.icon = icon;
-    }
+fn upgrade_icon_id(mut monitor: ServiceMonitor) -> ServiceMonitor {
+    monitor.icon = legacy_icon_id(&monitor.icon)
+        .unwrap_or(FALLBACK_ICON_ID)
+        .into();
     monitor
 }
 
 fn upgrade_legacy_default_microsoft_url(mut monitor: ServiceMonitor) -> ServiceMonitor {
     if monitor.id == "microsoft"
         && monitor.label == "Microsoft"
-        && monitor.icon == format!("{SERVICE_ICON_CDN_BASE}/{MICROSOFT_DEFAULT_ICON_PATH}")
+        && monitor.icon == "squares"
         && monitor.url == LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL
     {
         monitor.url = MICROSOFT_CONNECTIVITY_TEST_URL.into();
@@ -431,62 +433,56 @@ fn upgrade_legacy_default_microsoft_url(mut monitor: ServiceMonitor) -> ServiceM
     monitor
 }
 
-fn current_default_icon_url(value: &str) -> Option<String> {
-    let path = match value {
+fn legacy_icon_id(value: &str) -> Option<&'static str> {
+    match value {
+        "search"
+        | "google"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/google-color.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg" => {
+            Some("search")
+        }
+        "code"
+        | "github"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/github.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/github-fill.svg" => {
+            Some("code")
+        }
+        "cloud"
+        | "cloudflare"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg" => {
+            Some("cloud")
+        }
+        "compass"
+        | "baidu"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/baidu-color.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/baidu-fill.svg" => {
+            Some("compass")
+        }
         "apple"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/apple.svg" => {
-            "Logos/apple-fill.svg"
-        }
-        "baidu"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/baidu-color.svg" => {
-            "Logos/baidu-fill.svg"
-        }
-        "cloudflare"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg" => {
-            "Business/cloud-fill.svg"
-        }
-        "github"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/github.svg" => {
-            "Logos/github-fill.svg"
+        | "device"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/apple.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/apple-fill.svg" => {
+            Some("device")
         }
         "globe" | "https://registry.npmmirror.com/bootstrap-icons/1.13.1/files/icons/globe.svg" => {
-            "Map/globe-fill.svg"
-        }
-        "google"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/google-color.svg" => {
-            "Logos/google-fill.svg"
+            Some("globe")
         }
         "microsoft"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/microsoft-color.svg" => {
-            "Logos/microsoft-fill.svg"
+        | "squares"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/microsoft-color.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/microsoft-fill.svg" => {
+            Some("squares")
         }
-        _ => return None,
-    };
-    Some(format!("{SERVICE_ICON_CDN_BASE}/{path}"))
+        _ => None,
+    }
 }
 
-fn valid_persisted_icon(value: &str) -> bool {
-    current_default_icon_url(value).is_some() || valid_icon_url(value)
-}
-
-fn validate_icon_url(value: &str) -> Result<(), ServiceProbeError> {
-    if valid_icon_url(value) {
+fn validate_icon_id(value: &str) -> Result<(), ServiceProbeError> {
+    if SERVICE_ICON_IDS.contains(&value) {
         return Ok(());
     }
-    Err(ServiceProbeError::Invalid("Invalid service icon URL"))
-}
-
-fn valid_icon_url(value: &str) -> bool {
-    if value.len() > 2_048 {
-        return false;
-    }
-    let Ok(url) = Url::parse(value) else {
-        return false;
-    };
-    url.scheme() == "https"
-        && url.host_str().is_some()
-        && url.username().is_empty()
-        && url.password().is_none()
+    Err(ServiceProbeError::Invalid("Unsupported service icon"))
 }
 
 fn persist_locked(path: Option<&Path>, state: &ProbeState) -> Result<(), ServiceProbeError> {
@@ -851,7 +847,7 @@ mod tests {
     }
 
     #[test]
-    fn previous_default_icons_are_upgraded_to_remix_cdn_urls() {
+    fn legacy_and_untrusted_icon_values_are_normalized_without_urls() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
         let state = PersistedState {
@@ -868,6 +864,12 @@ mod tests {
                     id: "legacy-cloudflare".into(),
                     label: "Legacy Cloudflare".into(),
                     url: "https://cp.cloudflare.com/generate_204".into(),
+                },
+                ServiceMonitor {
+                    icon: "https://attacker.invalid/icon.svg".into(),
+                    id: "legacy-untrusted".into(),
+                    label: "Legacy untrusted".into(),
+                    url: "https://example.com/generate_204".into(),
                 },
             ],
             version: 1,
@@ -887,13 +889,7 @@ mod tests {
             .map(|service| service.icon.clone())
             .collect();
 
-        assert_eq!(
-            restored_icons,
-            vec![
-                "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
-                "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg",
-            ]
-        );
+        assert_eq!(restored_icons, vec!["search", "cloud", "globe",]);
     }
 
     #[test]
@@ -994,12 +990,10 @@ mod tests {
     }
 
     #[test]
-    fn service_icon_urls_require_credential_free_https() {
-        assert!(valid_icon_url(
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg"
-        ));
-        assert!(!valid_icon_url("http://example.com/icon.svg"));
-        assert!(!valid_icon_url("https://user:secret@example.com/icon.svg"));
+    fn service_icon_ids_are_allowlisted() {
+        assert!(validate_icon_id("globe").is_ok());
+        assert!(validate_icon_id("https://example.com/icon.svg").is_err());
+        assert!(validate_icon_id("unknown").is_err());
     }
 
     #[test]

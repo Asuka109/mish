@@ -1495,7 +1495,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 19);
+    assert_eq!(info["result"]["protocolVersion"], 20);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
@@ -1676,6 +1676,15 @@ async fn service_probes_remain_available_while_core_is_stopped() {
         5
     );
     assert_eq!(snapshot["result"]["services"].as_array().unwrap().len(), 6);
+    assert_eq!(
+        snapshot["result"]["services"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|service| service["icon"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["search", "code", "cloud", "compass", "device", "squares"]
+    );
     assert_eq!(
         snapshot["result"]["probeResults"].as_array().unwrap().len(),
         6

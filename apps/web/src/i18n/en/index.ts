@@ -911,12 +911,8 @@ const en = {
     empty: "No service monitors",
     fixtureEmptyDescription: "Add a local demo monitor. No request will be sent.",
     fixtureEndpointDescription: "Fixture endpoint latency.",
-    fixtureMetadataDescription:
-      "Demo probe metadata only. The icon image is still loaded from its URL.",
+    fixtureMetadataDescription: "Demo probe metadata only. Service icons are packaged with Mish.",
     fixtureUrlDescription: "The probe URL is stored as metadata and is not requested in demo mode.",
-    iconUrl: "Icon URL",
-    iconUrlDescription: "Use a direct HTTPS image URL. SVG, PNG, and WebP images are supported.",
-    iconUrlError: "Enter a valid HTTPS icon URL.",
     labelError: "Enter a title.",
     manage: "Manage",
     intervalDisabled: "Never",

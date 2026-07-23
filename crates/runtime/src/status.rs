@@ -340,37 +340,27 @@ impl StatusSnapshot {
 pub fn default_service_monitors() -> Vec<ServiceMonitor> {
     [
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
+            "search",
             "google",
             "Google",
             "https://www.google.com/generate_204",
         ),
+        ("code", "github", "GitHub", "https://github.com"),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/github-fill.svg",
-            "github",
-            "GitHub",
-            "https://github.com",
-        ),
-        (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg",
+            "cloud",
             "cloudflare",
             "Cloudflare",
             "https://cp.cloudflare.com/generate_204",
         ),
+        ("compass", "baidu", "Baidu", "https://www.baidu.com"),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/baidu-fill.svg",
-            "baidu",
-            "Baidu",
-            "https://www.baidu.com",
-        ),
-        (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/apple-fill.svg",
+            "device",
             "apple",
             "Apple",
             "https://www.apple.com/library/test/success.html",
         ),
         (
-            "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/microsoft-fill.svg",
+            "squares",
             "microsoft",
             "Microsoft",
             "http://www.msftconnecttest.com/connecttest.txt",
@@ -401,5 +391,20 @@ mod tests {
             microsoft.url,
             "http://www.msftconnecttest.com/connecttest.txt"
         );
+    }
+
+    #[test]
+    fn default_service_monitors_serialize_stable_local_icon_ids() {
+        let monitors = default_service_monitors();
+        let icons: Vec<&str> = monitors
+            .iter()
+            .map(|monitor| monitor.icon.as_str())
+            .collect();
+
+        assert_eq!(
+            icons,
+            ["search", "code", "cloud", "compass", "device", "squares"]
+        );
+        assert!(icons.iter().all(|icon| !icon.contains("://")));
     }
 }

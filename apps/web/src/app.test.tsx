@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
 import {
-  SERVICE_ICON_URLS,
   StatusClientError,
   type AppearancePreference,
   type CaptureSelectionDto,
@@ -3079,28 +3078,16 @@ describe("Status fixture experience", () => {
 
     expect(await screen.findByRole("dialog", { name: "Edit Service" })).toBeVisible();
     expect(screen.getByRole("textbox", { name: "Title" })).toHaveValue("Google");
-    expect(screen.getByRole("textbox", { name: "Icon URL" })).toHaveValue(SERVICE_ICON_URLS.google);
+    expect(screen.queryByRole("textbox", { name: "Icon URL" })).not.toBeInTheDocument();
   });
 
-  it("lets users replace a service icon with a custom HTTPS image URL", async () => {
-    const user = userEvent.setup();
+  it("renders local service icon components without image requests", async () => {
     renderRoute("/status", "en", new FixtureStatusClient());
     await screen.findByText("Live demo traffic");
 
-    await user.click(screen.getByRole("button", { name: "Manage" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Edit Services…" }));
-    const manager = await screen.findByRole("dialog", { name: "Edit Services…" });
-    await user.click(within(manager).getByRole("button", { name: "Google" }));
-
-    const customIconUrl = "https://example.com/custom-service.svg";
-    const iconUrl = await screen.findByRole("textbox", { name: "Icon URL" });
-    await user.clear(iconUrl);
-    await user.type(iconUrl, customIconUrl);
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit Service" })).toBeNull());
-    const google = screen.getByRole("button", { name: "Test Latency for Google" });
-    expect(google.querySelector("img")).toHaveAttribute("src", customIconUrl);
+    expect(screen.getAllByTestId("service-monitor-icon")).toHaveLength(6);
+    expect(document.querySelectorAll(".service-monitor-icon img")).toHaveLength(0);
+    expect(document.querySelectorAll(".service-monitor-icon svg")).toHaveLength(6);
   });
 
   it("dims only the service being tested while preserving its previous latency", async () => {

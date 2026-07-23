@@ -23,6 +23,20 @@ describe("FixtureStatusClient", () => {
     );
   });
 
+  it("serializes every default service with a local semantic icon ID", async () => {
+    const snapshot = await new FixtureStatusClient().getSnapshot();
+
+    expect(snapshot.services.map((service) => service.icon)).toEqual([
+      "search",
+      "code",
+      "cloud",
+      "compass",
+      "device",
+      "squares",
+    ]);
+    expect(snapshot.services.every((service) => !service.icon.includes("://"))).toBe(true);
+  });
+
   it("defaults service probes to a five-second interval", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
 
