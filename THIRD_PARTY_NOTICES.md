@@ -13,21 +13,27 @@ versions.
 
 ## Mihomo
 
-The Apple Silicon macOS test bundle includes the upstream release executable.
+The Apple Silicon macOS test bundle includes a Mihomo Core release executable.
 Packaging adds the selected macOS code signature but does not modify its
-program source:
+program source. The build evidence recorded the historical upstream namespace
+as `MetaCubeX/mihomo`. During the 2026-07-23 recheck, that live namespace no
+longer exposed the Core source and tag state identified by the bundle. Until the
+maintainer validates an upstream relocation, the exact commit and license links
+below use a preserved public mirror solely for source retrieval; the mirror is
+not represented as the official project.
 
-- Project: [Mihomo](https://github.com/MetaCubeX/mihomo)
+- Project: Mihomo Core (historical upstream namespace: `MetaCubeX/mihomo`)
 - Copyright: MetaCubeX and Mihomo contributors
 - Version: `v1.19.29`
-- Source commit: [`e26714a181ac0e2fa803453c0a8e9a9ce94e31cb`](https://github.com/MetaCubeX/mihomo/commit/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb)
-- License: [GNU GPL version 3](https://github.com/MetaCubeX/mihomo/blob/v1.19.29/LICENSE)
-- Corresponding source: [tag `v1.19.29`](https://github.com/MetaCubeX/mihomo/tree/v1.19.29)
+- Preserved source commit: [`e26714a181ac0e2fa803453c0a8e9a9ce94e31cb`](https://github.com/cyenxchen/mihomo/commit/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb)
+- License at that commit: [GNU GPL version 3](https://github.com/cyenxchen/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/LICENSE)
+- Corresponding source: [exact commit tree](https://github.com/cyenxchen/mihomo/tree/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb)
 
-The upstream README asks unaffiliated downstream projects not to include the
-word “mihomo” in their names. The downstream project name is **Mish**. Technical
-documentation uses the upstream name only to identify the Core, Controller API,
-source, and artifacts.
+The [README at the preserved source commit](https://github.com/cyenxchen/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/README.md)
+asks unaffiliated downstream projects not to include the word “mihomo” in their
+names. The downstream project name is **Mish**. Technical documentation uses
+the upstream name only to identify the Core, Controller API, source, and
+artifacts.
 
 The Mish source corresponding to a test package is the repository revision
 identified by the package workflow and archive name:

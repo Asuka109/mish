@@ -57,18 +57,19 @@ explicit review of the applicable technical and license boundaries.
 
 ## Licensing and provenance
 
-By submitting a contribution, you confirm that you have the right to submit it
-and agree to license it under GPL-3.0-only. Copyright remains with each
-contributor unless a separate signed agreement expressly assigns it. Mish
-currently has no Contributor License Agreement, copyright-assignment agreement,
-or Developer Certificate of Origin workflow. The maintainer receives no broader
-copyright license to another contributor's work than any other GPL recipient.
+By submitting a contribution, you confirm that you have authority to contribute
+the material and license the contribution under GPL-3.0-only. This follows
+[GitHub's Contributions Under Repository License rule](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#6-contributions-under-repository-license).
+Mish does not require a Contributor License Agreement, copyright assignment, or
+Developer Certificate of Origin. Submission does not by itself transfer to Mish
+any copyright the submitter actually owns. Ownership remains with the applicable
+copyright holder. The maintainer receives the contribution under GPL-3.0-only
+and receives no separate proprietary-relicensing permission.
 
 GPL-covered copies of Mish may be sold or otherwise distributed commercially,
 but distribution must continue to follow the GPL. No maintainer or contributor
-may relicense another contributor's GPL-covered work under incompatible or
-proprietary terms without separate permission from the relevant copyright
-holder.
+may relicense another copyright holder's GPL-covered contribution under
+incompatible or proprietary terms without that holder's separate permission.
 
 Third-party material retains its own license. Do not submit content that you do
 not have the right to contribute under terms compatible with the repository and

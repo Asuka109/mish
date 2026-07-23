@@ -48,9 +48,9 @@ Notes:
 ## Security and privacy
 
 Mish is a neutral, experimental project built around a locally managed
-[Mihomo](https://github.com/MetaCubeX/mihomo) Core. Its interface is built with
-React and TypeScript, with Tauri and Rust providing platform integration. Mish
-is not affiliated with, endorsed by, or an official client of MetaCubeX.
+[Mihomo](THIRD_PARTY_NOTICES.md#mihomo) Core. Its interface is built with React
+and TypeScript, with Tauri and Rust providing platform integration. Mish is not
+affiliated with, endorsed by, or an official client of MetaCubeX.
 
 Mish is client software only. The project does not operate a hosted proxy or
 VPN service, sell subscriptions, or provide network endpoints.
@@ -98,25 +98,27 @@ behavior.
 Developer setup, commands, architecture, and validation details are maintained
 in [`development.md`](development.md) and the
 [documentation index](docs/README.md). Read
-[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Contributors
-retain copyright in their work and agree to license accepted contributions
-under GPL-3.0-only; Mish does not currently require copyright assignment or a
-Contributor License Agreement. For another contributor's work, the maintainer
-receives the same GPL rights as any other recipient. AI-assisted submissions
-require complete human review, and the contributor remains responsible for
-their content and provenance.
+[CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Mish does not
+require copyright assignment or a Contributor License Agreement. By submitting,
+contributors confirm authority to contribute the material and license it under
+GPL-3.0-only, consistent with
+[GitHub's inbound=outbound rule](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#6-contributions-under-repository-license).
+Submission alone transfers no copyright to Mish; ownership remains with the
+applicable copyright holder, and the maintainer receives no separate
+proprietary-relicensing permission. AI-assisted submissions require complete
+human review, and the contributor remains responsible for their content and
+provenance.
 
 ## Credits
 
 Mish's architecture and interaction design were inspired by and in part
-informed by [Mihomo](https://github.com/MetaCubeX/mihomo), ClashX,
+informed by [Mihomo](THIRD_PARTY_NOTICES.md#mihomo), ClashX,
 [Clash Mi](https://github.com/KaringX/clashmi), [Stash](https://stash.ws/),
 [Clash Verge](https://github.com/zzzgydi/clash-verge),
-[MetaCubeXD](https://github.com/MetaCubeX/metacubexd), and projects derived
-from them. These projects are independent of Mish. This acknowledgment does not
-imply affiliation, endorsement, or incorporation of their code or assets;
-material reuse, where applicable, is identified separately in the third-party
-notices.
+[MetaCubeXD](https://github.com/MetaCubeX/metacubexd), and projects derived from
+them. These projects are independent of Mish. This acknowledgment does not imply
+affiliation, endorsement, or incorporation of their code or assets; material
+reuse, where applicable, is identified separately in the third-party notices.
 
 ## License and attribution
 

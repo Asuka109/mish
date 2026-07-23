@@ -40,7 +40,7 @@
 
 ## 安全与隐私
 
-Mish 是一个围绕本地管理的 [Mihomo](https://github.com/MetaCubeX/mihomo)
+Mish 是一个围绕本地管理的 [Mihomo](THIRD_PARTY_NOTICES.md#mihomo)
 Core 构建的中立实验性项目。界面使用 React 和 TypeScript 构建，并通过 Tauri
 和 Rust 实现平台集成。Mish 与 MetaCubeX 不存在隶属、背书或官方客户端关系。
 
@@ -71,14 +71,16 @@ Issue、截图、CI
 
 开发环境、命令、架构和验证细节维护在 [`development.md`](development.md)
 和[文档索引](docs/README.md)中。提交拉取请求前请阅读
-[CONTRIBUTING.md](CONTRIBUTING.md)。贡献者保留其作品的版权，并同意接受的贡献采用
-GPL-3.0-only 许可；Mish 目前不要求转让版权或签署贡献者许可协议。使用生成式 AI
-辅助的提交必须经过完整的人工核查，贡献者仍需对其内容与来源负责。对于他人贡献的作品，
-维护者取得的 GPL 权利与其他被许可者相同。
+[CONTRIBUTING.md](CONTRIBUTING.md)。Mish 不要求转让版权或签署贡献者许可协议。提交
+贡献即表示提交者确认其有权贡献相关材料，并按照 GPL-3.0-only
+许可该贡献，这与 [GitHub 的入站许可等于出站许可规则](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#6-contributions-under-repository-license)
+一致。提交本身不会向 Mish 转让版权；所有权仍属于适用的版权所有者，维护者也不会因此
+获得单独的专有再许可权。使用生成式 AI 辅助的提交必须经过完整的人工核查，贡献者仍需
+对其内容与来源负责。
 
 ## 致谢
 
-Mish 的架构与交互设计受到 [Mihomo](https://github.com/MetaCubeX/mihomo)、ClashX、
+Mish 的架构与交互设计受到 [Mihomo](THIRD_PARTY_NOTICES.md#mihomo)、ClashX、
 [Clash Mi](https://github.com/KaringX/clashmi)、[Stash](https://stash.ws/)、
 [Clash Verge](https://github.com/zzzgydi/clash-verge)、
 [MetaCubeXD](https://github.com/MetaCubeX/metacubexd) 及其衍生项目的启发，并在部分方面
