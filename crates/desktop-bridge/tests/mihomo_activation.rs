@@ -1763,10 +1763,11 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
         capture,
     );
     let unavailable = unused_loopback_address();
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
         profiles,
         manager,
-        DesktopRuntimeHost::new(safe_runtime.clone()),
+        host.clone(),
         safe_runtime,
         move || ManagedRuntimePolicy::new(unavailable, "synthetic-preflight-secret"),
     ));
@@ -1834,22 +1835,43 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
     assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
 
     platform.fail_observations();
+    let (mut notification_updates, _) = host.subscribe_notifications_with_snapshot();
     let failed_command_id = Uuid::new_v4().to_string();
-    let error = timeout(
-        Duration::from_secs(5),
-        coordinator.launch_proxy(
-            &failed_command_id,
-            Some(record.metadata.id.as_str()),
-            CaptureSelection {
-                system_proxy: true,
-                tun: false,
-            },
-            StatusAdapterKind::Rpc,
-        ),
-    )
-    .await
-    .expect("preflight failure did not cancel and join Profile preparation")
-    .unwrap_err();
+    let failed_coordinator = coordinator.clone();
+    let failed_profile_id = record.metadata.id.as_str().to_owned();
+    let failed_launch = tokio::spawn(async move {
+        failed_coordinator
+            .launch_proxy(
+                &failed_command_id,
+                Some(&failed_profile_id),
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+    let notifications = timeout(Duration::from_secs(1), notification_updates.recv())
+        .await
+        .expect("preflight failure was not published before launch cleanup completed")
+        .unwrap();
+    let preflight_failure = notifications
+        .notifications
+        .iter()
+        .find(|notification| notification.dedupe_key == "capture.failure")
+        .expect("preflight failure notification was not published");
+    assert_eq!(preflight_failure.notification_type, "capture.failure");
+    assert_eq!(
+        preflight_failure.params["failure"],
+        serde_json::json!("observation-failed")
+    );
+    assert!(!preflight_failure.resolved);
+    let error = timeout(Duration::from_secs(5), failed_launch)
+        .await
+        .expect("preflight failure did not cancel and join Profile preparation")
+        .unwrap()
+        .unwrap_err();
     assert_eq!(error.kind, CaptureFailureKind::ObservationFailed);
     let activation = coordinator.activation_snapshot().await;
     assert_eq!(activation.phase, ProfileActivationPhase::Failure);

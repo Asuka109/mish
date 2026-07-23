@@ -55,6 +55,14 @@ then reloads the journal and re-observes the complete active-service state. A
 changed service, field, or journal produces the existing typed drift/rejection
 path with zero OS writes.
 
+A preflight rejection is published to the Rust Notification Center as soon as
+the read-only check returns it. Capture and Profile activation remain Pending
+while the coordinator cancels and joins the Profile/Core branch, so the user
+can see the actionable failure without waiting for GeoData/Core cleanup while
+single-flight launch ownership still prevents another operation from crossing
+the cleanup boundary. The launch RPC returns the same typed error only after
+cleanup is complete.
+
 ## Deterministic before/after evidence
 
 The pre-change aggregate handoff test proved only that public Pending did not
