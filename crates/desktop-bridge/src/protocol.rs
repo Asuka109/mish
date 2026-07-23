@@ -18,7 +18,7 @@ use mish_runtime::{
     CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
     NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
     StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
-    TrafficCommandAuthority, TrafficCommandOperation,
+    SystemProxyTakeoverPolicy, TrafficCommandAuthority, TrafficCommandOperation,
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
@@ -260,6 +260,12 @@ struct SetWindowCloseBehaviorParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetWindowSurfaceParams {
     surface: WindowSurfacePreference,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetSystemProxyTakeoverPolicyParams {
+    policy: SystemProxyTakeoverPolicy,
 }
 
 struct SocketSubscriptions {
@@ -1633,6 +1639,25 @@ async fn handle_message(
             };
             match service.set_managed_ports(params.managed_ports) {
                 Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
+                Err(error) => return Some(settings_error_response(state, id, error)),
+            }
+        }
+        "settings.setSystemProxyTakeoverPolicy" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetSystemProxyTakeoverPolicyParams =
+                match serde_json::from_value(request.params) {
+                    Ok(params) => params,
+                    Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            match service.set_system_proxy_takeover_policy(params.policy) {
+                Ok(snapshot) => {
+                    state
+                        .runtime
+                        .set_system_proxy_takeover_policy(params.policy);
+                    serde_json::to_value(snapshot).expect("serializable settings")
+                }
                 Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }
