@@ -8,7 +8,8 @@ import { NotificationDeliveryProvider } from "../data/notification-delivery";
 import { FixtureStatusClient } from "../data/fixture-status-client";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
-import { ServiceIcon, ServiceMonitorSection } from "./service-monitor-section";
+import { ServiceIconImage, ServiceMonitorSection } from "./service-monitor-section";
+import { SERVICE_ICON_URLS } from "@mish/contracts";
 import "../styles.css";
 
 class BrowserServiceMonitorClient extends FixtureStatusClient {
@@ -82,22 +83,59 @@ beforeAll(async () => {
 afterAll(() => root.unmount());
 
 describe("service monitor latency colors", () => {
-  test("uses bundled icons for every default service and a local fallback for untrusted values", async () => {
-    expect(
-      [...document.querySelectorAll<HTMLElement>("[data-service-icon]")].map(
-        (element) => element.dataset.serviceIcon,
+  test("loads every built-in icon from the current origin with an accessible fixed-size image", () => {
+    const icons = [
+      ...document.querySelectorAll<HTMLImageElement>(
+        ".service-monitor-row .service-monitor-icon img",
       ),
-    ).toEqual(["search", "code", "cloud", "compass", "device"]);
-    expect(document.querySelectorAll(".service-monitor-icon img")).toHaveLength(0);
+    ];
 
+    expect(icons.map((icon) => icon.getAttribute("src"))).toEqual([
+      SERVICE_ICON_URLS.google,
+      SERVICE_ICON_URLS.github,
+      SERVICE_ICON_URLS.cloudflare,
+      SERVICE_ICON_URLS.baidu,
+      SERVICE_ICON_URLS.apple,
+    ]);
+    for (const icon of icons) {
+      const relativeSource = icon.getAttribute("src");
+      expect(relativeSource).not.toBeNull();
+      expect(new URL(relativeSource ?? "", "http://127.0.0.1:6474/status").origin).toBe(
+        "http://127.0.0.1:6474",
+      );
+      expect(new URL(relativeSource ?? "", "http://127.0.0.1:6475/status").origin).toBe(
+        "http://127.0.0.1:6475",
+      );
+      expect(icon).toHaveAttribute("alt", "");
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(icon).toHaveAttribute("data-monochrome", "true");
+      expect(icon.parentElement?.className).toContain("size-5.5");
+    }
+  });
+
+  test("never assigns an unsafe source and swaps a failed HTTPS image in place", async () => {
     const fallbackHost = document.createElement("div");
     document.body.append(fallbackHost);
     const fallbackRoot = createRoot(fallbackHost);
-    fallbackRoot.render(<ServiceIcon icon="https://attacker.invalid/icon.svg" />);
+
+    fallbackRoot.render(<ServiceIconImage src="javascript:alert(1)" />);
     await vi.waitFor(() => {
-      expect(fallbackHost.querySelector('[data-service-icon="fallback"]')).not.toBeNull();
+      expect(fallbackHost.querySelector("img")).not.toBeNull();
     });
-    expect(fallbackHost.querySelector("img")).toBeNull();
+    const unsafeImage = fallbackHost.querySelector<HTMLImageElement>("img");
+    expect(unsafeImage?.getAttribute("src")).toBe(SERVICE_ICON_URLS.fallback);
+    expect(unsafeImage).toHaveAttribute("data-service-icon-fallback", "true");
+
+    const remoteSource = "https://icons.invalid/missing.svg";
+    fallbackRoot.render(<ServiceIconImage src={remoteSource} />);
+    await vi.waitFor(() => {
+      expect(fallbackHost.querySelector("img")?.getAttribute("src")).toBe(
+        SERVICE_ICON_URLS.fallback,
+      );
+    });
+    expect(fallbackHost.querySelector("img")).toHaveAttribute("data-service-icon-fallback", "true");
+    expect(fallbackHost.querySelector("img")?.parentElement?.className).not.toContain("hidden");
+
     fallbackRoot.unmount();
     fallbackHost.remove();
   });

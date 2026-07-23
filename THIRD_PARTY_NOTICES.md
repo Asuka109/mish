@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 Mish is independent software. It is not affiliated with, endorsed by, sponsored
-by, or an official client of MetaCubeX, Highsoft, Phosphor Icons, Unsplash, or any
+by, or an official client of MetaCubeX, Highsoft, Remix Design, Unsplash, or any
 other project or service named below.
 
 Mish-authored source is distributed under GPL-3.0-only. Third-party software,
@@ -83,11 +83,28 @@ The bundled onboarding cover is
 by [Petri R](https://unsplash.com/@petrirh1), obtained under the
 [Unsplash License](https://unsplash.com/license).
 
-Service-monitor icons are locally rendered generic components from the bundled
-[Phosphor Icons](https://github.com/phosphor-icons/core) dependency (MIT). The
-protocol carries only a small allowlist of semantic IDs; it does not bundle or
-display third-party service logos. Service names remain text labels and do not
-claim ownership of, or rights in, any third-party trademark.
+The built-in service icons are exact SVG files from the official Remix Icon
+[`v4.8.0`](https://github.com/Remix-Design/RemixIcon/tree/v4.8.0) tag, released
+2025-12-29 at immutable commit
+[`8e543a8983790c20d7d8c696ae74023c69f379b7`](https://github.com/Remix-Design/RemixIcon/commit/8e543a8983790c20d7d8c696ae74023c69f379b7).
+That tag's `License` file is Apache-2.0; an exact copy is retained at
+[`THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt`](THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt).
+The source paths, local renamed paths, Git blob IDs, and SHA-256 hashes are
+recorded in
+[`packages/brand-assets/remix-icon-v4.8.0.json`](packages/brand-assets/remix-icon-v4.8.0.json).
+The exact commit has no upstream `NOTICE` file.
+Later `v4.9.0` and `v4.9.1` tags use Remix Icon License v1.0, whose official
+text warns of possible incompatibility with strong-copyleft licenses. No asset
+or license file from those tags, current `master`, an icon CDN, or a third-party
+mirror is included in this vendored set.
+
+Google, GitHub, Baidu, Apple, and Microsoft use only their corresponding named
+brand icons. Remix Icon `v4.8.0` has no Cloudflare brand icon, so Cloudflare is
+explicitly represented by the generic `icons/Business/cloud-fill.svg` asset.
+These names and icons identify reachability-test targets and do not imply
+affiliation or endorsement. Built-in icons are served from Mish's bundled
+static assets; only a user-selected custom HTTPS icon can create an external
+browser image request.
 
 Service names and brand icons identify user-configurable reachability-test
 targets. They do not imply affiliation, endorsement, availability, or

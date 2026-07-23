@@ -340,27 +340,37 @@ impl StatusSnapshot {
 pub fn default_service_monitors() -> Vec<ServiceMonitor> {
     [
         (
-            "search",
+            "/assets/remix-icon/google.svg",
             "google",
             "Google",
             "https://www.google.com/generate_204",
         ),
-        ("code", "github", "GitHub", "https://github.com"),
         (
-            "cloud",
+            "/assets/remix-icon/github.svg",
+            "github",
+            "GitHub",
+            "https://github.com",
+        ),
+        (
+            "/assets/remix-icon/cloud.svg",
             "cloudflare",
             "Cloudflare",
             "https://cp.cloudflare.com/generate_204",
         ),
-        ("compass", "baidu", "Baidu", "https://www.baidu.com"),
         (
-            "device",
+            "/assets/remix-icon/baidu.svg",
+            "baidu",
+            "Baidu",
+            "https://www.baidu.com",
+        ),
+        (
+            "/assets/remix-icon/apple.svg",
             "apple",
             "Apple",
             "https://www.apple.com/library/test/success.html",
         ),
         (
-            "squares",
+            "/assets/remix-icon/microsoft.svg",
             "microsoft",
             "Microsoft",
             "http://www.msftconnecttest.com/connecttest.txt",
@@ -394,17 +404,23 @@ mod tests {
     }
 
     #[test]
-    fn default_service_monitors_serialize_stable_local_icon_ids() {
-        let monitors = default_service_monitors();
-        let icons: Vec<&str> = monitors
-            .iter()
-            .map(|monitor| monitor.icon.as_str())
+    fn default_service_monitors_use_root_relative_bundled_icons() {
+        let icons: Vec<_> = default_service_monitors()
+            .into_iter()
+            .map(|monitor| monitor.icon)
             .collect();
 
         assert_eq!(
             icons,
-            ["search", "code", "cloud", "compass", "device", "squares"]
+            [
+                "/assets/remix-icon/google.svg",
+                "/assets/remix-icon/github.svg",
+                "/assets/remix-icon/cloud.svg",
+                "/assets/remix-icon/baidu.svg",
+                "/assets/remix-icon/apple.svg",
+                "/assets/remix-icon/microsoft.svg",
+            ]
         );
-        assert!(icons.iter().all(|icon| !icon.contains("://")));
+        assert!(icons.iter().all(|icon| icon.starts_with('/')));
     }
 }

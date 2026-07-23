@@ -835,8 +835,12 @@ const zh = {
     empty: "没有服务监控项",
     fixtureEmptyDescription: "添加本地演示监控项，不会发送网络请求。",
     fixtureEndpointDescription: "演示服务的延迟。",
-    fixtureMetadataDescription: "这里只保存演示测速信息；服务图标已随 Mish 打包。",
+    fixtureMetadataDescription: "这里只保存演示测速信息；自定义 HTTPS 图标仍会由此浏览器直接加载。",
     fixtureUrlDescription: "演示模式只保存探测地址，不会访问它。",
+    iconUrl: "图标 URL",
+    iconUrlDescription:
+      "内置图标保持本地加载；自定义 HTTPS 图片会由此浏览器直接请求，Rust 服务不会代为获取。",
+    iconUrlError: "请输入有效的 HTTPS 图标 URL。",
     labelError: "请输入标题。",
     manage: "管理",
     intervalDisabled: "永不",

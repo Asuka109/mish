@@ -1495,7 +1495,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 20);
+    assert_eq!(info["result"]["protocolVersion"], 19);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
@@ -1683,7 +1683,14 @@ async fn service_probes_remain_available_while_core_is_stopped() {
             .iter()
             .map(|service| service["icon"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["search", "code", "cloud", "compass", "device", "squares"]
+        [
+            "/assets/remix-icon/google.svg",
+            "/assets/remix-icon/github.svg",
+            "/assets/remix-icon/cloud.svg",
+            "/assets/remix-icon/baidu.svg",
+            "/assets/remix-icon/apple.svg",
+            "/assets/remix-icon/microsoft.svg",
+        ]
     );
     assert_eq!(
         snapshot["result"]["probeResults"].as_array().unwrap().len(),
@@ -1712,15 +1719,55 @@ async fn service_probes_remain_available_while_core_is_stopped() {
         10
     );
 
-    let rejected = request(
+    let custom = request(
         &mut ws,
         json!({
             "jsonrpc":"2.0",
             "id":5,
             "method":"status.upsertServiceMonitor",
             "params":{"draft":{
-                "icon":"https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg",
+                "icon":"https://example.com/custom-service.svg",
                 "label":"Local metadata",
+                "url":"https://example.com/generate_204"
+            }}
+        }),
+    )
+    .await;
+    assert_eq!(
+        custom["result"]["services"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|service| service["label"] == "Local metadata")
+            .unwrap()["icon"],
+        "https://example.com/custom-service.svg"
+    );
+
+    let unsafe_icon = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":6,
+            "method":"status.upsertServiceMonitor",
+            "params":{"draft":{
+                "icon":"file:///tmp/icon.svg",
+                "label":"Unsafe icon",
+                "url":"https://example.com/generate_204"
+            }}
+        }),
+    )
+    .await;
+    assert_eq!(unsafe_icon["error"]["code"], -32602);
+
+    let rejected = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":7,
+            "method":"status.upsertServiceMonitor",
+            "params":{"draft":{
+                "icon":"https://example.com/custom-service.svg",
+                "label":"Private target",
                 "url":"http://169.254.169.254/latest/meta-data"
             }}
         }),
@@ -1732,7 +1779,7 @@ async fn service_probes_remain_available_while_core_is_stopped() {
         &mut ws,
         json!({
             "jsonrpc":"2.0",
-            "id":6,
+            "id":8,
             "method":"status.testServiceMonitor",
             "params":{"monitorId":"missing-service"}
         }),

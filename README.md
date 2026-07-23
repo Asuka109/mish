@@ -62,9 +62,11 @@ maintainers. Do not include sensitive or personal information in a public
 report.
 
 Mish is local-first, not network-isolated. User profiles, Mihomo, provider
-updates, delay tests, and service probes can make outbound requests. Service
-icons are bundled local components and do not request remote icon assets. The current repository does not configure telemetry, a hosted account
-service, a crash reporter, or an automatic updater.
+updates, delay tests, and service probes can make outbound requests. Built-in
+service icons are bundled locally. A user-configured HTTPS service icon makes a
+direct browser image request; the Rust service does not fetch or proxy it. The
+current repository does not configure telemetry, a hosted account service, a
+crash reporter, or an automatic updater.
 
 If you need to report a security or privacy concern, contact the project
 maintainers without posting sensitive details publicly. Never post real

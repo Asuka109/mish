@@ -35,7 +35,7 @@ non-fixture adapter.
 | `GroupDelayPolicyDto`     | Internal policy ID, visible fixed HTTPS probe URL, and bounded timeout                       | Local bridge application policy                  |
 | `GroupDelayTestDto`       | Group/profile/test identity, phase, direct-child outcomes, timestamps, and typed failures    | Local bridge plus revalidated Mihomo results     |
 | `GroupUsageDto`           | Profile-scoped cumulative deduplicated connection observations                               | Local-bridge derivation                          |
-| `ServiceMonitorDto`       | ID, opaque title, probe URL, semantic icon ID, probe policy                                  | Local bridge persistence                         |
+| `ServiceMonitorDto`       | ID, opaque title, probe URL, bundled root-relative or user HTTPS icon URL                    | Local bridge persistence                         |
 | `ServiceProbeResultDto`   | Monitor ID, latency, timestamp, status, explicit route target                                | Local-bridge probe execution                     |
 | `PlatformCapabilitiesDto` | Supported capture modes, tray, vibrancy, and other native capabilities                       | Platform adapter                                 |
 
@@ -44,14 +44,17 @@ not split, normalize, reorder, or infer structured emoji and text fields. The
 demo fixtures may keep separate properties only for convenient mock
 construction; that shape is not a production contract.
 
-Service icon values are stable, bounded semantic IDs. The bridge accepts only
-the current allowlist for new or edited monitors and normalizes legacy values
-to that allowlist while loading persisted state. The Web resolver maps IDs to
-generic bundled Phosphor components; it never interprets a value as a URL or
-creates an image resource. Unknown, malformed, and legacy values use the local
-generic fallback, so untrusted data cannot trigger a request. Generic symbols
-and the visible text label preserve service recognition without asserting rights
-in third-party logos or trademarks.
+Built-in service icons are exact Remix Icon `v4.8.0` SVGs bundled under
+`/assets/remix-icon/` and referenced with root-relative URLs. They therefore
+resolve against the current Tauri or Browser Client origin, including an
+advanced loopback port. Cloudflare intentionally uses the generic Remix cloud
+symbol because that release has no Cloudflare brand icon.
+
+User-authored icon metadata may instead contain a credential-free HTTPS URL.
+The browser renders it only through `<img>`, omits referrer information, and
+falls back to the bundled generic cloud icon for malformed values or load
+errors. Rust validates and persists the URL but never fetches, proxies, caches,
+or inspects its content. Other schemes and unrecorded local paths are rejected.
 
 `PolicyGroupDto` is a discriminated union for `selector`, `url-test`,
 `fallback`, `load-balance`, `relay`, `direct`, `reject`, and `unsupported`.

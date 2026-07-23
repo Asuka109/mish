@@ -407,7 +407,7 @@ describe("RpcClient", () => {
     await expect(
       client.request("status.upsertServiceMonitor", {
         draft: {
-          icon: "globe",
+          icon: "https://example.com/custom-service.svg",
           label: "x".repeat(512),
           url: "https://example.com",
         },

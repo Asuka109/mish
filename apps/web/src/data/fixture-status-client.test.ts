@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SERVICE_ICON_URLS, ServiceIconUrlSchema } from "@mish/contracts";
 import { FixtureStatusClient } from "./fixture-status-client";
 
 describe("FixtureStatusClient", () => {
@@ -23,18 +24,58 @@ describe("FixtureStatusClient", () => {
     );
   });
 
-  it("serializes every default service with a local semantic icon ID", async () => {
+  it("serializes every default service with a root-relative bundled icon URL", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
+    const icons = snapshot.services.map((service) => service.icon);
 
-    expect(snapshot.services.map((service) => service.icon)).toEqual([
-      "search",
-      "code",
-      "cloud",
-      "compass",
-      "device",
-      "squares",
+    expect(icons).toEqual([
+      SERVICE_ICON_URLS.google,
+      SERVICE_ICON_URLS.github,
+      SERVICE_ICON_URLS.cloudflare,
+      SERVICE_ICON_URLS.baidu,
+      SERVICE_ICON_URLS.apple,
+      SERVICE_ICON_URLS.microsoft,
     ]);
-    expect(snapshot.services.every((service) => !service.icon.includes("://"))).toBe(true);
+    expect(icons.every((icon) => icon.startsWith("/assets/remix-icon/"))).toBe(true);
+  });
+
+  it("creates, edits, and persists user-selected HTTPS icon URLs", async () => {
+    const client = new FixtureStatusClient();
+    const created = await client.upsertServiceMonitor({
+      icon: "https://example.com/first.svg",
+      label: "Custom",
+      url: "https://example.com/generate_204",
+    });
+    const custom = created.services.find((service) => service.label === "Custom");
+    expect(custom?.icon).toBe("https://example.com/first.svg");
+
+    const edited = await client.upsertServiceMonitor({
+      icon: "https://cdn.example.com/second.webp",
+      id: custom?.id,
+      label: "Custom",
+      url: "https://example.com/generate_204",
+    });
+    expect(edited.services.find((service) => service.id === custom?.id)?.icon).toBe(
+      "https://cdn.example.com/second.webp",
+    );
+    expect(
+      (await client.getSnapshot()).services.find((service) => service.id === custom?.id)?.icon,
+    ).toBe("https://cdn.example.com/second.webp");
+  });
+
+  it("accepts only recorded local paths or credential-free HTTPS icon URLs", () => {
+    expect(ServiceIconUrlSchema.safeParse(SERVICE_ICON_URLS.fallback).success).toBe(true);
+    expect(ServiceIconUrlSchema.safeParse("https://example.com/icon.svg").success).toBe(true);
+    for (const unsafe of [
+      "http://example.com/icon.svg",
+      "https://user:secret@example.com/icon.svg",
+      "javascript:alert(1)",
+      "file:///tmp/icon.svg",
+      "/assets/remix-icon/unrecorded.svg",
+      "not a URL",
+    ]) {
+      expect(ServiceIconUrlSchema.safeParse(unsafe).success).toBe(false);
+    }
   });
 
   it("defaults service probes to a five-second interval", async () => {

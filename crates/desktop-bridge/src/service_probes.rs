@@ -23,13 +23,19 @@ const DISABLED_INTERVAL_SECONDS: u16 = 0;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_MONITORS: usize = 24;
 const ALLOWED_INTERVALS: [u16; 5] = [0, 5, 10, 30, 60];
+const FALLBACK_SERVICE_ICON_URL: &str = "/assets/remix-icon/cloud.svg";
+const BUNDLED_SERVICE_ICON_URLS: [&str; 6] = [
+    "/assets/remix-icon/apple.svg",
+    "/assets/remix-icon/baidu.svg",
+    "/assets/remix-icon/cloud.svg",
+    "/assets/remix-icon/github.svg",
+    "/assets/remix-icon/google.svg",
+    "/assets/remix-icon/microsoft.svg",
+];
 const LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL: &str =
     "https://www.msftconnecttest.com/connecttest.txt";
 const MICROSOFT_CONNECTIVITY_TEST_URL: &str = "http://www.msftconnecttest.com/connecttest.txt";
-const FALLBACK_ICON_ID: &str = "globe";
-const SERVICE_ICON_IDS: [&str; 7] = [
-    "cloud", "code", "compass", "device", "globe", "search", "squares",
-];
+const MICROSOFT_DEFAULT_ICON_URL: &str = "/assets/remix-icon/microsoft.svg";
 
 #[derive(Clone, Debug)]
 pub struct ServiceProbeConfig {
@@ -91,7 +97,7 @@ impl ServiceProbeService {
             .map(|state| state.services)
             .unwrap_or_else(default_service_monitors)
             .into_iter()
-            .map(upgrade_icon_id)
+            .map(normalize_persisted_icon)
             .map(upgrade_legacy_default_microsoft_url)
             .collect();
         let (updates, _) = broadcast::channel(32);
@@ -135,7 +141,7 @@ impl ServiceProbeService {
     }
 
     pub async fn upsert(&self, draft: ServiceMonitorDraft) -> Result<(), ServiceProbeError> {
-        validate_icon_id(&draft.icon)?;
+        validate_icon_url(&draft.icon)?;
         validate_label(&draft.label)?;
         validate_probe_url(&draft.url).await?;
         let mut state = self
@@ -415,17 +421,33 @@ fn normalize_persisted_interval(interval_seconds: u16) -> u16 {
     }
 }
 
-fn upgrade_icon_id(mut monitor: ServiceMonitor) -> ServiceMonitor {
-    monitor.icon = legacy_icon_id(&monitor.icon)
-        .unwrap_or(FALLBACK_ICON_ID)
-        .into();
+fn normalize_persisted_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
+    if let Some(icon) = current_default_icon_url(&monitor.icon)
+        && default_monitor_uses_icon(&monitor, icon)
+    {
+        monitor.icon = icon.into();
+    } else if !valid_icon_url(&monitor.icon) {
+        monitor.icon = FALLBACK_SERVICE_ICON_URL.into();
+    }
     monitor
+}
+
+fn default_monitor_uses_icon(monitor: &ServiceMonitor, icon: &str) -> bool {
+    matches!(
+        (monitor.id.as_str(), monitor.label.as_str(), icon,),
+        ("apple", "Apple", "/assets/remix-icon/apple.svg")
+            | ("baidu", "Baidu", "/assets/remix-icon/baidu.svg")
+            | ("cloudflare", "Cloudflare", "/assets/remix-icon/cloud.svg")
+            | ("github", "GitHub", "/assets/remix-icon/github.svg")
+            | ("google", "Google", "/assets/remix-icon/google.svg")
+            | ("microsoft", "Microsoft", "/assets/remix-icon/microsoft.svg")
+    )
 }
 
 fn upgrade_legacy_default_microsoft_url(mut monitor: ServiceMonitor) -> ServiceMonitor {
     if monitor.id == "microsoft"
         && monitor.label == "Microsoft"
-        && monitor.icon == "squares"
+        && monitor.icon == MICROSOFT_DEFAULT_ICON_URL
         && monitor.url == LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL
     {
         monitor.url = MICROSOFT_CONNECTIVITY_TEST_URL.into();
@@ -433,56 +455,80 @@ fn upgrade_legacy_default_microsoft_url(mut monitor: ServiceMonitor) -> ServiceM
     monitor
 }
 
-fn legacy_icon_id(value: &str) -> Option<&'static str> {
+fn current_default_icon_url(value: &str) -> Option<&'static str> {
     match value {
-        "search"
-        | "google"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/google-color.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg" => {
-            Some("search")
-        }
-        "code"
-        | "github"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/github.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/github-fill.svg" => {
-            Some("code")
-        }
-        "cloud"
-        | "cloudflare"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg" => {
-            Some("cloud")
-        }
-        "compass"
-        | "baidu"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/baidu-color.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/baidu-fill.svg" => {
-            Some("compass")
-        }
         "apple"
         | "device"
+        | "/assets/remix-icon/apple.svg"
         | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/apple.svg"
         | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/apple-fill.svg" => {
-            Some("device")
+            Some("/assets/remix-icon/apple.svg")
         }
-        "globe" | "https://registry.npmmirror.com/bootstrap-icons/1.13.1/files/icons/globe.svg" => {
-            Some("globe")
+        "baidu"
+        | "compass"
+        | "/assets/remix-icon/baidu.svg"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/baidu-color.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/baidu-fill.svg" => {
+            Some("/assets/remix-icon/baidu.svg")
+        }
+        "cloudflare"
+        | "cloud"
+        | "/assets/remix-icon/cloud.svg"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg" => {
+            Some("/assets/remix-icon/cloud.svg")
+        }
+        "github"
+        | "code"
+        | "/assets/remix-icon/github.svg"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/github.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/github-fill.svg" => {
+            Some("/assets/remix-icon/github.svg")
+        }
+        "google"
+        | "search"
+        | "/assets/remix-icon/google.svg"
+        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/google-color.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg" => {
+            Some("/assets/remix-icon/google.svg")
         }
         "microsoft"
         | "squares"
+        | "/assets/remix-icon/microsoft.svg"
         | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/microsoft-color.svg"
         | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/microsoft-fill.svg" => {
-            Some("squares")
+            Some("/assets/remix-icon/microsoft.svg")
+        }
+        "globe"
+        | "https://registry.npmmirror.com/bootstrap-icons/1.13.1/files/icons/globe.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg"
+        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg" => {
+            Some(FALLBACK_SERVICE_ICON_URL)
         }
         _ => None,
     }
 }
 
-fn validate_icon_id(value: &str) -> Result<(), ServiceProbeError> {
-    if SERVICE_ICON_IDS.contains(&value) {
+fn validate_icon_url(value: &str) -> Result<(), ServiceProbeError> {
+    if valid_icon_url(value) {
         return Ok(());
     }
-    Err(ServiceProbeError::Invalid("Unsupported service icon"))
+    Err(ServiceProbeError::Invalid("Invalid service icon URL"))
+}
+
+fn valid_icon_url(value: &str) -> bool {
+    if value.len() > 2_048 {
+        return false;
+    }
+    if BUNDLED_SERVICE_ICON_URLS.contains(&value) {
+        return true;
+    }
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
 }
 
 fn persist_locked(path: Option<&Path>, state: &ProbeState) -> Result<(), ServiceProbeError> {
@@ -847,7 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_and_untrusted_icon_values_are_normalized_without_urls() {
+    fn persisted_icons_migrate_defaults_preserve_https_and_fallback_unsafe_values() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
         let state = PersistedState {
@@ -855,20 +901,38 @@ mod tests {
             services: vec![
                 ServiceMonitor {
                     icon: "google".into(),
-                    id: "legacy-google".into(),
-                    label: "Legacy Google".into(),
+                    id: "google".into(),
+                    label: "Google".into(),
                     url: "https://www.google.com/generate_204".into(),
                 },
                 ServiceMonitor {
                     icon: "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg".into(),
-                    id: "legacy-cloudflare".into(),
-                    label: "Legacy Cloudflare".into(),
+                    id: "cloudflare".into(),
+                    label: "Cloudflare".into(),
                     url: "https://cp.cloudflare.com/generate_204".into(),
                 },
                 ServiceMonitor {
-                    icon: "https://attacker.invalid/icon.svg".into(),
-                    id: "legacy-untrusted".into(),
-                    label: "Legacy untrusted".into(),
+                    icon: "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg".into(),
+                    id: "custom-legacy-url".into(),
+                    label: "Custom legacy URL".into(),
+                    url: "https://example.com/generate_204".into(),
+                },
+                ServiceMonitor {
+                    icon: "https://example.com/custom.svg".into(),
+                    id: "custom-https".into(),
+                    label: "Custom HTTPS".into(),
+                    url: "https://example.com/generate_204".into(),
+                },
+                ServiceMonitor {
+                    icon: "javascript:alert(1)".into(),
+                    id: "unsafe-scheme".into(),
+                    label: "Unsafe scheme".into(),
+                    url: "https://example.com/generate_204".into(),
+                },
+                ServiceMonitor {
+                    icon: "not a URL".into(),
+                    id: "malformed".into(),
+                    label: "Malformed".into(),
                     url: "https://example.com/generate_204".into(),
                 },
             ],
@@ -889,7 +953,17 @@ mod tests {
             .map(|service| service.icon.clone())
             .collect();
 
-        assert_eq!(restored_icons, vec!["search", "cloud", "globe",]);
+        assert_eq!(
+            restored_icons,
+            vec![
+                "/assets/remix-icon/google.svg",
+                "/assets/remix-icon/cloud.svg",
+                "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
+                "https://example.com/custom.svg",
+                "/assets/remix-icon/cloud.svg",
+                "/assets/remix-icon/cloud.svg",
+            ]
+        );
     }
 
     #[test]
@@ -990,10 +1064,14 @@ mod tests {
     }
 
     #[test]
-    fn service_icon_ids_are_allowlisted() {
-        assert!(validate_icon_id("globe").is_ok());
-        assert!(validate_icon_id("https://example.com/icon.svg").is_err());
-        assert!(validate_icon_id("unknown").is_err());
+    fn service_icon_values_accept_bundled_paths_or_credential_free_https() {
+        assert!(valid_icon_url("/assets/remix-icon/google.svg"));
+        assert!(valid_icon_url("https://example.com/custom.svg"));
+        assert!(!valid_icon_url("/assets/remix-icon/unrecorded.svg"));
+        assert!(!valid_icon_url("http://example.com/icon.svg"));
+        assert!(!valid_icon_url("https://user:secret@example.com/icon.svg"));
+        assert!(!valid_icon_url("javascript:alert(1)"));
+        assert!(!valid_icon_url("file:///tmp/icon.svg"));
     }
 
     #[test]

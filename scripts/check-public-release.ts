@@ -12,7 +12,11 @@ const requiredPublicFiles = [
   "LICENSE",
   "THIRD_PARTY_NOTICES.md",
 ] as const;
-const packagedLegalResources = ["LICENSE", "THIRD_PARTY_NOTICES.md"] as const;
+const packagedLegalResources = [
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+  "THIRD_PARTY_LICENSES/Remix-Icon-v4.8.0-Apache-2.0.txt",
+] as const;
 
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -170,6 +174,16 @@ includesAll(
     "Highcharts",
     "Separate Highsoft terms",
     "commercial or OEM license grant",
+    "Remix Icon",
+    "v4.8.0",
+    "8e543a8983790c20d7d8c696ae74023c69f379b7",
+    "Apache-2.0",
+    "generic `icons/Business/cloud-fill.svg`",
+    "do not imply affiliation or endorsement",
+    "v4.9.0",
+    "v4.9.1",
+    "Remix Icon License v1.0",
+    "strong-copyleft",
     "Petri R",
     "Unsplash License",
     "NOASSERTION",
@@ -180,35 +194,153 @@ invariant(
   !notices.includes("cyenxchen/mihomo"),
   "THIRD_PARTY_NOTICES.md must use the available official Mihomo source chain.",
 );
-const serviceIconSources = [
-  "crates/runtime/src/status.rs",
-  "crates/desktop-bridge/src/service_probes.rs",
-  "packages/contracts/src/index.ts",
-  "apps/web/src/components/service-monitor-section.tsx",
-  "apps/web/src/data/fixture-status-client.ts",
+invariant(
+  !notices.includes("registry.npmmirror.com"),
+  "THIRD_PARTY_NOTICES.md must describe only the bundled Remix Icon v4.8.0 source.",
+);
+
+const remixIconManifestPath = "packages/brand-assets/remix-icon-v4.8.0.json";
+const remixIconManifest = json(remixIconManifestPath) as {
+  source: { tag: string; commit: string; releasedAt: string };
+  license: {
+    spdx: string;
+    upstreamPath: string;
+    upstreamGitBlobSha1: string;
+    localPath: string;
+    sha256: string;
+  };
+  notice: string;
+  assets: {
+    service: string;
+    upstreamPath: string;
+    upstreamGitBlobSha1: string;
+    localPath: string;
+    sha256: string;
+  }[];
+};
+const expectedRemixIconAssets = [
+  {
+    upstreamPath: "icons/Logos/google-fill.svg",
+    upstreamGitBlobSha1: "54b050de30c3190d351c7192620508c43995c9c8",
+    localPath: "packages/brand-assets/public/assets/remix-icon/google.svg",
+    sha256: "9b31e86f90f1ffc28a2c7325bec2333681b64e8d95d68ee1a3138706ce5bfaeb",
+  },
+  {
+    upstreamPath: "icons/Logos/github-fill.svg",
+    upstreamGitBlobSha1: "019beafa8a78225c3fd4c39a2286b197d0f9bae6",
+    localPath: "packages/brand-assets/public/assets/remix-icon/github.svg",
+    sha256: "784a21914fa745be8d569ceb85dde5ba8f22aea6c4d2cd577e9ca75d733099bb",
+  },
+  {
+    upstreamPath: "icons/Logos/baidu-fill.svg",
+    upstreamGitBlobSha1: "237391b096efb36fb715ceaf7bc3870310e20279",
+    localPath: "packages/brand-assets/public/assets/remix-icon/baidu.svg",
+    sha256: "1aba5ab72548679a92c996d8e30730df5631720abe5c6e6db52a0d481b59bad6",
+  },
+  {
+    upstreamPath: "icons/Logos/apple-fill.svg",
+    upstreamGitBlobSha1: "538f2273ad690435842954abd05607bdb1769cd7",
+    localPath: "packages/brand-assets/public/assets/remix-icon/apple.svg",
+    sha256: "14a1f34511a8dc0c053a4d4946098293f25c18f7ce7555e47d9fcb4f12e54c08",
+  },
+  {
+    upstreamPath: "icons/Logos/microsoft-fill.svg",
+    upstreamGitBlobSha1: "4ef10a60569397c8821bec50d83dec76f390333f",
+    localPath: "packages/brand-assets/public/assets/remix-icon/microsoft.svg",
+    sha256: "c67d3330a759bc78bfa0a577e740c4de2ea0868bf6b645be0cbbb7a5755179e2",
+  },
+  {
+    upstreamPath: "icons/Business/cloud-fill.svg",
+    upstreamGitBlobSha1: "94c4c46df76efb96df516c16174b273dddd2bcf8",
+    localPath: "packages/brand-assets/public/assets/remix-icon/cloud.svg",
+    sha256: "29981791fcc07040c0c5329b2cc3d9cf2989f5caf9a2414add5268d75affb513",
+  },
 ] as const;
-for (const sourcePath of serviceIconSources) {
-  const source = read(sourcePath);
+invariant(
+  remixIconManifest.source.tag === "v4.8.0" &&
+    remixIconManifest.source.commit === "8e543a8983790c20d7d8c696ae74023c69f379b7" &&
+    remixIconManifest.source.releasedAt.startsWith("2025-12-29"),
+  `${remixIconManifestPath} must pin the official v4.8.0 release and immutable commit.`,
+);
+invariant(
+  remixIconManifest.license.spdx === "Apache-2.0" &&
+    remixIconManifest.license.upstreamPath === "License" &&
+    remixIconManifest.license.upstreamGitBlobSha1 === "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64" &&
+    remixIconManifest.license.sha256 ===
+      "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+  `${remixIconManifestPath} must record the exact tag-scoped Apache-2.0 license.`,
+);
+invariant(
+  remixIconManifest.notice.includes("does not contain an upstream NOTICE file") &&
+    remixIconManifest.notice.includes("generic Remix Icon cloud-fill"),
+  `${remixIconManifestPath} must retain the upstream NOTICE and Cloudflare mapping facts.`,
+);
+invariant(
+  remixIconManifest.assets.length === expectedRemixIconAssets.length,
+  `${remixIconManifestPath} must record exactly the vendored icon set.`,
+);
+for (const expected of expectedRemixIconAssets) {
+  const recorded = remixIconManifest.assets.find((asset) => asset.localPath === expected.localPath);
+  invariant(recorded, `${remixIconManifestPath} omits ${expected.localPath}.`);
+  for (const field of ["upstreamPath", "upstreamGitBlobSha1", "localPath", "sha256"] as const) {
+    invariant(
+      recorded[field] === expected[field],
+      `${remixIconManifestPath} has a mismatched ${field} for ${expected.localPath}.`,
+    );
+  }
+  const digest = createHash("sha256")
+    .update(readFileSync(path.join(root, expected.localPath)))
+    .digest("hex");
+  invariant(digest === expected.sha256, `Vendored Remix Icon differs: ${expected.localPath}.`);
+}
+const recordedIconFiles = filesUnder(
+  "packages/brand-assets/public/assets/remix-icon",
+  () => true,
+).sort();
+invariant(
+  JSON.stringify(recordedIconFiles) ===
+    JSON.stringify(expectedRemixIconAssets.map((asset) => asset.localPath).sort()),
+  "The Remix Icon static directory contains an unrecorded or missing asset.",
+);
+const remixLicenseDigest = createHash("sha256")
+  .update(readFileSync(path.join(root, remixIconManifest.license.localPath)))
+  .digest("hex");
+invariant(
+  remixLicenseDigest === remixIconManifest.license.sha256,
+  "The retained Remix Icon Apache-2.0 license differs from the recorded upstream file.",
+);
+
+for (const builtInSourcePath of [
+  "crates/runtime/src/status.rs",
+  "apps/web/src/data/fixture-status-client.ts",
+]) {
+  const source = read(builtInSourcePath);
   invariant(
-    !/(?:SERVICE_ICON_CDN_BASE|SERVICE_ICON_URLS|ServiceIconUrlSchema|valid_icon_url|<img\b|\bsrc=)/u.test(
-      source,
-    ),
-    `${sourcePath} must not add a remote or image-based service icon path.`,
+    !/https:\/\/[^"'\s]+\.(?:svg|png|webp)\b/iu.test(source) &&
+      !source.includes("SERVICE_ICON_CDN_BASE"),
+    `${builtInSourcePath} must not configure a remote built-in service icon.`,
   );
 }
 includesAll(
-  read("crates/desktop-bridge/src/service_probes.rs"),
-  ["SERVICE_ICON_IDS", "Unsupported service icon", "FALLBACK_ICON_ID"],
-  "Service icon persistence contract",
+  read("crates/runtime/src/status.rs"),
+  expectedRemixIconAssets.map((asset) =>
+    asset.localPath.replace("packages/brand-assets/public", ""),
+  ),
+  "Rust built-in service icon defaults",
 );
 includesAll(
-  read("apps/web/src/components/service-monitor-section.tsx"),
-  ["serviceIconComponents", "Object.hasOwn", "data-service-icon"],
-  "Service icon renderer",
+  read("packages/contracts/src/index.ts"),
+  [
+    'const SERVICE_ICON_ASSET_BASE = "/assets/remix-icon"',
+    'url.protocol === "https:"',
+    "ServiceIconValueSchema",
+  ],
+  "Service icon transport contract",
 );
-invariant(
-  !notices.includes("Remix Icon License v1.0") && !notices.includes("registry.npmmirror.com"),
-  "THIRD_PARTY_NOTICES.md must not retain the removed remote Remix icon dependency.",
+includesAll(
+  read("crates/desktop-bridge/src/service_probes.rs"),
+  ["BUNDLED_SERVICE_ICON_URLS", 'url.scheme() == "https"', "FALLBACK_SERVICE_ICON_URL"],
+  "Service icon persistence contract",
 );
 
 const readme = read("README.md");
@@ -234,7 +366,8 @@ includesAll(
     "macOS 13 or later on Apple Silicon only",
     "There is no stable package download yet.",
     "Virtual Interface support belongs to a separate future release path",
-    "Service icons are bundled local components and do not request remote icon assets.",
+    "Built-in service icons are bundled locally.",
+    "A user-configured HTTPS service icon makes a direct browser image request",
     "Developer setup, commands, architecture, and validation details are maintained in",
     "does not require copyright assignment or a Contributor License Agreement",
     "confirm authority to contribute the material and license it under GPL-3.0-only",
@@ -304,7 +437,8 @@ includesAll(
     "macOS 13 或更高版本",
     "目前尚无稳定软件包可供下载",
     "“虚拟接口”支持属于独立的后续发行路径，目前不可用",
-    "服务图标是随应用打包的本地组件",
+    "内置服务图标随应用本地提供",
+    "用户自行配置的 HTTPS 服务图标会由浏览器直接请求",
     "开发环境、命令、架构和验证细节维护在",
     "不要求转让版权或签署贡献者许可协议",
     "确认其有权贡献相关材料",

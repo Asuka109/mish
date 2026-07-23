@@ -1211,22 +1211,39 @@ export const GroupUsageSchema = z
   .strict();
 export interface GroupUsageDto extends z.infer<typeof GroupUsageSchema> {}
 
-export const SERVICE_ICON_IDS = [
-  "cloud",
-  "code",
-  "compass",
-  "device",
-  "globe",
-  "search",
-  "squares",
-] as const;
-export type ServiceIconId = (typeof SERVICE_ICON_IDS)[number];
+const SERVICE_ICON_ASSET_BASE = "/assets/remix-icon";
 
-// The protocol emits only these IDs. A bounded compatibility string keeps an old
-// bridge from invalidating the complete snapshot; renderers must use their local
-// fallback for values outside the allowlist and never treat this value as a URL.
-export const ServiceIconIdSchema = z.enum(SERVICE_ICON_IDS);
-const ServiceIconValueSchema = z.string().min(1).max(2_048);
+export const SERVICE_ICON_URLS = {
+  apple: `${SERVICE_ICON_ASSET_BASE}/apple.svg`,
+  baidu: `${SERVICE_ICON_ASSET_BASE}/baidu.svg`,
+  cloudflare: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
+  fallback: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
+  github: `${SERVICE_ICON_ASSET_BASE}/github.svg`,
+  google: `${SERVICE_ICON_ASSET_BASE}/google.svg`,
+  microsoft: `${SERVICE_ICON_ASSET_BASE}/microsoft.svg`,
+} as const;
+
+const bundledServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
+
+export const ServiceIconUrlSchema = z
+  .string()
+  .min(1)
+  .max(2_048)
+  .refine((value) => {
+    if (bundledServiceIconUrls.has(value)) return true;
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === "https:" && url.host !== "" && url.username === "" && url.password === ""
+      );
+    } catch {
+      return false;
+    }
+  });
+
+// Snapshot decoding remains resilient so one malformed persisted value can use
+// the browser fallback without invalidating the complete status payload.
+const ServiceIconValueSchema = z.string().max(2_048);
 
 export const ServiceMonitorSchema = z
   .object({
@@ -1808,7 +1825,7 @@ export const NativeStatusSnapshotSchema = StatusSnapshotSchema.extend({
 export interface NativeStatusSnapshotDto extends z.infer<typeof NativeStatusSnapshotSchema> {}
 
 export const ServiceMonitorDraftSchema = ServiceMonitorSchema.omit({ icon: true, id: true })
-  .extend({ icon: ServiceIconIdSchema, id: IdentifierSchema.optional() })
+  .extend({ icon: ServiceIconUrlSchema, id: IdentifierSchema.optional() })
   .strict();
 export interface ServiceMonitorDraft extends z.infer<typeof ServiceMonitorDraftSchema> {}
 
@@ -1900,7 +1917,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(20),
+    protocolVersion: z.literal(19),
     statusCommands: z
       .object({
         group: z.boolean(),

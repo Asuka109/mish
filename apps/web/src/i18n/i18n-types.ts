@@ -3095,13 +3095,25 @@ type RootTranslation = {
 		 */
 		fixtureEndpointDescription: string
 		/**
-		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​S​e​r​v​i​c​e​ ​i​c​o​n​s​ ​a​r​e​ ​p​a​c​k​a​g​e​d​ ​w​i​t​h​ ​M​i​s​h​.
+		 * D​e​m​o​ ​p​r​o​b​e​ ​m​e​t​a​d​a​t​a​ ​o​n​l​y​.​ ​A​ ​c​u​s​t​o​m​ ​H​T​T​P​S​ ​i​c​o​n​ ​i​s​ ​s​t​i​l​l​ ​l​o​a​d​e​d​ ​d​i​r​e​c​t​l​y​ ​b​y​ ​t​h​i​s​ ​b​r​o​w​s​e​r​.
 		 */
 		fixtureMetadataDescription: string
 		/**
 		 * T​h​e​ ​p​r​o​b​e​ ​U​R​L​ ​i​s​ ​s​t​o​r​e​d​ ​a​s​ ​m​e​t​a​d​a​t​a​ ​a​n​d​ ​i​s​ ​n​o​t​ ​r​e​q​u​e​s​t​e​d​ ​i​n​ ​d​e​m​o​ ​m​o​d​e​.
 		 */
 		fixtureUrlDescription: string
+		/**
+		 * I​c​o​n​ ​U​R​L
+		 */
+		iconUrl: string
+		/**
+		 * B​u​i​l​t​-​i​n​ ​i​c​o​n​s​ ​s​t​a​y​ ​l​o​c​a​l​.​ ​A​ ​c​u​s​t​o​m​ ​H​T​T​P​S​ ​i​m​a​g​e​ ​U​R​L​ ​i​s​ ​r​e​q​u​e​s​t​e​d​ ​d​i​r​e​c​t​l​y​ ​b​y​ ​t​h​i​s​ ​b​r​o​w​s​e​r​,​ ​n​e​v​e​r​ ​b​y​ ​t​h​e​ ​R​u​s​t​ ​s​e​r​v​i​c​e​.
+		 */
+		iconUrlDescription: string
+		/**
+		 * E​n​t​e​r​ ​a​ ​v​a​l​i​d​ ​H​T​T​P​S​ ​i​c​o​n​ ​U​R​L​.
+		 */
+		iconUrlError: string
 		/**
 		 * E​n​t​e​r​ ​a​ ​t​i​t​l​e​.
 		 */
@@ -7411,13 +7423,25 @@ export type TranslationFunctions = {
 		 */
 		fixtureEndpointDescription: () => LocalizedString
 		/**
-		 * Demo probe metadata only. Service icons are packaged with Mish.
+		 * Demo probe metadata only. A custom HTTPS icon is still loaded directly by this browser.
 		 */
 		fixtureMetadataDescription: () => LocalizedString
 		/**
 		 * The probe URL is stored as metadata and is not requested in demo mode.
 		 */
 		fixtureUrlDescription: () => LocalizedString
+		/**
+		 * Icon URL
+		 */
+		iconUrl: () => LocalizedString
+		/**
+		 * Built-in icons stay local. A custom HTTPS image URL is requested directly by this browser, never by the Rust service.
+		 */
+		iconUrlDescription: () => LocalizedString
+		/**
+		 * Enter a valid HTTPS icon URL.
+		 */
+		iconUrlError: () => LocalizedString
 		/**
 		 * Enter a title.
 		 */
