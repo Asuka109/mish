@@ -16,7 +16,7 @@ Build the explicit System Proxy-only Alpha artifact on Apple Silicon macOS:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm desktop:bundle:alpha-ad-hoc:macos
+pnpm desktop:bundle:macos
 ```
 
 This credential-free profile rejects Apple signing and notarization credentials,
@@ -40,7 +40,7 @@ Run the same bundle path locally on an Apple Silicon Mac:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm desktop:bundle:macos
+pnpm desktop:build:macos
 ```
 
 The command downloads only the pinned Mihomo v1.19.29 Darwin ARM64 release with
