@@ -18,6 +18,7 @@ export interface DeliveredNotification {
   actions: readonly NotificationActionDescriptor[];
   detail?: string;
   duration?: number;
+  detailAnnouncement?: boolean;
   id: string;
   level: NotificationSeverity;
   message: string;
@@ -224,7 +225,14 @@ function captureFailurePresentation(
   if (resolved) return { message: LL.capture.systemProxyApplied(), toast: "dismiss" };
   if (isTakeoverRejection(takeoverReason)) {
     return {
-      actions: [openSystemProxyPolicyAction(LL)],
+      actions: [
+        openSystemProxySettingsAction(LL),
+        {
+          id: "show-system-proxy-settings-steps",
+          label: LL.capture.showSystemProxySettingsSteps(),
+          tone: "secondary",
+        },
+      ],
       message: LL.settingsPage.systemProxyTakeoverRejected(),
     };
   }
@@ -265,8 +273,8 @@ function openDiagnosticsAction(LL: TranslationFunctions): NotificationActionDesc
   return { id: "open-diagnostics", label: LL.diagnostics.open() };
 }
 
-function openSystemProxyPolicyAction(LL: TranslationFunctions): NotificationActionDescriptor {
-  return { id: "open-system-proxy-policy", label: LL.settingsPage.systemProxyTakeoverPolicy() };
+function openSystemProxySettingsAction(LL: TranslationFunctions): NotificationActionDescriptor {
+  return { id: "open-system-proxy-settings", label: LL.capture.reviewSystemProxySettings() };
 }
 
 function systemProxyFailure(failure: string | undefined, LL: TranslationFunctions) {

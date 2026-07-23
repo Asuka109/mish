@@ -388,6 +388,8 @@ const zh = {
     selected: "已选择",
     leaveAsIs: "保持系统当前设置",
     repairSystemProxy: "修复系统代理",
+    reviewSystemProxySettings: "查看代理设置",
+    showSystemProxySettingsSteps: "显示手动步骤",
     systemProxy: "系统代理",
     systemProxyApplied: "系统代理已开启。",
     systemProxyCoreFailure: "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
@@ -406,6 +408,12 @@ const zh = {
     systemProxyPermissionFailure: "macOS 不允许更改系统代理。请检查系统权限后重试。",
     systemProxyRepairRequiresCore:
       "修复系统代理前需要先启动代理。也可以选择保留系统当前设置，再重新启动 Mish。",
+    systemProxySettingsDispatchFailed:
+      "Mish 无法打开“系统设置”。请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
+    systemProxySettingsManual:
+      "请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
+    systemProxySettingsUnsupported:
+      "当前 macOS 版本无法由 Mish 打开网络设置。请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
     systemProxyUnsafeFailure: "macOS 正在使用自动代理或需要密码的代理，Mish 没有覆盖这些设置。",
     systemProxyUnknown: "Mish 中已选择关闭系统代理，但目前无法读取 macOS 的实际状态。",
     title: "系统代理与虚拟网卡",

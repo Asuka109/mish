@@ -47,9 +47,12 @@ parameters. Action descriptors contain data only; the UI Adapter dispatches them
 to existing typed commands and keeps pending state client-local.
 
 System Proxy takeover refusals use a closed, redacted Rust reason only. The presentation maps a
-recognized reason to the Settings policy action; it never renders host names, PAC URLs,
-credentials, service identities, or raw platform observations. The action navigates to the
-policy control and focuses its active keyboard control.
+recognized reason to a zero-argument native action; it never renders host names, PAC URLs,
+credentials, service identities, or raw platform observations. The macOS Adapter owns one fixed
+Network proxy destination and reports only confirmed dispatch, never a proxy-setting change.
+Unsupported versions and failed dispatch keep the rejection record and expose localized manual
+navigation plus explicit retry guidance. A secondary manual-steps action exposes the same safe
+fallback in a supported packaged application without simulating a native failure.
 
 This split provides **Leverage**: Rust guarantees one synchronized lifecycle for
 every surface while TypeScript can re-localize retained records without changing

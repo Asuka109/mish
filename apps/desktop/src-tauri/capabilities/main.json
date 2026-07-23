@@ -7,6 +7,7 @@
   "permissions": [
     "allow-runtime-bootstrap",
     "allow-reveal-main-window",
+    "allow-open-system-proxy-settings",
     "allow-profile-preflight-local",
     "allow-diagnostics-support-bundle-preview",
     "allow-diagnostics-support-bundle-save",

@@ -98,6 +98,63 @@ pub enum OpenBrowserError {
     Unsupported,
 }
 
+const SYSTEM_PROXY_SETTINGS_MINIMUM_MACOS_MAJOR_VERSION: isize = 13;
+const SYSTEM_PROXY_SETTINGS_URL: &str =
+    "x-apple.systempreferences:com.apple.Network-Settings.extension?Proxies";
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SystemProxySettingsOpenOutcome {
+    DispatchFailed,
+    Opened,
+    UnsupportedVersion,
+}
+
+pub trait SystemProxySettingsOpener {
+    fn open(&self) -> bool;
+}
+
+pub fn open_system_proxy_settings_with(
+    macos_major_version: isize,
+    opener: &dyn SystemProxySettingsOpener,
+) -> SystemProxySettingsOpenOutcome {
+    if macos_major_version < SYSTEM_PROXY_SETTINGS_MINIMUM_MACOS_MAJOR_VERSION {
+        return SystemProxySettingsOpenOutcome::UnsupportedVersion;
+    }
+    if opener.open() {
+        SystemProxySettingsOpenOutcome::Opened
+    } else {
+        SystemProxySettingsOpenOutcome::DispatchFailed
+    }
+}
+
+#[cfg(target_os = "macos")]
+struct NativeSystemProxySettingsOpener;
+
+#[cfg(target_os = "macos")]
+impl SystemProxySettingsOpener for NativeSystemProxySettingsOpener {
+    fn open(&self) -> bool {
+        use objc2_app_kit::NSWorkspace;
+        use objc2_foundation::{NSString, NSURL};
+
+        let value = NSString::from_str(SYSTEM_PROXY_SETTINGS_URL);
+        NSURL::URLWithString(&value).is_some_and(|url| NSWorkspace::sharedWorkspace().openURL(&url))
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn open_system_proxy_settings() -> SystemProxySettingsOpenOutcome {
+    use objc2_foundation::NSProcessInfo;
+
+    let version = NSProcessInfo::processInfo().operatingSystemVersion();
+    open_system_proxy_settings_with(version.majorVersion, &NativeSystemProxySettingsOpener)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn open_system_proxy_settings() -> SystemProxySettingsOpenOutcome {
+    SystemProxySettingsOpenOutcome::UnsupportedVersion
+}
+
 #[cfg(target_os = "macos")]
 pub fn open_browser_url(url: &str) -> Result<(), OpenBrowserError> {
     use objc2_app_kit::NSWorkspace;
@@ -178,6 +235,69 @@ pub fn show_graceful_exit_error() {
 
 #[cfg(not(target_os = "macos"))]
 pub fn show_graceful_exit_error() {}
+
+#[cfg(test)]
+mod system_proxy_settings_tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::{
+        SystemProxySettingsOpenOutcome, SystemProxySettingsOpener, open_system_proxy_settings_with,
+    };
+
+    struct InjectedOpener {
+        calls: AtomicUsize,
+        dispatched: bool,
+    }
+
+    impl InjectedOpener {
+        fn new(dispatched: bool) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                dispatched,
+            }
+        }
+    }
+
+    impl SystemProxySettingsOpener for InjectedOpener {
+        fn open(&self) -> bool {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            self.dispatched
+        }
+    }
+
+    #[test]
+    fn opens_only_the_fixed_destination_on_supported_macos() {
+        let opener = InjectedOpener::new(true);
+
+        assert_eq!(
+            open_system_proxy_settings_with(13, &opener),
+            SystemProxySettingsOpenOutcome::Opened
+        );
+        assert_eq!(opener.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn does_not_dispatch_on_unsupported_macos() {
+        let opener = InjectedOpener::new(true);
+
+        assert_eq!(
+            open_system_proxy_settings_with(12, &opener),
+            SystemProxySettingsOpenOutcome::UnsupportedVersion
+        );
+        assert_eq!(opener.calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn reports_dispatch_failure_without_claiming_the_settings_opened() {
+        let opener = InjectedOpener::new(false);
+
+        assert_eq!(
+            open_system_proxy_settings_with(13, &opener),
+            SystemProxySettingsOpenOutcome::DispatchFailed
+        );
+        assert_eq!(opener.calls.load(Ordering::Relaxed), 1);
+    }
+}
 
 #[cfg(target_os = "macos")]
 mod browser_pairing_panel {

@@ -26,6 +26,11 @@ import { useProduct } from "../data/product-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
+import {
+  nativeSystemProxySettingsOpener,
+  type SystemProxySettingsOpenOutcome,
+  type SystemProxySettingsOpener,
+} from "../platform/system-proxy-settings";
 import { WelcomeDialog } from "./welcome-dialog";
 import { NotificationPublicationController } from "./notification-publication-controller";
 
@@ -64,7 +69,7 @@ const notificationStyles = tv({
     message:
       "notification-message cursor-text wrap-anywhere text-metadata leading-4.75 font-medium text-fg select-text",
     detail:
-      "notification-detail mt-0.75 wrap-anywhere text-metadata leading-4.5 text-muted-foreground",
+      "notification-detail mt-0.75 cursor-text wrap-anywhere text-metadata leading-4.5 text-muted-foreground select-text",
     remove: cx(
       "notification-remove absolute top-1.75 right-2 size-6.5 opacity-0 pointer-events-none",
       "transition-opacity duration-120 ease-out group-hover/item:opacity-100",
@@ -78,7 +83,11 @@ const notificationStyles = tv({
   },
 });
 
-export function NotificationBubble() {
+export function NotificationBubble({
+  systemProxySettingsOpener = nativeSystemProxySettingsOpener,
+}: {
+  systemProxySettingsOpener?: SystemProxySettingsOpener;
+}) {
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const settings = useOptionalSettings();
@@ -89,16 +98,53 @@ export function NotificationBubble() {
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [pendingActions, setPendingActions] = useState<ReadonlyMap<string, string>>(new Map());
+  const [systemProxySettingsFallbacks, setSystemProxySettingsFallbacks] = useState<
+    ReadonlyMap<string, Exclude<SystemProxySettingsOpenOutcome, "opened"> | "manual">
+  >(new Map());
+  const executingActions = useRef(new Set<string>());
   const presented = useRef<ReadonlyMap<string, string>>(new Map());
 
-  const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
+  const presentedEntries = useMemo(
+    () =>
+      entries.map((entry) => {
+        const fallback = systemProxySettingsFallbacks.get(entry.id);
+        if (!fallback || !entry.actions.some(({ id }) => id === "open-system-proxy-settings")) {
+          return entry;
+        }
+        return {
+          ...entry,
+          detail:
+            fallback === "manual"
+              ? LL.capture.systemProxySettingsManual()
+              : fallback === "unsupported-version"
+                ? LL.capture.systemProxySettingsUnsupported()
+                : LL.capture.systemProxySettingsDispatchFailed(),
+          detailAnnouncement: true,
+        };
+      }),
+    [entries, LL, systemProxySettingsFallbacks],
+  );
+  const entryById = useMemo(
+    () => new Map(presentedEntries.map((entry) => [entry.id, entry])),
+    [presentedEntries],
+  );
+  const toastEntryById = useMemo(
+    () => new Map(presentedEntries.map((entry) => [entry.id, entry])),
+    [presentedEntries],
+  );
   const execute = useCallback(
     async (notificationId: string, actionId: string) => {
-      if (pendingActions.has(notificationId)) return;
+      if (executingActions.current.has(notificationId)) return;
       const notification = entryById.get(notificationId);
       const action = notification?.actions.find(({ id }) => id === actionId);
       if (!notification || !action) return;
-      setPendingActions((current) => new Map(current).set(notificationId, actionId));
+      executingActions.current.add(notificationId);
+      const showPending =
+        actionId !== "open-system-proxy-settings" &&
+        actionId !== "show-system-proxy-settings-steps";
+      if (showPending) {
+        setPendingActions((current) => new Map(current).set(notificationId, actionId));
+      }
       try {
         if (actionId === "repair") await recoverSystemProxy("repair");
         else if (actionId === "leave-as-is") await recoverSystemProxy("leave-as-is");
@@ -117,25 +163,49 @@ export function NotificationBubble() {
           dismissNotificationToast(notificationId);
           setOpen(false);
           navigate("/events?diagnostics=1");
-        } else if (actionId === "open-system-proxy-policy") {
-          dismissNotificationToast(notificationId);
-          setOpen(false);
-          navigate("/settings?focus=system-proxy-takeover-policy");
+        } else if (actionId === "show-system-proxy-settings-steps") {
+          setSystemProxySettingsFallbacks((current) =>
+            new Map(current).set(notificationId, "manual"),
+          );
+        } else if (actionId === "open-system-proxy-settings") {
+          let outcome: SystemProxySettingsOpenOutcome;
+          try {
+            outcome = await systemProxySettingsOpener.open();
+          } catch {
+            outcome = "dispatch-failed";
+          }
+          if (outcome !== "opened") {
+            setSystemProxySettingsFallbacks((current) =>
+              new Map(current).set(notificationId, outcome),
+            );
+          }
         }
       } finally {
-        setPendingActions((current) => {
-          const next = new Map(current);
-          next.delete(notificationId);
-          return next;
-        });
+        executingActions.current.delete(notificationId);
+        if (showPending) {
+          setPendingActions((current) => {
+            const next = new Map(current);
+            next.delete(notificationId);
+            return next;
+          });
+        }
       }
     },
-    [entryById, navigate, pendingActions, recoverSystemProxy, setCapture, settings, snapshot],
+    [
+      entryById,
+      navigate,
+      recoverSystemProxy,
+      setCapture,
+      settings,
+      snapshot,
+      systemProxySettingsOpener,
+    ],
   );
 
   useEffect(() => {
     const nextPresented = new Map<string, string>();
-    for (const notification of toastEntries) {
+    for (const sourceNotification of toastEntries) {
+      const notification = toastEntryById.get(sourceNotification.id) ?? sourceNotification;
       const pendingActionId = pendingActions.get(notification.id);
       const presentedNotification = { ...notification, pendingActionId };
       const signature = JSON.stringify({
@@ -163,9 +233,9 @@ export function NotificationBubble() {
       if (!nextPresented.has(id)) dismissNotificationToast(id);
     }
     presented.current = nextPresented;
-  }, [execute, pendingActions, toastEntries]);
+  }, [execute, pendingActions, toastEntries, toastEntryById]);
 
-  const retainedNotifications = entries;
+  const retainedNotifications = presentedEntries;
   const unreadCount = retainedNotifications.filter(({ read }) => !read).length;
   const visibleNotifications = retainedNotifications.slice(0, visibleNotificationLimit);
 
@@ -273,6 +343,9 @@ function NotificationItem({
   onExecute,
   onRemove,
 }: NotificationItemProps) {
+  const detailId = notification.detailAnnouncement
+    ? `notification-detail-${notification.id.replaceAll(":", "-")}`
+    : undefined;
   return (
     <li className={notificationStyles().item({ className: "group/item" })}>
       {notification.removable ? (
@@ -301,7 +374,13 @@ function NotificationItem({
         {notification.message}
       </p>
       {notification.detail ? (
-        <p className={notificationStyles().detail()}>{notification.detail}</p>
+        <p
+          className={notificationStyles().detail()}
+          id={detailId}
+          role={notification.detailAnnouncement ? "status" : undefined}
+        >
+          {notification.detail}
+        </p>
       ) : null}
       {notification.actions.length > 0 ? (
         <div className={notificationStyles().actions()}>
@@ -311,6 +390,7 @@ function NotificationItem({
               key={action.id}
               loading={notification.pendingActionId === action.id}
               loadingText={action.label}
+              aria-describedby={detailId}
               onClick={() => void onExecute(notification.id, action.id)}
               size="sm"
               variant="outline"

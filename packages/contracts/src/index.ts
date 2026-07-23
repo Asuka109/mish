@@ -165,6 +165,7 @@ export const CaptureFailureKindSchema = z.enum([
   "permission-denied",
   "persistence-failed",
   "rollback-failed",
+  "takeover-rejected",
   "unsafe-existing-configuration",
   "unsupported-selection",
 ]);
