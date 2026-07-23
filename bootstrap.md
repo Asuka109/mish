@@ -72,7 +72,7 @@ from repository-owned inputs.
 
 ```sh
 pnpm prepare:mihomo
-export MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29"
+export MISH_MIHOMO_BIN="<absolute-path-reported-by-prepare-mihomo>"
 pnpm desktop:dev
 ```
 

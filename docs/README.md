@@ -1,6 +1,6 @@
 # Mish Documentation
 
-Refreshed 2026-07-21 against `main` at `8b2f519`.
+Refreshed 2026-07-23 against `main` at `cbe281c`.
 
 Load the smallest document set that answers the task. Code, tests, manifests,
 and CI describe current implementation; product and architecture documents
@@ -20,6 +20,7 @@ of treating an implementation accident as intent.
 | macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     | TUN, packaging, network/DNS, or sidebar document below                                                                                                                                                                       |
 | Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
 | Validation/release claims | The target-specific quality document                                                             | [`quality/demo-validation.md`](quality/demo-validation.md) for model and visual validation through `pnpm demo`                                                                                                               |
+| Public release readiness  | [`operations/macos-packaging.md`](operations/macos-packaging.md)                                 | [`../README.md`](../README.md), [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md)                                                                                                                                     |
 
 ## Contract index
 
@@ -71,6 +72,14 @@ of treating an implementation accident as intent.
   and [`quality/demo-validation.md`](quality/demo-validation.md) — production
   Web, native visual, styling migration, and fixture-backed model/visual gates
   respectively.
+
+### Public release
+
+- [`operations/macos-packaging.md`](operations/macos-packaging.md) records the
+  evidence-backed System Proxy-only release boundary and remaining engineering
+  work.
+- [`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) records material
+  upstream attribution, license sources, and unresolved dependency questions.
 
 ## Planning and research
 

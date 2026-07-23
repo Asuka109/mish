@@ -5,6 +5,11 @@ requests run the bounded `check:pr` gate but never build or upload an app
 archive. Daily and manual inspection own complete validation. Packaging remains
 independent, so a failed application build cannot reach artifact upload.
 
+The latest `cbe281c` package run did not start either hosted package job because
+the private repository's Actions quota or billing state blocked them. This
+leaves current CI artifact evidence unavailable; it is not evidence of a product
+implementation failure and does not establish future Actions capacity.
+
 ## Test package
 
 Run the same bundle path locally on an Apple Silicon Mac:
@@ -21,7 +26,8 @@ Tauri resource configuration and builds `Mish.app`. Keeping generated resources
 out of the base Tauri configuration lets clean validation builds remain offline.
 The post-build verifier checks the stable application identifier, ARM64
 architecture, exact uncompressed Core checksum and version, complete
-byte-for-byte offline Web resource mirror, and code-signing structure. Ad-hoc
+byte-for-byte offline Web resource mirror, the repository's `LICENSE`,
+`THIRD_PARTY_NOTICES.md`, and code-signing structure. Ad-hoc
 packages must contain no privileged artifact. Developer ID packages additionally
 require the exact sealed helper and LaunchDaemon layout, Developer ID
 application/helper identifiers and team, helper/protocol versions, and no
@@ -37,7 +43,33 @@ registers or launches the LaunchDaemon.
 GitHub Actions wraps the app with `ditto` as `Mish-<short-sha>.app.zip` and
 uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a
 test package: an ad-hoc signature is not an Apple identity, is not notarized,
-and does not make the TUN helper available.
+does not make the TUN helper available, and is not a stable public release.
+
+## Public release split
+
+The completed packaging-readiness audit selected a System Proxy-only first
+public release. That release does not depend on a production privileged TUN
+helper and must omit both the helper executable and LaunchDaemon property list.
+The current repository does not yet implement the required explicit signed
+no-helper distribution mode: supplying release signing credentials selects the
+helper-bearing layout. Do not use that layout for the System Proxy-only release.
+
+Before public distribution, implement and verify the no-helper mode, Developer
+ID signing and notarization with independent `codesign`, stapler, and Gatekeeper
+distribution checks, a versioned DMG and GitHub Release with SHA-256 and exact
+source revision, and clean-account install, upgrade, relocation, uninstall,
+recovery, System Proxy restoration, and rollback-policy acceptance. Release,
+support, privacy, security-contact, dependency-notice, and supply-chain policies
+also remain open. Dependency attribution and unresolved license-source questions
+are recorded in
+[`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md).
+
+A TUN-enabled distribution remains a separate future path tracked by
+[#85](https://github.com/Asuka109/mish/issues/85),
+[#95](https://github.com/Asuka109/mish/issues/95), and
+[#98](https://github.com/Asuka109/mish/issues/98). The selected first-release
+direction keeps Virtual Interface unavailable, but this document does not claim
+that the planned explanatory interaction is implemented.
 
 ## Download and launch a test package
 
@@ -128,8 +160,8 @@ also run `pnpm macos:tun:uninstall` from the trusted checkout.
 
 ## Developer ID and notarization secrets
 
-The production path is enabled only when all of these GitHub Actions secrets
-are configured:
+The current credentialed helper-bearing packaging path is enabled only when all
+of these GitHub Actions secrets are configured:
 
 | Secret                              | Purpose                                        |
 | ----------------------------------- | ---------------------------------------------- |
@@ -150,7 +182,11 @@ configuration for this workflow. See Tauri's official
 [macOS code-signing and notarization guide](https://v2.tauri.app/distribute/sign/macos/)
 for the upstream environment-variable contract.
 
-## TUN helper production gate
+Configuring these secrets is not sufficient to create the selected System
+Proxy-only release. That release needs a distinct mode that signs and notarizes
+the application while continuing to omit all privileged TUN artifacts.
+
+## Future TUN-enabled production gate
 
 The application signing identifier is `com.asuka109.mish`. Developer ID
 packaging embeds the production-only `com.asuka109.mish.tun-helper` executable

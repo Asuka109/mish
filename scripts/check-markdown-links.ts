@@ -2,7 +2,17 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
-const roots = ["README.md", "PRODUCT.md", "DESIGN.md", "bootstrap.md", "development.md", "docs"];
+const roots = [
+  "README.md",
+  "README.zh-CN.md",
+  "CONTRIBUTING.md",
+  "THIRD_PARTY_NOTICES.md",
+  "PRODUCT.md",
+  "DESIGN.md",
+  "bootstrap.md",
+  "development.md",
+  "docs",
+];
 const markdownLinkPattern = /!?(?:\[[^\]]*\])\(([^)]+)\)/g;
 const externalSchemePattern = /^(?:[a-z]+:|#)/i;
 
