@@ -10,12 +10,17 @@ use mish_runtime::{ProxyNode, TrafficDataPhase, TrafficDataSnapshot};
 const SUMMARY_WINDOW: Duration = Duration::from_secs(60);
 const MAX_OBSERVATION_EVENTS: usize = 8_192;
 const MAX_SEEN_CONNECTION_IDS: usize = 131_072;
-const MEMORY_BUDGET_BYTES: usize = 10 * 1024 * 1024;
-const EVENT_BYTE_BUDGET: usize = 512;
-const FINGERPRINT_INDEX_BYTE_BUDGET: usize = 32;
-const RING_AND_INDEX_OVERHEAD_BYTES: usize = 1_114_112;
 const MAX_INPUT_LABEL_CHARS: usize = 160;
 const MAX_DISPLAY_LABEL_CHARS: usize = 48;
+
+#[cfg(test)]
+const MEMORY_BUDGET_BYTES: usize = 10 * 1024 * 1024;
+#[cfg(test)]
+const EVENT_BYTE_BUDGET: usize = 512;
+#[cfg(test)]
+const FINGERPRINT_INDEX_BYTE_BUDGET: usize = 32;
+#[cfg(test)]
+const RING_AND_INDEX_OVERHEAD_BYTES: usize = 1_114_112;
 
 /// The single display-safe fact a native menu may consume from Traffic.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,6 +29,7 @@ pub(crate) struct RouteActivitySummary {
 }
 
 /// Explicit retained-count and capacity evidence for the private observation log.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ObservationLogTelemetry {
     pub(crate) retained_events: usize,
@@ -36,6 +42,7 @@ pub(crate) struct ObservationLogTelemetry {
 }
 
 /// Conservative static accounting for the complete private log and its indexes.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ObservationLogMemoryBudget {
     pub(crate) event_bytes: usize,
@@ -72,6 +79,7 @@ impl RouteActivitySummaryHandle {
         self.log.lock().ok()?.summary_at(observed_at)
     }
 
+    #[cfg(test)]
     pub(crate) fn update(
         &self,
         traffic: &TrafficDataSnapshot,
@@ -82,10 +90,12 @@ impl RouteActivitySummaryHandle {
         self.summary_at(observed_at)
     }
 
+    #[cfg(test)]
     pub(crate) fn telemetry(&self) -> Option<ObservationLogTelemetry> {
         Some(self.log.lock().ok()?.telemetry())
     }
 
+    #[cfg(test)]
     pub(crate) const fn memory_budget() -> ObservationLogMemoryBudget {
         ObservationLogMemoryBudget {
             event_bytes: MAX_OBSERVATION_EVENTS * EVENT_BYTE_BUDGET,
@@ -103,8 +113,14 @@ struct ConnectionObservationLog {
     events: VecDeque<RouteObservationEvent>,
     session: Option<ObservationSession>,
     seen_connection_ids: HashSet<u128>,
+    /// Written in production observe/push paths; read by test-only telemetry.
+    #[cfg_attr(not(test), allow(dead_code))]
     evicted_events: u64,
+    /// Written in production observe paths; read by test-only telemetry.
+    #[cfg_attr(not(test), allow(dead_code))]
     dedupe_overflow_events: u64,
+    /// Written in production observe paths; read by test-only telemetry.
+    #[cfg_attr(not(test), allow(dead_code))]
     current_active_connections: usize,
 }
 
@@ -179,10 +195,10 @@ impl ConnectionObservationLog {
     fn leading_label(&self, observed_at: Duration) -> Option<String> {
         let mut counts = HashMap::<&str, usize>::new();
         for event in &self.events {
-            if observed_at.saturating_sub(event.observed_at) < SUMMARY_WINDOW {
-                if let Some(label) = event.exit_label.as_deref() {
-                    *counts.entry(label).or_default() += 1;
-                }
+            if observed_at.saturating_sub(event.observed_at) < SUMMARY_WINDOW
+                && let Some(label) = event.exit_label.as_deref()
+            {
+                *counts.entry(label).or_default() += 1;
             }
         }
         counts
@@ -195,6 +211,7 @@ impl ConnectionObservationLog {
             .map(|(label, _)| label.into())
     }
 
+    #[cfg(test)]
     fn telemetry(&self) -> ObservationLogTelemetry {
         ObservationLogTelemetry {
             retained_events: self.events.len(),

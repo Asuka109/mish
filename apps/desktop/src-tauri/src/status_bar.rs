@@ -655,8 +655,8 @@ struct LiveStatusModel {
 fn rate_title(direction: &str, total_bytes: u64, bytes_per_second: u64, available: bool) -> String {
     if available {
         format!(
-            "{direction} {} · {}",
-            format!("{}/s", format_rate(bytes_per_second)),
+            "{direction} {}/s · {}",
+            format_rate(bytes_per_second),
             format_rate(total_bytes)
         )
     } else {
