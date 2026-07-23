@@ -96,6 +96,17 @@ The DOM element owns the fallback blue surface and text contrast.
   and synchronized across clients. A notification type is a presentation
   definition rather than a singleton: separate operation attempts create
   separate records, while revisions of one explicit lifecycle keep the same ID.
+  The center X and toast X stay hidden until hover or their own keyboard focus;
+  the toast X is placed at the upper right. Ordinary toasts expire after the
+  bounded Sonner default. Active asynchronous work may pin a record: its toast
+  persists and its center record cannot be removed until Rust resolves the same
+  ID, at which point the toast dismisses, history remains, and the center X
+  becomes available.
+- Profile activation publishes GeoSite, GeoIP, MMDB, or ASN preparation directly
+  into the Rust notification Module. Preparation is pinned in both the center
+  and its toast. Success resolves and retains the same record; preparation
+  failure updates that same record into an unpinned actionable failure. Raw
+  Mihomo output never crosses the notification Seam.
 - On a fresh eligible desktop installation, the notification center also retains
   one versioned welcome invitation. Existing installations receive the same
   invitation once when upgrading from an older settings schema. On the first

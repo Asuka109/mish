@@ -30,6 +30,7 @@ export class FixtureNotificationCenter {
       existing &&
       existing.type === publication.type &&
       existing.severity === publication.severity &&
+      existing.pinned === publication.pinned &&
       existing.resolved === publication.resolved &&
       JSON.stringify(existing.params) === JSON.stringify(publication.params) &&
       publication.replaces.length === 0
@@ -44,6 +45,7 @@ export class FixtureNotificationCenter {
           ...existing,
           observedAt,
           params: structuredClone(publication.params),
+          pinned: publication.pinned,
           resolved: publication.resolved,
           revision,
           severity: publication.severity,
@@ -55,6 +57,7 @@ export class FixtureNotificationCenter {
           id: `notification:${++this.nextId}`,
           observedAt,
           params: structuredClone(publication.params),
+          pinned: publication.pinned,
           read: false,
           resolved: publication.resolved,
           revision,
@@ -88,7 +91,7 @@ export class FixtureNotificationCenter {
   }
 
   remove(id: string) {
-    return this.removeMatching(({ id: candidate }) => candidate === id);
+    return this.removeMatching(({ id: candidate, pinned }) => candidate === id && !pinned);
   }
 
   removeByDedupeKey(dedupeKey: string) {

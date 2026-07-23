@@ -54,6 +54,43 @@ describe("notification presentation registry", () => {
     expect(drift.actions.map(({ id }) => id)).toEqual(["repair", "leave-as-is"]);
   });
 
+  it("derives pinned toast and center lifecycles from Rust metadata", () => {
+    const progress = presentNotification(
+      notificationRecord({
+        id: "notification:progress",
+        params: { asset: "geo-site" },
+        pinned: true,
+        type: "profile.activation-geodata-progress",
+      }),
+      i18nObject("en"),
+    );
+    expect(progress.duration).toBe(Number.POSITIVE_INFINITY);
+    expect((progress as typeof progress & { removable?: boolean }).removable).toBe(false);
+
+    const completed = presentNotification(
+      notificationRecord({
+        id: "notification:progress",
+        params: { asset: "geo-site" },
+        pinned: false,
+        resolved: true,
+        type: "profile.activation-geodata-progress",
+      }),
+      i18nObject("en"),
+    );
+    expect(completed.toast).toBe("dismiss");
+    expect((completed as typeof completed & { removable?: boolean }).removable).toBe(true);
+
+    const ordinaryFailure = presentNotification(
+      notificationRecord({
+        id: "notification:failure",
+        params: { endpoint: "127.0.0.1:7890" },
+        type: "profile.activation-listener-conflict",
+      }),
+      i18nObject("en"),
+    );
+    expect(ordinaryFailure.duration).toBeUndefined();
+  });
+
   it("uses a safe fallback for unknown Rust-native types without exposing parameters", () => {
     const LL = i18nObject("en");
     const presentation = presentNotification(

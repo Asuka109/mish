@@ -24,6 +24,7 @@ export interface DeliveredNotification {
   message: string;
   observedAt: number;
   pendingActionId?: string;
+  removable: boolean;
   title?: string;
   toast: "dismiss" | "never" | "present";
 }
@@ -51,11 +52,12 @@ export function presentNotification(
   return {
     actions: record.resolved ? [] : (copy.actions ?? []),
     detail: copy.detail,
-    duration: copy.duration,
+    duration: record.pinned ? Number.POSITIVE_INFINITY : copy.duration,
     id: record.id,
     level: record.severity,
     message: copy.message,
     observedAt: record.observedAt,
+    removable: !record.pinned,
     title: copy.title,
     toast: record.resolved ? "dismiss" : (copy.toast ?? "present"),
   };
@@ -83,7 +85,6 @@ function knownPresentation(
     case "onboarding.welcome":
       return {
         actions: [{ id: "open-welcome", label: LL.onboarding.notificationAction() }],
-        duration: Number.POSITIVE_INFINITY,
         message: LL.onboarding.notificationMessage(),
         title: LL.onboarding.promptTitle(),
         toast: boolean("prompt") ? "present" : "never",
@@ -103,15 +104,15 @@ function knownPresentation(
     case "profile.activation-geodata-progress":
       return {
         detail: LL.profiles.geodataPreparingDetail(),
-        duration: Number.POSITIVE_INFINITY,
-        message: LL.profiles.geodataPreparing({ asset: geodataAssetName(string("asset")) }),
+        message: record.resolved
+          ? LL.profiles.geodataPrepared({ asset: geodataAssetName(string("asset")) })
+          : LL.profiles.geodataPreparing({ asset: geodataAssetName(string("asset")) }),
       };
     case "profile.activation-listener-conflict":
       return {
         actions: [
           { id: "find-ports-and-retry", label: LL.settingsPage.managedPortsFindAndRetry() },
         ],
-        duration: Number.POSITIVE_INFINITY,
         message: LL.settingsPage.managedPortsConflict({ endpoint: string("endpoint") ?? "—" }),
       };
     case "profile.create-failed":
@@ -178,7 +179,6 @@ function knownPresentation(
               ]
             : []),
         ],
-        duration: Number.POSITIVE_INFINITY,
         message:
           string("failure") === "invalid-recovery"
             ? LL.capture.systemProxyInvalidRecovery()
@@ -218,7 +218,6 @@ function captureFailurePresentation(
         { id: "repair", label: LL.capture.repairSystemProxy() },
         { id: "leave-as-is", label: LL.capture.leaveAsIs(), tone: "secondary" },
       ],
-      duration: Number.POSITIVE_INFINITY,
       message: LL.capture.systemProxyDrift(),
     };
   }

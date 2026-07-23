@@ -1951,6 +1951,7 @@ fn settings_error_response(state: &ProtocolState, id: Value, error: SettingsServ
         dedupe_key: format!("settings.operation-failed:{}", Uuid::new_v4()),
         notification_type: "settings.operation-failed".into(),
         params: json!({ "failure": failure }),
+        pinned: false,
         replaces: Vec::new(),
         resolved: false,
         severity: NotificationSeverity::Error,

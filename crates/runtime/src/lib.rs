@@ -823,6 +823,7 @@ impl MishRuntime {
             dedupe_key: "capture.failure".into(),
             notification_type: "capture.failure".into(),
             params: serde_json::json!({ "failure": failure }),
+            pinned: false,
             replaces: Vec::new(),
             resolved: false,
             severity: if failure == CaptureFailureKind::CoreUnhealthy {

@@ -890,7 +890,6 @@ describe("production routes", () => {
             }),
           }),
           description: "Welcome to Mish. Your introduction is ready whenever you are.",
-          duration: Number.POSITIVE_INFINITY,
           id: expect.stringMatching(/^notification:/),
         }),
       ),

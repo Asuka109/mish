@@ -1,5 +1,5 @@
 import { TooltipProvider } from "@mish/ui";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -135,6 +135,12 @@ describe("Rust-authoritative notification browser projection", () => {
       "[data-sonner-toast] [data-close-button]",
     );
     expect(closeToast).not.toBeNull();
+    expect(getComputedStyle(closeToast!).opacity).toBe("0");
+    expect(getComputedStyle(closeToast!).right).toBe("8px");
+    const toastElement = closeToast!.closest<HTMLElement>("[data-sonner-toast]");
+    if (!toastElement) throw new Error("Missing toast");
+    await userEvent.hover(toastElement);
+    await vi.waitFor(() => expect(getComputedStyle(closeToast!).opacity).toBe("1"));
     await closeToast!.click();
     await vi.waitFor(() =>
       expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
@@ -200,6 +206,55 @@ describe("Rust-authoritative notification browser projection", () => {
     await page.getByRole("button", { exact: true, name: "移除通知：已关闭 2 条活动连接" }).click();
     await expect.element(retainedMessage).not.toBeInTheDocument();
     expect((await secondClient.getSnapshot()).notifications).toEqual([]);
+
+    await secondClient.publish(
+      notificationPublication("profile.activation-geodata-progress", {
+        dedupeKey: "profile.activation-geodata-progress",
+        params: { asset: "geo-site" },
+        pinned: true,
+        severity: "info",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(1),
+    );
+    await expect
+      .element(
+        page.getByRole("dialog").getByText("正在准备启用配置所需的 GeoSite…", { exact: true }),
+      )
+      .toBeVisible();
+    await expect
+      .element(
+        page.getByRole("button", {
+          exact: true,
+          name: "移除通知：正在准备启用配置所需的 GeoSite…",
+        }),
+      )
+      .not.toBeInTheDocument();
+
+    await secondClient.publish(
+      notificationPublication("profile.activation-geodata-progress", {
+        dedupeKey: "profile.activation-geodata-progress",
+        params: { asset: "geo-site" },
+        pinned: false,
+        resolved: true,
+        severity: "success",
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
+    );
+    const completedGeodata = page.getByText("GeoSite 已准备完成，可以启用配置。", {
+      exact: true,
+    });
+    await expect.element(completedGeodata).toBeVisible();
+    await page
+      .getByRole("button", {
+        exact: true,
+        name: "移除通知：GeoSite 已准备完成，可以启用配置。",
+      })
+      .click();
+    await expect.element(completedGeodata).not.toBeInTheDocument();
 
     firstClient.reconnect();
     await vi.waitFor(() =>

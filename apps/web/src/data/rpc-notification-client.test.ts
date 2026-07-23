@@ -59,6 +59,7 @@ function snapshot(revision: number): NotificationSnapshotDto {
               id: "notification:1",
               observedAt: 1,
               params: {},
+              pinned: false,
               read: false,
               resolved: false,
               revision,
@@ -106,6 +107,7 @@ describe("RpcNotificationClient", () => {
     const publication = client.publish({
       dedupeKey: "profile.saved",
       params: {},
+      pinned: false,
       replaces: [],
       resolved: false,
       severity: "success",

@@ -153,13 +153,16 @@ export function notificationPublication(
   type: NotificationPublicationDto["type"],
   options: Omit<
     NotificationPublicationDto,
-    "dedupeKey" | "params" | "replaces" | "resolved" | "type"
+    "dedupeKey" | "params" | "pinned" | "replaces" | "resolved" | "type"
   > &
-    Partial<Pick<NotificationPublicationDto, "dedupeKey" | "params" | "replaces" | "resolved">>,
+    Partial<
+      Pick<NotificationPublicationDto, "dedupeKey" | "params" | "pinned" | "replaces" | "resolved">
+    >,
 ): NotificationPublicationDto {
   return {
     dedupeKey: `${type}:${crypto.randomUUID()}`,
     params: {},
+    pinned: false,
     replaces: [],
     resolved: false,
     ...options,
@@ -175,6 +178,7 @@ export function notificationRecord(
     dedupeKey: record.id,
     observedAt: Date.now(),
     params: {},
+    pinned: false,
     read: false,
     resolved: false,
     revision: 1,

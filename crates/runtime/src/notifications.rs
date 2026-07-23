@@ -36,6 +36,8 @@ pub struct NotificationPublication {
     #[serde(default)]
     pub params: Value,
     #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
     pub replaces: Vec<String>,
     #[serde(default)]
     pub resolved: bool,
@@ -52,6 +54,7 @@ pub struct NotificationRecord {
     #[serde(rename = "type")]
     pub notification_type: String,
     pub params: Value,
+    pub pinned: bool,
     pub read: bool,
     pub resolved: bool,
     pub revision: u64,
@@ -136,6 +139,7 @@ impl NotificationCenter {
                 let record = &state.records[index];
                 record.notification_type == publication.notification_type
                     && record.params == publication.params
+                    && record.pinned == publication.pinned
                     && record.resolved == publication.resolved
                     && record.severity == publication.severity
             })
@@ -161,6 +165,7 @@ impl NotificationCenter {
             record.notification_type = publication.notification_type;
             record.observed_at = now_unix_milliseconds();
             record.params = publication.params;
+            record.pinned = publication.pinned;
             record.resolved = publication.resolved;
             record.revision = revision;
             record.severity = publication.severity;
@@ -175,6 +180,7 @@ impl NotificationCenter {
                 notification_type: publication.notification_type,
                 observed_at: now_unix_milliseconds(),
                 params: publication.params,
+                pinned: publication.pinned,
                 read: false,
                 resolved: publication.resolved,
                 revision,
@@ -212,7 +218,7 @@ impl NotificationCenter {
     }
 
     pub fn remove(&self, id: &str) -> NotificationSnapshot {
-        self.remove_matching(|record| record.id == id)
+        self.remove_matching(|record| record.id == id && !record.pinned)
     }
 
     pub fn remove_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
@@ -235,6 +241,7 @@ impl NotificationCenter {
         state.revision = state.revision.saturating_add(1);
         let revision = state.revision;
         let record = &mut state.records[index];
+        record.pinned = false;
         record.resolved = true;
         record.revision = revision;
         record.severity = NotificationSeverity::Success;
@@ -428,6 +435,7 @@ mod tests {
             dedupe_key: key.into(),
             notification_type: "test.notification".into(),
             params: json!({ "value": value }),
+            pinned: false,
             replaces: Vec::new(),
             resolved: false,
             severity: NotificationSeverity::Info,
@@ -463,6 +471,27 @@ mod tests {
         assert_ne!(second.notifications[0].id, first_id);
         assert!(!second.notifications[0].resolved);
         assert!(second.notifications[1].resolved);
+    }
+
+    #[test]
+    fn pinned_lifecycle_blocks_removal_until_resolution() {
+        let center = NotificationCenter::new();
+        let mut progress = publication("progress", 1);
+        progress.pinned = true;
+        let published = center.publish(progress).unwrap();
+        let id = published.notifications[0].id.clone();
+
+        let retained = center.remove(&id);
+        assert_eq!(retained.notifications.len(), 1);
+        assert!(retained.notifications[0].pinned);
+
+        let resolved = center.resolve_by_dedupe_key("progress");
+        assert_eq!(resolved.notifications[0].id, id);
+        assert!(resolved.notifications[0].resolved);
+        assert!(!resolved.notifications[0].pinned);
+
+        let removed = center.remove(&id);
+        assert!(removed.notifications.is_empty());
     }
 
     #[test]

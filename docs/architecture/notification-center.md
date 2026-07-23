@@ -18,9 +18,9 @@ Adapter for notification retention.
 ## Semantic transport and presentation
 
 The Rust/TypeScript **Seam** carries only a canonical type reference, severity,
-bounded JSON parameters, a dedupe key, replacement keys, resolution state, and
-Rust-owned lifecycle metadata. It never carries localized title, message, or
-detail text, and never carries functions.
+bounded JSON parameters, a dedupe key, replacement keys, pinned/resolution
+state, and Rust-owned lifecycle metadata. It never carries localized title,
+message, or detail text, and never carries functions.
 
 A notification type names a presentation definition, not a singleton record.
 Each independent occurrence receives a distinct bounded dedupe key and therefore
@@ -53,11 +53,18 @@ bottom-right Sonner toast. A later revision of that ID updates the same toast;
 resolution dismisses it while retaining history. Stale or duplicate revisions
 are ignored.
 
-Opening the center marks retained IDs read through Rust. The explicit X removes
-only that record ID through the Rust **Interface**, and every client observes the
-result. Rust lifecycle replacement, resolution, producer retirement, and bounded
-retention remain authoritative. Toast dismissal, animation, and action-pending
-state retain UI **Locality** and do not delete the center record.
+Ordinary toasts use Sonner's bounded default duration. A Rust-pinned record
+instead produces a persistent toast and cannot be removed from the center while
+its work is active. Resolution keeps the same record, clears its pinned state,
+dismisses the toast, and exposes per-instance removal. This gives the lifecycle
+**Depth** without sending presentation policy across the Seam.
+
+Opening the center marks retained IDs read through Rust. The explicit X appears
+only on hover or its own keyboard focus and removes only an unpinned record ID
+through the Rust **Interface**; every client observes the result. Rust lifecycle
+replacement, resolution, producer retirement, and bounded retention remain
+authoritative. Toast dismissal, animation, and action-pending state retain UI
+**Locality** and do not delete the center record.
 
 ## Interfaces
 

@@ -2228,6 +2228,11 @@ type RootTranslation = {
 		 */
 		geodataPreparingDetail: string
 		/**
+		 * {​a​s​s​e​t​}​ ​i​s​ ​r​e​a​d​y​ ​f​o​r​ ​a​c​t​i​v​a​t​i​o​n​.
+		 * @param {string} asset
+		 */
+		geodataPrepared: RequiredParams<'asset'>
+		/**
 		 * M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​{​a​s​s​e​t​}​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
 		 * @param {string} asset
 		 */
@@ -6569,6 +6574,10 @@ export type TranslationFunctions = {
 		 * The first download may take a few minutes.
 		 */
 		geodataPreparingDetail: () => LocalizedString
+		/**
+		 * {asset} is ready for activation.
+		 */
+		geodataPrepared: (arg: { asset: string }) => LocalizedString
 		/**
 		 * Mihomo could not prepare {asset} required by this profile.
 		 */

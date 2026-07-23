@@ -581,6 +581,7 @@ async fn authoritative_application_notifications_reach_every_notification_client
             dedupe_key: "settings.operation-failed".into(),
             notification_type: "settings.operation-failed".into(),
             params: json!({ "failure": "persistence" }),
+            pinned: false,
             replaces: Vec::new(),
             resolved: false,
             severity: NotificationSeverity::Error,

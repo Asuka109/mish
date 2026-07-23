@@ -716,6 +716,7 @@ export const NotificationPublicationSchema = z
   .object({
     dedupeKey: NotificationReferenceSchema,
     params: NotificationParamsSchema.default({}),
+    pinned: z.boolean().default(false),
     replaces: z.array(NotificationReferenceSchema).max(8).default([]),
     resolved: z.boolean().default(false),
     severity: NotificationSeveritySchema,
@@ -731,6 +732,7 @@ export const NotificationRecordSchema = z
     id: NotificationReferenceSchema,
     observedAt: NonNegativeIntegerSchema,
     params: NotificationParamsSchema,
+    pinned: z.boolean(),
     read: z.boolean(),
     resolved: z.boolean(),
     revision: NonNegativeIntegerSchema,

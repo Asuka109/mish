@@ -68,8 +68,8 @@ const notificationStyles = tv({
     remove: cx(
       "notification-remove absolute top-1.75 right-2 size-6.5 opacity-0 pointer-events-none",
       "transition-opacity duration-120 ease-out group-hover/item:opacity-100",
-      "group-hover/item:pointer-events-auto group-focus-within/item:opacity-100",
-      "group-focus-within/item:pointer-events-auto",
+      "group-hover/item:pointer-events-auto focus-visible:opacity-100",
+      "focus-visible:pointer-events-auto",
     ),
     actions: "notification-actions flex flex-wrap gap-1.5 pt-0.75",
     empty: "notification-empty min-h-42 rounded-none border-x-0 border-y border-hairline",
@@ -267,15 +267,17 @@ function NotificationItem({
 }: NotificationItemProps) {
   return (
     <li className={notificationStyles().item({ className: "group/item" })}>
-      <Button
-        aria-label={LL.notifications.remove({ message: notification.message })}
-        className={notificationStyles().remove()}
-        onClick={() => onRemove(notification.id)}
-        size="icon-sm"
-        variant="ghost"
-      >
-        <X aria-hidden="true" />
-      </Button>
+      {notification.removable ? (
+        <Button
+          aria-label={LL.notifications.remove({ message: notification.message })}
+          className={notificationStyles().remove()}
+          onClick={() => onRemove(notification.id)}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <X aria-hidden="true" />
+        </Button>
+      ) : null}
       <div className={notificationStyles().itemHeading()}>
         <Badge variant={levelBadge(notification.level)}>
           {LL.events.level[notification.level === "success" ? "info" : notification.level]()}

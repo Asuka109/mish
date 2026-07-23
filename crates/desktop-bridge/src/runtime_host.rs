@@ -393,6 +393,7 @@ impl DesktopRuntimeHost {
                         "remainingCount": execution.remaining_connection_ids.len(),
                         "targetCount": execution.target_count,
                     }),
+                    pinned: false,
                     replaces: Vec::new(),
                     resolved: false,
                     severity: mish_runtime::NotificationSeverity::Error,

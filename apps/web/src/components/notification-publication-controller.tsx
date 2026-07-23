@@ -12,6 +12,7 @@ export function NotificationPublicationController() {
   const traffic = useOptionalTraffic();
   const profiles = useOptionalProfiles();
   const { error, localProxyTest, snapshot } = useProduct();
+  const geodataProgress = useRef<{ asset: string; key: string } | null>(null);
   const welcomePromptPending = useRef(false);
   const welcomeInvitation = settings?.snapshot.preferences.onboarding.welcomeInvitation;
   const activation = profiles?.snapshot?.activation;
@@ -53,13 +54,26 @@ export function NotificationPublicationController() {
   useEffect(() => {
     if (!fixture) return;
     if (activation?.phase !== "pending" || activation.evidence?.kind !== "geodata-preparing") {
-      retire("profile.activation-geodata-progress");
+      if (!geodataProgress.current) return;
+      publish(
+        notificationPublication("profile.activation-geodata-progress", {
+          dedupeKey: geodataProgress.current.key,
+          params: { asset: geodataProgress.current.asset },
+          pinned: false,
+          resolved: true,
+          severity: "success",
+        }),
+      );
+      geodataProgress.current = null;
       return;
     }
+    const key = `profile.activation-geodata-progress:${activation.commandId ?? "fixture"}`;
+    geodataProgress.current = { asset: activation.evidence.asset, key };
     publish(
       notificationPublication("profile.activation-geodata-progress", {
-        dedupeKey: "profile.activation-geodata-progress",
+        dedupeKey: key,
         params: { asset: activation.evidence.asset },
+        pinned: true,
         severity: "info",
       }),
     );

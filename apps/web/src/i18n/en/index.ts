@@ -662,6 +662,7 @@ const en = {
       "Activation failed. The previous healthy profile or safe stopped state remains authoritative.",
     geodataPreparing: "Preparing {asset:string} before activation…",
     geodataPreparingDetail: "The first download may take a few minutes.",
+    geodataPrepared: "{asset:string} is ready for activation.",
     geodataFailed: "Mihomo could not prepare {asset:string} required by this profile.",
     geodataTimeout: "{asset:string} was not ready before the activation deadline.",
     geodataRetry: "Check your network connection and retry activation.",

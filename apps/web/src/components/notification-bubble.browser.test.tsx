@@ -71,7 +71,7 @@ beforeAll(async () => {
   await notificationClient.publish(
     notificationPublication("system-proxy.drift", {
       dedupeKey: "system-proxy.drift",
-      params: { canLeave: false, canRepair: false, repairRequiresCore: false },
+      params: { canLeave: false, canRepair: true, repairRequiresCore: false },
       severity: "warning",
     }),
   );
@@ -141,9 +141,11 @@ describe("notification bubble browser interactions", () => {
     await userEvent.unhover(shortItem);
     await vi.waitFor(() => expect(getComputedStyle(shortRemove).opacity).toBe("0"));
 
-    await userEvent.tab();
-    expect(document.activeElement).toBe(shortRemove);
-    await vi.waitFor(() => expect(getComputedStyle(shortRemove).opacity).toBe("1"));
+    const repairAction = page.getByRole("button", { exact: true, name: "Repair System Proxy" });
+    repairAction.element().focus();
+    expect(document.activeElement).toBe(repairAction.element());
+    const longRemove = removeButton(longMessage);
+    await vi.waitFor(() => expect(getComputedStyle(longRemove).opacity).toBe("0"));
 
     await userEvent.tripleClick(longMessageLocator);
     expect(document.getSelection()?.toString().trim()).toBe(longMessage);

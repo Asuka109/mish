@@ -306,6 +306,7 @@ fn replacing_the_runtime_preserves_the_authoritative_notification_center() {
             dedupe_key: "profile.saved".into(),
             notification_type: "profile.saved".into(),
             params: serde_json::json!({}),
+            pinned: false,
             replaces: Vec::new(),
             resolved: false,
             severity: NotificationSeverity::Success,
