@@ -53,7 +53,6 @@ impl MacOsCommandRunner for FixtureRunner {
                 command,
                 MacOsCommand::SetProxy { .. }
                     | MacOsCommand::SetProxyState { .. }
-                    | MacOsCommand::SetAutoProxyUrl { .. }
                     | MacOsCommand::SetAutoProxyState { .. }
                     | MacOsCommand::SetProxyAutoDiscovery { .. }
                     | MacOsCommand::SetProxyBypassDomains { .. }
@@ -82,7 +81,6 @@ impl MacOsCommandRunner for FixtureRunner {
             MacOsCommand::GetProxyAutoDiscovery { .. } => "Auto Proxy Discovery: Off\n",
             MacOsCommand::SetProxy { .. }
             | MacOsCommand::SetProxyState { .. }
-            | MacOsCommand::SetAutoProxyUrl { .. }
             | MacOsCommand::SetAutoProxyState { .. }
             | MacOsCommand::SetProxyAutoDiscovery { .. }
             | MacOsCommand::SetProxyBypassDomains { .. } => "",
@@ -220,10 +218,6 @@ impl MacOsCommandRunner for StatefulCrashRunner {
                     MacOsProxyKind::Socks => state.socks.enabled = enabled,
                 }
                 drop(state);
-                self.finish_write()
-            }
-            MacOsCommand::SetAutoProxyUrl { url, .. } => {
-                self.state.lock().unwrap().pac_url = url;
                 self.finish_write()
             }
             MacOsCommand::SetAutoProxyState { enabled, .. } => {
@@ -395,10 +389,6 @@ async fn applies_structured_manual_automatic_and_bypass_proxy_commands() {
                 kind: mish_platform_macos::MacOsProxyKind::Socks,
                 service: "Fixture Service".into(),
             },
-            MacOsCommand::SetAutoProxyUrl {
-                service: "Fixture Service".into(),
-                url: "(null)".into(),
-            },
             MacOsCommand::SetAutoProxyState {
                 enabled: false,
                 service: "Fixture Service".into(),
@@ -420,7 +410,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
     let prior = crash_fixture_prior();
     let target = crash_fixture_target(&prior);
 
-    for crash_after_write in 1..=10 {
+    for crash_after_write in 1..=9 {
         assert_restart_recovers_after_write(
             prior.clone(),
             target.clone(),
@@ -430,7 +420,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
         .await;
     }
 
-    for crash_after_write in 1..=10 {
+    for crash_after_write in 1..=9 {
         assert_restart_recovers_after_write(
             target.clone(),
             prior.clone(),
@@ -467,7 +457,7 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
         .unwrap();
 
     let commands = runner.commands.lock().unwrap();
-    assert_eq!(commands.len(), 10);
+    assert_eq!(commands.len(), 9);
     for pair in commands[..6].chunks_exact(2) {
         assert!(matches!(
             &pair[0],
@@ -480,18 +470,14 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
     }
     assert!(matches!(
         commands[6],
-        MacOsCommand::SetAutoProxyUrl { ref url, .. } if url == "http://pac.example/proxy.pac"
-    ));
-    assert!(matches!(
-        commands[7],
         MacOsCommand::SetAutoProxyState { enabled: false, .. }
     ));
     assert!(matches!(
-        commands[8],
+        commands[7],
         MacOsCommand::SetProxyAutoDiscovery { enabled: false, .. }
     ));
     assert!(matches!(
-        commands[9],
+        commands[8],
         MacOsCommand::SetProxyBypassDomains { .. }
     ));
 }

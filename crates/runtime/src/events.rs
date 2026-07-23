@@ -85,15 +85,56 @@ impl ApplicationDiagnosticEvent {
                 "Traffic capture was blocked because the managed listener is unavailable",
                 Some("Restart the active profile and retry only after Status is healthy"),
             ),
+            CaptureFailureKind::ApplyFailed => Self::new(
+                EventLevel::Error,
+                "System Proxy mutation failed",
+                Some(
+                    "macOS did not complete the requested System Proxy mutation; the prior state was retained or restored",
+                ),
+            ),
+            CaptureFailureKind::ConfirmationFailed => Self::new(
+                EventLevel::Error,
+                "System Proxy propagation was not confirmed",
+                Some("Mish waited for an exact macOS observation before restoring the prior state"),
+            ),
             CaptureFailureKind::ExternalDrift => Self::new(
                 EventLevel::Warning,
                 "System Proxy changed outside Mish",
                 Some("Choose Repair or Leave as is from the Status recovery controls"),
             ),
-            _ => Self::new(
+            CaptureFailureKind::ObservationFailed => Self::new(
                 EventLevel::Error,
-                "System Proxy reconciliation failed",
-                Some("Review the typed capture state on Status before retrying"),
+                "System Proxy state could not be observed",
+                Some("Mish did not apply or confirm capture without a complete macOS observation"),
+            ),
+            CaptureFailureKind::RollbackFailed => Self::new(
+                EventLevel::Error,
+                "System Proxy recovery was not confirmed",
+                Some(
+                    "The prior System Proxy state could not be confirmed; review the Status recovery controls",
+                ),
+            ),
+            CaptureFailureKind::TakeoverRejected
+            | CaptureFailureKind::UnsafeExistingConfiguration => Self::new(
+                EventLevel::Warning,
+                "Existing System Proxy settings were left unchanged",
+                Some("Review the System Proxy takeover policy before retrying capture"),
+            ),
+            CaptureFailureKind::PermissionDenied => Self::new(
+                EventLevel::Error,
+                "macOS denied the System Proxy mutation",
+                Some("No successful capture state was published"),
+            ),
+            CaptureFailureKind::CapabilityUnavailable
+            | CaptureFailureKind::UnsupportedSelection => Self::new(
+                EventLevel::Error,
+                "Requested traffic capture is unavailable",
+                Some("Review the available capture modes before retrying"),
+            ),
+            CaptureFailureKind::RuntimeTransition => Self::new(
+                EventLevel::Warning,
+                "Traffic capture transition did not complete",
+                Some("Wait for the current Core or capture transition to finish before retrying"),
             ),
         }
     }
@@ -277,5 +318,40 @@ impl ApplicationEventBuffer {
             })
             .collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_confirmation_failure_is_safe_and_stage_specific() {
+        let event =
+            ApplicationDiagnosticEvent::capture_failure(CaptureFailureKind::ConfirmationFailed);
+
+        assert_eq!(event.level(), EventLevel::Error);
+        assert_eq!(
+            event.message(),
+            "System Proxy propagation was not confirmed"
+        );
+        assert_eq!(
+            event.detail(),
+            Some("Mish waited for an exact macOS observation before restoring the prior state")
+        );
+    }
+
+    #[test]
+    fn capture_takeover_rejection_does_not_disclose_platform_state() {
+        let event =
+            ApplicationDiagnosticEvent::capture_failure(CaptureFailureKind::TakeoverRejected);
+
+        assert_eq!(event.level(), EventLevel::Warning);
+        assert_eq!(
+            event.message(),
+            "Existing System Proxy settings were left unchanged"
+        );
+        assert!(!format!("{event:?}").contains("service"));
+        assert!(!format!("{event:?}").contains("PAC"));
     }
 }

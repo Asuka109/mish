@@ -489,6 +489,7 @@ impl ProfileActivationCoordinator {
             selection,
         };
         let prior_capture = self.host.current().publish_capture_pending(&request);
+        let mut activation_started_for_launch = false;
         let result = async {
             let current = self.activation_snapshot().await;
             let activation = if current.phase == ProfileActivationPhase::Success
@@ -497,13 +498,21 @@ impl ProfileActivationCoordinator {
                 }) {
                 current
             } else if let Some(profile_id) = profile_id {
-                self.activate(command_id, profile_id)
+                let activation = self
+                    .activate(command_id, profile_id)
                     .await
-                    .map_err(profile_launch_error)?
+                    .map_err(profile_launch_error)?;
+                activation_started_for_launch =
+                    activation.command_id.as_deref() == Some(command_id);
+                activation
             } else {
-                self.activate_last_successful_profile(command_id)
+                let activation = self
+                    .activate_last_successful_profile(command_id)
                     .await
-                    .map_err(profile_launch_error)?
+                    .map_err(profile_launch_error)?;
+                activation_started_for_launch =
+                    activation.command_id.as_deref() == Some(command_id);
+                activation
             };
             let completed = if activation.phase == ProfileActivationPhase::Pending {
                 self.wait_for_terminal_activation(command_id).await?
@@ -519,12 +528,74 @@ impl ProfileActivationCoordinator {
             self.set_capture_inner(request, adapter_kind).await
         }
         .await;
+        let mut result = result;
+        let mut restore_prior_capture = true;
+        if result.is_err() && activation_started_for_launch {
+            let activation = self.activation_snapshot().await;
+            if activation.command_id.as_deref() == Some(command_id)
+                && activation.phase == ProfileActivationPhase::Success
+                && !activation.safe_stopped
+            {
+                match self.rollback_failed_aggregate_activation().await {
+                    Ok(()) => {
+                        if let Some(error) = result.as_ref().err() {
+                            self.host.record_application_event(
+                                ApplicationDiagnosticEvent::capture_failure(error.kind),
+                            );
+                        }
+                    }
+                    Err(rollback_error) => {
+                        result = Err(rollback_error);
+                        restore_prior_capture = false;
+                    }
+                }
+            }
+        }
         if result.is_err()
+            && restore_prior_capture
             && let Some(prior_capture) = prior_capture
         {
             self.host.current().restore_capture_status(prior_capture);
         }
         result
+    }
+
+    async fn rollback_failed_aggregate_activation(&self) -> Result<(), CaptureTransitionError> {
+        let shutdown = self.manager.shutdown().await;
+        let managed = self.manager.managed_state().await;
+        let active_runtime = self.manager.active_runtime().await;
+        let mut state = self.state.lock().await;
+        state.cancellation = None;
+        state.busy_profiles.clear();
+        state.snapshot.evidence = None;
+        state.snapshot.failure = Some(ProfileActivationFailure::Capture);
+        state.snapshot.failure_endpoint = None;
+        state.snapshot.phase = ProfileActivationPhase::Failure;
+        match shutdown {
+            Ok(()) => {
+                self.host.replace(self.safe_runtime.clone());
+                state.snapshot.active_fingerprint = None;
+                state.snapshot.active_profile_id = None;
+                state.snapshot.safe_stopped = true;
+            }
+            Err(_) => {
+                if managed.is_safe_stopped() {
+                    self.host.replace(self.safe_runtime.clone());
+                } else if let Some(runtime) = active_runtime {
+                    self.host.replace(runtime);
+                }
+                state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
+                state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
+                state.snapshot.safe_stopped = managed.is_safe_stopped();
+                let _ = self.updates.send(state.snapshot.clone());
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::RollbackFailed,
+                    "Capture failed and the newly started Mihomo core could not be stopped safely",
+                ));
+            }
+        }
+        let _ = self.updates.send(state.snapshot.clone());
+        Ok(())
     }
 
     async fn wait_for_terminal_activation(
