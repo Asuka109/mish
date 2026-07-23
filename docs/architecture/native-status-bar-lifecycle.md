@@ -42,13 +42,14 @@ The implemented compact surface has four separator-delimited sections:
    **Profiles**, **Traffic**, **Events**, and **Settings**. Routes has no node
    activity suffix. Navigation accepts only this allowlist and shows,
    unminimizes, and focuses the existing WebView.
-3. Two disabled, read-only live values immediately below navigation: a
-   **>>**-prefixed most-active node and one combined **⬇️ rate | ⬆️ rate**
-   line. This section appears only after System Proxy or TUN is authoritatively
+3. Three disabled, read-only live values immediately below navigation: a
+   **>>**-prefixed most-active node, **⬇️** download rate, and **⬆️** upload
+   rate. This section appears only after System Proxy or TUN is authoritatively
    active. The node value is the existing bounded, redacted trailing 60-second
-   summary. Rates use `StatusSnapshot.traffic` and the established binary
-   byte-rate convention; each rate field uses a minimum figure-space width to
-   keep ordinary changes from moving the separator. Missing or non-ready
+   summary. Each rate line shows the authoritative cumulative total followed by
+   the current rate from `StatusSnapshot.traffic`, using the established binary
+   byte-rate convention. Both numeric fields use a minimum figure-space width
+   to reduce layout changes as ordinary values change. Missing or non-ready
    Traffic is **Unavailable**; a ready snapshot with no qualifying route is
    **Idle**. The retained handles are inserted or removed only on that
    aggregate capture edge; active values update in place once per second and
