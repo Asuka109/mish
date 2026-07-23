@@ -34,6 +34,59 @@ rejection or **Open Anyway** is the expected Alpha boundary; do not describe the
 DMG as trusted or notarized. This profile does not install a helper, request
 administrator authorization, or modify host network state.
 
+## Draft Alpha release staging
+
+The **Stage macOS Alpha Draft** Actions workflow is the credential-free staging
+boundary for an already-versioned source commit. Its `Run workflow` form
+requires a prerelease SemVer such as `0.1.0-alpha.1`, accepts an optional full
+source SHA, and defaults to a read-only dry run. A blank source freezes the
+current `main` commit. An explicit source must be one full commit SHA reachable
+from that frozen `main`.
+
+The prerelease base version must match all desktop version declarations in the
+selected source. The workflow checks out that exact commit for every later job;
+it never rebuilds a floating branch. Release tooling is independently frozen
+from the same dispatch-time `main`, so an older reachable source can be staged
+without borrowing application code from a later commit. The selected source
+must still preserve #168's `pnpm desktop:bundle:macos` command. The workflow runs
+`pnpm check:all`, preserves that Alpha build and read-only DMG inspection
+contract, then generates these deterministic candidate files:
+
+- `Mish-<version>-arm64.dmg`
+- `SHA256SUMS.txt`
+- `release-metadata.json`
+
+The metadata records the full source SHA, exact `v<version>` tag, ARM64
+architecture, minimum macOS version, pinned Mihomo version, ad-hoc signing mode,
+Draft Pre-release kind, and the expected
+`rejection-or-app-scoped-open-anyway` Gatekeeper boundary. The checksum manifest
+covers the DMG and metadata.
+
+All source, validation, build, artifact, and dry-run decision jobs have
+`contents: read`. Only the final staging job has `contents: write`, and it runs
+only when the dispatch explicitly disables dry-run. The final job rechecks the
+tag, release, and asset digests before mutation. It creates a lightweight tag
+only when absent, never moves a tag, creates only a Draft Pre-release, and
+uploads only missing assets whose existing names and SHA-256 digests do not
+conflict. A same-commit retry can resume an interrupted Draft; a different tag
+target, published Release, non-prerelease Release, mismatched target, or changed
+asset fails closed.
+
+The workflow is manual-only, has no pull-request or fork trigger, references no
+Apple secrets, scopes concurrency by version, and never cancels another
+candidate. A validation, build, inspection, or metadata failure occurs before
+candidate upload and before the write boundary. Publishing the Draft remains a
+separate human action.
+
+Run the local deterministic decision fixture and workflow contract without
+creating a tag or Release:
+
+```sh
+pnpm release:macos:fixture
+pnpm test:macos:release
+pnpm check:macos:release-workflow
+```
+
 ## Legacy test app bundle
 
 Run the same bundle path locally on an Apple Silicon Mac:
