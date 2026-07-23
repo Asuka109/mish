@@ -43,10 +43,10 @@ The implemented compact surface has four separator-delimited sections:
    activity suffix. Navigation accepts only this allowlist and shows,
    unminimizes, and focuses the existing WebView.
 3. Three disabled, read-only live values immediately below navigation: a
-   **>>**-prefixed most-active node, **Download**, and **Upload**. This section
-   appears only after System Proxy or TUN is authoritatively active. The node
-   value is the existing bounded, redacted trailing 60-second summary. Download
-   and Upload use `StatusSnapshot.traffic` rates and the established binary
+   **>>**-prefixed most-active node, **⬇️** download rate, and **⬆️** upload
+   rate. This section appears only after System Proxy or TUN is authoritatively
+   active. The node value is the existing bounded, redacted trailing 60-second
+   summary. Rates use `StatusSnapshot.traffic` and the established binary
    byte-rate convention. Missing or non-ready Traffic is **Unavailable**; a
    ready snapshot with no qualifying route is **Idle**. The retained handles
    are inserted or removed only on that aggregate capture edge; active values

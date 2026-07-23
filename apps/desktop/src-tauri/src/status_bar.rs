@@ -173,12 +173,8 @@ impl NativeTrafficObservations {
                 (true, None) => ">> Idle".into(),
                 (false, _) => ">> Unavailable".into(),
             },
-            download: rate_title(
-                "Download",
-                latest.rates.download_bytes_per_second,
-                available,
-            ),
-            upload: rate_title("Upload", latest.rates.upload_bytes_per_second, available),
+            download: rate_title("⬇️", latest.rates.download_bytes_per_second, available),
+            upload: rate_title("⬆️", latest.rates.upload_bytes_per_second, available),
         }
     }
 }
@@ -430,7 +426,7 @@ const MENU_SECTIONS: &[&[&str]] = &[
         "Events",
         "Settings",
     ],
-    &["Most active node", "Download", "Upload"],
+    &[">>", "⬇️", "⬆️"],
     &["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"],
 ];
 
@@ -549,10 +545,10 @@ fn build_menu<M: Manager<tauri::Wry>>(
     let most_active_node = MenuItemBuilder::new(">> Unavailable")
         .enabled(false)
         .build(manager)?;
-    let download = MenuItemBuilder::new("Download — Unavailable")
+    let download = MenuItemBuilder::new("⬇️ Unavailable")
         .enabled(false)
         .build(manager)?;
-    let upload = MenuItemBuilder::new("Upload — Unavailable")
+    let upload = MenuItemBuilder::new("⬆️ Unavailable")
         .enabled(false)
         .build(manager)?;
     let live_status_separator = PredefinedMenuItem::separator(manager)?;
@@ -639,11 +635,19 @@ struct LiveStatusModel {
     upload: String,
 }
 
-fn rate_title(label: &str, bytes_per_second: u64, available: bool) -> String {
+fn rate_title(direction: &str, bytes_per_second: u64, available: bool) -> String {
     if available {
-        format!("{label} — {}/s", format_bytes(bytes_per_second))
+        format!("{direction} {}/s", format_rate(bytes_per_second))
     } else {
-        format!("{label} — Unavailable")
+        format!("{direction} Unavailable")
+    }
+}
+
+fn format_rate(bytes_per_second: u64) -> String {
+    if bytes_per_second == 0 {
+        "0KB".into()
+    } else {
+        format_bytes(bytes_per_second).replace(' ', "")
     }
 }
 
@@ -802,8 +806,8 @@ mod tests {
             super::LiveStatusModel {
                 visible: false,
                 most_active_node: ">> Tokyo".into(),
-                download: "Download — 1.00 KB/s".into(),
-                upload: "Upload — 12.0 KB/s".into(),
+                download: "⬇️ 1.00KB/s".into(),
+                upload: "⬆️ 12.0KB/s".into(),
             }
         );
         assert_eq!(
@@ -934,7 +938,7 @@ mod tests {
                     "Settings"
                 ]
                 .as_slice(),
-                ["Most active node", "Download", "Upload"].as_slice(),
+                [">>", "⬇️", "⬆️"].as_slice(),
                 ["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"].as_slice(),
             ]
         );
@@ -977,8 +981,9 @@ mod tests {
         assert_eq!(format_bytes(0), "0.00 B");
         assert_eq!(format_bytes(1_024), "1.00 KB");
         assert_eq!(format_bytes(12_288), "12.0 KB");
-        assert_eq!(rate_title("Download", 1_024, true), "Download — 1.00 KB/s");
-        assert_eq!(rate_title("Upload", 0, false), "Upload — Unavailable");
+        assert_eq!(rate_title("⬇️", 1_024, true), "⬇️ 1.00KB/s");
+        assert_eq!(rate_title("⬆️", 0, true), "⬆️ 0KB/s");
+        assert_eq!(rate_title("⬆️", 0, false), "⬆️ Unavailable");
     }
 
     #[test]
