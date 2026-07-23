@@ -50,7 +50,7 @@ import type {
 } from "@mish/contracts";
 import { useEffect, useState } from "react";
 import { cx, tv } from "@mish/ui/tv";
-import { useNotificationDelivery } from "../data/notification-delivery";
+import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProfiles } from "../data/profile-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
@@ -162,11 +162,11 @@ export function ProfilePatchEditor({
       if (cancelled) return;
       setLoading(false);
       if (!result.ok) {
-        publish({
-          id: "profiles-patch-load-failed",
-          level: "error",
-          message: LL.profiles.patchLoadFailed(),
-        });
+        publish(
+          notificationPublication("profile.patch-load-failed", {
+            severity: "error",
+          }),
+        );
         return;
       }
       const patches = result.editor.patches.map(({ enabled, id, operation }) => ({
@@ -212,11 +212,11 @@ export function ProfilePatchEditor({
     if (!editor || !canSave) return;
     const result = await replacePatches(editor.authority, draft);
     if (!result.ok) {
-      publish({
-        id: "profiles-patch-save-failed",
-        level: "error",
-        message: LL.profiles.patchSaveFailed(),
-      });
+      publish(
+        notificationPublication("profile.patch-save-failed", {
+          severity: "error",
+        }),
+      );
       return;
     }
     const patches = result.editor.patches.map(({ enabled, id, operation }) => ({
@@ -227,7 +227,11 @@ export function ProfilePatchEditor({
     setEditor(result.editor);
     setDraft(patches);
     setBaseline(JSON.stringify(patches));
-    publish({ id: "profiles-patch-saved", level: "success", message: LL.profiles.patchSaved() });
+    publish(
+      notificationPublication("profile.patch-saved", {
+        severity: "success",
+      }),
+    );
   }
 
   function openNewPatch() {

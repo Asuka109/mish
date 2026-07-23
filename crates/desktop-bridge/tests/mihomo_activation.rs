@@ -90,7 +90,7 @@ async fn recognized_geodata_preparation_does_not_use_the_short_validation_deadli
 
 #[tokio::test]
 async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancellation() {
-    let (success, _success_host, success_controller, success_id) = geodata_coordinator(
+    let (success, success_host, success_controller, success_id) = geodata_coordinator(
         "geodata-test-success: true",
         Duration::from_secs(3),
         Duration::from_secs(3),
@@ -110,13 +110,24 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
         preparing.evidence.unwrap().asset,
         mish_bridge::GeodataAsset::GeoSite
     );
+    let progress = success_host.notification_snapshot();
+    assert_eq!(
+        progress.notifications[0].notification_type,
+        "profile.activation-geodata-progress"
+    );
+    assert!(progress.notifications[0].pinned);
+    let progress_id = progress.notifications[0].id.clone();
     let completed = wait_for_activation(&success, &mut updates).await;
     assert_eq!(completed.phase, ProfileActivationPhase::Success);
     assert_eq!(completed.evidence, None);
+    let completed_progress = success_host.notification_snapshot();
+    assert_eq!(completed_progress.notifications[0].id, progress_id);
+    assert!(completed_progress.notifications[0].resolved);
+    assert!(!completed_progress.notifications[0].pinned);
     success.shutdown().await.unwrap();
     success_controller.shutdown().await;
 
-    let (failed, _failed_host, failed_controller, failed_id) = geodata_coordinator(
+    let (failed, failed_host, failed_controller, failed_id) = geodata_coordinator(
         "geodata-test-failure: true",
         Duration::from_secs(3),
         Duration::from_secs(3),
@@ -136,6 +147,12 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
         completed.evidence.unwrap().kind,
         ProfileActivationEvidenceKind::GeodataFailed
     );
+    let failed_progress = failed_host.notification_snapshot();
+    assert_eq!(
+        failed_progress.notifications[0].notification_type,
+        "profile.activation-geodata-failed"
+    );
+    assert!(!failed_progress.notifications[0].pinned);
     let serialized = serde_json::to_string(&completed).unwrap();
     assert!(!serialized.contains("token"));
     assert!(!serialized.contains("example.invalid"));
@@ -157,6 +174,16 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
         retry_completed.failure,
         Some(ProfileActivationFailure::GeodataFailed)
     );
+    let geodata_failure_ids = failed_host
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .filter(|notification| {
+            notification.notification_type == "profile.activation-geodata-failed"
+        })
+        .map(|notification| notification.id)
+        .collect::<HashSet<_>>();
+    assert_eq!(geodata_failure_ids.len(), 2);
     failed.shutdown().await.unwrap();
     failed_controller.shutdown().await;
 
@@ -1729,6 +1756,19 @@ async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable
         );
     }
 
+    let activation_failure_ids = host
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .filter(|notification| notification.notification_type == "profile.activation-failed")
+        .map(|notification| notification.id)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        activation_failure_ids.len(),
+        2,
+        "each failed activation attempt must create a distinct notification instance"
+    );
+
     let events = host.events_snapshot(StatusAdapterKind::Rpc);
     let activation_event = events["events"]
         .as_array()
@@ -2465,13 +2505,18 @@ async fn geodata_coordinator(
         },
     )));
     let address = controller.address;
+    let proxy_address = unused_loopback_address();
+    let proxy_endpoint = LoopbackProxyEndpoint::new("127.0.0.1", proxy_address.port()).unwrap();
     let host = DesktopRuntimeHost::new(safe_runtime.clone());
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
         profiles,
         manager,
         host.clone(),
         safe_runtime,
-        move || ManagedRuntimePolicy::new(address, "geodata-test-secret"),
+        move || {
+            ManagedRuntimePolicy::new(address, "geodata-test-secret")
+                .map(|policy| policy.with_proxy_endpoint(proxy_endpoint.clone()))
+        },
     ));
     (coordinator, host, controller, profile_id)
 }

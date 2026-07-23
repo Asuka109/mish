@@ -57,7 +57,7 @@ function renderInitialApplication(
 
 function AppearanceToaster() {
   const { resolvedAppearance } = useAppearance();
-  return <Toaster position="bottom-right" theme={resolvedAppearance} />;
+  return <Toaster closeButton position="bottom-right" theme={resolvedAppearance} />;
 }
 
 function ConfiguredAppearanceProvider({ children }: { children: ReactNode }) {
@@ -138,6 +138,7 @@ async function startApplication() {
                               mobileFixture={startup.mobileFixture}
                               mobileVpnClient={startup.mobileVpnClient}
                               mobileVpnSnapshot={startup.mobileVpnSnapshot}
+                              notificationClient={startup.notificationClient}
                             />
                             <AppearanceToaster />
                           </TooltipProvider>

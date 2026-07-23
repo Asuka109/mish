@@ -35,7 +35,8 @@ describe("responsive shell CSS", () => {
     expect(notifications).not.toContain("truncate");
     expect(notifications).toContain("opacity-0 pointer-events-none");
     expect(notifications).toContain("group-hover/item:opacity-100");
-    expect(notifications).toContain("group-focus-within/item:pointer-events-auto");
+    expect(notifications).toContain("focus-visible:pointer-events-auto");
+    expect(notifications).not.toContain("group-focus-within/item");
   });
 
   it("separates the profile patch editor sections inside a padded content region", () => {

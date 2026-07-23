@@ -43,7 +43,7 @@ import {
 } from "@mish/ui";
 import { useState } from "react";
 import { cx, tv } from "@mish/ui/tv";
-import { useNotificationDelivery } from "../data/notification-delivery";
+import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import {
@@ -323,11 +323,12 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
     if (!draft || !canSave) return;
     const promise = upsertServiceMonitor(draft).then((result) => {
       if (!result.ok) return;
-      publish({
-        id: "services-saved",
-        level: "success",
-        message: existingService ? LL.services.updatedToast() : LL.services.addedToast(),
-      });
+      publish(
+        notificationPublication("service.saved", {
+          params: { operation: existingService ? "updated" : "added" },
+          severity: "success",
+        }),
+      );
       onClose();
     });
     setPendingAction({ kind: "save", promise });
@@ -337,7 +338,11 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
     if (!draft?.id) return;
     const promise = removeServiceMonitor(draft.id).then((result) => {
       if (!result.ok) return;
-      publish({ id: "services-removed", level: "success", message: LL.services.removedToast() });
+      publish(
+        notificationPublication("service.removed", {
+          severity: "success",
+        }),
+      );
       setDeleteConfirmOpen(false);
       onClose();
     });
@@ -519,11 +524,11 @@ export function ServiceMonitorSection() {
     try {
       const result = await restoreDefaultServices();
       if (result.ok)
-        publish({
-          id: "services-defaults-restored",
-          level: "success",
-          message: LL.services.defaultRestoredToast(),
-        });
+        publish(
+          notificationPublication("service.defaults-restored", {
+            severity: "success",
+          }),
+        );
     } finally {
       setRestorePending(false);
     }

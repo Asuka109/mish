@@ -940,6 +940,14 @@ type RootTranslation = {
 		 */
 		trigger: RequiredParams<'count'>
 		/**
+		 * M​i​s​h​ ​r​e​p​o​r​t​e​d​ ​a​n​ ​u​p​d​a​t​e​ ​t​h​a​t​ ​t​h​i​s​ ​c​l​i​e​n​t​ ​c​a​n​n​o​t​ ​d​i​s​p​l​a​y​ ​y​e​t​.
+		 */
+		unknownMessage: string
+		/**
+		 * N​o​t​i​f​i​c​a​t​i​o​n
+		 */
+		unknownTitle: string
+		/**
 		 * V​i​e​w​ ​A​l​l​ ​E​v​e​n​t​s
 		 */
 		viewAllEvents: string
@@ -2219,6 +2227,11 @@ type RootTranslation = {
 		 * T​h​e​ ​f​i​r​s​t​ ​d​o​w​n​l​o​a​d​ ​m​a​y​ ​t​a​k​e​ ​a​ ​f​e​w​ ​m​i​n​u​t​e​s​.
 		 */
 		geodataPreparingDetail: string
+		/**
+		 * {​a​s​s​e​t​}​ ​i​s​ ​r​e​a​d​y​ ​f​o​r​ ​a​c​t​i​v​a​t​i​o​n​.
+		 * @param {string} asset
+		 */
+		geodataPrepared: RequiredParams<'asset'>
 		/**
 		 * M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​p​r​e​p​a​r​e​ ​{​a​s​s​e​t​}​ ​r​e​q​u​i​r​e​d​ ​b​y​ ​t​h​i​s​ ​p​r​o​f​i​l​e​.
 		 * @param {string} asset
@@ -5326,6 +5339,14 @@ export type TranslationFunctions = {
 		 */
 		trigger: (arg: { count: number }) => LocalizedString
 		/**
+		 * Mish reported an update that this client cannot display yet.
+		 */
+		unknownMessage: () => LocalizedString
+		/**
+		 * Notification
+		 */
+		unknownTitle: () => LocalizedString
+		/**
 		 * View All Events
 		 */
 		viewAllEvents: () => LocalizedString
@@ -6553,6 +6574,10 @@ export type TranslationFunctions = {
 		 * The first download may take a few minutes.
 		 */
 		geodataPreparingDetail: () => LocalizedString
+		/**
+		 * {asset} is ready for activation.
+		 */
+		geodataPrepared: (arg: { asset: string }) => LocalizedString
 		/**
 		 * Mihomo could not prepare {asset} required by this profile.
 		 */

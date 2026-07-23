@@ -4,6 +4,7 @@ import {
   SettingsSnapshotSchema,
   type LocalBackupClient,
   type LocalBackupScopeDto,
+  type NotificationClient,
   type LocalRestoreConflictResolution,
   type MobileFixtureBootstrapDto,
   type MobileVpnSnapshotDto,
@@ -21,6 +22,8 @@ import { RpcProfileClient } from "../data/rpc-profile-client";
 import { RpcEventsClient } from "../data/rpc-events-client";
 import { RpcDiagnosticsClient } from "../data/rpc-diagnostics-client";
 import { RpcStatusClient } from "../data/rpc-status-client";
+import { RpcNotificationClient } from "../data/rpc-notification-client";
+import { FixtureNotificationClient } from "../data/fixture-notification-client";
 import { FixtureSettingsClient } from "../data/fixture-settings-client";
 import { RpcSettingsClient } from "../data/rpc-settings-client";
 import { RpcTrafficClient } from "../data/rpc-traffic-client";
@@ -78,6 +81,7 @@ export interface StartupStatusClient {
   mobileFixture?: MobileFixtureBootstrapDto;
   mobileVpnClient?: MobileVpnClient;
   mobileVpnSnapshot?: MobileVpnSnapshotDto;
+  notificationClient?: NotificationClient;
   runtime: "browser" | "desktop" | "mobile";
   supportBundleClient: SupportBundleClient;
 }
@@ -145,6 +149,7 @@ async function createFixtureStartup(runtime: "browser" | "desktop"): Promise<Sta
     dispose: () => undefined,
     runtime,
     localBackupClient: new UnavailableLocalBackupClient(),
+    notificationClient: new FixtureNotificationClient(),
     settingsClient,
     settingsSnapshot: await settingsClient.getSnapshot(),
     supportBundleClient: new UnavailableSupportBundleClient(),
@@ -174,6 +179,7 @@ function createRpcStartup(
     runtime === "desktop" ? dependencies.invokeLocalProfilePreflight : null,
   );
   const trafficClient = new RpcTrafficClient(rpc);
+  const notificationClient = new RpcNotificationClient(rpc);
   const settingsClient = new RpcSettingsClient(rpc, runtime === "desktop");
   const settingsSnapshot = bootstrap.settingsSnapshot;
   return {
@@ -192,6 +198,7 @@ function createRpcStartup(
         })
       : new UnavailableLocalBackupClient(),
     settingsClient,
+    notificationClient,
     settingsSnapshot,
     supportBundleClient: bootstrap.supportBundleExport
       ? new DesktopSupportBundleClient({
@@ -204,6 +211,7 @@ function createRpcStartup(
       profileClient.dispose();
       diagnosticsClient.dispose();
       eventsClient.dispose();
+      notificationClient.dispose();
       trafficClient.dispose();
       client.dispose();
     },

@@ -80,19 +80,33 @@ The DOM element owns the fallback blue surface and text contrast.
   in transient notifications and the notification center without shifting the
   routing controls. System Proxy drift offers both repair and keep-current when
   the runtime advertises those actions.
-- Every application notification is published exactly once through the shared
-  notification-delivery envelope. Cross-surface capture, profile activation,
-  Settings, and Traffic failures originate as typed Rust Events. Every Web
-  client projects the same event into the retained center item and, when it is
-  newly observed during the current connection, the matching toast. Initial or
-  reconnect history does not replay old toasts. Request-local success feedback
-  and onboarding invitations may still originate in the initiating client. A
-  specific capture/runtime failure suppresses any generic command failure for
-  the same attempt. The center orders all records strictly by observation time;
-  severity and available actions never influence ordering. Opening the center marks the notifications currently shown as read
-  without removing them. Messages wrap naturally and remain selectable, source
-  labels are omitted, and each item has an accessible remove control revealed by
-  hover or keyboard focus. Item removal affects only the current UI session.
+- Every application notification is committed exactly once into the shared Rust
+  notification Module. Rust-native capture, profile activation, Settings, and
+  Traffic producers commit directly; TypeScript-only producers use the one RPC
+  publication Interface. Events remain diagnostic history. Every Web client
+  projects the same Rust snapshot and gives a newly observed record one matching
+  toast. Initial and reconnect baselines never replay old toasts. A specific
+  capture/runtime failure suppresses any generic command failure for the same
+  attempt. The center orders records by Rust-owned revision and observation;
+  severity and available actions never influence ordering. Opening the center
+  marks retained items read through Rust without removing them. Messages wrap
+  naturally and remain selectable, and source labels are omitted. Users can
+  dismiss the client-local toast without changing history, or remove an
+  individual center record with its X control; removal is written through Rust
+  and synchronized across clients. A notification type is a presentation
+  definition rather than a singleton: separate operation attempts create
+  separate records, while revisions of one explicit lifecycle keep the same ID.
+  The center X and toast X stay hidden until hover or their own keyboard focus;
+  the toast X is placed at the upper right. Ordinary toasts expire after the
+  bounded Sonner default. Active asynchronous work may pin a record: its toast
+  persists and its center record cannot be removed until Rust resolves the same
+  ID, at which point the toast dismisses, history remains, and the center X
+  becomes available.
+- Profile activation publishes GeoSite, GeoIP, MMDB, or ASN preparation directly
+  into the Rust notification Module. Preparation is pinned in both the center
+  and its toast. Success resolves and retains the same record; preparation
+  failure updates that same record into an unpinned actionable failure. Raw
+  Mihomo output never crosses the notification Seam.
 - On a fresh eligible desktop installation, the notification center also retains
   one versioned welcome invitation. Existing installations receive the same
   invitation once when upgrading from an older settings schema. On the first
@@ -105,9 +119,9 @@ The DOM element owns the fallback blue surface and text contrast.
   without removing the invitation; only explicit completion removes it. The tour
   is educational: it performs no Core, capture, network, profile, routing, or
   helper operation and returns focus to the notification trigger when it closes.
-  Removing its notification item does not complete or dismiss the durable
-  invitation, so it can resume in a later app session. Installed mobile builds
-  exclude this invitation and dialog.
+  Removing the retained notification does not mark the welcome tour complete;
+  the durable invitation can be projected again in a later app session.
+  Installed mobile builds exclude this invitation and dialog.
 
 ## Session
 

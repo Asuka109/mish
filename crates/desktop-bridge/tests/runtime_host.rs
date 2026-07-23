@@ -5,12 +5,13 @@ use mish_bridge::DesktopRuntimeHost;
 use mish_runtime::{
     CaptureFailureKind, CaptureRecoveryAction, CoreError, CorePhase, CoreRuntime, CoreStatus,
     EventLevel, EventRecord, EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase,
-    EventsDataSource, EventsSnapshot, MishRuntime, ProviderAuthority,
-    ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
-    ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateState,
-    RoutingMode, RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError,
-    StatusCommandErrorKind, StatusDataSource, StatusSnapshot, TrafficCommandAuthority,
-    TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot, TrafficDataSource,
+    EventsDataSource, EventsSnapshot, MishRuntime, NotificationPublication, NotificationSeverity,
+    ProviderAuthority, ProviderCapabilityAvailability, ProviderCommandExecution,
+    ProviderCommandOperation, ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType,
+    ProviderUpdateState, RoutingMode, RuntimeProvider, StatusAdapterKind, StatusCommand,
+    StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
+    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandOperation, TrafficDataSnapshot,
+    TrafficDataSource,
 };
 use mish_state_authority::StateMutationAuthority;
 use tokio::sync::{Notify, broadcast};
@@ -165,7 +166,6 @@ impl EventsDataSource for ProfileSource {
                 id: format!("{}:1", self.profile_id),
                 level: EventLevel::Info,
                 message: "runtime replacement boundary".into(),
-                notification_kind: None,
                 observed_at: 1,
                 sequence: 1,
                 source: EventSource::Application,
@@ -296,6 +296,26 @@ async fn replacing_the_runtime_changes_status_traffic_and_events_as_one_profile_
     assert_eq!(events["profileId"], "profile-b");
     assert_eq!(events["sessionId"], "events-profile-b");
     assert_eq!(events["events"][0]["id"], "profile-b:1");
+}
+
+#[test]
+fn replacing_the_runtime_preserves_the_authoritative_notification_center() {
+    let host = DesktopRuntimeHost::new(runtime("profile-a"));
+    let published = host
+        .publish_notification(NotificationPublication {
+            dedupe_key: "profile.saved".into(),
+            notification_type: "profile.saved".into(),
+            params: serde_json::json!({}),
+            pinned: false,
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Success,
+        })
+        .unwrap();
+
+    host.replace(runtime("profile-b"));
+
+    assert_eq!(host.notification_snapshot(), published);
 }
 
 #[tokio::test]

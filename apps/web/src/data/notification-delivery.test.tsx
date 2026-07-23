@@ -1,74 +1,20 @@
-import type { EventRecordDto, ProfileSnapshotDto } from "@mish/contracts";
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router";
-import {
-  geodataProgressNotificationId,
-  NotificationBubble,
-} from "../components/notification-bubble";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
-import { EventsProvider } from "./events-provider";
-import { createFixtureEventsClient } from "./fixture-events-client";
-import { FixtureProfileClient } from "./fixture-profile-client";
-import { FixtureStatusClient } from "./fixture-status-client";
-import { ProductProvider } from "./product-provider";
-import { ProfileProvider } from "./profile-provider";
+import {
+  FixtureNotificationCenter,
+  FixtureNotificationClient,
+} from "./fixture-notification-client";
 import {
   NotificationDeliveryProvider,
+  notificationPublication,
   useNotificationDelivery,
   type NotificationDeliveryContextValue,
 } from "./notification-delivery";
 
-const { dismissNotificationToast, presentNotificationToast } = vi.hoisted(() => ({
-  dismissNotificationToast: vi.fn(),
-  presentNotificationToast: vi.fn(),
-}));
-
-vi.mock("./sonner-notification-adapter", () => ({
-  dismissNotificationToast,
-  presentNotificationToast,
-}));
-
-class MutableProfileClient extends FixtureProfileClient {
-  private listener: ((snapshot: ProfileSnapshotDto) => void) | null = null;
-
-  constructor(private snapshot: ProfileSnapshotDto) {
-    super();
-  }
-
-  override async getSnapshot() {
-    return structuredClone(this.snapshot);
-  }
-
-  publish(snapshot: ProfileSnapshotDto) {
-    this.snapshot = structuredClone(snapshot);
-    this.listener?.(structuredClone(snapshot));
-  }
-
-  override subscribeSnapshots(listener: (snapshot: ProfileSnapshotDto) => void) {
-    this.listener = listener;
-    return () => {
-      this.listener = null;
-    };
-  }
-}
-
-function event(id: string, sequence: number): EventRecordDto {
-  return {
-    detail: "Resolve the failure and retry",
-    id,
-    level: "error",
-    message: "Profile activation failed",
-    notificationKind: "profile-activation-failure",
-    observedAt: sequence,
-    sequence,
-    source: "application",
-  };
-}
-
-describe("authoritative notification delivery", () => {
+describe("Rust-authoritative notification delivery projection", () => {
   let delivery: NotificationDeliveryContextValue | null = null;
 
   function Probe() {
@@ -81,315 +27,112 @@ describe("authoritative notification delivery", () => {
 
   beforeEach(() => {
     delivery = null;
-    presentNotificationToast.mockClear();
-    dismissNotificationToast.mockClear();
-  });
-
-  it("restores history without replaying toast and presents only new Rust events", () => {
-    render(
-      <NotificationDeliveryProvider>
-        <Probe />
-      </NotificationDeliveryProvider>,
-    );
-    const first = event("session-1:1", 1);
-    act(() => {
-      delivery?.setSession("session-1");
-      delivery?.reconcileExternalNotifications([{ ...first, detail: first.detail ?? undefined }]);
-    });
-    expect(delivery?.entries.map(({ id }) => id)).toEqual([first.id]);
-    expect(presentNotificationToast).not.toHaveBeenCalled();
-
-    const second = event("session-1:2", 2);
-    act(() => {
-      delivery?.reconcileExternalNotifications(
-        [first, second].map((item) => ({ ...item, detail: item.detail ?? undefined })),
-      );
-    });
-    expect(delivery?.entries.map(({ id }) => id)).toEqual([second.id, first.id]);
-    expect(presentNotificationToast).toHaveBeenCalledTimes(1);
-    expect(presentNotificationToast.mock.calls[0]?.[0]).toMatchObject({
-      id: second.id,
-      source: "event",
-    });
-
-    act(() => {
-      delivery?.reconcileExternalNotifications([
-        { ...first, detail: first.detail ?? undefined },
-        { ...second, detail: "Localized recovery guidance", message: "Localized failure" },
-      ]);
-    });
-    expect(presentNotificationToast).toHaveBeenCalledTimes(2);
-    expect(presentNotificationToast.mock.calls[1]?.[0]).toMatchObject({
-      id: second.id,
-      message: "Localized failure",
-    });
-
-    act(() => {
-      delivery?.setSession("session-2");
-      delivery?.reconcileExternalNotifications([
-        { ...event("session-2:1", 1), detail: "Resolve the failure and retry" },
-      ]);
-    });
-    expect(presentNotificationToast).toHaveBeenCalledTimes(2);
-  });
-
-  it("keeps raw Mihomo DNS diagnostics in Events without a center entry or toast", async () => {
     loadAllLocales();
-    const dnsWarning: EventRecordDto = {
-      detail: null,
-      id: "session-1:1",
-      level: "warning",
-      message: "dial DNS failed for an internal Mihomo lookup",
-      notificationKind: null,
-      observedAt: 1,
-      sequence: 1,
-      source: "core",
-    };
-    const events = createFixtureEventsClient();
-    const eventSnapshot = await events.getSnapshot();
-    eventSnapshot.events = [dnsWarning];
-    eventSnapshot.sequence = 1;
-    act(() => events.publishSnapshot(eventSnapshot));
-    render(
-      <TypesafeI18n locale="en">
-        <MemoryRouter>
-          <ProductProvider>
-            <ProfileProvider>
-              <EventsProvider client={events}>
-                <NotificationDeliveryProvider>
-                  <Probe />
-                  <NotificationBubble />
-                </NotificationDeliveryProvider>
-              </EventsProvider>
-            </ProfileProvider>
-          </ProductProvider>
-        </MemoryRouter>
-      </TypesafeI18n>,
-    );
-
-    await vi.waitFor(() => expect(delivery).not.toBeNull());
-    expect(delivery?.entries).toEqual([]);
-    expect(presentNotificationToast).not.toHaveBeenCalled();
   });
 
-  it("keeps a resolved capture notification in the center after dismissing its toast", async () => {
-    loadAllLocales();
-    const status = new FixtureStatusClient();
-    const events = createFixtureEventsClient();
-    const eventSnapshot = await events.getSnapshot();
-    eventSnapshot.events = [
-      {
-        detail: "Review the typed capture state on Status before retrying",
-        id: `${eventSnapshot.sessionId}:1`,
-        level: "error",
-        message: "System Proxy reconciliation failed",
-        notificationKind: "capture-failure",
-        observedAt: 1,
-        sequence: 1,
-        source: "application",
-      },
-    ];
-    eventSnapshot.sequence = 1;
-    events.publishSnapshot(eventSnapshot);
+  it("assigns a distinct occurrence key to independent publications of the same type", () => {
+    const center = new FixtureNotificationCenter();
+    const first = notificationPublication("profile.saved", { severity: "success" });
+    const second = notificationPublication("profile.saved", { severity: "success" });
 
-    render(
-      <TypesafeI18n locale="en">
-        <MemoryRouter>
-          <ProductProvider client={status}>
-            <ProfileProvider>
-              <EventsProvider client={events}>
-                <NotificationDeliveryProvider>
-                  <Probe />
-                  <NotificationBubble />
-                </NotificationDeliveryProvider>
-              </EventsProvider>
-            </ProfileProvider>
-          </ProductProvider>
-        </MemoryRouter>
-      </TypesafeI18n>,
-    );
-
-    await vi.waitFor(() => {
-      expect(delivery?.entries).toHaveLength(1);
-      expect(delivery?.entries[0]).toMatchObject({
-        id: `${eventSnapshot.sessionId}:1`,
-        level: "error",
-        message: "System Proxy reconciliation failed",
-        source: "event",
-      });
-    });
-    expect(presentNotificationToast).not.toHaveBeenCalled();
-
-    await act(() => status.setCapture({ systemProxy: true, tun: false }, true));
-
-    await vi.waitFor(() => {
-      expect(delivery?.entries).toHaveLength(1);
-      expect(delivery?.entries[0]).toMatchObject({
-        id: `${eventSnapshot.sessionId}:1`,
-        level: "success",
-        message: "System Proxy is applied and confirmed by macOS.",
-        source: "event",
-      });
-    });
-    expect(dismissNotificationToast).toHaveBeenCalledWith(`${eventSnapshot.sessionId}:1`);
-    expect(presentNotificationToast).not.toHaveBeenCalled();
+    expect(first.dedupeKey).not.toBe(second.dedupeKey);
+    center.publish(first);
+    const snapshot = center.publish(second);
+    expect(snapshot.notifications).toHaveLength(2);
+    expect(new Set(snapshot.notifications.map(({ id }) => id)).size).toBe(2);
   });
 
-  it("keeps one localized geodata notification through progress, failure, retry, and relaunch", async () => {
-    loadAllLocales();
-    const base = await new FixtureProfileClient().getSnapshot();
-    const pending: ProfileSnapshotDto = {
-      ...base,
-      activation: {
-        ...base.activation,
-        availability: "available",
-        commandId: "command-1",
-        evidence: { asset: "geo-site", kind: "geodata-preparing" },
-        operation: "activate",
-        phase: "pending",
-        targetProfileId: base.profiles[0]!.id,
-      },
-    };
-    const profiles = new MutableProfileClient(pending);
-    const events = createFixtureEventsClient();
-    const initialEvents = await events.getSnapshot();
-    initialEvents.events = [];
-    initialEvents.sequence = 0;
-    events.publishSnapshot(initialEvents);
-    const view = render(
-      <TypesafeI18n locale="en">
-        <MemoryRouter>
-          <ProductProvider>
-            <ProfileProvider client={profiles}>
-              <EventsProvider client={events}>
-                <NotificationDeliveryProvider>
-                  <Probe />
-                  <NotificationBubble />
-                </NotificationDeliveryProvider>
-              </EventsProvider>
-            </ProfileProvider>
-          </ProductProvider>
-        </MemoryRouter>
-      </TypesafeI18n>,
-    );
-    await vi.waitFor(() => {
-      expect(delivery?.entries).toHaveLength(1);
-      expect(delivery?.entries[0]).toMatchObject({
-        detail: "The first download may take a few minutes.",
-        duration: Number.POSITIVE_INFINITY,
-        id: geodataProgressNotificationId,
-        message: "Preparing GeoSite before activation…",
-      });
+  it("does not allocate an occurrence key for an explicit lifecycle", () => {
+    const randomUuid = vi.spyOn(crypto, "randomUUID");
+
+    const publication = notificationPublication("system-proxy.drift", {
+      dedupeKey: "system-proxy.drift",
+      severity: "warning",
     });
-    act(() => delivery?.dismiss(geodataProgressNotificationId));
-    expect(dismissNotificationToast).toHaveBeenCalledWith(geodataProgressNotificationId);
-    expect(delivery?.entries).toHaveLength(1);
-    act(() =>
-      profiles.publish({
-        ...pending,
-        activation: { ...pending.activation, evidence: null, failure: null, phase: "success" },
+
+    expect(publication.dedupeKey).toBe("system-proxy.drift");
+    expect(randomUuid).not.toHaveBeenCalled();
+    randomUuid.mockRestore();
+  });
+
+  it("hydrates the baseline without a toast and observes one new same-ID projection", async () => {
+    const center = new FixtureNotificationCenter();
+    const publisher = new FixtureNotificationClient(center);
+    await publisher.publish(
+      notificationPublication("profile.created", {
+        dedupeKey: "profile.created",
+        severity: "success",
       }),
     );
-    await vi.waitFor(() => expect(delivery?.entries).toHaveLength(0));
-    act(() =>
-      profiles.publish({
-        ...pending,
-        activation: { ...pending.activation, commandId: "command-2" },
-      }),
+    const client = new FixtureNotificationClient(center);
+    render(
+      <TypesafeI18n locale="en">
+        <NotificationDeliveryProvider client={client}>
+          <Probe />
+        </NotificationDeliveryProvider>
+      </TypesafeI18n>,
     );
     await vi.waitFor(() => expect(delivery?.entries).toHaveLength(1));
-    const failureProgressObservedAt = delivery!.entries[0]!.observedAt;
+    expect(delivery?.toastEntries).toEqual([]);
 
-    const failed = {
-      ...pending,
-      activation: {
-        ...pending.activation,
-        commandId: "command-2",
-        evidence: { asset: "geo-site", kind: "geodata-failed" } as const,
-        failure: "geodata-failed" as const,
-        phase: "failure" as const,
-      },
-    } satisfies ProfileSnapshotDto;
-    const eventSnapshot = await events.getSnapshot();
-    eventSnapshot.events = [
-      {
-        detail: "raw backend guidance",
-        id: `${eventSnapshot.sessionId}:1`,
-        level: "error",
-        message: "raw backend failure",
-        notificationKind: "profile-activation-geodata",
-        observedAt: failureProgressObservedAt + 1,
-        sequence: 1,
-        source: "application",
-      },
-    ];
-    eventSnapshot.sequence = 1;
-    act(() => events.publishSnapshot(eventSnapshot));
-    await vi.waitFor(() => {
-      expect(delivery?.entries).toHaveLength(1);
-      expect(delivery?.entries[0]).toMatchObject({
-        detail: "Check your network connection and retry activation.",
-        message: "Mihomo could not prepare GeoSite required by this profile.",
-        source: "event",
-      });
-    });
-    await act(async () => {
-      profiles.publish(failed);
-      await Promise.resolve();
-    });
-    await new Promise((resolve) => setTimeout(resolve, 5));
-
-    act(() =>
-      profiles.publish({
-        ...pending,
-        activation: { ...pending.activation, commandId: "command-3" },
-      }),
+    await act(() =>
+      publisher.publish(
+        notificationPublication("traffic.connections-closed", {
+          dedupeKey: "traffic.connections-closed",
+          params: { count: 2 },
+          severity: "success",
+        }),
+      ),
     );
-    await vi.waitFor(() => {
-      expect(
-        delivery?.entries.filter(({ id }) => id === geodataProgressNotificationId),
-      ).toHaveLength(1);
-    });
-    const retryProgressObservedAt = delivery!.entries.find(
-      ({ id }) => id === geodataProgressNotificationId,
-    )!.observedAt;
+    await vi.waitFor(() => expect(delivery?.toastEntries).toHaveLength(1));
+    const id = delivery!.toastEntries[0]!.id;
+    expect(delivery?.toastEntries[0]?.message).toBe("Closed 2 active connections");
 
-    act(() =>
-      profiles.publish({
-        ...pending,
-        activation: {
-          ...pending.activation,
-          commandId: "command-3",
-          evidence: { asset: "mmdb", kind: "geodata-timeout" },
-          failure: "geodata-timeout",
-          phase: "failure",
-        },
-      }),
+    await act(() =>
+      publisher.publish(
+        notificationPublication("traffic.connections-closed", {
+          dedupeKey: "traffic.connections-closed",
+          params: { count: 3 },
+          severity: "success",
+        }),
+      ),
     );
-    eventSnapshot.events.push({
-      detail: "raw timeout detail",
-      id: `${eventSnapshot.sessionId}:2`,
-      level: "error",
-      message: "Profile geodata preparation timed out",
-      notificationKind: "profile-activation-geodata",
-      observedAt: retryProgressObservedAt + 1,
-      sequence: 2,
-      source: "application",
-    });
-    eventSnapshot.sequence = 2;
-    act(() => events.publishSnapshot(eventSnapshot));
-    await vi.waitFor(() => {
-      expect(delivery?.entries.filter(({ source }) => source === "event")).toHaveLength(2);
-      expect(delivery?.entries[0]?.message).toBe(
-        "MMDB was not ready before the activation deadline.",
-      );
-      expect(delivery?.entries.some(({ id }) => id === geodataProgressNotificationId)).toBe(false);
-    });
+    await vi.waitFor(() =>
+      expect(delivery?.toastEntries[0]?.message).toBe("Closed 3 active connections"),
+    );
+    expect(delivery?.toastEntries).toHaveLength(1);
+    expect(delivery?.toastEntries[0]?.id).toBe(id);
+  });
 
-    act(() =>
-      events.publishSnapshot({ ...eventSnapshot, events: [], sequence: 0, sessionId: "relaunch" }),
+  it("writes read and remove lifecycle through the shared authority", async () => {
+    const center = new FixtureNotificationCenter();
+    const first = new FixtureNotificationClient(center);
+    const second = new FixtureNotificationClient(center);
+    render(
+      <TypesafeI18n locale="en">
+        <NotificationDeliveryProvider client={first}>
+          <Probe />
+        </NotificationDeliveryProvider>
+      </TypesafeI18n>,
     );
-    await vi.waitFor(() => expect(delivery?.entries).toHaveLength(0));
-    view.unmount();
+    await act(() =>
+      second.publish(
+        notificationPublication("profile.saved", {
+          dedupeKey: "profile.saved",
+          severity: "success",
+        }),
+      ),
+    );
+    await vi.waitFor(() => expect(delivery?.entries).toHaveLength(1));
+    const id = delivery!.entries[0]!.id;
+    act(() => delivery?.markRead([id]));
+    await vi.waitFor(() =>
+      expect(delivery?.entries.find((entry) => entry.id === id)?.read).toBe(true),
+    );
+    expect((await second.getSnapshot()).notifications[0]?.read).toBe(true);
+
+    act(() => delivery?.remove(id));
+    await vi.waitFor(() => expect(delivery?.entries).toEqual([]));
+    expect((await second.getSnapshot()).notifications).toEqual([]);
   });
 });

@@ -559,22 +559,12 @@ export type EventsDataPhase = z.infer<typeof EventsDataPhaseSchema>;
 export const EventSourcePhaseSchema = z.enum(["fixture-only", "ready", "stale", "unavailable"]);
 export type EventSourcePhase = z.infer<typeof EventSourcePhaseSchema>;
 
-export const ApplicationNotificationKindSchema = z.enum([
-  "capture-failure",
-  "profile-activation-failure",
-  "profile-activation-geodata",
-  "settings-failure",
-  "traffic-failure",
-]);
-export type ApplicationNotificationKind = z.infer<typeof ApplicationNotificationKindSchema>;
-
 export const EventRecordSchema = z
   .object({
     detail: BoundedTextSchema.nullable(),
     id: IdentifierSchema,
     level: EventLevelSchema,
     message: BoundedTextSchema,
-    notificationKind: ApplicationNotificationKindSchema.nullable().optional(),
     observedAt: NonNegativeIntegerSchema,
     sequence: NonNegativeIntegerSchema,
     source: EventSourceSchema,
@@ -656,6 +646,124 @@ export const RpcEventsSnapshotSchema = EventsSnapshotBaseSchema.extend({
   adapterKind: z.literal("rpc"),
 }).superRefine(validateEventsSnapshot);
 export interface RpcEventsSnapshotDto extends z.infer<typeof RpcEventsSnapshotSchema> {}
+
+export const NotificationSeveritySchema = z.enum(["debug", "info", "success", "warning", "error"]);
+export type NotificationSeverity = z.infer<typeof NotificationSeveritySchema>;
+
+export const KnownNotificationTypeSchema = z.enum([
+  "capture.failure",
+  "local-proxy.feedback",
+  "onboarding.welcome",
+  "profile.activation-failed",
+  "profile.activation-geodata-failed",
+  "profile.activation-geodata-progress",
+  "profile.activation-listener-conflict",
+  "profile.create-failed",
+  "profile.created",
+  "profile.detach-failed",
+  "profile.detached",
+  "profile.file-action-failed",
+  "profile.import-failed",
+  "profile.patch-load-failed",
+  "profile.patch-save-failed",
+  "profile.patch-saved",
+  "profile.refresh-failed",
+  "profile.save-failed",
+  "profile.saved",
+  "profile.schedule-failed",
+  "profile.subscription-updated",
+  "profile.switch-failed",
+  "route.selection-failed",
+  "service.defaults-restored",
+  "service.removed",
+  "service.saved",
+  "settings.operation-failed",
+  "status.operation-failed",
+  "system-proxy.drift",
+  "system-proxy.failed",
+  "traffic.connection-closed",
+  "traffic.connections-closed",
+  "traffic.operation-failed",
+  "tun.drift",
+  "tun.failed",
+]);
+export type KnownNotificationType = z.infer<typeof KnownNotificationTypeSchema>;
+
+const NotificationReferenceSchema = z
+  .string()
+  .min(1)
+  .max(96)
+  .regex(/^[a-z0-9][a-z0-9._:-]*$/u);
+const NotificationTypeReferenceSchema = z
+  .string()
+  .min(1)
+  .max(96)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/u);
+const NotificationParameterKeySchema = z
+  .string()
+  .min(1)
+  .max(96)
+  .regex(/^[A-Za-z][A-Za-z0-9._-]*$/u);
+export const NotificationParamsSchema = z
+  .record(NotificationParameterKeySchema, z.json())
+  .superRefine((params, context) => {
+    if (JSON.stringify(params).length <= 2_048) return;
+    context.addIssue({ code: "custom", message: "Notification parameters exceed 2,048 bytes" });
+  });
+export interface NotificationParamsDto extends z.infer<typeof NotificationParamsSchema> {}
+
+export const NotificationPublicationSchema = z
+  .object({
+    dedupeKey: NotificationReferenceSchema,
+    params: NotificationParamsSchema.default({}),
+    pinned: z.boolean().default(false),
+    replaces: z.array(NotificationReferenceSchema).max(8).default([]),
+    resolved: z.boolean().default(false),
+    severity: NotificationSeveritySchema,
+    type: KnownNotificationTypeSchema,
+  })
+  .strict();
+export interface NotificationPublicationDto extends z.infer<typeof NotificationPublicationSchema> {}
+
+export const NotificationRecordSchema = z
+  .object({
+    createdRevision: NonNegativeIntegerSchema,
+    dedupeKey: NotificationReferenceSchema,
+    id: NotificationReferenceSchema,
+    observedAt: NonNegativeIntegerSchema,
+    params: NotificationParamsSchema,
+    pinned: z.boolean(),
+    read: z.boolean(),
+    resolved: z.boolean(),
+    revision: NonNegativeIntegerSchema,
+    severity: NotificationSeveritySchema,
+    type: NotificationTypeReferenceSchema,
+  })
+  .strict();
+export interface NotificationRecordDto extends z.infer<typeof NotificationRecordSchema> {}
+
+export const NotificationSnapshotSchema = z
+  .object({
+    notifications: z.array(NotificationRecordSchema).max(128),
+    revision: NonNegativeIntegerSchema,
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    if (
+      new Set(snapshot.notifications.map(({ id }) => id)).size !== snapshot.notifications.length
+    ) {
+      context.addIssue({ code: "custom", message: "Notification IDs must be unique" });
+    }
+    if (snapshot.notifications.some((record) => record.revision > snapshot.revision)) {
+      context.addIssue({ code: "custom", message: "Record revisions cannot exceed the snapshot" });
+    }
+  });
+export interface NotificationSnapshotDto extends z.infer<typeof NotificationSnapshotSchema> {}
+
+export interface NotificationSnapshotDelivery {
+  kind: "baseline" | "update";
+  snapshot: NotificationSnapshotDto;
+}
 
 export const DiagnosticRunStatusSchema = z.enum([
   "running",
@@ -1799,7 +1907,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(18),
+    protocolVersion: z.literal(19),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -2589,6 +2697,54 @@ export const eventsRpcMethods = {
   "events.unsubscribe": { params: EventsSubscriptionIdSchema, result: z.boolean() },
 } as const;
 
+export const NotificationIdsCommandSchema = z
+  .object({ ids: z.array(NotificationReferenceSchema).max(128) })
+  .strict();
+export const NotificationIdCommandSchema = z.object({ id: NotificationReferenceSchema }).strict();
+export const NotificationDedupeKeyCommandSchema = z
+  .object({ dedupeKey: NotificationReferenceSchema })
+  .strict();
+export const NotificationSubscriptionIdSchema = z
+  .object({ subscriptionId: IdentifierSchema })
+  .strict();
+export const NotificationSubscriptionSchema = NotificationSubscriptionIdSchema.extend({
+  snapshot: NotificationSnapshotSchema,
+}).strict();
+export const NotificationSnapshotNotificationSchema = z
+  .object({ snapshot: NotificationSnapshotSchema, subscriptionId: IdentifierSchema })
+  .strict();
+export interface NotificationSnapshotNotificationDto extends z.infer<
+  typeof NotificationSnapshotNotificationSchema
+> {}
+
+export const notificationRpcMethods = {
+  "notifications.getSnapshot": { params: EmptyCommandSchema, result: NotificationSnapshotSchema },
+  "notifications.markRead": {
+    params: NotificationIdsCommandSchema,
+    result: NotificationSnapshotSchema,
+  },
+  "notifications.publish": {
+    params: NotificationPublicationSchema,
+    result: NotificationSnapshotSchema,
+  },
+  "notifications.remove": {
+    params: NotificationIdCommandSchema,
+    result: NotificationSnapshotSchema,
+  },
+  "notifications.removeByDedupeKey": {
+    params: NotificationDedupeKeyCommandSchema,
+    result: NotificationSnapshotSchema,
+  },
+  "notifications.subscribe": {
+    params: EmptyCommandSchema,
+    result: NotificationSubscriptionSchema,
+  },
+  "notifications.unsubscribe": {
+    params: NotificationSubscriptionIdSchema,
+    result: z.boolean(),
+  },
+} as const;
+
 export const CancelDiagnosticRunCommandSchema = z.object({ runId: IdentifierSchema }).strict();
 const RpcDiagnosticHistorySchema = DiagnosticHistorySchema.safeExtend({
   adapterKind: z.literal("rpc"),
@@ -2693,6 +2849,7 @@ export const mishRpcMethods = {
   ...bridgeRpcMethods,
   ...diagnosticsRpcMethods,
   ...eventsRpcMethods,
+  ...notificationRpcMethods,
   ...profileRpcMethods,
   ...settingsRpcMethods,
   ...statusRpcMethods,
@@ -2713,6 +2870,10 @@ export const trafficRpcNotifications = {
 
 export const eventsRpcNotifications = {
   "events.snapshot": EventsSnapshotNotificationSchema,
+} as const;
+
+export const notificationRpcNotifications = {
+  "notifications.snapshot": NotificationSnapshotNotificationSchema,
 } as const;
 
 export const settingsRpcNotifications = {
@@ -3026,6 +3187,27 @@ export interface EventsClient {
   getSnapshot(options?: { signal?: AbortSignal }): Promise<EventsSnapshotDto>;
   subscribeConnection(listener: (state: EventsConnectionState) => void): () => void;
   subscribeSnapshots(listener: (snapshot: EventsSnapshotDto) => void): () => void;
+}
+
+export interface NotificationClient {
+  dispose(): void;
+  getConnectionState(): EventsConnectionState;
+  getSnapshot(options?: { signal?: AbortSignal }): Promise<NotificationSnapshotDto>;
+  markRead(
+    ids: readonly string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<NotificationSnapshotDto>;
+  publish(
+    publication: NotificationPublicationDto,
+    options?: { signal?: AbortSignal },
+  ): Promise<NotificationSnapshotDto>;
+  remove(id: string, options?: { signal?: AbortSignal }): Promise<NotificationSnapshotDto>;
+  removeByDedupeKey(
+    dedupeKey: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<NotificationSnapshotDto>;
+  subscribeConnection(listener: (state: EventsConnectionState) => void): () => void;
+  subscribeSnapshots(listener: (delivery: NotificationSnapshotDelivery) => void): () => void;
 }
 
 export interface DiagnosticsClient {

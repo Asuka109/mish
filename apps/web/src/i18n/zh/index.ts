@@ -269,6 +269,8 @@ const zh = {
     remove: "移除通知：{message}",
     title: "通知",
     trigger: "通知，{count} 条未读",
+    unknownMessage: "Mish 报告了一项当前客户端暂时无法显示的更新。",
+    unknownTitle: "通知",
     viewAllEvents: "查看全部事件",
   },
   onboarding: {
@@ -613,6 +615,7 @@ const zh = {
     activationFailed: "无法使用此配置，已恢复之前的配置或保持代理关闭。",
     geodataPreparing: "正在准备启用配置所需的 {asset}…",
     geodataPreparingDetail: "首次下载可能需要几分钟。",
+    geodataPrepared: "{asset} 已准备完成，可以启用配置。",
     geodataFailed: "Mihomo 无法准备此配置所需的 {asset}。",
     geodataTimeout: "{asset} 未能在启用配置的截止时间前准备完成。",
     geodataRetry: "请检查网络连接，然后重新启用配置。",

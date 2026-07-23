@@ -5,7 +5,7 @@ import type {
   PolicyGroupType,
 } from "@mish/contracts";
 import { useEffect, useMemo, useState } from "react";
-import { useNotificationDelivery } from "../data/notification-delivery";
+import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
@@ -211,14 +211,15 @@ export function PolicyGroupBrowser({
       onSelectionConfirmed?.();
       return;
     }
-    publish({
-      id: `policy-selection-failed-${group.id}`,
-      level: "error",
-      message: LL.routes.selectionFailed({
-        child: graph.nodeById.get(childId)?.label ?? graph.groupById.get(childId)?.label ?? childId,
+    publish(
+      notificationPublication("route.selection-failed", {
+        params: {
+          child:
+            graph.nodeById.get(childId)?.label ?? graph.groupById.get(childId)?.label ?? childId,
+        },
+        severity: "error",
       }),
-      title: LL.routes.selectionFailedTitle(),
-    });
+    );
     requestAnimationFrame(() => {
       document
         .querySelector<HTMLElement>(`[data-entity-id="${CSS.escape(childId)}"]`)

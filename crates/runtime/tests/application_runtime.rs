@@ -463,7 +463,6 @@ fn safe_stopped_runtime_exposes_bounded_actionable_application_events() {
         mish_runtime::EventSource::Application
     );
     assert_eq!(snapshot.events[0].message, "Profile activation failed");
-    assert_eq!(snapshot.events[0].notification_kind, None);
     assert_eq!(
         snapshot.events[0].detail.as_deref(),
         Some("Resolve System Proxy recovery on Status, then retry activation")
@@ -472,16 +471,18 @@ fn safe_stopped_runtime_exposes_bounded_actionable_application_events() {
 }
 
 #[test]
-fn capture_diagnostics_expose_authoritative_notification_semantics() {
+fn capture_diagnostics_remain_independent_from_notification_state() {
     let runtime = MishRuntime::new(Arc::new(UnavailableCore));
     runtime.record_application_event(ApplicationDiagnosticEvent::capture_failure(
         mish_runtime::CaptureFailureKind::ExternalDrift,
     ));
 
-    let snapshot = runtime.events_snapshot_typed(StatusAdapterKind::Rpc);
-
     assert_eq!(
-        snapshot.events[0].notification_kind,
-        Some(mish_runtime::ApplicationNotificationKind::CaptureFailure)
+        runtime
+            .events_snapshot_typed(StatusAdapterKind::Rpc)
+            .events
+            .len(),
+        1
     );
+    assert!(runtime.notification_snapshot().notifications.is_empty());
 }

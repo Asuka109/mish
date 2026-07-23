@@ -18,9 +18,9 @@ use mish_bridge::{
     start_loopback_server, start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
-    CaptureReconciler, CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus,
-    LoopbackProxyEndpoint, MishRuntime, NetworkServiceProxyState,
+    CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
+    CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
+    MishRuntime, NetworkServiceProxyState, NotificationPublication, NotificationSeverity,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -528,7 +528,7 @@ async fn next_json(
 }
 
 #[tokio::test]
-async fn authoritative_application_notifications_reach_every_events_client() {
+async fn authoritative_application_notifications_reach_every_notification_client() {
     let runtime = runtime(no_core());
     let runtime_host = DesktopRuntimeHost::new(runtime.clone());
     let bridge = start_loopback_server_with_runtime_host(config(), runtime_host)
@@ -542,20 +542,85 @@ async fn authoritative_application_notifications_reach_every_events_client() {
     for (id, socket) in [(2, &mut first), (3, &mut second)] {
         let subscribed = request(
             socket,
-            json!({"jsonrpc":"2.0", "id":id, "method":"events.subscribe", "params":{}}),
+            json!({"jsonrpc":"2.0", "id":id, "method":"notifications.subscribe", "params":{}}),
         )
         .await;
         assert!(subscribed["result"]["subscriptionId"].is_string());
     }
 
-    runtime.record_application_event(ApplicationDiagnosticEvent::settings_failure());
+    let published = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0", "id":4, "method":"notifications.publish",
+            "params": {
+                "dedupeKey": "profile.saved",
+                "params": {},
+                "replaces": [],
+                "resolved": false,
+                "severity": "success",
+                "type": "profile.saved"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(
+        published["result"]["notifications"][0]["type"],
+        "profile.saved"
+    );
+    for socket in [&mut first, &mut second] {
+        let notification = next_json(socket).await;
+        assert_eq!(notification["method"], "notifications.snapshot");
+        assert_eq!(
+            notification["params"]["snapshot"]["notifications"][0]["type"],
+            "profile.saved"
+        );
+    }
+
+    runtime
+        .publish_notification(NotificationPublication {
+            dedupe_key: "settings.operation-failed".into(),
+            notification_type: "settings.operation-failed".into(),
+            params: json!({ "failure": "persistence" }),
+            pinned: false,
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        })
+        .unwrap();
 
     for socket in [&mut first, &mut second] {
         let notification = next_json(socket).await;
-        assert_eq!(notification["method"], "events.snapshot");
+        assert_eq!(notification["method"], "notifications.snapshot");
         assert_eq!(
-            notification["params"]["snapshot"]["events"][0]["notificationKind"],
-            "settings-failure"
+            notification["params"]["snapshot"]["notifications"][0]["type"],
+            "settings.operation-failed"
+        );
+    }
+
+    let profile_notification_id = published["result"]["notifications"][0]["id"]
+        .as_str()
+        .unwrap();
+    let removed = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"notifications.remove",
+            "params": {"id": profile_notification_id}
+        }),
+    )
+    .await;
+    assert_eq!(
+        removed["result"]["notifications"].as_array().unwrap().len(),
+        1
+    );
+    for socket in [&mut first, &mut second] {
+        let notification = next_json(socket).await;
+        assert_eq!(notification["method"], "notifications.snapshot");
+        assert_eq!(
+            notification["params"]["snapshot"]["notifications"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
         );
     }
 
@@ -1397,9 +1462,21 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         json!({"jsonrpc":"2.0", "id":14, "method":"events.getSnapshot", "params":{}}),
     )
     .await;
+    assert_eq!(events["result"]["events"][0]["source"], "application");
+    assert!(
+        events["result"]["events"][0]
+            .get("notificationKind")
+            .is_none()
+    );
+
+    let notifications = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":15, "method":"notifications.getSnapshot", "params":{}}),
+    )
+    .await;
     assert_eq!(
-        events["result"]["events"][0]["notificationKind"],
-        "settings-failure"
+        notifications["result"]["notifications"][0]["type"],
+        "settings.operation-failed"
     );
 
     bridge.shutdown().await;
@@ -1418,7 +1495,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 18);
+    assert_eq!(info["result"]["protocolVersion"], 19);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})

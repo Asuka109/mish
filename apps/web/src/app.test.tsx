@@ -17,6 +17,7 @@ import {
   type LocalBackupClient,
   type LocalBackupScopeDto,
   type LocalProxyTestPhase,
+  type NotificationClient,
   type OnboardingWelcomeAction,
   type RoutingMode,
   type SettingsClient,
@@ -34,7 +35,11 @@ import { FixtureStatusClient } from "./data/fixture-status-client";
 import { FixtureProfileClient } from "./data/fixture-profile-client";
 import { ProductProvider } from "./data/product-provider";
 import { EventsProvider } from "./data/events-provider";
-import { createFixtureEventsClient } from "./data/fixture-events-client";
+import {
+  FixtureNotificationCenter,
+  FixtureNotificationClient,
+} from "./data/fixture-notification-client";
+import { notificationPublication } from "./data/notification-delivery";
 import {
   FixtureSettingsClient,
   createFixtureSettingsSnapshot,
@@ -58,6 +63,7 @@ function renderRoute(
   settingsSnapshot: SettingsSnapshotDto = createFixtureSettingsSnapshot(),
   localBackupClient?: LocalBackupClient,
   eventsClient?: EventsClient,
+  notificationClient?: NotificationClient,
 ) {
   return render(
     <SettingsProvider
@@ -87,7 +93,7 @@ function renderRoute(
                 <TrafficProvider>
                   <EventsProvider client={eventsClient}>
                     <TooltipProvider>
-                      <AppRoutes />
+                      <AppRoutes notificationClient={notificationClient} />
                     </TooltipProvider>
                   </EventsProvider>
                 </TrafficProvider>
@@ -791,7 +797,24 @@ describe("production routes", () => {
 
   it("retains explicit application notifications and excludes raw core diagnostics", async () => {
     const user = userEvent.setup();
-    renderRoute("/status");
+    const center = new FixtureNotificationCenter();
+    center.publish(
+      notificationPublication("profile.saved", {
+        dedupeKey: "fixture.profile-saved",
+        severity: "success",
+      }),
+    );
+    renderRoute(
+      "/status",
+      "en",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new FixtureNotificationClient(center),
+    );
 
     const notificationTrigger = await screen.findByRole("button", {
       name: "Notifications, 1 unread",
@@ -803,7 +826,7 @@ describe("production routes", () => {
       within(notificationCenter).getByRole("heading", { name: "Notifications" }),
     ).toBeInTheDocument();
     expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
-    const routeMessage = within(notificationCenter).getByText("Synthetic route check failed");
+    const routeMessage = within(notificationCenter).getByText("Profile saved");
     expect(routeMessage).toHaveClass("notification-message");
     expect(routeMessage).toHaveAttribute("data-native-text-interaction");
     expect(
@@ -813,12 +836,12 @@ describe("production routes", () => {
     ).not.toBeInTheDocument();
     const notificationItems = within(notificationCenter).getAllByRole("listitem");
     expect(notificationItems).toHaveLength(1);
-    expect(notificationItems[0]).toHaveTextContent("Synthetic route check failed");
+    expect(notificationItems[0]).toHaveTextContent("Profile saved");
     expect(within(notificationCenter).queryByText("Platform")).not.toBeInTheDocument();
     expect(within(notificationCenter).queryByText("Mihomo core")).not.toBeInTheDocument();
 
     const removeRouteNotification = within(notificationCenter).getByRole("button", {
-      name: "Remove notification: Synthetic route check failed",
+      name: "Remove notification: Profile saved",
     });
     expect(removeRouteNotification.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     removeRouteNotification.focus();
@@ -835,9 +858,7 @@ describe("production routes", () => {
     await user.click(notificationTrigger);
 
     const reopenedCenter = await screen.findByRole("dialog");
-    expect(
-      within(reopenedCenter).queryByText("Synthetic route check failed"),
-    ).not.toBeInTheDocument();
+    expect(within(reopenedCenter).queryByText("Profile saved")).not.toBeInTheDocument();
     expect(
       within(reopenedCenter).queryByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
     ).not.toBeInTheDocument();
@@ -869,8 +890,7 @@ describe("production routes", () => {
             }),
           }),
           description: "Welcome to Mish. Your introduction is ready whenever you are.",
-          duration: Number.POSITIVE_INFINITY,
-          id: "onboarding-welcome-prompt",
+          id: expect.stringMatching(/^notification:/),
         }),
       ),
     );
@@ -1209,6 +1229,14 @@ describe("production routes", () => {
     const statusClient = new RecordingCaptureClient(snapshot);
     const profileClient = await createCompletingActivationProfileClient(false, true);
     const settingsClient = new DesktopSettingsClient();
+    const center = new FixtureNotificationCenter();
+    center.publish(
+      notificationPublication("profile.activation-listener-conflict", {
+        dedupeKey: "profile.activation-failure",
+        params: { endpoint: "127.0.0.1:7890" },
+        severity: "error",
+      }),
+    );
     renderRoute(
       "/status",
       "en",
@@ -1216,6 +1244,9 @@ describe("production routes", () => {
       profileClient,
       settingsClient,
       structuredClone(settingsClient.snapshot),
+      undefined,
+      undefined,
+      new FixtureNotificationClient(center),
     );
 
     await user.click(await screen.findByRole("button", { name: /Notifications, \d+ unread/ }));
@@ -1245,7 +1276,7 @@ describe("production routes", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "Mish could not use 127.0.0.1:7890.",
-        expect.objectContaining({ id: "managed-listener-conflict" }),
+        expect.objectContaining({ id: expect.stringMatching(/^notification:/) }),
       ),
     );
     await user.click(
@@ -1261,23 +1292,11 @@ describe("production routes", () => {
     expect(notificationCenter).not.toHaveTextContent("The command failed.");
   });
 
-  it("delivers an application capture-failure event once across the toast and center", async () => {
+  it("delivers a canonical notification once across the toast and center", async () => {
     const user = userEvent.setup();
     const errorToast = vi.spyOn(toast, "error");
-    const eventsClient = createFixtureEventsClient();
-    const eventsSnapshot = await eventsClient.getSnapshot();
-    eventsSnapshot.adapterKind = "rpc";
-    eventsClient.publishSnapshot(eventsSnapshot);
-    const failureEvent = {
-      detail: "Restart the active profile and retry only after Status is healthy",
-      id: "capture-failure:listener-unavailable",
-      level: "error" as const,
-      message: "Traffic capture was blocked because the managed listener is unavailable",
-      notificationKind: "capture-failure" as const,
-      observedAt: Date.now(),
-      sequence: eventsSnapshot.sequence + 1,
-      source: "application" as const,
-    };
+    const center = new FixtureNotificationCenter();
+    const notificationClient = new FixtureNotificationClient(center);
     renderRoute(
       "/status",
       "en",
@@ -1286,36 +1305,28 @@ describe("production routes", () => {
       undefined,
       undefined,
       undefined,
-      eventsClient,
+      undefined,
+      notificationClient,
     );
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Virtual Interface, not selected, not running",
+    await notificationClient.publish(
+      notificationPublication("profile.activation-listener-conflict", {
+        dedupeKey: "fixture.listener-conflict",
+        params: { endpoint: "127.0.0.1:7890" },
+        severity: "error",
       }),
     );
-    eventsClient.publishSnapshot({
-      ...eventsSnapshot,
-      events: [...eventsSnapshot.events, failureEvent],
-      sequence: eventsSnapshot.sequence + 1,
-    });
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
-        "Traffic capture was blocked because the managed listener is unavailable",
-        expect.objectContaining({ id: "capture-failure:listener-unavailable" }),
+        "Mish could not use 127.0.0.1:7890.",
+        expect.objectContaining({ id: "notification:1" }),
       ),
     );
-    expect(errorToast).not.toHaveBeenCalledWith("The command failed.", expect.anything());
+    expect(errorToast).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
     const notificationCenter = await screen.findByRole("dialog");
-    expect(notificationCenter).toHaveTextContent(
-      "Traffic capture was blocked because the managed listener is unavailable",
-    );
-    expect(notificationCenter).toHaveTextContent(
-      "Restart the active profile and retry only after Status is healthy",
-    );
-    expect(notificationCenter).not.toHaveTextContent("The command failed.");
+    expect(notificationCenter).toHaveTextContent("Mish could not use 127.0.0.1:7890.");
   });
 
   it("offers a clean helper reinstall when the desktop core is inactive", async () => {
@@ -1966,6 +1977,7 @@ describe("desktop RPC experience", () => {
     const user = userEvent.setup();
     const warningToast = vi.spyOn(toast, "warning");
     const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "fixture";
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection.systemProxy = true;
     snapshot.runtime.phase = "healthy";
@@ -2543,17 +2555,29 @@ describe("Status fixture experience", () => {
     };
     const statusClient = new FailingCoreUnhealthyCaptureClient(snapshot);
     const profileClient = await createCompletingActivationProfileClient();
-    renderRoute("/status", "zh", statusClient, profileClient);
-
-    await waitFor(() =>
-      expect(errorToast).toHaveBeenCalledWith(
-        "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
-        expect.any(Object),
-      ),
+    const center = new FixtureNotificationCenter();
+    center.publish(
+      notificationPublication("system-proxy.failed", {
+        dedupeKey: "system-proxy.failed",
+        params: { failure: "core-unhealthy" },
+        severity: "error",
+      }),
     );
+    renderRoute(
+      "/status",
+      "zh",
+      statusClient,
+      profileClient,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new FixtureNotificationClient(center),
+    );
+    expect(errorToast).not.toHaveBeenCalled();
     const startButton = screen.getByRole("button", { name: "启动代理" });
     expect(startButton).toHaveAttribute("data-status", "inactive");
-    expect(startButton).toBeEnabled();
+    await waitFor(() => expect(startButton).toBeEnabled());
 
     errorToast.mockClear();
     await user.click(startButton);
@@ -2679,7 +2703,7 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "The command failed.",
-        expect.objectContaining({ id: "status-operation-failure" }),
+        expect.objectContaining({ id: expect.stringMatching(/^notification:/) }),
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -2699,6 +2723,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const warningToast = vi.spyOn(toast, "warning");
     const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "fixture";
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
     snapshot.runtime.phase = "healthy";
@@ -2713,7 +2738,7 @@ describe("Status fixture experience", () => {
 
     renderRoute("/status", "en", client);
 
-    await screen.findByText("Live desktop traffic");
+    await screen.findByText("Live demo traffic");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(warningToast).toHaveBeenCalledWith(
@@ -2755,6 +2780,7 @@ describe("Status fixture experience", () => {
   it("does not offer System Proxy repair while Mihomo Core is stopped", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "fixture";
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
     snapshot.runtime.systemProxy = {
@@ -2781,6 +2807,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const warningToast = vi.spyOn(toast, "warning");
     const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "fixture";
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.captureSelection = { systemProxy: true, tun: false };
     snapshot.runtime.phase = "error";
@@ -2859,6 +2886,7 @@ describe("Status fixture experience", () => {
   it("describes a typed permission failure without claiming success", async () => {
     const errorToast = vi.spyOn(toast, "error");
     const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "fixture";
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
     snapshot.runtime.systemProxy = {
       desired: true,
@@ -2869,7 +2897,7 @@ describe("Status fixture experience", () => {
     };
     renderRoute("/status", "en", new SnapshotStatusClient(snapshot));
 
-    await screen.findByText("Live desktop traffic");
+    await screen.findByText("Live demo traffic");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
@@ -2889,6 +2917,7 @@ describe("Status fixture experience", () => {
     const user = userEvent.setup();
     const warningToast = vi.spyOn(toast, "warning");
     const snapshot = await createRpcSnapshot();
+    snapshot.adapterKind = "fixture";
     snapshot.capabilities = { systemProxy: "unavailable", tun: "supported" };
     snapshot.runtime.tun = {
       desired: true,
@@ -2940,7 +2969,7 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "The command failed.",
-        expect.objectContaining({ id: "status-operation-failure" }),
+        expect.objectContaining({ id: expect.stringMatching(/^notification:/) }),
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -2977,7 +3006,7 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(errorToast).toHaveBeenCalledWith(
         "The command failed.",
-        expect.objectContaining({ id: "status-operation-failure" }),
+        expect.objectContaining({ id: expect.stringMatching(/^notification:/) }),
       ),
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();

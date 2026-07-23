@@ -37,7 +37,7 @@ import {
 } from "@mish/ui";
 import type { ProfileListItemDto, ProfilePreviewDto, ProfileRefreshPolicy } from "@mish/contracts";
 import { useProfiles } from "../data/profile-provider";
-import { useNotificationDelivery } from "../data/notification-delivery";
+import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { TranslationFunctions } from "../i18n/i18n-types";
 
@@ -174,14 +174,18 @@ export function ProfilesPage() {
     if (!normalized) return;
     const result = await profiles.createProfile(normalized);
     if (!result.ok) {
-      publish({
-        id: "profiles-create-failed",
-        level: "error",
-        message: LL.profiles.createFailed(),
-      });
+      publish(
+        notificationPublication("profile.create-failed", {
+          severity: "error",
+        }),
+      );
       return;
     }
-    publish({ id: "profiles-created", level: "success", message: LL.profiles.createdToast() });
+    publish(
+      notificationPublication("profile.created", {
+        severity: "success",
+      }),
+    );
     closeCreate();
   }
 
@@ -203,11 +207,11 @@ export function ProfilesPage() {
     event.preventDefault();
     const result = await profiles.preflightHttps(url, normalizeFileName(fileName));
     if (!result.ok) {
-      publish({
-        id: "profiles-import-failed",
-        level: "error",
-        message: LL.profiles.importFailed(),
-      });
+      publish(
+        notificationPublication("profile.import-failed", {
+          severity: "error",
+        }),
+      );
       return;
     }
     setUrl("");
@@ -218,65 +222,73 @@ export function ProfilesPage() {
     if (!preview) return;
     const result = await profiles.savePreview(preview.previewId);
     if (!result.ok) {
-      publish({ id: "profiles-save-failed", level: "error", message: LL.profiles.saveFailed() });
+      publish(
+        notificationPublication("profile.save-failed", {
+          severity: "error",
+        }),
+      );
       return;
     }
-    publish({ id: "profiles-saved", level: "success", message: LL.profiles.savedToast() });
+    publish(
+      notificationPublication("profile.saved", {
+        severity: "success",
+      }),
+    );
     closeImport();
   }
 
   async function refreshProfile(profile: ProfileListItemDto) {
     const result = await profiles.refreshProfile(profile.id);
     if (!result.ok) {
-      publish({
-        id: "profiles-refresh-failed",
-        level: "error",
-        message: LL.profiles.refreshFailed(),
-      });
+      publish(
+        notificationPublication("profile.refresh-failed", {
+          severity: "error",
+        }),
+      );
       return;
     }
-    publish({
-      id: "profiles-subscription-updated",
-      level: "success",
-      message: LL.profiles.subscriptionUpdated(),
-    });
+    publish(
+      notificationPublication("profile.subscription-updated", {
+        severity: "success",
+      }),
+    );
   }
 
   async function setRefreshPolicy(profileId: string, policy: ProfileRefreshPolicy) {
     const result = await profiles.setRefreshPolicy(profileId, policy);
     if (!result.ok)
-      publish({
-        id: "profiles-schedule-failed",
-        level: "error",
-        message: LL.profiles.scheduleFailed(),
-      });
+      publish(
+        notificationPublication("profile.schedule-failed", {
+          severity: "error",
+        }),
+      );
   }
 
   async function detachSubscription(profile: ProfileListItemDto) {
     const result = await profiles.detachSubscription(profile.id);
     if (!result.ok) {
-      publish({
-        id: "profiles-detach-subscription-failed",
-        level: "error",
-        message: LL.profiles.detachSubscriptionFailed(),
-      });
+      publish(
+        notificationPublication("profile.detach-failed", {
+          severity: "error",
+        }),
+      );
       return;
     }
-    publish({
-      id: "profiles-subscription-detached",
-      level: "success",
-      message: LL.profiles.subscriptionDetached(),
-    });
+    publish(
+      notificationPublication("profile.detached", {
+        severity: "success",
+      }),
+    );
   }
 
   async function openDirectory() {
     const result = await profiles.openProfileDirectory();
     if (!result.ok)
-      publish({
-        id: "profiles-file-action-failed",
-        level: "error",
-        message: LL.profiles.fileActionFailed(),
-      });
+      publish(
+        notificationPublication("profile.file-action-failed", {
+          severity: "error",
+        }),
+      );
   }
 
   return (

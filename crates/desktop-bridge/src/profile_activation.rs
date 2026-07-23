@@ -12,9 +12,9 @@ use mish_profile::{
     ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{
-    ApplicationDiagnosticEvent, ApplicationNotificationKind, CapabilityAvailability,
-    CaptureFailureKind, CaptureRequest, CaptureSelection, CaptureTransitionError, EventLevel,
-    MishRuntime, ProviderSnapshot, StatusAdapterKind,
+    ApplicationDiagnosticEvent, CapabilityAvailability, CaptureFailureKind, CaptureRequest,
+    CaptureSelection, CaptureTransitionError, EventLevel, MishRuntime, NotificationPublication,
+    NotificationSeverity, ProviderSnapshot, StatusAdapterKind,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
@@ -1024,6 +1024,18 @@ impl ProfileActivationCoordinator {
         }
         state.snapshot.evidence = Some(evidence);
         let _ = self.updates.send(state.snapshot.clone());
+        drop(state);
+        if kind == ProfileActivationEvidenceKind::GeodataPreparing {
+            let _ = self.host.publish_notification(NotificationPublication {
+                dedupe_key: geodata_notification_key(command_id),
+                notification_type: "profile.activation-geodata-progress".into(),
+                params: serde_json::json!({ "asset": asset }),
+                pinned: true,
+                replaces: Vec::new(),
+                resolved: false,
+                severity: NotificationSeverity::Info,
+            });
+        }
     }
 
     async fn finish_preflight_activation(
@@ -1044,12 +1056,22 @@ impl ProfileActivationCoordinator {
         let _ = self.updates.send(state.snapshot.clone());
         drop(state);
         self.host
-            .record_application_event(ApplicationDiagnosticEvent::notification(
+            .resolve_notification(&geodata_notification_key(command_id));
+        self.host
+            .record_application_event(ApplicationDiagnosticEvent::new(
                 EventLevel::Error,
                 "Profile activation failed",
                 Some("Review the selected Profile and retry after resolving the reported failure"),
-                ApplicationNotificationKind::ProfileActivationFailure,
             ));
+        let _ = self.host.publish_notification(NotificationPublication {
+            dedupe_key: format!("profile.activation-failure:{command_id}"),
+            notification_type: "profile.activation-failed".into(),
+            params: serde_json::json!({ "failure": failure }),
+            pinned: false,
+            replaces: Vec::new(),
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        });
     }
 
     async fn finish_activation(
@@ -1077,6 +1099,11 @@ impl ProfileActivationCoordinator {
                     self.host.record_application_event(activation_failure_event(
                         MihomoActivationError::StateCommitFailed,
                     ));
+                    publish_activation_failure_notification(
+                        &self.host,
+                        command_id,
+                        MihomoActivationError::StateCommitFailed,
+                    );
                     return;
                 };
                 self.host.replace(runtime);
@@ -1108,10 +1135,14 @@ impl ProfileActivationCoordinator {
                 let _ = self.updates.send(snapshot);
                 drop(state);
                 self.host.record_application_event(diagnostic);
+                publish_activation_failure_notification(&self.host, command_id, error);
                 return;
             }
         }
         let _ = self.updates.send(state.snapshot.clone());
+        drop(state);
+        self.host
+            .resolve_notification(&geodata_notification_key(command_id));
     }
 
     async fn finish_stop(&self, command_id: &str, result: Result<(), MihomoActivationError>) {
@@ -1357,20 +1388,15 @@ fn terminal_geodata_evidence(error: MihomoActivationError) -> Option<ProfileActi
     }
 }
 
+fn geodata_notification_key(command_id: &str) -> String {
+    format!("profile.activation-geodata-progress:{command_id}")
+}
+
 fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnosticEvent {
-    let (message, notification_kind) = match error {
-        MihomoActivationError::GeodataFailed(_) => (
-            "Profile geodata preparation failed",
-            ApplicationNotificationKind::ProfileActivationGeodata,
-        ),
-        MihomoActivationError::GeodataTimeout(_) => (
-            "Profile geodata preparation timed out",
-            ApplicationNotificationKind::ProfileActivationGeodata,
-        ),
-        _ => (
-            "Profile activation failed",
-            ApplicationNotificationKind::ProfileActivationFailure,
-        ),
+    let message = match error {
+        MihomoActivationError::GeodataFailed(_) => "Profile geodata preparation failed",
+        MihomoActivationError::GeodataTimeout(_) => "Profile geodata preparation timed out",
+        _ => "Profile activation failed",
     };
     let detail = match error {
         MihomoActivationError::CaptureFailed => {
@@ -1407,10 +1433,49 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
             "Verify the packaged Mihomo resource and private application-data storage, then retry"
         }
     };
-    ApplicationDiagnosticEvent::notification(
-        EventLevel::Error,
-        message,
-        Some(detail),
-        notification_kind,
-    )
+    ApplicationDiagnosticEvent::new(EventLevel::Error, message, Some(detail))
+}
+
+fn publish_activation_failure_notification(
+    host: &DesktopRuntimeHost,
+    command_id: &str,
+    error: MihomoActivationError,
+) {
+    if !matches!(
+        error,
+        MihomoActivationError::GeodataFailed(_) | MihomoActivationError::GeodataTimeout(_)
+    ) {
+        host.resolve_notification(&geodata_notification_key(command_id));
+    }
+    let (dedupe_key, notification_type, params) = match error {
+        MihomoActivationError::GeodataFailed(asset) => (
+            geodata_notification_key(command_id),
+            "profile.activation-geodata-failed",
+            serde_json::json!({ "asset": asset, "outcome": "failed" }),
+        ),
+        MihomoActivationError::GeodataTimeout(asset) => (
+            geodata_notification_key(command_id),
+            "profile.activation-geodata-failed",
+            serde_json::json!({ "asset": asset, "outcome": "timeout" }),
+        ),
+        MihomoActivationError::ManagedListenerConflict(endpoint) => (
+            format!("profile.activation-failure:{command_id}"),
+            "profile.activation-listener-conflict",
+            serde_json::json!({ "endpoint": endpoint.to_string() }),
+        ),
+        _ => (
+            format!("profile.activation-failure:{command_id}"),
+            "profile.activation-failed",
+            serde_json::json!({ "failure": map_failure(error) }),
+        ),
+    };
+    let _ = host.publish_notification(NotificationPublication {
+        dedupe_key,
+        notification_type: notification_type.into(),
+        params,
+        pinned: false,
+        replaces: vec!["status.operation-failed".into()],
+        resolved: false,
+        severity: NotificationSeverity::Error,
+    });
 }
