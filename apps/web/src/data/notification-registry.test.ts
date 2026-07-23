@@ -52,6 +52,26 @@ describe("notification presentation registry", () => {
       LL,
     );
     expect(drift.actions.map(({ id }) => id)).toEqual(["repair", "leave-as-is"]);
+
+    const startupFailure = presentNotification(
+      notificationRecord({
+        id: "notification:startup-failure",
+        params: { failure: "core-unhealthy" },
+        type: "system-proxy.failed",
+      }),
+      LL,
+    );
+    expect(startupFailure.actions).toEqual([{ id: "open-diagnostics", label: "Open Diagnostics" }]);
+    expect(
+      presentNotification(
+        notificationRecord({
+          id: "notification:startup-failure-zh",
+          params: { failure: "core-unhealthy" },
+          type: "system-proxy.failed",
+        }),
+        i18nObject("zh"),
+      ).actions,
+    ).toEqual([{ id: "open-diagnostics", label: "打开诊断" }]);
   });
 
   it("derives pinned toast and center lifecycles from Rust metadata", () => {

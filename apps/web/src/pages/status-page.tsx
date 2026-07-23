@@ -38,13 +38,10 @@ const statusStyles = tv({
       "max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     ),
     loading: "grid min-h-full place-content-center gap-2.5 text-center text-muted-foreground",
-    error:
-      "mb-3 rounded-md border border-feedback-error-border px-3 py-2.5 text-metadata text-error",
-    diagnostics:
-      "my-2 inline-flex text-metadata font-medium text-brand no-underline hover:underline",
     controls: "pb-4",
     controlCell: cx(
-      "flex min-h-13.5 items-center gap-6 px-3.5 first:rounded-t-section-grid-inner",
+      "status-primary-control flex min-h-13.5 items-center gap-6 px-3.5",
+      "first:rounded-t-section-grid-inner",
       "last:rounded-b-section-grid-inner max-toolbar-compact:gap-4 max-shell-mobile:min-h-0",
       "max-shell-mobile:flex-col max-shell-mobile:items-start max-shell-mobile:gap-2",
       "max-shell-mobile:p-3",
@@ -238,7 +235,6 @@ export function StatusPage() {
       : snapshot.adapterKind === "rpc"
         ? LL.status.desktopActivity()
         : LL.status.deviceActivity();
-
   async function changeCaptureMode(mode: "systemProxy" | "tun", selected: boolean) {
     if (!captureSupported) return;
     const selection = { ...captureRuntime.captureSelection, [mode]: selected };
@@ -271,20 +267,6 @@ export function StatusPage() {
     <div>
       <div className={statusStyles().page()}>
         <h1 className="sr-only">{LL.navigation.status()}</h1>
-        {snapshot.adapterKind !== "fixture" && connection.stale ? (
-          <p className={statusStyles().error()} role="status">
-            {connection.phase === "reconnecting" ? LL.status.reconnecting() : LL.status.staleData()}
-          </p>
-        ) : null}
-        {snapshot.adapterKind !== "fixture" &&
-        (Boolean(error) ||
-          connection.stale ||
-          snapshot.runtime.phase === "error" ||
-          snapshot.runtime.systemProxy.phase === "drift") ? (
-          <Link className={statusStyles().diagnostics()} to="/events?diagnostics=1">
-            {LL.diagnostics.open()}
-          </Link>
-        ) : null}
         <div className={statusStyles().controls()}>
           <SectionGrid>
             <SectionGridItem className={statusStyles().controlCell()}>

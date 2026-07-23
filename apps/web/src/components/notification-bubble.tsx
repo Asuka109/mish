@@ -15,7 +15,7 @@ import {
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useCaptureCommand } from "../data/capture-command";
 import { useNotificationDelivery, type DeliveredNotification } from "../data/notification-delivery";
 import {
@@ -80,6 +80,7 @@ const notificationStyles = tv({
 
 export function NotificationBubble() {
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
+  const navigate = useNavigate();
   const settings = useOptionalSettings();
   const { commandStates, recoverSystemProxy, snapshot } = useProduct();
   const { setCapture } = useCaptureCommand();
@@ -112,6 +113,10 @@ export function NotificationBubble() {
           if (!(await settings.setOnboardingWelcomeState("open"))) return;
           dismissNotificationToast(notificationId);
           setWelcomeOpen(true);
+        } else if (actionId === "open-diagnostics") {
+          dismissNotificationToast(notificationId);
+          setOpen(false);
+          navigate("/events?diagnostics=1");
         }
       } finally {
         setPendingActions((current) => {
@@ -121,7 +126,7 @@ export function NotificationBubble() {
         });
       }
     },
-    [entryById, pendingActions, recoverSystemProxy, setCapture, settings, snapshot],
+    [entryById, navigate, pendingActions, recoverSystemProxy, setCapture, settings, snapshot],
   );
 
   useEffect(() => {
