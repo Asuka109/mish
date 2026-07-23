@@ -272,6 +272,12 @@ class DesktopSettingsClient implements SettingsClient {
     this.snapshot.preferences.managedPorts = managedPorts;
     return this.getSnapshot();
   });
+  setSystemProxyTakeoverPolicy = vi.fn(
+    async (policy: "protect-existing" | "replace-reversible-pac-or-auto-discovery") => {
+      this.snapshot.preferences.systemProxyTakeoverPolicy = policy;
+      return this.getSnapshot();
+    },
+  );
   findManagedPorts = vi.fn(async () => {
     this.snapshot.preferences.managedPorts = { controller: 29090, proxy: 27890 };
     return this.getSnapshot();

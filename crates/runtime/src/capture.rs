@@ -35,19 +35,59 @@ pub enum CaptureFailureKind {
     PersistenceFailed,
     RollbackFailed,
     RuntimeTransition,
+    TakeoverRejected,
     UnsafeExistingConfiguration,
     UnsupportedSelection,
+}
+
+/// A deliberately small policy surface for replacing a pre-existing System Proxy state.
+///
+/// The default protects every pre-existing PAC and auto-discovery configuration.  The
+/// advanced value is still bounded by the exact-journal and rollback checks below.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SystemProxyTakeoverPolicy {
+    #[default]
+    ProtectExisting,
+    ReplaceReversiblePacOrAutoDiscovery,
+}
+
+/// Redacted, closed explanations for a conservative takeover refusal.  These are safe to
+/// cross the RPC/notification seam: they never contain service names, PAC URLs, hosts, or
+/// credentials.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SystemProxyTakeoverRejection {
+    AuthenticatedProxy,
+    IncompleteObservation,
+    InvalidState,
+    ProtectedAutoDiscovery,
+    ProtectedPac,
+    UnrecoverableState,
 }
 
 #[derive(Clone, Debug)]
 pub struct CaptureTransitionError {
     pub kind: CaptureFailureKind,
     message: &'static str,
+    pub takeover_rejection: Option<SystemProxyTakeoverRejection>,
 }
 
 impl CaptureTransitionError {
     pub const fn new(kind: CaptureFailureKind, message: &'static str) -> Self {
-        Self { kind, message }
+        Self {
+            kind,
+            message,
+            takeover_rejection: None,
+        }
+    }
+
+    pub const fn takeover_rejected(rejection: SystemProxyTakeoverRejection) -> Self {
+        Self {
+            kind: CaptureFailureKind::TakeoverRejected,
+            message: "The existing System Proxy configuration was left unchanged",
+            takeover_rejection: Some(rejection),
+        }
     }
 }
 
@@ -87,10 +127,20 @@ impl ManualProxyState {
         }
     }
 
+    fn takeover_rejection(&self) -> Option<SystemProxyTakeoverRejection> {
+        if self.authenticated {
+            Some(SystemProxyTakeoverRejection::AuthenticatedProxy)
+        } else if self.host.chars().any(char::is_control) {
+            Some(SystemProxyTakeoverRejection::InvalidState)
+        } else if self.enabled && (self.host.trim().is_empty() || self.port == 0) {
+            Some(SystemProxyTakeoverRejection::IncompleteObservation)
+        } else {
+            None
+        }
+    }
+
     pub fn is_reversible(&self) -> bool {
-        !self.authenticated
-            && !self.host.chars().any(char::is_control)
-            && (!self.enabled || (!self.host.trim().is_empty() && self.port > 0))
+        self.takeover_rejection().is_none()
     }
 
     fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
@@ -114,12 +164,34 @@ pub struct NetworkServiceProxyState {
 }
 
 impl NetworkServiceProxyState {
-    fn has_unsafe_configuration(&self) -> bool {
-        self.pac_enabled
-            || self.auto_discovery_enabled
-            || [&self.http, &self.https, &self.socks]
-                .into_iter()
-                .any(|proxy| !proxy.is_reversible())
+    fn takeover_rejection(
+        &self,
+        policy: SystemProxyTakeoverPolicy,
+    ) -> Option<SystemProxyTakeoverRejection> {
+        if self.service_id.trim().is_empty() || self.service_id.chars().any(char::is_control) {
+            return Some(SystemProxyTakeoverRejection::InvalidState);
+        }
+        if self.pac_url.chars().any(char::is_control) {
+            return Some(SystemProxyTakeoverRejection::InvalidState);
+        }
+        if self.pac_enabled && (self.pac_url.trim().is_empty() || self.pac_url == "(null)") {
+            return Some(SystemProxyTakeoverRejection::IncompleteObservation);
+        }
+        if let Some(reason) = [&self.http, &self.https, &self.socks]
+            .into_iter()
+            .find_map(ManualProxyState::takeover_rejection)
+        {
+            return Some(reason);
+        }
+        if policy == SystemProxyTakeoverPolicy::ProtectExisting {
+            if self.pac_enabled {
+                return Some(SystemProxyTakeoverRejection::ProtectedPac);
+            }
+            if self.auto_discovery_enabled {
+                return Some(SystemProxyTakeoverRejection::ProtectedAutoDiscovery);
+            }
+        }
+        None
     }
     pub fn is_mish_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> bool {
         let expected = Self::manual_proxy_target(endpoint);
@@ -128,10 +200,10 @@ impl NetworkServiceProxyState {
 
     fn with_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> Self {
         Self {
-            auto_discovery_enabled: self.auto_discovery_enabled,
+            auto_discovery_enabled: false,
             http: Self::manual_proxy_target(endpoint),
             https: Self::manual_proxy_target(endpoint),
-            pac_enabled: self.pac_enabled,
+            pac_enabled: false,
             pac_url: self.pac_url.clone(),
             service_id: self.service_id.clone(),
             socks: Self::manual_proxy_target(endpoint),
@@ -139,10 +211,8 @@ impl NetworkServiceProxyState {
     }
 
     fn is_reversible(&self) -> bool {
-        !self.service_id.trim().is_empty()
-            && !self.service_id.chars().any(char::is_control)
-            && !self.pac_url.chars().any(char::is_control)
-            && !self.has_unsafe_configuration()
+        self.takeover_rejection(SystemProxyTakeoverPolicy::ReplaceReversiblePacOrAutoDiscovery)
+            .is_none()
     }
 
     fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
@@ -451,6 +521,7 @@ pub struct SystemProxyReconciler {
     journal: Arc<dyn CaptureJournalStore>,
     operation: AsyncMutex<()>,
     platform: Arc<dyn CapturePlatform>,
+    takeover_policy: Mutex<SystemProxyTakeoverPolicy>,
     status: Mutex<CaptureRuntimeStatus>,
     runtime_transition: AtomicBool,
 }
@@ -478,6 +549,7 @@ impl SystemProxyReconciler {
             journal,
             operation: AsyncMutex::new(()),
             platform,
+            takeover_policy: Mutex::new(SystemProxyTakeoverPolicy::default()),
             status: Mutex::new(CaptureRuntimeStatus::off()),
             runtime_transition: AtomicBool::new(false),
         }
@@ -500,6 +572,24 @@ impl SystemProxyReconciler {
 
     pub fn availability(&self) -> CapabilityAvailability {
         self.platform.availability()
+    }
+
+    pub fn set_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
+        *self
+            .takeover_policy
+            .lock()
+            .expect("takeover policy lock poisoned") = policy;
+    }
+
+    fn takeover_error(&self, state: &NetworkServiceProxyState) -> Option<CaptureTransitionError> {
+        state
+            .takeover_rejection(
+                *self
+                    .takeover_policy
+                    .lock()
+                    .expect("takeover policy lock poisoned"),
+            )
+            .map(CaptureTransitionError::takeover_rejected)
     }
 
     pub async fn reconcile(
@@ -639,11 +729,7 @@ impl SystemProxyReconciler {
                 "A matching System Proxy endpoint exists without Mish ownership",
             ));
         }
-        if !prior.is_reversible() {
-            let error = CaptureTransitionError::new(
-                CaptureFailureKind::UnsafeExistingConfiguration,
-                "The existing proxy configuration cannot be restored safely and was left unchanged",
-            );
+        if let Some(error) = self.takeover_error(&prior) {
             self.record_failure(request.selection, true, error.kind, Some(&prior));
             return Err(error);
         }
@@ -857,11 +943,7 @@ impl SystemProxyReconciler {
                     self.mark_drift(current, &observed, Some(error.kind))?;
                     return Err(error);
                 }
-                if !observed.is_reversible() {
-                    let error = CaptureTransitionError::new(
-                        CaptureFailureKind::UnsafeExistingConfiguration,
-                        "The existing proxy configuration cannot be restored safely and was left unchanged",
-                    );
+                if let Some(error) = self.takeover_error(&observed) {
                     self.record_failure(
                         current.capture_selection,
                         true,
@@ -986,11 +1068,7 @@ impl SystemProxyReconciler {
             }
         };
         if action == CaptureRecoveryAction::Repair {
-            if !observed.is_reversible() {
-                let error = CaptureTransitionError::new(
-                    CaptureFailureKind::UnsafeExistingConfiguration,
-                    "The existing proxy configuration cannot be restored safely and was left unchanged",
-                );
+            if let Some(error) = self.takeover_error(&observed) {
                 self.mark_drift(current, &observed, Some(error.kind))?;
                 return Err(error);
             }
@@ -1639,6 +1717,12 @@ impl CaptureReconciler {
 
     pub fn availability(&self) -> CapabilityAvailability {
         self.system_proxy.availability()
+    }
+
+    /// Settings owns the durable choice; capture only reads the latest bounded policy when a
+    /// new System Proxy transaction begins.  Existing journals always restore exactly.
+    pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
+        self.system_proxy.set_takeover_policy(policy);
     }
 
     pub fn tun_availability(&self) -> CapabilityAvailability {

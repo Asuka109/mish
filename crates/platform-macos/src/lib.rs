@@ -939,6 +939,18 @@ pub enum MacOsCommand {
         kind: MacOsProxyKind,
         service: String,
     },
+    SetAutoProxyUrl {
+        service: String,
+        url: String,
+    },
+    SetAutoProxyState {
+        enabled: bool,
+        service: String,
+    },
+    SetProxyAutoDiscovery {
+        enabled: bool,
+        service: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -996,6 +1008,19 @@ impl MacOsCommand {
                 proxy_state_flag(*kind).to_owned(),
                 service.clone(),
                 if *enabled { "on" } else { "off" }.to_owned(),
+            ]),
+            Self::SetAutoProxyUrl { service, url } => {
+                networksetup_spec(["-setautoproxyurl", service, url])
+            }
+            Self::SetAutoProxyState { enabled, service } => networksetup_spec([
+                "-setautoproxystate",
+                service,
+                if *enabled { "on" } else { "off" },
+            ]),
+            Self::SetProxyAutoDiscovery { enabled, service } => networksetup_spec([
+                "-setproxyautodiscovery",
+                service,
+                if *enabled { "on" } else { "off" },
             ]),
         }
     }
@@ -1298,6 +1323,34 @@ impl MacOsSystemProxyPlatform {
             .map_err(apply_error)?;
         Ok(())
     }
+
+    async fn apply_automatic_proxy(
+        &self,
+        target: &NetworkServiceProxyState,
+    ) -> Result<(), CaptureTransitionError> {
+        self.runner
+            .run(MacOsCommand::SetAutoProxyUrl {
+                service: target.service_id.clone(),
+                url: target.pac_url.clone(),
+            })
+            .await
+            .map_err(apply_error)?;
+        self.runner
+            .run(MacOsCommand::SetAutoProxyState {
+                enabled: target.pac_enabled,
+                service: target.service_id.clone(),
+            })
+            .await
+            .map_err(apply_error)?;
+        self.runner
+            .run(MacOsCommand::SetProxyAutoDiscovery {
+                enabled: target.auto_discovery_enabled,
+                service: target.service_id.clone(),
+            })
+            .await
+            .map_err(apply_error)?;
+        Ok(())
+    }
 }
 
 impl CapturePlatform for MacOsSystemProxyPlatform {
@@ -1336,6 +1389,7 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
                 .await?;
             self.apply_proxy(&target.service_id, MacOsProxyKind::Socks, &target.socks)
                 .await?;
+            self.apply_automatic_proxy(&target).await?;
             Ok(())
         })
     }

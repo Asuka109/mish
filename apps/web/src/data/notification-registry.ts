@@ -79,7 +79,12 @@ function knownPresentation(
   const boolean = (key: string) => record.params[key] === true;
   switch (type) {
     case "capture.failure":
-      return captureFailurePresentation(string("failure"), record.resolved, LL);
+      return captureFailurePresentation(
+        string("failure"),
+        string("takeoverReason"),
+        record.resolved,
+        LL,
+      );
     case "local-proxy.feedback":
       return { message: localProxyFeedback(string("outcome"), LL) };
     case "onboarding.welcome":
@@ -212,10 +217,17 @@ function knownPresentation(
 
 function captureFailurePresentation(
   failure: string | undefined,
+  takeoverReason: string | undefined,
   resolved: boolean,
   LL: TranslationFunctions,
 ): PresentationCopy {
   if (resolved) return { message: LL.capture.systemProxyApplied(), toast: "dismiss" };
+  if (isTakeoverRejection(takeoverReason)) {
+    return {
+      actions: [openSystemProxyPolicyAction(LL)],
+      message: LL.settingsPage.systemProxyTakeoverRejected(),
+    };
+  }
   const actions = [openDiagnosticsAction(LL)];
   if (failure === "invalid-recovery") {
     return { actions, message: LL.capture.systemProxyInvalidRecovery() };
@@ -238,8 +250,23 @@ function captureFailurePresentation(
   return { actions, message: LL.capture.systemProxyFailure() };
 }
 
+function isTakeoverRejection(value: string | undefined) {
+  return [
+    "authenticated-proxy",
+    "incomplete-observation",
+    "invalid-state",
+    "protected-auto-discovery",
+    "protected-pac",
+    "unrecoverable-state",
+  ].includes(value ?? "");
+}
+
 function openDiagnosticsAction(LL: TranslationFunctions): NotificationActionDescriptor {
   return { id: "open-diagnostics", label: LL.diagnostics.open() };
+}
+
+function openSystemProxyPolicyAction(LL: TranslationFunctions): NotificationActionDescriptor {
+  return { id: "open-system-proxy-policy", label: LL.settingsPage.systemProxyTakeoverPolicy() };
 }
 
 function systemProxyFailure(failure: string | undefined, LL: TranslationFunctions) {

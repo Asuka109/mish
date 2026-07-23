@@ -11,6 +11,7 @@ import {
   type StartupPreferencesDto,
   type WindowCloseBehavior,
   type WindowSurfacePreference,
+  type SystemProxyTakeoverPolicy,
 } from "@mish/contracts";
 import type { RpcClient, RpcConnectionState, RpcRequestOptions } from "@mish/rpc-client";
 
@@ -114,6 +115,12 @@ export class RpcSettingsClient implements SettingsClient {
   findManagedPorts(options?: RpcRequestOptions) {
     return this.rpc
       .request("settings.findManagedPorts", {}, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
+  setSystemProxyTakeoverPolicy(policy: SystemProxyTakeoverPolicy, options?: RpcRequestOptions) {
+    return this.rpc
+      .request("settings.setSystemProxyTakeoverPolicy", { policy }, options)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 

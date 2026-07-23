@@ -20,6 +20,8 @@ Ordinary settings RPC accepts only these bounded commands:
 - set a startup DTO containing `launchAtLogin` and exactly one
   `show-window` or `background` login-launch behavior; or
 - set the independent boolean `launchProxyWhenMishLaunches`; or
+- set one closed System Proxy takeover policy: `protect-existing` (the default) or
+  `replace-reversible-pac-or-auto-discovery`; or
 - set one of `hide-to-status-bar` or `quit` as the main-window close behavior.
 
 Protocol version 18 also accepts one closed onboarding welcome transition:
@@ -53,6 +55,8 @@ atomically rename it over the destination, and flush the parent directory.
 Missing storage uses safe defaults: system appearance, English, launch at login
 off, automatic proxy launch off, native material as the desired window surface, show the window for any
 future login launch, and hide the main window to the status bar on close. It
+also uses `protect-existing` for System Proxy takeover. Existing schemas migrate to that
+conservative value, so an upgrade cannot begin replacing PAC or auto-discovery state.
 also creates and immediately persists exactly one version-2 welcome invitation
 with a stable creation time. The desktop frontend records `promptedAt` when it
 first presents the proactive welcome message. Opening records a separate first
