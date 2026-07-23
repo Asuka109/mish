@@ -942,10 +942,6 @@ pub enum MacOsCommand {
         kind: MacOsProxyKind,
         service: String,
     },
-    SetAutoProxyUrl {
-        service: String,
-        url: String,
-    },
     SetAutoProxyState {
         enabled: bool,
         service: String,
@@ -1019,9 +1015,6 @@ impl MacOsCommand {
                 service.clone(),
                 if *enabled { "on" } else { "off" }.to_owned(),
             ]),
-            Self::SetAutoProxyUrl { service, url } => {
-                networksetup_spec(["-setautoproxyurl", service, url])
-            }
             Self::SetAutoProxyState { enabled, service } => networksetup_spec([
                 "-setautoproxystate",
                 service,
@@ -1354,17 +1347,12 @@ impl MacOsSystemProxyPlatform {
         Ok(())
     }
 
-    async fn apply_automatic_proxy(
+    async fn apply_automatic_proxy_states(
         &self,
         target: &NetworkServiceProxyState,
     ) -> Result<(), CaptureTransitionError> {
-        self.runner
-            .run(MacOsCommand::SetAutoProxyUrl {
-                service: target.service_id.clone(),
-                url: target.pac_url.clone(),
-            })
-            .await
-            .map_err(apply_error)?;
+        // The PAC URL is observed and confirmed exactly but never rewritten. Manual capture only
+        // changes the enabled states allowed by the explicit takeover policy.
         self.runner
             .run(MacOsCommand::SetAutoProxyState {
                 enabled: target.pac_enabled,
@@ -1419,7 +1407,7 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
                 .await?;
             self.apply_proxy(&target.service_id, MacOsProxyKind::Socks, &target.socks)
                 .await?;
-            self.apply_automatic_proxy(&target).await?;
+            self.apply_automatic_proxy_states(&target).await?;
             self.runner
                 .run(MacOsCommand::SetProxyBypassDomains {
                     domains: target.bypass_domains,

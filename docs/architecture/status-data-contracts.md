@@ -214,8 +214,12 @@ exact restoration contract. A restart may restore an interrupted apply or
 restoration only when every observed field is exactly either its persisted prior
 value or the field's Mish transaction target. This admits only crash-created
 partial matrices; any third value remains typed external drift and is not
-written. PAC and automatic-discovery fields are never written and must remain
-equal through confirmation. An unconfirmed outcome remains explicit drift with
+written. Mish never rewrites the PAC URL: manual capture preserves that observed
+content byte-for-byte. The default takeover policy also requires PAC and
+automatic discovery to remain disabled. The explicit reversible-replacement
+policy may disable and later restore their enabled states, but confirmation
+still requires the PAC URL and every other field to match exactly. An
+unconfirmed outcome remains explicit drift with
 `repair` and `leave-as-is`; repair adopts the currently observed safe state as
 the new prior, while leave-as-is clears Mish ownership without changing the OS.
 
