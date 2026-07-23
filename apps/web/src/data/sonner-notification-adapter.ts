@@ -1,6 +1,19 @@
 import { toast } from "sonner";
+import { cx, tv } from "@mish/ui/tv";
 import { createElement } from "react";
 import type { DeliveredNotification } from "./notification-delivery";
+
+const notificationToastStyles = tv({
+  slots: {
+    action: "notification-toast-action min-w-0 max-w-full whitespace-nowrap",
+    actions: cx(
+      "notification-toast-actions col-start-2 row-start-2 mt-2 flex min-w-0 max-w-full",
+      "flex-wrap gap-1.5",
+    ),
+    copy: "notification-toast-copy min-w-0 cursor-text pr-6 select-text",
+    toast: "notification-toast",
+  },
+});
 
 function ToastActionGroup({
   actions,
@@ -12,22 +25,23 @@ function ToastActionGroup({
   pendingActionId?: string;
 }) {
   const pending = Boolean(pendingActionId);
+  const styles = notificationToastStyles();
 
   return createElement(
     "span",
-    { style: { display: "flex", gap: 4, marginLeft: "auto" } },
+    { className: styles.actions() },
     actions.map((action) =>
       createElement(
         "button",
         {
           "aria-busy": pendingActionId === action.id || undefined,
+          className: styles.action(),
           "data-button": true,
           "data-cancel": action.tone === "secondary" || undefined,
           "data-disabled": pending || undefined,
           disabled: pending,
           key: action.id,
           onClick: () => (pending ? undefined : void execute(action.id)),
-          style: { marginLeft: 0, marginRight: 0 },
           type: "button",
         },
         action.label,
@@ -41,7 +55,10 @@ export function presentNotificationToast(
   notification: DeliveredNotification,
   execute: (actionId?: string) => Promise<void>,
 ) {
+  const styles = notificationToastStyles();
   const options = {
+    className: styles.toast(),
+    classNames: { content: styles.copy() },
     description:
       notification.title && notification.detail
         ? createElement(
@@ -64,19 +81,6 @@ export function presentNotificationToast(
     cancel: undefined,
   };
   const title = notification.title ?? notification.message;
-  const hasOptions =
-    options.action ||
-    options.cancel ||
-    options.description !== undefined ||
-    options.duration !== undefined;
-  if (!hasOptions) {
-    const id = { id: notification.id };
-    if (notification.level === "success") toast.success(title, id);
-    else if (notification.level === "warning") toast.warning(title, id);
-    else if (notification.level === "error") toast.error(title, id);
-    else toast.info(title, id);
-    return;
-  }
   if (notification.level === "success") toast.success(title, options);
   else if (notification.level === "warning") toast.warning(title, options);
   else if (notification.level === "error") toast.error(title, options);
