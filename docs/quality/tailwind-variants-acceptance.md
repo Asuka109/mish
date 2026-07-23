@@ -24,10 +24,10 @@ indirect CSS-variable and arbitrary-value shorthands.
 The primary JS increase is 1.9% raw and 1.9% gzip. It includes the TV recipes
 and product changes integrated from newer `main`, notably authoritative
 notification events, browser backend recovery, the configured route catalog,
-and Highcharts-based status session curves. The candidate also emits a
+and Status session curves. The candidate also emits a
 423.16 kB application-shell chunk, a 4.52 kB notification-delivery chunk, and a
 5.39 kB configured-route-catalog chunk. The application-shell increase is
-primarily attributable to the upstream Highcharts session implementation. These
+primarily attributable to the upstream session implementation. These
 secondary chunks are listed for diagnosis but are not compared numerically
 because the baseline used a different chunk graph.
 

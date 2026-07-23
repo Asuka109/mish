@@ -171,9 +171,7 @@ includesAll(
     "Base UI",
     "Phosphor Icons",
     "Lucide",
-    "Highcharts",
-    "Separate Highsoft terms",
-    "commercial or OEM license grant",
+    "Recharts",
     "Remix Icon",
     "v4.8.0",
     "8e543a8983790c20d7d8c696ae74023c69f379b7",
@@ -342,6 +340,19 @@ includesAll(
   ["BUNDLED_SERVICE_ICON_URLS", 'url.scheme() == "https"', "FALLBACK_SERVICE_ICON_URL"],
   "Service icon persistence contract",
 );
+
+const prohibitedHighchartsReferences = [
+  ...packageManifests,
+  "pnpm-lock.yaml",
+  "THIRD_PARTY_NOTICES.md",
+  ...filesUnder("apps/web/src", (relativePath) => /\.(?:ts|tsx)$/u.test(relativePath)),
+];
+for (const relativePath of prohibitedHighchartsReferences) {
+  invariant(
+    !read(relativePath).toLowerCase().includes("highcharts"),
+    `${relativePath} must not include Highcharts in a public release.`,
+  );
+}
 
 const readme = read("README.md");
 includesAll(
