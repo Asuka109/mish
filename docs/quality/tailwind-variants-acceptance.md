@@ -63,7 +63,7 @@ because the baseline used a different chunk graph.
   suite and 10-file/33-test Chromium suite exercise desktop, compact browser,
   and mobile-sized browser layouts.
 - Browser computed-style evidence covers container layout, proxy material and
-  override merging, notification wrapping/removal/focus behavior, service
+  override merging, notification wrapping/retention/focus behavior, service
   monitor layout, dialog overlays, light/dark presentation, native material
   fallback, Profiles primary-action contrast, and subscription-card spacing at
   the reported 1057 × 689 viewport. It also verifies nonzero current-color

@@ -4,10 +4,10 @@
 
 The notification center is one deep Rust **Module** owned by `MishRuntime` and
 preserved across desktop runtime replacement. Its **Interface** accepts semantic
-publications and exposes snapshot, subscribe, mark-read, remove, and
-remove-by-dedupe-key operations. The **Implementation** owns stable IDs, newest-
-first order, monotonic snapshot and record revisions, replacement and resolution,
-shared read state, explicit removal, and a 128-record retention bound.
+publications and exposes snapshot, subscribe, mark-read, and producer lifecycle
+operations. The **Implementation** owns stable IDs, newest-first order,
+monotonic snapshot and record revisions, replacement and resolution, shared read
+state, producer retirement, and a 128-record retention bound.
 
 This **Depth** keeps lifecycle policy behind one small Interface. Rust-native
 producers call the Module directly. TypeScript-only producers cross the same
@@ -44,12 +44,14 @@ Each client subscribes with an atomic baseline snapshot. A reconnect installs a
 new baseline. Baseline records populate the center but never create toasts. A
 record ID first observed in a later monotonic update creates exactly one
 bottom-right Sonner toast. A later revision of that ID updates the same toast;
-resolution or removal dismisses it. Stale or duplicate revisions are ignored.
+resolution dismisses it while retaining history. Stale or duplicate revisions
+are ignored.
 
-Opening the center marks retained IDs read through Rust. The explicit X
-removes the ID through Rust. Every subscribed desktop WebView or Browser Client
-therefore observes the same read and removal result. Toast visibility, animation,
-and action-pending state retain UI **Locality** and are not authoritative.
+Opening the center marks retained IDs read through Rust. Notification history has
+no user-delete control; Rust lifecycle replacement, resolution, producer
+retirement, and bounded retention remain authoritative. Toast dismissal,
+animation, and action-pending state retain UI **Locality** and do not delete the
+center record.
 
 ## Interfaces
 
@@ -58,7 +60,6 @@ The JSON-RPC Interface is:
 - `notifications.getSnapshot`
 - `notifications.publish`
 - `notifications.markRead`
-- `notifications.remove`
 - `notifications.removeByDedupeKey`
 - `notifications.subscribe`
 - `notifications.unsubscribe`

@@ -554,6 +554,70 @@ async fn failed_restart_recovery_is_typed_and_never_published_as_applied() {
 }
 
 #[tokio::test]
+async fn pending_aggregate_launch_does_not_commit_a_transient_capture_failure() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    fixture.platform.set_listener_ready(false);
+    fixture.runtime.publish_capture_pending(&CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    });
+
+    let error = fixture
+        .coordinator
+        .handle_core_availability(true)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        error.capture_failure,
+        CaptureFailureKind::ListenerUnavailable
+    );
+    assert!(
+        fixture
+            .runtime
+            .notification_snapshot()
+            .notifications
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn terminal_capture_failure_is_resolved_without_deleting_history_after_retry() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let request = CaptureRequest {
+        active: true,
+        selection: CaptureSelection {
+            system_proxy: true,
+            tun: false,
+        },
+    };
+    fixture.platform.set_listener_ready(false);
+    fixture
+        .runtime
+        .set_capture(request.clone(), StatusAdapterKind::Rpc)
+        .await
+        .unwrap_err();
+    let failed = fixture.runtime.notification_snapshot();
+    assert_eq!(failed.notifications.len(), 1);
+    assert!(!failed.notifications[0].resolved);
+
+    fixture.platform.set_listener_ready(true);
+    fixture
+        .runtime
+        .set_capture(request, StatusAdapterKind::Rpc)
+        .await
+        .unwrap();
+
+    let resolved = fixture.runtime.notification_snapshot();
+    assert_eq!(resolved.notifications.len(), 1);
+    assert_eq!(resolved.notifications[0].id, failed.notifications[0].id);
+    assert!(resolved.notifications[0].resolved);
+}
+
+#[tokio::test]
 async fn concurrent_older_platform_event_is_ignored_after_a_newer_transition_starts() {
     let sleep_started = Arc::new(Notify::new());
     let sleep_release = Arc::new(Notify::new());

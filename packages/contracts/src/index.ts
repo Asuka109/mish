@@ -2698,7 +2698,6 @@ export const eventsRpcMethods = {
 export const NotificationIdsCommandSchema = z
   .object({ ids: z.array(NotificationReferenceSchema).max(128) })
   .strict();
-export const NotificationIdCommandSchema = z.object({ id: NotificationReferenceSchema }).strict();
 export const NotificationDedupeKeyCommandSchema = z
   .object({ dedupeKey: NotificationReferenceSchema })
   .strict();
@@ -2723,10 +2722,6 @@ export const notificationRpcMethods = {
   },
   "notifications.publish": {
     params: NotificationPublicationSchema,
-    result: NotificationSnapshotSchema,
-  },
-  "notifications.remove": {
-    params: NotificationIdCommandSchema,
     result: NotificationSnapshotSchema,
   },
   "notifications.removeByDedupeKey": {
@@ -3199,7 +3194,6 @@ export interface NotificationClient {
     publication: NotificationPublicationDto,
     options?: { signal?: AbortSignal },
   ): Promise<NotificationSnapshotDto>;
-  remove(id: string, options?: { signal?: AbortSignal }): Promise<NotificationSnapshotDto>;
   removeByDedupeKey(
     dedupeKey: string,
     options?: { signal?: AbortSignal },

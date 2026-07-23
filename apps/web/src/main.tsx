@@ -57,7 +57,7 @@ function renderInitialApplication(
 
 function AppearanceToaster() {
   const { resolvedAppearance } = useAppearance();
-  return <Toaster position="bottom-right" theme={resolvedAppearance} />;
+  return <Toaster closeButton position="bottom-right" theme={resolvedAppearance} />;
 }
 
 function ConfiguredAppearanceProvider({ children }: { children: ReactNode }) {

@@ -86,10 +86,6 @@ export class FixtureNotificationCenter {
     return this.commit();
   }
 
-  remove(id: string) {
-    return this.removeMatching(({ id: candidate }) => candidate === id);
-  }
-
   removeByDedupeKey(dedupeKey: string) {
     return this.removeMatching(({ dedupeKey: candidate }) => candidate === dedupeKey);
   }
@@ -135,10 +131,6 @@ export class FixtureNotificationClient implements NotificationClient {
 
   async publish(publication: NotificationPublicationDto) {
     return this.center.publish(publication);
-  }
-
-  async remove(id: string) {
-    return this.center.remove(id);
   }
 
   async removeByDedupeKey(dedupeKey: string) {

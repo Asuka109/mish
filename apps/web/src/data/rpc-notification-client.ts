@@ -63,10 +63,6 @@ export class RpcNotificationClient implements NotificationClient {
     return this.mutate("notifications.publish", publication, options);
   }
 
-  async remove(id: string, options?: RpcRequestOptions) {
-    return this.mutate("notifications.remove", { id }, options);
-  }
-
   async removeByDedupeKey(dedupeKey: string, options?: RpcRequestOptions) {
     return this.mutate("notifications.removeByDedupeKey", { dedupeKey }, options);
   }

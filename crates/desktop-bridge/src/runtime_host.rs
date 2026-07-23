@@ -330,12 +330,12 @@ impl DesktopRuntimeHost {
         self.current().mark_notifications_read(ids)
     }
 
-    pub fn remove_notification(&self, id: &str) -> NotificationSnapshot {
-        self.current().remove_notification(id)
-    }
-
     pub fn remove_notification_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
         self.current().remove_notification_by_dedupe_key(dedupe_key)
+    }
+
+    pub fn resolve_notification(&self, dedupe_key: &str) -> NotificationSnapshot {
+        self.current().resolve_notification(dedupe_key)
     }
 
     pub async fn support_bundle_runtime_snapshot(
@@ -392,7 +392,7 @@ impl DesktopRuntimeHost {
                     severity: mish_runtime::NotificationSeverity::Error,
                 });
             } else {
-                current.remove_notification_by_dedupe_key("traffic.operation-failed");
+                current.resolve_notification("traffic.operation-failed");
             }
             let result = serde_json::to_value(TrafficCommandResult::new(
                 execution,

@@ -1,5 +1,5 @@
 import { TooltipProvider } from "@mish/ui";
-import { page, userEvent } from "vitest/browser";
+import { page } from "vitest/browser";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -58,7 +58,7 @@ function Harness({ client }: { client: FixtureNotificationClient }) {
                   中文
                 </button>
                 <NotificationBubble />
-                <Toaster position="bottom-right" theme="light" />
+                <Toaster closeButton position="bottom-right" theme="light" />
               </TooltipProvider>
             </NotificationDeliveryProvider>
           </ProductProvider>
@@ -115,7 +115,7 @@ afterAll(() => {
 });
 
 describe("Rust-authoritative notification browser projection", () => {
-  test("synchronizes toast, read, action, localization, removal, and reconnect lifecycle", async () => {
+  test("synchronizes toast, read, action, localization, retained history, and reconnect lifecycle", async () => {
     expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0);
 
     await secondClient.publish(
@@ -131,6 +131,19 @@ describe("Rust-authoritative notification browser projection", () => {
     const toaster = document.querySelector("[data-sonner-toaster]");
     expect(toaster).toHaveAttribute("data-x-position", "right");
     expect(toaster).toHaveAttribute("data-y-position", "bottom");
+    const closeToast = document.querySelector<HTMLButtonElement>(
+      "[data-sonner-toast] [data-close-button]",
+    );
+    expect(closeToast).not.toBeNull();
+    await closeToast!.click();
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
+    );
+    expect(
+      (await firstClient.getSnapshot()).notifications.some(
+        ({ dedupeKey }) => dedupeKey === "system-proxy.drift",
+      ),
+    ).toBe(true);
 
     const firstSnapshot = await firstClient.getSnapshot();
     const driftId = firstSnapshot.notifications.find(
@@ -180,20 +193,17 @@ describe("Rust-authoritative notification browser projection", () => {
     await vi.waitFor(() =>
       expect(recoverSystemProxy).toHaveBeenCalledWith("repair", expect.any(Object)),
     );
-    await secondClient.remove(driftId!);
+    await secondClient.removeByDedupeKey("system-proxy.drift");
 
     const retainedMessage = page.getByText("已关闭 2 条活动连接", { exact: true });
     const retainedItem = retainedMessage.element().closest(".notification-item");
-    const remove = retainedItem?.querySelector<HTMLButtonElement>(".notification-remove");
-    if (!remove) throw new Error("Missing retained notification removal control");
-    await userEvent.click(remove);
-    await expect.element(retainedMessage).not.toBeInTheDocument();
-    expect((await secondClient.getSnapshot()).notifications).toEqual([]);
+    expect(retainedItem?.querySelector(".notification-remove")).toBeNull();
+    expect((await secondClient.getSnapshot()).notifications).toHaveLength(1);
 
     firstClient.reconnect();
     await vi.waitFor(() =>
       expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
     );
-    await expect.element(page.getByText("暂无通知", { exact: true })).toBeVisible();
+    await expect.element(retainedMessage).toBeVisible();
   });
 });

@@ -1125,8 +1125,7 @@ impl ProfileActivationCoordinator {
         }
         let _ = self.updates.send(state.snapshot.clone());
         drop(state);
-        self.host
-            .remove_notification_by_dedupe_key("profile.activation-failure");
+        self.host.resolve_notification("profile.activation-failure");
         self.host
             .remove_notification_by_dedupe_key("profile.activation-geodata-progress");
     }

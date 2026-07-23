@@ -840,16 +840,12 @@ describe("production routes", () => {
     expect(within(notificationCenter).queryByText("Platform")).not.toBeInTheDocument();
     expect(within(notificationCenter).queryByText("Mihomo core")).not.toBeInTheDocument();
 
-    const removeRouteNotification = within(notificationCenter).getByRole("button", {
-      name: "Remove notification: Profile saved",
-    });
-    expect(removeRouteNotification.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
-    removeRouteNotification.focus();
-    expect(removeRouteNotification).toHaveFocus();
-    await user.click(removeRouteNotification);
-
-    expect(routeMessage).not.toBeInTheDocument();
-    expect(within(notificationCenter).queryAllByRole("listitem")).toHaveLength(0);
+    expect(
+      within(notificationCenter).queryByRole("button", {
+        name: "Remove notification: Profile saved",
+      }),
+    ).not.toBeInTheDocument();
+    expect(routeMessage).toBeInTheDocument();
     expect(notificationTrigger).toHaveAccessibleName("Notifications, 0 unread");
 
     await user.click(notificationTrigger);
@@ -858,7 +854,7 @@ describe("production routes", () => {
     await user.click(notificationTrigger);
 
     const reopenedCenter = await screen.findByRole("dialog");
-    expect(within(reopenedCenter).queryByText("Profile saved")).not.toBeInTheDocument();
+    expect(within(reopenedCenter).getByText("Profile saved")).toBeInTheDocument();
     expect(
       within(reopenedCenter).queryByText("Synthetic DNS lookup timed out for api.fixture.invalid"),
     ).not.toBeInTheDocument();
@@ -929,7 +925,7 @@ describe("production routes", () => {
     ).toHaveLength(1);
   });
 
-  it("removes the welcome item locally without completing its durable invitation", async () => {
+  it("retains the welcome item without exposing user deletion", async () => {
     const user = userEvent.setup();
     const settingsClient = onboardingSettingsClient();
     const view = renderRoute(
@@ -951,13 +947,12 @@ describe("production routes", () => {
     );
     const notificationCenter = await screen.findByRole("dialog");
     expect(within(notificationCenter).queryByText("Mish")).not.toBeInTheDocument();
-    await user.click(
-      within(notificationCenter).getByRole("button", {
+    expect(
+      within(notificationCenter).queryByRole("button", {
         name: "Remove notification: Welcome to Mish. Your introduction is ready whenever you are.",
       }),
-    );
-
-    expect(within(notificationCenter).queryByRole("button", { name: "Open Welcome" })).toBeNull();
+    ).toBeNull();
+    expect(within(notificationCenter).getByRole("button", { name: "Open Welcome" })).toBeVisible();
     expect(
       settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.completedAt,
     ).toBeNull();

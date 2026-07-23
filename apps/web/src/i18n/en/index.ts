@@ -287,7 +287,6 @@ const en = {
     description: "Recent messages, warnings, and recovery actions.",
     emptyDescription: "New product and runtime messages will appear here.",
     emptyTitle: "No notifications",
-    remove: "Remove notification: {message:string}",
     title: "Notifications",
     trigger: "Notifications, {count:number} unread",
     unknownMessage: "Mish reported an update that this client cannot display yet.",

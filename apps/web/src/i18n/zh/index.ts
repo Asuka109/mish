@@ -266,7 +266,6 @@ const zh = {
     description: "最近的消息、警告与恢复操作。",
     emptyDescription: "新的产品与运行状态消息会显示在这里。",
     emptyTitle: "暂无通知",
-    remove: "移除通知：{message}",
     title: "通知",
     trigger: "通知，{count} 条未读",
     unknownMessage: "Mish 报告了一项当前客户端暂时无法显示的更新。",

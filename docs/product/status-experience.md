@@ -90,9 +90,10 @@ The DOM element owns the fallback blue surface and text contrast.
   attempt. The center orders records by Rust-owned revision and observation;
   severity and available actions never influence ordering. Opening the center
   marks retained items read through Rust without removing them. Messages wrap
-  naturally and remain selectable, source labels are omitted, and each item has
-  an accessible remove control revealed by hover or keyboard focus. Removal is a
-  Rust mutation observed by every connected client.
+  naturally and remain selectable, and source labels are omitted. Users can
+  dismiss the client-local toast, but retained center history has no delete
+  control; Rust lifecycle resolution, replacement, and retention remain
+  authoritative across clients.
 - On a fresh eligible desktop installation, the notification center also retains
   one versioned welcome invitation. Existing installations receive the same
   invitation once when upgrading from an older settings schema. On the first
@@ -105,9 +106,9 @@ The DOM element owns the fallback blue surface and text contrast.
   without removing the invitation; only explicit completion removes it. The tour
   is educational: it performs no Core, capture, network, profile, routing, or
   helper operation and returns focus to the notification trigger when it closes.
-  Removing its notification item does not complete or dismiss the durable
-  invitation, so it can resume in a later app session. Installed mobile builds
-  exclude this invitation and dialog.
+  The retained notification has no user-delete control, so the invitation can
+  resume in a later app session. Installed mobile builds exclude this invitation
+  and dialog.
 
 ## Session
 

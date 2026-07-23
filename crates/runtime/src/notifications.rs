@@ -212,10 +212,6 @@ impl NotificationCenter {
         self.publish_snapshot(&state)
     }
 
-    pub fn remove(&self, id: &str) -> NotificationSnapshot {
-        self.remove_matching(|record| record.id == id)
-    }
-
     pub fn remove_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
         self.remove_matching(|record| record.dedupe_key == dedupe_key)
     }
@@ -472,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn read_remove_and_resolution_publish_to_all_clients() {
+    fn read_and_resolution_publish_to_all_clients_without_deleting_history() {
         let center = NotificationCenter::new();
         let (mut first, baseline) = center.subscribe_with_snapshot();
         let (mut second, _) = center.subscribe_with_snapshot();
@@ -494,11 +490,10 @@ mod tests {
         );
         assert_eq!(first.try_recv().unwrap(), resolved);
         assert_eq!(second.try_recv().unwrap(), resolved);
-
-        let removed = center.remove(&published.notifications[0].id);
-        assert!(removed.notifications.is_empty());
-        assert_eq!(first.try_recv().unwrap(), removed);
-        assert_eq!(second.try_recv().unwrap(), removed);
+        assert_eq!(
+            center.snapshot().notifications[0].id,
+            published.notifications[0].id
+        );
     }
 
     #[test]

@@ -34,15 +34,6 @@ function notificationMessage(message: string): HTMLParagraphElement {
   return element;
 }
 
-function removeButton(message: string): HTMLButtonElement {
-  const label = `Remove notification: ${message}`;
-  const element = [...document.querySelectorAll<HTMLButtonElement>(".notification-remove")].find(
-    (candidate) => candidate.getAttribute("aria-label") === label,
-  );
-  if (!element) throw new Error(`Missing notification remove button: ${message}`);
-  return element;
-}
-
 let root: Root;
 let container: HTMLDivElement;
 
@@ -108,7 +99,7 @@ afterAll(() => {
 });
 
 describe("notification bubble browser interactions", () => {
-  test("wraps and copies messages while revealing independently removable controls", async () => {
+  test("wraps and copies retained messages without exposing user deletion", async () => {
     const unreadTrigger = page.getByRole("button", {
       exact: true,
       name: "Notifications, 2 unread",
@@ -131,19 +122,7 @@ describe("notification bubble browser interactions", () => {
     expect(longMessageStyle.userSelect).toBe("text");
     expect(document.querySelector(".notification-item > span")).toBeNull();
 
-    const shortMessageElement = notificationMessage(shortMessage);
-    const shortItem = shortMessageElement.closest(".notification-item");
-    if (!shortItem) throw new Error("Missing short notification item");
-    const shortRemove = removeButton(shortMessage);
-    expect(getComputedStyle(shortRemove).opacity).toBe("0");
-    await userEvent.hover(shortItem);
-    await vi.waitFor(() => expect(getComputedStyle(shortRemove).opacity).toBe("1"));
-    await userEvent.unhover(shortItem);
-    await vi.waitFor(() => expect(getComputedStyle(shortRemove).opacity).toBe("0"));
-
-    await userEvent.tab();
-    expect(document.activeElement).toBe(shortRemove);
-    await vi.waitFor(() => expect(getComputedStyle(shortRemove).opacity).toBe("1"));
+    expect(document.querySelector(".notification-remove")).toBeNull();
 
     await userEvent.tripleClick(longMessageLocator);
     expect(document.getSelection()?.toString().trim()).toBe(longMessage);
@@ -158,10 +137,7 @@ describe("notification bubble browser interactions", () => {
     await userEvent.copy();
     expect(copiedText).toBe(longMessage);
 
-    await page
-      .getByRole("button", { exact: true, name: `Remove notification: ${shortMessage}` })
-      .click();
-    await expect.element(shortMessageLocator).not.toBeInTheDocument();
+    await expect.element(shortMessageLocator).toBeVisible();
     await expect.element(longMessageLocator).toBeVisible();
   });
 });

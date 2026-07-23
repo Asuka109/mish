@@ -26,7 +26,6 @@ export interface NotificationDeliveryContextValue {
   markRead(ids: readonly string[]): void;
   publish(publication: NotificationPublicationDto): void;
   readIds: ReadonlySet<string>;
-  remove(id: string): void;
   retire(dedupeKey: string): void;
   toastEntries: readonly DeliveredNotification[];
 }
@@ -82,12 +81,6 @@ export function NotificationDeliveryProvider({
     },
     [resolvedClient],
   );
-  const remove = useCallback(
-    (id: string) => {
-      void resolvedClient.remove(id).catch(() => undefined);
-    },
-    [resolvedClient],
-  );
   const retire = useCallback(
     (dedupeKey: string) => {
       void resolvedClient.removeByDedupeKey(dedupeKey).catch(() => undefined);
@@ -109,8 +102,8 @@ export function NotificationDeliveryProvider({
     [snapshot.notifications],
   );
   const value = useMemo<NotificationDeliveryContextValue>(
-    () => ({ entries, markRead, publish, readIds, remove, retire, toastEntries }),
-    [entries, markRead, publish, readIds, remove, retire, toastEntries],
+    () => ({ entries, markRead, publish, readIds, retire, toastEntries }),
+    [entries, markRead, publish, readIds, retire, toastEntries],
   );
   return <NotificationDeliveryContext value={value}>{children}</NotificationDeliveryContext>;
 }

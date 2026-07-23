@@ -79,7 +79,7 @@ describe("Rust-authoritative notification delivery projection", () => {
     expect(delivery?.toastEntries[0]?.id).toBe(id);
   });
 
-  it("writes read and remove lifecycle through the shared authority", async () => {
+  it("writes read lifecycle through the shared authority while retaining history", async () => {
     const center = new FixtureNotificationCenter();
     const first = new FixtureNotificationClient(center);
     const second = new FixtureNotificationClient(center);
@@ -103,9 +103,6 @@ describe("Rust-authoritative notification delivery projection", () => {
     act(() => delivery?.markRead([id]));
     await vi.waitFor(() => expect(delivery?.readIds.has(id)).toBe(true));
     expect((await second.getSnapshot()).notifications[0]?.read).toBe(true);
-
-    act(() => delivery?.remove(id));
-    await vi.waitFor(() => expect(delivery?.entries).toEqual([]));
-    expect((await second.getSnapshot()).notifications).toEqual([]);
+    expect(delivery?.entries).toHaveLength(1);
   });
 });

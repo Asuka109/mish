@@ -537,7 +537,7 @@ impl MishRuntime {
             self.record_capture_failure(error.kind);
             return Err(error);
         }
-        self.notifications.remove_by_dedupe_key("capture.failure");
+        self.notifications.resolve_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -576,7 +576,7 @@ impl MishRuntime {
             self.record_capture_failure(error.kind);
             return Err(error);
         }
-        self.notifications.remove_by_dedupe_key("capture.failure");
+        self.notifications.resolve_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -615,6 +615,9 @@ impl MishRuntime {
             return Ok(false);
         };
         let before = capture.status();
+        let aggregate_transition_pending =
+            matches!(before.system_proxy.phase, SystemProxyPhase::Pending)
+                || matches!(before.tun.phase, TunPhase::Pending);
         let core = self.core.status().await;
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let selection = before.capture_selection.clone();
@@ -640,7 +643,13 @@ impl MishRuntime {
         match result {
             Ok(_) => Ok(before != after),
             Err(error) => {
-                self.record_capture_failure(error.kind);
+                if aggregate_transition_pending {
+                    self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
+                        error.kind,
+                    ));
+                } else {
+                    self.record_capture_failure(error.kind);
+                }
                 Err(error)
             }
         }
@@ -796,12 +805,12 @@ impl MishRuntime {
         self.notifications.mark_read(ids)
     }
 
-    pub fn remove_notification(&self, id: &str) -> NotificationSnapshot {
-        self.notifications.remove(id)
-    }
-
     pub fn remove_notification_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
         self.notifications.remove_by_dedupe_key(dedupe_key)
+    }
+
+    pub fn resolve_notification(&self, dedupe_key: &str) -> NotificationSnapshot {
+        self.notifications.resolve_by_dedupe_key(dedupe_key)
     }
 
     fn record_capture_failure(&self, failure: CaptureFailureKind) {
