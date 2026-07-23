@@ -42,8 +42,8 @@ The implemented compact surface has four separator-delimited sections:
    **Profiles**, **Traffic**, **Events**, and **Settings**. Routes has no node
    activity suffix. Navigation accepts only this allowlist and shows,
    unminimizes, and focuses the existing WebView.
-3. Three disabled, read-only live labels immediately below navigation: **Most active node**, **Download**,
-   and **Upload**. The node label is the existing bounded, redacted trailing
+3. Three disabled, read-only live values immediately below navigation: a
+   **>>**-prefixed most-active node, **Download**, and **Upload**. The node value is the existing bounded, redacted trailing
    60-second summary. Download and Upload use `StatusSnapshot.traffic` rates
    and the established binary byte-rate convention. Missing or non-ready
    Traffic is **Unavailable**; a ready snapshot with no qualifying route is
@@ -176,8 +176,8 @@ first-party sources reviewed on 2026-07-23:
   application commands. Command-, and Command-Q retain their conventional
   Settings and Quit assignments.
 
-The independent **🔥** prefix makes the most-active-node row faster to scan
-without changing its user-authored node label, **Idle** / **Unavailable**
+The independent **>>** prefix makes the most-active-node value faster to scan
+without changing its user-authored node value, **Idle** / **Unavailable**
 fallbacks, or once-per-second local projection.
 
 After a route change, the WebView moves programmatic focus to the page heading

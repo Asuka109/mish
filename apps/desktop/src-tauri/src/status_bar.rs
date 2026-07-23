@@ -163,9 +163,9 @@ impl NativeTrafficObservations {
         let available = latest.phase == Some(TrafficDataPhase::Ready);
         LiveStatusModel {
             most_active_node: match (available, self.handle.summary_at(observed_at)) {
-                (true, Some(summary)) => format!("🔥 Most active node — {}", summary.label),
-                (true, None) => "🔥 Most active node — Idle".into(),
-                (false, _) => "🔥 Most active node — Unavailable".into(),
+                (true, Some(summary)) => format!(">> {}", summary.label),
+                (true, None) => ">> Idle".into(),
+                (false, _) => ">> Unavailable".into(),
             },
             download: rate_title(
                 "Download",
@@ -516,7 +516,7 @@ fn build_menu<M: Manager<tauri::Wry>>(
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[0].1)
         .enabled(model.proxy_enabled)
         .build(manager)?;
-    let most_active_node = MenuItemBuilder::new("🔥 Most active node — Unavailable")
+    let most_active_node = MenuItemBuilder::new(">> Unavailable")
         .enabled(false)
         .build(manager)?;
     let download = MenuItemBuilder::new("Download — Unavailable")
@@ -765,7 +765,7 @@ mod tests {
         assert_eq!(
             observations.live_status_at(Duration::ZERO),
             super::LiveStatusModel {
-                most_active_node: "🔥 Most active node — Tokyo".into(),
+                most_active_node: ">> Tokyo".into(),
                 download: "Download — 1.00 KB/s".into(),
                 upload: "Upload — 12.0 KB/s".into(),
             }
@@ -786,7 +786,7 @@ mod tests {
             observations
                 .live_status_at(Duration::from_secs(60))
                 .most_active_node,
-            "🔥 Most active node — Idle"
+            ">> Idle"
         );
         assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
     }
