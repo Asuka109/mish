@@ -167,9 +167,6 @@ includesAll(
     "Base UI",
     "Phosphor Icons",
     "Lucide",
-    "Highcharts",
-    "Separate Highsoft terms",
-    "commercial or OEM license grant",
     "Remix Icon License v1.0",
     "registry.npmmirror.com",
     "Petri R",
@@ -182,6 +179,19 @@ invariant(
   !notices.includes("cyenxchen/mihomo"),
   "THIRD_PARTY_NOTICES.md must use the available official Mihomo source chain.",
 );
+
+const prohibitedHighchartsReferences = [
+  ...packageManifests,
+  "pnpm-lock.yaml",
+  "THIRD_PARTY_NOTICES.md",
+  ...filesUnder("apps/web/src", (relativePath) => /\.(?:ts|tsx)$/u.test(relativePath)),
+];
+for (const relativePath of prohibitedHighchartsReferences) {
+  invariant(
+    !read(relativePath).toLowerCase().includes("highcharts"),
+    `${relativePath} must not include Highcharts in a public release.`,
+  );
+}
 
 const readme = read("README.md");
 includesAll(

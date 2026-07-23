@@ -49,22 +49,15 @@ The following projects are material direct dependencies of the current
 application. Their complete transitive graphs and exact installed versions are
 recorded in the lockfiles.
 
-| Project                                                   | Use                                                                | Declared license or terms                                     |
-| --------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------- |
-| [Tauri](https://github.com/tauri-apps/tauri)              | Desktop/mobile shell, application APIs, plugins, and build tooling | MIT OR Apache-2.0                                             |
-| [React](https://github.com/facebook/react)                | Web interface runtime                                              | MIT                                                           |
-| [React Router](https://github.com/remix-run/react-router) | Interface routing                                                  | MIT                                                           |
-| [Base UI](https://github.com/mui/base-ui)                 | Accessible unstyled interface primitives                           | MIT                                                           |
-| [Phosphor Icons](https://github.com/phosphor-icons/react) | Bundled interface icon components                                  | MIT                                                           |
-| [Lucide](https://github.com/lucide-icons/lucide)          | Bundled interface icon components                                  | ISC                                                           |
-| [Sonner](https://github.com/emilkowalski/sonner)          | In-application transient notifications                             | MIT                                                           |
-| [Highcharts](https://github.com/highcharts/highcharts)    | Bundled Status traffic sparkline                                   | [Separate Highsoft terms](https://www.highcharts.com/license) |
-
-Highcharts package metadata does not declare an open-source license identifier;
-it links to Highsoft's separate terms. This repository contains no evidence of
-a commercial or OEM license grant or a GPL-compatible exception. No such right
-is inferred. Public binary distribution is blocked until the maintainer and
-qualified counsel confirm compatible rights or the dependency is replaced.
+| Project                                                   | Use                                                                | Declared license or terms |
+| --------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------- |
+| [Tauri](https://github.com/tauri-apps/tauri)              | Desktop/mobile shell, application APIs, plugins, and build tooling | MIT OR Apache-2.0         |
+| [React](https://github.com/facebook/react)                | Web interface runtime                                              | MIT                       |
+| [React Router](https://github.com/remix-run/react-router) | Interface routing                                                  | MIT                       |
+| [Base UI](https://github.com/mui/base-ui)                 | Accessible unstyled interface primitives                           | MIT                       |
+| [Phosphor Icons](https://github.com/phosphor-icons/react) | Bundled interface icon components                                  | MIT                       |
+| [Lucide](https://github.com/lucide-icons/lucide)          | Bundled interface icon components                                  | ISC                       |
+| [Sonner](https://github.com/emilkowalski/sonner)          | In-application transient notifications                             | MIT                       |
 
 Rust application dependencies include Tauri, Tokio, Axum, Reqwest, Serde, and
 their transitive dependency graphs under their declared licenses. Before public
