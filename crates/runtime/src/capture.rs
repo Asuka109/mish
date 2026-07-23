@@ -155,6 +155,7 @@ impl ManualProxyState {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NetworkServiceProxyState {
     pub auto_discovery_enabled: bool,
+    pub bypass_domains: Vec<String>,
     pub http: ManualProxyState,
     pub https: ManualProxyState,
     pub pac_enabled: bool,
@@ -177,6 +178,11 @@ impl NetworkServiceProxyState {
         if self.pac_enabled && (self.pac_url.trim().is_empty() || self.pac_url == "(null)") {
             return Some(SystemProxyTakeoverRejection::IncompleteObservation);
         }
+        if self.bypass_domains.len() > MAX_BYPASS_DOMAINS
+            || !self.bypass_domains.iter().all(is_reversible_bypass_domain)
+        {
+            return Some(SystemProxyTakeoverRejection::InvalidState);
+        }
         if let Some(reason) = [&self.http, &self.https, &self.socks]
             .into_iter()
             .find_map(ManualProxyState::takeover_rejection)
@@ -194,6 +200,10 @@ impl NetworkServiceProxyState {
         None
     }
     pub fn is_mish_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> bool {
+        self.has_matching_manual_proxy_endpoint(endpoint) && self.has_managed_local_bypass()
+    }
+
+    fn has_matching_manual_proxy_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> bool {
         let expected = Self::manual_proxy_target(endpoint);
         self.http == expected && self.https == expected && self.socks == expected
     }
@@ -201,6 +211,7 @@ impl NetworkServiceProxyState {
     fn with_endpoint(&self, endpoint: &LoopbackProxyEndpoint) -> Self {
         Self {
             auto_discovery_enabled: false,
+            bypass_domains: merged_managed_local_bypass_domains(&self.bypass_domains),
             http: Self::manual_proxy_target(endpoint),
             https: Self::manual_proxy_target(endpoint),
             pac_enabled: false,
@@ -218,6 +229,8 @@ impl NetworkServiceProxyState {
     fn is_transaction_owned_between(&self, prior: &Self, target: &Self) -> bool {
         (self.auto_discovery_enabled == prior.auto_discovery_enabled
             || self.auto_discovery_enabled == target.auto_discovery_enabled)
+            && (self.bypass_domains == prior.bypass_domains
+                || self.bypass_domains == target.bypass_domains)
             && self
                 .http
                 .is_transaction_owned_between(&prior.http, &target.http)
@@ -235,6 +248,53 @@ impl NetworkServiceProxyState {
     fn manual_proxy_target(endpoint: &LoopbackProxyEndpoint) -> ManualProxyState {
         ManualProxyState::for_endpoint(endpoint)
     }
+
+    fn has_managed_local_bypass(&self) -> bool {
+        MANAGED_LOCAL_BYPASS_DOMAINS.iter().all(|required| {
+            self.bypass_domains
+                .iter()
+                .any(|domain| bypass_domain_equivalent(domain, required))
+        })
+    }
+}
+
+/// macOS applies these restricted exceptions before traffic reaches the loopback
+/// proxy. The list preserves Bonjour ownership of RFC 6762 `.local.` names and
+/// covers the standard local special-use namespaces without taking over private
+/// address ranges.
+const MANAGED_LOCAL_BYPASS_DOMAINS: [&str; 6] = [
+    "localhost",
+    "*.localhost",
+    "*.local",
+    "*.local.",
+    "*.home.arpa",
+    "*.home.arpa.",
+];
+const MAX_BYPASS_DOMAINS: usize = 64;
+const MAX_BYPASS_DOMAIN_LENGTH: usize = 253;
+
+fn merged_managed_local_bypass_domains(existing: &[String]) -> Vec<String> {
+    let mut merged = existing.to_vec();
+    for required in MANAGED_LOCAL_BYPASS_DOMAINS {
+        if !merged
+            .iter()
+            .any(|domain| bypass_domain_equivalent(domain, required))
+        {
+            merged.push(required.to_owned());
+        }
+    }
+    merged
+}
+
+fn bypass_domain_equivalent(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
+fn is_reversible_bypass_domain(domain: &String) -> bool {
+    !domain.is_empty()
+        && domain.len() <= MAX_BYPASS_DOMAIN_LENGTH
+        && !domain.chars().any(char::is_control)
+        && domain != "Empty"
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -720,7 +780,7 @@ impl SystemProxyReconciler {
                 }
             };
         }
-        if prior.is_mish_endpoint(&self.endpoint) {
+        if prior.has_matching_manual_proxy_endpoint(&self.endpoint) {
             let mut status = self.status();
             status.capture_selection = request.selection;
             self.mark_drift(status, &prior, Some(CaptureFailureKind::ExternalDrift))?;
@@ -909,7 +969,7 @@ impl SystemProxyReconciler {
         };
         if journal.is_none()
             && current.system_proxy.phase == SystemProxyPhase::Failed
-            && !observed.is_mish_endpoint(&self.endpoint)
+            && !observed.has_matching_manual_proxy_endpoint(&self.endpoint)
         {
             let mut failed = current;
             failed.system_proxy.observed = observed_state(&observed, &self.endpoint);

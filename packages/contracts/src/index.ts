@@ -1211,33 +1211,43 @@ export const GroupUsageSchema = z
   .strict();
 export interface GroupUsageDto extends z.infer<typeof GroupUsageSchema> {}
 
-const SERVICE_ICON_CDN_BASE = "https://registry.npmmirror.com/remixicon/4.9.1/files/icons";
+const SERVICE_ICON_ASSET_BASE = "/assets/remix-icon";
 
 export const SERVICE_ICON_URLS = {
-  apple: `${SERVICE_ICON_CDN_BASE}/Logos/apple-fill.svg`,
-  baidu: `${SERVICE_ICON_CDN_BASE}/Logos/baidu-fill.svg`,
-  cloudflare: `${SERVICE_ICON_CDN_BASE}/Business/cloud-fill.svg`,
-  github: `${SERVICE_ICON_CDN_BASE}/Logos/github-fill.svg`,
-  globe: `${SERVICE_ICON_CDN_BASE}/Map/globe-fill.svg`,
-  google: `${SERVICE_ICON_CDN_BASE}/Logos/google-fill.svg`,
-  microsoft: `${SERVICE_ICON_CDN_BASE}/Logos/microsoft-fill.svg`,
+  apple: `${SERVICE_ICON_ASSET_BASE}/apple.svg`,
+  baidu: `${SERVICE_ICON_ASSET_BASE}/baidu.svg`,
+  cloudflare: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
+  fallback: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
+  github: `${SERVICE_ICON_ASSET_BASE}/github.svg`,
+  google: `${SERVICE_ICON_ASSET_BASE}/google.svg`,
+  microsoft: `${SERVICE_ICON_ASSET_BASE}/microsoft.svg`,
 } as const;
+
+const bundledServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
 
 export const ServiceIconUrlSchema = z
   .string()
+  .min(1)
   .max(2_048)
   .refine((value) => {
+    if (bundledServiceIconUrls.has(value)) return true;
     try {
       const url = new URL(value);
-      return url.protocol === "https:" && url.username === "" && url.password === "";
+      return (
+        url.protocol === "https:" && url.host !== "" && url.username === "" && url.password === ""
+      );
     } catch {
       return false;
     }
   });
 
+// Snapshot decoding remains resilient so one malformed persisted value can use
+// the browser fallback without invalidating the complete status payload.
+const ServiceIconValueSchema = z.string().max(2_048);
+
 export const ServiceMonitorSchema = z
   .object({
-    icon: ServiceIconUrlSchema,
+    icon: ServiceIconValueSchema,
     id: IdentifierSchema,
     label: z.string(),
     url: z.string(),
@@ -1821,8 +1831,8 @@ export const NativeStatusSnapshotSchema = StatusSnapshotSchema.extend({
 });
 export interface NativeStatusSnapshotDto extends z.infer<typeof NativeStatusSnapshotSchema> {}
 
-export const ServiceMonitorDraftSchema = ServiceMonitorSchema.omit({ id: true })
-  .extend({ id: IdentifierSchema.optional() })
+export const ServiceMonitorDraftSchema = ServiceMonitorSchema.omit({ icon: true, id: true })
+  .extend({ icon: ServiceIconUrlSchema, id: IdentifierSchema.optional() })
   .strict();
 export interface ServiceMonitorDraft extends z.infer<typeof ServiceMonitorDraftSchema> {}
 

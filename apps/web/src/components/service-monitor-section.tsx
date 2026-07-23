@@ -41,13 +41,14 @@ import {
   SectionGrid,
   Spinner,
 } from "@mish/ui";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cx, tv } from "@mish/ui/tv";
 import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import {
   SERVICE_ICON_URLS,
+  ServiceIconUrlSchema,
   type ServiceMonitorDraft,
   type ServiceMonitorDto,
   type ServiceProbeResultDto,
@@ -183,33 +184,41 @@ function isValidProbeUrl(value: string) {
 }
 
 function isValidIconUrl(value: string) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.username === "" && url.password === "";
-  } catch {
-    return false;
-  }
+  return ServiceIconUrlSchema.safeParse(value).success;
 }
 
 interface ServiceIconImageProps {
   src: string;
 }
 
-function ServiceIconImage({ src }: ServiceIconImageProps) {
+export function normalizedServiceIconUrl(value: string) {
+  return isValidIconUrl(value) ? value : SERVICE_ICON_URLS.fallback;
+}
+
+export function ServiceIconImage({ src }: ServiceIconImageProps) {
+  const safeSource = normalizedServiceIconUrl(src);
+  const [source, setSource] = useState(safeSource);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setSource(safeSource);
+    setLoadFailed(false);
+  }, [safeSource]);
+
   return (
     <img
       alt=""
       aria-hidden="true"
-      data-monochrome={defaultServiceIconUrls.has(src) || undefined}
+      data-monochrome={defaultServiceIconUrls.has(source) || undefined}
+      data-service-icon-fallback={loadFailed || safeSource !== src || undefined}
       decoding="async"
-      onError={(event) => {
-        event.currentTarget.hidden = true;
-      }}
-      onLoad={(event) => {
-        event.currentTarget.hidden = false;
+      onError={() => {
+        if (source === SERVICE_ICON_URLS.fallback) return;
+        setLoadFailed(true);
+        setSource(SERVICE_ICON_URLS.fallback);
       }}
       referrerPolicy="no-referrer"
-      src={src}
+      src={source}
     />
   );
 }
@@ -392,13 +401,14 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
               <Input
                 aria-invalid={showIconError || undefined}
                 id="service-icon-url"
+                inputMode="url"
                 onValueChange={(value) => {
                   setEditedFields((fields) => ({ ...fields, icon: true }));
                   setDraft({ ...draft, icon: value });
                 }}
-                placeholder={SERVICE_ICON_URLS.globe}
+                placeholder="https://example.com/icon.svg"
                 spellCheck={false}
-                type="url"
+                type="text"
                 value={draft.icon}
               />
               <FieldDescription>{LL.services.iconUrlDescription()}</FieldDescription>
@@ -696,7 +706,9 @@ export function ServiceMonitorSection() {
           <Button
             aria-describedby={actionDescriptionId}
             disabled={!commandSupported}
-            onClick={() => setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" })}
+            onClick={() =>
+              setDraft({ icon: SERVICE_ICON_URLS.fallback, label: "", url: "https://" })
+            }
             variant="outline"
           >
             <Plus data-icon="inline-start" />
@@ -715,7 +727,7 @@ export function ServiceMonitorSection() {
       <ServiceManagerDialog
         onAdd={() => {
           setManagerOpen(false);
-          setDraft({ icon: SERVICE_ICON_URLS.globe, label: "", url: "https://" });
+          setDraft({ icon: SERVICE_ICON_URLS.fallback, label: "", url: "https://" });
         }}
         onClose={() => setManagerOpen(false)}
         onEdit={(service) => {
