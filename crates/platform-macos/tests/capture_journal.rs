@@ -16,6 +16,7 @@ fn journal_is_private_bounded_and_contains_only_reversible_prior_state() {
     let journal = CaptureJournal {
         prior: NetworkServiceProxyState {
             auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
             http: ManualProxyState {
                 authenticated: false,
                 enabled: true,
@@ -62,6 +63,7 @@ fn journal_rejects_stale_or_foreign_envelopes_and_non_private_files() {
     let journal = CaptureJournal {
         prior: NetworkServiceProxyState {
             auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
             http: ManualProxyState::disabled(),
             https: ManualProxyState::disabled(),
             pac_enabled: false,
@@ -132,10 +134,10 @@ fn journal_rejects_incomplete_or_unsafe_recovery_state() {
             value["journal"]["prior"]["http"]["enabled"] = true.into();
         },
         |value: &mut serde_json::Value| {
-            value["journal"]["prior"]["pacEnabled"] = true.into();
+            value["journal"]["prior"]["bypassDomains"] = serde_json::json!([""]);
         },
         |value: &mut serde_json::Value| {
-            value["journal"]["prior"]["autoDiscoveryEnabled"] = true.into();
+            value["journal"]["prior"]["serviceId"] = "".into();
         },
     ] {
         let root = tempfile::tempdir().unwrap();
@@ -144,6 +146,7 @@ fn journal_rejects_incomplete_or_unsafe_recovery_state() {
         let journal = CaptureJournal {
             prior: NetworkServiceProxyState {
                 auto_discovery_enabled: false,
+                bypass_domains: Vec::new(),
                 http: ManualProxyState::disabled(),
                 https: ManualProxyState::disabled(),
                 pac_enabled: false,
