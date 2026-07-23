@@ -637,10 +637,15 @@ impl ProfileActivationCoordinator {
                 }
                 Ok((preflight, activation_elapsed, preflight_elapsed)) => {
                     let capture_started = Instant::now();
-                    let result = self
-                        .host
-                        .set_capture_with_preflight(request, adapter_kind, preflight)
-                        .await;
+                    let result = if !activation_started_for_launch
+                        && before.runtime.tun_enabled != request.selection.tun
+                    {
+                        self.set_capture_inner(request, adapter_kind).await
+                    } else {
+                        self.host
+                            .set_capture_with_preflight(request, adapter_kind, preflight)
+                            .await
+                    };
                     let outcome = if result.is_ok() {
                         "success"
                     } else {

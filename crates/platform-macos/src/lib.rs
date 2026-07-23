@@ -1262,33 +1262,63 @@ impl MacOsSystemProxyPlatform {
         &self,
         service: String,
     ) -> Result<NetworkServiceProxyState, CaptureTransitionError> {
-        let (http, https, socks, bypass_output, pac_output, discovery_output) = tokio::join!(
+        let (http, https, socks, bypass_domains, pac, auto_discovery_enabled) = tokio::try_join!(
             self.proxy_state(&service, MacOsProxyKind::Http),
             self.proxy_state(&service, MacOsProxyKind::Https),
             self.proxy_state(&service, MacOsProxyKind::Socks),
-            self.run(MacOsCommand::GetProxyBypassDomains {
-                service: service.clone(),
-            }),
-            self.run(MacOsCommand::GetAutoProxyUrl {
-                service: service.clone(),
-            }),
-            self.run(MacOsCommand::GetProxyAutoDiscovery {
-                service: service.clone(),
-            }),
-        );
-        let bypass_domains = parse_proxy_bypass_domains(&bypass_output?)?;
-        let pac_output = pac_output?;
-        let discovery_output = discovery_output?;
+            self.proxy_bypass_domains(&service),
+            self.auto_proxy_url_state(&service),
+            self.proxy_auto_discovery_enabled(&service),
+        )?;
         Ok(NetworkServiceProxyState {
-            auto_discovery_enabled: parse_enabled_value(&discovery_output, "Auto Proxy Discovery")?,
+            auto_discovery_enabled,
             bypass_domains,
-            http: http?,
-            https: https?,
-            pac_enabled: parse_enabled_value(&pac_output, "Enabled")?,
-            pac_url: parse_required_key(&pac_output, "URL")?,
+            http,
+            https,
+            pac_enabled: pac.0,
+            pac_url: pac.1,
             service_id: service,
-            socks: socks?,
+            socks,
         })
+    }
+
+    async fn proxy_bypass_domains(
+        &self,
+        service: &str,
+    ) -> Result<Vec<String>, CaptureTransitionError> {
+        let output = self
+            .run(MacOsCommand::GetProxyBypassDomains {
+                service: service.to_owned(),
+            })
+            .await?;
+        parse_proxy_bypass_domains(&output)
+    }
+
+    async fn auto_proxy_url_state(
+        &self,
+        service: &str,
+    ) -> Result<(bool, String), CaptureTransitionError> {
+        let output = self
+            .run(MacOsCommand::GetAutoProxyUrl {
+                service: service.to_owned(),
+            })
+            .await?;
+        Ok((
+            parse_enabled_value(&output, "Enabled")?,
+            parse_required_key(&output, "URL")?,
+        ))
+    }
+
+    async fn proxy_auto_discovery_enabled(
+        &self,
+        service: &str,
+    ) -> Result<bool, CaptureTransitionError> {
+        let output = self
+            .run(MacOsCommand::GetProxyAutoDiscovery {
+                service: service.to_owned(),
+            })
+            .await?;
+        parse_enabled_value(&output, "Auto Proxy Discovery")
     }
 
     async fn proxy_state(
@@ -1378,13 +1408,13 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
         Box::pin(async move {
-            let (route, order) = tokio::join!(
-                self.run(MacOsCommand::DefaultRoute),
+            let (device, order) = tokio::try_join!(
+                async {
+                    let route = self.run(MacOsCommand::DefaultRoute).await?;
+                    parse_default_route_device(&route)
+                },
                 self.run(MacOsCommand::ListNetworkServiceOrder),
-            );
-            let route = route?;
-            let device = parse_default_route_device(&route)?;
-            let order = order?;
+            )?;
             let service = parse_service_for_device(&order, &device)?;
             self.observe_named_service(service).await
         })

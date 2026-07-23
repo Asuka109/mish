@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use futures_util::future::{BoxFuture, ready};
+use futures_util::{
+    FutureExt,
+    future::{BoxFuture, ready},
+};
 use mish_platform_macos::{
     FileCaptureJournalStore, MacOsCommand, MacOsCommandError, MacOsCommandOutput,
     MacOsCommandRunner, MacOsProxyKind, MacOsSystemProxyPlatform,
@@ -106,6 +109,8 @@ struct ConcurrentObservationRunner {
     getters: Barrier,
 }
 
+struct FailingObservationRunner;
+
 impl ConcurrentObservationRunner {
     fn new() -> Self {
         Self {
@@ -152,6 +157,33 @@ impl MacOsCommandRunner for ConcurrentObservationRunner {
                 stdout: stdout.into(),
             })
         })
+    }
+}
+
+impl MacOsCommandRunner for FailingObservationRunner {
+    fn run(
+        &self,
+        command: MacOsCommand,
+    ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+        match command {
+            MacOsCommand::DefaultRoute => Box::pin(ready(Ok(MacOsCommandOutput {
+                stdout: "route to: default\ninterface: en99\n".into(),
+            }))),
+            MacOsCommand::ListNetworkServiceOrder => Box::pin(ready(Ok(MacOsCommandOutput {
+                stdout: "(1) Fixture Service\n(Hardware Port: Fixture Port, Device: en99)\n".into(),
+            }))),
+            MacOsCommand::GetProxy {
+                kind: MacOsProxyKind::Http,
+                ..
+            } => Box::pin(ready(Err(MacOsCommandError {
+                kind: mish_platform_macos::MacOsCommandErrorKind::Failed,
+            }))),
+            MacOsCommand::GetProxy { .. }
+            | MacOsCommand::GetAutoProxyUrl { .. }
+            | MacOsCommand::GetProxyAutoDiscovery { .. }
+            | MacOsCommand::GetProxyBypassDomains { .. } => Box::pin(std::future::pending()),
+            _ => panic!("mutation command reached failing read-only observation fixture"),
+        }
     }
 }
 
@@ -483,6 +515,22 @@ async fn active_service_discovery_and_proxy_getters_run_in_independent_parallel_
             service_id: "Fixture Service".into(),
             socks: ManualProxyState::disabled(),
         }
+    );
+}
+
+#[tokio::test]
+async fn active_service_observation_returns_the_first_parallel_getter_failure() {
+    let platform = MacOsSystemProxyPlatform::with_runner(Arc::new(FailingObservationRunner));
+
+    let error = platform
+        .observe_active()
+        .now_or_never()
+        .expect("parallel System Proxy observation waited for unrelated pending getters")
+        .unwrap_err();
+
+    assert_eq!(
+        error.kind,
+        mish_runtime::CaptureFailureKind::ObservationFailed
     );
 }
 

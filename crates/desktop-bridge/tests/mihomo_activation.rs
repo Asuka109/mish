@@ -538,6 +538,42 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
 
+    coordinator
+        .set_capture(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: true,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+    let stopped_core = host.current();
+    let config = only_candidate_config(root.path());
+    assert_eq!(config["tun"]["enable"].as_bool(), Some(false));
+
+    let relaunched = coordinator
+        .launch_proxy(
+            &Uuid::new_v4().to_string(),
+            Some(record.metadata.id.as_str()),
+            CaptureSelection {
+                system_proxy: true,
+                tun: true,
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+
+    assert!(!stopped_core.is_same_instance(&host.current()));
+    assert_eq!(relaunched["runtime"]["systemProxy"]["phase"], "applied");
+    assert_eq!(relaunched["runtime"]["tun"]["phase"], "applied");
+    let config = only_candidate_config(root.path());
+    assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 }
