@@ -6,6 +6,7 @@ import type {
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
+  SystemProxyTakeoverPolicy,
   ManagedPortPreferencesDto,
   TunHelperFailureKind,
   WindowCloseBehavior,
@@ -46,6 +47,7 @@ interface SettingsContextValue {
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
   setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches: boolean): Promise<boolean>;
   setManagedPorts(managedPorts: ManagedPortPreferencesDto): Promise<boolean>;
+  setSystemProxyTakeoverPolicy(policy: SystemProxyTakeoverPolicy): Promise<boolean>;
   findManagedPorts(): Promise<boolean>;
   setWindowCloseBehavior(behavior: WindowCloseBehavior): Promise<boolean>;
   setWindowSurface(surface: WindowSurfacePreference): Promise<boolean>;
@@ -168,6 +170,8 @@ export function SettingsProvider({
       setManagedPorts: async (managedPorts) =>
         (await run(() => client.setManagedPorts(managedPorts))).ok,
       findManagedPorts: async () => (await run(() => client.findManagedPorts())).ok,
+      setSystemProxyTakeoverPolicy: async (policy) =>
+        (await run(() => client.setSystemProxyTakeoverPolicy(policy))).ok,
       setWindowCloseBehavior: async (behavior) =>
         (await run(() => client.setWindowCloseBehavior(behavior))).ok,
       setWindowSurface: async (surface) => (await run(() => client.setWindowSurface(surface))).ok,

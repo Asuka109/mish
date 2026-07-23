@@ -112,7 +112,7 @@ const en = {
     launchAtLogin: "Launch at login",
     launchAtLoginDescription:
       "Choose whether Mish starts when you log in and whether an automatic launch shows the main window. Manual launches always show the window.",
-    launchProxyWhenMishLaunches: "Launch proxy when Mish launches",
+    launchProxyWhenMishLaunches: "Auto-start proxy on app launch",
     launchProxyWhenMishLaunchesDescription:
       "Save this preference for the next Mish launch. Changing it does not start or stop the proxy now.",
     loginWindow: "Login launch window",
@@ -140,6 +140,15 @@ const en = {
     managedPortsFindAndRetry: "Find Ports and Retry",
     managedPortsConflict: "Mish could not use {endpoint}.",
     managedPortsSave: "Save Ports",
+    systemProxyTakeoverPolicy: "Existing proxy policy",
+    systemProxyTakeoverPolicyDescription:
+      "Protect existing PAC and automatic-discovery settings by default. The advanced choice is temporary and only replaces a fully captured state that Mish can restore exactly.",
+    systemProxyTakeoverPolicyProtected: "Protect existing",
+    systemProxyTakeoverPolicyAdvanced: "Advanced reversible replacement",
+    systemProxyTakeoverPolicyWarning:
+      "Authenticated, incomplete, invalid, and unrecoverable proxy settings are always left unchanged.",
+    systemProxyTakeoverRejected:
+      "Mish left the existing System Proxy configuration unchanged because it cannot safely take it over under the current policy.",
     network: "Network and DNS",
     networkDescription:
       "Read-only macOS observations for troubleshooting. No interface, route, or DNS setting can be changed here.",

@@ -51,7 +51,11 @@ impl MacOsCommandRunner for FixtureRunner {
         if self.permission_denied
             && matches!(
                 command,
-                MacOsCommand::SetProxy { .. } | MacOsCommand::SetProxyState { .. }
+                MacOsCommand::SetProxy { .. }
+                    | MacOsCommand::SetProxyState { .. }
+                    | MacOsCommand::SetAutoProxyUrl { .. }
+                    | MacOsCommand::SetAutoProxyState { .. }
+                    | MacOsCommand::SetProxyAutoDiscovery { .. }
             )
         {
             return Box::pin(ready(Err(MacOsCommandError {
@@ -72,7 +76,11 @@ impl MacOsCommandRunner for FixtureRunner {
             MacOsCommand::GetAutoProxyUrl { .. } if self.omit_pac_url => "Enabled: No\n",
             MacOsCommand::GetAutoProxyUrl { .. } => "URL: (null)\nEnabled: No\n",
             MacOsCommand::GetProxyAutoDiscovery { .. } => "Auto Proxy Discovery: Off\n",
-            MacOsCommand::SetProxy { .. } | MacOsCommand::SetProxyState { .. } => "",
+            MacOsCommand::SetProxy { .. }
+            | MacOsCommand::SetProxyState { .. }
+            | MacOsCommand::SetAutoProxyUrl { .. }
+            | MacOsCommand::SetAutoProxyState { .. }
+            | MacOsCommand::SetProxyAutoDiscovery { .. } => "",
             MacOsCommand::DnsConfiguration | MacOsCommand::NetworkInformation => {
                 panic!("Network and DNS commands do not belong to the System Proxy fixture")
             }
@@ -199,6 +207,18 @@ impl MacOsCommandRunner for StatefulCrashRunner {
                 drop(state);
                 self.finish_write()
             }
+            MacOsCommand::SetAutoProxyUrl { url, .. } => {
+                self.state.lock().unwrap().pac_url = url;
+                self.finish_write()
+            }
+            MacOsCommand::SetAutoProxyState { enabled, .. } => {
+                self.state.lock().unwrap().pac_enabled = enabled;
+                self.finish_write()
+            }
+            MacOsCommand::SetProxyAutoDiscovery { enabled, .. } => {
+                self.state.lock().unwrap().auto_discovery_enabled = enabled;
+                self.finish_write()
+            }
             MacOsCommand::InterfaceConfiguration
             | MacOsCommand::RoutingTable
             | MacOsCommand::DnsConfiguration
@@ -286,7 +306,7 @@ async fn assert_restart_recovers_after_write(
 }
 
 #[tokio::test]
-async fn applies_only_structured_http_https_and_socks_commands() {
+async fn applies_structured_manual_and_automatic_proxy_commands() {
     let runner = Arc::new(FixtureRunner::new());
     let platform = MacOsSystemProxyPlatform::with_runner(runner.clone());
     let enabled = ManualProxyState {
@@ -345,6 +365,18 @@ async fn applies_only_structured_http_https_and_socks_commands() {
                 kind: mish_platform_macos::MacOsProxyKind::Socks,
                 service: "Fixture Service".into(),
             },
+            MacOsCommand::SetAutoProxyUrl {
+                service: "Fixture Service".into(),
+                url: "(null)".into(),
+            },
+            MacOsCommand::SetAutoProxyState {
+                enabled: false,
+                service: "Fixture Service".into(),
+            },
+            MacOsCommand::SetProxyAutoDiscovery {
+                enabled: false,
+                service: "Fixture Service".into(),
+            },
         ]
     );
 }
@@ -354,7 +386,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
     let prior = crash_fixture_prior();
     let target = crash_fixture_target(&prior);
 
-    for crash_after_write in 1..=6 {
+    for crash_after_write in 1..=9 {
         assert_restart_recovers_after_write(
             prior.clone(),
             target.clone(),
@@ -364,7 +396,7 @@ async fn every_apply_and_restore_write_is_restart_recoverable() {
         .await;
     }
 
-    for crash_after_write in 1..=6 {
+    for crash_after_write in 1..=9 {
         assert_restart_recovers_after_write(
             target.clone(),
             prior.clone(),
@@ -400,8 +432,8 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
         .unwrap();
 
     let commands = runner.commands.lock().unwrap();
-    assert_eq!(commands.len(), 6);
-    for pair in commands.chunks_exact(2) {
+    assert_eq!(commands.len(), 9);
+    for pair in commands[..6].chunks_exact(2) {
         assert!(matches!(
             &pair[0],
             MacOsCommand::SetProxy { host, port: 3128, .. } if host == "prior.proxy.example"
@@ -411,10 +443,18 @@ async fn restores_populated_disabled_fields_before_the_final_disabled_state() {
             MacOsCommand::SetProxyState { enabled: false, .. }
         ));
     }
-    assert!(!commands.iter().any(|command| matches!(
-        command,
-        MacOsCommand::GetAutoProxyUrl { .. } | MacOsCommand::GetProxyAutoDiscovery { .. }
-    )));
+    assert!(matches!(
+        commands[6],
+        MacOsCommand::SetAutoProxyUrl { ref url, .. } if url == "http://pac.example/proxy.pac"
+    ));
+    assert!(matches!(
+        commands[7],
+        MacOsCommand::SetAutoProxyState { enabled: false, .. }
+    ));
+    assert!(matches!(
+        commands[8],
+        MacOsCommand::SetProxyAutoDiscovery { enabled: false, .. }
+    ));
 }
 
 #[test]

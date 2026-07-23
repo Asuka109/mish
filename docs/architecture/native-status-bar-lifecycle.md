@@ -42,15 +42,19 @@ The implemented compact surface has four separator-delimited sections:
    **Profiles**, **Traffic**, **Events**, and **Settings**. Routes has no node
    activity suffix. Navigation accepts only this allowlist and shows,
    unminimizes, and focuses the existing WebView.
-3. Three disabled, read-only live labels immediately below navigation: **Most active node**, **Download**,
-   and **Upload**. The node label is the existing bounded, redacted trailing
-   60-second summary. Download and Upload use `StatusSnapshot.traffic` rates
-   and the established binary byte-rate convention. Missing or non-ready
+3. Three disabled, read-only live values immediately below navigation: a
+   **>>**-prefixed most-active node, **⬇️** download rate, and **⬆️** upload
+   rate. This section appears only after System Proxy or TUN is authoritatively
+   active. The node value is the existing bounded, redacted trailing 60-second
+   summary. Each rate line shows the current rate followed by the authoritative
+   cumulative total from `StatusSnapshot.traffic`, using the established binary
+   byte-rate convention and no artificial text padding. Missing or non-ready
    Traffic is **Unavailable**; a ready snapshot with no qualifying route is
-   **Idle**. These handles update in place once per second and never replace
-   the tray menu.
-4. **Open Browser Client**, followed by a checked **Launch proxy when Mish
-   launches** preference and then **Quit Mish**. The preference writes only the
+   **Idle**. The retained handles are inserted or removed only on that
+   aggregate capture edge; active values update in place once per second and
+   never replace the tray menu.
+4. **Open Browser Client**, followed by a checked **Auto-start proxy on app
+   launch** preference and then **Quit Mish**. The preference writes only the
    existing next-launch setting; it does not launch a Profile or mutate capture
    immediately.
 
@@ -141,12 +145,46 @@ backstop because Tauri menu listeners receive events from window and tray menus.
 Duplicate delivery is harmless because the coordinator admits one shutdown.
 The status menu is constructed once. Mish retains its native item handles and
 updates text, checked state, and enabled state in place when a menu-visible field
-changes. It never replaces the tray menu after startup, so high-frequency status
-updates cannot close an open menu through `set_menu`.
-Mish inserts Settings with Command-, and Find with Command-F. Settings routes to the fixed Settings
-destination; Find focuses only a page control explicitly marked as the native
-search target. Web fallback handling accepts Command shortcuts on macOS and
-does not reinterpret Control-F or Control-, as their Command equivalents.
+changes. The three live-status items are inserted or removed only when
+authoritative aggregate capture changes, while high-frequency updates keep their
+handles in place. It never replaces the tray menu after startup, so updates
+cannot close an open menu through `set_menu`.
+Mish inserts Settings with Command-, and Find with Command-F. The status menu
+adds application-local accelerators only for its high-frequency executable
+commands: Command-Shift-P for the aggregate proxy command, Command-0 through
+Command-4 for Open Mish and fixed navigation, and Command-Shift-B for Open
+Browser Client. Settings and Quit retain their standard Command-, and Command-Q
+commands; read-only status, dynamic node values, the startup preference, and
+recovery actions have no accelerators. These are native menu accelerators, not
+system-wide global hotkeys: they are active only while Mish is the foreground
+application and dispatch through the same stable menu IDs as pointer selection.
+Settings routes to the fixed Settings destination; Find focuses only a page
+control explicitly marked as the native search target. Web fallback handling
+accepts Command shortcuts on macOS and does not reinterpret Control-F or
+Control-, as their Command equivalents.
+
+## Menu convention references
+
+The status menu borrows interaction patterns, not code or copy, from public
+first-party sources reviewed on 2026-07-23:
+
+- [Clash Verge Rev's tray menu definition](https://github.com/clash-verge-rev/clash-verge-rev/blob/dev/src-tauri/src/core/tray/menu_def.rs)
+  uses stable IDs for native tray commands; its tray updater projects checked
+  state separately.
+- [Clash Nyanpasu's native tray implementation](https://github.com/libnyanpasu/clash-nyanpasu/blob/main/backend/tauri/src/core/tray/mod.rs)
+  keeps a conventional Command-Q quit command in the tray.
+- [Mihomo Party's tray menu](https://github.com/mihomo-party-org/mihomo-party/blob/smart_core/src/main/resolve/tray.ts)
+  explicitly associates menu accelerators with executable actions; its separate
+  `globalShortcut` implementation demonstrates why Mish must not treat those
+  menu accelerators as system-wide hotkeys.
+- [Apple's menu customization guidance](https://developer.apple.com/tutorials/app-dev-training/customizing-menus-with-commands-and-shortcuts)
+  describes menu keyboard shortcuts as alternate workflows for frequent
+  application commands. Command-, and Command-Q retain their conventional
+  Settings and Quit assignments.
+
+The independent **>>** prefix makes the most-active-node value faster to scan
+without changing its user-authored node value, **Idle** / **Unavailable**
+fallbacks, or once-per-second local projection.
 
 After a route change, the WebView moves programmatic focus to the page heading
 without scrolling and updates the document title. This gives VoiceOver a stable

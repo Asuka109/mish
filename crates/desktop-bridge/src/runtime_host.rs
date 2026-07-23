@@ -47,6 +47,13 @@ impl DesktopRuntimeHost {
         self.runtime.borrow().clone()
     }
 
+    pub fn set_system_proxy_takeover_policy(
+        &self,
+        policy: mish_runtime::SystemProxyTakeoverPolicy,
+    ) {
+        self.current().set_system_proxy_takeover_policy(policy);
+    }
+
     pub fn replace(&self, runtime: MishRuntime) {
         self.diagnostics.invalidate_active();
         let notifications = self.current().notification_center();
