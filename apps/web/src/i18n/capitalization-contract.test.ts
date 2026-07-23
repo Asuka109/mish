@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import en from "./en";
+import zh from "./zh";
 
 describe("English action-label capitalization", () => {
   it("uses Title Case for representative visible actions and their action-name mirrors", () => {
@@ -15,6 +16,11 @@ describe("English action-label capitalization", () => {
     expect(en.settingsPage.network).toBe("Network and DNS");
     expect(en.proxyControl.running).toBe("Proxy running");
     expect(en.status.desktopActivity).toBe("Live desktop traffic");
-    expect(en.settingsPage.launchProxyWhenMishLaunches).toBe("Launch proxy when Mish launches");
+    expect(en.settingsPage.launchProxyWhenMishLaunches).toBe("Auto-start proxy on app launch");
+  });
+
+  it("keeps the Chinese automatic-proxy label distinct from login launch", () => {
+    expect(zh.settingsPage.launchProxyWhenMishLaunches).toBe("应用启动时自动代理");
+    expect(zh.settingsPage.launchProxyWhenMishLaunches).not.toBe(zh.settingsPage.launchAtLogin);
   });
 });

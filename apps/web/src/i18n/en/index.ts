@@ -112,7 +112,7 @@ const en = {
     launchAtLogin: "Launch at login",
     launchAtLoginDescription:
       "Choose whether Mish starts when you log in and whether an automatic launch shows the main window. Manual launches always show the window.",
-    launchProxyWhenMishLaunches: "Launch proxy when Mish launches",
+    launchProxyWhenMishLaunches: "Auto-start proxy on app launch",
     launchProxyWhenMishLaunchesDescription:
       "Save this preference for the next Mish launch. Changing it does not start or stop the proxy now.",
     loginWindow: "Login launch window",
