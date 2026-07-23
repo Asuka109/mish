@@ -16,8 +16,9 @@ use mish_profile::{
 use mish_runtime::{
     ApplicationDiagnosticEvent, CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction,
     CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
-    ProviderAuthority, ProviderKind, RoutingMode, StatusAdapterKind, StatusCommand,
-    StatusCommandError, StatusCommandErrorKind, TrafficCommandAuthority, TrafficCommandOperation,
+    NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
+    StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
+    TrafficCommandAuthority, TrafficCommandOperation,
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
@@ -264,6 +265,8 @@ struct SetWindowSurfaceParams {
 struct SocketSubscriptions {
     event_ids: HashSet<String>,
     event_updates: broadcast::Receiver<()>,
+    notification_ids: HashSet<String>,
+    notification_updates: broadcast::Receiver<mish_runtime::NotificationSnapshot>,
     profile_ids: HashSet<String>,
     profile_updates: broadcast::Receiver<crate::ProfileActivationSnapshot>,
     settings_ids: HashSet<String>,
@@ -313,6 +316,24 @@ struct CancelDiagnosticRunParams {
     run_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NotificationIdsParams {
+    ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NotificationIdParams {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NotificationDedupeKeyParams {
+    dedupe_key: String,
+}
+
 pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let (mut sender, mut receiver) = socket.split();
     let mut runtime_changes = state.runtime.subscribe_changes();
@@ -320,6 +341,7 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let status_updates = initial_runtime.subscribe_status();
     let traffic_updates = initial_runtime.subscribe_status();
     let event_updates = initial_runtime.subscribe_events();
+    let (notification_updates, _) = initial_runtime.subscribe_notifications_with_snapshot();
     let (inactive_profile_updates, inactive_profile_receiver) = broadcast::channel(1);
     let _inactive_profile_updates = inactive_profile_updates;
     let profile_updates = state
@@ -351,6 +373,8 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
     let mut subscriptions = SocketSubscriptions {
         event_ids: HashSet::new(),
         event_updates,
+        notification_ids: HashSet::new(),
+        notification_updates,
         profile_ids: HashSet::new(),
         profile_updates,
         settings_ids: HashSet::new(),
@@ -532,6 +556,23 @@ pub(crate) async fn serve_socket(socket: WebSocket, state: ProtocolState) {
                     }
                 }
             }
+            update = subscriptions.notification_updates.recv(), if authenticated && !subscriptions.notification_ids.is_empty() => {
+                let notification_snapshot = match update {
+                    Ok(snapshot) => snapshot,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => state.runtime.notification_snapshot(),
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => continue,
+                };
+                for subscription_id in &subscriptions.notification_ids {
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications.snapshot",
+                        "params": { "snapshot": notification_snapshot, "subscriptionId": subscription_id },
+                    });
+                    if sender.send(Message::Text(notification.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
             update = subscriptions.profile_updates.recv(), if authenticated && !subscriptions.profile_ids.is_empty() => {
                 let Ok(_) = update else { continue };
                 let Ok(profile_snapshot) = profile_rpc_snapshot(&state).await else { continue };
@@ -670,7 +711,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 18,
+            "protocolVersion": 19,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -852,13 +893,7 @@ async fn handle_message(
             state.status_snapshot().await
         }
         "status.subscribe" => {
-            if subscription_count(
-                &subscriptions.event_ids,
-                &subscriptions.profile_ids,
-                &subscriptions.status_ids,
-                &subscriptions.traffic_ids,
-            ) >= 16
-            {
+            if subscription_count(subscriptions) >= 16 {
                 return Some(error_response(
                     id,
                     -32030,
@@ -919,13 +954,7 @@ async fn handle_message(
                 .await
         }
         "traffic.subscribe" => {
-            if subscription_count(
-                &subscriptions.event_ids,
-                &subscriptions.profile_ids,
-                &subscriptions.status_ids,
-                &subscriptions.traffic_ids,
-            ) >= 16
-            {
+            if subscription_count(subscriptions) >= 16 {
                 return Some(error_response(
                     id,
                     -32030,
@@ -952,13 +981,7 @@ async fn handle_message(
         }
         "events.getSnapshot" => state.runtime.events_snapshot(StatusAdapterKind::Rpc),
         "events.subscribe" => {
-            if subscription_count(
-                &subscriptions.event_ids,
-                &subscriptions.profile_ids,
-                &subscriptions.status_ids,
-                &subscriptions.traffic_ids,
-            ) >= 16
-            {
+            if subscription_count(subscriptions) >= 16 {
                 return Some(error_response(
                     id,
                     -32030,
@@ -982,6 +1005,95 @@ async fn handle_message(
                 return Some(error_response(id, -32602, "Invalid params", None));
             };
             json!(subscriptions.event_ids.remove(subscription_id))
+        }
+        "notifications.getSnapshot" => serde_json::to_value(state.runtime.notification_snapshot())
+            .expect("serializable notification snapshot"),
+        "notifications.publish" => {
+            let publication: NotificationPublication = match serde_json::from_value(request.params)
+            {
+                Ok(publication) => publication,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match state.runtime.publish_notification(publication) {
+                Ok(snapshot) => {
+                    serde_json::to_value(snapshot).expect("serializable notification snapshot")
+                }
+                Err(error) => {
+                    return Some(error_response(
+                        id,
+                        -32602,
+                        "Invalid notification payload",
+                        Some(json!({ "kind": format!("{error:?}") })),
+                    ));
+                }
+            }
+        }
+        "notifications.markRead" => {
+            let params: NotificationIdsParams =
+                match serde_json::from_value::<NotificationIdsParams>(request.params) {
+                    Ok(params)
+                        if params.ids.len() <= 128
+                            && params
+                                .ids
+                                .iter()
+                                .all(|id| valid_notification_reference(id, true)) =>
+                    {
+                        params
+                    }
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            serde_json::to_value(state.runtime.mark_notifications_read(&params.ids))
+                .expect("serializable notification snapshot")
+        }
+        "notifications.remove" => {
+            let params: NotificationIdParams =
+                match serde_json::from_value::<NotificationIdParams>(request.params) {
+                    Ok(params) if valid_notification_reference(&params.id, true) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            serde_json::to_value(state.runtime.remove_notification(&params.id))
+                .expect("serializable notification snapshot")
+        }
+        "notifications.removeByDedupeKey" => {
+            let params: NotificationDedupeKeyParams =
+                match serde_json::from_value::<NotificationDedupeKeyParams>(request.params) {
+                    Ok(params) if valid_notification_reference(&params.dedupe_key, true) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            serde_json::to_value(
+                state
+                    .runtime
+                    .remove_notification_by_dedupe_key(&params.dedupe_key),
+            )
+            .expect("serializable notification snapshot")
+        }
+        "notifications.subscribe" => {
+            if subscription_count(subscriptions) >= 16 {
+                return Some(error_response(
+                    id,
+                    -32030,
+                    "Subscription limit reached",
+                    None,
+                ));
+            }
+            let (updates, snapshot) = state.runtime.subscribe_notifications_with_snapshot();
+            subscriptions.notification_updates = updates;
+            let subscription_id = format!(
+                "notifications-{}",
+                NEXT_SUBSCRIPTION_ID.fetch_add(1, Ordering::Relaxed)
+            );
+            subscriptions
+                .notification_ids
+                .insert(subscription_id.clone());
+            json!({"snapshot": snapshot, "subscriptionId": subscription_id})
+        }
+        "notifications.unsubscribe" => {
+            let Some(subscription_id) =
+                request.params.get("subscriptionId").and_then(Value::as_str)
+            else {
+                return Some(error_response(id, -32602, "Invalid params", None));
+            };
+            json!(subscriptions.notification_ids.remove(subscription_id))
         }
         "diagnostics.getHistory" => {
             serde_json::to_value(state.runtime.diagnostic_history(StatusAdapterKind::Rpc))
@@ -1126,13 +1238,7 @@ async fn handle_message(
             }
         }
         "profiles.subscribe" => {
-            if subscription_count(
-                &subscriptions.event_ids,
-                &subscriptions.profile_ids,
-                &subscriptions.status_ids,
-                &subscriptions.traffic_ids,
-            ) >= 16
-            {
+            if subscription_count(subscriptions) >= 16 {
                 return Some(error_response(
                     id,
                     -32030,
@@ -1540,14 +1646,7 @@ async fn handle_message(
             }
         }
         "settings.subscribe" => {
-            if subscription_count(
-                &subscriptions.event_ids,
-                &subscriptions.profile_ids,
-                &subscriptions.status_ids,
-                &subscriptions.traffic_ids,
-            ) + subscriptions.settings_ids.len()
-                >= 16
-            {
+            if subscription_count(subscriptions) >= 16 {
                 return Some(error_response(
                     id,
                     -32030,
@@ -1755,6 +1854,17 @@ fn valid_identifier(value: &str) -> bool {
     !value.is_empty() && value.len() <= 8_192
 }
 
+fn valid_notification_reference(value: &str, allow_colon: bool) -> bool {
+    !value.is_empty()
+        && value.len() <= 96
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || matches!(byte, b'.' | b'-' | b'_')
+                || (allow_colon && byte == b':')
+        })
+}
+
 fn valid_traffic_authority(authority: &TrafficCommandAuthority) -> bool {
     valid_identifier(&authority.profile_id) && valid_identifier(&authority.session_id)
 }
@@ -1829,6 +1939,22 @@ fn settings_error_response(state: &ProtocolState, id: Value, error: SettingsServ
     state
         .runtime
         .record_application_event(ApplicationDiagnosticEvent::settings_failure());
+    let failure = match &error {
+        SettingsServiceError::CapabilityUnavailable => "capability-unavailable",
+        SettingsServiceError::Persistence => "persistence",
+        SettingsServiceError::Startup => "startup",
+        SettingsServiceError::TunHelper(_) => "tun-helper",
+        SettingsServiceError::WindowSurface => "window-surface",
+        SettingsServiceError::Busy => "busy",
+    };
+    let _ = state.runtime.publish_notification(NotificationPublication {
+        dedupe_key: "settings.operation-failed".into(),
+        notification_type: "settings.operation-failed".into(),
+        params: json!({ "failure": failure }),
+        replaces: Vec::new(),
+        resolved: false,
+        severity: NotificationSeverity::Error,
+    });
     match error {
         SettingsServiceError::CapabilityUnavailable => settings_capability_error(id),
         SettingsServiceError::Persistence => error_response(
@@ -1886,13 +2012,13 @@ async fn publish_profile_update(state: &ProtocolState) {
     }
 }
 
-fn subscription_count(
-    events: &HashSet<String>,
-    profiles: &HashSet<String>,
-    status: &HashSet<String>,
-    traffic: &HashSet<String>,
-) -> usize {
-    events.len() + profiles.len() + status.len() + traffic.len()
+fn subscription_count(subscriptions: &SocketSubscriptions) -> usize {
+    subscriptions.event_ids.len()
+        + subscriptions.notification_ids.len()
+        + subscriptions.profile_ids.len()
+        + subscriptions.settings_ids.len()
+        + subscriptions.status_ids.len()
+        + subscriptions.traffic_ids.len()
 }
 
 fn profile_activation_error_response(

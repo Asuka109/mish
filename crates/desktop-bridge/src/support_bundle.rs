@@ -881,7 +881,6 @@ mod tests {
                 id: format!("event-{sequence}"),
                 level: EventLevel::Error,
                 message: "Sensitive Node Label connected to connection-destination.invalid at 198.51.100.23 from raw-hostname.invalid /synthetic/private/profile.yaml and https://subscription.example.invalid/?token=secret-token-value".into(),
-                notification_kind: None,
                 observed_at: 1_000 + sequence as u64,
                 sequence: sequence as u64,
                 source: EventSource::Core,

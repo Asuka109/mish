@@ -4,14 +4,18 @@ import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { AppearanceProvider } from "../appearance";
-import { EventsProvider } from "../data/events-provider";
-import { createFixtureEventsClient } from "../data/fixture-events-client";
+import {
+  FixtureNotificationCenter,
+  FixtureNotificationClient,
+} from "../data/fixture-notification-client";
 import {
   FixtureSettingsClient,
   createFixtureSettingsSnapshot,
 } from "../data/fixture-settings-client";
 import { ProductProvider } from "../data/product-provider";
+import { FixtureStatusClient } from "../data/fixture-status-client";
 import { NotificationDeliveryProvider } from "../data/notification-delivery";
+import { notificationPublication } from "../data/notification-delivery";
 import { SettingsProvider } from "../data/settings-provider";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -19,8 +23,8 @@ import { NotificationBubble } from "./notification-bubble";
 import "../styles.css";
 
 const longMessage =
-  "System Proxy differs from Mish's requested state because the saved recovery record no longer matches the active network configuration.";
-const shortMessage = "Synthetic notification remains independently removable";
+  "System Proxy differs from Mish's requested state. Repair it or leave the current OS settings as is.";
+const shortMessage = "Profile saved";
 
 function notificationMessage(message: string): HTMLParagraphElement {
   const element = [
@@ -42,36 +46,35 @@ function removeButton(message: string): HTMLButtonElement {
 let root: Root;
 let container: HTMLDivElement;
 
+class BrowserRpcStatusClient extends FixtureStatusClient {
+  override async getSnapshot(options?: { signal?: AbortSignal }) {
+    const snapshot = await super.getSnapshot(options);
+    snapshot.adapterKind = "rpc";
+    return snapshot;
+  }
+}
+
 beforeAll(async () => {
   loadAllLocales();
   container = document.createElement("div");
   container.id = "notification-browser-root";
   document.body.append(container);
 
-  const eventsClient = createFixtureEventsClient();
-  const eventsSnapshot = await eventsClient.getSnapshot();
-  eventsSnapshot.events = [
-    {
-      detail: null,
-      id: "notification-browser:1",
-      level: "warning",
-      message: shortMessage,
-      observedAt: Date.parse("2026-07-21T12:00:00Z"),
-      sequence: 1,
-      source: "application",
-    },
-    {
-      detail: null,
-      id: "notification-browser:2",
-      level: "error",
-      message: longMessage,
-      observedAt: Date.parse("2026-07-21T12:00:01Z"),
-      sequence: 2,
-      source: "platform",
-    },
-  ];
-  eventsSnapshot.sequence = 2;
-  eventsClient.publishSnapshot(eventsSnapshot);
+  const notificationCenter = new FixtureNotificationCenter();
+  const notificationClient = new FixtureNotificationClient(notificationCenter);
+  await notificationClient.publish(
+    notificationPublication("profile.saved", {
+      dedupeKey: "profile.saved",
+      severity: "success",
+    }),
+  );
+  await notificationClient.publish(
+    notificationPublication("system-proxy.drift", {
+      dedupeKey: "system-proxy.drift",
+      params: { canLeave: false, canRepair: false, repairRequiresCore: false },
+      severity: "warning",
+    }),
+  );
 
   const settingsSnapshot = createFixtureSettingsSnapshot();
   const settingsClient = new FixtureSettingsClient();
@@ -81,14 +84,12 @@ beforeAll(async () => {
       <AppearanceProvider initialPreference="light" initialWindowSurfacePreference="opaque">
         <TypesafeI18n locale="en">
           <MemoryRouter initialEntries={["/status"]}>
-            <ProductProvider>
-              <EventsProvider client={eventsClient}>
-                <NotificationDeliveryProvider>
-                  <TooltipProvider>
-                    <NotificationBubble />
-                  </TooltipProvider>
-                </NotificationDeliveryProvider>
-              </EventsProvider>
+            <ProductProvider client={new BrowserRpcStatusClient()}>
+              <NotificationDeliveryProvider client={notificationClient}>
+                <TooltipProvider>
+                  <NotificationBubble />
+                </TooltipProvider>
+              </NotificationDeliveryProvider>
             </ProductProvider>
           </MemoryRouter>
         </TypesafeI18n>

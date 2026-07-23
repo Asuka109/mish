@@ -43,7 +43,7 @@ import {
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
-import { useNotificationDelivery } from "../data/notification-delivery";
+import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useTraffic } from "../data/traffic-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
@@ -219,11 +219,12 @@ export function TrafficPage() {
     if (!closeTarget) return;
     const result = await closeConnection(closeTarget.id);
     if (result?.status === "success") {
-      publish({
-        id: "traffic-connection-closed",
-        level: "success",
-        message: LL.traffic.closeConnectionSucceeded(),
-      });
+      publish(
+        notificationPublication("traffic.connection-closed", {
+          dedupeKey: "traffic.connection-closed",
+          severity: "success",
+        }),
+      );
       setSelectedConnection(null);
     }
     setCloseTarget(null);
@@ -232,11 +233,13 @@ export function TrafficPage() {
   async function confirmCloseAllActive() {
     const result = await closeAllActive();
     if (result?.status === "success") {
-      publish({
-        id: "traffic-connections-closed",
-        level: "success",
-        message: LL.traffic.closeAllActiveSucceeded({ count: result.targetCount }),
-      });
+      publish(
+        notificationPublication("traffic.connections-closed", {
+          dedupeKey: "traffic.connections-closed",
+          params: { count: result.targetCount },
+          severity: "success",
+        }),
+      );
     }
     setCloseAllConfirmationOpen(false);
   }

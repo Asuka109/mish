@@ -290,6 +290,8 @@ const en = {
     remove: "Remove notification: {message:string}",
     title: "Notifications",
     trigger: "Notifications, {count:number} unread",
+    unknownMessage: "Mish reported an update that this client cannot display yet.",
+    unknownTitle: "Notification",
     viewAllEvents: "View All Events",
   },
   onboarding: {

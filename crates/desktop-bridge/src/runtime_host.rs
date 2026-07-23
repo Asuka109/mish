@@ -1,10 +1,11 @@
 use mish_runtime::{
     ApplicationDiagnosticEvent, CaptureAuditReason, CaptureRecoveryAction, CaptureRequest,
     CaptureTransitionError, CoreError, CoreStatus, DiagnosticHistory, EventsSnapshot, MishRuntime,
-    ProviderAuthority, ProviderCommandExecution, ProviderCommandResult, ProviderKind,
-    ProviderSnapshot, ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand,
-    StatusCommandError, StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution,
-    TrafficCommandFailureKind, TrafficCommandOperation, TrafficCommandResult,
+    NotificationPublication, NotificationSnapshot, NotificationValidationError, ProviderAuthority,
+    ProviderCommandExecution, ProviderCommandResult, ProviderKind, ProviderSnapshot,
+    ProviderUpdateFailure, RoutingMode, StatusAdapterKind, StatusCommand, StatusCommandError,
+    StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
+    TrafficCommandOperation, TrafficCommandResult,
 };
 use mish_state_authority::StateMutationAuthority;
 use serde_json::Value;
@@ -47,7 +48,9 @@ impl DesktopRuntimeHost {
 
     pub fn replace(&self, runtime: MishRuntime) {
         self.diagnostics.invalidate_active();
-        self.runtime.send_replace(runtime);
+        let notifications = self.current().notification_center();
+        self.runtime
+            .send_replace(runtime.with_notification_center(notifications));
     }
 
     pub fn invalidate_diagnostics(&self) {
@@ -303,6 +306,38 @@ impl DesktopRuntimeHost {
         self.current().record_application_event(event);
     }
 
+    pub fn publish_notification(
+        &self,
+        publication: NotificationPublication,
+    ) -> Result<NotificationSnapshot, NotificationValidationError> {
+        self.current().publish_notification(publication)
+    }
+
+    pub fn notification_snapshot(&self) -> NotificationSnapshot {
+        self.current().notification_snapshot()
+    }
+
+    pub fn subscribe_notifications_with_snapshot(
+        &self,
+    ) -> (
+        tokio::sync::broadcast::Receiver<NotificationSnapshot>,
+        NotificationSnapshot,
+    ) {
+        self.current().subscribe_notifications_with_snapshot()
+    }
+
+    pub fn mark_notifications_read(&self, ids: &[String]) -> NotificationSnapshot {
+        self.current().mark_notifications_read(ids)
+    }
+
+    pub fn remove_notification(&self, id: &str) -> NotificationSnapshot {
+        self.current().remove_notification(id)
+    }
+
+    pub fn remove_notification_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
+        self.current().remove_notification_by_dedupe_key(dedupe_key)
+    }
+
     pub async fn support_bundle_runtime_snapshot(
         &self,
         adapter_kind: StatusAdapterKind,
@@ -341,8 +376,23 @@ impl DesktopRuntimeHost {
             } else {
                 execution.clone()
             };
-            if execution.failure.is_some() {
+            if let Some(failure) = execution.failure {
                 current.record_application_event(ApplicationDiagnosticEvent::traffic_failure());
+                let _ = current.publish_notification(NotificationPublication {
+                    dedupe_key: "traffic.operation-failed".into(),
+                    notification_type: "traffic.operation-failed".into(),
+                    params: serde_json::json!({
+                        "failure": failure,
+                        "operation": execution.operation,
+                        "remainingCount": execution.remaining_connection_ids.len(),
+                        "targetCount": execution.target_count,
+                    }),
+                    replaces: Vec::new(),
+                    resolved: false,
+                    severity: mish_runtime::NotificationSeverity::Error,
+                });
+            } else {
+                current.remove_notification_by_dedupe_key("traffic.operation-failed");
             }
             let result = serde_json::to_value(TrafficCommandResult::new(
                 execution,

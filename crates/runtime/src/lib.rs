@@ -13,6 +13,7 @@ mod capture;
 mod diagnostics;
 mod events;
 mod lifecycle;
+mod notifications;
 mod provider;
 mod status;
 mod traffic;
@@ -22,6 +23,7 @@ pub use capture::*;
 pub use diagnostics::*;
 pub use events::*;
 pub use lifecycle::*;
+pub use notifications::*;
 pub use provider::*;
 pub use status::*;
 pub use traffic::*;
@@ -370,6 +372,7 @@ pub struct MishRuntime {
     core: Arc<dyn CoreRuntime>,
     events: Arc<RuntimeStatusEvents>,
     events_source: Arc<dyn EventsDataSource>,
+    notifications: NotificationCenter,
     status_source: Arc<dyn StatusDataSource>,
     traffic_source: Arc<dyn TrafficDataSource>,
     uptime: Arc<Mutex<ProxySessionUptime>>,
@@ -470,6 +473,7 @@ impl MishRuntime {
             core,
             events,
             events_source,
+            notifications: NotificationCenter::new(),
             status_source,
             traffic_source,
             uptime: Arc::new(Mutex::new(ProxySessionUptime { started_at: None })),
@@ -479,6 +483,15 @@ impl MishRuntime {
 
     pub fn core_configured(&self) -> bool {
         self.core.configured()
+    }
+
+    pub fn with_notification_center(mut self, notifications: NotificationCenter) -> Self {
+        self.notifications = notifications;
+        self
+    }
+
+    pub fn notification_center(&self) -> NotificationCenter {
+        self.notifications.clone()
     }
 
     pub async fn core_status(&self) -> CoreStatus {
@@ -521,9 +534,10 @@ impl MishRuntime {
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.reconcile(request, healthy).await;
         if let Err(error) = result {
-            self.record_application_event(ApplicationDiagnosticEvent::capture_failure(error.kind));
+            self.record_capture_failure(error.kind);
             return Err(error);
         }
+        self.notifications.remove_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -559,9 +573,10 @@ impl MishRuntime {
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
         let result = capture.recover(action, healthy).await;
         if let Err(error) = result {
-            self.record_application_event(ApplicationDiagnosticEvent::capture_failure(error.kind));
+            self.record_capture_failure(error.kind);
             return Err(error);
         }
+        self.notifications.remove_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
@@ -581,9 +596,7 @@ impl MishRuntime {
             return match result {
                 Ok(_) => Ok(false),
                 Err(error) => {
-                    self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
-                        error.kind,
-                    ));
+                    self.record_capture_failure(error.kind);
                     Err(error)
                 }
             };
@@ -591,9 +604,7 @@ impl MishRuntime {
         match result {
             Ok(_) => Ok(true),
             Err(error) => {
-                self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
-                    error.kind,
-                ));
+                self.record_capture_failure(error.kind);
                 Err(error)
             }
         }
@@ -629,9 +640,7 @@ impl MishRuntime {
         match result {
             Ok(_) => Ok(before != after),
             Err(error) => {
-                self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
-                    error.kind,
-                ));
+                self.record_capture_failure(error.kind);
                 Err(error)
             }
         }
@@ -761,6 +770,54 @@ impl MishRuntime {
 
     pub fn record_application_event(&self, event: ApplicationDiagnosticEvent) {
         self.events_source.record_application_event(event);
+    }
+
+    pub fn publish_notification(
+        &self,
+        publication: NotificationPublication,
+    ) -> Result<NotificationSnapshot, NotificationValidationError> {
+        self.notifications.publish(publication)
+    }
+
+    pub fn notification_snapshot(&self) -> NotificationSnapshot {
+        self.notifications.snapshot()
+    }
+
+    pub fn subscribe_notifications_with_snapshot(
+        &self,
+    ) -> (
+        broadcast::Receiver<NotificationSnapshot>,
+        NotificationSnapshot,
+    ) {
+        self.notifications.subscribe_with_snapshot()
+    }
+
+    pub fn mark_notifications_read(&self, ids: &[String]) -> NotificationSnapshot {
+        self.notifications.mark_read(ids)
+    }
+
+    pub fn remove_notification(&self, id: &str) -> NotificationSnapshot {
+        self.notifications.remove(id)
+    }
+
+    pub fn remove_notification_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
+        self.notifications.remove_by_dedupe_key(dedupe_key)
+    }
+
+    fn record_capture_failure(&self, failure: CaptureFailureKind) {
+        self.record_application_event(ApplicationDiagnosticEvent::capture_failure(failure));
+        let _ = self.publish_notification(NotificationPublication {
+            dedupe_key: "capture.failure".into(),
+            notification_type: "capture.failure".into(),
+            params: serde_json::json!({ "failure": failure }),
+            replaces: Vec::new(),
+            resolved: false,
+            severity: if failure == CaptureFailureKind::CoreUnhealthy {
+                NotificationSeverity::Warning
+            } else {
+                NotificationSeverity::Error
+            },
+        });
     }
 
     pub fn run_proxy_diagnostic(

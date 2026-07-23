@@ -30,4 +30,26 @@ describe("notification architecture", () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  it("keeps publication on the canonical Rust Interface and deletes compatibility inference", async () => {
+    const compatibilityOffenders: string[] = [];
+    const publicationOffenders: string[] = [];
+    for (const file of await sourceFiles(sourceRoot)) {
+      const relative = file.slice(sourceRoot.length + 1);
+      const source = await readFile(file, "utf8");
+      if (/reconcileExternalNotifications|notificationKind|\brecord\(\{/.test(source)) {
+        compatibilityOffenders.push(relative);
+      }
+      if (!/\bnotificationPublication\(/.test(source)) continue;
+      if (relative === "data/notification-delivery.tsx") continue;
+      if (
+        !source.includes('from "../data/notification-delivery"') &&
+        !source.includes('from "./notification-delivery"')
+      ) {
+        publicationOffenders.push(relative);
+      }
+    }
+    expect(compatibilityOffenders).toEqual([]);
+    expect(publicationOffenders).toEqual([]);
+  });
 });

@@ -35,7 +35,7 @@ import { cx, tv } from "@mish/ui/tv";
 import { useAppearance, type AppearancePreference } from "../appearance";
 import { useCaptureCommand } from "../data/capture-command";
 import { useCurrentProfileCommand } from "../data/current-profile-command";
-import { useNotificationDelivery } from "../data/notification-delivery";
+import { notificationPublication, useNotificationDelivery } from "../data/notification-delivery";
 import { useProduct } from "../data/product-provider";
 import { useOptionalProfiles } from "../data/profile-provider";
 import { useOptionalSettings } from "../data/settings-provider";
@@ -523,11 +523,12 @@ function ProfileMenu() {
     if (useSavedProfiles) {
       const result = await selectCurrentProfile(profileId);
       if (!result.ok) {
-        publish({
-          id: "profiles-switch-failed",
-          level: "error",
-          message: LL.profiles.switchFailed(),
-        });
+        publish(
+          notificationPublication("profile.switch-failed", {
+            dedupeKey: "profile.switch-failed",
+            severity: "error",
+          }),
+        );
       }
     } else if (fixtureSelectionSupported) {
       await setActiveProfile(profileId);

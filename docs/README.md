@@ -40,6 +40,9 @@ of treating an implementation accident as intent.
   [`events-data-contracts.md`](architecture/events-data-contracts.md), and
   [`diagnostics-data-contracts.md`](architecture/diagnostics-data-contracts.md)
   — observable DTO and failure semantics by product area.
+- [`notification-center.md`](architecture/notification-center.md) — the
+  Rust-authoritative semantic notification Module, RPC Interface, TypeScript
+  presentation registry, and multi-client lifecycle.
 - [`settings-contracts.md`](architecture/settings-contracts.md) and
   [`local-backup-restore.md`](architecture/local-backup-restore.md) — settings,
   persistence, backup, restore, and native file boundaries.

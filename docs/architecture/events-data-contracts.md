@@ -26,17 +26,14 @@ specified in
 - explicit availability for application, core, RPC, and platform sources.
 
 Each event has a stable session-scoped ID, sequence, local receipt timestamp,
-severity, source, concise message, optional detail, and an optional closed
-application-notification kind. Severity is the closed set Debug, Info, Warning,
-and Error. Source is the closed set Application, Core, RPC, and Platform.
+severity, source, concise message, and optional detail. Severity is the closed
+set Debug, Info, Warning, and Error. Source is the closed set Application, Core,
+RPC, and Platform.
 
-The Rust runtime assigns notification kinds to cross-surface capture, profile
-activation, Settings, and Traffic failures. Those typed records are the
-authoritative retained input for both the notification center and toast
-projection in every subscribed Web client. Initial and reconnect snapshots
-restore retained center history without replaying old toasts; only a newly
-observed typed event is eligible for a toast. Read state, item removal, toast
-animation, and action execution spinners remain client-session UI state.
+Events are diagnostic history only. They do not carry notification kinds and are
+not an input, compatibility reader, or backing store for the notification center.
+The independent Rust-authoritative lifecycle is specified in
+[`notification-center.md`](notification-center.md).
 
 The desktop Controller adapter currently supplies redacted Mihomo core logs,
 application-owned session-boundary observations, and bounded lifecycle
@@ -106,8 +103,8 @@ token key/value forms, subscription identifiers, absolute paths, IP addresses,
 and long token-like values. Structured field values pass through the same
 redactor before they are joined into bounded detail text.
 
-Application lifecycle diagnostics use closed failure categories, notification
-kinds, and static operator guidance. Their constructors accept no profile
+Application lifecycle diagnostics use closed failure categories and static
+operator guidance. Their constructors accept no profile
 labels, source URLs, configuration text, Controller credentials, or arbitrary
 error strings. This keeps activation, capture, Settings, and Traffic recovery
 actionable without moving subscription secrets into Events.

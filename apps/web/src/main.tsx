@@ -138,6 +138,7 @@ async function startApplication() {
                               mobileFixture={startup.mobileFixture}
                               mobileVpnClient={startup.mobileVpnClient}
                               mobileVpnSnapshot={startup.mobileVpnSnapshot}
+                              notificationClient={startup.notificationClient}
                             />
                             <AppearanceToaster />
                           </TooltipProvider>

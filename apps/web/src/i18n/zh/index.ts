@@ -269,6 +269,8 @@ const zh = {
     remove: "移除通知：{message}",
     title: "通知",
     trigger: "通知，{count} 条未读",
+    unknownMessage: "Mish 报告了一项当前客户端暂时无法显示的更新。",
+    unknownTitle: "通知",
     viewAllEvents: "查看全部事件",
   },
   onboarding: {

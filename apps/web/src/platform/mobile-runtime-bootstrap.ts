@@ -7,6 +7,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { FixtureEventsClient } from "../data/fixture-events-client";
 import { FixtureProfileClient } from "../data/fixture-profile-client";
 import { FixtureSettingsClient } from "../data/fixture-settings-client";
+import { FixtureNotificationClient } from "../data/fixture-notification-client";
 import { FixtureStatusClient } from "../data/fixture-status-client";
 import { FixtureTrafficClient } from "../data/fixture-traffic-client";
 import { UnavailableLocalBackupClient } from "./local-backup";
@@ -104,6 +105,7 @@ export async function resolveMobileStartup(
     mobileFixture: fixture,
     mobileVpnClient: dependencies.mobileVpnClient,
     mobileVpnSnapshot,
+    notificationClient: new FixtureNotificationClient(),
     profileClient: new FixtureProfileClient(),
     runtime: "mobile",
     settingsClient,

@@ -80,19 +80,19 @@ The DOM element owns the fallback blue surface and text contrast.
   in transient notifications and the notification center without shifting the
   routing controls. System Proxy drift offers both repair and keep-current when
   the runtime advertises those actions.
-- Every application notification is published exactly once through the shared
-  notification-delivery envelope. Cross-surface capture, profile activation,
-  Settings, and Traffic failures originate as typed Rust Events. Every Web
-  client projects the same event into the retained center item and, when it is
-  newly observed during the current connection, the matching toast. Initial or
-  reconnect history does not replay old toasts. Request-local success feedback
-  and onboarding invitations may still originate in the initiating client. A
-  specific capture/runtime failure suppresses any generic command failure for
-  the same attempt. The center orders all records strictly by observation time;
-  severity and available actions never influence ordering. Opening the center marks the notifications currently shown as read
-  without removing them. Messages wrap naturally and remain selectable, source
-  labels are omitted, and each item has an accessible remove control revealed by
-  hover or keyboard focus. Item removal affects only the current UI session.
+- Every application notification is committed exactly once into the shared Rust
+  notification Module. Rust-native capture, profile activation, Settings, and
+  Traffic producers commit directly; TypeScript-only producers use the one RPC
+  publication Interface. Events remain diagnostic history. Every Web client
+  projects the same Rust snapshot and gives a newly observed record one matching
+  toast. Initial and reconnect baselines never replay old toasts. A specific
+  capture/runtime failure suppresses any generic command failure for the same
+  attempt. The center orders records by Rust-owned revision and observation;
+  severity and available actions never influence ordering. Opening the center
+  marks retained items read through Rust without removing them. Messages wrap
+  naturally and remain selectable, source labels are omitted, and each item has
+  an accessible remove control revealed by hover or keyboard focus. Removal is a
+  Rust mutation observed by every connected client.
 - On a fresh eligible desktop installation, the notification center also retains
   one versioned welcome invitation. Existing installations receive the same
   invitation once when upgrading from an older settings schema. On the first
