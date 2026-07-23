@@ -29,11 +29,13 @@ describe("responsive shell CSS", () => {
     expect(notifications).toContain("hover:text-fg");
   });
 
-  it("keeps retained notification messages wrappable without user-delete controls", () => {
+  it("keeps notification messages wrappable and exposes remove controls on interaction", () => {
     expect(notifications).toContain("notification-message cursor-text wrap-anywhere");
     expect(notifications).toContain("select-text");
     expect(notifications).not.toContain("truncate");
-    expect(notifications).not.toContain("notification-remove");
+    expect(notifications).toContain("opacity-0 pointer-events-none");
+    expect(notifications).toContain("group-hover/item:opacity-100");
+    expect(notifications).toContain("group-focus-within/item:pointer-events-auto");
   });
 
   it("separates the profile patch editor sections inside a padded content region", () => {

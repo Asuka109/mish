@@ -22,6 +22,12 @@ bounded JSON parameters, a dedupe key, replacement keys, resolution state, and
 Rust-owned lifecycle metadata. It never carries localized title, message, or
 detail text, and never carries functions.
 
+A notification type names a presentation definition, not a singleton record.
+Each independent occurrence receives a distinct bounded dedupe key and therefore
+a distinct Rust-owned ID. A producer reuses a dedupe key only while updating one
+explicit lifecycle; after that lifecycle is resolved, publishing the key again
+creates a new instance.
+
 Rust rejects identifiers over 96 bytes, more than eight replacements, parameters
 over 2,048 serialized bytes, nesting deeper than three levels, more than 32
 aggregate entries, or strings over 160 bytes. Sensitive key names and values that
@@ -47,11 +53,11 @@ bottom-right Sonner toast. A later revision of that ID updates the same toast;
 resolution dismisses it while retaining history. Stale or duplicate revisions
 are ignored.
 
-Opening the center marks retained IDs read through Rust. Notification history has
-no user-delete control; Rust lifecycle replacement, resolution, producer
-retirement, and bounded retention remain authoritative. Toast dismissal,
-animation, and action-pending state retain UI **Locality** and do not delete the
-center record.
+Opening the center marks retained IDs read through Rust. The explicit X removes
+only that record ID through the Rust **Interface**, and every client observes the
+result. Rust lifecycle replacement, resolution, producer retirement, and bounded
+retention remain authoritative. Toast dismissal, animation, and action-pending
+state retain UI **Locality** and do not delete the center record.
 
 ## Interfaces
 
@@ -60,6 +66,7 @@ The JSON-RPC Interface is:
 - `notifications.getSnapshot`
 - `notifications.publish`
 - `notifications.markRead`
+- `notifications.remove`
 - `notifications.removeByDedupeKey`
 - `notifications.subscribe`
 - `notifications.unsubscribe`

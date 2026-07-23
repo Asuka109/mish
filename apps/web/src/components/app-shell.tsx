@@ -525,7 +525,6 @@ function ProfileMenu() {
       if (!result.ok) {
         publish(
           notificationPublication("profile.switch-failed", {
-            dedupeKey: "profile.switch-failed",
             severity: "error",
           }),
         );

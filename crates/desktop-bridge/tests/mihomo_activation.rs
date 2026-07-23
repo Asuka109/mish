@@ -1729,6 +1729,19 @@ async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable
         );
     }
 
+    let activation_failure_ids = host
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .filter(|notification| notification.notification_type == "profile.activation-failed")
+        .map(|notification| notification.id)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        activation_failure_ids.len(),
+        2,
+        "each failed activation attempt must create a distinct notification instance"
+    );
+
     let events = host.events_snapshot(StatusAdapterKind::Rpc);
     let activation_event = events["events"]
         .as_array()

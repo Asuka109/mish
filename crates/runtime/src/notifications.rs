@@ -120,10 +120,10 @@ impl NotificationCenter {
             .state
             .lock()
             .expect("notification state poisoned");
-        let existing_index = state
-            .records
-            .iter()
-            .position(|record| record.dedupe_key == publication.dedupe_key);
+        let existing_index = state.records.iter().rposition(|record| {
+            record.dedupe_key == publication.dedupe_key
+                && (!record.resolved || publication.resolved)
+        });
         let replacements_remove_something = state.records.iter().any(|record| {
             publication
                 .replaces
@@ -153,11 +153,10 @@ impl NotificationCenter {
                     .any(|dedupe_key| dedupe_key == &record.dedupe_key)
         });
 
-        if let Some(index) = state
-            .records
-            .iter()
-            .position(|record| record.dedupe_key == publication.dedupe_key)
-        {
+        if let Some(index) = state.records.iter().rposition(|record| {
+            record.dedupe_key == publication.dedupe_key
+                && (!record.resolved || publication.resolved)
+        }) {
             let mut record = state.records.remove(index).expect("existing notification");
             record.notification_type = publication.notification_type;
             record.observed_at = now_unix_milliseconds();
@@ -212,6 +211,10 @@ impl NotificationCenter {
         self.publish_snapshot(&state)
     }
 
+    pub fn remove(&self, id: &str) -> NotificationSnapshot {
+        self.remove_matching(|record| record.id == id)
+    }
+
     pub fn remove_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
         self.remove_matching(|record| record.dedupe_key == dedupe_key)
     }
@@ -225,7 +228,7 @@ impl NotificationCenter {
         let Some(index) = state
             .records
             .iter()
-            .position(|record| record.dedupe_key == dedupe_key && !record.resolved)
+            .rposition(|record| record.dedupe_key == dedupe_key && !record.resolved)
         else {
             return snapshot(&state);
         };
@@ -448,6 +451,21 @@ mod tests {
     }
 
     #[test]
+    fn publishing_after_resolution_creates_a_new_instance() {
+        let center = NotificationCenter::new();
+        let first = center.publish(publication("shared", 1)).unwrap();
+        let first_id = first.notifications[0].id.clone();
+        center.resolve_by_dedupe_key("shared");
+
+        let second = center.publish(publication("shared", 2)).unwrap();
+
+        assert_eq!(second.notifications.len(), 2);
+        assert_ne!(second.notifications[0].id, first_id);
+        assert!(!second.notifications[0].resolved);
+        assert!(second.notifications[1].resolved);
+    }
+
+    #[test]
     fn replacement_and_retention_are_authoritative() {
         let center = NotificationCenter::new();
         center.publish(publication("obsolete", 0)).unwrap();
@@ -468,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn read_and_resolution_publish_to_all_clients_without_deleting_history() {
+    fn read_remove_and_resolution_publish_to_all_clients() {
         let center = NotificationCenter::new();
         let (mut first, baseline) = center.subscribe_with_snapshot();
         let (mut second, _) = center.subscribe_with_snapshot();
@@ -494,6 +512,11 @@ mod tests {
             center.snapshot().notifications[0].id,
             published.notifications[0].id
         );
+
+        let removed = center.remove(&published.notifications[0].id);
+        assert!(removed.notifications.is_empty());
+        assert_eq!(first.try_recv().unwrap(), removed);
+        assert_eq!(second.try_recv().unwrap(), removed);
     }
 
     #[test]

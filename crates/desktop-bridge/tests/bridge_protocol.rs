@@ -596,6 +596,33 @@ async fn authoritative_application_notifications_reach_every_notification_client
         );
     }
 
+    let profile_notification_id = published["result"]["notifications"][0]["id"]
+        .as_str()
+        .unwrap();
+    let removed = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"notifications.remove",
+            "params": {"id": profile_notification_id}
+        }),
+    )
+    .await;
+    assert_eq!(
+        removed["result"]["notifications"].as_array().unwrap().len(),
+        1
+    );
+    for socket in [&mut first, &mut second] {
+        let notification = next_json(socket).await;
+        assert_eq!(notification["method"], "notifications.snapshot");
+        assert_eq!(
+            notification["params"]["snapshot"]["notifications"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
     bridge.shutdown().await;
 }
 

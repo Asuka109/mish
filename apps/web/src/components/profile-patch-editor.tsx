@@ -164,7 +164,6 @@ export function ProfilePatchEditor({
       if (!result.ok) {
         publish(
           notificationPublication("profile.patch-load-failed", {
-            dedupeKey: "profile.patch-load-failed",
             severity: "error",
           }),
         );
@@ -215,7 +214,6 @@ export function ProfilePatchEditor({
     if (!result.ok) {
       publish(
         notificationPublication("profile.patch-save-failed", {
-          dedupeKey: "profile.patch-save-failed",
           severity: "error",
         }),
       );
@@ -231,7 +229,6 @@ export function ProfilePatchEditor({
     setBaseline(JSON.stringify(patches));
     publish(
       notificationPublication("profile.patch-saved", {
-        dedupeKey: "profile.patch-saved",
         severity: "success",
       }),
     );

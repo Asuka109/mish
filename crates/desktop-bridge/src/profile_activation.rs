@@ -1050,7 +1050,7 @@ impl ProfileActivationCoordinator {
                 Some("Review the selected Profile and retry after resolving the reported failure"),
             ));
         let _ = self.host.publish_notification(NotificationPublication {
-            dedupe_key: "profile.activation-failure".into(),
+            dedupe_key: format!("profile.activation-failure:{command_id}"),
             notification_type: "profile.activation-failed".into(),
             params: serde_json::json!({ "failure": failure }),
             replaces: vec!["profile.activation-geodata-progress".into()],
@@ -1086,6 +1086,7 @@ impl ProfileActivationCoordinator {
                     ));
                     publish_activation_failure_notification(
                         &self.host,
+                        command_id,
                         MihomoActivationError::StateCommitFailed,
                     );
                     return;
@@ -1119,13 +1120,12 @@ impl ProfileActivationCoordinator {
                 let _ = self.updates.send(snapshot);
                 drop(state);
                 self.host.record_application_event(diagnostic);
-                publish_activation_failure_notification(&self.host, error);
+                publish_activation_failure_notification(&self.host, command_id, error);
                 return;
             }
         }
         let _ = self.updates.send(state.snapshot.clone());
         drop(state);
-        self.host.resolve_notification("profile.activation-failure");
         self.host
             .remove_notification_by_dedupe_key("profile.activation-geodata-progress");
     }
@@ -1419,6 +1419,7 @@ fn activation_failure_event(error: MihomoActivationError) -> ApplicationDiagnost
 
 fn publish_activation_failure_notification(
     host: &DesktopRuntimeHost,
+    command_id: &str,
     error: MihomoActivationError,
 ) {
     let (notification_type, params) = match error {
@@ -1440,7 +1441,7 @@ fn publish_activation_failure_notification(
         ),
     };
     let _ = host.publish_notification(NotificationPublication {
-        dedupe_key: "profile.activation-failure".into(),
+        dedupe_key: format!("profile.activation-failure:{command_id}"),
         notification_type: notification_type.into(),
         params,
         replaces: vec![

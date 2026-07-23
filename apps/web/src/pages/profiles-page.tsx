@@ -176,7 +176,6 @@ export function ProfilesPage() {
     if (!result.ok) {
       publish(
         notificationPublication("profile.create-failed", {
-          dedupeKey: "profile.create-failed",
           severity: "error",
         }),
       );
@@ -184,7 +183,6 @@ export function ProfilesPage() {
     }
     publish(
       notificationPublication("profile.created", {
-        dedupeKey: "profile.created",
         severity: "success",
       }),
     );
@@ -211,7 +209,6 @@ export function ProfilesPage() {
     if (!result.ok) {
       publish(
         notificationPublication("profile.import-failed", {
-          dedupeKey: "profile.import-failed",
           severity: "error",
         }),
       );
@@ -227,7 +224,6 @@ export function ProfilesPage() {
     if (!result.ok) {
       publish(
         notificationPublication("profile.save-failed", {
-          dedupeKey: "profile.save-failed",
           severity: "error",
         }),
       );
@@ -235,7 +231,6 @@ export function ProfilesPage() {
     }
     publish(
       notificationPublication("profile.saved", {
-        dedupeKey: "profile.saved",
         severity: "success",
       }),
     );
@@ -247,7 +242,6 @@ export function ProfilesPage() {
     if (!result.ok) {
       publish(
         notificationPublication("profile.refresh-failed", {
-          dedupeKey: "profile.refresh-failed",
           severity: "error",
         }),
       );
@@ -255,7 +249,6 @@ export function ProfilesPage() {
     }
     publish(
       notificationPublication("profile.subscription-updated", {
-        dedupeKey: "profile.subscription-updated",
         severity: "success",
       }),
     );
@@ -266,7 +259,6 @@ export function ProfilesPage() {
     if (!result.ok)
       publish(
         notificationPublication("profile.schedule-failed", {
-          dedupeKey: "profile.schedule-failed",
           severity: "error",
         }),
       );
@@ -277,7 +269,6 @@ export function ProfilesPage() {
     if (!result.ok) {
       publish(
         notificationPublication("profile.detach-failed", {
-          dedupeKey: "profile.detach-failed",
           severity: "error",
         }),
       );
@@ -285,7 +276,6 @@ export function ProfilesPage() {
     }
     publish(
       notificationPublication("profile.detached", {
-        dedupeKey: "profile.detached",
         severity: "success",
       }),
     );
@@ -296,7 +286,6 @@ export function ProfilesPage() {
     if (!result.ok)
       publish(
         notificationPublication("profile.file-action-failed", {
-          dedupeKey: "profile.file-action-failed",
           severity: "error",
         }),
       );

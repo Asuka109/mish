@@ -30,6 +30,18 @@ describe("Rust-authoritative notification delivery projection", () => {
     loadAllLocales();
   });
 
+  it("assigns a distinct occurrence key to independent publications of the same type", () => {
+    const center = new FixtureNotificationCenter();
+    const first = notificationPublication("profile.saved", { severity: "success" });
+    const second = notificationPublication("profile.saved", { severity: "success" });
+
+    expect(first.dedupeKey).not.toBe(second.dedupeKey);
+    center.publish(first);
+    const snapshot = center.publish(second);
+    expect(snapshot.notifications).toHaveLength(2);
+    expect(new Set(snapshot.notifications.map(({ id }) => id)).size).toBe(2);
+  });
+
   it("hydrates the baseline without a toast and observes one new same-ID projection", async () => {
     const center = new FixtureNotificationCenter();
     const publisher = new FixtureNotificationClient(center);
@@ -79,7 +91,7 @@ describe("Rust-authoritative notification delivery projection", () => {
     expect(delivery?.toastEntries[0]?.id).toBe(id);
   });
 
-  it("writes read lifecycle through the shared authority while retaining history", async () => {
+  it("writes read and remove lifecycle through the shared authority", async () => {
     const center = new FixtureNotificationCenter();
     const first = new FixtureNotificationClient(center);
     const second = new FixtureNotificationClient(center);
@@ -103,6 +115,9 @@ describe("Rust-authoritative notification delivery projection", () => {
     act(() => delivery?.markRead([id]));
     await vi.waitFor(() => expect(delivery?.readIds.has(id)).toBe(true));
     expect((await second.getSnapshot()).notifications[0]?.read).toBe(true);
-    expect(delivery?.entries).toHaveLength(1);
+
+    act(() => delivery?.remove(id));
+    await vi.waitFor(() => expect(delivery?.entries).toEqual([]));
+    expect((await second.getSnapshot()).notifications).toEqual([]);
   });
 });

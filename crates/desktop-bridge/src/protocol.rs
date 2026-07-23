@@ -324,6 +324,12 @@ struct NotificationIdsParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NotificationIdParams {
+    id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct NotificationDedupeKeyParams {
     dedupe_key: String,
 }
@@ -1037,6 +1043,15 @@ async fn handle_message(
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
             serde_json::to_value(state.runtime.mark_notifications_read(&params.ids))
+                .expect("serializable notification snapshot")
+        }
+        "notifications.remove" => {
+            let params: NotificationIdParams =
+                match serde_json::from_value::<NotificationIdParams>(request.params) {
+                    Ok(params) if valid_notification_reference(&params.id, true) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            serde_json::to_value(state.runtime.remove_notification(&params.id))
                 .expect("serializable notification snapshot")
         }
         "notifications.removeByDedupeKey" => {
@@ -1933,7 +1948,7 @@ fn settings_error_response(state: &ProtocolState, id: Value, error: SettingsServ
         SettingsServiceError::Busy => "busy",
     };
     let _ = state.runtime.publish_notification(NotificationPublication {
-        dedupe_key: "settings.operation-failed".into(),
+        dedupe_key: format!("settings.operation-failed:{}", Uuid::new_v4()),
         notification_type: "settings.operation-failed".into(),
         params: json!({ "failure": failure }),
         replaces: Vec::new(),

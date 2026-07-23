@@ -1,4 +1,5 @@
 import { Bell } from "@phosphor-icons/react/Bell";
+import { X } from "@phosphor-icons/react/X";
 import {
   Badge,
   Button,
@@ -56,7 +57,7 @@ const notificationStyles = tv({
       "[&+&]:border-hairline-soft",
     ),
     itemHeading: cx(
-      "notification-item-heading flex items-center justify-between gap-2 [&_.ui-badge]:h-5",
+      "notification-item-heading flex items-center justify-between gap-2 pr-6.5 [&_.ui-badge]:h-5",
       "[&_time]:text-caption [&_time]:text-muted-foreground",
     ),
     entryTitle: "notification-entry-title text-metadata font-medium text-ink",
@@ -64,6 +65,12 @@ const notificationStyles = tv({
       "notification-message cursor-text wrap-anywhere text-metadata leading-4.75 font-medium text-fg select-text",
     detail:
       "notification-detail mt-0.75 wrap-anywhere text-metadata leading-4.5 text-muted-foreground",
+    remove: cx(
+      "notification-remove absolute top-1.75 right-2 size-6.5 opacity-0 pointer-events-none",
+      "transition-opacity duration-120 ease-out group-hover/item:opacity-100",
+      "group-hover/item:pointer-events-auto group-focus-within/item:opacity-100",
+      "group-focus-within/item:pointer-events-auto",
+    ),
     actions: "notification-actions flex flex-wrap gap-1.5 pt-0.75",
     empty: "notification-empty min-h-42 rounded-none border-x-0 border-y border-hairline",
     footer: "notification-footer flex px-3.5 pt-2.5 pb-3",
@@ -76,7 +83,7 @@ export function NotificationBubble() {
   const settings = useOptionalSettings();
   const { commandStates, recoverSystemProxy, snapshot } = useProduct();
   const { setCapture } = useCaptureCommand();
-  const { entries, markRead, readIds, toastEntries } = useNotificationDelivery();
+  const { entries, markRead, readIds, remove, toastEntries } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -205,6 +212,7 @@ export function NotificationBubble() {
                     pendingActionId: pendingActions.get(notification.id),
                   }}
                   onExecute={execute}
+                  onRemove={remove}
                 />
               ))}
             </ol>
@@ -246,6 +254,7 @@ interface NotificationItemProps {
   locale: Locales;
   notification: DeliveredNotification;
   onExecute(notificationId: string, actionId: string): Promise<void>;
+  onRemove(notificationId: string): void;
 }
 
 function NotificationItem({
@@ -254,9 +263,19 @@ function NotificationItem({
   locale,
   notification,
   onExecute,
+  onRemove,
 }: NotificationItemProps) {
   return (
     <li className={notificationStyles().item({ className: "group/item" })}>
+      <Button
+        aria-label={LL.notifications.remove({ message: notification.message })}
+        className={notificationStyles().remove()}
+        onClick={() => onRemove(notification.id)}
+        size="icon-sm"
+        variant="ghost"
+      >
+        <X aria-hidden="true" />
+      </Button>
       <div className={notificationStyles().itemHeading()}>
         <Badge variant={levelBadge(notification.level)}>
           {LL.events.level[notification.level === "success" ? "info" : notification.level]()}

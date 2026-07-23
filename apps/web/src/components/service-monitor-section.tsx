@@ -325,7 +325,6 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
       if (!result.ok) return;
       publish(
         notificationPublication("service.saved", {
-          dedupeKey: "service.saved",
           params: { operation: existingService ? "updated" : "added" },
           severity: "success",
         }),
@@ -341,7 +340,6 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
       if (!result.ok) return;
       publish(
         notificationPublication("service.removed", {
-          dedupeKey: "service.removed",
           severity: "success",
         }),
       );
@@ -528,7 +526,6 @@ export function ServiceMonitorSection() {
       if (result.ok)
         publish(
           notificationPublication("service.defaults-restored", {
-            dedupeKey: "service.defaults-restored",
             severity: "success",
           }),
         );

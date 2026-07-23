@@ -213,7 +213,6 @@ export function PolicyGroupBrowser({
     }
     publish(
       notificationPublication("route.selection-failed", {
-        dedupeKey: "route.selection-failed",
         params: {
           child:
             graph.nodeById.get(childId)?.label ?? graph.groupById.get(childId)?.label ?? childId,

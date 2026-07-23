@@ -221,7 +221,6 @@ export function TrafficPage() {
     if (result?.status === "success") {
       publish(
         notificationPublication("traffic.connection-closed", {
-          dedupeKey: "traffic.connection-closed",
           severity: "success",
         }),
       );
@@ -235,7 +234,6 @@ export function TrafficPage() {
     if (result?.status === "success") {
       publish(
         notificationPublication("traffic.connections-closed", {
-          dedupeKey: "traffic.connections-closed",
           params: { count: result.targetCount },
           severity: "success",
         }),

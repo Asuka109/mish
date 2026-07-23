@@ -10,6 +10,7 @@ use mish_runtime::{
 use mish_state_authority::StateMutationAuthority;
 use serde_json::Value;
 use tokio::sync::watch;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct DesktopRuntimeHost {
@@ -330,6 +331,10 @@ impl DesktopRuntimeHost {
         self.current().mark_notifications_read(ids)
     }
 
+    pub fn remove_notification(&self, id: &str) -> NotificationSnapshot {
+        self.current().remove_notification(id)
+    }
+
     pub fn remove_notification_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
         self.current().remove_notification_by_dedupe_key(dedupe_key)
     }
@@ -362,6 +367,7 @@ impl DesktopRuntimeHost {
         mut changes: watch::Receiver<MishRuntime>,
     ) -> Value {
         let mut runtime_replaced = changes.has_changed().unwrap_or(true);
+        let notification_key = format!("traffic.operation-failed:{}", Uuid::new_v4());
 
         loop {
             let current = changes.borrow_and_update().clone();
@@ -379,7 +385,7 @@ impl DesktopRuntimeHost {
             if let Some(failure) = execution.failure {
                 current.record_application_event(ApplicationDiagnosticEvent::traffic_failure());
                 let _ = current.publish_notification(NotificationPublication {
-                    dedupe_key: "traffic.operation-failed".into(),
+                    dedupe_key: notification_key.clone(),
                     notification_type: "traffic.operation-failed".into(),
                     params: serde_json::json!({
                         "failure": failure,
@@ -391,8 +397,6 @@ impl DesktopRuntimeHost {
                     resolved: false,
                     severity: mish_runtime::NotificationSeverity::Error,
                 });
-            } else {
-                current.resolve_notification("traffic.operation-failed");
             }
             let result = serde_json::to_value(TrafficCommandResult::new(
                 execution,

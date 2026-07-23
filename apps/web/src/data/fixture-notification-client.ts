@@ -23,7 +23,8 @@ export class FixtureNotificationCenter {
 
   publish(publication: NotificationPublicationDto) {
     const existing = this.snapshot.notifications.find(
-      ({ dedupeKey }) => dedupeKey === publication.dedupeKey,
+      ({ dedupeKey, resolved }) =>
+        dedupeKey === publication.dedupeKey && (!resolved || publication.resolved),
     );
     if (
       existing &&
@@ -64,7 +65,7 @@ export class FixtureNotificationCenter {
       notifications: [
         record,
         ...this.snapshot.notifications.filter(
-          ({ dedupeKey }) => dedupeKey !== publication.dedupeKey && !replaced.has(dedupeKey),
+          ({ dedupeKey, id }) => id !== existing?.id && !replaced.has(dedupeKey),
         ),
       ].slice(0, 128),
       revision,
@@ -84,6 +85,10 @@ export class FixtureNotificationCenter {
       revision,
     };
     return this.commit();
+  }
+
+  remove(id: string) {
+    return this.removeMatching(({ id: candidate }) => candidate === id);
   }
 
   removeByDedupeKey(dedupeKey: string) {
@@ -131,6 +136,10 @@ export class FixtureNotificationClient implements NotificationClient {
 
   async publish(publication: NotificationPublicationDto) {
     return this.center.publish(publication);
+  }
+
+  async remove(id: string) {
+    return this.center.remove(id);
   }
 
   async removeByDedupeKey(dedupeKey: string) {

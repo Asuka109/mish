@@ -115,7 +115,7 @@ afterAll(() => {
 });
 
 describe("Rust-authoritative notification browser projection", () => {
-  test("synchronizes toast, read, action, localization, retained history, and reconnect lifecycle", async () => {
+  test("synchronizes toast, read, action, localization, instance removal, and reconnect lifecycle", async () => {
     expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0);
 
     await secondClient.publish(
@@ -196,14 +196,15 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.removeByDedupeKey("system-proxy.drift");
 
     const retainedMessage = page.getByText("已关闭 2 条活动连接", { exact: true });
-    const retainedItem = retainedMessage.element().closest(".notification-item");
-    expect(retainedItem?.querySelector(".notification-remove")).toBeNull();
     expect((await secondClient.getSnapshot()).notifications).toHaveLength(1);
+    await page.getByRole("button", { exact: true, name: "移除通知：已关闭 2 条活动连接" }).click();
+    await expect.element(retainedMessage).not.toBeInTheDocument();
+    expect((await secondClient.getSnapshot()).notifications).toEqual([]);
 
     firstClient.reconnect();
     await vi.waitFor(() =>
       expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
     );
-    await expect.element(retainedMessage).toBeVisible();
+    await expect.element(page.getByText("暂无通知", { exact: true })).toBeVisible();
   });
 });

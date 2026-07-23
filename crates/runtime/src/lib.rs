@@ -805,6 +805,10 @@ impl MishRuntime {
         self.notifications.mark_read(ids)
     }
 
+    pub fn remove_notification(&self, id: &str) -> NotificationSnapshot {
+        self.notifications.remove(id)
+    }
+
     pub fn remove_notification_by_dedupe_key(&self, dedupe_key: &str) -> NotificationSnapshot {
         self.notifications.remove_by_dedupe_key(dedupe_key)
     }
