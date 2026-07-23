@@ -58,6 +58,7 @@ const LISTENER_READINESS_TIMEOUT: Duration = Duration::from_secs(2);
 const LISTENER_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 const SYSTEM_PROXY_CONFIRMATION_OBSERVATIONS: u8 = 20;
 const SYSTEM_PROXY_CONFIRMATION_INTERVAL: Duration = Duration::from_millis(25);
+const SYSTEM_PROXY_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BrowserPairingPanelPolicy {
@@ -1423,6 +1424,7 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
         CaptureConfirmationWindow::bounded(
             SYSTEM_PROXY_CONFIRMATION_OBSERVATIONS,
             SYSTEM_PROXY_CONFIRMATION_INTERVAL,
+            SYSTEM_PROXY_CONFIRMATION_TIMEOUT,
         )
     }
 

@@ -226,9 +226,11 @@ the new prior, while leave-as-is clears Mish ownership without changing the OS.
 macOS treats a successful `networksetup` mutation as command acknowledgement,
 not confirmation. Its capture adapter makes an immediate full-state observation
 and, only while the active service remains the transaction target, retries that
-same observation through a short bounded propagation window. A matching full
-matrix is the sole path to `applied`; a stable mismatch rolls back exactly to
-the journaled baseline, while a service change is typed external drift and
+same observation through an explicit two-second propagation budget. The budget
+bounds the observation futures as well as retry intervals, and exact rollback
+confirmation uses the same window against the journaled service. A matching
+full matrix is the sole path to `applied`; a stable mismatch rolls back exactly
+to the journaled baseline, while a service change is typed external drift and
 leaves the newly active service untouched. The window carries no proxy values,
 service identifiers, or profile data into diagnostics or notifications.
 
