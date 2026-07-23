@@ -74,6 +74,24 @@ describe("notification presentation registry", () => {
     ).toEqual([{ id: "open-diagnostics", label: "打开诊断" }]);
   });
 
+  it("keeps takeover rejections redacted and directs users to the policy control", () => {
+    const presentation = presentNotification(
+      notificationRecord({
+        id: "notification:takeover-rejected",
+        params: {
+          failure: "takeover-rejected",
+          host: "must-not-render.example",
+          pacUrl: "https://must-not-render.example/proxy.pac",
+          takeoverReason: "protected-pac",
+        },
+        type: "capture.failure",
+      }),
+      i18nObject("en"),
+    );
+    expect(presentation.actions.map(({ id }) => id)).toEqual(["open-system-proxy-policy"]);
+    expect(JSON.stringify(presentation)).not.toContain("must-not-render");
+  });
+
   it("derives pinned toast and center lifecycles from Rust metadata", () => {
     const progress = presentNotification(
       notificationRecord({

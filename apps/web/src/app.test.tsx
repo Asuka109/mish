@@ -272,6 +272,12 @@ class DesktopSettingsClient implements SettingsClient {
     this.snapshot.preferences.managedPorts = managedPorts;
     return this.getSnapshot();
   });
+  setSystemProxyTakeoverPolicy = vi.fn(
+    async (policy: "protect-existing" | "replace-reversible-pac-or-auto-discovery") => {
+      this.snapshot.preferences.systemProxyTakeoverPolicy = policy;
+      return this.getSnapshot();
+    },
+  );
   findManagedPorts = vi.fn(async () => {
     this.snapshot.preferences.managedPorts = { controller: 29090, proxy: 27890 };
     return this.getSnapshot();
@@ -1905,9 +1911,9 @@ describe("desktop RPC experience", () => {
       structuredClone(settingsClient.snapshot),
     );
 
-    expect(screen.getByText("Launch proxy when Mish launches")).toBeInTheDocument();
+    expect(screen.getByText("Auto-start proxy on app launch")).toBeInTheDocument();
     expect(screen.getByText(/does not start or stop the proxy now/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Launch proxy when Mish launches: On" }));
+    await user.click(screen.getByRole("button", { name: "Auto-start proxy on app launch: On" }));
     await waitFor(() =>
       expect(settingsClient.setLaunchProxyWhenMishLaunches).toHaveBeenCalledWith(true),
     );
@@ -1922,7 +1928,7 @@ describe("desktop RPC experience", () => {
       settingsClient,
       structuredClone(settingsClient.snapshot),
     );
-    expect(screen.getByText("启动应用自动代理")).toBeInTheDocument();
+    expect(screen.getByText("应用启动时自动代理")).toBeInTheDocument();
     expect(screen.getByText(/切换后不会立即启动或停止代理/)).toBeInTheDocument();
   });
 

@@ -1432,6 +1432,12 @@ export const ManagedPortPreferencesSchema = z
   .refine((ports) => ports.controller !== ports.proxy, "Managed ports must differ");
 export interface ManagedPortPreferencesDto extends z.infer<typeof ManagedPortPreferencesSchema> {}
 
+export const SystemProxyTakeoverPolicySchema = z.enum([
+  "protect-existing",
+  "replace-reversible-pac-or-auto-discovery",
+]);
+export type SystemProxyTakeoverPolicy = z.infer<typeof SystemProxyTakeoverPolicySchema>;
+
 export const SettingsPreferencesSchema = z
   .object({
     appearance: AppearancePreferenceSchema,
@@ -1440,6 +1446,7 @@ export const SettingsPreferencesSchema = z
     managedPorts: ManagedPortPreferencesSchema,
     onboarding: OnboardingPreferencesSchema,
     startup: StartupPreferencesSchema,
+    systemProxyTakeoverPolicy: SystemProxyTakeoverPolicySchema,
     windowCloseBehavior: WindowCloseBehaviorSchema,
     windowSurface: WindowSurfacePreferenceSchema,
   })
@@ -2799,6 +2806,9 @@ export const SetWindowCloseBehaviorCommandSchema = z
 export const SetWindowSurfacePreferenceCommandSchema = z
   .object({ surface: WindowSurfacePreferenceSchema })
   .strict();
+export const SetSystemProxyTakeoverPolicyCommandSchema = z
+  .object({ policy: SystemProxyTakeoverPolicySchema })
+  .strict();
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
@@ -2843,6 +2853,10 @@ export const settingsRpcMethods = {
     result: RpcSettingsSnapshotSchema,
   },
   "settings.findManagedPorts": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
+  "settings.setSystemProxyTakeoverPolicy": {
+    params: SetSystemProxyTakeoverPolicyCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
   "settings.subscribe": { params: EmptyCommandSchema, result: SettingsSubscriptionSchema },
   "settings.unsubscribe": { params: SettingsSubscriptionIdSchema, result: z.boolean() },
   "settings.setWindowCloseBehavior": {
@@ -3028,6 +3042,10 @@ export interface SettingsClient {
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
   findManagedPorts(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
+  setSystemProxyTakeoverPolicy(
+    policy: SystemProxyTakeoverPolicy,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
   subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void): () => void;
   setWindowCloseBehavior(
     behavior: WindowCloseBehavior,

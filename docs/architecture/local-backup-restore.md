@@ -6,9 +6,13 @@ Local backup does not introduce a new durable model. The authoritative profile
 record remains `FileProfileRepository`: profile metadata owns the refresh policy,
 immutable source revisions own source bytes, normalized artifacts own runtime
 input, and versioned patch sets own structured user edits. The authoritative
-application preference record remains `settings.json` version 6 through
+application preference record remains `settings.json` version 10 through
 `FileSettingsRepository`. There is no separate scheduler, patch, or backup
 database.
+
+The settings payload includes the closed System Proxy takeover policy. Its default is
+`protect-existing`; restores preserve the selected bounded policy but never include live System
+Proxy state, journals, credentials, PAC URLs, or network-service identities.
 
 Settings backups preserve the versioned welcome-invitation record together with
 the other preferences. Restoring that record transfers at most the same single

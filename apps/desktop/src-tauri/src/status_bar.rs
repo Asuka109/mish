@@ -14,7 +14,10 @@ use mish_runtime::{
 use mish_settings::{SettingsAdapterKind, SettingsService};
 use tauri::{
     Emitter, Manager,
-    menu::{CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder},
+    menu::{
+        CheckMenuItem, CheckMenuItemBuilder, Menu, MenuBuilder, MenuItem, MenuItemBuilder,
+        PredefinedMenuItem,
+    },
     tray::{TrayIcon, TrayIconBuilder},
 };
 use uuid::Uuid;
@@ -32,6 +35,16 @@ const OPEN_SETTINGS_ID: &str = "status-bar.open-settings";
 const TOGGLE_PROXY_ID: &str = "status-bar.toggle-proxy";
 const TOGGLE_LAUNCH_ON_START_ID: &str = "status-bar.toggle-launch-on-start";
 const QUIT_ID: &str = "status-bar.quit";
+const AUTO_START_PROXY_LABEL: &str = "Auto-start proxy on app launch";
+const STATUS_BAR_MENU_ACCELERATORS: &[(&str, &str)] = &[
+    (TOGGLE_PROXY_ID, "CmdOrCtrl+Shift+P"),
+    (OPEN_MISH_ID, "CmdOrCtrl+0"),
+    (OPEN_ROUTES_ID, "CmdOrCtrl+1"),
+    (OPEN_PROFILES_ID, "CmdOrCtrl+2"),
+    (OPEN_TRAFFIC_ID, "CmdOrCtrl+3"),
+    (OPEN_EVENTS_ID, "CmdOrCtrl+4"),
+    (OPEN_BROWSER_ID, "CmdOrCtrl+Shift+B"),
+];
 const STATUS_BAR_ICON_ACTIVE_RGBA: &[u8] = include_bytes!(
     "../../../../packages/brand-assets/generated/status-bar/mish-status-bar-active.rgba"
 );
@@ -111,6 +124,7 @@ struct NativeTrafficObservations {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct LiveTraffic {
     phase: Option<TrafficDataPhase>,
+    proxy_running: bool,
     rates: TrafficSnapshot,
 }
 
@@ -139,6 +153,7 @@ impl NativeTrafficObservations {
         if let Ok(mut latest) = self.latest.lock() {
             *latest = LiveTraffic {
                 phase: Some(traffic.phase),
+                proxy_running: status.runtime.system_proxy_enabled || status.runtime.tun_enabled,
                 rates: status.traffic.clone(),
             };
         }
@@ -152,17 +167,24 @@ impl NativeTrafficObservations {
             .unwrap_or_default();
         let available = latest.phase == Some(TrafficDataPhase::Ready);
         LiveStatusModel {
+            visible: latest.proxy_running,
             most_active_node: match (available, self.handle.summary_at(observed_at)) {
-                (true, Some(summary)) => format!("Most active node — {}", summary.label),
-                (true, None) => "Most active node — Idle".into(),
-                (false, _) => "Most active node — Unavailable".into(),
+                (true, Some(summary)) => format!(">> {}", summary.label),
+                (true, None) => ">> Idle".into(),
+                (false, _) => ">> Unavailable".into(),
             },
             download: rate_title(
-                "Download",
+                "⬇️",
+                latest.rates.downloaded_bytes,
                 latest.rates.download_bytes_per_second,
                 available,
             ),
-            upload: rate_title("Upload", latest.rates.upload_bytes_per_second, available),
+            upload: rate_title(
+                "⬆️",
+                latest.rates.uploaded_bytes,
+                latest.rates.upload_bytes_per_second,
+                available,
+            ),
         }
     }
 }
@@ -170,6 +192,7 @@ impl NativeTrafficObservations {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct StatusMenuModel {
     launch_on_start: bool,
+    live_status_visible: bool,
     proxy_enabled: bool,
     proxy_title: &'static str,
 }
@@ -179,6 +202,7 @@ struct StatusMenuItems {
     proxy: MenuItem<tauri::Wry>,
     most_active_node: MenuItem<tauri::Wry>,
     download: MenuItem<tauri::Wry>,
+    live_status_separator: PredefinedMenuItem<tauri::Wry>,
     launch_on_start: CheckMenuItem<tauri::Wry>,
     upload: MenuItem<tauri::Wry>,
 }
@@ -189,10 +213,29 @@ struct StatusBarItems {
 }
 
 impl StatusMenuItems {
-    fn apply(&self, model: &StatusMenuModel) -> tauri::Result<()> {
-        self.proxy.set_text(model.proxy_title)?;
-        self.proxy.set_enabled(model.proxy_enabled)?;
-        self.launch_on_start.set_checked(model.launch_on_start)
+    fn apply(&self, previous: &StatusMenuModel, next: &StatusMenuModel) -> tauri::Result<()> {
+        self.proxy.set_text(next.proxy_title)?;
+        self.proxy.set_enabled(next.proxy_enabled)?;
+        self.launch_on_start.set_checked(next.launch_on_start)?;
+        if previous.live_status_visible == next.live_status_visible {
+            return Ok(());
+        }
+        if next.live_status_visible {
+            self.menu.insert_items(
+                &[
+                    &self.most_active_node,
+                    &self.download,
+                    &self.upload,
+                    &self.live_status_separator,
+                ],
+                9,
+            )
+        } else {
+            self.menu.remove(&self.most_active_node)?;
+            self.menu.remove(&self.download)?;
+            self.menu.remove(&self.upload)?;
+            self.menu.remove(&self.live_status_separator)
+        }
     }
 
     fn apply_live_status(&self, model: &LiveStatusModel) -> tauri::Result<()> {
@@ -210,6 +253,7 @@ impl StatusMenuModel {
     ) -> Self {
         Self {
             launch_on_start,
+            live_status_visible: status.runtime.system_proxy_enabled || status.runtime.tun_enabled,
             proxy_title: proxy_title(status, activation),
             proxy_enabled: proxy_enabled(status, activation),
         }
@@ -323,6 +367,10 @@ async fn run_native_command(app: &tauri::AppHandle, state: &StatusBarState, id: 
         .runtime
         .status_snapshot_typed(StatusAdapterKind::Native)
         .await;
+    let activation = state.activation.activation_snapshot().await;
+    if !proxy_enabled(&snapshot, &activation) {
+        return;
+    }
     let selection = snapshot.runtime.capture_selection.clone();
     let result = if snapshot.runtime.system_proxy_enabled || snapshot.runtime.tun_enabled {
         state
@@ -388,12 +436,8 @@ const MENU_SECTIONS: &[&[&str]] = &[
         "Events",
         "Settings",
     ],
-    &["Most active node", "Download", "Upload"],
-    &[
-        "Open Browser Client",
-        "Launch proxy when Mish launches",
-        "Quit Mish",
-    ],
+    &[">>", "⬇️", "⬆️"],
+    &["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"],
 ];
 
 async fn watch_status_menu(
@@ -444,8 +488,9 @@ async fn watch_status_menu(
                 let next_model = state.model_with_capture(capture).await;
                 let update = status_bar_update(&current_model, &next_model);
                 if update.menu_changed {
+                    let previous_menu = current_model.menu.clone();
                     current_model.menu = next_model.menu.clone();
-                    let _ = items.menu.apply(&current_model.menu);
+                    let _ = items.menu.apply(&previous_menu, &current_model.menu);
                 }
                 if update.icon_changed {
                     current_model.icon_active = next_model.icon_active;
@@ -469,8 +514,9 @@ async fn watch_status_menu(
         let next_model = state.model().await;
         let update = status_bar_update(&current_model, &next_model);
         if update.menu_changed {
+            let previous_menu = current_model.menu.clone();
             current_model.menu = next_model.menu.clone();
-            let _ = items.menu.apply(&current_model.menu);
+            let _ = items.menu.apply(&previous_menu, &current_model.menu);
         }
         if update.icon_changed {
             current_model.icon_active = next_model.icon_active;
@@ -499,47 +545,70 @@ fn build_menu<M: Manager<tauri::Wry>>(
     manager: &M,
     model: &StatusMenuModel,
 ) -> tauri::Result<StatusMenuItems> {
-    let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish").build(manager)?;
+    let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[1].1)
+        .build(manager)?;
     let proxy = MenuItemBuilder::with_id(TOGGLE_PROXY_ID, model.proxy_title)
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[0].1)
         .enabled(model.proxy_enabled)
         .build(manager)?;
-    let most_active_node = MenuItemBuilder::new("Most active node — Unavailable")
+    let most_active_node = MenuItemBuilder::new(">> Unavailable")
         .enabled(false)
         .build(manager)?;
-    let download = MenuItemBuilder::new("Download — Unavailable")
+    let download = MenuItemBuilder::new("⬇️ Unavailable")
         .enabled(false)
         .build(manager)?;
-    let upload = MenuItemBuilder::new("Upload — Unavailable")
+    let upload = MenuItemBuilder::new("⬆️ Unavailable")
         .enabled(false)
         .build(manager)?;
-    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Routes").build(manager)?;
-    let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, "Profiles").build(manager)?;
-    let traffic = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic").build(manager)?;
-    let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, "Events").build(manager)?;
+    let live_status_separator = PredefinedMenuItem::separator(manager)?;
+    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Routes")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[2].1)
+        .build(manager)?;
+    let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, "Profiles")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[3].1)
+        .build(manager)?;
+    let traffic_destination = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[4].1)
+        .build(manager)?;
+    let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, "Events")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[5].1)
+        .build(manager)?;
     let settings = MenuItemBuilder::with_id(OPEN_SETTINGS_ID, "Settings").build(manager)?;
-    let browser =
-        MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client").build(manager)?;
+    let browser = MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client")
+        .accelerator(STATUS_BAR_MENU_ACCELERATORS[6].1)
+        .build(manager)?;
     let launch_on_start =
-        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, "Launch proxy when Mish launches")
+        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, AUTO_START_PROXY_LABEL)
             .checked(model.launch_on_start)
             .build(manager)?;
     let quit = MenuItemBuilder::with_id(QUIT_ID, "Quit Mish").build(manager)?;
 
-    let menu = MenuBuilder::new(manager)
+    let mut menu = MenuBuilder::new(manager)
         .item(&proxy)
         .separator()
-        .items(&[&open, &routes, &profiles, &traffic, &events, &settings])
-        .separator()
-        .items(&[&most_active_node, &download, &upload])
-        .separator()
-        .items(&[&browser, &launch_on_start, &quit])
-        .build()?;
+        .items(&[
+            &open,
+            &routes,
+            &profiles,
+            &traffic_destination,
+            &events,
+            &settings,
+        ])
+        .separator();
+    if model.live_status_visible {
+        menu = menu
+            .items(&[&most_active_node, &download, &upload])
+            .item(&live_status_separator);
+    }
+    let menu = menu.items(&[&browser, &launch_on_start, &quit]).build()?;
     Ok(StatusMenuItems {
         menu,
         proxy,
         most_active_node,
         download,
         launch_on_start,
+        live_status_separator,
         upload,
     })
 }
@@ -577,16 +646,29 @@ fn proxy_enabled(status: &StatusSnapshot, activation: &ProfileActivationSnapshot
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct LiveStatusModel {
+    visible: bool,
     most_active_node: String,
     download: String,
     upload: String,
 }
 
-fn rate_title(label: &str, bytes_per_second: u64, available: bool) -> String {
+fn rate_title(direction: &str, total_bytes: u64, bytes_per_second: u64, available: bool) -> String {
     if available {
-        format!("{label} — {}/s", format_bytes(bytes_per_second))
+        format!(
+            "{direction} {} · {}",
+            format!("{}/s", format_rate(bytes_per_second)),
+            format_rate(total_bytes)
+        )
     } else {
-        format!("{label} — Unavailable")
+        format!("{direction} Unavailable")
+    }
+}
+
+fn format_rate(bytes_per_second: u64) -> String {
+    if bytes_per_second == 0 {
+        "0KB".into()
+    } else {
+        format_bytes(bytes_per_second).replace(' ', "")
     }
 }
 
@@ -614,10 +696,12 @@ fn status_bar_icon(active: bool) -> tauri::image::Image<'static> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MENU_SECTIONS, NativeTrafficObservations, StatusBarModel, StatusMenuModel, format_bytes,
+        AUTO_START_PROXY_LABEL, MENU_SECTIONS, NativeTrafficObservations,
+        STATUS_BAR_MENU_ACCELERATORS, StatusBarModel, StatusMenuModel, format_bytes,
         is_quit_menu_command, is_status_destination, rate_title, status_bar_icon,
         status_bar_update,
     };
+    use crate::native_menu::APPLICATION_MENU_ACCELERATORS;
     use futures_util::future::BoxFuture;
     use mish_bridge::{
         DesktopRuntimeHost, ProfileActivationAvailability, ProfileActivationPhase,
@@ -669,7 +753,9 @@ mod tests {
         fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
             let mut status = StatusSnapshot::lifecycle_only(core, adapter_kind);
             status.traffic.download_bytes_per_second = 1_024;
+            status.traffic.downloaded_bytes = 1_048_576;
             status.traffic.upload_bytes_per_second = 12_288;
+            status.traffic.uploaded_bytes = 12_582_912;
             status.nodes.push(ProxyNode {
                 id: "private-node".into(),
                 label: "Tokyo".into(),
@@ -741,9 +827,10 @@ mod tests {
         assert_eq!(
             observations.live_status_at(Duration::ZERO),
             super::LiveStatusModel {
-                most_active_node: "Most active node — Tokyo".into(),
-                download: "Download — 1.00 KB/s".into(),
-                upload: "Upload — 12.0 KB/s".into(),
+                visible: false,
+                most_active_node: ">> Tokyo".into(),
+                download: rate_title("⬇️", 1_048_576, 1_024, true),
+                upload: rate_title("⬆️", 12_582_912, 12_288, true),
             }
         );
         assert_eq!(
@@ -762,9 +849,27 @@ mod tests {
             observations
                 .live_status_at(Duration::from_secs(60))
                 .most_active_node,
-            "Most active node — Idle"
+            ">> Idle"
         );
         assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn live_status_section_appears_only_after_authoritative_proxy_start() {
+        let host = DesktopRuntimeHost::new(MishRuntime::with_data_sources(
+            Arc::new(TestCore),
+            Arc::new(TestStatusSource),
+            Arc::new(TestTrafficSource(Arc::new(AtomicUsize::new(0)))),
+        ));
+        let observations = NativeTrafficObservations::default();
+        let (mut status, traffic) = host.native_traffic_handoff().await;
+        observations.observe_at(&status, &traffic, Duration::ZERO);
+        assert!(!observations.live_status_at(Duration::ZERO).visible);
+
+        status.runtime.system_proxy_enabled = true;
+        status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
+        observations.observe_at(&status, &traffic, Duration::from_secs(1));
+        assert!(observations.live_status_at(Duration::from_secs(1)).visible);
     }
 
     #[test]
@@ -772,6 +877,7 @@ mod tests {
         let current = StatusBarModel {
             menu: StatusMenuModel {
                 launch_on_start: false,
+                live_status_visible: false,
                 proxy_title: "Launch Proxy",
                 proxy_enabled: true,
             },
@@ -837,6 +943,7 @@ mod tests {
         assert_eq!(active.proxy_title, "Stop Proxy");
         assert!(active.proxy_enabled);
         assert!(active.launch_on_start);
+        assert!(active.live_status_visible);
     }
 
     #[test]
@@ -854,13 +961,8 @@ mod tests {
                     "Settings"
                 ]
                 .as_slice(),
-                ["Most active node", "Download", "Upload"].as_slice(),
-                [
-                    "Open Browser Client",
-                    "Launch proxy when Mish launches",
-                    "Quit Mish"
-                ]
-                .as_slice(),
+                [">>", "⬇️", "⬆️"].as_slice(),
+                ["Open Browser Client", AUTO_START_PROXY_LABEL, "Quit Mish"].as_slice(),
             ]
         );
         for destination in [
@@ -877,12 +979,37 @@ mod tests {
     }
 
     #[test]
+    fn status_bar_accelerators_are_unique_application_local_menu_commands() {
+        let mut ids = std::collections::HashSet::new();
+        let mut accelerators = std::collections::HashSet::new();
+        for (id, accelerator) in STATUS_BAR_MENU_ACCELERATORS
+            .iter()
+            .chain(APPLICATION_MENU_ACCELERATORS.iter())
+        {
+            assert!(ids.insert(*id), "duplicate menu ID: {id}");
+            assert!(
+                accelerators.insert(*accelerator),
+                "duplicate accelerator: {accelerator}"
+            );
+        }
+        assert!(!STATUS_BAR_MENU_ACCELERATORS.iter().any(|(id, _)| {
+            *id == super::TOGGLE_LAUNCH_ON_START_ID
+                || *id == "status-bar.quit"
+                || *id == "status-bar.open-settings"
+        }));
+    }
+
+    #[test]
     fn live_rate_labels_use_the_existing_binary_byte_rate_convention() {
         assert_eq!(format_bytes(0), "0.00 B");
         assert_eq!(format_bytes(1_024), "1.00 KB");
         assert_eq!(format_bytes(12_288), "12.0 KB");
-        assert_eq!(rate_title("Download", 1_024, true), "Download — 1.00 KB/s");
-        assert_eq!(rate_title("Upload", 0, false), "Upload — Unavailable");
+        assert_eq!(
+            rate_title("⬇️", 1_048_576, 1_024, true),
+            "⬇️ 1.00KB/s · 1.00MB"
+        );
+        assert_eq!(rate_title("⬆️", 0, 0, true), "⬆️ 0KB/s · 0KB");
+        assert_eq!(rate_title("⬆️", 0, 0, false), "⬆️ Unavailable");
     }
 
     #[test]

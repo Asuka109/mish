@@ -14,8 +14,8 @@ use std::{
 use futures_util::future::BoxFuture;
 use mish_mihomo_controller::PINNED_MIHOMO_VERSION;
 use mish_runtime::{
-    CaptureSelection, TunHelperAvailability, TunHelperController, TunHelperFailureKind,
-    TunHelperSnapshot,
+    CaptureSelection, SystemProxyTakeoverPolicy, TunHelperAvailability, TunHelperController,
+    TunHelperFailureKind, TunHelperSnapshot,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use thiserror::Error;
 use tokio::sync::broadcast;
 
-const CURRENT_SCHEMA_VERSION: u8 = 9;
+const CURRENT_SCHEMA_VERSION: u8 = 10;
 const ONBOARDING_WELCOME_VERSION: u8 = 2;
 const SETTINGS_MAX_BYTES: u64 = 32_768;
 
@@ -160,6 +160,8 @@ pub struct SettingsPreferences {
     pub managed_ports: ManagedPortPreferences,
     pub onboarding: OnboardingPreferences,
     pub startup: StartupPreferences,
+    #[serde(default)]
+    pub system_proxy_takeover_policy: SystemProxyTakeoverPolicy,
     pub window_close_behavior: WindowCloseBehavior,
     pub window_surface: WindowSurfacePreference,
 }
@@ -825,6 +827,18 @@ impl SettingsService {
         self.update(|preferences| preferences.language = language)
     }
 
+    pub fn set_system_proxy_takeover_policy(
+        &self,
+        policy: SystemProxyTakeoverPolicy,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        self.update(|preferences| preferences.system_proxy_takeover_policy = policy)
+    }
+
     pub fn set_onboarding_welcome_state(
         &self,
         action: OnboardingWelcomeAction,
@@ -1310,10 +1324,12 @@ impl SettingsRepository for FileSettingsRepository {
                     preferences: stored.preferences,
                 })
             }
-            Some(8) | Some(7) => {
+            Some(9) | Some(8) | Some(7) => {
                 let stored: StoredSettingsV7 =
                     serde_json::from_value(value).map_err(|_| SettingsRepositoryError::Corrupt)?;
-                if !(stored.schema_version == 8 || stored.schema_version == 7)
+                if !(stored.schema_version == 9
+                    || stored.schema_version == 8
+                    || stored.schema_version == 7)
                     || !valid_onboarding_preferences(stored.preferences.onboarding)
                 {
                     return Err(SettingsRepositoryError::Corrupt);
@@ -1344,6 +1360,7 @@ impl SettingsRepository for FileSettingsRepository {
                             launch_at_login: stored.preferences.startup.launch_at_login,
                             login_launch_behavior: stored.preferences.startup.login_launch_behavior,
                         },
+                        system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: stored.preferences.window_surface,
                     },
@@ -1368,6 +1385,7 @@ impl SettingsRepository for FileSettingsRepository {
                             )),
                         },
                         startup: stored.preferences.startup.into(),
+                        system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: stored.preferences.window_surface,
                     },
@@ -1393,6 +1411,7 @@ impl SettingsRepository for FileSettingsRepository {
                             )),
                         },
                         startup: stored.preferences.startup.into(),
+                        system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: stored.preferences.window_surface,
                     },
@@ -1417,6 +1436,7 @@ impl SettingsRepository for FileSettingsRepository {
                             )),
                         },
                         startup: stored.preferences.startup.into(),
+                        system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: stored.preferences.window_surface,
                     },
@@ -1441,6 +1461,7 @@ impl SettingsRepository for FileSettingsRepository {
                             )),
                         },
                         startup: stored.preferences.startup.into(),
+                        system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
                         window_surface: WindowSurfacePreference::Material,
                     },
@@ -1465,6 +1486,7 @@ impl SettingsRepository for FileSettingsRepository {
                             )),
                         },
                         startup: stored.preferences.startup.into(),
+                        system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: WindowCloseBehavior::default(),
                         window_surface: WindowSurfacePreference::Material,
                     },
@@ -1489,6 +1511,7 @@ impl SettingsRepository for FileSettingsRepository {
                             )),
                         },
                         startup: StartupPreferences::default(),
+                        system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: WindowCloseBehavior::default(),
                         window_surface: WindowSurfacePreference::Material,
                     },
@@ -2168,6 +2191,7 @@ mod tests {
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
+            system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
             window_close_behavior: WindowCloseBehavior::Quit,
             window_surface: WindowSurfacePreference::Opaque,
         };
@@ -2184,6 +2208,43 @@ mod tests {
                 .mode()
                 & 0o777,
             0o600
+        );
+    }
+
+    #[test]
+    fn takeover_policy_defaults_conservatively_migrates_and_persists() {
+        let (_root, repository) = repository();
+        repository
+            .save(&SettingsPreferences::default())
+            .expect("save default settings");
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("settings service");
+        assert_eq!(
+            service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .system_proxy_takeover_policy,
+            SystemProxyTakeoverPolicy::ProtectExisting
+        );
+        service
+            .set_system_proxy_takeover_policy(
+                SystemProxyTakeoverPolicy::ReplaceReversiblePacOrAutoDiscovery,
+            )
+            .expect("persist takeover policy");
+        let restarted =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("restarted settings service");
+        assert_eq!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .system_proxy_takeover_policy,
+            SystemProxyTakeoverPolicy::ReplaceReversiblePacOrAutoDiscovery
         );
     }
 
@@ -2516,6 +2577,7 @@ mod tests {
                 launch_at_login: true,
                 login_launch_behavior: LoginLaunchBehavior::Background,
             },
+            system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
             window_close_behavior: WindowCloseBehavior::Quit,
             window_surface: WindowSurfacePreference::Opaque,
         };

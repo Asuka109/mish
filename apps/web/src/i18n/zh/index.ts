@@ -103,7 +103,7 @@ const zh = {
     launchAtLogin: "登录时启动",
     launchAtLoginDescription:
       "选择登录 macOS 时是否自动启动 Mish，以及自动启动后是否显示主窗口。手动打开时始终显示窗口。",
-    launchProxyWhenMishLaunches: "启动应用自动代理",
+    launchProxyWhenMishLaunches: "应用启动时自动代理",
     launchProxyWhenMishLaunchesDescription:
       "仅保存下次启动 Mish 时的偏好；切换后不会立即启动或停止代理。",
     loginWindow: "登录启动窗口",
@@ -128,6 +128,13 @@ const zh = {
     managedPortsFindAndRetry: "寻找端口并重试",
     managedPortsConflict: "Mish 无法使用 {endpoint}。",
     managedPortsSave: "保存端口",
+    systemProxyTakeoverPolicy: "现有系统代理策略",
+    systemProxyTakeoverPolicyDescription:
+      "默认保护已有 PAC 与自动发现。高级选项只会临时替换 Mish 已完整捕获且可精确恢复的状态。",
+    systemProxyTakeoverPolicyProtected: "保护现有设置",
+    systemProxyTakeoverPolicyAdvanced: "高级可恢复替换",
+    systemProxyTakeoverPolicyWarning: "带认证、不完整、无效或无法恢复的代理设置始终不会被更改。",
+    systemProxyTakeoverRejected: "Mish 未更改现有系统代理，因为当前策略下无法安全接管它。",
     network: "网络与 DNS",
     networkDescription: "查看这台 Mac 当前的网络和 DNS 信息。这里不会更改任何网络设置。",
     networkDns: {
