@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tauri build --no-bundle --features custom-protocol",
     "bundle:macos": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json",
+    "bundle:macos:alpha-ad-hoc": "tauri build --bundles dmg --features custom-protocol --config src-tauri/tauri.bundle.conf.json",
     "bundle:macos:production": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.production.conf.json",
     "demo": "node ../../scripts/tauri-dev.ts --demo",
     "dev": "node ../../scripts/tauri-dev.ts",
