@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Area, AreaChart, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, matchAppend, XAxis, YAxis } from "recharts";
 import { cx, tv } from "@mish/ui/tv";
 
 interface TrafficSparklineProps {
@@ -111,6 +111,7 @@ export function TrafficSparkline({ color, data }: TrafficSparklineProps) {
             activeDot={false}
             animationDuration={400}
             animationEasing="linear"
+            animationMatchBy={matchAppend}
             baseValue={0}
             dataKey="value"
             dot={false}
