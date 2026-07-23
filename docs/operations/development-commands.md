@@ -85,13 +85,19 @@ Install the repository-pinned Chromium once with
 
 ## Generation and preparation
 
-| Command              | Purpose                                      |
-| -------------------- | -------------------------------------------- |
-| `generate:i18n`      | Regenerate typed localization files.         |
-| `generate:brand`     | Regenerate repository-owned brand assets.    |
-| `prepare:mihomo`     | Download and verify the pinned desktop Core. |
-| `mobile-core:build`  | Build the pinned Android Mobile Core.        |
-| `mobile-core:verify` | Verify Mobile Core evidence and artifacts.   |
+| Command              | Purpose                                                                        |
+| -------------------- | ------------------------------------------------------------------------------ |
+| `generate:i18n`      | Regenerate typed localization files.                                           |
+| `generate:brand`     | Regenerate repository-owned brand assets.                                      |
+| `geodata:update`     | Download the latest full GeoData snapshot and record exact release provenance. |
+| `prepare:mihomo`     | Download and verify the pinned desktop Core.                                   |
+| `mobile-core:build`  | Build the pinned Android Mobile Core.                                          |
+| `mobile-core:verify` | Verify Mobile Core evidence and artifacts.                                     |
+
+`pnpm geodata:update` downloads the four required release assets into the
+ignored `.scratch/geodata` workspace and atomically updates
+`resources/geodata/manifest.json`. Release packaging must use a reviewed
+snapshot and manifest; it must not resolve the mutable upstream `latest` tag.
 
 ## Compatibility aliases
 
