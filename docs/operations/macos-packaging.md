@@ -10,7 +10,31 @@ the private repository's Actions quota or billing state blocked them. This
 leaves current CI artifact evidence unavailable; it is not evidence of a product
 implementation failure and does not establish future Actions capacity.
 
-## Test package
+## Alpha ad-hoc DMG
+
+Build the explicit System Proxy-only Alpha artifact on Apple Silicon macOS:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm desktop:bundle:alpha-ad-hoc:macos
+```
+
+This credential-free profile rejects Apple signing and notarization credentials,
+builds an ARM64 `Mish` DMG, and mounts it read-only for verification. The mounted
+image contains only `Mish.app` and an `Applications` shortcut for drag-to-install.
+It seals the application and Mihomo with an ad-hoc signature, packages no TUN
+helper, LaunchDaemon, SMAppService payload, development helper, or other
+privileged content, and compiles the packaged TUN capability as unavailable.
+The verifier checks the application identifier, version, architecture, pinned
+Mihomo digest and version, offline Web resources, legal resources, signature
+structure, DMG layout, and clean detach.
+
+An ad-hoc signature is neither an Apple identity nor notarization. Gatekeeper
+rejection or **Open Anyway** is the expected Alpha boundary; do not describe the
+DMG as trusted or notarized. This profile does not install a helper, request
+administrator authorization, or modify host network state.
+
+## Legacy test app bundle
 
 Run the same bundle path locally on an Apple Silicon Mac:
 
@@ -50,9 +74,10 @@ does not make the TUN helper available, and is not a stable public release.
 The completed packaging-readiness audit selected a System Proxy-only first
 public release. That release does not depend on a production privileged TUN
 helper and must omit both the helper executable and LaunchDaemon property list.
-The current repository does not yet implement the required explicit signed
-no-helper distribution mode: supplying release signing credentials selects the
-helper-bearing layout. Do not use that layout for the System Proxy-only release.
+The explicit `alpha-ad-hoc` profile implements a credential-free no-helper Alpha
+mode. It is not a Developer ID or notarized public distribution mode; supplying
+release signing credentials remains a separate helper-bearing path and must not
+be used for the System Proxy-only Alpha.
 
 Before public distribution, implement and verify the no-helper mode, Developer
 ID signing and notarization with independent `codesign`, stapler, and Gatekeeper

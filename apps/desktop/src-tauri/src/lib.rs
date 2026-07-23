@@ -1009,7 +1009,19 @@ fn launch_proxy_on_application_start(
 }
 
 fn production_team_identifier() -> Option<&'static str> {
-    option_env!("MISH_EXPECTED_APPLE_TEAM_IDENTIFIER").filter(|team| !team.is_empty())
+    production_team_identifier_for_profile(
+        option_env!("MISH_MACOS_RELEASE_PROFILE"),
+        option_env!("MISH_EXPECTED_APPLE_TEAM_IDENTIFIER"),
+    )
+}
+
+fn production_team_identifier_for_profile(
+    release_profile: Option<&'static str>,
+    team_identifier: Option<&'static str>,
+) -> Option<&'static str> {
+    (release_profile != Some("alpha-ad-hoc"))
+        .then_some(team_identifier.filter(|team| !team.is_empty()))
+        .flatten()
 }
 
 fn platform_lifecycle_event_source()
@@ -1497,8 +1509,9 @@ mod tests {
         PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins,
         atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
         generate_auth_token, invalidate_pending, main_window_close_action, managed_mihomo_resolver,
-        read_local_backup, save_support_bundle_selection, should_intercept_exit_request,
-        should_show_main_window, validate_development_mihomo_environment,
+        production_team_identifier_for_profile, read_local_backup, save_support_bundle_selection,
+        should_intercept_exit_request, should_show_main_window,
+        validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -1537,6 +1550,18 @@ mod tests {
     #[test]
     fn production_accepts_only_bundled_tauri_origins() {
         assert_eq!(allowed_origins(false, None).unwrap(), PRODUCTION_ORIGINS);
+    }
+
+    #[test]
+    fn alpha_ad_hoc_profile_cannot_enable_the_production_tun_capability() {
+        assert_eq!(
+            production_team_identifier_for_profile(Some("alpha-ad-hoc"), Some("ABCDE12345")),
+            None
+        );
+        assert_eq!(
+            production_team_identifier_for_profile(None, Some("ABCDE12345")),
+            Some("ABCDE12345")
+        );
     }
 
     #[test]

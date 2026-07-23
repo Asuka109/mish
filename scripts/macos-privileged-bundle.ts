@@ -63,11 +63,13 @@ function isPrivilegedPath(relative: string) {
   const components = relative.split(path.sep);
   const basename = components.at(-1) ?? "";
   return (
+    components.includes("Library") ||
     components.includes("LaunchDaemons") ||
     components.includes("LaunchAgents") ||
     components.includes("PrivilegedHelperTools") ||
-    basename.includes("mish-tun-helper") ||
-    basename.includes("com.asuka109.mish.tun-helper")
+    components.includes("XPCServices") ||
+    components.includes("LoginItems") ||
+    /(?:^|[-_.])(?:tun|helper|smappservice|launchdaemon)(?:$|[-_.])/iu.test(basename)
   );
 }
 
@@ -92,7 +94,10 @@ export async function verifyMacOsPrivilegedBundle(
     }
   }
   const unexpected = privileged.filter(
-    (relative) => !expected.has(relative) && relative !== "Contents/Library/LaunchDaemons",
+    (relative) =>
+      !expected.has(relative) &&
+      relative !== "Contents/Library" &&
+      relative !== "Contents/Library/LaunchDaemons",
   );
   if (unexpected.length > 0) {
     throw new Error(
