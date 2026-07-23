@@ -151,6 +151,7 @@ impl CapturePlatform for ShutdownCapturePlatform {
 fn disabled_proxy_state() -> NetworkServiceProxyState {
     NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
         http: ManualProxyState::disabled(),
         https: ManualProxyState::disabled(),
         pac_enabled: false,

@@ -333,6 +333,7 @@ fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
     let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
         NetworkServiceProxyState {
             auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
             http: mish_runtime::ManualProxyState::disabled(),
             https: mish_runtime::ManualProxyState::disabled(),
             pac_enabled: false,
@@ -355,6 +356,7 @@ fn capture_runtime_parts() -> (MishRuntime, Arc<MemoryCapturePlatform>) {
 fn slow_capture_runtime_parts() -> (MishRuntime, Arc<SlowCapturePlatform>) {
     let platform = Arc::new(SlowCapturePlatform::new(NetworkServiceProxyState {
         auto_discovery_enabled: false,
+        bypass_domains: Vec::new(),
         http: mish_runtime::ManualProxyState::disabled(),
         https: mish_runtime::ManualProxyState::disabled(),
         pac_enabled: false,
@@ -2347,6 +2349,7 @@ async fn local_proxy_rpc_rejects_an_external_listener_not_owned_by_the_current_r
     let platform = Arc::new(MemoryCapturePlatform(std::sync::Mutex::new(
         NetworkServiceProxyState {
             auto_discovery_enabled: false,
+            bypass_domains: Vec::new(),
             http: mish_runtime::ManualProxyState::disabled(),
             https: mish_runtime::ManualProxyState::disabled(),
             pac_enabled: false,
