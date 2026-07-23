@@ -17,6 +17,7 @@ import type {
   ManagedPortPreferencesDto,
   SettingsAvailability,
   StartupPreferencesDto,
+  SystemProxyTakeoverPolicy,
   WindowCloseBehavior,
   WindowSurfacePreference,
 } from "@mish/contracts";
@@ -30,12 +31,14 @@ import { useSettings } from "../data/settings-provider";
 import { tunHelperFailureMessage } from "../data/tun-helper-failure-message";
 import { useI18nContext } from "../i18n/i18n-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useLocation } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 
 type PendingButtonAction =
   | "language"
   | "managed-ports"
   | "proxy-launch"
+  | "takeover-policy"
   | "startup"
   | "window-close";
 
@@ -213,6 +216,7 @@ function AddressAvailabilityBadge({
 }
 
 export function SettingsPage() {
+  const location = useLocation();
   const {
     appearancePending,
     preference,
@@ -241,6 +245,8 @@ export function SettingsPage() {
   const [pendingCaptureMode, setPendingCaptureMode] = useState<"systemProxy" | "tun" | null>(null);
   const [optimisticStartup, setOptimisticStartup] = useState<StartupPreferencesDto | null>(null);
   const [optimisticLaunchProxy, setOptimisticLaunchProxy] = useState<boolean | null>(null);
+  const [optimisticTakeoverPolicy, setOptimisticTakeoverPolicy] =
+    useState<SystemProxyTakeoverPolicy | null>(null);
   const [optimisticWindowClose, setOptimisticWindowClose] = useState<WindowCloseBehavior | null>(
     null,
   );
@@ -263,6 +269,8 @@ export function SettingsPage() {
   const launchProxySupported =
     snapshot.adapterKind === "rpc" && snapshot.capabilities.backgroundLaunch === "supported";
   const displayedLaunchProxy = optimisticLaunchProxy ?? startup.launchProxyWhenMishLaunches;
+  const displayedTakeoverPolicy =
+    optimisticTakeoverPolicy ?? snapshot.preferences.systemProxyTakeoverPolicy;
   const helper = snapshot.tunHelper;
   const helperAvailable =
     helper.availability === "available" &&
@@ -273,6 +281,16 @@ export function SettingsPage() {
   const network = snapshot.networkDns;
   const networkSupported =
     snapshot.adapterKind === "rpc" && snapshot.capabilities.networkDns === "supported";
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get("focus") !== "system-proxy-takeover-policy") {
+      return;
+    }
+    const control = document.getElementById("system-proxy-takeover-policy");
+    control?.scrollIntoView({ block: "center" });
+    const focusable = control?.querySelector<HTMLElement>("button[aria-pressed='true'], button");
+    focusable?.focus();
+  }, [location.search]);
 
   useEffect(() => {
     if (!networkSupported || network.phase !== "unknown" || networkAutoRefreshStarted.current) {
@@ -340,6 +358,17 @@ export function SettingsPage() {
     } finally {
       setPendingButtonAction(null);
       setOptimisticLaunchProxy(null);
+    }
+  }
+
+  async function changeTakeoverPolicy(policy: SystemProxyTakeoverPolicy) {
+    setPendingButtonAction("takeover-policy");
+    setOptimisticTakeoverPolicy(policy);
+    try {
+      await settings.setSystemProxyTakeoverPolicy(policy);
+    } finally {
+      setPendingButtonAction(null);
+      setOptimisticTakeoverPolicy(null);
     }
   }
 
@@ -537,6 +566,53 @@ export function SettingsPage() {
           ) : (
             <AvailabilityBadge availability="unavailable" />
           )}
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.systemProxyTakeoverPolicyDescription()}
+          title={LL.settingsPage.systemProxyTakeoverPolicy()}
+        >
+          <div className={settingsStyles().inline()}>
+            <ToggleGroup
+              aria-describedby="system-proxy-takeover-policy-warning"
+              aria-label={LL.settingsPage.systemProxyTakeoverPolicy()}
+              disabled={snapshot.adapterKind !== "rpc" || settings.pending}
+              id="system-proxy-takeover-policy"
+              onValueChange={(values) => {
+                const policy = values[0];
+                if (
+                  policy === "protect-existing" ||
+                  policy === "replace-reversible-pac-or-auto-discovery"
+                ) {
+                  void changeTakeoverPolicy(policy);
+                }
+              }}
+              spacing={0}
+              value={[displayedTakeoverPolicy]}
+              variant="segmented"
+            >
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "takeover-policy" &&
+                  displayedTakeoverPolicy === "protect-existing"
+                }
+                value="protect-existing"
+              >
+                {LL.settingsPage.systemProxyTakeoverPolicyProtected()}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                aria-busy={
+                  pendingButtonAction === "takeover-policy" &&
+                  displayedTakeoverPolicy === "replace-reversible-pac-or-auto-discovery"
+                }
+                value="replace-reversible-pac-or-auto-discovery"
+              >
+                {LL.settingsPage.systemProxyTakeoverPolicyAdvanced()}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <span id="system-proxy-takeover-policy-warning" className={settingsStyles().notice()}>
+              {LL.settingsPage.systemProxyTakeoverPolicyWarning()}
+            </span>
+          </div>
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.tunHelperDescription()}

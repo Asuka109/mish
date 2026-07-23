@@ -8,6 +8,7 @@ import type {
   StartupPreferencesDto,
   WindowCloseBehavior,
   WindowSurfacePreference,
+  SystemProxyTakeoverPolicy,
 } from "@mish/contracts";
 
 function storedAppearance(): AppearancePreference {
@@ -73,6 +74,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
         launchProxyWhenMishLaunches: false,
         loginLaunchBehavior: "show-window",
       },
+      systemProxyTakeoverPolicy: "protect-existing",
       windowCloseBehavior: "hide-to-status-bar",
       windowSurface: storedWindowSurface(),
     },
@@ -151,6 +153,12 @@ export class FixtureSettingsClient implements SettingsClient {
 
   async findManagedPorts(): Promise<SettingsSnapshotDto> {
     throw new Error("Managed ports are unavailable in demo mode");
+  }
+
+  async setSystemProxyTakeoverPolicy(
+    _policy: SystemProxyTakeoverPolicy,
+  ): Promise<SettingsSnapshotDto> {
+    throw new Error("Native System Proxy policy is unavailable in demo mode");
   }
 
   subscribeSnapshots(_listener: (snapshot: SettingsSnapshotDto) => void) {
