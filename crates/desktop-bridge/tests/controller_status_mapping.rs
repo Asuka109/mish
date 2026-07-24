@@ -257,9 +257,9 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
             connections: Some(connections(vec![
                 connection(
                     "connection-a",
-                    &[OUTER_GROUP, INNER_GROUP, &long_node_label()],
+                    &[&long_node_label(), INNER_GROUP, OUTER_GROUP],
                 ),
-                connection("connection-b", &[OUTER_GROUP, OUTER_GROUP, DIRECT]),
+                connection("connection-b", &[DIRECT, OUTER_GROUP, OUTER_GROUP]),
             ])),
             rules: Some(rules()),
         })
@@ -338,7 +338,14 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
         traffic.active_connections[0].process_path.as_deref(),
         Some("/Applications/Fixture Browser.app/Contents/MacOS/Fixture Browser")
     );
-    assert_eq!(traffic.active_connections[0].route_chain[0], OUTER_GROUP);
+    assert_eq!(
+        traffic.active_connections[0].route_chain,
+        vec![OUTER_GROUP, INNER_GROUP, &long_node_label()]
+    );
+    assert_eq!(
+        traffic.active_connections[1].route_chain,
+        vec![OUTER_GROUP, OUTER_GROUP, DIRECT]
+    );
     assert_eq!(traffic.rules.len(), 2);
     assert!(traffic.rules[0].enabled);
     assert!(!traffic.rules[1].enabled);
@@ -374,6 +381,57 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
     assert_eq!(value["services"].as_array().unwrap().len(), 6);
     assert_eq!(value["services"][0]["id"], "google");
     assert_eq!(value["probeResults"], json!([]));
+}
+
+#[test]
+fn normalizes_controller_route_chains_once_without_inventing_or_deduplicating_hops() {
+    let mut mapper = initialized_mapper();
+    let bounded_raw_chain = (0..256)
+        .map(|index| format!("Hop {index:03}"))
+        .collect::<Vec<_>>();
+    let bounded_raw_chain_refs = bounded_raw_chain
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    mapper
+        .apply(ControllerObservationBatch {
+            connections: Some(connections(vec![
+                connection("direct", &[DIRECT]),
+                connection("empty", &[]),
+                connection("unicode", &["最终出口 🚀", "中继", "入口组 / 入站"]),
+                connection("repeated", &["出口", "相同组", "相同组"]),
+                connection("bounded", &bounded_raw_chain_refs),
+            ])),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+
+    let traffic = mapper.traffic_snapshot(
+        StatusAdapterKind::Rpc,
+        TrafficDataPhase::Ready,
+        1,
+        Some("controller-1".into()),
+        0,
+    );
+    assert_eq!(traffic.active_connections[0].route_chain, [DIRECT]);
+    assert!(traffic.active_connections[1].route_chain.is_empty());
+    assert_eq!(
+        traffic.active_connections[2].route_chain,
+        ["入口组 / 入站", "中继", "最终出口 🚀"]
+    );
+    assert_eq!(
+        traffic.active_connections[3].route_chain,
+        ["相同组", "相同组", "出口"]
+    );
+    assert_eq!(traffic.active_connections[4].route_chain.len(), 256);
+    assert_eq!(
+        traffic.active_connections[4].route_chain.first(),
+        Some(&"Hop 255".into())
+    );
+    assert_eq!(
+        traffic.active_connections[4].route_chain.last(),
+        Some(&"Hop 000".into())
+    );
 }
 
 #[test]

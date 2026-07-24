@@ -200,12 +200,12 @@ function matchesConnectionToken(
   ];
   const process = [connection.processName, connection.processPath];
   const rule = [connection.matchedRule.type, connection.matchedRule.payload];
-  const chain = [...connection.routeChain, ...connection.providerChain];
+  const routeChain = connection.routeChain;
   const fields: Record<string, Array<string | null>> = {
-    chain,
-    child: chain,
+    chain: routeChain,
+    child: routeChain,
     destination,
-    group: chain,
+    group: routeChain,
     network: [connection.network],
     process,
     protocol: [connection.protocol],
@@ -214,7 +214,7 @@ function matchesConnectionToken(
   };
   const values = token.field
     ? fields[token.field]
-    : [...destination, ...process, ...rule, ...chain];
+    : [...destination, ...process, ...rule, ...routeChain];
   if (!values) return false;
   return values.some((value) => value?.toLocaleLowerCase().includes(token.value));
 }
