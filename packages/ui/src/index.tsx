@@ -91,7 +91,9 @@ const settingsGroupRecipe = tv({
 
 const settingsRowRecipe = tv({
   base: cx(
-    "settings-row grid min-h-15.5 grid-cols-[minmax(0,1fr)_max-content] items-center gap-5 px-3.5",
+    // Keep a readable copy floor so wide controls cannot collapse labels to one glyph per line
+    // before the settings-compact container query stacks the row.
+    "settings-row grid min-h-15.5 grid-cols-[minmax(12rem,1fr)_minmax(0,max-content)] items-center gap-5 px-3.5",
     "py-2.75 @max-settings-compact/settings-page:grid-cols-[minmax(0,1fr)]",
     "@max-settings-compact/settings-page:items-start @max-settings-compact/settings-page:gap-2.5",
   ),
@@ -107,8 +109,8 @@ const settingsRowCopyRecipe = tv({
 
 const settingsRowControlRecipe = tv({
   base: cx(
-    "settings-row-control grid min-w-fit justify-items-end text-end",
-    "@max-settings-compact/settings-page:w-full @max-settings-compact/settings-page:min-w-0",
+    "settings-row-control grid min-w-0 max-w-full justify-items-end text-end",
+    "@max-settings-compact/settings-page:w-full",
     "@max-settings-compact/settings-page:justify-items-start",
     "@max-settings-compact/settings-page:text-start",
   ),

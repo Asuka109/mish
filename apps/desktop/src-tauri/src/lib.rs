@@ -1150,7 +1150,13 @@ fn managed_mihomo_resolver(
     if is_dev {
         let prepared = explicit_development_binary
             .unwrap_or_else(|| runtime_root.join("missing-explicit-development-binary"));
-        return ManagedMihomoResolver::development(prepared, runtime_root);
+        let bundled_geodata =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../resources/geodata/snapshot");
+        return ManagedMihomoResolver::development_with_bundled_geodata(
+            prepared,
+            runtime_root,
+            bundled_geodata,
+        );
     }
     ManagedMihomoResolver::production(resource_directory.to_path_buf(), runtime_root)
 }

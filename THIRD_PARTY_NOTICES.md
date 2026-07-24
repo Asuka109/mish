@@ -43,6 +43,24 @@ under [`mobile-core/evidence/android-v1.19.29`](mobile-core/evidence/android-v1.
 The current SBOM contains unresolved `NOASSERTION` dependency-license fields and
 must not be described as complete license clearance.
 
+## GeoData fallback snapshot
+
+The desktop package includes a pinned snapshot of the full GeoSite, GeoIP DAT,
+GeoIP MetaDB, and GeoLite2 ASN release assets generated and published by
+[MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat). Exact
+release, asset identifiers, byte lengths, and SHA-256 digests are recorded in
+[`resources/geodata/snapshot/manifest.json`](resources/geodata/snapshot/manifest.json).
+
+- Project: [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat)
+- Release: [latest snapshot published 2026-07-22](https://github.com/MetaCubeX/meta-rules-dat/releases/tag/latest)
+- License declared by the source repository: [GNU GPL version 3](https://github.com/MetaCubeX/meta-rules-dat/blob/master/LICENSE)
+
+The upstream project aggregates generated rule and database material from
+multiple named sources. The manifest and upstream repository remain the
+artifact-specific provenance authority; downstream updates must use
+`pnpm geodata:update` and review the resulting manifest and binary diff
+together.
+
 ## Material application dependencies
 
 The following projects are material direct dependencies of the current

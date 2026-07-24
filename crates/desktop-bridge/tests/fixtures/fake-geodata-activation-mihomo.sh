@@ -6,6 +6,7 @@ if [ "$1" = "-v" ]; then
 fi
 
 config_file=""
+config_directory=""
 validate=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -14,6 +15,7 @@ while [ "$#" -gt 0 ]; do
       shift 2
       ;;
     -d)
+      config_directory="$2"
       shift 2
       ;;
     -t)
@@ -40,11 +42,23 @@ while IFS= read -r line; do
   case "$line" in
     *"geodata-test-unknown: true"*) mode="unknown" ;;
     *"geodata-test-slow-success: true"*) mode="slow-success" ;;
+    *"geodata-test-multiple: true"*) mode="multiple" ;;
+    *"geodata-test-packaged-fallback: true"*) mode="packaged-fallback" ;;
     *"geodata-test-success: true"*) mode="success" ;;
     *"geodata-test-failure: true"*) mode="failure" ;;
     *"geodata-test-timeout: true"*) mode="timeout" ;;
   esac
 done < "$config_file"
+
+if [ "$mode" = "packaged-fallback" ]; then
+  for asset in GeoSite.dat GeoIP.dat geoip.metadb ASN.mmdb; do
+    if [ ! -s "${config_directory}/${asset}" ]; then
+      echo "[info] Can't find ${asset}, start download"
+      exit 17
+    fi
+  done
+  exit 0
+fi
 
 if [ "$mode" = "unknown" ]; then
   index=0
@@ -68,6 +82,14 @@ if [ "$mode" = "slow-success" ]; then
   echo "[info] Can't find GeoSite.dat, start download"
   sleep 2
   echo "[info] Download GeoSite.dat finish"
+  exit 0
+fi
+
+if [ "$mode" = "multiple" ]; then
+  echo "[info] Can't find GeoSite.dat, start download"
+  echo "[info] Download GeoSite.dat finish"
+  echo "[info] Can't find MMDB, start download"
+  echo "[info] Download MMDB finish"
   exit 0
 fi
 

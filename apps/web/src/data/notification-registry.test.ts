@@ -119,13 +119,36 @@ describe("notification presentation registry", () => {
     expect(JSON.stringify(presentation)).not.toContain("must-not-render");
   });
 
+  it("presents GeoSite and MMDB as independent notification types", () => {
+    const LL = i18nObject("en");
+    const geosite = presentNotification(
+      notificationRecord({
+        id: "notification:geosite",
+        params: { asset: "geo-site" },
+        type: "profile.activation-geosite-progress",
+      }),
+      LL,
+    );
+    const mmdb = presentNotification(
+      notificationRecord({
+        id: "notification:mmdb",
+        params: { asset: "mmdb" },
+        type: "profile.activation-mmdb-progress",
+      }),
+      LL,
+    );
+
+    expect(geosite.message).toBe(LL.profiles.geodataPreparing({ asset: "GeoSite" }));
+    expect(mmdb.message).toBe(LL.profiles.geodataPreparing({ asset: "MMDB" }));
+  });
+
   it("derives pinned toast and center lifecycles from Rust metadata", () => {
     const progress = presentNotification(
       notificationRecord({
         id: "notification:progress",
         params: { asset: "geo-site" },
         pinned: true,
-        type: "profile.activation-geodata-progress",
+        type: "profile.activation-geosite-progress",
       }),
       i18nObject("en"),
     );
@@ -138,7 +161,7 @@ describe("notification presentation registry", () => {
         params: { asset: "geo-site" },
         pinned: false,
         resolved: true,
-        type: "profile.activation-geodata-progress",
+        type: "profile.activation-geosite-progress",
       }),
       i18nObject("en"),
     );

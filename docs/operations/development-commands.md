@@ -46,52 +46,71 @@ launching another worktree that can operate Mihomo or system capture.
 
 ## Tests
 
-| Command          | Coverage                                                          |
-| ---------------- | ----------------------------------------------------------------- |
-| `test:watch`     | Web Vitest watch mode.                                            |
-| `test:unit`      | Web, mock bridge, and RPC client unit tests, once.                |
-| `test:workspace` | Every package that defines `test:run`, including native packages. |
-| `test:rust`      | Complete Cargo workspace with one test thread.                    |
-| `test:browser`   | Real-Chromium responsive coverage.                                |
-| `test:macos:p0`  | Credential-free macOS P0 fixture journey.                         |
+| Command              | Coverage                                                          |
+| -------------------- | ----------------------------------------------------------------- |
+| `test:watch`         | Web Vitest watch mode.                                            |
+| `test:unit`          | Web, mock bridge, and RPC client unit tests, once.                |
+| `test:workspace`     | Every package that defines `test:run`, including native packages. |
+| `test:rust`          | Complete Cargo workspace with one test thread.                    |
+| `test:browser`       | Real-Chromium responsive coverage.                                |
+| `test:macos:p0`      | Credential-free macOS P0 fixture journey.                         |
+| `test:macos:release` | Credential-free Alpha release validation and staging decisions.   |
 
 Install the repository-pinned Chromium once with
 `pnpm test:browser:install`.
 
 ## Checks
 
-| Command                | Coverage                                                                     |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `check`                | Alias for `check:pr`.                                                        |
-| `check:pr`             | Bounded pull-request gate used by CI.                                        |
-| `check:all`            | Complete non-browser validation used by main inspection.                     |
-| `check:types`          | TypeScript type checks followed by Cargo workspace check.                    |
-| `check:types:ts`       | TypeScript packages only.                                                    |
-| `check:rust`           | Cargo workspace check.                                                       |
-| `check:rust:format`    | Rust formatting.                                                             |
-| `check:rust:clippy`    | Clippy with warnings denied.                                                 |
-| `check:format`         | Repository formatting without writing changes.                               |
-| `check:lint`           | TypeScript and JavaScript lint.                                              |
-| `check:i18n`           | Generated localization contract.                                             |
-| `check:android`        | Generated Android project contract.                                          |
-| `check:tokens`         | Generated design-token contract.                                             |
-| `check:design`         | `DESIGN.md` contract lint.                                                   |
-| `check:docs`           | Local Markdown links and public-release contracts.                           |
-| `check:public-release` | Public files, packaged notices, metadata, attribution, and claim boundaries. |
-| `check:ci`             | CI workflow contract.                                                        |
+| Command                        | Coverage                                                                     |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| `check`                        | Alias for `check:pr`.                                                        |
+| `check:pr`                     | Bounded pull-request gate used by CI.                                        |
+| `check:all`                    | Complete non-browser validation used by main inspection.                     |
+| `check:types`                  | TypeScript type checks followed by Cargo workspace check.                    |
+| `check:types:ts`               | TypeScript packages only.                                                    |
+| `check:rust`                   | Cargo workspace check.                                                       |
+| `check:rust:format`            | Rust formatting.                                                             |
+| `check:rust:clippy`            | Clippy with warnings denied.                                                 |
+| `check:format`                 | Repository formatting without writing changes.                               |
+| `check:lint`                   | TypeScript and JavaScript lint.                                              |
+| `check:i18n`                   | Generated localization contract.                                             |
+| `check:android`                | Generated Android project contract.                                          |
+| `check:tokens`                 | Generated design-token contract.                                             |
+| `check:design`                 | `DESIGN.md` contract lint.                                                   |
+| `check:docs`                   | Local Markdown links and public-release contracts.                           |
+| `check:public-release`         | Public files, packaged notices, metadata, attribution, and claim boundaries. |
+| `check:ci`                     | CI workflow contract.                                                        |
+| `check:macos:release-workflow` | Manual Alpha Draft staging permissions and ordering contract.                |
 
 `pnpm format` is the intentional write-mode counterpart to
 `pnpm check:format`.
 
 ## Generation and preparation
 
-| Command              | Purpose                                      |
-| -------------------- | -------------------------------------------- |
-| `generate:i18n`      | Regenerate typed localization files.         |
-| `generate:brand`     | Regenerate repository-owned brand assets.    |
-| `prepare:mihomo`     | Download and verify the pinned desktop Core. |
-| `mobile-core:build`  | Build the pinned Android Mobile Core.        |
-| `mobile-core:verify` | Verify Mobile Core evidence and artifacts.   |
+| Command                  | Purpose                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `generate:i18n`          | Regenerate typed localization files.                                           |
+| `generate:brand`         | Regenerate repository-owned brand assets.                                      |
+| `geodata:update`         | Download the latest full GeoData snapshot and record exact release provenance. |
+| `geodata:verify-runtime` | Prove pinned Mihomo consumes the bundled files offline in both GeoData modes.  |
+| `prepare:mihomo`         | Download and verify the pinned desktop Core.                                   |
+| `mobile-core:build`      | Build the pinned Android Mobile Core.                                          |
+| `mobile-core:verify`     | Verify Mobile Core evidence and artifacts.                                     |
+| `release:macos:fixture`  | Exercise deterministic release staging decisions without GitHub writes.        |
+
+`pnpm geodata:update` downloads the four required release assets into a staging
+directory, verifies their release sizes and SHA-256 digests, and replaces the
+tracked `resources/geodata/snapshot` only after the complete snapshot passes.
+Review and commit the resulting binary and manifest diff together. Release
+packaging consumes only that pinned repository snapshot; it never resolves the
+mutable upstream `latest` tag.
+
+Desktop development builds seed the same repository snapshot into the private
+Core home. This keeps local cold-launch behavior representative of the packaged
+fallback instead of silently exercising Mihomo's network download path.
+Run `pnpm prepare:mihomo && pnpm geodata:verify-runtime` after each update. The
+runtime verifier forces all GeoData download URLs to unreachable loopback and
+requires real pinned-Mihomo validation to succeed without any download attempt.
 
 ## Compatibility aliases
 

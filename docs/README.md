@@ -32,6 +32,9 @@ of treating an implementation accident as intent.
   styling ownership, merge/source rules, and bounded CSS exceptions.
 - [`desktop-bootstrap.md`](architecture/desktop-bootstrap.md) — offline assets,
   local origin, browser launch, authentication, and threat model.
+- [`launch-proxy-critical-path.md`](architecture/launch-proxy-critical-path.md)
+  — Rust launch authority, Profile/Core and System Proxy timing DAG,
+  cancellation, revalidation, and privacy-safe timing evidence.
 - [`mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md)
   — pinned Controller API, process lifecycle, activation, and reconciliation.
 - [`profile-domain.md`](architecture/profile-domain.md) — profile sources,
