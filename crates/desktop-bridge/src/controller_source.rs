@@ -1724,7 +1724,13 @@ impl ControllerStatusSource {
         };
         let _authority_lock = self.inner.authority.lock().await;
         let current = self.traffic_snapshot(StatusAdapterKind::Rpc);
-        if !traffic_authority_matches(&current, &authority) {
+        let authority_matches =
+            if matches!(operation, TrafficCommandOperation::CloseFilteredVisible) {
+                traffic_session_authority_matches(&current, &authority)
+            } else {
+                traffic_authority_matches(&current, &authority)
+            };
+        if !authority_matches {
             let stale_targets =
                 if matches!(operation, TrafficCommandOperation::CloseFilteredVisible) {
                     requested_ids.clone().unwrap_or_default()
@@ -1957,10 +1963,17 @@ fn traffic_authority_matches(
     snapshot: &TrafficDataSnapshot,
     authority: &TrafficCommandAuthority,
 ) -> bool {
+    traffic_session_authority_matches(snapshot, authority)
+        && snapshot.sequence == authority.sequence
+}
+
+fn traffic_session_authority_matches(
+    snapshot: &TrafficDataSnapshot,
+    authority: &TrafficCommandAuthority,
+) -> bool {
     snapshot.phase == TrafficDataPhase::Ready
         && snapshot.profile_id == authority.profile_id
         && snapshot.session_id.as_deref() == Some(authority.session_id.as_str())
-        && snapshot.sequence == authority.sequence
 }
 
 fn connection_ids(snapshot: &ConnectionSnapshot) -> Vec<String> {

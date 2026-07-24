@@ -151,7 +151,11 @@ confirmed target.
 incremental rendering limits. The confirmation freezes and displays its exact
 count. Search, network filter, and live refresh may continue; Rust revalidates
 the frozen stable-ID set immediately before mutation and returns typed stale
-feedback when the set can no longer be honored.
+feedback when the set can no longer be honored. Ordinary Traffic refreshes may
+advance the snapshot sequence while the confirmation is open, so this scope
+pins the profile and Traffic session rather than requiring the old sequence to
+remain current. Every frozen ID must still exist in both current Rust state and
+a fresh Controller read; later unrelated IDs are never added to the close set.
 
 ## Recently Closed derivation
 

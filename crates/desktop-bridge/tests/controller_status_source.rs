@@ -1510,7 +1510,7 @@ async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_co
         stopped: AtomicBool::new(false),
     });
     let mut config = source_config(&fake);
-    config.refresh_interval = Duration::from_secs(5);
+    config.refresh_interval = Duration::from_millis(20);
     let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
     let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
     source.start().await;
@@ -1520,7 +1520,7 @@ async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_co
             .is_some_and(|connections| connections.len() == 3)
     })
     .await;
-    let bridge = start_loopback_server(bridge_config(), runtime)
+    let bridge = start_loopback_server(bridge_config(), runtime.clone())
         .await
         .unwrap();
     let mut websocket = socket(bridge.address).await;
@@ -1538,6 +1538,14 @@ async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_co
         "connection-c",
         "connection-newer",
     ]);
+    wait_for(Duration::from_secs(1), || {
+        let snapshot = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+        snapshot["sequence"].as_u64() > before["sequence"].as_u64()
+            && snapshot["activeConnections"]
+                .as_array()
+                .is_some_and(|connections| connections.len() == 4)
+    })
+    .await;
     let closed = rpc_request(
         &mut websocket,
         json!({
@@ -1565,13 +1573,32 @@ async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_co
     );
     assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 2);
 
+    let mut replaced_session_authority = traffic_authority(&closed["result"]["snapshot"]);
+    replaced_session_authority["sessionId"] = json!("controller-replaced");
+    let replaced_session = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"traffic.closeFilteredVisible",
+            "params":{
+                "authority":replaced_session_authority,
+                "connectionIds":["connection-c"]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(replaced_session["result"]["status"], "failure");
+    assert_eq!(replaced_session["result"]["failure"], "stale-snapshot");
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 2);
+
     *fake.state.connections.write().await =
         connections_many(&["connection-newer", "connection-latest"]);
     let stale = rpc_request(
         &mut websocket,
         json!({
             "jsonrpc":"2.0",
-            "id":4,
+            "id":5,
             "method":"traffic.closeFilteredVisible",
             "params":{
                 "authority":traffic_authority(&closed["result"]["snapshot"]),
@@ -1593,7 +1620,7 @@ async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_co
         &mut websocket,
         json!({
             "jsonrpc":"2.0",
-            "id":5,
+            "id":6,
             "method":"traffic.closeFilteredVisible",
             "params":{
                 "authority":traffic_authority(&stale["result"]["snapshot"]),
