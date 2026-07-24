@@ -114,7 +114,11 @@ describe("Traffic closed history", () => {
 describe("Traffic filters and stable sorting", () => {
   it("composes plain text with structured connection dimensions", () => {
     const values = [
-      connection("one", { processName: "Fixture Browser", routeChain: ["Fixture Media"] }),
+      connection("one", {
+        processName: "Fixture Browser",
+        providerChain: ["Provider A", "东京 🚀", "Provider A"],
+        routeChain: ["Fixture Media"],
+      }),
       connection("two", { network: "udp", processName: null, routeChain: ["Fixture Direct"] }),
     ];
     expect(
@@ -123,6 +127,8 @@ describe("Traffic filters and stable sorting", () => {
     expect(filterConnections(values, "destination:two network:udp", "active", "udp")).toEqual([
       values[1],
     ]);
+    expect(filterConnections(values, "chain:东京", "active", "all")).toEqual([values[0]]);
+    expect(values[0]?.providerChain).toEqual(["Provider A", "东京 🚀", "Provider A"]);
   });
 
   it("sorts exact decimal counters without losing stable ties", () => {

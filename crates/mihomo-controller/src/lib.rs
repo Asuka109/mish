@@ -453,6 +453,7 @@ mod tests {
 
     use bytes::Bytes;
     use futures_util::{FutureExt, stream};
+    use serde_json::json;
 
     use super::*;
 
@@ -556,6 +557,47 @@ mod tests {
             traffic.next().await.unwrap().unwrap_err().kind(),
             ControllerErrorKind::MessageTooLarge
         );
+    }
+
+    #[tokio::test]
+    async fn rejects_provider_chains_that_exceed_the_transactional_entry_bound() {
+        let provider_chains = (0..129)
+            .map(|index| format!("Provider {index}"))
+            .collect::<Vec<_>>();
+        let transport = Arc::new(FixedTransport {
+            unary: Bytes::from(
+                serde_json::to_vec(&json!({
+                    "downloadTotal": 0,
+                    "uploadTotal": 0,
+                    "connections": [{
+                        "id": "bounded-connection",
+                        "metadata": {
+                            "network": "tcp",
+                            "type": "HTTPS",
+                            "sourceIP": "192.0.2.1",
+                            "destinationIP": "198.51.100.1",
+                            "sourcePort": 50_000,
+                            "destinationPort": 443
+                        },
+                        "upload": 0,
+                        "download": 0,
+                        "start": "2026-07-25T00:00:00Z",
+                        "chains": [],
+                        "providerChains": provider_chains,
+                        "rule": "MATCH",
+                        "rulePayload": ""
+                    }],
+                    "memory": 0
+                }))
+                .unwrap(),
+            ),
+            streamed: Bytes::new(),
+        });
+        let client = ControllerClient::new(transport, ControllerLimits::default()).unwrap();
+
+        let error = client.connections().await.unwrap_err();
+
+        assert_eq!(error.kind(), ControllerErrorKind::Validation);
     }
 
     #[tokio::test]

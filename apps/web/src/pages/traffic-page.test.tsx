@@ -202,6 +202,47 @@ describe("Traffic page", () => {
     expect(dialog).toHaveTextContent("/synthetic/apps/fixture-browser");
   });
 
+  it("renders unavailable for an empty normalized provider chain and preserves mixed chain order", async () => {
+    const user = userEvent.setup();
+    const client = new FixtureTrafficClient();
+    const snapshot = await client.getSnapshot();
+    const connection = snapshot.activeConnections[0]!;
+    client.publishSnapshot({
+      ...snapshot,
+      activeConnections: [
+        {
+          ...connection,
+          providerChain: [],
+        },
+      ],
+      sequence: snapshot.sequence + 1,
+    });
+    renderTraffic(client);
+
+    const row = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
+    await user.click(row);
+    const dialog = screen.getByRole("dialog", { name: "Connection details" });
+    expect(dialog).toHaveTextContent("Provider chain");
+    expect(dialog).toHaveTextContent("Unavailable");
+    expect(dialog).not.toHaveTextContent("→");
+
+    await user.keyboard("{Escape}");
+    client.publishSnapshot({
+      ...snapshot,
+      activeConnections: [
+        {
+          ...connection,
+          providerChain: ["Provider A", "东京 🚀", "Provider A"],
+        },
+      ],
+      sequence: snapshot.sequence + 2,
+    });
+    await user.click(await screen.findByRole("row", { name: /docs\.fixture\.invalid/ }));
+    expect(screen.getByRole("dialog", { name: "Connection details" })).toHaveTextContent(
+      "Provider A → 东京 🚀 → Provider A",
+    );
+  });
+
   it("renders a decorative process icon and reuses it by process path", async () => {
     const client = new IconTrafficClient();
     renderTraffic(client);

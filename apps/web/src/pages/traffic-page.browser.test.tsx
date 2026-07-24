@@ -98,6 +98,38 @@ function renderTraffic(client: BrowserCommandTrafficClient) {
 }
 
 describe("Traffic filtered-visible close", () => {
+  test("renders the normalized provider chain without orphaned separators", async () => {
+    await page.viewport(1_200, 700);
+    const client = new BrowserCommandTrafficClient();
+    const snapshot = await client.getSnapshot();
+    const connection = snapshot.activeConnections[0]!;
+    client.publishSnapshot({
+      ...snapshot,
+      activeConnections: [{ ...connection, providerChain: [] }],
+      sequence: snapshot.sequence + 1,
+    });
+    renderTraffic(client);
+
+    await userEvent.click(page.getByRole("row", { name: /docs\.fixture\.invalid/ }));
+    const dialog = page.getByRole("dialog", { name: "Connection details" });
+    await expect.element(dialog).toHaveTextContent("Provider chain");
+    await expect.element(dialog).toHaveTextContent("Unavailable");
+    await expect.element(dialog).not.toHaveTextContent("→");
+
+    await userEvent.keyboard("{Escape}");
+    client.publishSnapshot({
+      ...snapshot,
+      activeConnections: [
+        { ...connection, providerChain: ["Provider A", "东京 🚀", "Provider A"] },
+      ],
+      sequence: snapshot.sequence + 2,
+    });
+    await userEvent.click(page.getByRole("row", { name: /docs\.fixture\.invalid/ }));
+    await expect
+      .element(page.getByRole("dialog", { name: "Connection details" }))
+      .toHaveTextContent("Provider A → 东京 🚀 → Provider A");
+  });
+
   test("opens details from the whole row without clipping or hijacking Close", async () => {
     await page.viewport(1_200, 700);
     const client = new BrowserCommandTrafficClient();
