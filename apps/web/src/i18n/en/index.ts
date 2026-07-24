@@ -314,7 +314,7 @@ const en = {
     captureTunDescription:
       "Uses a virtual network interface to reach broader device traffic. It depends on platform support and may require system authorization.",
     captureTunTitle: "Virtual Interface (TUN)",
-    completedAnnouncement: "Welcome complete. The invitation was removed from Notifications.",
+    completedAnnouncement: "Welcome complete. You can reopen the introduction from Notifications.",
     completeWelcome: "Start Using Mish",
     coverPurpose:
       "Mish is an independent proxy client powered by the Mihomo core. It is being built around cross-platform support, clear interaction, and thoughtful design.",
@@ -415,6 +415,8 @@ const en = {
     selected: "selected",
     leaveAsIs: "Leave OS Settings as Is",
     repairSystemProxy: "Repair System Proxy",
+    reviewSystemProxySettings: "Review Proxy Settings",
+    showSystemProxySettingsSteps: "Show Manual Steps",
     systemProxy: "System Proxy",
     systemProxyApplied: "System Proxy is applied and confirmed by macOS.",
     systemProxyCoreFailure:
@@ -437,6 +439,13 @@ const en = {
       "macOS did not allow the System Proxy change. No success was recorded.",
     systemProxyRepairRequiresCore:
       "System Proxy differs from Mish's requested state. Repair requires a running Mihomo core; keep the current OS settings to clear this recovery state before starting the proxy again.",
+    systemProxySettingsDispatchFailed:
+      "Mish couldn't open System Settings. Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.",
+    systemProxySettingsManual:
+      "Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.",
+    systemProxySettingsManualTitle: "Open Proxy Settings Manually",
+    systemProxySettingsUnsupported:
+      "This macOS version can't open Network settings from Mish. Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.",
     systemProxyUnsafeFailure:
       "Automatic or authenticated proxy settings are active. Mish left them unchanged.",
     systemProxyUnknown: "System Proxy is selected off, but the macOS state is not available.",

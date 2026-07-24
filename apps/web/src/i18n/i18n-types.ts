@@ -1006,7 +1006,7 @@ type RootTranslation = {
 		 */
 		captureTunTitle: string
 		/**
-		 * W​e​l​c​o​m​e​ ​c​o​m​p​l​e​t​e​.​ ​T​h​e​ ​i​n​v​i​t​a​t​i​o​n​ ​w​a​s​ ​r​e​m​o​v​e​d​ ​f​r​o​m​ ​N​o​t​i​f​i​c​a​t​i​o​n​s​.
+		 * W​e​l​c​o​m​e​ ​c​o​m​p​l​e​t​e​.​ ​Y​o​u​ ​c​a​n​ ​r​e​o​p​e​n​ ​t​h​e​ ​i​n​t​r​o​d​u​c​t​i​o​n​ ​f​r​o​m​ ​N​o​t​i​f​i​c​a​t​i​o​n​s​.
 		 */
 		completedAnnouncement: string
 		/**
@@ -1347,6 +1347,14 @@ type RootTranslation = {
 		 */
 		repairSystemProxy: string
 		/**
+		 * R​e​v​i​e​w​ ​P​r​o​x​y​ ​S​e​t​t​i​n​g​s
+		 */
+		reviewSystemProxySettings: string
+		/**
+		 * S​h​o​w​ ​M​a​n​u​a​l​ ​S​t​e​p​s
+		 */
+		showSystemProxySettingsSteps: string
+		/**
 		 * S​y​s​t​e​m​ ​P​r​o​x​y
 		 */
 		systemProxy: string
@@ -1402,6 +1410,22 @@ type RootTranslation = {
 		 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​d​i​f​f​e​r​s​ ​f​r​o​m​ ​M​i​s​h​'​s​ ​r​e​q​u​e​s​t​e​d​ ​s​t​a​t​e​.​ ​R​e​p​a​i​r​ ​r​e​q​u​i​r​e​s​ ​a​ ​r​u​n​n​i​n​g​ ​M​i​h​o​m​o​ ​c​o​r​e​;​ ​k​e​e​p​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​O​S​ ​s​e​t​t​i​n​g​s​ ​t​o​ ​c​l​e​a​r​ ​t​h​i​s​ ​r​e​c​o​v​e​r​y​ ​s​t​a​t​e​ ​b​e​f​o​r​e​ ​s​t​a​r​t​i​n​g​ ​t​h​e​ ​p​r​o​x​y​ ​a​g​a​i​n​.
 		 */
 		systemProxyRepairRequiresCore: string
+		/**
+		 * M​i​s​h​ ​c​o​u​l​d​n​'​t​ ​o​p​e​n​ ​S​y​s​t​e​m​ ​S​e​t​t​i​n​g​s​.​ ​O​p​e​n​ ​S​y​s​t​e​m​ ​S​e​t​t​i​n​g​s​ ​>​ ​N​e​t​w​o​r​k​,​ ​s​e​l​e​c​t​ ​t​h​e​ ​a​c​t​i​v​e​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​,​ ​t​h​e​n​ ​c​h​o​o​s​e​ ​D​e​t​a​i​l​s​ ​>​ ​P​r​o​x​i​e​s​.​ ​R​e​t​u​r​n​ ​t​o​ ​M​i​s​h​ ​a​n​d​ ​r​e​t​r​y​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​f​t​e​r​ ​r​e​v​i​e​w​i​n​g​ ​t​h​e​ ​e​x​t​e​r​n​a​l​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
+		 */
+		systemProxySettingsDispatchFailed: string
+		/**
+		 * O​p​e​n​ ​S​y​s​t​e​m​ ​S​e​t​t​i​n​g​s​ ​>​ ​N​e​t​w​o​r​k​,​ ​s​e​l​e​c​t​ ​t​h​e​ ​a​c​t​i​v​e​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​,​ ​t​h​e​n​ ​c​h​o​o​s​e​ ​D​e​t​a​i​l​s​ ​>​ ​P​r​o​x​i​e​s​.​ ​R​e​t​u​r​n​ ​t​o​ ​M​i​s​h​ ​a​n​d​ ​r​e​t​r​y​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​f​t​e​r​ ​r​e​v​i​e​w​i​n​g​ ​t​h​e​ ​e​x​t​e​r​n​a​l​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
+		 */
+		systemProxySettingsManual: string
+		/**
+		 * O​p​e​n​ ​P​r​o​x​y​ ​S​e​t​t​i​n​g​s​ ​M​a​n​u​a​l​l​y
+		 */
+		systemProxySettingsManualTitle: string
+		/**
+		 * T​h​i​s​ ​m​a​c​O​S​ ​v​e​r​s​i​o​n​ ​c​a​n​'​t​ ​o​p​e​n​ ​N​e​t​w​o​r​k​ ​s​e​t​t​i​n​g​s​ ​f​r​o​m​ ​M​i​s​h​.​ ​O​p​e​n​ ​S​y​s​t​e​m​ ​S​e​t​t​i​n​g​s​ ​>​ ​N​e​t​w​o​r​k​,​ ​s​e​l​e​c​t​ ​t​h​e​ ​a​c​t​i​v​e​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​,​ ​t​h​e​n​ ​c​h​o​o​s​e​ ​D​e​t​a​i​l​s​ ​>​ ​P​r​o​x​i​e​s​.​ ​R​e​t​u​r​n​ ​t​o​ ​M​i​s​h​ ​a​n​d​ ​r​e​t​r​y​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​f​t​e​r​ ​r​e​v​i​e​w​i​n​g​ ​t​h​e​ ​e​x​t​e​r​n​a​l​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
+		 */
+		systemProxySettingsUnsupported: string
 		/**
 		 * A​u​t​o​m​a​t​i​c​ ​o​r​ ​a​u​t​h​e​n​t​i​c​a​t​e​d​ ​p​r​o​x​y​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​a​c​t​i​v​e​.​ ​M​i​s​h​ ​l​e​f​t​ ​t​h​e​m​ ​u​n​c​h​a​n​g​e​d​.
 		 */
@@ -5429,7 +5453,7 @@ export type TranslationFunctions = {
 		 */
 		captureTunTitle: () => LocalizedString
 		/**
-		 * Welcome complete. The invitation was removed from Notifications.
+		 * Welcome complete. You can reopen the introduction from Notifications.
 		 */
 		completedAnnouncement: () => LocalizedString
 		/**
@@ -5763,6 +5787,14 @@ export type TranslationFunctions = {
 		 */
 		repairSystemProxy: () => LocalizedString
 		/**
+		 * Review Proxy Settings
+		 */
+		reviewSystemProxySettings: () => LocalizedString
+		/**
+		 * Show Manual Steps
+		 */
+		showSystemProxySettingsSteps: () => LocalizedString
+		/**
 		 * System Proxy
 		 */
 		systemProxy: () => LocalizedString
@@ -5818,6 +5850,22 @@ export type TranslationFunctions = {
 		 * System Proxy differs from Mish's requested state. Repair requires a running Mihomo core; keep the current OS settings to clear this recovery state before starting the proxy again.
 		 */
 		systemProxyRepairRequiresCore: () => LocalizedString
+		/**
+		 * Mish couldn't open System Settings. Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.
+		 */
+		systemProxySettingsDispatchFailed: () => LocalizedString
+		/**
+		 * Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.
+		 */
+		systemProxySettingsManual: () => LocalizedString
+		/**
+		 * Open Proxy Settings Manually
+		 */
+		systemProxySettingsManualTitle: () => LocalizedString
+		/**
+		 * This macOS version can't open Network settings from Mish. Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.
+		 */
+		systemProxySettingsUnsupported: () => LocalizedString
 		/**
 		 * Automatic or authenticated proxy settings are active. Mish left them unchanged.
 		 */
