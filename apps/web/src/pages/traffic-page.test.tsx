@@ -140,6 +140,20 @@ class PendingFilteredTrafficClient extends CommandTrafficClient {
   }
 }
 
+class IconTrafficClient extends FixtureTrafficClient {
+  readonly iconRequests: string[] = [];
+
+  override async getProcessIcon(connectionId: string) {
+    this.iconRequests.push(connectionId);
+    return {
+      dataUrl:
+        connectionId === "fixture-connection-1"
+          ? ("data:image/png;base64,iVBORw0KGgo=" as const)
+          : null,
+    };
+  }
+}
+
 async function commandClient() {
   const client = new CommandTrafficClient();
   const snapshot = await client.getSnapshot();
@@ -185,6 +199,22 @@ describe("Traffic page", () => {
     expect(chain).toHaveTextContent("Fixture Relay");
     expect(chain).toHaveTextContent("Fixture Exit");
     expect(dialog).toHaveTextContent("/synthetic/apps/fixture-browser");
+  });
+
+  it("renders a decorative process icon and reuses it by process path", async () => {
+    const client = new IconTrafficClient();
+    renderTraffic(client);
+
+    const row = await screen.findByRole("row", { name: /docs\.fixture\.invalid/ });
+    await waitFor(() =>
+      expect(row.querySelector("img")).toHaveAttribute("src", "data:image/png;base64,iVBORw0KGgo="),
+    );
+    expect(client.iconRequests.filter((id) => id === "fixture-connection-1")).toHaveLength(1);
+
+    const snapshot = await client.getSnapshot();
+    client.publishSnapshot({ ...snapshot, sequence: snapshot.sequence + 1 });
+    await waitFor(() => expect(row.querySelector("img")).toBeInTheDocument());
+    expect(client.iconRequests.filter((id) => id === "fixture-connection-1")).toHaveLength(1);
   });
 
   it("closes one only after confirmation and preserves it in local Closed history", async () => {

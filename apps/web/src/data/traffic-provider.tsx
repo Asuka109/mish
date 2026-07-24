@@ -37,6 +37,7 @@ interface TrafficContextValue {
   commandFailure: TrafficCommandFailure | null;
   connection: TrafficConnectionState;
   error: string | null;
+  getProcessIcon(connectionId: string, processPath: string | null): Promise<string | null>;
   isCurrent: boolean;
   isLoading: boolean;
   isCloseAllPending: boolean;
@@ -66,6 +67,8 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const closeAllPendingRef = useRef(false);
   const closeFilteredVisiblePendingRef = useRef(false);
   const pendingConnectionIdsRef = useRef(new Set<string>());
+  const processIconCacheRef = useRef(new Map<string, string>());
+  const processIconRequestsRef = useRef(new Map<string, Promise<string | null>>());
 
   const acceptSnapshot = useCallback((nextSnapshot: TrafficDataSnapshotDto) => {
     setSnapshot(nextSnapshot);
@@ -74,6 +77,8 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   }, []);
 
   useEffect(() => {
+    processIconCacheRef.current.clear();
+    processIconRequestsRef.current.clear();
     const controller = new AbortController();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
       setConnection(nextConnection);
@@ -209,6 +214,32 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     [acceptSnapshot, resolvedClient],
   );
 
+  const getProcessIcon = useCallback(
+    (connectionId: string, processPath: string | null) => {
+      if (!processPath) return Promise.resolve(null);
+      const cached = processIconCacheRef.current.get(processPath);
+      if (cached) return Promise.resolve(cached);
+      const pending = processIconRequestsRef.current.get(processPath);
+      if (pending) return pending;
+      const request = resolvedClient
+        .getProcessIcon(connectionId)
+        .then(({ dataUrl }) => {
+          if (!dataUrl) return null;
+          if (processIconCacheRef.current.size >= 128) {
+            const oldest = processIconCacheRef.current.keys().next().value;
+            if (oldest) processIconCacheRef.current.delete(oldest);
+          }
+          processIconCacheRef.current.set(processPath, dataUrl);
+          return dataUrl;
+        })
+        .catch(() => null)
+        .finally(() => processIconRequestsRef.current.delete(processPath));
+      processIconRequestsRef.current.set(processPath, request);
+      return request;
+    },
+    [resolvedClient],
+  );
+
   const value = useMemo<TrafficContextValue>(
     () => ({
       closeAllActive,
@@ -219,6 +250,7 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       commandFailure,
       connection,
       error,
+      getProcessIcon,
       isCurrent: snapshot?.phase === "ready" && !connection.stale,
       isLoading: snapshot === null && error === null,
       isCloseAllPending,
@@ -239,6 +271,7 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       connection,
       error,
       history.closed,
+      getProcessIcon,
       isCloseAllPending,
       isCloseFilteredVisiblePending,
       pendingConnectionIds,

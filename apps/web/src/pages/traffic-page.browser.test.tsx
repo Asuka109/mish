@@ -22,8 +22,19 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
 class BrowserCommandTrafficClient extends FixtureTrafficClient {
+  iconRequests: string[] = [];
   receivedAuthority: TrafficCommandAuthorityDto | null = null;
   receivedIds: string[] = [];
+
+  override async getProcessIcon(connectionId: string) {
+    this.iconRequests.push(connectionId);
+    return {
+      dataUrl:
+        connectionId === "fixture-connection-1"
+          ? ("data:image/png;base64,iVBORw0KGgo=" as const)
+          : null,
+    };
+  }
 
   supportsCommand(_command: TrafficCommandOperation) {
     return true;
@@ -96,6 +107,10 @@ describe("Traffic filtered-visible close", () => {
 
     const search = page.getByRole("textbox", { name: "Search Traffic" });
     await expect.element(search).toBeVisible();
+    await expect
+      .poll(() => container?.querySelector('img[src^="data:image/png;base64,"]') !== null)
+      .toBe(true);
+    expect(client.iconRequests.filter((id) => id === "fixture-connection-1")).toHaveLength(1);
     await userEvent.fill(search, "process:browser");
     await userEvent.click(page.getByRole("button", { name: "Close Visible Connections" }));
     await expect

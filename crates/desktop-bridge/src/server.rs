@@ -44,6 +44,7 @@ pub struct LoopbackServerConfig {
     pub profile_activation: Option<Arc<ProfileActivationCoordinator>>,
     pub profile_file_actions: Option<Arc<ProfileFileActions>>,
     pub profile_service: Option<Arc<DesktopProfileService>>,
+    pub process_icon_resolver: Option<Arc<dyn ProcessIconResolver>>,
     pub service_probes: Option<ServiceProbeConfig>,
     pub settings_service: Option<Arc<SettingsService>>,
 }
@@ -66,6 +67,15 @@ pub trait BrowserAssetSource: Send + Sync {
 
 pub trait BrowserPairingPrompt: Send + Sync {
     fn show_pin(&self, pin: &str) -> Result<(), String>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProcessIcon {
+    pub bytes: Arc<[u8]>,
+}
+
+pub trait ProcessIconResolver: Send + Sync {
+    fn resolve(&self, process_path: &Path) -> Option<ProcessIcon>;
 }
 
 const BROWSER_PAIRING_ATTEMPTS: u8 = 5;
@@ -412,6 +422,7 @@ pub async fn start_loopback_server_with_runtime_host_and_lifecycle(
             profile_activation: config.profile_activation,
             profile_file_actions: config.profile_file_actions,
             profile_service: config.profile_service,
+            process_icon_resolver: config.process_icon_resolver,
             runtime: runtime.clone(),
             service_probes: service_probes.clone(),
             settings_service: config.settings_service,

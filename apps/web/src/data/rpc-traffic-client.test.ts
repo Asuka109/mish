@@ -92,7 +92,7 @@ async function advertiseTrafficCommands(
     result: {
       bridgeVersion: "test",
       coreConfigured: true,
-      protocolVersion: 21,
+      protocolVersion: 22,
       statusCommands: { group: false, groupDelay: false, routing: false, services: false },
       trafficCommands: {
         closeAllActive: supported,
@@ -162,6 +162,55 @@ describe("RpcTrafficClient", () => {
 
     expect(snapshots.at(-1)?.sessionId).toBe("controller-2");
     expect(states.at(-1)).toBe("connected:false");
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("refreshes close capabilities when an inactive runtime becomes a live Traffic session", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcTrafficClient(rpc);
+    const snapshots: TrafficDataSnapshotDto[] = [];
+    client.subscribeSnapshots((snapshot) => snapshots.push(snapshot));
+
+    await authenticate(transport);
+    await advertiseTrafficCommands(transport, false);
+    const subscribe = await waitForRequest(transport, 2);
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: {
+        snapshot: trafficSnapshot({
+          phase: "unavailable",
+          profileId: "local",
+          sequence: 0,
+          sessionId: null,
+        }),
+        subscriptionId: "traffic-1",
+      },
+    });
+    await flushMicrotasks();
+    expect(client.supportsCommand("close-connection")).toBe(false);
+
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "traffic.snapshot",
+      params: {
+        snapshot: trafficSnapshot({ sessionId: "controller-1" }),
+        subscriptionId: "traffic-1",
+      },
+    });
+    await advertiseTrafficCommands(transport, true, 3);
+    await flushMicrotasks();
+
+    expect(snapshots.at(-1)?.sessionId).toBe("controller-1");
+    expect(client.supportsCommand("close-connection")).toBe(true);
+    expect(client.supportsCommand("close-filtered-visible")).toBe(true);
+    expect(client.supportsCommand("close-all-active")).toBe(true);
     client.dispose();
     rpc.dispose();
   });
@@ -247,6 +296,33 @@ describe("RpcTrafficClient", () => {
 
     await expect(command).resolves.toMatchObject({ status: "success", targetCount: 1 });
     expect(client.supportsCommand("close-connection")).toBe(true);
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("requests a process icon by current connection ID without exposing a file path", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcTrafficClient(rpc);
+    const command = client.getProcessIcon("stable-connection-id");
+    await authenticate(transport);
+    const request = await waitForRequest(transport, 1);
+    expect(request).toMatchObject({
+      method: "traffic.getProcessIcon",
+      params: { connectionId: "stable-connection-id" },
+    });
+    expect(JSON.stringify(request.params)).not.toMatch(/process|path|file|url/iu);
+    transport.respond({
+      id: request.id,
+      jsonrpc: "2.0",
+      result: { dataUrl: "data:image/png;base64,iVBORw0KGgo=" },
+    });
+
+    await expect(command).resolves.toEqual({ dataUrl: "data:image/png;base64,iVBORw0KGgo=" });
     client.dispose();
     rpc.dispose();
   });

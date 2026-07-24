@@ -300,11 +300,18 @@ impl DesktopRuntimeHost {
     }
 
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {
+        serde_json::to_value(self.traffic_snapshot_typed(adapter_kind))
+            .expect("Traffic state must serialize")
+    }
+
+    pub fn traffic_snapshot_typed(
+        &self,
+        adapter_kind: StatusAdapterKind,
+    ) -> mish_runtime::TrafficDataSnapshot {
         loop {
             let mut changes = self.subscribe_changes();
             let runtime = changes.borrow_and_update().clone();
-            let snapshot = serde_json::to_value(runtime.traffic_snapshot_typed(adapter_kind))
-                .expect("Traffic state must serialize");
+            let snapshot = runtime.traffic_snapshot_typed(adapter_kind);
             if !changes.has_changed().unwrap_or(false) {
                 return snapshot;
             }

@@ -262,7 +262,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 21,
+              protocolVersion: 22,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: {
                 closeAllActive: false,
@@ -378,6 +378,8 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
           case "status.restoreDefaultServices":
             snapshot.services = [structuredClone(defaultService)];
             return structuredClone(snapshot);
+          case "traffic.getProcessIcon":
+            return { dataUrl: null };
           case "status.subscribe": {
             const subscriptionId = `status-${crypto.randomUUID()}`;
             subscriptions.get(socket)?.add(subscriptionId);

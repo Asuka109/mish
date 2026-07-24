@@ -420,6 +420,15 @@ export const TrafficConnectionSchema = z
   .strict();
 export interface TrafficConnectionDto extends z.infer<typeof TrafficConnectionSchema> {}
 
+export const ProcessIconDataUrlSchema = z
+  .string()
+  .max(350_000)
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/u);
+export const ProcessIconResultSchema = z
+  .object({ dataUrl: ProcessIconDataUrlSchema.nullable() })
+  .strict();
+export interface ProcessIconResultDto extends z.infer<typeof ProcessIconResultSchema> {}
+
 export const EffectiveRuleSchema = z
   .object({
     enabled: z.boolean(),
@@ -562,6 +571,7 @@ export const CloseFilteredVisibleTrafficCommandSchema = z
       .refine((ids) => new Set(ids).size === ids.length, "Connection IDs must be unique"),
   })
   .strict();
+export const GetProcessIconCommandSchema = z.object({ connectionId: IdentifierSchema }).strict();
 
 export const EventLevelSchema = z.enum(["debug", "info", "warning", "error"]);
 export type EventLevel = z.infer<typeof EventLevelSchema>;
@@ -1956,7 +1966,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(21),
+    protocolVersion: z.literal(22),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -2730,6 +2740,10 @@ export const trafficRpcMethods = {
     params: CloseFilteredVisibleTrafficCommandSchema,
     result: RpcTrafficCommandResultSchema,
   },
+  "traffic.getProcessIcon": {
+    params: GetProcessIconCommandSchema,
+    result: ProcessIconResultSchema,
+  },
   "traffic.getSnapshot": { params: EmptyCommandSchema, result: RpcTrafficDataSnapshotSchema },
   "traffic.subscribe": { params: EmptyCommandSchema, result: TrafficSubscriptionSchema },
   "traffic.unsubscribe": { params: TrafficSubscriptionIdSchema, result: z.boolean() },
@@ -3243,6 +3257,10 @@ export interface TrafficClient {
     connectionIds: string[],
     options?: { signal?: AbortSignal },
   ): Promise<TrafficCommandResultDto>;
+  getProcessIcon(
+    connectionId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProcessIconResultDto>;
   dispose(): void;
   getConnectionState(): TrafficConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<TrafficDataSnapshotDto>;

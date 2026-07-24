@@ -24,6 +24,7 @@ export class RpcTrafficClient implements TrafficClient {
   private capabilitiesLoaded = false;
   private capabilitiesPromise: Promise<void> | null = null;
   private remoteSubscriptionId: string | null = null;
+  private observedSessionId: string | null | undefined;
   private subscriptionPromise: Promise<void> | null = null;
   private subscriptionRetryPending = false;
   private readonly unsubscribeNotification: () => void;
@@ -111,6 +112,14 @@ export class RpcTrafficClient implements TrafficClient {
     }
   }
 
+  async getProcessIcon(connectionId: string, options?: RpcRequestOptions) {
+    try {
+      return await this.rpc.request("traffic.getProcessIcon", { connectionId }, options);
+    } catch (error) {
+      throw toTrafficClientError(error);
+    }
+  }
+
   subscribeConnection(listener: (state: TrafficConnectionState) => void) {
     this.connectionListeners.add(listener);
     listener(this.getConnectionState());
@@ -172,6 +181,7 @@ export class RpcTrafficClient implements TrafficClient {
     const mapped = mapConnectionState(state);
     if (mapped.phase === "connected") {
       this.capabilitiesLoaded = false;
+      this.observedSessionId = undefined;
       this.remoteSubscriptionId = null;
       this.emitConnectionState({ ...mapped, stale: true });
       void this.ensureRemoteSubscription();
@@ -206,8 +216,26 @@ export class RpcTrafficClient implements TrafficClient {
 
   private receiveSnapshot(notification: TrafficSnapshotNotificationDto) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
+    const sessionChanged =
+      this.observedSessionId !== undefined &&
+      this.observedSessionId !== notification.snapshot.sessionId;
+    this.observedSessionId = notification.snapshot.sessionId;
+    if (sessionChanged) {
+      this.capabilitiesLoaded = false;
+      void this.ensureCapabilities()
+        .then(() => this.publishSnapshot(notification.snapshot))
+        .catch(() => {
+          if (this.connectionState.phase !== "connected") return;
+          this.emitConnectionState({ ...this.connectionState, stale: true });
+        });
+      return;
+    }
+    this.publishSnapshot(notification.snapshot);
+  }
+
+  private publishSnapshot(snapshot: TrafficDataSnapshotDto) {
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-    for (const listener of this.snapshotListeners) listener(notification.snapshot);
+    for (const listener of this.snapshotListeners) listener(snapshot);
   }
 }
 

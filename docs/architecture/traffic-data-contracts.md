@@ -42,6 +42,19 @@ honest unavailable state. Process strings remain bounded by Controller
 validation and the local authenticated DTO boundary, and no remote, export, or
 telemetry surface is added.
 
+On supported macOS desktops, the UI may request a process icon lazily through
+`traffic.getProcessIcon`. The browser supplies only a current connection ID.
+Rust resolves that ID against the current authoritative Traffic snapshot and
+passes its already-validated process path to the platform adapter; RPC schemas
+reject a browser-supplied path, and missing or stale IDs return no icon. The
+platform adapter accepts only absolute existing files, prefers the enclosing
+application bundle, renders a bounded 64 × 64 PNG, and caps paths at 16 KiB and
+results at 256 KiB. It keeps at most 256 positive or negative entries and 8 MiB
+of PNG data. The UI deduplicates in-flight requests and keeps at most 128
+successful path-keyed results. Icons therefore stay inside the same
+authenticated loopback privacy boundary as process names and paths without
+creating an arbitrary local-file read surface.
+
 Connection byte counters are decimal strings. Mihomo exposes signed 64-bit
 values; the mapper rejects negatives transactionally and serializes valid values
 without losing precision in JavaScript. Sorting uses exact integer comparison.
@@ -72,6 +85,10 @@ the socket event cursor before sampling and sends the response before later
 notifications, matching the Status subscription ordering barrier. The RPC
 adapter also marks Traffic stale as soon as its transport disconnects. It does
 not continue presenting the last active rows as current while reconnecting.
+The adapter invalidates and refreshes its advertised close capabilities when
+the authoritative Traffic session ID changes. An application opened while the
+runtime is inactive therefore does not retain a permanently disabled command
+set after a profile starts.
 
 Desktop profile activation replaces the shared runtime host only after the
 candidate's first valid Traffic and Status observations and active-state commit.

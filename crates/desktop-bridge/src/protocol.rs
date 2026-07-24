@@ -4,6 +4,7 @@ use std::{
 };
 
 use axum::extract::ws::{Message, WebSocket};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -31,6 +32,8 @@ use uuid::Uuid;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_SUBSCRIPTION_ID: AtomicU64 = AtomicU64::new(1);
+const PROCESS_ICON_MAX_BYTES: usize = 262_144;
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,6 +60,7 @@ pub(crate) struct ProtocolState {
     pub profile_activation: Option<std::sync::Arc<crate::ProfileActivationCoordinator>>,
     pub profile_file_actions: Option<std::sync::Arc<crate::ProfileFileActions>>,
     pub profile_service: Option<std::sync::Arc<crate::DesktopProfileService>>,
+    pub process_icon_resolver: Option<std::sync::Arc<dyn crate::ProcessIconResolver>>,
     pub runtime: crate::DesktopRuntimeHost,
     pub service_probes: Option<crate::service_probes::ServiceProbeService>,
     pub settings_service: Option<std::sync::Arc<SettingsService>>,
@@ -321,6 +325,12 @@ struct CloseAllActiveParams {
 struct CloseFilteredVisibleParams {
     authority: TrafficCommandAuthority,
     connection_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GetProcessIconParams {
+    connection_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -730,7 +740,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 21,
+            "protocolVersion": 22,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -942,6 +952,31 @@ async fn handle_message(
             json!(subscriptions.status_ids.remove(subscription_id))
         }
         "traffic.getSnapshot" => state.runtime.traffic_snapshot(StatusAdapterKind::Rpc),
+        "traffic.getProcessIcon" => {
+            let params: GetProcessIconParams =
+                match serde_json::from_value::<GetProcessIconParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.connection_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            let snapshot = state.runtime.traffic_snapshot_typed(StatusAdapterKind::Rpc);
+            let process_path = snapshot
+                .active_connections
+                .iter()
+                .find(|connection| connection.id == params.connection_id)
+                .and_then(|connection| connection.process_path.as_deref());
+            let icon = process_path
+                .zip(state.process_icon_resolver.as_deref())
+                .and_then(|(path, resolver)| resolver.resolve(std::path::Path::new(path)))
+                .filter(|icon| {
+                    icon.bytes.len() <= PROCESS_ICON_MAX_BYTES
+                        && icon.bytes.starts_with(PNG_SIGNATURE)
+                });
+            json!({
+                "dataUrl": icon.map(|icon| {
+                    format!("data:image/png;base64,{}", STANDARD.encode(icon.bytes))
+                })
+            })
+        }
         "traffic.closeConnection" => {
             let params: CloseConnectionParams =
                 match serde_json::from_value::<CloseConnectionParams>(request.params) {

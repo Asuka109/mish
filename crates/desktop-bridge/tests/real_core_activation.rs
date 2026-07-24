@@ -103,6 +103,7 @@ fn bridge_config() -> LoopbackServerConfig {
         profile_activation: None,
         profile_file_actions: None,
         profile_service: None,
+        process_icon_resolver: None,
         service_probes: None,
         settings_service: None,
     }

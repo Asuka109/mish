@@ -925,6 +925,9 @@ fn initialize(
                     profile_root.join("profiles"),
                 ))),
                 profile_service: Some(profile_service.clone()),
+                process_icon_resolver: Some(Arc::new(
+                    mish_platform_macos::MacOsProcessIconResolver::default(),
+                )),
                 service_probes: Some(mish_bridge::ServiceProbeConfig {
                     state_path: Some(profile_root.join("service-monitors.json")),
                 }),

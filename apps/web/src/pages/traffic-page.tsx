@@ -135,6 +135,9 @@ const trafficStyles = tv({
       "border-0 bg-transparent p-0 text-left text-ink hover:bg-transparent [&_span]:truncate",
       "[&_small]:text-metadata [&_small]:text-muted-foreground",
     ),
+    processIdentity: "flex min-w-0 items-center gap-2",
+    processIcon: "size-5 shrink-0 rounded-sm object-contain",
+    processName: "truncate",
     rule: cx(
       "block overflow-hidden text-ellipsis font-medium text-fg [&+small]:block",
       "[&+small]:overflow-hidden [&+small]:text-ellipsis [&+small]:text-muted-foreground",
@@ -754,7 +757,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
               </Button>
             </TableCell>
             <TableCell title={connection.processPath ?? LL.traffic.processUnavailableDescription()}>
-              {connection.processName ?? LL.traffic.unavailable()}
+              <ProcessIdentity connection={connection} LL={LL} />
             </TableCell>
             <TableCell className="tabular-nums">
               {connection.network.toUpperCase()} · {connection.protocol}
@@ -795,6 +798,46 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function ProcessIdentity({
+  connection,
+  LL,
+}: {
+  connection: TrafficConnectionDto;
+  LL: TranslationFunctions;
+}) {
+  const { getProcessIcon } = useTraffic();
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setDataUrl(null);
+    void getProcessIcon(connection.id, connection.processPath).then((icon) => {
+      if (active) setDataUrl(icon);
+    });
+    return () => {
+      active = false;
+    };
+  }, [connection.id, connection.processPath, getProcessIcon]);
+
+  return (
+    <span className={trafficStyles().processIdentity()}>
+      {dataUrl ? (
+        <img
+          alt=""
+          aria-hidden="true"
+          className={trafficStyles().processIcon()}
+          height={20}
+          src={dataUrl}
+          width={20}
+        />
+      ) : null}
+      <span className={trafficStyles().processName()}>
+        {connection.processName ?? LL.traffic.unavailable()}
+      </span>
+    </span>
   );
 }
 
