@@ -233,21 +233,34 @@ Proxy drift or the app was previously terminated abnormally, reopen it and use
 the offered repair action before deleting its data. `scutil --proxy` can be used
 as a read-only final check.
 
-Move the installed app and its account-local state to the Trash:
+Preview the exact app and account-local state that the cleanup will move to the
+Trash:
 
 ```sh
-trash "$HOME/Applications/Mish.app"
-trash "$HOME/Library/Application Support/com.asuka109.mish"
-test ! -e "$HOME/Library/LaunchAgents/Mish.plist" || \
-  trash "$HOME/Library/LaunchAgents/Mish.plist"
+pnpm macos:alpha:test:clean
 ```
 
-If the app was placed in `/Applications`, move `/Applications/Mish.app` to the
-Trash in Finder instead. User-selected exports and backups live at their chosen
-destinations and are intentionally not deleted. The ad-hoc app package contains
-no TUN helper, launch daemon, system extension, updater, or crash-reporting
-state. A developer who separately installed the development TUN service must
-also run `pnpm macos:tun:uninstall` from the trusted checkout.
+The preview refuses to continue while a Mish desktop or managed Core process is
+running, a System Proxy recovery journal exists, or an enabled loopback System
+Proxy remains observable. It never kills a process, force-detaches a disk image,
+or touches a Mish DMG mounted by another worktree. Resolve every reported
+ownership blocker through Mish's normal quit or offered recovery flow.
+
+After reviewing the preview, perform the cleanup explicitly:
+
+```sh
+pnpm macos:alpha:test:clean -- --apply
+```
+
+The apply path unregisters an account-local Mish LaunchAgent and moves only the
+listed installed apps and account-local containers, caches, WebKit data, saved
+state, logs, and preferences to the Trash. Those listed files remain
+recoverable until the Trash is emptied. User-selected exports and backups,
+mounted DMGs, and development TUN services are intentionally not deleted. The
+ad-hoc app package contains no TUN helper, launch daemon, system extension,
+updater, or crash-reporting state. A developer who separately installed the
+development TUN service must also run `pnpm macos:tun:uninstall` from the trusted
+checkout.
 
 ## Developer ID and notarization secrets
 
