@@ -96,7 +96,10 @@ function knownPresentation(
         toast: boolean("prompt") ? "present" : "never",
       };
     case "profile.activation-failed":
-      return { message: LL.profiles.activationFailed() };
+      return {
+        actions: [openDiagnosticsAction(LL, activationDiagnosticFailure(string("failure")))],
+        message: LL.profiles.activationFailed(),
+      };
     case "profile.activation-asn-failed":
     case "profile.activation-geoip-failed":
     case "profile.activation-geosite-failed":
@@ -280,6 +283,14 @@ function openDiagnosticsAction(
   diagnosticFailure?: string,
 ): NotificationActionDescriptor {
   return { diagnosticFailure, id: "open-diagnostics", label: LL.diagnostics.open() };
+}
+
+function activationDiagnosticFailure(failure: string | undefined) {
+  if (failure === "version-mismatch") return "version-drift";
+  if (failure === "capture") return "capture-drift";
+  if (failure === "invalid-profile") return "profile-invalid";
+  if (failure === "cancelled") return "cancelled";
+  return "core-unhealthy";
 }
 
 function openSystemProxySettingsAction(LL: TranslationFunctions): NotificationActionDescriptor {

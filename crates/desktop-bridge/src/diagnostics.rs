@@ -221,7 +221,14 @@ impl DiagnosticCoordinator {
             return;
         }
 
-        let core = runtime.core_status().await;
+        let core = match tokio::time::timeout(PROBE_TIMEOUT, runtime.core_status()).await {
+            Ok(status) => status,
+            Err(_) => {
+                self.push_check(&run_id, timed_out_core_check(&run_id));
+                self.finish(&run_id);
+                return;
+            }
+        };
         self.push_check(&run_id, core_check(&run_id, &core));
         let status = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
         self.set_profile(&run_id, status.active_profile_id.clone());
@@ -412,6 +419,24 @@ fn core_check(run_id: &str, core: &mish_runtime::CoreStatus) -> DiagnosticCheck 
         scope: "Managed pinned Mihomo process",
         started_at: at,
         status,
+    }
+}
+
+fn timed_out_core_check(run_id: &str) -> DiagnosticCheck {
+    let at = now_milliseconds();
+    DiagnosticCheck {
+        failure: Some(DiagnosticFailure::CoreUnhealthy),
+        finished_at: at,
+        id: format!("{run_id}:core"),
+        interpretation: "The managed core state did not respond before the bounded diagnostic deadline.",
+        kind: DiagnosticCheckKind::Core,
+        observed_fact: DiagnosticObservedFact::Failure {
+            reason: "The bounded core state check timed out",
+        },
+        route_target: DiagnosticRouteTarget::ManagedCore,
+        scope: "Managed pinned Mihomo process",
+        started_at: at,
+        status: DiagnosticCheckStatus::Failed,
     }
 }
 
@@ -840,6 +865,14 @@ mod tests {
             proxy.failure,
             Some(DiagnosticFailure::ControllerDisconnected)
         );
+
+        let timed_out = timed_out_core_check("run");
+        assert_eq!(timed_out.status, DiagnosticCheckStatus::Failed);
+        assert_eq!(timed_out.failure, Some(DiagnosticFailure::CoreUnhealthy));
+        assert!(matches!(
+            timed_out.route_target,
+            DiagnosticRouteTarget::ManagedCore
+        ));
     }
 
     #[test]

@@ -67,6 +67,18 @@ describe("notification presentation registry", () => {
     expect(
       presentNotification(
         notificationRecord({
+          id: "notification:activation-missing-binary",
+          params: { failure: "missing-binary" },
+          type: "profile.activation-failed",
+        }),
+        LL,
+      ).actions,
+    ).toEqual([
+      { diagnosticFailure: "core-unhealthy", id: "open-diagnostics", label: "Open Diagnostics" },
+    ]);
+    expect(
+      presentNotification(
+        notificationRecord({
           id: "notification:startup-failure-zh",
           params: { failure: "core-unhealthy" },
           type: "system-proxy.failed",
