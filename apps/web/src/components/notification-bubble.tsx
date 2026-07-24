@@ -3,6 +3,13 @@ import { X } from "@phosphor-icons/react/X";
 import {
   Badge,
   Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -14,7 +21,7 @@ import {
   PopoverTrigger,
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, useNavigate } from "react-router";
 import { useCaptureCommand } from "../data/capture-command";
 import { useNotificationDelivery, type DeliveredNotification } from "../data/notification-delivery";
@@ -26,6 +33,11 @@ import { useProduct } from "../data/product-provider";
 import { useOptionalSettings } from "../data/settings-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
+import {
+  nativeSystemProxySettingsOpener,
+  type SystemProxySettingsOpenOutcome,
+  type SystemProxySettingsOpener,
+} from "../platform/system-proxy-settings";
 import { WelcomeDialog } from "./welcome-dialog";
 import { NotificationPublicationController } from "./notification-publication-controller";
 
@@ -64,7 +76,7 @@ const notificationStyles = tv({
     message:
       "notification-message cursor-text wrap-anywhere text-metadata leading-4.75 font-medium text-fg select-text",
     detail:
-      "notification-detail mt-0.75 wrap-anywhere text-metadata leading-4.5 text-muted-foreground",
+      "notification-detail mt-0.75 cursor-text wrap-anywhere text-metadata leading-4.5 text-muted-foreground select-text",
     remove: cx(
       "notification-remove absolute top-1.75 right-2 size-6.5 opacity-0 pointer-events-none",
       "transition-opacity duration-120 ease-out group-hover/item:opacity-100",
@@ -78,7 +90,11 @@ const notificationStyles = tv({
   },
 });
 
-export function NotificationBubble() {
+export function NotificationBubble({
+  systemProxySettingsOpener = nativeSystemProxySettingsOpener,
+}: {
+  systemProxySettingsOpener?: SystemProxySettingsOpener;
+}) {
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const settings = useOptionalSettings();
@@ -89,16 +105,25 @@ export function NotificationBubble() {
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [pendingActions, setPendingActions] = useState<ReadonlyMap<string, string>>(new Map());
+  const [systemProxySettingsGuidance, setSystemProxySettingsGuidance] =
+    useState<SystemProxySettingsGuidance | null>(null);
+  const executingActions = useRef(new Set<string>());
   const presented = useRef<ReadonlyMap<string, string>>(new Map());
 
   const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const execute = useCallback(
     async (notificationId: string, actionId: string) => {
-      if (pendingActions.has(notificationId)) return;
+      if (executingActions.current.has(notificationId)) return;
       const notification = entryById.get(notificationId);
       const action = notification?.actions.find(({ id }) => id === actionId);
       if (!notification || !action) return;
-      setPendingActions((current) => new Map(current).set(notificationId, actionId));
+      executingActions.current.add(notificationId);
+      const showPending =
+        actionId !== "open-system-proxy-settings" &&
+        actionId !== "show-system-proxy-settings-steps";
+      if (showPending) {
+        setPendingActions((current) => new Map(current).set(notificationId, actionId));
+      }
       try {
         if (actionId === "repair") await recoverSystemProxy("repair");
         else if (actionId === "leave-as-is") await recoverSystemProxy("leave-as-is");
@@ -117,20 +142,41 @@ export function NotificationBubble() {
           dismissNotificationToast(notificationId);
           setOpen(false);
           navigate("/events?diagnostics=1");
-        } else if (actionId === "open-system-proxy-policy") {
-          dismissNotificationToast(notificationId);
+        } else if (actionId === "show-system-proxy-settings-steps") {
           setOpen(false);
-          navigate("/settings?focus=system-proxy-takeover-policy");
+          setSystemProxySettingsGuidance("manual");
+        } else if (actionId === "open-system-proxy-settings") {
+          let outcome: SystemProxySettingsOpenOutcome;
+          try {
+            outcome = await systemProxySettingsOpener.open();
+          } catch {
+            outcome = "dispatch-failed";
+          }
+          if (outcome !== "opened") {
+            setOpen(false);
+            setSystemProxySettingsGuidance(outcome);
+          }
         }
       } finally {
-        setPendingActions((current) => {
-          const next = new Map(current);
-          next.delete(notificationId);
-          return next;
-        });
+        executingActions.current.delete(notificationId);
+        if (showPending) {
+          setPendingActions((current) => {
+            const next = new Map(current);
+            next.delete(notificationId);
+            return next;
+          });
+        }
       }
     },
-    [entryById, navigate, pendingActions, recoverSystemProxy, setCapture, settings, snapshot],
+    [
+      entryById,
+      navigate,
+      recoverSystemProxy,
+      setCapture,
+      settings,
+      snapshot,
+      systemProxySettingsOpener,
+    ],
   );
 
   useEffect(() => {
@@ -252,7 +298,61 @@ export function NotificationBubble() {
           returnFocusRef={notificationTriggerRef}
         />
       ) : null}
+      <SystemProxySettingsGuidanceDialog
+        guidance={systemProxySettingsGuidance}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setSystemProxySettingsGuidance(null);
+        }}
+        returnFocusRef={notificationTriggerRef}
+      />
     </>
+  );
+}
+
+type SystemProxySettingsGuidance = Exclude<SystemProxySettingsOpenOutcome, "opened"> | "manual";
+
+interface SystemProxySettingsGuidanceDialogProps {
+  guidance: SystemProxySettingsGuidance | null;
+  onOpenChange(open: boolean): void;
+  returnFocusRef: RefObject<HTMLElement | null>;
+}
+
+function SystemProxySettingsGuidanceDialog({
+  guidance,
+  onOpenChange,
+  returnFocusRef,
+}: SystemProxySettingsGuidanceDialogProps) {
+  const { LL } = useI18nContext();
+  const acknowledgeRef = useRef<HTMLButtonElement>(null);
+  const description =
+    guidance === "unsupported-version"
+      ? LL.capture.systemProxySettingsUnsupported()
+      : guidance === "dispatch-failed"
+        ? LL.capture.systemProxySettingsDispatchFailed()
+        : LL.capture.systemProxySettingsManual();
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={guidance !== null}>
+      <DialogContent
+        closeLabel={LL.common.close()}
+        finalFocus={returnFocusRef}
+        initialFocus={acknowledgeRef}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle>{LL.capture.systemProxySettingsManualTitle()}</DialogTitle>
+            <DialogDescription className="cursor-text select-text" data-native-text-interaction>
+              {description}
+            </DialogDescription>
+          </div>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button ref={acknowledgeRef} variant="outline" />}>
+            {LL.capture.acknowledge()}
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
