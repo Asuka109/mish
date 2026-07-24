@@ -18,7 +18,6 @@ export interface DeliveredNotification {
   actions: readonly NotificationActionDescriptor[];
   detail?: string;
   duration?: number;
-  detailAnnouncement?: boolean;
   id: string;
   level: NotificationSeverity;
   message: string;

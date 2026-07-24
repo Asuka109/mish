@@ -58,9 +58,10 @@ System Proxy takeover refusals use a closed, redacted Rust reason only. The pres
 recognized reason to a zero-argument native action; it never renders host names, PAC URLs,
 credentials, service identities, or raw platform observations. The macOS Adapter owns one fixed
 Network proxy destination and reports only confirmed dispatch, never a proxy-setting change.
-Unsupported versions and failed dispatch keep the rejection record and expose localized manual
-navigation plus explicit retry guidance. A secondary manual-steps action exposes the same safe
-fallback in a supported packaged application without simulating a native failure.
+Unsupported versions and failed dispatch keep the rejection record and open a localized manual
+navigation dialog with explicit retry guidance. A secondary manual-steps action opens the same safe
+dialog in a supported packaged application without simulating a native failure. The dialog closes
+the notification popover, returns focus to its trigger, and never resolves the rejection record.
 
 This split provides **Leverage**: Rust guarantees one synchronized lifecycle for
 every surface while TypeScript can re-localize retained records without changing

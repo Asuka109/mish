@@ -412,6 +412,7 @@ const zh = {
       "Mish 无法打开“系统设置”。请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
     systemProxySettingsManual:
       "请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
+    systemProxySettingsManualTitle: "手动打开代理设置",
     systemProxySettingsUnsupported:
       "当前 macOS 版本无法由 Mish 打开网络设置。请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
     systemProxyUnsafeFailure: "macOS 正在使用自动代理或需要密码的代理，Mish 没有覆盖这些设置。",

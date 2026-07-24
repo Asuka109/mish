@@ -1419,6 +1419,10 @@ type RootTranslation = {
 		 */
 		systemProxySettingsManual: string
 		/**
+		 * O​p​e​n​ ​P​r​o​x​y​ ​S​e​t​t​i​n​g​s​ ​M​a​n​u​a​l​l​y
+		 */
+		systemProxySettingsManualTitle: string
+		/**
 		 * T​h​i​s​ ​m​a​c​O​S​ ​v​e​r​s​i​o​n​ ​c​a​n​'​t​ ​o​p​e​n​ ​N​e​t​w​o​r​k​ ​s​e​t​t​i​n​g​s​ ​f​r​o​m​ ​M​i​s​h​.​ ​O​p​e​n​ ​S​y​s​t​e​m​ ​S​e​t​t​i​n​g​s​ ​>​ ​N​e​t​w​o​r​k​,​ ​s​e​l​e​c​t​ ​t​h​e​ ​a​c​t​i​v​e​ ​n​e​t​w​o​r​k​ ​s​e​r​v​i​c​e​,​ ​t​h​e​n​ ​c​h​o​o​s​e​ ​D​e​t​a​i​l​s​ ​>​ ​P​r​o​x​i​e​s​.​ ​R​e​t​u​r​n​ ​t​o​ ​M​i​s​h​ ​a​n​d​ ​r​e​t​r​y​ ​S​y​s​t​e​m​ ​P​r​o​x​y​ ​a​f​t​e​r​ ​r​e​v​i​e​w​i​n​g​ ​t​h​e​ ​e​x​t​e​r​n​a​l​ ​c​o​n​f​i​g​u​r​a​t​i​o​n​.
 		 */
 		systemProxySettingsUnsupported: string
@@ -5854,6 +5858,10 @@ export type TranslationFunctions = {
 		 * Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.
 		 */
 		systemProxySettingsManual: () => LocalizedString
+		/**
+		 * Open Proxy Settings Manually
+		 */
+		systemProxySettingsManualTitle: () => LocalizedString
 		/**
 		 * This macOS version can't open Network settings from Mish. Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.
 		 */

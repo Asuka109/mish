@@ -142,15 +142,18 @@ describe("System Proxy takeover-rejection settings action", () => {
         ({ dedupeKey, resolved }) => dedupeKey === "capture.failure" && !resolved,
       ),
     ).toBe(true);
-    expect(document.querySelector(".notification-detail[role='status']")).toBeNull();
+    expect(document.querySelector(".dialog-content")).toBeNull();
   });
 
-  test("announces localized manual navigation without losing keyboard focus when unsupported", async () => {
+  test("opens localized manual navigation in a focus-safe dialog when unsupported", async () => {
     await renderTakeoverRejection("en", "unsupported-version");
     const action = page.getByRole("button", { exact: true, name: "Review Proxy Settings" });
     action.element().focus();
     await userEvent.keyboard("{Enter}");
 
+    await expect
+      .element(page.getByRole("dialog", { name: "Open Proxy Settings Manually" }))
+      .toBeVisible();
     const fallback = page.getByText("This macOS version can't open Network settings from Mish.", {
       exact: false,
     });
@@ -159,30 +162,36 @@ describe("System Proxy takeover-rejection settings action", () => {
       .toHaveTextContent(
         "Open System Settings > Network, select the active network service, then choose Details > Proxies.",
       );
-    expect(document.activeElement).toBe(action.element());
-    expect(action.element().getAttribute("aria-describedby")).toBe(fallback.element().id);
+    const acknowledge = page.getByRole("button", { exact: true, name: "Got It" });
+    expect(document.activeElement).toBe(acknowledge.element());
     await expect
       .element(page.getByLabelText("System Proxy retry state"))
       .toHaveTextContent("failed:true");
+
+    await userEvent.keyboard("{Enter}");
+    expect(document.activeElement).toBe(
+      document.querySelector<HTMLButtonElement>(".notification-trigger"),
+    );
   });
 
-  test("uses Chinese manual guidance and never claims success after dispatch failure", async () => {
+  test("uses a Chinese manual dialog and never claims success after dispatch failure", async () => {
     await renderTakeoverRejection("zh", new Error("injected dispatch failure"));
-    const action = page.getByRole("button", { exact: true, name: "查看代理设置" });
-    await userEvent.click(action);
-
-    const fallback = page.getByText("Mish 无法打开“系统设置”", { exact: false });
-    await expect.element(fallback).toHaveTextContent("Mish 无法打开“系统设置”");
-    await expect.element(fallback).toHaveTextContent("检查外部配置后返回 Mish，并显式重试系统代理");
-    expect(fallback.element().textContent).not.toContain("已打开");
     expect(
       [...document.querySelectorAll(".notification-actions button")].map(
         (button) => button.textContent,
       ),
     ).toEqual(["查看代理设置", "显示手动步骤"]);
+    const action = page.getByRole("button", { exact: true, name: "查看代理设置" });
+    await userEvent.click(action);
+
+    await expect.element(page.getByRole("dialog", { name: "手动打开代理设置" })).toBeVisible();
+    const fallback = page.getByText("Mish 无法打开“系统设置”", { exact: false });
+    await expect.element(fallback).toHaveTextContent("Mish 无法打开“系统设置”");
+    await expect.element(fallback).toHaveTextContent("检查外部配置后返回 Mish，并显式重试系统代理");
+    expect(fallback.element().textContent).not.toContain("已打开");
   });
 
-  test("exposes the packaged-app manual fallback after the native action", async () => {
+  test("opens the packaged-app manual fallback in a selectable modal dialog", async () => {
     await renderTakeoverRejection("en", "opened");
     const actions = [
       ...document.querySelectorAll<HTMLButtonElement>(".notification-actions button"),
@@ -196,12 +205,20 @@ describe("System Proxy takeover-rejection settings action", () => {
     manualAction.element().focus();
     await userEvent.keyboard("{Enter}");
 
+    await expect
+      .element(page.getByRole("dialog", { name: "Open Proxy Settings Manually" }))
+      .toBeVisible();
     const fallback = page.getByText(
       "Open System Settings > Network, select the active network service, then choose Details > Proxies.",
       { exact: false },
     );
     await expect.element(fallback).toBeVisible();
-    expect(document.activeElement).toBe(manualAction.element());
     expect(getComputedStyle(fallback.element()).userSelect).toBe("text");
+
+    await userEvent.click(page.getByRole("button", { exact: true, name: "Got It" }));
+    await userEvent.click(document.querySelector<HTMLButtonElement>(".notification-trigger")!);
+    await expect
+      .element(page.getByText(/Mish left the existing System Proxy configuration unchanged/))
+      .toBeVisible();
   });
 });

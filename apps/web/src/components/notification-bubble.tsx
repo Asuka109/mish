@@ -3,6 +3,13 @@ import { X } from "@phosphor-icons/react/X";
 import {
   Badge,
   Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -14,7 +21,7 @@ import {
   PopoverTrigger,
 } from "@mish/ui";
 import { cx, tv } from "@mish/ui/tv";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, useNavigate } from "react-router";
 import { useCaptureCommand } from "../data/capture-command";
 import { useNotificationDelivery, type DeliveredNotification } from "../data/notification-delivery";
@@ -98,40 +105,12 @@ export function NotificationBubble({
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [pendingActions, setPendingActions] = useState<ReadonlyMap<string, string>>(new Map());
-  const [systemProxySettingsFallbacks, setSystemProxySettingsFallbacks] = useState<
-    ReadonlyMap<string, Exclude<SystemProxySettingsOpenOutcome, "opened"> | "manual">
-  >(new Map());
+  const [systemProxySettingsGuidance, setSystemProxySettingsGuidance] =
+    useState<SystemProxySettingsGuidance | null>(null);
   const executingActions = useRef(new Set<string>());
   const presented = useRef<ReadonlyMap<string, string>>(new Map());
 
-  const presentedEntries = useMemo(
-    () =>
-      entries.map((entry) => {
-        const fallback = systemProxySettingsFallbacks.get(entry.id);
-        if (!fallback || !entry.actions.some(({ id }) => id === "open-system-proxy-settings")) {
-          return entry;
-        }
-        return {
-          ...entry,
-          detail:
-            fallback === "manual"
-              ? LL.capture.systemProxySettingsManual()
-              : fallback === "unsupported-version"
-                ? LL.capture.systemProxySettingsUnsupported()
-                : LL.capture.systemProxySettingsDispatchFailed(),
-          detailAnnouncement: true,
-        };
-      }),
-    [entries, LL, systemProxySettingsFallbacks],
-  );
-  const entryById = useMemo(
-    () => new Map(presentedEntries.map((entry) => [entry.id, entry])),
-    [presentedEntries],
-  );
-  const toastEntryById = useMemo(
-    () => new Map(presentedEntries.map((entry) => [entry.id, entry])),
-    [presentedEntries],
-  );
+  const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const execute = useCallback(
     async (notificationId: string, actionId: string) => {
       if (executingActions.current.has(notificationId)) return;
@@ -164,9 +143,8 @@ export function NotificationBubble({
           setOpen(false);
           navigate("/events?diagnostics=1");
         } else if (actionId === "show-system-proxy-settings-steps") {
-          setSystemProxySettingsFallbacks((current) =>
-            new Map(current).set(notificationId, "manual"),
-          );
+          setOpen(false);
+          setSystemProxySettingsGuidance("manual");
         } else if (actionId === "open-system-proxy-settings") {
           let outcome: SystemProxySettingsOpenOutcome;
           try {
@@ -175,9 +153,8 @@ export function NotificationBubble({
             outcome = "dispatch-failed";
           }
           if (outcome !== "opened") {
-            setSystemProxySettingsFallbacks((current) =>
-              new Map(current).set(notificationId, outcome),
-            );
+            setOpen(false);
+            setSystemProxySettingsGuidance(outcome);
           }
         }
       } finally {
@@ -204,8 +181,7 @@ export function NotificationBubble({
 
   useEffect(() => {
     const nextPresented = new Map<string, string>();
-    for (const sourceNotification of toastEntries) {
-      const notification = toastEntryById.get(sourceNotification.id) ?? sourceNotification;
+    for (const notification of toastEntries) {
       const pendingActionId = pendingActions.get(notification.id);
       const presentedNotification = { ...notification, pendingActionId };
       const signature = JSON.stringify({
@@ -233,9 +209,9 @@ export function NotificationBubble({
       if (!nextPresented.has(id)) dismissNotificationToast(id);
     }
     presented.current = nextPresented;
-  }, [execute, pendingActions, toastEntries, toastEntryById]);
+  }, [execute, pendingActions, toastEntries]);
 
-  const retainedNotifications = presentedEntries;
+  const retainedNotifications = entries;
   const unreadCount = retainedNotifications.filter(({ read }) => !read).length;
   const visibleNotifications = retainedNotifications.slice(0, visibleNotificationLimit);
 
@@ -322,7 +298,61 @@ export function NotificationBubble({
           returnFocusRef={notificationTriggerRef}
         />
       ) : null}
+      <SystemProxySettingsGuidanceDialog
+        guidance={systemProxySettingsGuidance}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setSystemProxySettingsGuidance(null);
+        }}
+        returnFocusRef={notificationTriggerRef}
+      />
     </>
+  );
+}
+
+type SystemProxySettingsGuidance = Exclude<SystemProxySettingsOpenOutcome, "opened"> | "manual";
+
+interface SystemProxySettingsGuidanceDialogProps {
+  guidance: SystemProxySettingsGuidance | null;
+  onOpenChange(open: boolean): void;
+  returnFocusRef: RefObject<HTMLElement | null>;
+}
+
+function SystemProxySettingsGuidanceDialog({
+  guidance,
+  onOpenChange,
+  returnFocusRef,
+}: SystemProxySettingsGuidanceDialogProps) {
+  const { LL } = useI18nContext();
+  const acknowledgeRef = useRef<HTMLButtonElement>(null);
+  const description =
+    guidance === "unsupported-version"
+      ? LL.capture.systemProxySettingsUnsupported()
+      : guidance === "dispatch-failed"
+        ? LL.capture.systemProxySettingsDispatchFailed()
+        : LL.capture.systemProxySettingsManual();
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={guidance !== null}>
+      <DialogContent
+        closeLabel={LL.common.close()}
+        finalFocus={returnFocusRef}
+        initialFocus={acknowledgeRef}
+      >
+        <DialogHeader>
+          <div>
+            <DialogTitle>{LL.capture.systemProxySettingsManualTitle()}</DialogTitle>
+            <DialogDescription className="cursor-text select-text" data-native-text-interaction>
+              {description}
+            </DialogDescription>
+          </div>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button ref={acknowledgeRef} variant="outline" />}>
+            {LL.capture.acknowledge()}
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -343,9 +373,6 @@ function NotificationItem({
   onExecute,
   onRemove,
 }: NotificationItemProps) {
-  const detailId = notification.detailAnnouncement
-    ? `notification-detail-${notification.id.replaceAll(":", "-")}`
-    : undefined;
   return (
     <li className={notificationStyles().item({ className: "group/item" })}>
       {notification.removable ? (
@@ -374,13 +401,7 @@ function NotificationItem({
         {notification.message}
       </p>
       {notification.detail ? (
-        <p
-          className={notificationStyles().detail()}
-          id={detailId}
-          role={notification.detailAnnouncement ? "status" : undefined}
-        >
-          {notification.detail}
-        </p>
+        <p className={notificationStyles().detail()}>{notification.detail}</p>
       ) : null}
       {notification.actions.length > 0 ? (
         <div className={notificationStyles().actions()}>
@@ -390,7 +411,6 @@ function NotificationItem({
               key={action.id}
               loading={notification.pendingActionId === action.id}
               loadingText={action.label}
-              aria-describedby={detailId}
               onClick={() => void onExecute(notification.id, action.id)}
               size="sm"
               variant="outline"

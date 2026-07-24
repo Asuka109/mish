@@ -443,6 +443,7 @@ const en = {
       "Mish couldn't open System Settings. Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.",
     systemProxySettingsManual:
       "Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.",
+    systemProxySettingsManualTitle: "Open Proxy Settings Manually",
     systemProxySettingsUnsupported:
       "This macOS version can't open Network settings from Mish. Open System Settings > Network, select the active network service, then choose Details > Proxies. Return to Mish and retry System Proxy after reviewing the external configuration.",
     systemProxyUnsafeFailure:
