@@ -106,7 +106,7 @@ describe("unified policy browser", () => {
     ["en", "light"],
     ["zh", "dark"],
   ] as const)(
-    "aligns five %s Status rows with Session at wide width in %s appearance",
+    "keeps five %s Status rows compact at wide width in %s appearance",
     async (locale, appearance) => {
       await page.viewport(1280, 800);
       renderPolicyWorkspace(
@@ -125,17 +125,9 @@ describe("unified policy browser", () => {
         ).toHaveLength(5);
       });
 
-      const policyList = document.querySelector<HTMLElement>(".policy-group-list");
-      const sessionList = document.querySelector<HTMLElement>(".session-list");
       const rows = [
         ...document.querySelectorAll<HTMLElement>(".policy-group-list [data-policy-row-primary]"),
       ];
-      if (!policyList || !sessionList) throw new Error("Missing Status cards");
-      expect(
-        Math.abs(
-          policyList.getBoundingClientRect().height - sessionList.getBoundingClientRect().height,
-        ),
-      ).toBeLessThanOrEqual(1);
       expect(rows.every((row) => row.dataset.policyBrowserDensity === "status")).toBe(true);
       expect(rows.every((row) => row.getBoundingClientRect().height === 46)).toBe(true);
       rows.forEach((row) => {

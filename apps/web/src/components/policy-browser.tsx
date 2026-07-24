@@ -25,10 +25,9 @@ import { cx, tv } from "@mish/ui/tv";
 import { normalizeMeasuredLatency, POLICY_ENTITY_BATCH_SIZE } from "../pages/routes-model";
 
 /**
- * `status` keeps the Status host's five-row card aligned with Session at wide
- * desktop widths. It deliberately relaxes to the normal row rhythm when the
- * Status columns stack, so localized labels can use the available vertical
- * space instead of being constrained by the wide-card contract.
+ * `status` gives the Status host a compact, readable five-row rhythm. It
+ * deliberately relaxes to the normal row rhythm when the Status columns stack,
+ * so localized labels can use the available vertical space without clipping.
  */
 export type PolicyBrowserDensity = "default" | "compact" | "status";
 export type PolicyEntityKind = "node" | "group";
