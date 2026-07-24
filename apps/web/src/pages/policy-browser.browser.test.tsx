@@ -128,6 +128,11 @@ describe("unified policy browser", () => {
       const rows = [
         ...document.querySelectorAll<HTMLElement>(".policy-group-list [data-policy-row-primary]"),
       ];
+      const groupSection = document.querySelector<HTMLElement>(
+        `[aria-label="${locale === "zh" ? "常用策略组" : "Frequently used policy groups"}"]`,
+      );
+      if (!groupSection) throw new Error("Missing Status Groups section");
+      expect(getComputedStyle(groupSection).alignSelf).toBe("flex-start");
       expect(rows.every((row) => row.dataset.policyBrowserDensity === "status")).toBe(true);
       expect(rows.every((row) => row.getBoundingClientRect().height === 46)).toBe(true);
       rows.forEach((row) => {
