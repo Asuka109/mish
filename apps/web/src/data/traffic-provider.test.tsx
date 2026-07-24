@@ -123,4 +123,24 @@ describe("TrafficProvider displayed snapshot", () => {
       initial.activeConnections.length - 1,
     );
   });
+
+  it("does not let an older subscription snapshot restore a connection closed while paused", async () => {
+    const client = new CommandTrafficClient();
+    const initial = await client.getSnapshot();
+    client.publishSnapshot({ ...initial, adapterKind: "rpc" });
+    renderProvider(client);
+    await waitFor(() => expect(traffic?.snapshot?.adapterKind).toBe("rpc"));
+
+    act(() => traffic?.toggleViewPause());
+    act(() => client.publishSnapshot({ ...initial, adapterKind: "rpc", sequence: 7 }));
+    await act(async () => {
+      await traffic?.closeConnection(initial.activeConnections[0]!.id);
+    });
+    act(() => client.publishSnapshot({ ...initial, adapterKind: "rpc", sequence: 7 }));
+    act(() => traffic?.toggleViewPause());
+
+    expect(traffic?.snapshot?.activeConnections.map(({ id }) => id)).not.toContain(
+      initial.activeConnections[0]!.id,
+    );
+  });
 });

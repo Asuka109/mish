@@ -81,8 +81,11 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const pendingConnectionIdsRef = useRef(new Set<string>());
   const processIconCacheRef = useRef(new Map<string, string>());
   const processIconRequestsRef = useRef(new Map<string, Promise<string | null>>());
+  const latestSnapshotRef = useRef<TrafficDataSnapshotDto | null>(null);
 
   const acceptSnapshot = useCallback((nextSnapshot: TrafficDataSnapshotDto) => {
+    if (!isNewerTrafficSnapshot(latestSnapshotRef.current, nextSnapshot)) return;
+    latestSnapshotRef.current = nextSnapshot;
     setLatestSnapshot(nextSnapshot);
     setPausedView((current) =>
       current &&
@@ -351,6 +354,15 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   );
 
   return <TrafficContext.Provider value={value}>{children}</TrafficContext.Provider>;
+}
+
+function isNewerTrafficSnapshot(
+  current: TrafficDataSnapshotDto | null,
+  next: TrafficDataSnapshotDto,
+) {
+  if (!current) return true;
+  if (current.profileId !== next.profileId || current.sessionId !== next.sessionId) return true;
+  return next.sequence > current.sequence;
 }
 
 export function useTraffic() {
