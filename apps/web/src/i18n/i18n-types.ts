@@ -1551,7 +1551,7 @@ type RootTranslation = {
 		 */
 		tunPermission: string
 		/**
-		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​o​n​ ​t​h​i​s​ ​p​l​a​t​f​o​r​m​.
+		 * V​i​r​t​u​a​l​ ​I​n​t​e​r​f​a​c​e​ ​i​s​ ​n​o​t​ ​a​v​a​i​l​a​b​l​e​ ​i​n​ ​t​h​i​s​ ​v​e​r​s​i​o​n​ ​o​f​ ​M​i​s​h​.
 		 */
 		tunUnavailable: string
 	}
@@ -5967,7 +5967,7 @@ export type TranslationFunctions = {
 		 */
 		tunPermission: () => LocalizedString
 		/**
-		 * Virtual Interface is unavailable on this platform.
+		 * Virtual Interface is not available in this version of Mish.
 		 */
 		tunUnavailable: () => LocalizedString
 	}

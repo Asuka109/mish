@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { CapabilityAvailability } from "@mish/contracts";
+import { TooltipProvider } from "@mish/ui";
 import { MemoryRouter } from "react-router";
 import TypesafeI18n from "../i18n/i18n-react";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
@@ -34,30 +35,54 @@ function renderControl(
   return render(
     <MemoryRouter>
       <TypesafeI18n locale="en">
-        <TrafficCaptureControl
-          adapterKind={adapterKind}
-          capabilities={{
-            systemProxy: adapterKind === "fixture" ? "fixture-only" : "supported",
-            tun: tunAvailability ?? (adapterKind === "fixture" ? "fixture-only" : "supported"),
-          }}
-          commandSupported
-          onSystemProxyChange={() => undefined}
-          onTunHelperInstall={onTunHelperInstall}
-          onTunChange={onTunChange}
-          systemProxyEnabled={false}
-          systemProxySelected={false}
-          systemProxyStatus={systemProxyStatus}
-          tunEnabled={false}
-          tunGuideIdentity={"a".repeat(64)}
-          tunSelected={false}
-          tunStatus={tunStatus}
-        />
+        <TooltipProvider>
+          <TrafficCaptureControl
+            adapterKind={adapterKind}
+            capabilities={{
+              systemProxy: adapterKind === "fixture" ? "fixture-only" : "supported",
+              tun: tunAvailability ?? (adapterKind === "fixture" ? "fixture-only" : "supported"),
+            }}
+            commandSupported
+            onSystemProxyChange={() => undefined}
+            onTunHelperInstall={onTunHelperInstall}
+            onTunChange={onTunChange}
+            systemProxyEnabled={false}
+            systemProxySelected={false}
+            systemProxyStatus={systemProxyStatus}
+            tunEnabled={false}
+            tunGuideIdentity={"a".repeat(64)}
+            tunSelected={false}
+            tunStatus={tunStatus}
+          />
+        </TooltipProvider>
       </TypesafeI18n>
     </MemoryRouter>,
   );
 }
 
 describe("TrafficCaptureControl TUN guide", () => {
+  it("explains an unavailable Virtual Interface on a focusable, non-activatable trigger", async () => {
+    const user = userEvent.setup();
+    const onTunChange = vi.fn();
+    renderControl(onTunChange, "rpc", "unavailable");
+
+    const unavailableTrigger = document.querySelector<HTMLElement>(
+      "[data-capture-unavailable-trigger]",
+    );
+    if (!unavailableTrigger) throw new Error("Missing unavailable Virtual Interface trigger");
+    const tun = screen.getByRole("button", { name: /Virtual Interface, not selected/ });
+
+    expect(tun).toBeDisabled();
+    expect(unavailableTrigger).toHaveAccessibleName("Virtual Interface");
+    expect(unavailableTrigger).toHaveAttribute("aria-describedby", "tun-unavailable-description");
+
+    unavailableTrigger.focus();
+    await screen.findByText("Virtual Interface is not available in this version of Mish.");
+    await user.keyboard("{Enter}");
+
+    expect(onTunChange).not.toHaveBeenCalled();
+  });
+
   it("requires a first real TUN activation to pass through the guide", async () => {
     const user = userEvent.setup();
     const onTunChange = vi.fn();

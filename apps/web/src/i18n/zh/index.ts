@@ -452,7 +452,7 @@ const zh = {
     systemProxyPermission: "需要授权后才能更改系统代理。",
     systemProxyUnavailable: "当前平台不支持系统代理。",
     tunPermission: "需要授权后才能更改虚拟网卡。",
-    tunUnavailable: "当前平台不支持虚拟网卡。",
+    tunUnavailable: "此版本的 Mish 暂不支持虚拟网卡。",
   },
   proxyPicker: {
     description: "为这个策略组选择节点或其他策略组。这里只会更改当前策略组。",
