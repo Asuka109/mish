@@ -90,7 +90,7 @@ const en = {
       scope: "Backup scope",
       settings: "Application settings",
       settingsDescription:
-        "Appearance, language, startup preference, close behavior, and window surface. OS registration is not included.",
+        "Appearance, language, process discovery, startup preference, close behavior, and window surface. OS registration is not included.",
       size: "Actual / maximum size",
       useBackup: "Use backup data where replacement is safe",
     },
@@ -197,6 +197,12 @@ const en = {
     networkPolicyDescription: "Shows the active network service, interface, and device type.",
     off: "Off",
     on: "On",
+    processDiscovery: "Connection process discovery",
+    processDiscoveryAlways: "Always",
+    processDiscoveryDescription:
+      "Choose how Mihomo identifies the process that owns each connection. Changes apply the next time the proxy starts or a Profile is activated.",
+    processDiscoveryOff: "Disabled",
+    processDiscoveryStrict: "When needed",
     registration: "Observed login registration",
     registrationDescription:
       "Desired and observed platform state are compared; a mismatch is never reported as applied.",

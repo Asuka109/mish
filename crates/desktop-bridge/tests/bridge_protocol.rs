@@ -1192,6 +1192,10 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     assert_eq!(initial["result"]["privacy"]["originValidated"], "confirmed");
     assert_eq!(initial["result"]["privacy"]["lanControl"], "unavailable");
     assert_eq!(
+        initial["result"]["preferences"]["processDiscoveryMode"],
+        "always"
+    );
+    assert_eq!(
         initial["result"]["tunHelper"]["availability"],
         "unavailable"
     );
@@ -1392,6 +1396,19 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         available_ports["result"]["preferences"]["managedPorts"]["proxy"]
     );
 
+    let process_discovery = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":30, "method":"settings.setProcessDiscoveryMode",
+            "params":{"mode":"strict"}
+        }),
+    )
+    .await;
+    assert_eq!(
+        process_discovery["result"]["preferences"]["processDiscoveryMode"],
+        "strict"
+    );
+
     let close_behavior = request(
         &mut ws,
         json!({
@@ -1439,6 +1456,16 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
             12,
             "settings.setOnboardingWelcomeState",
             json!({"action":"complete","command":"start-core"}),
+        ),
+        (
+            31,
+            "settings.setProcessDiscoveryMode",
+            json!({"mode":"strict","processPath":"/private/secret"}),
+        ),
+        (
+            32,
+            "settings.setProcessDiscoveryMode",
+            json!({"mode":"aggressive"}),
         ),
     ] {
         let rejected = request(
@@ -1497,7 +1524,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 20);
+    assert_eq!(info["result"]["protocolVersion"], 21);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})

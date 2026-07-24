@@ -1453,6 +1453,9 @@ export const ManagedPortPreferencesSchema = z
   .refine((ports) => ports.controller !== ports.proxy, "Managed ports must differ");
 export interface ManagedPortPreferencesDto extends z.infer<typeof ManagedPortPreferencesSchema> {}
 
+export const ProcessDiscoveryModeSchema = z.enum(["always", "strict", "off"]);
+export type ProcessDiscoveryMode = z.infer<typeof ProcessDiscoveryModeSchema>;
+
 export const SystemProxyTakeoverPolicySchema = z.enum([
   "protect-existing",
   "replace-reversible-pac-or-auto-discovery",
@@ -1466,6 +1469,7 @@ export const SettingsPreferencesSchema = z
     language: LanguagePreferenceSchema,
     managedPorts: ManagedPortPreferencesSchema,
     onboarding: OnboardingPreferencesSchema,
+    processDiscoveryMode: ProcessDiscoveryModeSchema.default("always"),
     startup: StartupPreferencesSchema,
     systemProxyTakeoverPolicy: SystemProxyTakeoverPolicySchema,
     windowCloseBehavior: WindowCloseBehaviorSchema,
@@ -1945,7 +1949,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(20),
+    protocolVersion: z.literal(21),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -2838,6 +2842,9 @@ export const SetWindowSurfacePreferenceCommandSchema = z
 export const SetSystemProxyTakeoverPolicyCommandSchema = z
   .object({ policy: SystemProxyTakeoverPolicySchema })
   .strict();
+export const SetProcessDiscoveryModeCommandSchema = z
+  .object({ mode: ProcessDiscoveryModeSchema })
+  .strict();
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
@@ -2884,6 +2891,10 @@ export const settingsRpcMethods = {
   "settings.findManagedPorts": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
   "settings.setSystemProxyTakeoverPolicy": {
     params: SetSystemProxyTakeoverPolicyCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setProcessDiscoveryMode": {
+    params: SetProcessDiscoveryModeCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.subscribe": { params: EmptyCommandSchema, result: SettingsSubscriptionSchema },
@@ -3073,6 +3084,10 @@ export interface SettingsClient {
   findManagedPorts(options?: { signal?: AbortSignal }): Promise<SettingsSnapshotDto>;
   setSystemProxyTakeoverPolicy(
     policy: SystemProxyTakeoverPolicy,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
+  setProcessDiscoveryMode(
+    mode: ProcessDiscoveryMode,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
   subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void): () => void;

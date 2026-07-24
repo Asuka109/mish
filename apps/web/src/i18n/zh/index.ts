@@ -84,7 +84,7 @@ const zh = {
       schedulesDescription: "保存自动刷新的频率，不保存失败次数和临时状态。",
       scope: "备份范围",
       settings: "应用设置",
-      settingsDescription: "包括外观、语言、登录时启动、关闭窗口行为和窗口背景。",
+      settingsDescription: "包括外观、语言、进程识别、登录时启动、关闭窗口行为和窗口背景。",
       size: "实际 / 最大大小",
       useBackup: "用备份数据替换当前数据",
     },
@@ -181,6 +181,12 @@ const zh = {
     networkPolicyDescription: "显示当前网络服务、接口和设备类型。",
     off: "关闭",
     on: "开启",
+    processDiscovery: "连接进程识别",
+    processDiscoveryAlways: "始终",
+    processDiscoveryDescription:
+      "选择 Mihomo 如何识别每条连接所属的进程。修改将在下次启动代理或激活配置时生效。",
+    processDiscoveryOff: "不识别",
+    processDiscoveryStrict: "按需",
     registration: "登录时启动状态",
     registrationDescription: "这里显示 macOS 当前的实际设置。设置未生效时会明确提示。",
     registrationPhase: {

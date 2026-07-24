@@ -15,6 +15,7 @@ import type {
   CaptureSelectionDto,
   LanguagePreference,
   ManagedPortPreferencesDto,
+  ProcessDiscoveryMode,
   SettingsAvailability,
   StartupPreferencesDto,
   SystemProxyTakeoverPolicy,
@@ -37,6 +38,7 @@ import { cx, tv } from "@mish/ui/tv";
 type PendingButtonAction =
   | "language"
   | "managed-ports"
+  | "process-discovery"
   | "proxy-launch"
   | "takeover-policy"
   | "startup"
@@ -380,6 +382,15 @@ export function SettingsPage() {
     }
   }
 
+  async function changeProcessDiscoveryMode(mode: ProcessDiscoveryMode) {
+    setPendingButtonAction("process-discovery");
+    try {
+      await settings.setProcessDiscoveryMode(mode);
+    } finally {
+      setPendingButtonAction(null);
+    }
+  }
+
   async function changeWindowCloseBehavior(behavior: WindowCloseBehavior) {
     setPendingButtonAction("window-close");
     setOptimisticWindowClose(behavior);
@@ -574,6 +585,52 @@ export function SettingsPage() {
           ) : (
             <AvailabilityBadge availability="unavailable" />
           )}
+        </SettingsRow>
+        <SettingsRow
+          description={LL.settingsPage.processDiscoveryDescription()}
+          title={LL.settingsPage.processDiscovery()}
+        >
+          <ToggleGroup
+            aria-label={LL.settingsPage.processDiscovery()}
+            disabled={snapshot.adapterKind !== "rpc" || settings.pending}
+            onValueChange={(values) => {
+              const mode = values[0];
+              if (mode === "always" || mode === "strict" || mode === "off") {
+                void changeProcessDiscoveryMode(mode);
+              }
+            }}
+            spacing={0}
+            value={[snapshot.preferences.processDiscoveryMode]}
+            variant="segmented"
+          >
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "process-discovery" &&
+                snapshot.preferences.processDiscoveryMode === "always"
+              }
+              value="always"
+            >
+              {LL.settingsPage.processDiscoveryAlways()}
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "process-discovery" &&
+                snapshot.preferences.processDiscoveryMode === "strict"
+              }
+              value="strict"
+            >
+              {LL.settingsPage.processDiscoveryStrict()}
+            </ToggleGroupItem>
+            <ToggleGroupItem
+              aria-busy={
+                pendingButtonAction === "process-discovery" &&
+                snapshot.preferences.processDiscoveryMode === "off"
+              }
+              value="off"
+            >
+              {LL.settingsPage.processDiscoveryOff()}
+            </ToggleGroupItem>
+          </ToggleGroup>
         </SettingsRow>
         <SettingsRow
           description={LL.settingsPage.systemProxyTakeoverPolicyDescription()}

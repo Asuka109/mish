@@ -1827,6 +1827,7 @@ pub struct ManagedRuntimePolicy {
     controller_address: SocketAddr,
     controller_secret: String,
     proxy_endpoint: LoopbackProxyEndpoint,
+    process_discovery_mode: mish_settings::ProcessDiscoveryMode,
     tun_enabled: bool,
 }
 
@@ -1846,6 +1847,7 @@ impl ManagedRuntimePolicy {
             controller_address,
             controller_secret,
             proxy_endpoint: LoopbackProxyEndpoint::managed(),
+            process_discovery_mode: mish_settings::ProcessDiscoveryMode::default(),
             tun_enabled: false,
         })
     }
@@ -1864,6 +1866,14 @@ impl ManagedRuntimePolicy {
 
     pub fn with_proxy_endpoint(mut self, proxy_endpoint: LoopbackProxyEndpoint) -> Self {
         self.proxy_endpoint = proxy_endpoint;
+        self
+    }
+
+    pub fn with_process_discovery_mode(
+        mut self,
+        process_discovery_mode: mish_settings::ProcessDiscoveryMode,
+    ) -> Self {
+        self.process_discovery_mode = process_discovery_mode;
         self
     }
 
@@ -1961,6 +1971,12 @@ impl RuntimeConfigGenerator {
                 controller_secret: policy.controller_secret.clone(),
                 mixed_port: policy.proxy_endpoint.port(),
                 proxy_host: policy.proxy_endpoint.host().to_string(),
+                process_discovery_mode: match policy.process_discovery_mode {
+                    mish_settings::ProcessDiscoveryMode::Always => "always",
+                    mish_settings::ProcessDiscoveryMode::Strict => "strict",
+                    mish_settings::ProcessDiscoveryMode::Off => "off",
+                }
+                .to_owned(),
                 tun_enabled: policy.tun_enabled,
             },
         )

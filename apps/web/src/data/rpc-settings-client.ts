@@ -5,6 +5,7 @@ import {
   type LanguagePreference,
   type ManagedPortPreferencesDto,
   type OnboardingWelcomeAction,
+  type ProcessDiscoveryMode,
   type SettingsClient,
   type SettingsSnapshotDto,
   type SettingsSnapshotNotificationDto,
@@ -121,6 +122,12 @@ export class RpcSettingsClient implements SettingsClient {
   setSystemProxyTakeoverPolicy(policy: SystemProxyTakeoverPolicy, options?: RpcRequestOptions) {
     return this.rpc
       .request("settings.setSystemProxyTakeoverPolicy", { policy }, options)
+      .then((snapshot) => this.normalizeSnapshot(snapshot));
+  }
+
+  setProcessDiscoveryMode(mode: ProcessDiscoveryMode, options?: RpcRequestOptions) {
+    return this.rpc
+      .request("settings.setProcessDiscoveryMode", { mode }, options)
       .then((snapshot) => this.normalizeSnapshot(snapshot));
   }
 

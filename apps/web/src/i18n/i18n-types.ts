@@ -294,7 +294,7 @@ type RootTranslation = {
 			 */
 			settings: string
 			/**
-			 * A​p​p​e​a​r​a​n​c​e​,​ ​l​a​n​g​u​a​g​e​,​ ​s​t​a​r​t​u​p​ ​p​r​e​f​e​r​e​n​c​e​,​ ​c​l​o​s​e​ ​b​e​h​a​v​i​o​r​,​ ​a​n​d​ ​w​i​n​d​o​w​ ​s​u​r​f​a​c​e​.​ ​O​S​ ​r​e​g​i​s​t​r​a​t​i​o​n​ ​i​s​ ​n​o​t​ ​i​n​c​l​u​d​e​d​.
+			 * A​p​p​e​a​r​a​n​c​e​,​ ​l​a​n​g​u​a​g​e​,​ ​p​r​o​c​e​s​s​ ​d​i​s​c​o​v​e​r​y​,​ ​s​t​a​r​t​u​p​ ​p​r​e​f​e​r​e​n​c​e​,​ ​c​l​o​s​e​ ​b​e​h​a​v​i​o​r​,​ ​a​n​d​ ​w​i​n​d​o​w​ ​s​u​r​f​a​c​e​.​ ​O​S​ ​r​e​g​i​s​t​r​a​t​i​o​n​ ​i​s​ ​n​o​t​ ​i​n​c​l​u​d​e​d​.
 			 */
 			settingsDescription: string
 			/**
@@ -626,6 +626,26 @@ type RootTranslation = {
 		 * O​n
 		 */
 		on: string
+		/**
+		 * C​o​n​n​e​c​t​i​o​n​ ​p​r​o​c​e​s​s​ ​d​i​s​c​o​v​e​r​y
+		 */
+		processDiscovery: string
+		/**
+		 * A​l​w​a​y​s
+		 */
+		processDiscoveryAlways: string
+		/**
+		 * C​h​o​o​s​e​ ​h​o​w​ ​M​i​h​o​m​o​ ​i​d​e​n​t​i​f​i​e​s​ ​t​h​e​ ​p​r​o​c​e​s​s​ ​t​h​a​t​ ​o​w​n​s​ ​e​a​c​h​ ​c​o​n​n​e​c​t​i​o​n​.​ ​C​h​a​n​g​e​s​ ​a​p​p​l​y​ ​t​h​e​ ​n​e​x​t​ ​t​i​m​e​ ​t​h​e​ ​p​r​o​x​y​ ​s​t​a​r​t​s​ ​o​r​ ​a​ ​P​r​o​f​i​l​e​ ​i​s​ ​a​c​t​i​v​a​t​e​d​.
+		 */
+		processDiscoveryDescription: string
+		/**
+		 * D​i​s​a​b​l​e​d
+		 */
+		processDiscoveryOff: string
+		/**
+		 * W​h​e​n​ ​n​e​e​d​e​d
+		 */
+		processDiscoveryStrict: string
 		/**
 		 * O​b​s​e​r​v​e​d​ ​l​o​g​i​n​ ​r​e​g​i​s​t​r​a​t​i​o​n
 		 */
@@ -4756,7 +4776,7 @@ export type TranslationFunctions = {
 			 */
 			settings: () => LocalizedString
 			/**
-			 * Appearance, language, startup preference, close behavior, and window surface. OS registration is not included.
+			 * Appearance, language, process discovery, startup preference, close behavior, and window surface. OS registration is not included.
 			 */
 			settingsDescription: () => LocalizedString
 			/**
@@ -5084,6 +5104,26 @@ export type TranslationFunctions = {
 		 * On
 		 */
 		on: () => LocalizedString
+		/**
+		 * Connection process discovery
+		 */
+		processDiscovery: () => LocalizedString
+		/**
+		 * Always
+		 */
+		processDiscoveryAlways: () => LocalizedString
+		/**
+		 * Choose how Mihomo identifies the process that owns each connection. Changes apply the next time the proxy starts or a Profile is activated.
+		 */
+		processDiscoveryDescription: () => LocalizedString
+		/**
+		 * Disabled
+		 */
+		processDiscoveryOff: () => LocalizedString
+		/**
+		 * When needed
+		 */
+		processDiscoveryStrict: () => LocalizedString
 		/**
 		 * Observed login registration
 		 */

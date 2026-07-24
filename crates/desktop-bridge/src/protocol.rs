@@ -22,8 +22,8 @@ use mish_runtime::{
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
-    SettingsAdapterKind, SettingsService, SettingsServiceError, StartupPreferences,
-    WindowCloseBehavior, WindowSurfacePreference,
+    ProcessDiscoveryMode, SettingsAdapterKind, SettingsService, SettingsServiceError,
+    StartupPreferences, WindowCloseBehavior, WindowSurfacePreference,
 };
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -266,6 +266,12 @@ struct SetWindowSurfaceParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetSystemProxyTakeoverPolicyParams {
     policy: SystemProxyTakeoverPolicy,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SetProcessDiscoveryModeParams {
+    mode: ProcessDiscoveryMode,
 }
 
 struct SocketSubscriptions {
@@ -724,7 +730,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 20,
+            "protocolVersion": 21,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1686,6 +1692,20 @@ async fn handle_message(
                         .set_system_proxy_takeover_policy(params.policy);
                     serde_json::to_value(snapshot).expect("serializable settings")
                 }
+                Err(error) => return Some(settings_error_response(state, id, error)),
+            }
+        }
+        "settings.setProcessDiscoveryMode" => {
+            let Some(service) = &state.settings_service else {
+                return Some(settings_capability_error(id));
+            };
+            let params: SetProcessDiscoveryModeParams = match serde_json::from_value(request.params)
+            {
+                Ok(params) => params,
+                Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
+            };
+            match service.set_process_discovery_mode(params.mode) {
+                Ok(snapshot) => serde_json::to_value(snapshot).expect("serializable settings"),
                 Err(error) => return Some(settings_error_response(state, id, error)),
             }
         }

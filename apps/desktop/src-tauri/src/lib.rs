@@ -886,16 +886,15 @@ fn initialize(
             runtime_host.clone(),
             safe_runtime,
             move || {
-                ephemeral_runtime_policy(
-                    policy_settings
-                        .snapshot(SettingsAdapterKind::Rpc)
-                        .preferences
-                        .managed_ports,
-                )?
-                .with_tun_enabled(
-                    &policy_helper.snapshot(),
-                    policy_capture.status().capture_selection.tun,
-                )
+                let preferences = policy_settings
+                    .snapshot(SettingsAdapterKind::Rpc)
+                    .preferences;
+                ephemeral_runtime_policy(preferences.managed_ports)?
+                    .with_process_discovery_mode(preferences.process_discovery_mode)
+                    .with_tun_enabled(
+                        &policy_helper.snapshot(),
+                        policy_capture.status().capture_selection.tun,
+                    )
             },
         ));
         activation.start_scheduler().await;

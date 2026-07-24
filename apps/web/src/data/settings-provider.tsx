@@ -3,6 +3,7 @@ import type {
   LanguagePreference,
   LocalBackupClient,
   OnboardingWelcomeAction,
+  ProcessDiscoveryMode,
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
@@ -47,6 +48,7 @@ interface SettingsContextValue {
   setStartup(startup: StartupPreferencesDto): Promise<boolean>;
   setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches: boolean): Promise<boolean>;
   setManagedPorts(managedPorts: ManagedPortPreferencesDto): Promise<boolean>;
+  setProcessDiscoveryMode(mode: ProcessDiscoveryMode): Promise<boolean>;
   setSystemProxyTakeoverPolicy(policy: SystemProxyTakeoverPolicy): Promise<boolean>;
   findManagedPorts(): Promise<boolean>;
   setWindowCloseBehavior(behavior: WindowCloseBehavior): Promise<boolean>;
@@ -169,6 +171,8 @@ export function SettingsProvider({
         (await run(() => client.setLaunchProxyWhenMishLaunches(launchProxyWhenMishLaunches))).ok,
       setManagedPorts: async (managedPorts) =>
         (await run(() => client.setManagedPorts(managedPorts))).ok,
+      setProcessDiscoveryMode: async (mode) =>
+        (await run(() => client.setProcessDiscoveryMode(mode))).ok,
       findManagedPorts: async () => (await run(() => client.findManagedPorts())).ok,
       setSystemProxyTakeoverPolicy: async (policy) =>
         (await run(() => client.setSystemProxyTakeoverPolicy(policy))).ok,

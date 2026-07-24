@@ -46,6 +46,7 @@ use mish_runtime::{
     TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
     TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, tun_observation_now,
 };
+use mish_settings::ProcessDiscoveryMode;
 use serde_json::json;
 use serde_norway::Value;
 use sha2::{Digest, Sha256};
@@ -1061,6 +1062,16 @@ rules:
     assert_eq!(root["log-level"].as_str(), Some("warning"));
     assert_eq!(root["mode"].as_str(), Some("rule"));
     assert_eq!(root["find-process-mode"].as_str(), Some("always"));
+
+    let strict_policy = ManagedRuntimePolicy::new(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123),
+        "application-controller-secret",
+    )
+    .unwrap()
+    .with_process_discovery_mode(ProcessDiscoveryMode::Strict);
+    let strict = RuntimeConfigGenerator::generate_with_review(normalized, &strict_policy).unwrap();
+    let strict: Value = serde_norway::from_slice(&strict.bytes).unwrap();
+    assert_eq!(strict["find-process-mode"].as_str(), Some("strict"));
     assert!(root["listeners"].as_sequence().unwrap().is_empty());
     assert_eq!(root["tun"]["enable"].as_bool(), Some(false));
     assert_eq!(root["sniffer"]["enable"].as_bool(), Some(false));

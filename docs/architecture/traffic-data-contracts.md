@@ -31,13 +31,16 @@ complete ordered route chain. Empty Controller process or address strings map to
 explicit nullable fields. The UI labels null values unavailable rather than
 inventing process identity, geography, or another fallback fact.
 
-The managed desktop runtime overrides source `find-process-mode` with `always`.
-This keeps process discovery enabled on the supported macOS build even when a
-portable source Profile disables it. Mihomo can still omit attribution for
-connection classes it cannot resolve; the UI explains that honest unavailable
-state. Process strings remain bounded by Controller validation and the local
-authenticated DTO boundary, and no remote, export, or telemetry surface is
-added.
+The managed desktop runtime overrides source `find-process-mode` with the
+private application setting `processDiscoveryMode`. Its bounded values map
+one-to-one to Mihomo `always`, `strict`, and `off`; the default is `always`, and
+a change applies on the next proxy start or Profile activation. This keeps
+subscription content from silently controlling local process inspection while
+allowing the user to reduce or disable it explicitly. Mihomo can still omit
+attribution for connection classes it cannot resolve; the UI explains that
+honest unavailable state. Process strings remain bounded by Controller
+validation and the local authenticated DTO boundary, and no remote, export, or
+telemetry surface is added.
 
 Connection byte counters are decimal strings. Mihomo exposes signed 64-bit
 values; the mapper rejects negatives transactionally and serializes valid values
