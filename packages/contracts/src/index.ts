@@ -1417,7 +1417,13 @@ export const OnboardingPreferencesSchema = z
   .strict();
 export interface OnboardingPreferencesDto extends z.infer<typeof OnboardingPreferencesSchema> {}
 
-export const OnboardingWelcomeActionSchema = z.enum(["prompt", "open", "dismiss", "complete"]);
+export const OnboardingWelcomeActionSchema = z.enum([
+  "prompt",
+  "open",
+  "dismiss",
+  "complete",
+  "remove",
+]);
 export type OnboardingWelcomeAction = z.infer<typeof OnboardingWelcomeActionSchema>;
 
 export const StartupPreferencesSchema = z
