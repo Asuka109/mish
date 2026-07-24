@@ -1282,8 +1282,19 @@ export const ProbeRouteTargetSchema = z.union([
 ]);
 export type ProbeRouteTarget = z.infer<typeof ProbeRouteTargetSchema>;
 
+export const ServiceProbeFailureStageSchema = z.enum([
+  "address-policy",
+  "client-setup",
+  "dns-resolution",
+  "http-status",
+  "target-validation",
+  "transport",
+]);
+export type ServiceProbeFailureStage = z.infer<typeof ServiceProbeFailureStageSchema>;
+
 export const ServiceProbeResultSchema = z
   .object({
+    failureStage: ServiceProbeFailureStageSchema.nullable().optional(),
     latencyMilliseconds: NonNegativeNumberSchema.nullable(),
     monitorId: IdentifierSchema,
     observedAt: z.string().min(1),

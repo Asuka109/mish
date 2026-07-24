@@ -78,6 +78,8 @@ impl CaptureJournalStore for UnreadableShutdownJournal {
 
 struct ShutdownCapturePlatform;
 
+struct UnobservableUnownedShutdownPlatform;
+
 struct RecordingShutdownPlatform {
     order: Arc<Mutex<Vec<&'static str>>>,
     state: Mutex<NetworkServiceProxyState>,
@@ -145,6 +147,31 @@ impl CapturePlatform for ShutdownCapturePlatform {
         _target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
         unreachable!("an unreadable journal must fail before a proxy write")
+    }
+}
+
+impl CapturePlatform for UnobservableUnownedShutdownPlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Err(CaptureTransitionError::new(
+            mish_runtime::CaptureFailureKind::ObservationFailed,
+            "Synthetic unobservable System Proxy state",
+        ))))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        unreachable!("an unowned shutdown must not observe a service")
+    }
+
+    fn apply_service(
+        &self,
+        _target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        unreachable!("an unowned shutdown must not mutate System Proxy")
     }
 }
 
@@ -394,6 +421,26 @@ async fn runtime_does_not_stop_core_when_capture_restoration_is_unconfirmed() {
         Err(RuntimeShutdownFailure::CaptureRestoration)
     ));
     assert!(order.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn runtime_stops_without_observing_system_proxy_when_it_has_no_capture_authority() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::new(CaptureReconciler::new(
+        Arc::new(UnobservableUnownedShutdownPlatform),
+        Arc::new(MemoryShutdownJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let runtime = MishRuntime::with_capture(
+        Arc::new(ShutdownRecordingCore {
+            order: order.clone(),
+        }),
+        capture,
+    );
+
+    runtime.shutdown().await.unwrap();
+
+    assert_eq!(*order.lock().unwrap(), ["core"]);
 }
 
 #[tokio::test]

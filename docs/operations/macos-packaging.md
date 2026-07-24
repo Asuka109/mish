@@ -20,14 +20,26 @@ pnpm desktop:bundle:macos
 ```
 
 This credential-free profile rejects Apple signing and notarization credentials,
-builds an ARM64 `Mish` DMG, and mounts it read-only for verification. The mounted
-image contains only `Mish.app` and an `Applications` shortcut for drag-to-install.
+builds an ARM64 `Mish` DMG without opening or foregrounding Finder, and mounts it
+read-only for verification. This headless command is the default for CI and
+ordinary repeated local verification. The mounted image contains only `Mish.app`
+and an `Applications` shortcut for drag-to-install.
 It seals the application and Mihomo with an ad-hoc signature, packages no TUN
 helper, LaunchDaemon, SMAppService payload, development helper, or other
 privileged content, and compiles the packaged TUN capability as unavailable.
 The verifier checks the application identifier, version, architecture, pinned
 Mihomo digest and version, offline Web resources, legal resources, signature
 structure, DMG layout, and clean detach.
+
+Use the Finder-styled path only when intentionally preparing a delivery image:
+
+```sh
+pnpm desktop:bundle:macos:styled
+```
+
+That explicit command permits Tauri's Finder AppleScript to arrange the mounted
+image. Both commands still use bounded ordinary detach and never force-detach or
+leave a verifier mount behind.
 
 An ad-hoc signature is neither an Apple identity nor notarization. Gatekeeper
 rejection or **Open Anyway** is the expected Alpha boundary; do not describe the

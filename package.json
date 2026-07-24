@@ -33,6 +33,7 @@
     "desktop:build": "pnpm --filter @mish/desktop build",
     "desktop:build:macos": "node scripts/build-macos-bundle.ts",
     "desktop:bundle:macos": "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc",
+    "desktop:bundle:macos:styled": "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc --styled-dmg",
     "desktop:bundle:fixture:macos": "node scripts/build-macos-bundle.ts --production-fixture",
     "desktop:bundle:verify:alpha-ad-hoc:macos": "node scripts/verify-macos-alpha-ad-hoc-dmg.ts",
     "desktop:bundle:verify:macos": "node scripts/verify-macos-bundle.ts",

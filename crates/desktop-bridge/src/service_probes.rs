@@ -9,8 +9,8 @@ use std::{
 use chrono::Utc;
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use mish_runtime::{
-    ProbeStatus, ServiceMonitor, ServiceProbePolicy, ServiceProbeResult, StatusSnapshot,
-    default_service_monitors,
+    ProbeStatus, ServiceMonitor, ServiceProbeFailureStage, ServiceProbePolicy, ServiceProbeResult,
+    StatusSnapshot, default_service_monitors,
 };
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
@@ -578,6 +578,7 @@ fn retained_results(
 
 fn pending_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
     ServiceProbeResult {
+        failure_stage: None,
         latency_milliseconds: None,
         monitor_id: monitor.id.clone(),
         observed_at: Utc::now().to_rfc3339(),
@@ -588,7 +589,7 @@ fn pending_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
 
 async fn probe(monitor: ServiceMonitor) -> ServiceProbeResult {
     let started = Instant::now();
-    let healthy = match resolve_public_target(&monitor.url).await {
+    let (healthy, failure_stage) = match resolve_probe_target(&monitor.url).await {
         Ok((url, addresses)) => match Client::builder()
             .connect_timeout(PROBE_TIMEOUT)
             .timeout(PROBE_TIMEOUT)
@@ -596,16 +597,17 @@ async fn probe(monitor: ServiceMonitor) -> ServiceProbeResult {
             .resolve_to_addrs(url.host_str().expect("validated URL host"), &addresses)
             .build()
         {
-            Ok(client) => client
-                .get(url)
-                .send()
-                .await
-                .is_ok_and(|response| response.status().is_success()),
-            Err(_) => false,
+            Ok(client) => match client.get(url).send().await {
+                Ok(response) if response.status().is_success() => (true, None),
+                Ok(_) => (false, Some(ServiceProbeFailureStage::HttpStatus)),
+                Err(_) => (false, Some(ServiceProbeFailureStage::Transport)),
+            },
+            Err(_) => (false, Some(ServiceProbeFailureStage::ClientSetup)),
         },
-        Err(_) => false,
+        Err(error) => (false, Some(error.stage)),
     };
     ServiceProbeResult {
+        failure_stage,
         latency_milliseconds: healthy
             .then(|| u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
         monitor_id: monitor.id,
@@ -624,28 +626,69 @@ async fn validate_probe_url(value: &str) -> Result<(), ServiceProbeError> {
 }
 
 async fn resolve_public_target(value: &str) -> Result<(Url, Vec<SocketAddr>), ServiceProbeError> {
-    let url = Url::parse(value).map_err(|_| ServiceProbeError::Invalid("Invalid probe URL"))?;
+    resolve_probe_target(value)
+        .await
+        .map_err(|error| error.validation)
+}
+
+struct ProbeTargetError {
+    stage: ServiceProbeFailureStage,
+    validation: ServiceProbeError,
+}
+
+impl ProbeTargetError {
+    const fn new(stage: ServiceProbeFailureStage, message: &'static str) -> Self {
+        Self {
+            stage,
+            validation: ServiceProbeError::Invalid(message),
+        }
+    }
+}
+
+async fn resolve_probe_target(value: &str) -> Result<(Url, Vec<SocketAddr>), ProbeTargetError> {
+    let url = Url::parse(value).map_err(|_| {
+        ProbeTargetError::new(
+            ServiceProbeFailureStage::TargetValidation,
+            "Invalid probe URL",
+        )
+    })?;
     if !matches!(url.scheme(), "http" | "https") || url.username() != "" || url.password().is_some()
     {
-        return Err(ServiceProbeError::Invalid("Invalid probe URL"));
+        return Err(ProbeTargetError::new(
+            ServiceProbeFailureStage::TargetValidation,
+            "Invalid probe URL",
+        ));
     }
-    let host = url
-        .host_str()
-        .ok_or(ServiceProbeError::Invalid("Probe URL requires a host"))?;
+    let host = url.host_str().ok_or_else(|| {
+        ProbeTargetError::new(
+            ServiceProbeFailureStage::TargetValidation,
+            "Probe URL requires a host",
+        )
+    })?;
     if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
-        return Err(ServiceProbeError::Invalid(
+        return Err(ProbeTargetError::new(
+            ServiceProbeFailureStage::AddressPolicy,
             "Local probe targets are not allowed",
         ));
     }
-    let port = url
-        .port_or_known_default()
-        .ok_or(ServiceProbeError::Invalid("Probe URL requires a port"))?;
+    let port = url.port_or_known_default().ok_or_else(|| {
+        ProbeTargetError::new(
+            ServiceProbeFailureStage::TargetValidation,
+            "Probe URL requires a port",
+        )
+    })?;
     let addresses: Vec<_> = tokio::net::lookup_host((host, port))
         .await
-        .map_err(|_| ServiceProbeError::Invalid("Probe host could not be resolved"))?
+        .map_err(|_| {
+            ProbeTargetError::new(
+                ServiceProbeFailureStage::DnsResolution,
+                "Probe host could not be resolved",
+            )
+        })?
         .collect();
     if addresses.is_empty() || addresses.iter().any(|address| !is_public_ip(address.ip())) {
-        return Err(ServiceProbeError::Invalid(
+        return Err(ProbeTargetError::new(
+            ServiceProbeFailureStage::AddressPolicy,
             "Private probe targets are not allowed",
         ));
     }
@@ -753,8 +796,38 @@ mod tests {
         assert_eq!(service.interval_seconds(), 5);
     }
 
+    #[tokio::test]
+    async fn direct_probe_failures_identify_target_validation_and_address_policy_stages() {
+        let invalid = probe(ServiceMonitor {
+            icon: FALLBACK_SERVICE_ICON_URL.into(),
+            id: "invalid".into(),
+            label: "Invalid".into(),
+            url: "not a URL".into(),
+        })
+        .await;
+        assert_eq!(invalid.status, ProbeStatus::Error);
+        assert_eq!(
+            invalid.failure_stage,
+            Some(ServiceProbeFailureStage::TargetValidation)
+        );
+
+        let local = probe(ServiceMonitor {
+            icon: FALLBACK_SERVICE_ICON_URL.into(),
+            id: "local".into(),
+            label: "Local".into(),
+            url: "http://localhost/".into(),
+        })
+        .await;
+        assert_eq!(local.status, ProbeStatus::Error);
+        assert_eq!(
+            local.failure_stage,
+            Some(ServiceProbeFailureStage::AddressPolicy)
+        );
+    }
+
     fn confirmed_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
         ServiceProbeResult {
+            failure_stage: None,
             latency_milliseconds: Some(42),
             monitor_id: monitor.id.clone(),
             observed_at: "2026-07-21T12:00:00Z".into(),

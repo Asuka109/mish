@@ -671,7 +671,7 @@ impl ProfileActivationCoordinator {
                     Ok(()) => {
                         if let Some(error) = result.as_ref().err() {
                             self.host.record_application_event(
-                                ApplicationDiagnosticEvent::capture_failure(error.kind),
+                                ApplicationDiagnosticEvent::capture_transition_failure(error),
                             );
                         }
                     }
@@ -709,22 +709,20 @@ impl ProfileActivationCoordinator {
         listener_journal_mutation_confirmation: Duration,
         outcome: &'static str,
     ) {
-        let duration_ms =
-            |duration: Duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
         let overlap = profile_core
             .saturating_add(system_proxy_preflight)
             .saturating_sub(preparation_wall);
         let detail = serde_json::json!({
-            "listenerJournalMutationConfirmationMs": duration_ms(
+            "listenerJournalMutationConfirmationMs": launch_duration_milliseconds(
                 listener_journal_mutation_confirmation
             ),
             "outcome": outcome,
-            "overlapMs": duration_ms(overlap),
-            "preparationWallMs": duration_ms(preparation_wall),
-            "profileCoreMs": duration_ms(profile_core),
+            "overlapMs": launch_duration_milliseconds(overlap),
+            "preparationWallMs": launch_duration_milliseconds(preparation_wall),
+            "profileCoreMs": launch_duration_milliseconds(profile_core),
             "schemaVersion": 1,
-            "systemProxyPreflightMs": duration_ms(system_proxy_preflight),
-            "totalMs": duration_ms(launch_started.elapsed()),
+            "systemProxyPreflightMs": launch_duration_milliseconds(system_proxy_preflight),
+            "totalMs": launch_duration_milliseconds(launch_started.elapsed()),
         })
         .to_string();
         self.host
@@ -1441,6 +1439,15 @@ impl ProfileActivationCoordinator {
     }
 }
 
+fn launch_duration_milliseconds(duration: Duration) -> u64 {
+    if duration.is_zero() {
+        return 0;
+    }
+    u64::try_from(duration.as_millis())
+        .unwrap_or(u64::MAX)
+        .max(1)
+}
+
 fn profile_launch_error(error: ProfileActivationCoordinatorError) -> CaptureTransitionError {
     CaptureTransitionError::new(
         CaptureFailureKind::RuntimeTransition,
@@ -1501,7 +1508,9 @@ fn now_unix_milliseconds() -> u64 {
 
 #[cfg(test)]
 mod capture_selection_tests {
-    use super::usable_capture_selection;
+    use std::time::Duration;
+
+    use super::{launch_duration_milliseconds, usable_capture_selection};
     use mish_runtime::{
         CapabilityAvailability, CaptureSelection, PlatformCapabilities, StatusAdapterKind,
     };
@@ -1581,6 +1590,13 @@ mod capture_selection_tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn launch_timing_preserves_sub_millisecond_work_without_inventing_zero_duration() {
+        assert_eq!(launch_duration_milliseconds(Duration::ZERO), 0);
+        assert_eq!(launch_duration_milliseconds(Duration::from_nanos(1)), 1);
+        assert_eq!(launch_duration_milliseconds(Duration::from_millis(12)), 12);
     }
 }
 

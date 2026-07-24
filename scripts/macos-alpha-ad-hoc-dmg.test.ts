@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 import { verifyMacOsPrivilegedBundle } from "./macos-privileged-bundle.ts";
 import { detachMacOsDiskImage } from "./verify-macos-alpha-ad-hoc-dmg.ts";
+
+const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
 function applicationFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "mish-alpha-ad-hoc-"));
@@ -66,4 +68,23 @@ test("alpha-ad-hoc fails after bounded ordinary DMG detach retries", async () =>
     /after 5 attempts/u,
   );
   assert.equal(calls, 5);
+});
+
+test("routine Alpha packaging is headless and Finder styling is explicit", () => {
+  const rootPackage = JSON.parse(
+    readFileSync(path.join(repositoryRoot, "package.json"), "utf8"),
+  ) as { scripts?: Record<string, string> };
+  const builder = readFileSync(path.join(repositoryRoot, "scripts/build-macos-bundle.ts"), "utf8");
+
+  assert.equal(
+    rootPackage.scripts?.["desktop:bundle:macos"],
+    "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc",
+  );
+  assert.equal(
+    rootPackage.scripts?.["desktop:bundle:macos:styled"],
+    "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc --styled-dmg",
+  );
+  assert.match(builder, /packageEnvironment\.CI = "true"/u);
+  assert.match(builder, /delete packageEnvironment\.TAURI_BUNDLER_DMG_IGNORE_CI/u);
+  assert.match(builder, /packageEnvironment\.TAURI_BUNDLER_DMG_IGNORE_CI = "true"/u);
 });

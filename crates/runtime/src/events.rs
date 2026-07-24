@@ -6,7 +6,9 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{CaptureFailureKind, StatusAdapterKind};
+use crate::{
+    CaptureFailureKind, CaptureTransitionError, StatusAdapterKind, SystemProxyObservationStage,
+};
 
 pub const EVENTS_BUFFER_LIMIT: usize = 1_024;
 
@@ -158,6 +160,32 @@ impl ApplicationDiagnosticEvent {
                 Some("Wait for the current Core or capture transition to finish before retrying"),
             ),
         }
+    }
+
+    pub fn capture_transition_failure(error: &CaptureTransitionError) -> Self {
+        if error.kind != CaptureFailureKind::ObservationFailed {
+            return Self::capture_failure(error.kind);
+        }
+        let detail = match error.observation_stage {
+            Some(SystemProxyObservationStage::DefaultRoute) => {
+                "macOS default-route observation failed before Mish selected a network service"
+            }
+            Some(SystemProxyObservationStage::NetworkServiceOrder) => {
+                "/usr/sbin/networksetup could not list the bounded network-service order"
+            }
+            Some(SystemProxyObservationStage::NetworkServiceResolution) => {
+                "The macOS default-route device did not resolve to one exact network service"
+            }
+            Some(SystemProxyObservationStage::ProxyConfiguration) => {
+                "/usr/sbin/networksetup did not return one complete proxy configuration"
+            }
+            None => "Mish did not apply or confirm capture without a complete macOS observation",
+        };
+        Self::new(
+            EventLevel::Error,
+            "System Proxy state could not be observed",
+            Some(detail),
+        )
     }
 
     pub const fn settings_failure() -> Self {
@@ -377,5 +405,21 @@ mod tests {
         );
         assert!(!format!("{event:?}").contains("service"));
         assert!(!format!("{event:?}").contains("PAC"));
+    }
+
+    #[test]
+    fn observation_failure_reports_only_the_bounded_platform_stage() {
+        let error = CaptureTransitionError::new(
+            CaptureFailureKind::ObservationFailed,
+            "private fixture detail",
+        )
+        .at_observation_stage(SystemProxyObservationStage::NetworkServiceResolution);
+        let event = ApplicationDiagnosticEvent::capture_transition_failure(&error);
+
+        assert_eq!(
+            event.detail(),
+            Some("The macOS default-route device did not resolve to one exact network service")
+        );
+        assert!(!format!("{event:?}").contains("private fixture detail"));
     }
 }

@@ -1594,6 +1594,29 @@ mod bundled_geodata_tests {
 
         assert_eq!(resolved.bundled_geodata(), Some(source.as_path()));
     }
+
+    #[test]
+    fn production_resolver_uses_the_tauri_resource_layout_without_repository_state() {
+        let root = TempDir::new().unwrap();
+        let resources = root.path().join("Mish.app/Contents/Resources");
+        fs::create_dir_all(resources.join("geodata/snapshot")).unwrap();
+        let sidecar = resources.join(ManagedMihomoResolver::production_sidecar_name());
+        fs::write(&sidecar, b"packaged core fixture").unwrap();
+        let runtime = root
+            .path()
+            .join("Library/Application Support/com.asuka109.mish/runtime");
+
+        let resolved = ManagedMihomoResolver::production(resources.clone(), runtime.clone())
+            .resolve()
+            .unwrap();
+
+        assert_eq!(resolved.binary(), sidecar);
+        assert_eq!(
+            resolved.bundled_geodata(),
+            Some(resources.join("geodata/snapshot").as_path())
+        );
+        assert_eq!(resolved.runtime_root(), runtime);
+    }
 }
 
 fn remove_selection_cache_profile(runtime_root: &Path, profile_id: &str) {
