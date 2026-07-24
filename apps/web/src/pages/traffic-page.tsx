@@ -126,8 +126,13 @@ const trafficStyles = tv({
       "traffic-table min-w-270 table-fixed [&_.ui-table-head:nth-child(1)]:w-44.5",
       "[&_.ui-table-head:nth-child(2)]:w-33 [&_.ui-table-head:nth-child(3)]:w-28",
       "[&_.ui-table-head:nth-child(4)]:w-28 [&_.ui-table-head:nth-child(5)]:w-28",
-      "[&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-19.5",
+      "[&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-25",
     ),
+    connectionRow: cx(
+      "cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-focus-accent",
+      "focus-visible:outline-offset-[-2px]",
+    ),
+    connectionAction: "text-clip",
     rulesTable: cx(
       "traffic-table min-w-190 table-fixed [&_.ui-table-head:nth-child(1)]:w-23",
       "[&_.ui-table-head:nth-child(2)]:w-37.5 [&_.ui-table-head:nth-child(5)]:w-23",
@@ -748,16 +753,35 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
       </TableHeader>
       <TableBody>
         {connections.map((connection) => (
-          <TableRow key={connection.id}>
+          <TableRow
+            className={trafficStyles().connectionRow()}
+            key={connection.id}
+            onClick={(event) => {
+              if (
+                event.target instanceof Element &&
+                event.target.closest("[data-traffic-row-action]")
+              ) {
+                return;
+              }
+              onSelect(connection);
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.target !== event.currentTarget ||
+                (event.key !== "Enter" && event.key !== " ")
+              ) {
+                return;
+              }
+              event.preventDefault();
+              onSelect(connection);
+            }}
+            tabIndex={0}
+          >
             <TableCell>
-              <Button
-                className={trafficStyles().destination()}
-                onClick={() => onSelect(connection)}
-                variant="ghost"
-              >
+              <span className={trafficStyles().destination()}>
                 <span>{destinationLabel(connection) || LL.traffic.unavailable()}</span>
                 <small className="tabular-nums">:{connection.destinationPort}</small>
-              </Button>
+              </span>
             </TableCell>
             <TableCell>
               <ProcessIdentity connection={connection} LL={LL} />
@@ -784,13 +808,16 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 ? connection.routeChain.join(" → ")
                 : LL.traffic.unavailable()}
             </TableCell>
-            <TableCell>
+            <TableCell className={trafficStyles().connectionAction()} data-traffic-row-action="">
               <Button
                 aria-describedby={canClose ? undefined : "traffic-close-scope"}
                 disabled={!canClose || isClosePending(connection.id)}
                 loading={isClosePending(connection.id)}
                 loadingText={LL.traffic.closingConnection()}
-                onClick={() => onRequestClose(connection)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRequestClose(connection);
+                }}
                 size="sm"
                 variant="ghost"
               >

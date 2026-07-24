@@ -190,8 +190,9 @@ describe("Traffic page", () => {
     expect(within(row).getByText("Fixture Browser")).toHaveAttribute("tabindex", "0");
     expect(within(row).getByText(/Fixture Policy → Fixture Relay → Fixture Exit/)).toBeVisible();
     expect(within(row).getByRole("button", { name: "Close" })).toBeDisabled();
+    expect(row).toHaveAttribute("tabindex", "0");
 
-    await user.click(within(row).getByRole("button", { name: /docs\.fixture\.invalid/ }));
+    await user.click(row);
     const dialog = screen.getByRole("dialog", { name: "Connection details" });
     const chain = within(dialog).getByRole("list");
     expect(within(chain).getAllByRole("listitem")).toHaveLength(3);
@@ -224,6 +225,7 @@ describe("Traffic page", () => {
 
     await user.click(within(row).getByRole("button", { name: "Close" }));
     const confirmation = screen.getByRole("alertdialog", { name: "Close this active connection?" });
+    expect(screen.queryByRole("dialog", { name: "Connection details" })).not.toBeInTheDocument();
     expect(confirmation).toHaveTextContent("stable connection ID");
     await user.click(within(confirmation).getByRole("button", { name: "Close Connection" }));
 

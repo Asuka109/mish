@@ -98,6 +98,36 @@ function renderTraffic(client: BrowserCommandTrafficClient) {
 }
 
 describe("Traffic filtered-visible close", () => {
+  test("opens details from the whole row without clipping or hijacking Close", async () => {
+    await page.viewport(1_200, 700);
+    const client = new BrowserCommandTrafficClient();
+    const initial = await client.getSnapshot();
+    client.publishSnapshot({ ...initial, adapterKind: "rpc" });
+    renderTraffic(client);
+
+    const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
+    const close = row.getByRole("button", { name: "Close" });
+    await expect.element(row).toBeVisible();
+    const closeCell = close.element().closest("td");
+    if (!closeCell) throw new Error("Missing close action cell");
+    expect(closeCell.scrollWidth).toBeLessThanOrEqual(closeCell.clientWidth);
+
+    await userEvent.click(row);
+    await expect.element(page.getByRole("dialog", { name: "Connection details" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    row.element().focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("dialog", { name: "Connection details" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(close);
+    await expect
+      .element(page.getByRole("alertdialog", { name: "Close this active connection?" }))
+      .toBeVisible();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   test("freezes the confirmed ID set while live snapshots continue", async () => {
     await page.viewport(900, 700);
     const client = new BrowserCommandTrafficClient();
