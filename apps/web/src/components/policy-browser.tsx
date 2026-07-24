@@ -45,7 +45,7 @@ const policyGroupSummaryRecipe = tv({
       compact: "policy-browser-group-summary--compact min-h-11 px-2.5 py-1.5",
       default: "policy-browser-group-summary--default min-h-14.5 px-3 py-2",
       status: cx(
-        "policy-browser-group-summary--status min-h-11.5 px-2.5 py-1.5",
+        "policy-browser-group-summary--status min-h-12.5 px-2.5 py-1",
         "max-page-compact:min-h-14.5 max-page-compact:px-3 max-page-compact:py-2",
       ),
     },
@@ -87,8 +87,8 @@ const policyEntityRowRecipe = tv({
         "[&_.policy-browser-entity-primary]:pl-11",
       ),
       status: cx(
-        "policy-browser-entity-row--status [&_.policy-browser-entity-primary]:min-h-11.5",
-        "[&_.policy-browser-entity-primary]:px-2.5 [&_.policy-browser-entity-primary]:py-1.5",
+        "policy-browser-entity-row--status [&_.policy-browser-entity-primary]:min-h-12.5",
+        "[&_.policy-browser-entity-primary]:px-2.5 [&_.policy-browser-entity-primary]:py-1",
         "[&_.policy-browser-entity-primary]:pl-4",
         "max-page-compact:[&_.policy-browser-entity-primary]:min-h-13",
         "max-page-compact:[&_.policy-browser-entity-primary]:py-1.75",

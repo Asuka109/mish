@@ -134,8 +134,16 @@ describe("unified policy browser", () => {
       if (!groupSection) throw new Error("Missing Status Groups section");
       expect(getComputedStyle(groupSection).alignSelf).toBe("flex-start");
       expect(rows.every((row) => row.dataset.policyBrowserDensity === "status")).toBe(true);
-      expect(rows.every((row) => row.getBoundingClientRect().height === 46)).toBe(true);
+      expect(rows.every((row) => row.getBoundingClientRect().height === 50)).toBe(true);
       rows.forEach((row) => {
+        const copy = row.querySelector<HTMLElement>(".policy-browser-summary-copy");
+        if (!copy) throw new Error("Missing Status policy summary copy");
+        const rowRect = row.getBoundingClientRect();
+        const copyRect = copy.getBoundingClientRect();
+        const topInset = copyRect.top - rowRect.top;
+        const bottomInset = rowRect.bottom - copyRect.bottom;
+        expect(Math.min(topInset, bottomInset)).toBeGreaterThanOrEqual(4);
+        expect(Math.abs(topInset - bottomInset)).toBeLessThanOrEqual(1);
         expect(row.querySelectorAll(".user-authored-label")).toHaveLength(2);
         expect(row.querySelector(".ui-badge")).not.toBeNull();
         expect(row.querySelector("svg")).not.toBeNull();
