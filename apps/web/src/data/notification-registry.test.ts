@@ -61,7 +61,9 @@ describe("notification presentation registry", () => {
       }),
       LL,
     );
-    expect(startupFailure.actions).toEqual([{ id: "open-diagnostics", label: "Open Diagnostics" }]);
+    expect(startupFailure.actions).toEqual([
+      { diagnosticFailure: "core-unhealthy", id: "open-diagnostics", label: "Open Diagnostics" },
+    ]);
     expect(
       presentNotification(
         notificationRecord({
@@ -71,7 +73,7 @@ describe("notification presentation registry", () => {
         }),
         i18nObject("zh"),
       ).actions,
-    ).toEqual([{ id: "open-diagnostics", label: "打开诊断" }]);
+    ).toEqual([{ diagnosticFailure: "core-unhealthy", id: "open-diagnostics", label: "打开诊断" }]);
   });
 
   it("keeps takeover rejections redacted and offers the fixed native settings action", () => {

@@ -47,7 +47,14 @@ import { cx, tv } from "@mish/ui/tv";
 import { useEvents } from "../data/events-provider";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
-import { filterEvents, sortEvents, type EventsOrder } from "./events-model";
+import {
+  conclusionKind,
+  filterEvents,
+  selectDiagnosticConclusion,
+  sortEvents,
+  type DiagnosticConclusionKind,
+  type EventsOrder,
+} from "./events-model";
 
 const eventLevels: EventLevel[] = ["debug", "info", "warning", "error"];
 const eventSources: EventSource[] = ["application", "core", "platform", "rpc"];
@@ -138,6 +145,8 @@ const eventStyles = tv({
     diagnosticFixture: "text-warning",
     diagnosticError: "text-error",
     diagnosticHistory: "diagnostic-history grid gap-6",
+    diagnosticConclusion:
+      "diagnostic-conclusion mb-3 grid gap-1.5 rounded-md border border-hairline bg-surface-soft px-3.5 py-3 text-metadata [&_strong]:font-semibold [&_small]:text-caption [&_small]:text-muted-foreground",
     diagnosticRun: cx(
       "diagnostic-run mt-3 [.diagnostic-history_&+&]:border-t",
       "[.diagnostic-history_&+&]:border-hairline-soft [.diagnostic-history_&+&]:pt-5",
@@ -236,6 +245,7 @@ export function EventsPage() {
   const listRef = useRef<HTMLOListElement>(null);
   const diagnosticsRef = useRef<HTMLElement>(null);
   const [searchParams] = useSearchParams();
+  const diagnosticFailure = searchParams.get("failure");
 
   const viewPaused = paused && pausedSessionId === snapshot?.sessionId;
   const displayedEvents = viewPaused ? pausedEvents : events;
@@ -422,7 +432,13 @@ export function EventsPage() {
         {diagnosticHistory?.runs.length ? (
           <div className={eventStyles().diagnosticHistory()}>
             {diagnosticHistory.runs.map((run) => (
-              <DiagnosticRun key={run.id} locale={locale} run={run} translations={LL} />
+              <DiagnosticRun
+                contextFailure={diagnosticFailure}
+                key={run.id}
+                locale={locale}
+                run={run}
+                translations={LL}
+              />
             ))}
           </div>
         ) : (
@@ -676,14 +692,19 @@ function EventsToolbarButton({
 }
 
 function DiagnosticRun({
+  contextFailure,
   locale,
   run,
   translations: LL,
 }: {
+  contextFailure: string | null;
   locale: Locales;
   run: DiagnosticRunDto;
   translations: TranslationFunctions;
 }) {
+  const conclusion = selectDiagnosticConclusion(run);
+  const fromNotification =
+    contextFailure !== null && conclusionKind(contextFailure as never) === conclusion.kind;
   return (
     <div className={eventStyles().diagnosticRun()} data-status={run.status}>
       <div className={eventStyles().diagnosticSummary()}>
@@ -698,6 +719,17 @@ function DiagnosticRun({
           })}
         </span>
       </div>
+      <section
+        aria-label={LL.diagnostics.conclusion.title()}
+        className={eventStyles().diagnosticConclusion()}
+        data-notification-context={fromNotification || undefined}
+      >
+        <strong>{LL.diagnostics.conclusion.title()}</strong>
+        <span>{diagnosticConclusionCopy(LL, conclusion.kind)}</span>
+        {conclusion.evidence.length ? (
+          <small>{LL.diagnostics.conclusion.evidence({ count: conclusion.evidence.length })}</small>
+        ) : null}
+      </section>
       <SectionGrid className={eventStyles().diagnosticChecks()}>
         {run.checks.map((check) => (
           <SectionGridItem
@@ -734,6 +766,10 @@ function DiagnosticRun({
       </SectionGrid>
     </div>
   );
+}
+
+function diagnosticConclusionCopy(LL: TranslationFunctions, kind: DiagnosticConclusionKind) {
+  return LL.diagnostics.conclusion[kind]();
 }
 
 function diagnosticCheckLabel(LL: TranslationFunctions, check: DiagnosticCheckDto) {

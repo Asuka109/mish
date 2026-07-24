@@ -3868,6 +3868,53 @@ type RootTranslation = {
 		 * C​a​n​c​e​l​ ​R​u​n
 		 */
 		cancel: string
+		conclusion: {
+			/**
+			 * S​y​s​t​e​m​ ​P​r​o​x​y​ ​s​t​a​t​e​ ​n​e​e​d​s​ ​a​t​t​e​n​t​i​o​n​.​ ​R​e​v​i​e​w​ ​i​t​s​ ​o​b​s​e​r​v​e​d​ ​s​t​a​t​e​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
+			 */
+			capture: string
+			/**
+			 * T​h​e​ ​m​a​n​a​g​e​d​ ​c​o​r​e​ ​i​s​ ​n​o​t​ ​r​e​a​d​y​ ​f​o​r​ ​r​o​u​t​e​ ​c​h​e​c​k​s​.​ ​S​t​a​r​t​ ​o​r​ ​r​e​p​a​i​r​ ​i​t​,​ ​t​h​e​n​ ​r​u​n​ ​d​i​a​g​n​o​s​t​i​c​s​ ​a​g​a​i​n​.
+			 */
+			core: string
+			/**
+			 * T​h​e​ ​f​i​x​e​d​ ​e​n​d​p​o​i​n​t​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​r​e​s​o​l​v​e​d​.​ ​C​h​e​c​k​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​D​N​S​ ​c​o​n​n​e​c​t​i​o​n​,​ ​t​h​e​n​ ​r​u​n​ ​a​g​a​i​n​.
+			 */
+			dns: string
+			/**
+			 * B​a​s​e​d​ ​o​n​ ​{​c​o​u​n​t​}​ ​s​u​p​p​o​r​t​i​n​g​ ​c​h​e​c​k​(​s​)​.
+			 * @param {number} count
+			 */
+			evidence: RequiredParams<'count'>
+			/**
+			 * N​o​ ​p​r​i​o​r​i​t​i​z​e​d​ ​f​a​i​l​u​r​e​ ​w​a​s​ ​f​o​u​n​d​ ​i​n​ ​t​h​i​s​ ​b​o​u​n​d​e​d​ ​r​u​n​.
+			 */
+			healthy: string
+			/**
+			 * T​h​e​ ​a​c​t​i​v​e​ ​P​r​o​f​i​l​e​ ​c​o​n​t​e​x​t​ ​i​s​ ​n​o​t​ ​r​e​a​d​y​.​ ​S​e​l​e​c​t​ ​o​r​ ​r​e​p​a​i​r​ ​a​ ​v​a​l​i​d​ ​P​r​o​f​i​l​e​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 */
+			profile: string
+			/**
+			 * A​ ​s​a​f​e​ ​s​c​o​p​e​d​ ​p​r​o​x​y​ ​o​b​s​e​r​v​a​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.​ ​R​e​t​r​y​ ​a​f​t​e​r​ ​t​h​e​ ​c​o​r​e​ ​r​e​c​o​n​n​e​c​t​s​.
+			 */
+			proxy: string
+			/**
+			 * T​h​e​ ​f​i​x​e​d​ ​e​n​d​p​o​i​n​t​ ​c​o​u​l​d​ ​n​o​t​ ​b​e​ ​r​e​a​c​h​e​d​ ​o​n​ ​t​h​i​s​ ​r​o​u​t​e​.​ ​C​h​e​c​k​ ​c​o​n​n​e​c​t​i​v​i​t​y​,​ ​t​h​e​n​ ​r​e​t​r​y​.
+			 */
+			reachability: string
+			/**
+			 * T​h​i​s​ ​r​u​n​ ​e​n​d​e​d​ ​b​e​f​o​r​e​ ​a​ ​s​t​a​b​l​e​ ​r​e​s​u​l​t​.​ ​R​u​n​ ​d​i​a​g​n​o​s​t​i​c​s​ ​a​g​a​i​n​ ​f​o​r​ ​a​ ​n​e​w​ ​r​u​n​t​i​m​e​ ​c​o​n​t​e​x​t​.
+			 */
+			retry: string
+			/**
+			 * W​h​a​t​ ​t​o​ ​d​o​ ​n​e​x​t
+			 */
+			title: string
+			/**
+			 * S​o​m​e​ ​e​v​i​d​e​n​c​e​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​.​ ​N​o​ ​b​r​o​a​d​e​r​ ​n​e​t​w​o​r​k​ ​c​l​a​i​m​ ​i​s​ ​m​a​d​e​;​ ​r​e​t​r​y​ ​w​h​e​n​ ​t​h​e​ ​r​u​n​t​i​m​e​ ​i​s​ ​r​e​a​d​y​.
+			 */
+			unavailable: string
+		}
 		check: {
 			/**
 			 * C​a​p​t​u​r​e​ ​d​e​s​i​r​e​d​ ​/​ ​o​b​s​e​r​v​e​d
@@ -8292,6 +8339,52 @@ export type TranslationFunctions = {
 		 * Cancel Run
 		 */
 		cancel: () => LocalizedString
+		conclusion: {
+			/**
+			 * System Proxy state needs attention. Review its observed state before retrying.
+			 */
+			capture: () => LocalizedString
+			/**
+			 * The managed core is not ready for route checks. Start or repair it, then run diagnostics again.
+			 */
+			core: () => LocalizedString
+			/**
+			 * The fixed endpoint could not be resolved. Check the current DNS connection, then run again.
+			 */
+			dns: () => LocalizedString
+			/**
+			 * Based on {count} supporting check(s).
+			 */
+			evidence: (arg: { count: number }) => LocalizedString
+			/**
+			 * No prioritized failure was found in this bounded run.
+			 */
+			healthy: () => LocalizedString
+			/**
+			 * The active Profile context is not ready. Select or repair a valid Profile, then retry.
+			 */
+			profile: () => LocalizedString
+			/**
+			 * A safe scoped proxy observation is unavailable. Retry after the core reconnects.
+			 */
+			proxy: () => LocalizedString
+			/**
+			 * The fixed endpoint could not be reached on this route. Check connectivity, then retry.
+			 */
+			reachability: () => LocalizedString
+			/**
+			 * This run ended before a stable result. Run diagnostics again for a new runtime context.
+			 */
+			retry: () => LocalizedString
+			/**
+			 * What to do next
+			 */
+			title: () => LocalizedString
+			/**
+			 * Some evidence is unavailable. No broader network claim is made; retry when the runtime is ready.
+			 */
+			unavailable: () => LocalizedString
+		}
 		check: {
 			/**
 			 * Capture desired / observed
