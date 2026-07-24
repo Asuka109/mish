@@ -75,14 +75,12 @@ beforeAll(async () => {
           commandSupported
           disabled
           onSystemProxyChange={vi.fn()}
-          onTunChange={vi.fn()}
           pending
           pendingMode="systemProxy"
           systemProxyEnabled={false}
           systemProxySelected
           systemProxyStatus={systemProxyStatus}
           tunEnabled={false}
-          tunGuideIdentity={"a".repeat(64)}
           tunSelected={false}
           tunStatus={tunStatus}
         />

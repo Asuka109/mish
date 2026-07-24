@@ -497,7 +497,7 @@ const en = {
     systemProxyPermission: "System Proxy requires permission before it can change.",
     systemProxyUnavailable: "System Proxy is unavailable on this platform.",
     tunPermission: "Virtual Interface requires permission before it can change.",
-    tunUnavailable: "Virtual Interface is unavailable on this platform.",
+    tunUnavailable: "Virtual Interface is not available in this version of Mish.",
   },
   proxyPicker: {
     description: "Select a child for this policy group. The selection is not global.",

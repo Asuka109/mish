@@ -2277,7 +2277,9 @@ describe("desktop RPC experience", () => {
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
     expect(tun).toBeDisabled();
-    expect(tun).toHaveAccessibleDescription(/Virtual Interface is unavailable/i);
+    expect(tun).toHaveAccessibleDescription(
+      /Virtual Interface is not available in this version of Mish/i,
+    );
 
     expect(screen.getByRole("button", { name: "Rule" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: /Switch profile/ })).toBeDisabled();
@@ -2330,7 +2332,9 @@ describe("desktop RPC experience", () => {
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
     expect(tun).toBeDisabled();
-    expect(tun).toHaveAccessibleDescription(/requires permission/i);
+    expect(tun).toHaveAccessibleDescription(
+      /Virtual Interface is not available in this version of Mish/i,
+    );
 
     const globalMode = screen.getByRole("button", { name: "Global" });
     const group = screen.getByRole("button", { name: /🌐 Proxy/ });
@@ -2671,7 +2675,7 @@ describe("Status fixture experience", () => {
     });
   });
 
-  it("starts the complete remembered combination when a stopped unselected mode is added", async () => {
+  it("keeps Virtual Interface disabled when System Proxy is stopped", async () => {
     const user = userEvent.setup();
     renderRoute("/status");
 
@@ -2679,46 +2683,15 @@ describe("Status fixture experience", () => {
       await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
     );
     await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
-    const systemProxy = screen.getByRole("button", {
-      name: "System Proxy, selected, not running",
-    });
+
     const tun = screen.getByRole("button", {
       name: "Virtual Interface, not selected, not running",
     });
-
-    await user.click(tun);
-
-    await waitFor(() => {
-      expect(systemProxy).toHaveAccessibleName("System Proxy, selected, running");
-      expect(tun).toHaveAccessibleName("Virtual Interface, selected, running");
-    });
-  });
-
-  it("removes a remembered mode without starting capture when its gray control is clicked", async () => {
-    const user = userEvent.setup();
-    renderRoute("/status");
-
-    await user.click(
-      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
-    );
-    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
-    await user.click(
-      screen.getByRole("button", {
-        name: "Virtual Interface, not selected, not running",
-      }),
-    );
-    await user.click(screen.getByRole("button", { name: "Disable the Proxy Demo State" }));
-    await user.click(screen.getByRole("button", { name: "System Proxy, selected, not running" }));
-
-    expect(
-      await screen.findByRole("button", { name: "System Proxy, not selected, not running" }),
-    ).toHaveAttribute("aria-pressed", "false");
-    expect(
-      screen.getByRole("button", { name: "Virtual Interface, selected, not running" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(tun).toBeDisabled();
+    expect(tun).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Launch the Proxy Demo State" })).toHaveAttribute(
       "title",
-      "Launch Proxy with Virtual Interface",
+      "Launch Proxy with System Proxy",
     );
   });
 
@@ -2741,34 +2714,14 @@ describe("Status fixture experience", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("does not remember an unconfirmed capture-mode change", async () => {
-    const user = userEvent.setup();
-    const errorToast = vi.spyOn(toast, "error");
+  it("does not offer Virtual Interface capture to a failing client", async () => {
     renderRoute("/status", "en", new FailingCaptureClient());
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Virtual Interface, not selected, not running",
-      }),
-    );
-
-    await waitFor(() =>
-      expect(errorToast).toHaveBeenCalledWith(
-        "The command failed.",
-        expect.objectContaining({ id: expect.stringMatching(/^notification:/) }),
-      ),
-    );
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Notifications, \d+ unread/ }));
-    expect(await screen.findByRole("dialog")).toHaveTextContent("The command failed.");
-    expect(
-      screen.getByRole("button", { name: "System Proxy, not selected, not running" }),
-    ).toHaveAttribute("aria-pressed", "false");
-    expect(
-      screen.getByRole("button", {
-        name: "Virtual Interface, not selected, not running",
-      }),
-    ).toHaveAttribute("aria-pressed", "false");
+    const tun = await screen.findByRole("button", {
+      name: "Virtual Interface, not selected, not running",
+    });
+    expect(tun).toBeDisabled();
+    expect(tun).toHaveAttribute("aria-pressed", "false");
   });
 
   it("shows observed System Proxy drift and offers typed recovery choices", async () => {
