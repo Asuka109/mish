@@ -225,7 +225,7 @@ controls. Leave the app hidden and idle for at least ten minutes and confirm tha
 its decorative animation is stopped and Activity Monitor does not show sustained
 CPU use.
 
-## Remove the test app and local state
+## Remove Mish and account-local application state
 
 Before removal, turn System Proxy off and confirm the UI reports it off. Disable
 **Launch at login** in Settings, then quit Mish normally. If Mish reports System
@@ -237,7 +237,7 @@ Preview the exact app and account-local state that the cleanup will move to the
 Trash:
 
 ```sh
-pnpm macos:alpha:test:clean
+pnpm macos:app:clean
 ```
 
 The preview refuses to continue while a Mish desktop or managed Core process is
@@ -249,7 +249,7 @@ ownership blocker through Mish's normal quit or offered recovery flow.
 After reviewing the preview, perform the cleanup explicitly:
 
 ```sh
-pnpm macos:alpha:test:clean -- --apply
+pnpm macos:app:clean -- --apply
 ```
 
 The apply path unregisters an account-local Mish LaunchAgent and moves only the

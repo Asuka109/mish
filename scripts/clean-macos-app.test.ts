@@ -5,13 +5,13 @@ import path from "node:path";
 import test from "node:test";
 
 import {
-  applyMacOsAlphaCleanup,
+  applyMacOsAppCleanup,
   hasEnabledLoopbackSystemProxy,
-  inspectMacOsAlphaCleanup,
-} from "./clean-macos-alpha-test.ts";
+  inspectMacOsAppCleanup,
+} from "./clean-macos-app.ts";
 
 function fixture() {
-  const root = mkdtempSync(path.join(tmpdir(), "mish-alpha-cleanup-"));
+  const root = mkdtempSync(path.join(tmpdir(), "mish-macos-app-cleanup-"));
   const home = path.join(root, "home");
   const applications = path.join(root, "Applications");
   mkdirSync(home);
@@ -32,7 +32,7 @@ test("cleanup inspection is bounded to exact app and account-local targets", () 
   writeFileSync(path.join(byHost, "com.asuka109.mish.UUID-1.plist"), "fixture");
   writeFileSync(path.join(byHost, "com.example.unrelated.UUID-1.plist"), "fixture");
 
-  const inspection = inspectMacOsAlphaCleanup({
+  const inspection = inspectMacOsAppCleanup({
     homeDirectory: home,
     processTable: "",
     proxyState: "",
@@ -52,7 +52,7 @@ test("cleanup refuses running ownership, recovery journals, and loopback proxy s
   const data = path.join(home, "Library/Application Support/com.asuka109.mish");
   mkdirSync(data, { recursive: true });
   writeFileSync(path.join(data, "system-proxy-journal.json"), "fixture");
-  const inspection = inspectMacOsAlphaCleanup({
+  const inspection = inspectMacOsAppCleanup({
     homeDirectory: home,
     processTable: `42 /Applications/Mish.app/Contents/MacOS/mish-desktop
 43 /tmp/mihomo -d ${path.join(data, "runtime/candidates/id/home")}`,
@@ -62,7 +62,7 @@ HTTPProxy : 127.0.0.1`,
   });
 
   assert.equal(inspection.blockers.length, 3);
-  assert.throws(() => applyMacOsAlphaCleanup(inspection), /blocked/u);
+  assert.throws(() => applyMacOsAppCleanup(inspection), /blocked/u);
 });
 
 test("loopback proxy detection requires an enabled supported proxy kind", () => {
@@ -75,7 +75,7 @@ test("apply unregisters launch agents and trashes only inspected targets", () =>
   const calls: string[][] = [];
   const targets = ["/fixture/Applications/Mish.app", "/fixture/Library/LaunchAgents/Mish.plist"];
 
-  applyMacOsAlphaCleanup(
+  applyMacOsAppCleanup(
     { blockers: [], existingTargets: targets, mountedMishImages: 2 },
     {
       getUid: () => 501,
@@ -101,7 +101,7 @@ test("apply refuses to trash a launch agent that remains registered", () => {
   const calls: string[][] = [];
   assert.throws(
     () =>
-      applyMacOsAlphaCleanup(
+      applyMacOsAppCleanup(
         {
           blockers: [],
           existingTargets: ["/fixture/Library/LaunchAgents/Mish.plist"],

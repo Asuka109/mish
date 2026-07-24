@@ -6,7 +6,7 @@ import path from "node:path";
 const APP_ID = "com.asuka109.mish";
 const APP_NAME = "Mish";
 
-export type MacOsAlphaCleanupInspection = {
+export type MacOsAppCleanupInspection = {
   blockers: string[];
   existingTargets: string[];
   mountedMishImages: number;
@@ -96,7 +96,7 @@ export function hasEnabledLoopbackSystemProxy(proxyState: string): boolean {
   });
 }
 
-export function inspectMacOsAlphaCleanup(options: InspectOptions): MacOsAlphaCleanupInspection {
+export function inspectMacOsAppCleanup(options: InspectOptions): MacOsAppCleanupInspection {
   const systemApplicationsDirectory = options.systemApplicationsDirectory ?? "/Applications";
   if (
     !path.isAbsolute(options.homeDirectory) ||
@@ -132,8 +132,8 @@ export function inspectMacOsAlphaCleanup(options: InspectOptions): MacOsAlphaCle
   return { blockers, existingTargets, mountedMishImages };
 }
 
-export function applyMacOsAlphaCleanup(
-  inspection: MacOsAlphaCleanupInspection,
+export function applyMacOsAppCleanup(
+  inspection: MacOsAppCleanupInspection,
   options: {
     getUid?: () => number;
     run?: CleanupRunner;
@@ -188,23 +188,23 @@ function readRequiredCommand(executable: string, arguments_: string[]): string {
   });
 }
 
-export function runMacOsAlphaCleanup(arguments_: string[] = process.argv.slice(2)): void {
+export function runMacOsAppCleanup(arguments_: string[] = process.argv.slice(2)): void {
   if (process.platform !== "darwin") {
-    throw new Error("The macOS Alpha cleanup is available only on macOS");
+    throw new Error("The Mish application cleanup is available only on macOS");
   }
   const normalized = arguments_.filter((argument) => argument !== "--");
   if (normalized.some((argument) => argument !== "--apply")) {
-    throw new Error("Usage: pnpm macos:alpha:test:clean [-- --apply]");
+    throw new Error("Usage: pnpm macos:app:clean [-- --apply]");
   }
   const apply = normalized.includes("--apply");
-  const inspection = inspectMacOsAlphaCleanup({
+  const inspection = inspectMacOsAppCleanup({
     homeDirectory: os.homedir(),
     mountedImages: readCommand("/usr/bin/hdiutil", ["info"]),
     processTable: readRequiredCommand("/bin/ps", ["-axo", "pid=,command="]),
     proxyState: readRequiredCommand("/usr/sbin/scutil", ["--proxy"]),
   });
 
-  console.log(`Mish macOS Alpha cleanup ${apply ? "apply" : "preview"}:`);
+  console.log(`Mish macOS application cleanup ${apply ? "apply" : "preview"}:`);
   if (inspection.existingTargets.length === 0) {
     console.log("- No account-local Mish application or state targets were found.");
   } else {
@@ -217,15 +217,15 @@ export function runMacOsAlphaCleanup(arguments_: string[] = process.argv.slice(2
   }
   if (inspection.blockers.length > 0) {
     for (const blocker of inspection.blockers) console.error(`BLOCKED: ${blocker}`);
-    throw new Error("Resolve every blocker before cleaning the Alpha test environment");
+    throw new Error("Resolve every blocker before cleaning the Mish application state");
   }
   if (!apply) {
     console.log(
-      "Preview only. Re-run with `pnpm macos:alpha:test:clean -- --apply` to move these targets to the Trash.",
+      "Preview only. Re-run with `pnpm macos:app:clean -- --apply` to move these targets to the Trash.",
     );
     return;
   }
-  applyMacOsAlphaCleanup(inspection);
+  applyMacOsAppCleanup(inspection);
   console.log(
     "Cleanup complete. Listed files remain recoverable from the Trash; user-selected exports/backups, mounted DMGs, and development TUN services were intentionally left untouched.",
   );
@@ -233,7 +233,7 @@ export function runMacOsAlphaCleanup(arguments_: string[] = process.argv.slice(2
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
   try {
-    runMacOsAlphaCleanup();
+    runMacOsAppCleanup();
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Mish cleanup failed");
     process.exitCode = 1;
