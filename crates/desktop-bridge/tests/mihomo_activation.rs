@@ -561,6 +561,7 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
     assert_eq!(dual["runtime"]["captureSelection"]["tun"], true);
     let config = only_candidate_config(root.path());
     assert_eq!(config["tun"]["enable"].as_bool(), Some(true));
+    assert_eq!(config["find-process-mode"].as_str(), Some("always"));
 
     coordinator
         .set_capture(
@@ -1007,6 +1008,7 @@ lan-disallowed-ips: [192.0.2.2]
 secret: source-secret
 log-level: debug
 mode: global
+find-process-mode: off
 listeners:
   - name: unsafe-listener
 tun:
@@ -1058,6 +1060,7 @@ rules:
     );
     assert_eq!(root["log-level"].as_str(), Some("warning"));
     assert_eq!(root["mode"].as_str(), Some("rule"));
+    assert_eq!(root["find-process-mode"].as_str(), Some("always"));
     assert!(root["listeners"].as_sequence().unwrap().is_empty());
     assert_eq!(root["tun"]["enable"].as_bool(), Some(false));
     assert_eq!(root["sniffer"]["enable"].as_bool(), Some(false));
@@ -1114,6 +1117,7 @@ rules:
         "external-doh-server",
         "mode",
         "log-level",
+        "find-process-mode",
         "profile.store-fake-ip",
         "listeners",
         "interface-name",

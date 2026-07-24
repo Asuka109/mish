@@ -3333,6 +3333,23 @@ type RootTranslation = {
 		 */
 		closeUnsupported: string
 		/**
+		 * C​l​o​s​e​ ​V​i​s​i​b​l​e​ ​C​o​n​n​e​c​t​i​o​n​s
+		 */
+		closeVisibleConfirm: string
+		/**
+		 * C​l​o​s​e​ ​V​i​s​i​b​l​e​ ​C​o​n​n​e​c​t​i​o​n​s
+		 */
+		closeVisibleConnections: string
+		/**
+		 * T​a​r​g​e​t​ ​c​o​u​n​t​:​ ​{​c​o​u​n​t​}​.​ ​C​l​o​s​e​ ​o​n​l​y​ ​t​h​e​ ​c​o​n​n​e​c​t​i​o​n​s​ ​m​a​t​c​h​i​n​g​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​s​e​a​r​c​h​ ​a​n​d​ ​n​e​t​w​o​r​k​ ​f​i​l​t​e​r​.​ ​M​i​s​h​ ​r​e​v​a​l​i​d​a​t​e​s​ ​t​h​e​s​e​ ​s​t​a​b​l​e​ ​I​D​s​ ​i​n​ ​R​u​s​t​;​ ​n​e​w​e​r​ ​u​n​r​e​l​a​t​e​d​ ​c​o​n​n​e​c​t​i​o​n​s​ ​a​r​e​ ​n​e​v​e​r​ ​i​n​c​l​u​d​e​d​.
+		 * @param {number} count
+		 */
+		closeVisibleDescription: RequiredParams<'count'>
+		/**
+		 * C​l​o​s​e​ ​t​h​e​ ​f​i​l​t​e​r​e​d​ ​v​i​s​i​b​l​e​ ​c​o​n​n​e​c​t​i​o​n​s​?
+		 */
+		closeVisibleTitle: string
+		/**
 		 * C​l​o​s​i​n​g​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s​…
 		 */
 		closingAllActive: string
@@ -3340,6 +3357,10 @@ type RootTranslation = {
 		 * C​l​o​s​i​n​g​…
 		 */
 		closingConnection: string
+		/**
+		 * C​l​o​s​i​n​g​ ​v​i​s​i​b​l​e​ ​c​o​n​n​e​c​t​i​o​n​s​…
+		 */
+		closingVisible: string
 		/**
 		 * C​l​o​s​e​d
 		 */
@@ -3440,6 +3461,15 @@ type RootTranslation = {
 		 * P​r​o​c​e​s​s​ ​p​a​t​h
 		 */
 		processPath: string
+		/**
+		 * M​i​h​o​m​o​ ​d​i​d​ ​n​o​t​ ​p​r​o​v​i​d​e​ ​p​r​o​c​e​s​s​ ​a​t​t​r​i​b​u​t​i​o​n​ ​f​o​r​ ​t​h​i​s​ ​c​o​n​n​e​c​t​i​o​n​.​ ​S​o​m​e​ ​c​o​n​n​e​c​t​i​o​n​ ​c​l​a​s​s​e​s​ ​o​r​ ​p​l​a​t​f​o​r​m​s​ ​c​a​n​n​o​t​ ​b​e​ ​a​t​t​r​i​b​u​t​e​d​.
+		 */
+		processUnavailableDescription: string
+		/**
+		 * P​r​o​c​e​s​s​ ​a​t​t​r​i​b​u​t​i​o​n​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e​ ​f​o​r​ ​{​c​o​u​n​t​}​ ​a​c​t​i​v​e​ ​c​o​n​n​e​c​t​i​o​n​s​ ​b​e​c​a​u​s​e​ ​M​i​h​o​m​o​ ​c​o​u​l​d​ ​n​o​t​ ​i​d​e​n​t​i​f​y​ ​t​h​e​i​r​ ​o​w​n​i​n​g​ ​p​r​o​c​e​s​s​.
+		 * @param {number} count
+		 */
+		processUnavailableNotice: RequiredParams<'count'>
 		/**
 		 * P​r​o​f​i​l​e​ ​{​p​r​o​f​i​l​e​}
 		 * @param {string} profile
@@ -7681,6 +7711,22 @@ export type TranslationFunctions = {
 		 */
 		closeUnsupported: () => LocalizedString
 		/**
+		 * Close Visible Connections
+		 */
+		closeVisibleConfirm: () => LocalizedString
+		/**
+		 * Close Visible Connections
+		 */
+		closeVisibleConnections: () => LocalizedString
+		/**
+		 * Target count: {count}. Close only the connections matching the current search and network filter. Mish revalidates these stable IDs in Rust; newer unrelated connections are never included.
+		 */
+		closeVisibleDescription: (arg: { count: number }) => LocalizedString
+		/**
+		 * Close the filtered visible connections?
+		 */
+		closeVisibleTitle: () => LocalizedString
+		/**
 		 * Closing active connections…
 		 */
 		closingAllActive: () => LocalizedString
@@ -7688,6 +7734,10 @@ export type TranslationFunctions = {
 		 * Closing…
 		 */
 		closingConnection: () => LocalizedString
+		/**
+		 * Closing visible connections…
+		 */
+		closingVisible: () => LocalizedString
 		/**
 		 * Closed
 		 */
@@ -7788,6 +7838,14 @@ export type TranslationFunctions = {
 		 * Process path
 		 */
 		processPath: () => LocalizedString
+		/**
+		 * Mihomo did not provide process attribution for this connection. Some connection classes or platforms cannot be attributed.
+		 */
+		processUnavailableDescription: () => LocalizedString
+		/**
+		 * Process attribution is unavailable for {count} active connections because Mihomo could not identify their owning process.
+		 */
+		processUnavailableNotice: (arg: { count: number }) => LocalizedString
 		/**
 		 * Profile {profile}
 		 */

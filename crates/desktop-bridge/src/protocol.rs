@@ -312,6 +312,13 @@ struct CloseAllActiveParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CloseFilteredVisibleParams {
+    authority: TrafficCommandAuthority,
+    connection_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CancelGroupDelayTestParams {
     test_id: String,
 }
@@ -717,7 +724,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 19,
+            "protocolVersion": 20,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -727,6 +734,7 @@ async fn handle_message(
             "trafficCommands": {
                 "closeAllActive": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseAllActive),
                 "closeConnection": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseConnection),
+                "closeFilteredVisible": state.runtime.supports_traffic_command(TrafficCommandOperation::CloseFilteredVisible),
             },
         }),
         "core.getStatus" => {
@@ -957,6 +965,26 @@ async fn handle_message(
             state
                 .runtime
                 .close_all_active(params.authority, StatusAdapterKind::Rpc)
+                .await
+        }
+        "traffic.closeFilteredVisible" => {
+            let params: CloseFilteredVisibleParams =
+                match serde_json::from_value::<CloseFilteredVisibleParams>(request.params) {
+                    Ok(params)
+                        if valid_traffic_authority(&params.authority)
+                            && valid_connection_ids(&params.connection_ids) =>
+                    {
+                        params
+                    }
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            state
+                .runtime
+                .close_filtered_visible(
+                    params.authority,
+                    params.connection_ids,
+                    StatusAdapterKind::Rpc,
+                )
                 .await
         }
         "traffic.subscribe" => {
@@ -1892,6 +1920,13 @@ fn valid_notification_reference(value: &str, allow_colon: bool) -> bool {
 
 fn valid_traffic_authority(authority: &TrafficCommandAuthority) -> bool {
     valid_identifier(&authority.profile_id) && valid_identifier(&authority.session_id)
+}
+
+fn valid_connection_ids(connection_ids: &[String]) -> bool {
+    !connection_ids.is_empty()
+        && connection_ids.len() <= 20_000
+        && connection_ids.iter().all(|id| valid_identifier(id))
+        && connection_ids.iter().collect::<HashSet<_>>().len() == connection_ids.len()
 }
 
 fn valid_provider_authority(authority: &ProviderAuthority) -> bool {

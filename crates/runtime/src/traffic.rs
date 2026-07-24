@@ -95,6 +95,7 @@ pub struct TrafficCommandAuthority {
 #[serde(rename_all = "kebab-case")]
 pub enum TrafficCommandOperation {
     CloseConnection,
+    CloseFilteredVisible,
     CloseAllActive,
 }
 

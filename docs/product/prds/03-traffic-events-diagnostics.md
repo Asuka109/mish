@@ -47,9 +47,11 @@ route tests are diagnostic tools, not a top-level entertainment-unlock promise.
 
 Traffic uses an independent snapshot/subscription contract for Active
 connections and effective Rules. Recently Closed remains a bounded, in-memory
-client derivation. The desktop runtime now supports confirmed close-one and
-“Close all active connections” commands. The latter always targets the complete
-current active snapshot and explicitly ignores UI filters. Both commands use
+client derivation. The desktop runtime now supports confirmed close-one,
+filtered-visible, and “Close all active connections” commands. Filtered-visible
+freezes the exact matching stable-ID set and Rust revalidates it without
+terminating unrelated newer connections. Close-all always targets the complete
+current active snapshot and explicitly ignores UI filters. All commands use
 snapshot/session/profile authority, refresh on typed failure, and require a
 post-command Controller snapshot before success. Browser fixtures advertise the
 commands as unsupported and never simulate desktop mutation success. See

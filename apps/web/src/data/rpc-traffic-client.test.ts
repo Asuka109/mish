@@ -92,9 +92,13 @@ async function advertiseTrafficCommands(
     result: {
       bridgeVersion: "test",
       coreConfigured: true,
-      protocolVersion: 19,
+      protocolVersion: 20,
       statusCommands: { group: false, groupDelay: false, routing: false, services: false },
-      trafficCommands: { closeAllActive: supported, closeConnection: supported },
+      trafficCommands: {
+        closeAllActive: supported,
+        closeConnection: supported,
+        closeFilteredVisible: supported,
+      },
     },
   });
   await flushMicrotasks();
@@ -109,6 +113,7 @@ afterEach(() => vi.useRealTimers());
 describe("RpcTrafficClient", () => {
   it("exposes strictly typed close commands in the RPC method map", () => {
     expect("traffic.closeConnection" in mishRpcMethods).toBe(true);
+    expect("traffic.closeFilteredVisible" in mishRpcMethods).toBe(true);
     expect("traffic.closeAllActive" in mishRpcMethods).toBe(true);
   });
 
@@ -242,6 +247,42 @@ describe("RpcTrafficClient", () => {
 
     await expect(command).resolves.toMatchObject({ status: "success", targetCount: 1 });
     expect(client.supportsCommand("close-connection")).toBe(true);
+    client.dispose();
+    rpc.dispose();
+  });
+
+  it("sends a bounded stable-ID set for filtered-visible close", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcTrafficClient(rpc);
+    const authority = { profileId: "profile-a", sequence: 7, sessionId: "controller-1" };
+    const command = client.closeFilteredVisible(authority, ["connection-a", "connection-b"]);
+    await authenticate(transport);
+    await advertiseTrafficCommands(transport);
+    const request = await waitForRequest(transport, 2);
+    expect(request).toMatchObject({
+      method: "traffic.closeFilteredVisible",
+      params: { authority, connectionIds: ["connection-a", "connection-b"] },
+    });
+    transport.respond({
+      id: request.id,
+      jsonrpc: "2.0",
+      result: {
+        failure: null,
+        operation: "close-filtered-visible",
+        remainingConnectionIds: [],
+        snapshot: trafficSnapshot({ activeConnections: [], sequence: 8 }),
+        status: "success",
+        targetCount: 2,
+      },
+    });
+
+    await expect(command).resolves.toMatchObject({ status: "success", targetCount: 2 });
+    expect(client.supportsCommand("close-filtered-visible")).toBe(true);
     client.dispose();
     rpc.dispose();
   });

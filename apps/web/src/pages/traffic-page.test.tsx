@@ -65,6 +65,30 @@ class CommandTrafficClient extends FixtureTrafficClient {
     };
   }
 
+  async closeFilteredVisible(
+    _authority: TrafficCommandAuthorityDto,
+    connectionIds: string[],
+  ): Promise<TrafficCommandResultDto> {
+    const before = await this.getSnapshot();
+    const targets = new Set(connectionIds);
+    const snapshot = {
+      ...before,
+      activeConnections: before.activeConnections.filter(
+        (connection) => !targets.has(connection.id),
+      ),
+      sequence: before.sequence + 1,
+    };
+    this.publishSnapshot(snapshot);
+    return {
+      failure: null,
+      operation: "close-filtered-visible",
+      remainingConnectionIds: [],
+      snapshot,
+      status: "success",
+      targetCount: connectionIds.length,
+    };
+  }
+
   async closeAllActive(_authority: TrafficCommandAuthorityDto): Promise<TrafficCommandResultDto> {
     const before = await this.getSnapshot();
     const snapshot = { ...before, activeConnections: [], sequence: before.sequence + 1 };
@@ -93,6 +117,26 @@ class FailingTrafficClient extends CommandTrafficClient {
       status: "failure",
       targetCount: snapshot.activeConnections.length,
     };
+  }
+}
+
+class PendingFilteredTrafficClient extends CommandTrafficClient {
+  private readonly gate: Promise<void>;
+  release!: () => void;
+
+  constructor() {
+    super();
+    this.gate = new Promise((resolve) => {
+      this.release = resolve;
+    });
+  }
+
+  override async closeFilteredVisible(
+    authority: TrafficCommandAuthorityDto,
+    connectionIds: string[],
+  ): Promise<TrafficCommandResultDto> {
+    await this.gate;
+    return super.closeFilteredVisible(authority, connectionIds);
   }
 }
 
@@ -192,6 +236,53 @@ describe("Traffic page", () => {
     );
   });
 
+  it("freezes and closes exactly the filtered-visible connection IDs", async () => {
+    const user = userEvent.setup();
+    renderTraffic(await commandClient());
+    const search = await screen.findByRole("textbox", { name: "Search Traffic" });
+    await user.type(search, "process:browser");
+
+    await user.click(screen.getByRole("button", { name: "Close Visible Connections" }));
+    const confirmation = screen.getByRole("alertdialog", {
+      name: "Close the filtered visible connections?",
+    });
+    expect(confirmation).toHaveTextContent("Target count: 1");
+    await user.click(
+      within(confirmation).getByRole("button", { name: "Close Visible Connections" }),
+    );
+
+    expect(await screen.findByText("No matches")).toBeVisible();
+    await user.clear(search);
+    expect(await screen.findAllByRole("row")).toHaveLength(6);
+  });
+
+  it("keeps filtered-visible confirmation pending and blocks broader close scopes", async () => {
+    const user = userEvent.setup();
+    const client = new PendingFilteredTrafficClient();
+    const snapshot = await client.getSnapshot();
+    client.publishSnapshot({ ...snapshot, adapterKind: "rpc" });
+    renderTraffic(client);
+    await screen.findByText("Fixture Browser");
+    const closeAll = screen.getByRole("button", { name: "Close All Active Connections" });
+
+    await user.click(screen.getByRole("button", { name: "Close Visible Connections" }));
+    await user.click(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Close Visible Connections",
+      }),
+    );
+
+    expect(
+      within(screen.getByRole("alertdialog")).getByRole("button", {
+        name: "Closing visible connections…",
+      }),
+    ).toBeDisabled();
+    expect(closeAll).toBeDisabled();
+
+    client.release();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+
   it("moves a failed close confirmation into a toast and the notification center", async () => {
     const user = userEvent.setup();
     const errorToast = vi.spyOn(toast, "error");
@@ -279,6 +370,28 @@ describe("Traffic page", () => {
     renderTraffic(client);
 
     expect(await screen.findByText("No traffic data is available right now.")).toBeVisible();
+  });
+
+  it("explains unavailable process attribution without inventing a process", async () => {
+    const client = await commandClient();
+    const snapshot = await client.getSnapshot();
+    client.publishSnapshot({
+      ...snapshot,
+      activeConnections: snapshot.activeConnections.map((connection) => ({
+        ...connection,
+        processName: null,
+        processPath: null,
+      })),
+      sequence: snapshot.sequence + 1,
+    });
+    renderTraffic(client);
+
+    expect(
+      await screen.findByText(
+        "Process attribution is unavailable for 6 active connections because Mihomo could not identify their owning process.",
+      ),
+    ).toBeVisible();
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
   });
 
   it("keeps large snapshots bounded to incremental render batches", async () => {

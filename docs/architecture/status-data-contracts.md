@@ -146,6 +146,8 @@ subscription ordering.
 Protocol version 18 adds the versioned privileged TUN network observation and
 requires complete observed Core, interface, route, and DNS state before TUN can
 be published as applied.
+Protocol version 20 adds the Rust-authoritative filtered-visible Traffic close
+command and capability without changing Status or Traffic subscription ordering.
 
 Profile activation has an independent typed snapshot with idle, pending,
 success, and failure phases. The profile subscription uses the same snapshot

@@ -1497,14 +1497,18 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 19);
+    assert_eq!(info["result"]["protocolVersion"], 20);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
     );
     assert_eq!(
         info["result"]["trafficCommands"],
-        json!({"closeAllActive": false, "closeConnection": false})
+        json!({
+            "closeAllActive": false,
+            "closeConnection": false,
+            "closeFilteredVisible": false
+        })
     );
     assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
@@ -2134,6 +2138,14 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
             8,
             "traffic.closeAllActive",
             json!({"authority":{"profileId":"local", "sequence":0, "sessionId":"session"}}),
+        ),
+        (
+            9,
+            "traffic.closeFilteredVisible",
+            json!({
+                "authority":{"profileId":"local", "sequence":0, "sessionId":"session"},
+                "connectionIds":["fixture"]
+            }),
         ),
     ] {
         let response = request(

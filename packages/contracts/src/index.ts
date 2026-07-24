@@ -4,6 +4,7 @@ const IdentifierSchema = z.string().min(1);
 const NonNegativeIntegerSchema = z.number().int().nonnegative();
 const NonNegativeNumberSchema = z.number().nonnegative().finite();
 const BoundedTextSchema = z.string().max(8_192);
+const ProcessAttributionTextSchema = z.string().max(16_384);
 const DecimalIntegerSchema = z.string().regex(/^(0|[1-9]\d*)$/u);
 const SignedDecimalIntegerSchema = z.string().regex(/^-?(0|[1-9]\d*)$/u);
 
@@ -403,8 +404,8 @@ export const TrafficConnectionSchema = z
     id: IdentifierSchema,
     matchedRule: TrafficMatchedRuleSchema,
     network: BoundedTextSchema,
-    processName: BoundedTextSchema.nullable(),
-    processPath: BoundedTextSchema.nullable(),
+    processName: ProcessAttributionTextSchema.nullable(),
+    processPath: ProcessAttributionTextSchema.nullable(),
     protocol: BoundedTextSchema,
     providerChain: z.array(BoundedTextSchema).max(256),
     remoteDestination: BoundedTextSchema.nullable(),
@@ -478,7 +479,11 @@ export const TrafficCommandAuthoritySchema = z
   .strict();
 export interface TrafficCommandAuthorityDto extends z.infer<typeof TrafficCommandAuthoritySchema> {}
 
-export const TrafficCommandOperationSchema = z.enum(["close-connection", "close-all-active"]);
+export const TrafficCommandOperationSchema = z.enum([
+  "close-connection",
+  "close-filtered-visible",
+  "close-all-active",
+]);
 export type TrafficCommandOperation = z.infer<typeof TrafficCommandOperationSchema>;
 
 export const TrafficCommandFailureSchema = z.enum([
@@ -545,6 +550,16 @@ export const CloseTrafficConnectionCommandSchema = z
   .strict();
 export const CloseAllActiveTrafficCommandSchema = z
   .object({ authority: TrafficCommandAuthoritySchema })
+  .strict();
+export const CloseFilteredVisibleTrafficCommandSchema = z
+  .object({
+    authority: TrafficCommandAuthoritySchema,
+    connectionIds: z
+      .array(BoundedTextSchema.min(1))
+      .min(1)
+      .max(20_000)
+      .refine((ids) => new Set(ids).size === ids.length, "Connection IDs must be unique"),
+  })
   .strict();
 
 export const EventLevelSchema = z.enum(["debug", "info", "warning", "error"]);
@@ -1930,7 +1945,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(19),
+    protocolVersion: z.literal(20),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -1940,7 +1955,11 @@ export const BridgeInfoSchema = z
       })
       .strict(),
     trafficCommands: z
-      .object({ closeAllActive: z.boolean(), closeConnection: z.boolean() })
+      .object({
+        closeAllActive: z.boolean(),
+        closeConnection: z.boolean(),
+        closeFilteredVisible: z.boolean(),
+      })
       .strict(),
   })
   .strict();
@@ -2696,6 +2715,10 @@ export const trafficRpcMethods = {
     params: CloseTrafficConnectionCommandSchema,
     result: RpcTrafficCommandResultSchema,
   },
+  "traffic.closeFilteredVisible": {
+    params: CloseFilteredVisibleTrafficCommandSchema,
+    result: RpcTrafficCommandResultSchema,
+  },
   "traffic.getSnapshot": { params: EmptyCommandSchema, result: RpcTrafficDataSnapshotSchema },
   "traffic.subscribe": { params: EmptyCommandSchema, result: TrafficSubscriptionSchema },
   "traffic.unsubscribe": { params: TrafficSubscriptionIdSchema, result: z.boolean() },
@@ -3191,6 +3214,11 @@ export interface TrafficClient {
   closeConnection(
     authority: TrafficCommandAuthorityDto,
     connectionId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto>;
+  closeFilteredVisible(
+    authority: TrafficCommandAuthorityDto,
+    connectionIds: string[],
     options?: { signal?: AbortSignal },
   ): Promise<TrafficCommandResultDto>;
   dispose(): void;

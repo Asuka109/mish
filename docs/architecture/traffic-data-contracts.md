@@ -8,11 +8,11 @@ The same contract is consumed by the browser fixture, desktop RPC adapter, and
 future native adapters without exposing Mihomo Controller JSON directly to
 React.
 
-Traffic supports Active, recently Closed, and Rules investigation plus two
-confirmed desktop commands: close one current active connection and close all
-connections active in the current authoritative snapshot. Both commands are
-unavailable in the browser fixture, which never reports desktop mutation
-success.
+Traffic supports Active, recently Closed, and Rules investigation plus three
+confirmed desktop commands: close one current active connection, close the
+bounded stable-ID set matching the current filter, and close all connections
+active in the current authoritative snapshot. All three commands are unavailable
+in the browser fixture, which never reports desktop mutation success.
 
 ## Snapshot shape
 
@@ -30,6 +30,14 @@ and download byte counters, matched rule type and payload, provider chain, and
 complete ordered route chain. Empty Controller process or address strings map to
 explicit nullable fields. The UI labels null values unavailable rather than
 inventing process identity, geography, or another fallback fact.
+
+The managed desktop runtime overrides source `find-process-mode` with `always`.
+This keeps process discovery enabled on the supported macOS build even when a
+portable source Profile disables it. Mihomo can still omit attribution for
+connection classes it cannot resolve; the UI explains that honest unavailable
+state. Process strings remain bounded by Controller validation and the local
+authenticated DTO boundary, and no remote, export, or telemetry surface is
+added.
 
 Connection byte counters are decimal strings. Mihomo exposes signed 64-bit
 values; the mapper rejects negatives transactionally and serializes valid values
@@ -71,15 +79,20 @@ profile context.
 ## Confirmed connection commands
 
 The command authority is limited to `profileId`, `sessionId`, `sequence`, and,
-for one-connection close, the stable Controller connection ID already present
-in that snapshot. Destination addresses, process names, process paths, URLs,
-and rendered row positions are never command authority. RPC parameter schemas
-reject unknown fields.
+for targeted closes, stable Controller connection IDs already present in that
+snapshot. Filtered-visible close accepts only a non-empty, unique, bounded ID
+list. Destination addresses, process names, process paths, URLs, and rendered
+row positions are never command authority. RPC parameter schemas reject unknown
+fields.
 
 Before mutation, the Controller source serializes commands with observation
 refreshes, verifies the pinned core version, validates the authority against
 the current ready snapshot, and performs a fresh `/connections` read. A
 one-connection command fails as `stale-connection` when its ID has disappeared.
+A filtered-visible command fails as `stale-snapshot` when any requested ID is
+not in the authoritative or fresh Controller snapshot. It closes only the
+revalidated IDs through Mihomo's single-connection endpoint, so unrelated
+connections observed after the browser snapshot cannot be terminated.
 A close-all command compares the complete fresh active-ID set with the
 authoritative snapshot and fails as `stale-snapshot` if it changed before
 mutation. This prevents a delayed confirmation from silently changing scope.
@@ -113,6 +126,12 @@ Because Mihomo's all-active endpoint operates at Controller handling time, it
 may also close a connection created in the narrow interval between Mish's fresh
 preflight and the DELETE request; Mish never claims that such a later ID was a
 confirmed target.
+
+“Close visible connections” means the complete filtered result set before
+incremental rendering limits. The confirmation freezes and displays its exact
+count. Search, network filter, and live refresh may continue; Rust revalidates
+the frozen stable-ID set immediately before mutation and returns typed stale
+feedback when the set can no longer be honored.
 
 ## Recently Closed derivation
 

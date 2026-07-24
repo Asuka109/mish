@@ -155,6 +155,7 @@ enum RuleOperation {
     SetProxyHost,
     SetController,
     SetSecret,
+    SetAlways,
     SetWarning,
     SetRule,
     SetEmptySequence,
@@ -251,6 +252,11 @@ const APPLICATION_RULES: &[ManagedFieldRule] = &[
         PolicyReason::ManagedRuntimeBehavior,
         RuleOperation::SetWarning,
     ),
+    app(
+        "find-process-mode",
+        PolicyReason::ManagedRuntimeBehavior,
+        RuleOperation::SetAlways,
+    ),
     app_nested(
         "profile.store-fake-ip",
         PolicyReason::RuntimePersistenceDisabled,
@@ -320,7 +326,6 @@ const PORTABLE_ROOT_KEYS: &[&str] = &[
     "geo-auto-update",
     "geo-update-interval",
     "geox-url",
-    "find-process-mode",
     "unified-delay",
     "tcp-concurrent",
     "global-client-fingerprint",
@@ -649,6 +654,11 @@ fn apply_root_rule(
             root,
             rule.field_identity,
             Value::String(values.controller_secret.clone()),
+        ),
+        (RuleOperation::SetAlways, Some(_)) => insert(
+            root,
+            rule.field_identity,
+            Value::String("always".to_owned()),
         ),
         (RuleOperation::SetWarning, Some(_)) => insert(
             root,

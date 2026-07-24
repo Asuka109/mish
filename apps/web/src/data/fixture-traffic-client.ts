@@ -205,6 +205,14 @@ export class FixtureTrafficClient implements TrafficClient {
     return this.unsupportedCommand("close-connection", options);
   }
 
+  async closeFilteredVisible(
+    _authority: TrafficCommandAuthorityDto,
+    _connectionIds: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto> {
+    return this.unsupportedCommand("close-filtered-visible", options);
+  }
+
   dispose() {
     this.disposed = true;
     this.connectionListeners.clear();

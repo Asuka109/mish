@@ -1,6 +1,10 @@
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
 import { Question } from "@phosphor-icons/react/Question";
-import type { EffectiveRuleDto, TrafficConnectionDto } from "@mish/contracts";
+import type {
+  EffectiveRuleDto,
+  TrafficCommandAuthorityDto,
+  TrafficConnectionDto,
+} from "@mish/contracts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,6 +65,10 @@ import {
 
 type TrafficTab = "active" | "closed" | "rules";
 type SelectedConnection = TrafficConnectionDto | ClosedTrafficConnection;
+interface CloseVisibleTarget {
+  authority: TrafficCommandAuthorityDto;
+  connectionIds: string[];
+}
 
 const connectionSortValues: ConnectionSort[] = [
   "started-desc",
@@ -81,7 +89,7 @@ const trafficStyles = tv({
       "max-toolbar-compact:items-stretch [&_p]:mt-1.25 [&_p]:text-metadata",
       "[&_p]:text-muted-foreground",
     ),
-    actions: "flex gap-2 max-toolbar-compact:self-start",
+    actions: "flex flex-wrap gap-2 max-toolbar-compact:self-start",
     sourceStatus: cx(
       "mt-5 flex min-h-9.5 items-center justify-between gap-4 rounded-md border border-hairline",
       "bg-surface-soft px-3 py-2 text-metadata text-fg",
@@ -90,6 +98,7 @@ const trafficStyles = tv({
       "[&>span:last-child]:text-muted-foreground max-toolbar-compact:flex-col",
       "max-toolbar-compact:items-start max-toolbar-compact:gap-1",
     ),
+    attributionNotice: "mt-2 text-metadata text-muted-foreground",
     tabs: "mt-5",
     viewButton: cx(
       "traffic-view-switch-button gap-1.75 px-3 [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center",
@@ -160,11 +169,13 @@ export function TrafficPage() {
     clearClosed,
     closeAllActive,
     closeConnection,
+    closeFilteredVisible,
     closed,
     connection,
     error,
     isCloseAllPending,
     isCloseConnectionPending,
+    isCloseFilteredVisiblePending,
     isCommandSupported,
     isCurrent,
     isLoading,
@@ -179,6 +190,7 @@ export function TrafficPage() {
   const [visibleLimit, setVisibleLimit] = useState(TRAFFIC_RENDER_BATCH_SIZE);
   const [selectedConnection, setSelectedConnection] = useState<SelectedConnection | null>(null);
   const [closeTarget, setCloseTarget] = useState<TrafficConnectionDto | null>(null);
+  const [closeVisibleTarget, setCloseVisibleTarget] = useState<CloseVisibleTarget | null>(null);
   const [closeAllConfirmationOpen, setCloseAllConfirmationOpen] = useState(false);
   const [searchHelpOpen, setSearchHelpOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
@@ -207,6 +219,9 @@ export function TrafficPage() {
     [deferredQuery, locale, ruleSort, snapshot?.rules],
   );
   const total = tab === "rules" ? filteredRules.length : filteredConnections.length;
+  const unavailableProcessCount = activeConnections.filter(
+    (item) => !item.processName && !item.processPath,
+  ).length;
 
   useEffect(
     () => setVisibleLimit(TRAFFIC_RENDER_BATCH_SIZE),
@@ -242,6 +257,35 @@ export function TrafficPage() {
     setCloseAllConfirmationOpen(false);
   }
 
+  async function confirmCloseFilteredVisible() {
+    if (!closeVisibleTarget) return;
+    const result = await closeFilteredVisible(
+      closeVisibleTarget.authority,
+      closeVisibleTarget.connectionIds,
+    );
+    if (result?.status === "success") {
+      publish(
+        notificationPublication("traffic.connections-closed", {
+          params: { count: result.targetCount },
+          severity: "success",
+        }),
+      );
+    }
+    setCloseVisibleTarget(null);
+  }
+
+  function requestCloseFilteredVisible() {
+    if (!snapshot?.sessionId || snapshot.phase !== "ready") return;
+    setCloseVisibleTarget({
+      authority: {
+        profileId: snapshot.profileId,
+        sequence: snapshot.sequence,
+        sessionId: snapshot.sessionId,
+      },
+      connectionIds: filteredConnections.map(({ id }) => id),
+    });
+  }
+
   return (
     <div className={trafficStyles().page()}>
       <header className={trafficStyles().header()}>
@@ -251,10 +295,26 @@ export function TrafficPage() {
         </div>
         <div className={trafficStyles().actions()}>
           <Button
+            disabled={
+              tab !== "active" ||
+              filteredConnections.length === 0 ||
+              isCloseAllPending ||
+              isCloseFilteredVisiblePending ||
+              !isCommandSupported("close-filtered-visible")
+            }
+            loading={isCloseFilteredVisiblePending}
+            loadingText={LL.traffic.closingVisible()}
+            onClick={requestCloseFilteredVisible}
+            variant="outline"
+          >
+            {LL.traffic.closeVisibleConnections()}
+          </Button>
+          <Button
             aria-describedby="traffic-close-scope"
             disabled={
               activeConnections.length === 0 ||
               isCloseAllPending ||
+              isCloseFilteredVisiblePending ||
               !isCommandSupported("close-all-active")
             }
             loading={isCloseAllPending}
@@ -274,6 +334,11 @@ export function TrafficPage() {
         isLoading={isLoading}
         snapshot={snapshot}
       />
+      {unavailableProcessCount > 0 && snapshot?.adapterKind === "rpc" ? (
+        <p className={trafficStyles().attributionNotice()} role="status">
+          {LL.traffic.processUnavailableNotice({ count: unavailableProcessCount })}
+        </p>
+      ) : null}
       <p className="sr-only" id="traffic-close-scope">
         {isCommandSupported("close-all-active")
           ? LL.traffic.closeAllScope()
@@ -387,7 +452,11 @@ export function TrafficPage() {
               query || network !== "all" ? LL.traffic.noMatches() : LL.traffic.activeEmpty()
             }
             locale={locale}
-            canClose={isCommandSupported("close-connection")}
+            canClose={
+              isCommandSupported("close-connection") &&
+              !isCloseAllPending &&
+              !isCloseFilteredVisiblePending
+            }
             isClosePending={isCloseConnectionPending}
             onRequestClose={setCloseTarget}
             onSelect={setSelectedConnection}
@@ -433,7 +502,11 @@ export function TrafficPage() {
         connection={selectedConnection}
         LL={LL}
         locale={locale}
-        canClose={isCommandSupported("close-connection")}
+        canClose={
+          isCommandSupported("close-connection") &&
+          !isCloseAllPending &&
+          !isCloseFilteredVisiblePending
+        }
         isClosePending={isCloseConnectionPending}
         onRequestClose={setCloseTarget}
         onOpenChange={(open) => {
@@ -502,6 +575,38 @@ export function TrafficPage() {
 
       <AlertDialog
         onOpenChange={(open) => {
+          if (!isCloseFilteredVisiblePending) {
+            setCloseVisibleTarget(open ? closeVisibleTarget : null);
+          }
+        }}
+        open={closeVisibleTarget !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{LL.traffic.closeVisibleTitle()}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {LL.traffic.closeVisibleDescription({
+                count: closeVisibleTarget?.connectionIds.length ?? 0,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!closeVisibleTarget?.connectionIds.length || isCloseFilteredVisiblePending}
+              loading={isCloseFilteredVisiblePending}
+              loadingText={LL.traffic.closingVisible()}
+              onClick={confirmCloseFilteredVisible}
+              variant="destructive"
+            >
+              {LL.traffic.closeVisibleConfirm()}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        onOpenChange={(open) => {
           if (!isCloseAllPending) setCloseAllConfirmationOpen(open);
         }}
         open={closeAllConfirmationOpen}
@@ -516,7 +621,9 @@ export function TrafficPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
             <AlertDialogAction
-              disabled={activeConnections.length === 0 || isCloseAllPending}
+              disabled={
+                activeConnections.length === 0 || isCloseAllPending || isCloseFilteredVisiblePending
+              }
               loading={isCloseAllPending}
               loadingText={LL.traffic.closingAllActive()}
               onClick={confirmCloseAllActive}
@@ -646,7 +753,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 <small className="tabular-nums">:{connection.destinationPort}</small>
               </Button>
             </TableCell>
-            <TableCell title={connection.processPath ?? undefined}>
+            <TableCell title={connection.processPath ?? LL.traffic.processUnavailableDescription()}>
               {connection.processName ?? LL.traffic.unavailable()}
             </TableCell>
             <TableCell className="tabular-nums">

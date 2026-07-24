@@ -989,8 +989,14 @@ const en = {
       "Mihomo did not confirm the close before the deadline. The latest authoritative snapshot is shown.",
     closeUnsupported:
       "Connection closing is unavailable in this runtime. Demo data never reports operational mutation success.",
+    closeVisibleConfirm: "Close Visible Connections",
+    closeVisibleConnections: "Close Visible Connections",
+    closeVisibleDescription:
+      "Target count: {count:number}. Close only the connections matching the current search and network filter. Mish revalidates these stable IDs in Rust; newer unrelated connections are never included.",
+    closeVisibleTitle: "Close the filtered visible connections?",
     closingAllActive: "Closing active connections…",
     closingConnection: "Closing…",
+    closingVisible: "Closing visible connections…",
     closed: "Closed",
     closedAt: "Closed",
     closedEmpty: "No recently closed connections",
@@ -1017,6 +1023,10 @@ const en = {
     priority: "Priority",
     process: "Process",
     processPath: "Process path",
+    processUnavailableDescription:
+      "Mihomo did not provide process attribution for this connection. Some connection classes or platforms cannot be attributed.",
+    processUnavailableNotice:
+      "Process attribution is unavailable for {count:number} active connections because Mihomo could not identify their owning process.",
     profile: "Profile {profile:string}",
     protocol: "Protocol",
     providerChain: "Provider chain",

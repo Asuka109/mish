@@ -70,6 +70,23 @@ export class RpcTrafficClient implements TrafficClient {
     }
   }
 
+  async closeFilteredVisible(
+    authority: TrafficCommandAuthorityDto,
+    connectionIds: string[],
+    options?: RpcRequestOptions,
+  ): Promise<TrafficCommandResultDto> {
+    await this.ensureCapabilities();
+    try {
+      return await this.rpc.request(
+        "traffic.closeFilteredVisible",
+        { authority, connectionIds },
+        options,
+      );
+    } catch (error) {
+      throw toTrafficClientError(error);
+    }
+  }
+
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -172,6 +189,9 @@ export class RpcTrafficClient implements TrafficClient {
         this.supportedCommands.clear();
         if (info.trafficCommands.closeAllActive) this.supportedCommands.add("close-all-active");
         if (info.trafficCommands.closeConnection) this.supportedCommands.add("close-connection");
+        if (info.trafficCommands.closeFilteredVisible) {
+          this.supportedCommands.add("close-filtered-visible");
+        }
         this.capabilitiesLoaded = true;
       })
       .catch((error) => {

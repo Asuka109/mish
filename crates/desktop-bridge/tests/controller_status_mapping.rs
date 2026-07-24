@@ -123,7 +123,9 @@ fn connection(id: &str, chains: &[&str]) -> Value {
             "sourceIP": "192.0.2.10",
             "destinationIP": "198.51.100.20",
             "sourcePort": "51000",
-            "destinationPort": "443"
+            "destinationPort": "443",
+            "process": "Fixture Browser",
+            "processPath": "/Applications/Fixture Browser.app/Contents/MacOS/Fixture Browser"
         },
         "upload": 12,
         "download": 34,
@@ -327,6 +329,14 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
     assert_eq!(
         traffic.active_connections[0].destination_ip.as_deref(),
         Some("198.51.100.20")
+    );
+    assert_eq!(
+        traffic.active_connections[0].process_name.as_deref(),
+        Some("Fixture Browser")
+    );
+    assert_eq!(
+        traffic.active_connections[0].process_path.as_deref(),
+        Some("/Applications/Fixture Browser.app/Contents/MacOS/Fixture Browser")
     );
     assert_eq!(traffic.active_connections[0].route_chain[0], OUTER_GROUP);
     assert_eq!(traffic.rules.len(), 2);
