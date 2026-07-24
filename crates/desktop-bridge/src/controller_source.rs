@@ -1790,16 +1790,10 @@ impl ControllerStatusSource {
                 if connection_ids.is_empty()
                     || unique_ids.len() != connection_ids.len()
                     || connection_ids.len() > 20_000
-                    || !connection_ids.iter().all(|connection_id| {
-                        current
-                            .active_connections
-                            .iter()
-                            .any(|connection| connection.id == *connection_id)
-                    })
                 {
                     return TrafficCommandExecution::failure(
                         operation,
-                        TrafficCommandFailureKind::StaleSnapshot,
+                        TrafficCommandFailureKind::InvalidRequest,
                         connection_ids.len(),
                         connection_ids,
                     );
@@ -1858,28 +1852,23 @@ impl ControllerStatusSource {
                 target_ids,
             );
         }
-        if matches!(operation, TrafficCommandOperation::CloseFilteredVisible)
-            && !target_ids.iter().all(|id| observed_ids.contains(id))
-        {
-            return TrafficCommandExecution::failure(
-                operation,
-                TrafficCommandFailureKind::StaleSnapshot,
-                target_count,
-                target_ids,
-            );
-        }
+        let filtered_mutation_ids = target_ids
+            .iter()
+            .filter(|id| observed_ids.contains(id))
+            .cloned()
+            .collect::<Vec<_>>();
 
         let mutation = match operation {
             TrafficCommandOperation::CloseConnection => {
                 self.inner.client.close_connection(&target_ids[0]).await
             }
             TrafficCommandOperation::CloseFilteredVisible => {
-                for (index, connection_id) in target_ids.iter().enumerate() {
+                for (index, connection_id) in filtered_mutation_ids.iter().enumerate() {
                     if let Err(error) = self.inner.client.close_connection(connection_id).await {
                         return traffic_controller_failure(
                             operation,
                             target_count,
-                            &target_ids[index..],
+                            &filtered_mutation_ids[index..],
                             error,
                         );
                     }

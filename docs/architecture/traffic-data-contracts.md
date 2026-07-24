@@ -109,10 +109,12 @@ Before mutation, the Controller source serializes commands with observation
 refreshes, verifies the pinned core version, validates the authority against
 the current ready snapshot, and performs a fresh `/connections` read. A
 one-connection command fails as `stale-connection` when its ID has disappeared.
-A filtered-visible command fails as `stale-snapshot` when any requested ID is
-not in the authoritative or fresh Controller snapshot. It closes only the
-revalidated IDs through Mihomo's single-connection endpoint, so unrelated
-connections observed after the browser snapshot cannot be terminated.
+A filtered-visible command treats requested IDs already absent from the fresh
+Controller snapshot as completed no-ops and closes only the requested IDs still
+present through Mihomo's single-connection endpoint. It never adds IDs from the
+new snapshot, so unrelated connections observed after browser confirmation
+cannot be terminated. A changed profile or Traffic session still fails as
+`stale-snapshot`.
 A close-all command compares the complete fresh active-ID set with the
 authoritative snapshot and fails as `stale-snapshot` if it changed before
 mutation. This prevents a delayed confirmation from silently changing scope.
@@ -150,12 +152,12 @@ confirmed target.
 “Close visible connections” means the complete filtered result set before
 incremental rendering limits. The confirmation freezes and displays its exact
 count. Search, network filter, and live refresh may continue; Rust revalidates
-the frozen stable-ID set immediately before mutation and returns typed stale
-feedback when the set can no longer be honored. Ordinary Traffic refreshes may
-advance the snapshot sequence while the confirmation is open, so this scope
+the frozen stable-ID set immediately before mutation. Ordinary Traffic refreshes
+may advance the snapshot sequence while the confirmation is open, so this scope
 pins the profile and Traffic session rather than requiring the old sequence to
-remain current. Every frozen ID must still exist in both current Rust state and
-a fresh Controller read; later unrelated IDs are never added to the close set.
+remain current. Frozen IDs that already disappeared are successful no-ops;
+remaining frozen IDs are closed and confirmed absent. Later unrelated IDs are
+never added to the close set.
 
 ## Recently Closed derivation
 

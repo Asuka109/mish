@@ -1502,7 +1502,7 @@ async fn traffic_close_all_targets_the_complete_current_snapshot() {
 }
 
 #[tokio::test]
-async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_connections() {
+async fn traffic_close_filtered_visible_is_idempotent_without_closing_newer_connections() {
     let fake = FakeController::start().await;
     *fake.state.connections.write().await =
         connections_many(&["connection-a", "connection-b", "connection-c"]);
@@ -1594,7 +1594,7 @@ async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_co
 
     *fake.state.connections.write().await =
         connections_many(&["connection-newer", "connection-latest"]);
-    let stale = rpc_request(
+    let partially_closed = rpc_request(
         &mut websocket,
         json!({
             "jsonrpc":"2.0",
@@ -1602,35 +1602,56 @@ async fn traffic_close_filtered_visible_revalidates_ids_without_closing_newer_co
             "method":"traffic.closeFilteredVisible",
             "params":{
                 "authority":traffic_authority(&closed["result"]["snapshot"]),
-                "connectionIds":["connection-c"]
+                "connectionIds":["connection-c", "connection-newer"]
             }
         }),
     )
     .await;
-    assert_eq!(stale["result"]["status"], "failure");
-    assert_eq!(stale["result"]["failure"], "stale-snapshot");
-    assert_eq!(stale["result"]["targetCount"], 1);
+    assert_eq!(partially_closed["result"]["status"], "success");
+    assert_eq!(partially_closed["result"]["targetCount"], 2);
     assert_eq!(
-        stale["result"]["remainingConnectionIds"],
-        json!(["connection-c"])
+        partially_closed["result"]["snapshot"]["activeConnections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|connection| connection["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["connection-latest"]
     );
-    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 2);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 3);
 
-    let duplicate = rpc_request(
+    let already_closed = rpc_request(
         &mut websocket,
         json!({
             "jsonrpc":"2.0",
             "id":6,
             "method":"traffic.closeFilteredVisible",
             "params":{
-                "authority":traffic_authority(&stale["result"]["snapshot"]),
-                "connectionIds":["connection-newer", "connection-newer"]
+                "authority":traffic_authority(&partially_closed["result"]["snapshot"]),
+                "connectionIds":["connection-c", "connection-newer"]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(already_closed["result"]["status"], "success");
+    assert_eq!(already_closed["result"]["targetCount"], 2);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 3);
+
+    let duplicate = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":7,
+            "method":"traffic.closeFilteredVisible",
+            "params":{
+                "authority":traffic_authority(&already_closed["result"]["snapshot"]),
+                "connectionIds":["connection-latest", "connection-latest"]
             }
         }),
     )
     .await;
     assert_eq!(duplicate["error"]["code"], -32602);
-    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 2);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 3);
 
     websocket.close(None).await.unwrap();
     bridge.shutdown().await;
