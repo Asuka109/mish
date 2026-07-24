@@ -187,10 +187,12 @@ invariant(
 );
 invariant(
   alphaBundleBuilder.includes('["desktop:bundle:verify:alpha-ad-hoc:macos"]') &&
+    alphaBundleBuilder.includes('packageEnvironment.CI = "true"') &&
+    alphaBundleBuilder.includes("delete packageEnvironment.TAURI_BUNDLER_DMG_IGNORE_CI") &&
     alphaDmgVerifier.includes('["attach", "-readonly", "-nobrowse", dmg]') &&
     alphaDmgVerifier.includes('["detach", mountpoint]') &&
     !alphaDmgVerifier.includes('["detach", "-force"'),
-  "The #168 read-only DMG inspection and clean detach contract changed unexpectedly.",
+  "The headless read-only DMG inspection and clean detach contract changed unexpectedly.",
 );
 
 const freeze = job("freeze-source");

@@ -3921,6 +3921,10 @@ type RootTranslation = {
 				 */
 				application: string
 				/**
+				 * P​r​o​f​i​l​e​ ​a​c​t​i​v​a​t​i​o​n​ ​o​u​t​c​o​m​e
+				 */
+				activation: string
+				/**
 				 * P​l​a​t​f​o​r​m​ ​v​e​r​s​i​o​n
 				 */
 				platform: string
@@ -3936,6 +3940,10 @@ type RootTranslation = {
 				 * C​a​p​t​u​r​e​ ​d​e​s​i​r​e​d​ ​/​ ​o​b​s​e​r​v​e​d​ ​/​ ​d​r​i​f​t
 				 */
 				capture: string
+				/**
+				 * D​i​r​e​c​t​ ​s​e​r​v​i​c​e​ ​p​r​o​b​e​ ​a​g​g​r​e​g​a​t​e​s
+				 */
+				'service-probes': string
 				/**
 				 * R​e​c​e​n​t​ ​e​v​e​n​t​ ​a​g​g​r​e​g​a​t​e​s
 				 */
@@ -8337,6 +8345,10 @@ export type TranslationFunctions = {
 				 */
 				application: () => LocalizedString
 				/**
+				 * Profile activation outcome
+				 */
+				activation: () => LocalizedString
+				/**
 				 * Platform version
 				 */
 				platform: () => LocalizedString
@@ -8352,6 +8364,10 @@ export type TranslationFunctions = {
 				 * Capture desired / observed / drift
 				 */
 				capture: () => LocalizedString
+				/**
+				 * Direct service probe aggregates
+				 */
+				'service-probes': () => LocalizedString
 				/**
 				 * Recent event aggregates
 				 */

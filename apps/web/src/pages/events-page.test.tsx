@@ -309,10 +309,12 @@ describe("Events page", () => {
 const supportBundlePreview: SupportBundlePreviewDto = {
   categories: [
     { category: "application", itemCount: 1 },
+    { category: "activation", itemCount: 1 },
     { category: "platform", itemCount: 1 },
     { category: "capabilities", itemCount: 1 },
     { category: "active-profile", itemCount: 1 },
     { category: "capture", itemCount: 1 },
+    { category: "service-probes", itemCount: 4 },
     { category: "events-summary", itemCount: 12 },
     { category: "diagnostic-runs", itemCount: 7 },
     { category: "redaction-report", itemCount: 13 },

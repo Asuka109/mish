@@ -249,11 +249,23 @@ pub struct ServiceMonitor {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceProbeResult {
+    pub failure_stage: Option<ServiceProbeFailureStage>,
     pub latency_milliseconds: Option<u64>,
     pub monitor_id: String,
     pub observed_at: String,
     pub route_target: String,
     pub status: ProbeStatus,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ServiceProbeFailureStage {
+    AddressPolicy,
+    ClientSetup,
+    DnsResolution,
+    HttpStatus,
+    TargetValidation,
+    Transport,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

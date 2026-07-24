@@ -9,12 +9,15 @@ use mish_runtime::{
     CapabilityAvailability, CorePhase, CoreStatus, DiagnosticCheck, DiagnosticCheckKind,
     DiagnosticCheckStatus, DiagnosticFailure, DiagnosticHistory, DiagnosticObservedFact,
     DiagnosticRouteTarget, DiagnosticRun, DiagnosticRunStatus, EventLevel, EventSource,
-    EventSourcePhase, EventsDataPhase, EventsSnapshot, StatusAdapterKind, StatusSnapshot,
-    SystemProxyObservedState, SystemProxyPhase,
+    EventSourcePhase, EventsDataPhase, EventsSnapshot, ProbeStatus, ServiceProbeFailureStage,
+    StatusAdapterKind, StatusSnapshot, SystemProxyObservedState, SystemProxyPhase,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{DesktopRuntimeHost, ManagedActivationState, MihomoActivationManager};
+use crate::{
+    ActivationFailureKind, ActivationOutcome, DesktopRuntimeHost, ManagedActivationState,
+    MihomoActivationManager,
+};
 
 pub const SUPPORT_BUNDLE_MAX_BYTES: usize = 256 * 1_024;
 const SUPPORT_BUNDLE_EVENT_LIMIT: usize = 256;
@@ -451,6 +454,7 @@ pub enum SupportBundleError {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SupportBundleManifest {
+    activation: SupportActivation,
     active_profile: Option<SupportActiveProfile>,
     application: SupportApplication,
     capabilities: SupportCapabilities,
@@ -461,7 +465,17 @@ struct SupportBundleManifest {
     generated_at: u64,
     platform: SupportPlatform,
     redaction_report: SupportRedactionReport,
+    service_probes: SupportServiceProbes,
     termination_recovery_evidence: Vec<TerminationEvidenceRecord>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupportActivation {
+    has_last_successful_profile: bool,
+    last_failure: Option<ActivationFailureKind>,
+    last_outcome: Option<ActivationOutcome>,
+    safe_stopped: bool,
 }
 
 struct SupportBundleInput<'a> {
@@ -536,6 +550,20 @@ struct SupportCapture {
     drift: bool,
     observed: SystemProxyObservedState,
     phase: SystemProxyPhase,
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SupportServiceProbes {
+    address_policy_failures: usize,
+    client_setup_failures: usize,
+    dns_resolution_failures: usize,
+    error: usize,
+    healthy: usize,
+    http_status_failures: usize,
+    pending: usize,
+    target_validation_failures: usize,
+    transport_failures: usize,
 }
 
 #[derive(Serialize)]
@@ -657,10 +685,12 @@ pub struct SupportBundleCategoryPreview {
 #[serde(rename_all = "kebab-case")]
 pub enum SupportBundleCategory {
     Application,
+    Activation,
     Platform,
     Capabilities,
     ActiveProfile,
     Capture,
+    ServiceProbes,
     EventsSummary,
     DiagnosticRuns,
     RedactionReport,
@@ -721,6 +751,18 @@ fn build_support_bundle(
         .map(|run| run.checks.len())
         .sum::<usize>();
     let manifest = SupportBundleManifest {
+        activation: SupportActivation {
+            has_last_successful_profile: input.activation.last_successful_profile_id().is_some(),
+            last_failure: input
+                .activation
+                .last_attempt()
+                .and_then(|attempt| attempt.failure()),
+            last_outcome: input
+                .activation
+                .last_attempt()
+                .map(|attempt| attempt.outcome()),
+            safe_stopped: input.activation.is_safe_stopped(),
+        },
         active_profile,
         application: application_summary(input.application_version, input.core),
         capabilities: SupportCapabilities {
@@ -760,6 +802,7 @@ fn build_support_bundle(
             categories: redaction_entries(),
             strategy_version: "mish-support-bundle-redaction-v1",
         },
+        service_probes: summarize_service_probes(input.status),
         termination_recovery_evidence: input.termination_evidence.to_vec(),
     };
     let bytes =
@@ -770,6 +813,7 @@ fn build_support_bundle(
     let preview = SupportBundlePreview {
         categories: vec![
             preview_category(SupportBundleCategory::Application, 1),
+            preview_category(SupportBundleCategory::Activation, 1),
             preview_category(SupportBundleCategory::Platform, 1),
             preview_category(SupportBundleCategory::Capabilities, 1),
             preview_category(
@@ -777,6 +821,10 @@ fn build_support_bundle(
                 usize::from(manifest.active_profile.is_some()),
             ),
             preview_category(SupportBundleCategory::Capture, 1),
+            preview_category(
+                SupportBundleCategory::ServiceProbes,
+                input.status.probe_results.len(),
+            ),
             preview_category(
                 SupportBundleCategory::EventsSummary,
                 manifest.events.included_count,
@@ -800,6 +848,29 @@ fn build_support_bundle(
         time_range,
     };
     Ok(PreparedSupportBundle { bytes, preview })
+}
+
+fn summarize_service_probes(status: &StatusSnapshot) -> SupportServiceProbes {
+    let mut summary = SupportServiceProbes::default();
+    for result in &status.probe_results {
+        match result.status {
+            ProbeStatus::Healthy => summary.healthy += 1,
+            ProbeStatus::Pending => summary.pending += 1,
+            ProbeStatus::Error => summary.error += 1,
+        }
+        match result.failure_stage {
+            Some(ServiceProbeFailureStage::AddressPolicy) => summary.address_policy_failures += 1,
+            Some(ServiceProbeFailureStage::ClientSetup) => summary.client_setup_failures += 1,
+            Some(ServiceProbeFailureStage::DnsResolution) => summary.dns_resolution_failures += 1,
+            Some(ServiceProbeFailureStage::HttpStatus) => summary.http_status_failures += 1,
+            Some(ServiceProbeFailureStage::TargetValidation) => {
+                summary.target_validation_failures += 1
+            }
+            Some(ServiceProbeFailureStage::Transport) => summary.transport_failures += 1,
+            None => {}
+        }
+    }
+    summary
 }
 
 fn application_summary(version: &str, core: &CoreStatus) -> SupportApplication {
@@ -1080,7 +1151,8 @@ mod tests {
         CorePhase, DiagnosticCheck, DiagnosticCheckKind, DiagnosticCheckStatus, DiagnosticFailure,
         DiagnosticHistory, DiagnosticObservedFact, DiagnosticProbePolicy, DiagnosticRouteTarget,
         DiagnosticRun, DiagnosticRunStatus, EventLevel, EventRecord, EventSource, EventsSnapshot,
-        StatusAdapterKind, StatusSnapshot,
+        ProbeStatus, ServiceProbeFailureStage, ServiceProbeResult, StatusAdapterKind,
+        StatusSnapshot,
     };
 
     use super::{
@@ -1257,6 +1329,72 @@ mod tests {
         assert_eq!(
             serde_json::to_vec(&diagnostics).unwrap(),
             before_diagnostics
+        );
+    }
+
+    #[test]
+    fn manifest_aggregates_direct_probe_failure_stages_without_targets() {
+        let core = core_status();
+        let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Rpc);
+        status.probe_results = vec![ServiceProbeResult {
+            failure_stage: Some(ServiceProbeFailureStage::DnsResolution),
+            latency_milliseconds: None,
+            monitor_id: "private-monitor-id".into(),
+            observed_at: "2026-07-24T12:00:00Z".into(),
+            route_target: "direct".into(),
+            status: ProbeStatus::Error,
+        }];
+        let events = malicious_events(0);
+        let diagnostics = malicious_diagnostics(0, 0);
+        let activation = ManagedActivationState::default();
+        let platform = platform();
+
+        let bundle = build_support_bundle(
+            "preview-probes".into(),
+            SupportBundleInput {
+                activation: &activation,
+                application_version: "0.1.0",
+                core: &core,
+                diagnostics: &diagnostics,
+                events: &events,
+                generated_at: 1,
+                platform: &platform,
+                status: &status,
+                termination_evidence: &[],
+            },
+        )
+        .unwrap();
+        let manifest: serde_json::Value = serde_json::from_slice(&bundle.bytes).unwrap();
+        let preview = serde_json::to_value(&bundle.preview).unwrap();
+
+        assert_eq!(manifest["serviceProbes"]["error"], 1);
+        assert_eq!(manifest["serviceProbes"]["dnsResolutionFailures"], 1);
+        assert!(
+            preview["categories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|category| category
+                    == &serde_json::json!({
+                        "category": "activation",
+                        "itemCount": 1,
+                    }))
+        );
+        assert!(
+            preview["categories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|category| category
+                    == &serde_json::json!({
+                        "category": "service-probes",
+                        "itemCount": 1,
+                    }))
+        );
+        assert!(
+            !String::from_utf8(bundle.bytes)
+                .unwrap()
+                .contains("private-monitor-id")
         );
     }
 

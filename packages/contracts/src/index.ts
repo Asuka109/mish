@@ -978,10 +978,12 @@ export type SupportBundleAvailability = z.infer<typeof SupportBundleAvailability
 
 export const SupportBundleCategorySchema = z.enum([
   "application",
+  "activation",
   "platform",
   "capabilities",
   "active-profile",
   "capture",
+  "service-probes",
   "events-summary",
   "diagnostic-runs",
   "redaction-report",
@@ -1019,7 +1021,7 @@ export const SupportBundleCategoryPreviewSchema = z
 
 export const SupportBundlePreviewSchema = z
   .object({
-    categories: z.array(SupportBundleCategoryPreviewSchema).length(9),
+    categories: z.array(SupportBundleCategoryPreviewSchema).length(11),
     contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
     excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(13),
     fileType: z.literal("application/json"),
@@ -1030,7 +1032,7 @@ export const SupportBundlePreviewSchema = z
   })
   .strict()
   .superRefine((preview, context) => {
-    if (new Set(preview.categories.map(({ category }) => category)).size !== 9) {
+    if (new Set(preview.categories.map(({ category }) => category)).size !== 11) {
       context.addIssue({ code: "custom", message: "Support bundle categories must be unique" });
     }
     if (new Set(preview.excludedOrRedacted).size !== 13) {
@@ -1309,8 +1311,19 @@ export const ProbeRouteTargetSchema = z.union([
 ]);
 export type ProbeRouteTarget = z.infer<typeof ProbeRouteTargetSchema>;
 
+export const ServiceProbeFailureStageSchema = z.enum([
+  "address-policy",
+  "client-setup",
+  "dns-resolution",
+  "http-status",
+  "target-validation",
+  "transport",
+]);
+export type ServiceProbeFailureStage = z.infer<typeof ServiceProbeFailureStageSchema>;
+
 export const ServiceProbeResultSchema = z
   .object({
+    failureStage: ServiceProbeFailureStageSchema.nullable().optional(),
     latencyMilliseconds: NonNegativeNumberSchema.nullable(),
     monitorId: IdentifierSchema,
     observedAt: z.string().min(1),

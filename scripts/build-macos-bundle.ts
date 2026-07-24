@@ -9,7 +9,10 @@ if (process.platform !== "darwin" || process.arch !== "arm64") {
 
 const arguments_ = process.argv.slice(2);
 const alphaAdHoc =
-  arguments_.length === 2 && arguments_[0] === "--profile" && arguments_[1] === "alpha-ad-hoc";
+  arguments_[0] === "--profile" &&
+  arguments_[1] === "alpha-ad-hoc" &&
+  (arguments_.length === 2 || (arguments_.length === 3 && arguments_[2] === "--styled-dmg"));
+const styledDmg = arguments_.includes("--styled-dmg");
 const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || "-";
 const mihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
 const expectedMihomoSha256 = "ec66e3e883bdc3fca06753784e324e08921e13239f8e945587cb1bfbf4c6b936";
@@ -24,6 +27,10 @@ if (production && productionFixture) {
 
 if (alphaAdHoc && productionFixture) {
   throw new Error("The alpha-ad-hoc profile cannot use the production fixture");
+}
+
+if (styledDmg && !alphaAdHoc) {
+  throw new Error("Finder-styled DMG packaging is available only for the alpha-ad-hoc profile");
 }
 
 const alphaCredentialVariables = [
@@ -86,6 +93,13 @@ const packageEnvironment = { ...process.env, APPLE_SIGNING_IDENTITY: identity };
 if (alphaAdHoc) {
   packageEnvironment.MISH_MACOS_PACKAGE_MODE = "alpha-ad-hoc";
   packageEnvironment.MISH_MACOS_RELEASE_PROFILE = "alpha-ad-hoc";
+  // Tauri maps CI=true to create-dmg's --skip-jenkins flag. Routine local and automated
+  // verification must stay headless even when the caller inherited the escape hatch.
+  packageEnvironment.CI = "true";
+  delete packageEnvironment.TAURI_BUNDLER_DMG_IGNORE_CI;
+  if (styledDmg) {
+    packageEnvironment.TAURI_BUNDLER_DMG_IGNORE_CI = "true";
+  }
 }
 let bundleCommand = "bundle:macos";
 if (productionLayout) {

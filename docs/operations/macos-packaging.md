@@ -20,14 +20,26 @@ pnpm desktop:bundle:macos
 ```
 
 This credential-free profile rejects Apple signing and notarization credentials,
-builds an ARM64 `Mish` DMG, and mounts it read-only for verification. The mounted
-image contains only `Mish.app` and an `Applications` shortcut for drag-to-install.
+builds an ARM64 `Mish` DMG without opening or foregrounding Finder, and mounts it
+read-only for verification. This headless command is the default for CI and
+ordinary repeated local verification. The mounted image contains only `Mish.app`
+and an `Applications` shortcut for drag-to-install.
 It seals the application and Mihomo with an ad-hoc signature, packages no TUN
 helper, LaunchDaemon, SMAppService payload, development helper, or other
 privileged content, and compiles the packaged TUN capability as unavailable.
 The verifier checks the application identifier, version, architecture, pinned
 Mihomo digest and version, offline Web resources, legal resources, signature
 structure, DMG layout, and clean detach.
+
+Use the Finder-styled path only when intentionally preparing a delivery image:
+
+```sh
+pnpm desktop:bundle:macos:styled
+```
+
+That explicit command permits Tauri's Finder AppleScript to arrange the mounted
+image. Both commands still use bounded ordinary detach and never force-detach or
+leave a verifier mount behind.
 
 An ad-hoc signature is neither an Apple identity nor notarization. Gatekeeper
 rejection or **Open Anyway** is the expected Alpha boundary; do not describe the
@@ -213,7 +225,7 @@ controls. Leave the app hidden and idle for at least ten minutes and confirm tha
 its decorative animation is stopped and Activity Monitor does not show sustained
 CPU use.
 
-## Remove the test app and local state
+## Remove Mish and account-local application state
 
 Before removal, turn System Proxy off and confirm the UI reports it off. Disable
 **Launch at login** in Settings, then quit Mish normally. If Mish reports System
@@ -221,21 +233,44 @@ Proxy drift or the app was previously terminated abnormally, reopen it and use
 the offered repair action before deleting its data. `scutil --proxy` can be used
 as a read-only final check.
 
-Move the installed app and its account-local state to the Trash:
+Inspect Mish ownership, mounted images, and the exact app and account-local
+state targets without changing anything:
 
 ```sh
-trash "$HOME/Applications/Mish.app"
-trash "$HOME/Library/Application Support/com.asuka109.mish"
-test ! -e "$HOME/Library/LaunchAgents/Mish.plist" || \
-  trash "$HOME/Library/LaunchAgents/Mish.plist"
+pnpm macos:app:clean -- inspect
 ```
 
-If the app was placed in `/Applications`, move `/Applications/Mish.app` to the
-Trash in Finder instead. User-selected exports and backups live at their chosen
-destinations and are intentionally not deleted. The ad-hoc app package contains
-no TUN helper, launch daemon, system extension, updater, or crash-reporting
-state. A developer who separately installed the development TUN service must
-also run `pnpm macos:tun:uninstall` from the trusted checkout.
+Every mutating subcommand requires the explicit `--apply` confirmation:
+
+| Subcommand            | Behavior                                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `stop --apply`        | Requests application-level Quit and waits up to 15 seconds for Mish's normal reconciliation.                                   |
+| `force-stop --apply`  | Sends TERM only to exact Mish/Core PIDs, then KILLs only PIDs that are still confirmed owned after the bounded wait.           |
+| `reset-proxy --apply` | Uses Mish's validated recovery journal and Rust platform adapter to restore the exact pre-Mish System Proxy state.             |
+| `clean --apply`       | Unregisters the account LaunchAgent and moves the inspected app and account-local state targets to the Trash.                  |
+| `all --apply`         | Attempts safe Quit, uses force-stop only as fallback, restores Mish-owned System Proxy state, then performs the Trash cleanup. |
+
+For example, perform the complete reset after reviewing `inspect`:
+
+```sh
+pnpm macos:app:clean -- all --apply
+```
+
+System Proxy reset never blindly disables a network service. Without a valid
+Mish recovery journal, an existing loopback proxy is treated as unowned and left
+unchanged. Process control is restricted to the installed
+`/Applications/Mish.app` (or account-local installed app) and its directly owned
+Core; a Mish instance running from another worktree is reported but never
+stopped. The facility never force-detaches a disk image or touches a Mish DMG
+mounted by another worktree. Trash cleanup includes the entire private
+Application Support root (`settings.json`, profiles, runtime state, journals),
+preferences, caches, WebKit/HTTP storage, cookies, saved state, logs, and bounded
+Mish CrashReporter/DiagnosticReports entries, including legacy
+`mish-desktop`-named state. Listed files remain recoverable until the Trash is
+emptied. User-selected exports and backups, mounted DMGs, and development TUN
+services are intentionally not deleted. A developer who separately installed
+the development TUN service must also run `pnpm macos:tun:uninstall` from the
+trusted checkout.
 
 ## Developer ID and notarization secrets
 

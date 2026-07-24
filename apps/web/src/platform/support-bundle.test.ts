@@ -4,10 +4,12 @@ import { DesktopSupportBundleClient, UnavailableSupportBundleClient } from "./su
 const preview = {
   categories: [
     { category: "application", itemCount: 1 },
+    { category: "activation", itemCount: 1 },
     { category: "platform", itemCount: 1 },
     { category: "capabilities", itemCount: 1 },
     { category: "active-profile", itemCount: 0 },
     { category: "capture", itemCount: 1 },
+    { category: "service-probes", itemCount: 0 },
     { category: "events-summary", itemCount: 0 },
     { category: "diagnostic-runs", itemCount: 0 },
     { category: "redaction-report", itemCount: 13 },

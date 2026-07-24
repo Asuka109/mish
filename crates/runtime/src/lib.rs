@@ -704,9 +704,9 @@ impl MishRuntime {
             Ok(_) => Ok(before != after),
             Err(error) => {
                 if aggregate_transition_pending {
-                    self.record_application_event(ApplicationDiagnosticEvent::capture_failure(
-                        error.kind,
-                    ));
+                    self.record_application_event(
+                        ApplicationDiagnosticEvent::capture_transition_failure(&error),
+                    );
                 } else {
                     self.record_capture_failure(&error);
                 }
@@ -889,12 +889,15 @@ impl MishRuntime {
 
     fn record_capture_failure(&self, error: &CaptureTransitionError) {
         let failure = error.kind;
-        self.record_application_event(ApplicationDiagnosticEvent::capture_failure(failure));
+        self.record_application_event(ApplicationDiagnosticEvent::capture_transition_failure(
+            error,
+        ));
         let _ = self.publish_notification(NotificationPublication {
             dedupe_key: "capture.failure".into(),
             notification_type: "capture.failure".into(),
             params: serde_json::json!({
                 "failure": failure,
+                "observationStage": error.observation_stage,
                 "takeoverReason": error.takeover_rejection,
             }),
             pinned: false,
@@ -995,15 +998,8 @@ impl MishRuntime {
 
     pub async fn shutdown(&self) -> Result<CoreStatus, RuntimeShutdownFailure> {
         if let Some(capture) = &self.capture {
-            let selection = capture.status().capture_selection;
             capture
-                .reconcile(
-                    CaptureRequest {
-                        active: false,
-                        selection,
-                    },
-                    false,
-                )
+                .reconcile_for_shutdown()
                 .await
                 .map_err(|_| RuntimeShutdownFailure::CaptureRestoration)?;
         }

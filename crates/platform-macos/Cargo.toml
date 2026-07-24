@@ -8,6 +8,10 @@ license.workspace = true
 name = "mish-production-tun-helper"
 path = "src/bin/mish-production-tun-helper.rs"
 
+[[bin]]
+name = "mish-macos-proxy-reset"
+path = "src/bin/mish-macos-proxy-reset.rs"
+
 [dependencies]
 futures-util = "0.3.33"
 libc = "0.2.186"

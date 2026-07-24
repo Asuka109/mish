@@ -1064,10 +1064,12 @@ const zh = {
       categories: "包含的类别",
       category: {
         application: "应用与核心版本",
+        activation: "配置启动结果",
         platform: "平台版本",
         capabilities: "能力状态",
         "active-profile": "当前配置的非敏感标识",
         capture: "流量接管设置与实际状态",
+        "service-probes": "直连服务探测摘要",
         "events-summary": "近期事件摘要",
         "diagnostic-runs": "诊断结果",
         "redaction-report": "已隐藏的信息说明",

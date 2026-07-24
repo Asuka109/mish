@@ -34,9 +34,9 @@ use mish_runtime::{
     CapabilityAvailability, CaptureConfirmationWindow, CaptureFailureKind, CaptureJournal,
     CaptureJournalStore, CapturePlatform, CaptureTransitionError, LoopbackProxyEndpoint,
     ManualProxyState, NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
-    PlatformLifecycleEventSource, TunHelperAvailability, TunHelperError, TunHelperFailureKind,
-    TunHelperHealth, TunHelperLifecycleOperation, TunHelperObservation, TunHelperPlatform,
-    TunHelperSnapshot,
+    PlatformLifecycleEventSource, SystemProxyObservationStage, TunHelperAvailability,
+    TunHelperError, TunHelperFailureKind, TunHelperHealth, TunHelperLifecycleOperation,
+    TunHelperObservation, TunHelperPlatform, TunHelperSnapshot,
 };
 use mish_settings::{
     DnsObservation, NetworkDnsFailureKind, NetworkDnsObservation, NetworkDnsObservationError,
@@ -1435,7 +1435,7 @@ impl MacOsSystemProxyPlatform {
                 service: service.to_owned(),
             })
             .await?;
-        parse_proxy_bypass_domains(&output)
+        parse_proxy_bypass_domains(&output).map_err(proxy_configuration_error)
     }
 
     async fn auto_proxy_url_state(
@@ -1448,8 +1448,8 @@ impl MacOsSystemProxyPlatform {
             })
             .await?;
         Ok((
-            parse_enabled_value(&output, "Enabled")?,
-            parse_required_key(&output, "URL")?,
+            parse_enabled_value(&output, "Enabled").map_err(proxy_configuration_error)?,
+            parse_required_key(&output, "URL").map_err(proxy_configuration_error)?,
         ))
     }
 
@@ -1462,7 +1462,7 @@ impl MacOsSystemProxyPlatform {
                 service: service.to_owned(),
             })
             .await?;
-        parse_enabled_value(&output, "Auto Proxy Discovery")
+        parse_enabled_value(&output, "Auto Proxy Discovery").map_err(proxy_configuration_error)
     }
 
     async fn proxy_state(
@@ -1476,15 +1476,58 @@ impl MacOsSystemProxyPlatform {
                 service: service.to_owned(),
             })
             .await?;
-        parse_proxy_state(&output)
+        parse_proxy_state(&output).map_err(proxy_configuration_error)
     }
 
     async fn run(&self, command: MacOsCommand) -> Result<String, CaptureTransitionError> {
+        let stage = match command {
+            MacOsCommand::DefaultRoute => SystemProxyObservationStage::DefaultRoute,
+            MacOsCommand::ListNetworkServiceOrder => {
+                SystemProxyObservationStage::NetworkServiceOrder
+            }
+            MacOsCommand::NetworkInformation => {
+                SystemProxyObservationStage::NetworkServiceResolution
+            }
+            _ => SystemProxyObservationStage::ProxyConfiguration,
+        };
         self.runner
             .run(command)
             .await
             .map(|output| output.stdout)
-            .map_err(|_| observation_error())
+            .map_err(|_| observation_error().at_observation_stage(stage))
+    }
+
+    async fn resolve_active_service(
+        &self,
+        service_order: &str,
+        route_device: &str,
+    ) -> Result<String, CaptureTransitionError> {
+        if let Ok(service) = parse_service_for_device(service_order, route_device) {
+            return Ok(service);
+        }
+        if !is_virtual_default_route_device(route_device) {
+            return Err(observation_error()
+                .at_observation_stage(SystemProxyObservationStage::NetworkServiceResolution));
+        }
+        let network = self.run(MacOsCommand::NetworkInformation).await?;
+        let active = parse_network_information(&network).map_err(|_| {
+            observation_error()
+                .at_observation_stage(SystemProxyObservationStage::NetworkServiceResolution)
+        })?;
+        let mut candidates = Vec::new();
+        for interface in active {
+            let Ok(service) = parse_service_for_device(service_order, &interface.interface) else {
+                continue;
+            };
+            if !candidates.contains(&service) {
+                candidates.push(service);
+            }
+        }
+        if candidates.len() == 1 {
+            return Ok(candidates.remove(0));
+        }
+        Err(observation_error()
+            .at_observation_stage(SystemProxyObservationStage::NetworkServiceResolution))
     }
 
     async fn apply_proxy(
@@ -1555,11 +1598,13 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
             let (device, order) = tokio::try_join!(
                 async {
                     let route = self.run(MacOsCommand::DefaultRoute).await?;
-                    parse_default_route_device(&route)
+                    parse_default_route_device(&route).map_err(|error| {
+                        error.at_observation_stage(SystemProxyObservationStage::DefaultRoute)
+                    })
                 },
                 self.run(MacOsCommand::ListNetworkServiceOrder),
             )?;
-            let service = parse_service_for_device(&order, &device)?;
+            let service = self.resolve_active_service(&order, &device).await?;
             self.preflight_observe_named_service(service).await
         })
     }
@@ -1569,9 +1614,11 @@ impl CapturePlatform for MacOsSystemProxyPlatform {
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
         Box::pin(async move {
             let route = self.run(MacOsCommand::DefaultRoute).await?;
-            let device = parse_default_route_device(&route)?;
+            let device = parse_default_route_device(&route).map_err(|error| {
+                error.at_observation_stage(SystemProxyObservationStage::DefaultRoute)
+            })?;
             let order = self.run(MacOsCommand::ListNetworkServiceOrder).await?;
-            let service = parse_service_for_device(&order, &device)?;
+            let service = self.resolve_active_service(&order, &device).await?;
             self.observe_named_service(service).await
         })
     }
@@ -1701,6 +1748,12 @@ fn parse_default_route_device(output: &str) -> Result<String, CaptureTransitionE
     parse_key(output, "interface")
         .filter(|value| !value.is_empty())
         .ok_or_else(observation_error)
+}
+
+fn is_virtual_default_route_device(device: &str) -> bool {
+    device
+        .strip_prefix("utun")
+        .is_some_and(|index| !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -2001,6 +2054,10 @@ fn observation_error() -> CaptureTransitionError {
     )
 }
 
+fn proxy_configuration_error(error: CaptureTransitionError) -> CaptureTransitionError {
+    error.at_observation_stage(SystemProxyObservationStage::ProxyConfiguration)
+}
+
 fn apply_error(error: MacOsCommandError) -> CaptureTransitionError {
     let kind = match error.kind {
         MacOsCommandErrorKind::PermissionDenied => CaptureFailureKind::PermissionDenied,
@@ -2123,6 +2180,12 @@ resolver #1
         failure: Option<MacOsCommandErrorKind>,
     }
 
+    struct ProxyObservationFixtureRunner {
+        network_information: &'static str,
+        route_device: &'static str,
+        service_order_failure: Option<MacOsCommandErrorKind>,
+    }
+
     impl MacOsCommandRunner for FixtureRunner {
         fn run(
             &self,
@@ -2144,6 +2207,122 @@ resolver #1
                 })
             })
         }
+    }
+
+    impl MacOsCommandRunner for ProxyObservationFixtureRunner {
+        fn run(
+            &self,
+            command: MacOsCommand,
+        ) -> BoxFuture<'_, Result<MacOsCommandOutput, MacOsCommandError>> {
+            let route_device = self.route_device;
+            let network_information = self.network_information;
+            let service_order_failure = self.service_order_failure;
+            Box::pin(async move {
+                let stdout = match command {
+                    MacOsCommand::DefaultRoute => {
+                        return Ok(MacOsCommandOutput {
+                            stdout: format!("route to: default\ninterface: {route_device}\n"),
+                        });
+                    }
+                    MacOsCommand::ListNetworkServiceOrder => {
+                        if let Some(kind) = service_order_failure {
+                            return Err(MacOsCommandError { kind });
+                        }
+                        SERVICES_FIXTURE
+                    }
+                    MacOsCommand::NetworkInformation => network_information,
+                    _ => panic!("unexpected proxy observation fixture command"),
+                };
+                Ok(MacOsCommandOutput {
+                    stdout: stdout.to_owned(),
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn proxy_observation_distinguishes_networksetup_from_route_service_resolution() {
+        let networksetup_failure =
+            MacOsSystemProxyPlatform::with_runner(Arc::new(ProxyObservationFixtureRunner {
+                network_information: NETWORK_FIXTURE,
+                route_device: "en0",
+                service_order_failure: Some(MacOsCommandErrorKind::Failed),
+            }))
+            .preflight_observe_active()
+            .await
+            .unwrap_err();
+        assert_eq!(
+            networksetup_failure.observation_stage,
+            Some(SystemProxyObservationStage::NetworkServiceOrder)
+        );
+
+        let unmapped_route =
+            MacOsSystemProxyPlatform::with_runner(Arc::new(ProxyObservationFixtureRunner {
+                network_information: NETWORK_FIXTURE,
+                route_device: "utun9",
+                service_order_failure: None,
+            }))
+            .preflight_observe_active()
+            .await
+            .unwrap_err();
+        assert_eq!(
+            unmapped_route.observation_stage,
+            Some(SystemProxyObservationStage::NetworkServiceResolution)
+        );
+    }
+
+    #[tokio::test]
+    async fn virtual_default_route_uses_only_one_exact_active_network_service() {
+        const ONE_ACTIVE_INTERFACE: &str = r#"Network information
+
+IPv4 network interface information
+     en0 : flags      : 0x5 (IPv4,DNS)
+           address    : 192.0.2.10
+
+Network interfaces: en0
+"#;
+        let adapter =
+            MacOsSystemProxyPlatform::with_runner(Arc::new(ProxyObservationFixtureRunner {
+                network_information: ONE_ACTIVE_INTERFACE,
+                route_device: "utun9",
+                service_order_failure: None,
+            }));
+
+        assert_eq!(
+            adapter
+                .resolve_active_service(SERVICES_FIXTURE, "utun9")
+                .await
+                .unwrap(),
+            "Office LAN"
+        );
+        assert_eq!(
+            MacOsSystemProxyPlatform::with_runner(Arc::new(ProxyObservationFixtureRunner {
+                network_information: NETWORK_FIXTURE,
+                route_device: "utun9",
+                service_order_failure: None,
+            }))
+            .resolve_active_service(SERVICES_FIXTURE, "utun9")
+            .await
+            .unwrap_err()
+            .observation_stage,
+            Some(SystemProxyObservationStage::NetworkServiceResolution)
+        );
+        assert_eq!(
+            adapter
+                .resolve_active_service(SERVICES_FIXTURE, "en9")
+                .await
+                .unwrap_err()
+                .observation_stage,
+            Some(SystemProxyObservationStage::NetworkServiceResolution)
+        );
+        assert_eq!(
+            adapter
+                .resolve_active_service(SERVICES_FIXTURE, "utun")
+                .await
+                .unwrap_err()
+                .observation_stage,
+            Some(SystemProxyObservationStage::NetworkServiceResolution)
+        );
     }
 
     #[test]
