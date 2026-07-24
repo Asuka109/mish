@@ -191,6 +191,23 @@ sorts and filters the complete bounded snapshot, then renders 250 rows per
 incremental batch so large valid snapshots do not create an unbounded initial
 DOM.
 
+## View pause
+
+Traffic pause is a client/view-scoped presentation state. The Web provider
+retains the newest authoritative snapshot and continues reconciling Closed
+history while a paused page renders a deep-copied snapshot and its matching
+Closed collection captured at the pause boundary. Search, sorting, filters,
+counts, details, selection, and incremental rendering therefore all read one
+displayed snapshot. Resume swaps that displayed state to the retained latest
+state immediately; it never waits for another Controller refresh.
+
+The capture expires on an observation gap, Profile replacement, or Traffic
+session replacement. It is neither persisted nor command authority. Close one
+and close all always form authority from the latest ready snapshot; a
+filtered-visible close retains only its displayed stable-ID set and pinned
+profile/session for Rust to revalidate. Command results refresh the latest
+authority but do not partially alter a still-paused presentation.
+
 ## Privacy and fixture policy
 
 Destination names, source and destination IPs, process names, and local paths

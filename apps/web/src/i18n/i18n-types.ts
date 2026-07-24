@@ -3494,6 +3494,16 @@ type RootTranslation = {
 		 */
 		payload: string
 		/**
+		 * P​a​u​s​e​ ​V​i​e​w
+		 */
+		pause: string
+		/**
+		 * V​i​e​w​ ​p​a​u​s​e​d​ ​a​t​ ​{​t​i​m​e​}​;​ ​{​u​p​d​a​t​e​s​}​ ​n​e​w​e​r​ ​u​p​d​a​t​e​s​ ​a​r​e​ ​r​e​a​d​y​.
+		 * @param {string} time
+		 * @param {number} updates
+		 */
+		paused: RequiredParams<'time' | 'updates'>
+		/**
 		 * P​r​i​o​r​i​t​y
 		 */
 		priority: string
@@ -3537,6 +3547,10 @@ type RootTranslation = {
 		 * L​o​c​a​l​ ​C​l​o​s​e​d​ ​r​e​t​e​n​t​i​o​n​:​ ​3​0​ ​m​i​n​u​t​e​s​ ​/​ ​5​1​2​ ​r​o​w​s
 		 */
 		retention: string
+		/**
+		 * R​e​s​u​m​e​ ​V​i​e​w
+		 */
+		resume: string
 		/**
 		 * R​o​u​t​e
 		 */
@@ -7927,6 +7941,14 @@ export type TranslationFunctions = {
 		 */
 		payload: () => LocalizedString
 		/**
+		 * Pause View
+		 */
+		pause: () => LocalizedString
+		/**
+		 * View paused at {time}; {updates} newer updates are ready.
+		 */
+		paused: (arg: { time: string, updates: number }) => LocalizedString
+		/**
 		 * Priority
 		 */
 		priority: () => LocalizedString
@@ -7966,6 +7988,10 @@ export type TranslationFunctions = {
 		 * Local Closed retention: 30 minutes / 512 rows
 		 */
 		retention: () => LocalizedString
+		/**
+		 * Resume View
+		 */
+		resume: () => LocalizedString
 		/**
 		 * Route
 		 */

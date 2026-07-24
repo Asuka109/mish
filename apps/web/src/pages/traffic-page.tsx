@@ -1,4 +1,6 @@
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
+import { Pause } from "@phosphor-icons/react/Pause";
+import { Play } from "@phosphor-icons/react/Play";
 import { Question } from "@phosphor-icons/react/Question";
 import type {
   EffectiveRuleDto,
@@ -190,7 +192,11 @@ export function TrafficPage() {
     isCommandSupported,
     isCurrent,
     isLoading,
+    isViewPaused,
+    pausedAt,
+    pausedUpdateCount,
     snapshot,
+    toggleViewPause,
   } = useTraffic();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<TrafficTab>(() => trafficTab(searchParams.get("tab")));
@@ -240,6 +246,13 @@ export function TrafficPage() {
   );
 
   useEffect(() => setTab(trafficTab(searchParams.get("tab"))), [searchParams]);
+
+  useEffect(() => {
+    setSelectedConnection(null);
+    setCloseTarget(null);
+    setCloseVisibleTarget(null);
+    setCloseAllConfirmationOpen(false);
+  }, [snapshot?.profileId, snapshot?.sessionId]);
 
   async function confirmCloseConnection() {
     if (!closeTarget) return;
@@ -306,6 +319,17 @@ export function TrafficPage() {
         </div>
         <div className={trafficStyles().actions()}>
           <Button
+            aria-pressed={isViewPaused}
+            disabled={
+              !isViewPaused && (!snapshot || snapshot.phase !== "ready" || connection.stale)
+            }
+            onClick={toggleViewPause}
+            variant="outline"
+          >
+            {isViewPaused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+            {isViewPaused ? LL.traffic.resume() : LL.traffic.pause()}
+          </Button>
+          <Button
             disabled={
               tab !== "active" ||
               filteredConnections.length === 0 ||
@@ -343,6 +367,10 @@ export function TrafficPage() {
         connectionStale={connection.stale}
         error={error}
         isLoading={isLoading}
+        isViewPaused={isViewPaused}
+        locale={locale}
+        pausedAt={pausedAt}
+        pausedUpdateCount={pausedUpdateCount}
         snapshot={snapshot}
       />
       {unavailableProcessCount > 0 && snapshot?.adapterKind === "rpc" ? (
@@ -658,6 +686,10 @@ interface TrafficSourceStatusProps {
   connectionStale: boolean;
   error: string | null;
   isLoading: boolean;
+  isViewPaused: boolean;
+  locale: Locales;
+  pausedAt: Date | null;
+  pausedUpdateCount: number;
   snapshot: ReturnType<typeof useTraffic>["snapshot"];
 }
 
@@ -666,6 +698,10 @@ function TrafficSourceStatus({
   connectionStale,
   error,
   isLoading,
+  isViewPaused,
+  locale,
+  pausedAt,
+  pausedUpdateCount,
   snapshot,
 }: TrafficSourceStatusProps) {
   let message: string = LL.traffic.unavailableNotice();
@@ -685,7 +721,14 @@ function TrafficSourceStatus({
 
   return (
     <div className={trafficStyles().sourceStatus()} data-state={state} role="status">
-      <span>{message}</span>
+      <span>
+        {isViewPaused && pausedAt
+          ? LL.traffic.paused({
+              time: formatDate(pausedAt.toISOString(), locale),
+              updates: pausedUpdateCount,
+            })
+          : message}
+      </span>
       {snapshot?.sessionId ? (
         <span className="tabular-nums">
           {LL.traffic.reconnect({
