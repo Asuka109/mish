@@ -74,7 +74,7 @@ describe("notification presentation registry", () => {
     ).toEqual([{ id: "open-diagnostics", label: "打开诊断" }]);
   });
 
-  it("keeps takeover rejections redacted and directs users to the policy control", () => {
+  it("keeps takeover rejections redacted and offers the fixed native settings action", () => {
     const presentation = presentNotification(
       notificationRecord({
         id: "notification:takeover-rejected",
@@ -88,7 +88,34 @@ describe("notification presentation registry", () => {
       }),
       i18nObject("en"),
     );
-    expect(presentation.actions.map(({ id }) => id)).toEqual(["open-system-proxy-policy"]);
+    expect(presentation.actions).toEqual([
+      { id: "open-system-proxy-settings", label: "Review Proxy Settings" },
+      {
+        id: "show-system-proxy-settings-steps",
+        label: "Show Manual Steps",
+        tone: "secondary",
+      },
+    ]);
+    expect(
+      presentNotification(
+        notificationRecord({
+          id: "notification:takeover-rejected-zh",
+          params: {
+            failure: "takeover-rejected",
+            takeoverReason: "protected-auto-discovery",
+          },
+          type: "capture.failure",
+        }),
+        i18nObject("zh"),
+      ).actions,
+    ).toEqual([
+      { id: "open-system-proxy-settings", label: "查看代理设置" },
+      {
+        id: "show-system-proxy-settings-steps",
+        label: "显示手动步骤",
+        tone: "secondary",
+      },
+    ]);
     expect(JSON.stringify(presentation)).not.toContain("must-not-render");
   });
 

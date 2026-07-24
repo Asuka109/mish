@@ -4,6 +4,7 @@ fn main() {
         tauri_build::AppManifest::new().commands(&[
             "runtime_bootstrap",
             "reveal_main_window",
+            "open_system_proxy_settings",
             "profile_preflight_local",
             "diagnostics_support_bundle_preview",
             "diagnostics_support_bundle_save",

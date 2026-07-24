@@ -147,6 +147,7 @@ pub enum OnboardingWelcomeAction {
     Dismiss,
     Open,
     Prompt,
+    Remove,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -849,6 +850,10 @@ impl SettingsService {
             .lock()
             .expect("settings operation lock poisoned");
         self.update(|preferences| {
+            if action == OnboardingWelcomeAction::Remove {
+                preferences.onboarding.welcome_invitation = None;
+                return;
+            }
             let Some(invitation) = preferences.onboarding.welcome_invitation.as_mut() else {
                 return;
             };
@@ -878,6 +883,7 @@ impl SettingsService {
                 OnboardingWelcomeAction::Prompt => {
                     invitation.prompted_at.get_or_insert(now);
                 }
+                OnboardingWelcomeAction::Remove => unreachable!("removal returns before borrowing"),
             }
         })
     }
@@ -2098,6 +2104,45 @@ mod tests {
                 .onboarding
                 .welcome_invitation,
             Some(completed)
+        );
+    }
+
+    #[test]
+    fn explicit_welcome_removal_is_durable_after_completion_and_restart() {
+        let (_root, repository) = repository();
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("fresh settings service");
+
+        let completed = service
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Complete)
+            .expect("complete welcome")
+            .preferences
+            .onboarding
+            .welcome_invitation
+            .expect("completed welcome invitation");
+        assert!(completed.completed_at.is_some());
+
+        let removed = service
+            .set_onboarding_welcome_state(OnboardingWelcomeAction::Remove)
+            .expect("remove welcome invitation");
+        assert_eq!(removed.preferences.onboarding.welcome_invitation, None);
+        drop(service);
+
+        let restarted =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("restarted settings service");
+        assert_eq!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .onboarding
+                .welcome_invitation,
+            None
         );
     }
 

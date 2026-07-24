@@ -21,10 +21,7 @@ export function NotificationPublicationController() {
   const fixture = snapshot?.adapterKind === "fixture";
 
   useEffect(() => {
-    if (!welcomeInvitation || welcomeInvitation.completedAt !== null) {
-      retire("onboarding.welcome");
-      return;
-    }
+    if (!welcomeInvitation) return;
     if (!settings) return;
     if (welcomeInvitation.promptedAt !== null) {
       publish(

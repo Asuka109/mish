@@ -1260,6 +1260,16 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
             .is_number()
     );
 
+    let removed = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":28, "method":"settings.setOnboardingWelcomeState",
+            "params":{"action":"remove"}
+        }),
+    )
+    .await;
+    assert!(removed["result"]["preferences"]["onboarding"]["welcomeInvitation"].is_null());
+
     let arbitrary_network_argument = request(
         &mut ws,
         json!({
