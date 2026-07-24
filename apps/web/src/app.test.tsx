@@ -2255,7 +2255,9 @@ describe("desktop RPC experience", () => {
 
     const tun = screen.getByRole("button", { name: /^Virtual Interface/ });
     expect(tun).toBeDisabled();
-    expect(tun).toHaveAccessibleDescription(/Virtual Interface is unavailable/i);
+    expect(tun).toHaveAccessibleDescription(
+      /Virtual Interface is not available in this version of Mish/i,
+    );
 
     expect(screen.getByRole("button", { name: "Rule" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: /Switch profile/ })).toBeDisabled();
