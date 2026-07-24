@@ -219,6 +219,11 @@ fn reveal_main_window(
 }
 
 #[tauri::command]
+fn open_system_proxy_settings() -> mish_platform_macos::SystemProxySettingsOpenOutcome {
+    mish_platform_macos::open_system_proxy_settings()
+}
+
+#[tauri::command]
 async fn profile_preflight_local(
     state: tauri::State<'_, ProfileState>,
     label: Option<String>,
@@ -547,6 +552,7 @@ pub fn run() -> Result<i32, String> {
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
             reveal_main_window,
+            open_system_proxy_settings,
             profile_preflight_local,
             diagnostics_support_bundle_preview,
             diagnostics_support_bundle_save,

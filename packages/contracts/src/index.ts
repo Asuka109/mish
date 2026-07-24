@@ -166,6 +166,7 @@ export const CaptureFailureKindSchema = z.enum([
   "permission-denied",
   "persistence-failed",
   "rollback-failed",
+  "takeover-rejected",
   "unsafe-existing-configuration",
   "unsupported-selection",
 ]);
@@ -1432,7 +1433,13 @@ export const OnboardingPreferencesSchema = z
   .strict();
 export interface OnboardingPreferencesDto extends z.infer<typeof OnboardingPreferencesSchema> {}
 
-export const OnboardingWelcomeActionSchema = z.enum(["prompt", "open", "dismiss", "complete"]);
+export const OnboardingWelcomeActionSchema = z.enum([
+  "prompt",
+  "open",
+  "dismiss",
+  "complete",
+  "remove",
+]);
 export type OnboardingWelcomeAction = z.infer<typeof OnboardingWelcomeActionSchema>;
 
 export const StartupPreferencesSchema = z

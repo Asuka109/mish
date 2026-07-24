@@ -296,7 +296,7 @@ const zh = {
     captureTunDescription:
       "通过虚拟网络接口覆盖更广泛的设备流量；它依赖平台支持，并可能需要系统授权。",
     captureTunTitle: "虚拟网卡（TUN）",
-    completedAnnouncement: "欢迎介绍已完成，邀请已从通知中移除。",
+    completedAnnouncement: "欢迎介绍已完成，你仍可从通知中重新打开。",
     completeWelcome: "开始使用 Mish",
     coverPurpose:
       "Mish 是一款由 Mihomo 内核驱动的独立代理客户端，目标是提供跨平台支持、清晰交互与更精致的设计。",
@@ -394,6 +394,8 @@ const zh = {
     selected: "已选择",
     leaveAsIs: "保持系统当前设置",
     repairSystemProxy: "修复系统代理",
+    reviewSystemProxySettings: "查看代理设置",
+    showSystemProxySettingsSteps: "显示手动步骤",
     systemProxy: "系统代理",
     systemProxyApplied: "系统代理已开启。",
     systemProxyCoreFailure: "代理启动失败，Mish 已回到闲置状态。请检查当前配置后重试。",
@@ -412,6 +414,13 @@ const zh = {
     systemProxyPermissionFailure: "macOS 不允许更改系统代理。请检查系统权限后重试。",
     systemProxyRepairRequiresCore:
       "修复系统代理前需要先启动代理。也可以选择保留系统当前设置，再重新启动 Mish。",
+    systemProxySettingsDispatchFailed:
+      "Mish 无法打开“系统设置”。请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
+    systemProxySettingsManual:
+      "请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
+    systemProxySettingsManualTitle: "手动打开代理设置",
+    systemProxySettingsUnsupported:
+      "当前 macOS 版本无法由 Mish 打开网络设置。请打开“系统设置”>“网络”，选择当前使用的网络服务，再进入“详细信息”>“代理”。检查外部配置后返回 Mish，并显式重试系统代理。",
     systemProxyUnsafeFailure: "macOS 正在使用自动代理或需要密码的代理，Mish 没有覆盖这些设置。",
     systemProxyUnknown: "Mish 中已选择关闭系统代理，但目前无法读取 macOS 的实际状态。",
     title: "系统代理与虚拟网卡",
@@ -458,7 +467,7 @@ const zh = {
     systemProxyPermission: "需要授权后才能更改系统代理。",
     systemProxyUnavailable: "当前平台不支持系统代理。",
     tunPermission: "需要授权后才能更改虚拟网卡。",
-    tunUnavailable: "当前平台不支持虚拟网卡。",
+    tunUnavailable: "此版本的 Mish 暂不支持虚拟网卡。",
   },
   proxyPicker: {
     description: "为这个策略组选择节点或其他策略组。这里只会更改当前策略组。",
