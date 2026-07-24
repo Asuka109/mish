@@ -52,7 +52,7 @@ const statusStyles = tv({
       "max-profile-stack:gap-8 max-page-compact:grid-cols-1 runtime-mobile:grid-cols-1",
       "runtime-mobile:gap-6",
     ),
-    policySection: "flex min-h-0 min-w-0 flex-col max-page-compact:block",
+    section: "min-w-0",
     sessionSection: "min-w-0 @container/session",
     heading:
       "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-shell-mobile:items-start",
@@ -115,8 +115,7 @@ const statusStyles = tv({
       "[&>strong]:font-medium",
     ),
     policyList: cx(
-      "policy-group-list flex-1 grid-rows-5 gap-0 bg-canvas",
-      "max-page-compact:flex-none max-page-compact:flex max-page-compact:flex-col",
+      "policy-group-list gap-0 bg-canvas",
       "[&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-hairline-soft",
       "[&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
     ),
@@ -437,7 +436,7 @@ export function StatusPage() {
             </div>
           </section>
 
-          <section aria-label={LL.status.groupsAria()} className={statusStyles().policySection()}>
+          <section aria-label={LL.status.groupsAria()} className={statusStyles().section()}>
             <div className={statusStyles().heading()}>
               <div className={statusStyles().headingCopy()}>
                 <h2>{LL.status.groups()}</h2>

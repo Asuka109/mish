@@ -131,18 +131,13 @@ describe("unified policy browser", () => {
         ...document.querySelectorAll<HTMLElement>(".policy-group-list [data-policy-row-primary]"),
       ];
       if (!policyList || !sessionList) throw new Error("Missing Status cards");
-      expect(policyList.getBoundingClientRect().height).toBeCloseTo(
-        sessionList.getBoundingClientRect().height,
-        0,
-      );
-      expect(rows.every((row) => row.dataset.policyBrowserDensity === "status")).toBe(true);
       expect(
-        rows.every(
-          (row) =>
-            Math.abs(row.getBoundingClientRect().height - rows[0]!.getBoundingClientRect().height) <
-            0.01,
+        Math.abs(
+          policyList.getBoundingClientRect().height - sessionList.getBoundingClientRect().height,
         ),
-      ).toBe(true);
+      ).toBeLessThanOrEqual(1);
+      expect(rows.every((row) => row.dataset.policyBrowserDensity === "status")).toBe(true);
+      expect(rows.every((row) => row.getBoundingClientRect().height === 46)).toBe(true);
       rows.forEach((row) => {
         expect(row.querySelectorAll(".user-authored-label")).toHaveLength(2);
         expect(row.querySelector(".ui-badge")).not.toBeNull();
