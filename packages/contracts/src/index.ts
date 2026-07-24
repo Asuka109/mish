@@ -952,10 +952,12 @@ export type SupportBundleAvailability = z.infer<typeof SupportBundleAvailability
 
 export const SupportBundleCategorySchema = z.enum([
   "application",
+  "activation",
   "platform",
   "capabilities",
   "active-profile",
   "capture",
+  "service-probes",
   "events-summary",
   "diagnostic-runs",
   "redaction-report",
@@ -992,7 +994,7 @@ export const SupportBundleCategoryPreviewSchema = z
 
 export const SupportBundlePreviewSchema = z
   .object({
-    categories: z.array(SupportBundleCategoryPreviewSchema).length(8),
+    categories: z.array(SupportBundleCategoryPreviewSchema).length(10),
     contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
     excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(13),
     fileType: z.literal("application/json"),
@@ -1003,7 +1005,7 @@ export const SupportBundlePreviewSchema = z
   })
   .strict()
   .superRefine((preview, context) => {
-    if (new Set(preview.categories.map(({ category }) => category)).size !== 8) {
+    if (new Set(preview.categories.map(({ category }) => category)).size !== 10) {
       context.addIssue({ code: "custom", message: "Support bundle categories must be unique" });
     }
     if (new Set(preview.excludedOrRedacted).size !== 13) {

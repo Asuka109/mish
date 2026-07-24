@@ -1135,10 +1135,12 @@ const en = {
       categories: "Included categories",
       category: {
         application: "Application and core versions",
+        activation: "Profile activation outcome",
         platform: "Platform version",
         capabilities: "Capability status",
         "active-profile": "Active Profile identifiers",
         capture: "Capture desired / observed / drift",
+        "service-probes": "Direct service probe aggregates",
         "events-summary": "Recent event aggregates",
         "diagnostic-runs": "Guided diagnostic checks",
         "redaction-report": "Redaction report entries",

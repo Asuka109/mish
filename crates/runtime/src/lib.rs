@@ -976,22 +976,10 @@ impl MishRuntime {
 
     pub async fn shutdown(&self) -> Result<CoreStatus, RuntimeShutdownFailure> {
         if let Some(capture) = &self.capture {
-            let requires_reconciliation = capture
-                .shutdown_requires_reconciliation()
+            capture
+                .reconcile_for_shutdown()
+                .await
                 .map_err(|_| RuntimeShutdownFailure::CaptureRestoration)?;
-            if requires_reconciliation {
-                let selection = capture.status().capture_selection;
-                capture
-                    .reconcile(
-                        CaptureRequest {
-                            active: false,
-                            selection,
-                        },
-                        false,
-                    )
-                    .await
-                    .map_err(|_| RuntimeShutdownFailure::CaptureRestoration)?;
-            }
         }
         self.status_source.shutdown().await;
         self.stop_core()

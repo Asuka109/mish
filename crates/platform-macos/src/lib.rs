@@ -1383,6 +1383,10 @@ impl MacOsSystemProxyPlatform {
         if let Ok(service) = parse_service_for_device(service_order, route_device) {
             return Ok(service);
         }
+        if !is_virtual_default_route_device(route_device) {
+            return Err(observation_error()
+                .at_observation_stage(SystemProxyObservationStage::NetworkServiceResolution));
+        }
         let network = self.run(MacOsCommand::NetworkInformation).await?;
         let active = parse_network_information(&network).map_err(|_| {
             observation_error()
@@ -1622,6 +1626,12 @@ fn parse_default_route_device(output: &str) -> Result<String, CaptureTransitionE
     parse_key(output, "interface")
         .filter(|value| !value.is_empty())
         .ok_or_else(observation_error)
+}
+
+fn is_virtual_default_route_device(device: &str) -> bool {
+    device
+        .strip_prefix("utun")
+        .is_some_and(|index| !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -2173,6 +2183,22 @@ Network interfaces: en0
             .await
             .unwrap_err()
             .observation_stage,
+            Some(SystemProxyObservationStage::NetworkServiceResolution)
+        );
+        assert_eq!(
+            adapter
+                .resolve_active_service(SERVICES_FIXTURE, "en9")
+                .await
+                .unwrap_err()
+                .observation_stage,
+            Some(SystemProxyObservationStage::NetworkServiceResolution)
+        );
+        assert_eq!(
+            adapter
+                .resolve_active_service(SERVICES_FIXTURE, "utun")
+                .await
+                .unwrap_err()
+                .observation_stage,
             Some(SystemProxyObservationStage::NetworkServiceResolution)
         );
     }

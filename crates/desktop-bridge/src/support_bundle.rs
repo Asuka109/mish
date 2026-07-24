@@ -335,10 +335,12 @@ pub struct SupportBundleCategoryPreview {
 #[serde(rename_all = "kebab-case")]
 pub enum SupportBundleCategory {
     Application,
+    Activation,
     Platform,
     Capabilities,
     ActiveProfile,
     Capture,
+    ServiceProbes,
     EventsSummary,
     DiagnosticRuns,
     RedactionReport,
@@ -459,6 +461,7 @@ fn build_support_bundle(
     let preview = SupportBundlePreview {
         categories: vec![
             preview_category(SupportBundleCategory::Application, 1),
+            preview_category(SupportBundleCategory::Activation, 1),
             preview_category(SupportBundleCategory::Platform, 1),
             preview_category(SupportBundleCategory::Capabilities, 1),
             preview_category(
@@ -466,6 +469,10 @@ fn build_support_bundle(
                 usize::from(manifest.active_profile.is_some()),
             ),
             preview_category(SupportBundleCategory::Capture, 1),
+            preview_category(
+                SupportBundleCategory::ServiceProbes,
+                input.status.probe_results.len(),
+            ),
             preview_category(
                 SupportBundleCategory::EventsSummary,
                 manifest.events.included_count,
@@ -950,9 +957,32 @@ mod tests {
         )
         .unwrap();
         let manifest: serde_json::Value = serde_json::from_slice(&bundle.bytes).unwrap();
+        let preview = serde_json::to_value(&bundle.preview).unwrap();
 
         assert_eq!(manifest["serviceProbes"]["error"], 1);
         assert_eq!(manifest["serviceProbes"]["dnsResolutionFailures"], 1);
+        assert!(
+            preview["categories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|category| category
+                    == &serde_json::json!({
+                        "category": "activation",
+                        "itemCount": 1,
+                    }))
+        );
+        assert!(
+            preview["categories"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|category| category
+                    == &serde_json::json!({
+                        "category": "service-probes",
+                        "itemCount": 1,
+                    }))
+        );
         assert!(
             !String::from_utf8(bundle.bytes)
                 .unwrap()

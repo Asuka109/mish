@@ -1964,16 +1964,38 @@ impl CaptureReconciler {
         &self.system_proxy.endpoint
     }
 
-    /// Shutdown only needs platform reconciliation when Mish holds durable System Proxy
-    /// restoration authority or TUN may still be active. A missing System Proxy journal means
-    /// there was no committed mutation to restore, so an unrelated observation failure must not
-    /// prevent the process from exiting.
-    pub fn shutdown_requires_reconciliation(&self) -> Result<bool, CaptureTransitionError> {
+    /// Reconcile capture for shutdown while holding the aggregate operation authority. A missing
+    /// System Proxy journal means there was no committed mutation to restore, so an unrelated
+    /// observation failure must not prevent the process from exiting.
+    pub async fn reconcile_for_shutdown(&self) -> Result<(), CaptureTransitionError> {
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
+        let _operation = self.operation.try_lock().map_err(|_| {
+            CaptureTransitionError::new(
+                CaptureFailureKind::RuntimeTransition,
+                "Another aggregate Capture operation is already in progress",
+            )
+        })?;
+        if self.runtime_transition.load(Ordering::Acquire) {
+            return Err(runtime_transition_error());
+        }
         let owns_system_proxy = self.system_proxy.load_validated_journal()?.is_some();
         let status = self.confirmed_status();
         let tun_may_be_active =
             status.tun_enabled || status.tun.desired || !matches!(status.tun.phase, TunPhase::Off);
-        Ok(owns_system_proxy || tun_may_be_active)
+        if !owns_system_proxy && !tun_may_be_active {
+            return Ok(());
+        }
+        self.reconcile_locked(
+            CaptureRequest {
+                active: false,
+                selection: status.capture_selection,
+            },
+            false,
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn test_local_proxy(

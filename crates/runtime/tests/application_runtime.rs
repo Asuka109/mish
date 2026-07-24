@@ -1,14 +1,20 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
     ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
-    CaptureReconciler, CaptureTransitionError, CoreError, CoreErrorKind, CorePhase, CoreRuntime,
-    CoreStatus, CoreStatusEventSink, EventLevel, LoopbackProxyEndpoint, ManualProxyState,
-    MishRuntime, NetworkServiceProxyState, ProfileSummary, RuntimeShutdownFailure,
-    StatusAdapterKind, StatusDataSource, StatusSnapshot,
+    CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
+    CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, EventLevel,
+    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState, ProfileSummary,
+    RuntimeShutdownFailure, StatusAdapterKind, StatusDataSource, StatusSnapshot,
 };
-use tokio::time::{Duration, timeout};
+use tokio::{
+    sync::Notify,
+    time::{Duration, timeout},
+};
 
 struct EmbeddedCore;
 
@@ -79,6 +85,13 @@ impl CaptureJournalStore for UnreadableShutdownJournal {
 struct ShutdownCapturePlatform;
 
 struct UnobservableUnownedShutdownPlatform;
+
+struct BlockingShutdownObservationPlatform {
+    block_next_observation: AtomicBool,
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+    state: Mutex<NetworkServiceProxyState>,
+}
 
 struct RecordingShutdownPlatform {
     order: Arc<Mutex<Vec<&'static str>>>,
@@ -172,6 +185,35 @@ impl CapturePlatform for UnobservableUnownedShutdownPlatform {
         _target: NetworkServiceProxyState,
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
         unreachable!("an unowned shutdown must not mutate System Proxy")
+    }
+}
+
+impl CapturePlatform for BlockingShutdownObservationPlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(async {
+            if self.block_next_observation.swap(false, Ordering::AcqRel) {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            Ok(self.state.lock().unwrap().clone())
+        })
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        *self.state.lock().unwrap() = target;
+        Box::pin(ready(Ok(())))
     }
 }
 
@@ -440,6 +482,56 @@ async fn runtime_stops_without_observing_system_proxy_when_it_has_no_capture_aut
 
     runtime.shutdown().await.unwrap();
 
+    assert_eq!(*order.lock().unwrap(), ["core"]);
+}
+
+#[tokio::test]
+async fn runtime_does_not_skip_capture_reconciliation_during_an_uncommitted_operation() {
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let capture = Arc::new(CaptureReconciler::new(
+        Arc::new(BlockingShutdownObservationPlatform {
+            block_next_observation: AtomicBool::new(true),
+            entered: entered.clone(),
+            release: release.clone(),
+            state: Mutex::new(disabled_proxy_state()),
+        }),
+        Arc::new(MemoryShutdownJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let runtime = MishRuntime::with_capture(
+        Arc::new(ShutdownRecordingCore {
+            order: order.clone(),
+        }),
+        capture.clone(),
+    );
+    let observation_started = entered.notified();
+    let operation = tokio::spawn(async move {
+        capture
+            .reconcile(
+                CaptureRequest {
+                    active: true,
+                    selection: CaptureSelection {
+                        system_proxy: true,
+                        tun: false,
+                    },
+                },
+                true,
+            )
+            .await
+    });
+    observation_started.await;
+
+    assert!(matches!(
+        runtime.shutdown().await,
+        Err(RuntimeShutdownFailure::CaptureRestoration)
+    ));
+    assert!(order.lock().unwrap().is_empty());
+
+    release.notify_one();
+    operation.await.unwrap().unwrap();
+    runtime.shutdown().await.unwrap();
     assert_eq!(*order.lock().unwrap(), ["core"]);
 }
 
