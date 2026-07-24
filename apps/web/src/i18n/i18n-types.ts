@@ -3898,6 +3898,10 @@ type RootTranslation = {
 				 * R​e​d​a​c​t​i​o​n​ ​r​e​p​o​r​t​ ​e​n​t​r​i​e​s
 				 */
 				'redaction-report': string
+				/**
+				 * T​e​r​m​i​n​a​t​i​o​n​ ​a​n​d​ ​r​e​c​o​v​e​r​y​ ​e​v​i​d​e​n​c​e
+				 */
+				'termination-recovery-evidence': string
 			}
 			/**
 			 * C​h​o​o​s​e​ ​L​o​c​a​t​i​o​n​ ​a​n​d​ ​S​a​v​e
@@ -8262,6 +8266,10 @@ export type TranslationFunctions = {
 				 * Redaction report entries
 				 */
 				'redaction-report': () => LocalizedString
+				/**
+				 * Termination and recovery evidence
+				 */
+				'termination-recovery-evidence': () => LocalizedString
 			}
 			/**
 			 * Choose Location and Save
