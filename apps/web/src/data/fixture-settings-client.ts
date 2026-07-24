@@ -3,6 +3,7 @@ import type {
   LanguagePreference,
   ManagedPortPreferencesDto,
   OnboardingWelcomeAction,
+  ProcessDiscoveryMode,
   SettingsClient,
   SettingsSnapshotDto,
   StartupPreferencesDto,
@@ -69,6 +70,7 @@ export function createFixtureSettingsSnapshot(): SettingsSnapshotDto {
       language: storedLanguage(),
       managedPorts: { controller: 9090, proxy: 7890 },
       onboarding: { welcomeInvitation: null },
+      processDiscoveryMode: "always",
       startup: {
         launchAtLogin: false,
         launchProxyWhenMishLaunches: false,
@@ -159,6 +161,10 @@ export class FixtureSettingsClient implements SettingsClient {
     _policy: SystemProxyTakeoverPolicy,
   ): Promise<SettingsSnapshotDto> {
     throw new Error("Native System Proxy policy is unavailable in demo mode");
+  }
+
+  async setProcessDiscoveryMode(_mode: ProcessDiscoveryMode): Promise<SettingsSnapshotDto> {
+    throw new Error("Native process discovery settings are unavailable in demo mode");
   }
 
   subscribeSnapshots(_listener: (snapshot: SettingsSnapshotDto) => void) {

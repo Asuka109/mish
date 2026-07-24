@@ -307,6 +307,18 @@ pub trait TrafficDataSource: Send + Sync {
             Vec::new(),
         )))
     }
+    fn close_filtered_visible(
+        &self,
+        _authority: TrafficCommandAuthority,
+        _connection_ids: Vec<String>,
+    ) -> BoxFuture<'_, TrafficCommandExecution> {
+        Box::pin(std::future::ready(TrafficCommandExecution::failure(
+            TrafficCommandOperation::CloseFilteredVisible,
+            TrafficCommandFailureKind::Unsupported,
+            0,
+            Vec::new(),
+        )))
+    }
 }
 
 pub trait EventsDataSource: Send + Sync {
@@ -806,6 +818,16 @@ impl MishRuntime {
         authority: TrafficCommandAuthority,
     ) -> TrafficCommandExecution {
         self.traffic_source.close_all_active(authority).await
+    }
+
+    pub async fn close_filtered_visible(
+        &self,
+        authority: TrafficCommandAuthority,
+        connection_ids: Vec<String>,
+    ) -> TrafficCommandExecution {
+        self.traffic_source
+            .close_filtered_visible(authority, connection_ids)
+            .await
     }
 
     pub fn is_same_instance(&self, other: &Self) -> bool {

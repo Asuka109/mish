@@ -71,6 +71,15 @@ pub enum WindowSurfacePreference {
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProcessDiscoveryMode {
+    #[default]
+    Always,
+    Strict,
+    Off,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StartupPreferences {
     pub launch_proxy_when_mish_launches: bool,
@@ -160,6 +169,8 @@ pub struct SettingsPreferences {
     #[serde(default)]
     pub managed_ports: ManagedPortPreferences,
     pub onboarding: OnboardingPreferences,
+    #[serde(default)]
+    pub process_discovery_mode: ProcessDiscoveryMode,
     pub startup: StartupPreferences,
     #[serde(default)]
     pub system_proxy_takeover_policy: SystemProxyTakeoverPolicy,
@@ -985,6 +996,18 @@ impl SettingsService {
         self.update(|preferences| preferences.managed_ports = managed_ports)
     }
 
+    pub fn set_process_discovery_mode(
+        &self,
+        mode: ProcessDiscoveryMode,
+    ) -> Result<SettingsSnapshot, SettingsServiceError> {
+        let _permit = self.acquire_mutation()?;
+        let _operation = self
+            .operation
+            .lock()
+            .expect("settings operation lock poisoned");
+        self.update(|preferences| preferences.process_discovery_mode = mode)
+    }
+
     pub fn find_and_set_managed_ports(&self) -> Result<SettingsSnapshot, SettingsServiceError> {
         for _ in 0..8 {
             let proxy = available_loopback_port().ok_or(SettingsServiceError::Persistence)?;
@@ -1361,6 +1384,7 @@ impl SettingsRepository for FileSettingsRepository {
                         capture_selection: CaptureSelectionPreferences::default(),
                         managed_ports: ManagedPortPreferences::default(),
                         onboarding: stored.preferences.onboarding,
+                        process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: StartupPreferences {
                             launch_proxy_when_mish_launches: false,
                             launch_at_login: stored.preferences.startup.launch_at_login,
@@ -1390,6 +1414,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
+                        process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: stored.preferences.startup.into(),
                         system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
@@ -1416,6 +1441,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
+                        process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: stored.preferences.startup.into(),
                         system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
@@ -1441,6 +1467,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
+                        process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: stored.preferences.startup.into(),
                         system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
@@ -1466,6 +1493,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
+                        process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: stored.preferences.startup.into(),
                         system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: stored.preferences.window_close_behavior,
@@ -1491,6 +1519,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
+                        process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: stored.preferences.startup.into(),
                         system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: WindowCloseBehavior::default(),
@@ -1516,6 +1545,7 @@ impl SettingsRepository for FileSettingsRepository {
                                 observation_time(),
                             )),
                         },
+                        process_discovery_mode: ProcessDiscoveryMode::default(),
                         startup: StartupPreferences::default(),
                         system_proxy_takeover_policy: SystemProxyTakeoverPolicy::default(),
                         window_close_behavior: WindowCloseBehavior::default(),
@@ -2231,6 +2261,7 @@ mod tests {
             language: LanguagePreference::Zh,
             managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),
+            process_discovery_mode: ProcessDiscoveryMode::Strict,
             startup: StartupPreferences {
                 launch_proxy_when_mish_launches: false,
                 launch_at_login: true,
@@ -2290,6 +2321,42 @@ mod tests {
                 .preferences
                 .system_proxy_takeover_policy,
             SystemProxyTakeoverPolicy::ReplaceReversiblePacOrAutoDiscovery
+        );
+    }
+
+    #[test]
+    fn process_discovery_defaults_to_always_and_persists_an_explicit_mode() {
+        let (_root, repository) = repository();
+        repository
+            .save(&SettingsPreferences::default())
+            .expect("save default settings");
+        let service = SettingsService::load(
+            repository.clone(),
+            None,
+            None,
+            SettingsCapabilities::macos(false),
+        )
+        .expect("settings service");
+        assert_eq!(
+            service
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .process_discovery_mode,
+            ProcessDiscoveryMode::Always
+        );
+
+        service
+            .set_process_discovery_mode(ProcessDiscoveryMode::Strict)
+            .expect("persist process discovery mode");
+        let restarted =
+            SettingsService::load(repository, None, None, SettingsCapabilities::macos(false))
+                .expect("restarted settings service");
+        assert_eq!(
+            restarted
+                .snapshot(SettingsAdapterKind::Rpc)
+                .preferences
+                .process_discovery_mode,
+            ProcessDiscoveryMode::Strict
         );
     }
 
@@ -2617,6 +2684,7 @@ mod tests {
             language: LanguagePreference::Zh,
             managed_ports: ManagedPortPreferences::default(),
             onboarding: OnboardingPreferences::default(),
+            process_discovery_mode: ProcessDiscoveryMode::Strict,
             startup: StartupPreferences {
                 launch_proxy_when_mish_launches: false,
                 launch_at_login: true,

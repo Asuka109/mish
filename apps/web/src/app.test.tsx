@@ -282,6 +282,10 @@ class DesktopSettingsClient implements SettingsClient {
       return this.getSnapshot();
     },
   );
+  setProcessDiscoveryMode = vi.fn(async (mode: "always" | "strict" | "off") => {
+    this.snapshot.preferences.processDiscoveryMode = mode;
+    return this.getSnapshot();
+  });
   findManagedPorts = vi.fn(async () => {
     this.snapshot.preferences.managedPorts = { controller: 29090, proxy: 27890 };
     return this.getSnapshot();
@@ -1247,6 +1251,28 @@ describe("production routes", () => {
     await waitFor(() => expect(settingsClient.findManagedPorts).toHaveBeenCalledOnce());
     expect(proxyPort).toHaveValue(27890);
     expect(controllerPort).toHaveValue(29090);
+  });
+
+  it("persists a bounded process discovery mode for the next activation", async () => {
+    const user = userEvent.setup();
+    const settingsClient = new DesktopSettingsClient();
+    renderRoute(
+      "/settings",
+      "en",
+      undefined,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+
+    expect(await screen.findByText("Connection process discovery")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Always" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "When needed" }));
+
+    await waitFor(() =>
+      expect(settingsClient.setProcessDiscoveryMode).toHaveBeenCalledWith("strict"),
+    );
+    expect(settingsClient.snapshot.preferences.processDiscoveryMode).toBe("strict");
   });
 
   it("reallocates managed ports and retries the aggregate proxy command", async () => {

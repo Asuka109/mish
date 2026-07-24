@@ -1,6 +1,10 @@
 import { MagnifyingGlass } from "@phosphor-icons/react/MagnifyingGlass";
 import { Question } from "@phosphor-icons/react/Question";
-import type { EffectiveRuleDto, TrafficConnectionDto } from "@mish/contracts";
+import type {
+  EffectiveRuleDto,
+  TrafficCommandAuthorityDto,
+  TrafficConnectionDto,
+} from "@mish/contracts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +43,9 @@ import {
   TableRow,
   ToggleGroup,
   ToggleGroupItem,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -61,6 +68,10 @@ import {
 
 type TrafficTab = "active" | "closed" | "rules";
 type SelectedConnection = TrafficConnectionDto | ClosedTrafficConnection;
+interface CloseVisibleTarget {
+  authority: TrafficCommandAuthorityDto;
+  connectionIds: string[];
+}
 
 const connectionSortValues: ConnectionSort[] = [
   "started-desc",
@@ -81,7 +92,7 @@ const trafficStyles = tv({
       "max-toolbar-compact:items-stretch [&_p]:mt-1.25 [&_p]:text-metadata",
       "[&_p]:text-muted-foreground",
     ),
-    actions: "flex gap-2 max-toolbar-compact:self-start",
+    actions: "flex flex-wrap gap-2 max-toolbar-compact:self-start",
     sourceStatus: cx(
       "mt-5 flex min-h-9.5 items-center justify-between gap-4 rounded-md border border-hairline",
       "bg-surface-soft px-3 py-2 text-metadata text-fg",
@@ -90,6 +101,7 @@ const trafficStyles = tv({
       "[&>span:last-child]:text-muted-foreground max-toolbar-compact:flex-col",
       "max-toolbar-compact:items-start max-toolbar-compact:gap-1",
     ),
+    attributionNotice: "mt-2 text-metadata text-muted-foreground",
     tabs: "mt-5",
     viewButton: cx(
       "traffic-view-switch-button gap-1.75 px-3 [&_.ui-badge]:min-w-5 [&_.ui-badge]:justify-center",
@@ -114,8 +126,13 @@ const trafficStyles = tv({
       "traffic-table min-w-270 table-fixed [&_.ui-table-head:nth-child(1)]:w-44.5",
       "[&_.ui-table-head:nth-child(2)]:w-33 [&_.ui-table-head:nth-child(3)]:w-28",
       "[&_.ui-table-head:nth-child(4)]:w-28 [&_.ui-table-head:nth-child(5)]:w-28",
-      "[&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-19.5",
+      "[&_.ui-table-head:nth-child(6)]:w-28 [&_.ui-table-head:last-child]:w-25",
     ),
+    connectionRow: cx(
+      "cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-focus-accent",
+      "focus-visible:outline-offset-[-2px]",
+    ),
+    connectionAction: "text-clip",
     rulesTable: cx(
       "traffic-table min-w-190 table-fixed [&_.ui-table-head:nth-child(1)]:w-23",
       "[&_.ui-table-head:nth-child(2)]:w-37.5 [&_.ui-table-head:nth-child(5)]:w-23",
@@ -126,6 +143,9 @@ const trafficStyles = tv({
       "border-0 bg-transparent p-0 text-left text-ink hover:bg-transparent [&_span]:truncate",
       "[&_small]:text-metadata [&_small]:text-muted-foreground",
     ),
+    processIdentity: "flex min-w-0 items-center gap-2",
+    processIcon: "size-5 shrink-0 rounded-sm object-contain",
+    processName: "truncate",
     rule: cx(
       "block overflow-hidden text-ellipsis font-medium text-fg [&+small]:block",
       "[&+small]:overflow-hidden [&+small]:text-ellipsis [&+small]:text-muted-foreground",
@@ -160,11 +180,13 @@ export function TrafficPage() {
     clearClosed,
     closeAllActive,
     closeConnection,
+    closeFilteredVisible,
     closed,
     connection,
     error,
     isCloseAllPending,
     isCloseConnectionPending,
+    isCloseFilteredVisiblePending,
     isCommandSupported,
     isCurrent,
     isLoading,
@@ -179,6 +201,7 @@ export function TrafficPage() {
   const [visibleLimit, setVisibleLimit] = useState(TRAFFIC_RENDER_BATCH_SIZE);
   const [selectedConnection, setSelectedConnection] = useState<SelectedConnection | null>(null);
   const [closeTarget, setCloseTarget] = useState<TrafficConnectionDto | null>(null);
+  const [closeVisibleTarget, setCloseVisibleTarget] = useState<CloseVisibleTarget | null>(null);
   const [closeAllConfirmationOpen, setCloseAllConfirmationOpen] = useState(false);
   const [searchHelpOpen, setSearchHelpOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
@@ -207,6 +230,9 @@ export function TrafficPage() {
     [deferredQuery, locale, ruleSort, snapshot?.rules],
   );
   const total = tab === "rules" ? filteredRules.length : filteredConnections.length;
+  const unavailableProcessCount = activeConnections.filter(
+    (item) => !item.processName && !item.processPath,
+  ).length;
 
   useEffect(
     () => setVisibleLimit(TRAFFIC_RENDER_BATCH_SIZE),
@@ -242,6 +268,35 @@ export function TrafficPage() {
     setCloseAllConfirmationOpen(false);
   }
 
+  async function confirmCloseFilteredVisible() {
+    if (!closeVisibleTarget) return;
+    const result = await closeFilteredVisible(
+      closeVisibleTarget.authority,
+      closeVisibleTarget.connectionIds,
+    );
+    if (result?.status === "success") {
+      publish(
+        notificationPublication("traffic.connections-closed", {
+          params: { count: result.targetCount },
+          severity: "success",
+        }),
+      );
+    }
+    setCloseVisibleTarget(null);
+  }
+
+  function requestCloseFilteredVisible() {
+    if (!snapshot?.sessionId || snapshot.phase !== "ready") return;
+    setCloseVisibleTarget({
+      authority: {
+        profileId: snapshot.profileId,
+        sequence: snapshot.sequence,
+        sessionId: snapshot.sessionId,
+      },
+      connectionIds: filteredConnections.map(({ id }) => id),
+    });
+  }
+
   return (
     <div className={trafficStyles().page()}>
       <header className={trafficStyles().header()}>
@@ -251,10 +306,26 @@ export function TrafficPage() {
         </div>
         <div className={trafficStyles().actions()}>
           <Button
+            disabled={
+              tab !== "active" ||
+              filteredConnections.length === 0 ||
+              isCloseAllPending ||
+              isCloseFilteredVisiblePending ||
+              !isCommandSupported("close-filtered-visible")
+            }
+            loading={isCloseFilteredVisiblePending}
+            loadingText={LL.traffic.closingVisible()}
+            onClick={requestCloseFilteredVisible}
+            variant="outline"
+          >
+            {LL.traffic.closeVisibleConnections()}
+          </Button>
+          <Button
             aria-describedby="traffic-close-scope"
             disabled={
               activeConnections.length === 0 ||
               isCloseAllPending ||
+              isCloseFilteredVisiblePending ||
               !isCommandSupported("close-all-active")
             }
             loading={isCloseAllPending}
@@ -274,6 +345,11 @@ export function TrafficPage() {
         isLoading={isLoading}
         snapshot={snapshot}
       />
+      {unavailableProcessCount > 0 && snapshot?.adapterKind === "rpc" ? (
+        <p className={trafficStyles().attributionNotice()} role="status">
+          {LL.traffic.processUnavailableNotice({ count: unavailableProcessCount })}
+        </p>
+      ) : null}
       <p className="sr-only" id="traffic-close-scope">
         {isCommandSupported("close-all-active")
           ? LL.traffic.closeAllScope()
@@ -387,7 +463,11 @@ export function TrafficPage() {
               query || network !== "all" ? LL.traffic.noMatches() : LL.traffic.activeEmpty()
             }
             locale={locale}
-            canClose={isCommandSupported("close-connection")}
+            canClose={
+              isCommandSupported("close-connection") &&
+              !isCloseAllPending &&
+              !isCloseFilteredVisiblePending
+            }
             isClosePending={isCloseConnectionPending}
             onRequestClose={setCloseTarget}
             onSelect={setSelectedConnection}
@@ -433,7 +513,11 @@ export function TrafficPage() {
         connection={selectedConnection}
         LL={LL}
         locale={locale}
-        canClose={isCommandSupported("close-connection")}
+        canClose={
+          isCommandSupported("close-connection") &&
+          !isCloseAllPending &&
+          !isCloseFilteredVisiblePending
+        }
         isClosePending={isCloseConnectionPending}
         onRequestClose={setCloseTarget}
         onOpenChange={(open) => {
@@ -502,6 +586,38 @@ export function TrafficPage() {
 
       <AlertDialog
         onOpenChange={(open) => {
+          if (!isCloseFilteredVisiblePending) {
+            setCloseVisibleTarget(open ? closeVisibleTarget : null);
+          }
+        }}
+        open={closeVisibleTarget !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{LL.traffic.closeVisibleTitle()}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {LL.traffic.closeVisibleDescription({
+                count: closeVisibleTarget?.connectionIds.length ?? 0,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!closeVisibleTarget?.connectionIds.length || isCloseFilteredVisiblePending}
+              loading={isCloseFilteredVisiblePending}
+              loadingText={LL.traffic.closingVisible()}
+              onClick={confirmCloseFilteredVisible}
+              variant="destructive"
+            >
+              {LL.traffic.closeVisibleConfirm()}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        onOpenChange={(open) => {
           if (!isCloseAllPending) setCloseAllConfirmationOpen(open);
         }}
         open={closeAllConfirmationOpen}
@@ -516,7 +632,9 @@ export function TrafficPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>{LL.common.cancel()}</AlertDialogCancel>
             <AlertDialogAction
-              disabled={activeConnections.length === 0 || isCloseAllPending}
+              disabled={
+                activeConnections.length === 0 || isCloseAllPending || isCloseFilteredVisiblePending
+              }
               loading={isCloseAllPending}
               loadingText={LL.traffic.closingAllActive()}
               onClick={confirmCloseAllActive}
@@ -635,19 +753,38 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
       </TableHeader>
       <TableBody>
         {connections.map((connection) => (
-          <TableRow key={connection.id}>
+          <TableRow
+            className={trafficStyles().connectionRow()}
+            key={connection.id}
+            onClick={(event) => {
+              if (
+                event.target instanceof Element &&
+                event.target.closest("[data-traffic-row-action]")
+              ) {
+                return;
+              }
+              onSelect(connection);
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.target !== event.currentTarget ||
+                (event.key !== "Enter" && event.key !== " ")
+              ) {
+                return;
+              }
+              event.preventDefault();
+              onSelect(connection);
+            }}
+            tabIndex={0}
+          >
             <TableCell>
-              <Button
-                className={trafficStyles().destination()}
-                onClick={() => onSelect(connection)}
-                variant="ghost"
-              >
+              <span className={trafficStyles().destination()}>
                 <span>{destinationLabel(connection) || LL.traffic.unavailable()}</span>
                 <small className="tabular-nums">:{connection.destinationPort}</small>
-              </Button>
+              </span>
             </TableCell>
-            <TableCell title={connection.processPath ?? undefined}>
-              {connection.processName ?? LL.traffic.unavailable()}
+            <TableCell>
+              <ProcessIdentity connection={connection} LL={LL} />
             </TableCell>
             <TableCell className="tabular-nums">
               {connection.network.toUpperCase()} · {connection.protocol}
@@ -671,13 +808,16 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 ? connection.routeChain.join(" → ")
                 : LL.traffic.unavailable()}
             </TableCell>
-            <TableCell>
+            <TableCell className={trafficStyles().connectionAction()} data-traffic-row-action="">
               <Button
                 aria-describedby={canClose ? undefined : "traffic-close-scope"}
                 disabled={!canClose || isClosePending(connection.id)}
                 loading={isClosePending(connection.id)}
                 loadingText={LL.traffic.closingConnection()}
-                onClick={() => onRequestClose(connection)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRequestClose(connection);
+                }}
                 size="sm"
                 variant="ghost"
               >
@@ -688,6 +828,56 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function ProcessIdentity({
+  connection,
+  LL,
+}: {
+  connection: TrafficConnectionDto;
+  LL: TranslationFunctions;
+}) {
+  const { getProcessIcon } = useTraffic();
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setDataUrl(null);
+    void getProcessIcon(connection.id, connection.processPath).then((icon) => {
+      if (active) setDataUrl(icon);
+    });
+    return () => {
+      active = false;
+    };
+  }, [connection.id, connection.processPath, getProcessIcon]);
+
+  const processName = connection.processName ?? LL.traffic.unavailable();
+  const name = connection.processPath ? (
+    <Tooltip>
+      <TooltipTrigger render={<span className={trafficStyles().processName()} tabIndex={0} />}>
+        {processName}
+      </TooltipTrigger>
+      <TooltipContent>{connection.processPath}</TooltipContent>
+    </Tooltip>
+  ) : (
+    <span className={trafficStyles().processName()}>{processName}</span>
+  );
+
+  return (
+    <span className={trafficStyles().processIdentity()}>
+      {dataUrl ? (
+        <img
+          alt=""
+          aria-hidden="true"
+          className={trafficStyles().processIcon()}
+          height={20}
+          src={dataUrl}
+          width={20}
+        />
+      ) : null}
+      {name}
+    </span>
   );
 }
 

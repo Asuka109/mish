@@ -90,7 +90,7 @@ const en = {
       scope: "Backup scope",
       settings: "Application settings",
       settingsDescription:
-        "Appearance, language, startup preference, close behavior, and window surface. OS registration is not included.",
+        "Appearance, language, process discovery, startup preference, close behavior, and window surface. OS registration is not included.",
       size: "Actual / maximum size",
       useBackup: "Use backup data where replacement is safe",
     },
@@ -197,6 +197,12 @@ const en = {
     networkPolicyDescription: "Shows the active network service, interface, and device type.",
     off: "Off",
     on: "On",
+    processDiscovery: "Connection process discovery",
+    processDiscoveryAlways: "Always",
+    processDiscoveryDescription:
+      "Choose how Mihomo identifies the process that owns each connection. Changes apply the next time the proxy starts or a Profile is activated.",
+    processDiscoveryOff: "Disabled",
+    processDiscoveryStrict: "When needed",
     registration: "Observed login registration",
     registrationDescription:
       "Desired and observed platform state are compared; a mismatch is never reported as applied.",
@@ -998,8 +1004,14 @@ const en = {
       "Mihomo did not confirm the close before the deadline. The latest authoritative snapshot is shown.",
     closeUnsupported:
       "Connection closing is unavailable in this runtime. Demo data never reports operational mutation success.",
+    closeVisibleConfirm: "Close Visible Connections",
+    closeVisibleConnections: "Close Visible Connections",
+    closeVisibleDescription:
+      "Target count: {count:number}. Close only the connections matching the current search and network filter. Mish revalidates these stable IDs in Rust; newer unrelated connections are never included.",
+    closeVisibleTitle: "Close the filtered visible connections?",
     closingAllActive: "Closing active connections…",
     closingConnection: "Closing…",
+    closingVisible: "Closing visible connections…",
     closed: "Closed",
     closedAt: "Closed",
     closedEmpty: "No recently closed connections",
@@ -1026,6 +1038,10 @@ const en = {
     priority: "Priority",
     process: "Process",
     processPath: "Process path",
+    processUnavailableDescription:
+      "Mihomo did not provide process attribution for this connection. Some connection classes or platforms cannot be attributed.",
+    processUnavailableNotice:
+      "Process attribution is unavailable for {count:number} active connections because Mihomo could not identify their owning process.",
     profile: "Profile {profile:string}",
     protocol: "Protocol",
     providerChain: "Provider chain",

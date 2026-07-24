@@ -1,5 +1,6 @@
 import type {
   TrafficClient,
+  TrafficCommandAuthorityDto,
   TrafficCommandFailure,
   TrafficCommandOperation,
   TrafficCommandResultDto,
@@ -27,15 +28,21 @@ import {
 interface TrafficContextValue {
   closeAllActive(): Promise<TrafficCommandResultDto | null>;
   closeConnection(connectionId: string): Promise<TrafficCommandResultDto | null>;
+  closeFilteredVisible(
+    authority: TrafficCommandAuthorityDto,
+    connectionIds: string[],
+  ): Promise<TrafficCommandResultDto | null>;
   clearClosed(): void;
   closed: ClosedTrafficConnection[];
   commandFailure: TrafficCommandFailure | null;
   connection: TrafficConnectionState;
   error: string | null;
+  getProcessIcon(connectionId: string, processPath: string | null): Promise<string | null>;
   isCurrent: boolean;
   isLoading: boolean;
   isCloseAllPending: boolean;
   isCloseConnectionPending(connectionId: string): boolean;
+  isCloseFilteredVisiblePending: boolean;
   isCommandSupported(command: TrafficCommandOperation): boolean;
   snapshot: TrafficDataSnapshotDto | null;
 }
@@ -55,9 +62,13 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const [error, setError] = useState<string | null>(null);
   const [commandFailure, setCommandFailure] = useState<TrafficCommandFailure | null>(null);
   const [isCloseAllPending, setCloseAllPending] = useState(false);
+  const [isCloseFilteredVisiblePending, setCloseFilteredVisiblePending] = useState(false);
   const [pendingConnectionIds, setPendingConnectionIds] = useState<Set<string>>(() => new Set());
   const closeAllPendingRef = useRef(false);
+  const closeFilteredVisiblePendingRef = useRef(false);
   const pendingConnectionIdsRef = useRef(new Set<string>());
+  const processIconCacheRef = useRef(new Map<string, string>());
+  const processIconRequestsRef = useRef(new Map<string, Promise<string | null>>());
 
   const acceptSnapshot = useCallback((nextSnapshot: TrafficDataSnapshotDto) => {
     setSnapshot(nextSnapshot);
@@ -66,6 +77,8 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   }, []);
 
   useEffect(() => {
+    processIconCacheRef.current.clear();
+    processIconRequestsRef.current.clear();
     const controller = new AbortController();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
       setConnection(nextConnection);
@@ -168,19 +181,81 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     [acceptSnapshot, commandAuthority, resolvedClient],
   );
 
+  const closeFilteredVisible = useCallback(
+    async (authority: TrafficCommandAuthorityDto, connectionIds: string[]) => {
+      if (
+        connectionIds.length === 0 ||
+        closeFilteredVisiblePendingRef.current ||
+        !resolvedClient.supportsCommand("close-filtered-visible")
+      ) {
+        return null;
+      }
+      closeFilteredVisiblePendingRef.current = true;
+      setCloseFilteredVisiblePending(true);
+      setCommandFailure(null);
+      try {
+        const result = await resolvedClient.closeFilteredVisible(authority, connectionIds);
+        acceptSnapshot(result.snapshot);
+        setCommandFailure(result.failure);
+        return result;
+      } catch {
+        setCommandFailure("disconnected");
+        try {
+          acceptSnapshot(await resolvedClient.getSnapshot());
+        } catch {
+          // Retain the last authoritative snapshot when the refresh also fails.
+        }
+        return null;
+      } finally {
+        closeFilteredVisiblePendingRef.current = false;
+        setCloseFilteredVisiblePending(false);
+      }
+    },
+    [acceptSnapshot, resolvedClient],
+  );
+
+  const getProcessIcon = useCallback(
+    (connectionId: string, processPath: string | null) => {
+      if (!processPath) return Promise.resolve(null);
+      const cached = processIconCacheRef.current.get(processPath);
+      if (cached) return Promise.resolve(cached);
+      const pending = processIconRequestsRef.current.get(processPath);
+      if (pending) return pending;
+      const request = resolvedClient
+        .getProcessIcon(connectionId)
+        .then(({ dataUrl }) => {
+          if (!dataUrl) return null;
+          if (processIconCacheRef.current.size >= 128) {
+            const oldest = processIconCacheRef.current.keys().next().value;
+            if (oldest) processIconCacheRef.current.delete(oldest);
+          }
+          processIconCacheRef.current.set(processPath, dataUrl);
+          return dataUrl;
+        })
+        .catch(() => null)
+        .finally(() => processIconRequestsRef.current.delete(processPath));
+      processIconRequestsRef.current.set(processPath, request);
+      return request;
+    },
+    [resolvedClient],
+  );
+
   const value = useMemo<TrafficContextValue>(
     () => ({
       closeAllActive,
       closeConnection,
+      closeFilteredVisible,
       clearClosed: () => setHistory((current) => clearClosedHistory(current)),
       closed: history.closed,
       commandFailure,
       connection,
       error,
+      getProcessIcon,
       isCurrent: snapshot?.phase === "ready" && !connection.stale,
       isLoading: snapshot === null && error === null,
       isCloseAllPending,
       isCloseConnectionPending: (connectionId) => pendingConnectionIds.has(connectionId),
+      isCloseFilteredVisiblePending,
       isCommandSupported: (command) =>
         snapshot?.adapterKind === "rpc" &&
         snapshot.phase === "ready" &&
@@ -191,11 +266,14 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     [
       closeAllActive,
       closeConnection,
+      closeFilteredVisible,
       commandFailure,
       connection,
       error,
       history.closed,
+      getProcessIcon,
       isCloseAllPending,
+      isCloseFilteredVisiblePending,
       pendingConnectionIds,
       resolvedClient,
       snapshot,

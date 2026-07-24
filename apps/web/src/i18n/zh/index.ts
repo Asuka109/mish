@@ -84,7 +84,7 @@ const zh = {
       schedulesDescription: "保存自动刷新的频率，不保存失败次数和临时状态。",
       scope: "备份范围",
       settings: "应用设置",
-      settingsDescription: "包括外观、语言、登录时启动、关闭窗口行为和窗口背景。",
+      settingsDescription: "包括外观、语言、进程识别、登录时启动、关闭窗口行为和窗口背景。",
       size: "实际 / 最大大小",
       useBackup: "用备份数据替换当前数据",
     },
@@ -181,6 +181,12 @@ const zh = {
     networkPolicyDescription: "显示当前网络服务、接口和设备类型。",
     off: "关闭",
     on: "开启",
+    processDiscovery: "连接进程识别",
+    processDiscoveryAlways: "始终",
+    processDiscoveryDescription:
+      "选择 Mihomo 如何识别每条连接所属的进程。修改将在下次启动代理或激活配置时生效。",
+    processDiscoveryOff: "不识别",
+    processDiscoveryStrict: "按需",
     registration: "登录时启动状态",
     registrationDescription: "这里显示 macOS 当前的实际设置。设置未生效时会明确提示。",
     registrationPhase: {
@@ -908,8 +914,14 @@ const zh = {
     closeStaleSnapshot: "连接状态或当前配置已经变化。请查看刷新后的列表，再确认一次。",
     closeTimeout: "等待代理确认超时，连接列表已刷新。",
     closeUnsupported: "当前环境不支持手动关闭连接。演示模式不会影响真实连接。",
+    closeVisibleConfirm: "关闭筛选结果",
+    closeVisibleConnections: "关闭筛选结果",
+    closeVisibleDescription:
+      "将只关闭当前搜索和网络筛选匹配的 {count} 条连接。Mish 会在 Rust 中重新核对这些连接 ID，不会把后来出现的其他连接算入范围。",
+    closeVisibleTitle: "关闭当前筛选出的连接？",
     closingAllActive: "正在关闭活动连接…",
     closingConnection: "正在关闭…",
+    closingVisible: "正在关闭筛选出的连接…",
     closed: "已关闭",
     closedAt: "关闭时间",
     closedEmpty: "没有最近关闭的连接",
@@ -935,6 +947,10 @@ const zh = {
     priority: "优先级",
     process: "进程",
     processPath: "进程路径",
+    processUnavailableDescription:
+      "Mihomo 没有提供这条连接的进程归属；部分连接类型或平台无法识别所属进程。",
+    processUnavailableNotice:
+      "有 {count} 条活动连接无法显示进程归属，因为 Mihomo 未能识别其所属进程。",
     profile: "配置 {profile}",
     protocol: "协议",
     providerChain: "Provider 链",

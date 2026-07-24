@@ -703,6 +703,7 @@ fn bridge_config() -> LoopbackServerConfig {
         profile_activation: None,
         profile_file_actions: None,
         profile_service: None,
+        process_icon_resolver: None,
         service_probes: None,
         settings_service: None,
     }
@@ -1501,6 +1502,163 @@ async fn traffic_close_all_targets_the_complete_current_snapshot() {
 }
 
 #[tokio::test]
+async fn traffic_close_filtered_visible_is_idempotent_without_closing_newer_connections() {
+    let fake = FakeController::start().await;
+    *fake.state.connections.write().await =
+        connections_many(&["connection-a", "connection-b", "connection-c"]);
+    let lifecycle = Arc::new(TestLifecycle {
+        stopped: AtomicBool::new(false),
+    });
+    let mut config = source_config(&fake);
+    config.refresh_interval = Duration::from_millis(20);
+    let source = ControllerStatusSource::new(config, lifecycle.clone()).unwrap();
+    let runtime = MishRuntime::with_data_sources(lifecycle, source.clone(), source.clone());
+    source.start().await;
+    wait_for(Duration::from_secs(1), || {
+        runtime.traffic_snapshot(StatusAdapterKind::Rpc)["activeConnections"]
+            .as_array()
+            .is_some_and(|connections| connections.len() == 3)
+    })
+    .await;
+    let bridge = start_loopback_server(bridge_config(), runtime.clone())
+        .await
+        .unwrap();
+    let mut websocket = socket(bridge.address).await;
+    authenticate(&mut websocket).await;
+    let before = rpc_request(
+        &mut websocket,
+        json!({"jsonrpc":"2.0", "id":2, "method":"traffic.getSnapshot", "params":{}}),
+    )
+    .await["result"]
+        .clone();
+
+    *fake.state.connections.write().await = connections_many(&[
+        "connection-a",
+        "connection-b",
+        "connection-c",
+        "connection-newer",
+    ]);
+    wait_for(Duration::from_secs(1), || {
+        let snapshot = runtime.traffic_snapshot(StatusAdapterKind::Rpc);
+        snapshot["sequence"].as_u64() > before["sequence"].as_u64()
+            && snapshot["activeConnections"]
+                .as_array()
+                .is_some_and(|connections| connections.len() == 4)
+    })
+    .await;
+    let closed = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"traffic.closeFilteredVisible",
+            "params":{
+                "authority":traffic_authority(&before),
+                "connectionIds":["connection-a", "connection-b"]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(closed["result"]["status"], "success");
+    assert_eq!(closed["result"]["operation"], "close-filtered-visible");
+    assert_eq!(closed["result"]["targetCount"], 2);
+    assert_eq!(
+        closed["result"]["snapshot"]["activeConnections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|connection| connection["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["connection-c", "connection-newer"]
+    );
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 2);
+
+    let mut replaced_session_authority = traffic_authority(&closed["result"]["snapshot"]);
+    replaced_session_authority["sessionId"] = json!("controller-replaced");
+    let replaced_session = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"traffic.closeFilteredVisible",
+            "params":{
+                "authority":replaced_session_authority,
+                "connectionIds":["connection-c"]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(replaced_session["result"]["status"], "failure");
+    assert_eq!(replaced_session["result"]["failure"], "stale-snapshot");
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 2);
+
+    *fake.state.connections.write().await =
+        connections_many(&["connection-newer", "connection-latest"]);
+    let partially_closed = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":5,
+            "method":"traffic.closeFilteredVisible",
+            "params":{
+                "authority":traffic_authority(&closed["result"]["snapshot"]),
+                "connectionIds":["connection-c", "connection-newer"]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(partially_closed["result"]["status"], "success");
+    assert_eq!(partially_closed["result"]["targetCount"], 2);
+    assert_eq!(
+        partially_closed["result"]["snapshot"]["activeConnections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|connection| connection["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["connection-latest"]
+    );
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 3);
+
+    let already_closed = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":6,
+            "method":"traffic.closeFilteredVisible",
+            "params":{
+                "authority":traffic_authority(&partially_closed["result"]["snapshot"]),
+                "connectionIds":["connection-c", "connection-newer"]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(already_closed["result"]["status"], "success");
+    assert_eq!(already_closed["result"]["targetCount"], 2);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 3);
+
+    let duplicate = rpc_request(
+        &mut websocket,
+        json!({
+            "jsonrpc":"2.0",
+            "id":7,
+            "method":"traffic.closeFilteredVisible",
+            "params":{
+                "authority":traffic_authority(&already_closed["result"]["snapshot"]),
+                "connectionIds":["connection-latest", "connection-latest"]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(duplicate["error"]["code"], -32602);
+    assert_eq!(fake.state.mutation_count.load(Ordering::Acquire), 3);
+
+    websocket.close(None).await.unwrap();
+    bridge.shutdown().await;
+    fake.shutdown().await;
+}
+
+#[tokio::test]
 async fn traffic_close_failures_refresh_authoritative_state_without_fake_success() {
     let fake = FakeController::start().await;
     let lifecycle = Arc::new(TestLifecycle {
@@ -1938,7 +2096,7 @@ async fn group_delay_rpc_is_authenticated_private_group_scoped_and_partial() {
         .expect("delay requests poisoned")
         .clone();
     assert_eq!(requests, vec!["DIRECT", "节点 🚄"]);
-    let serialized = terminal.to_string();
+    let serialized = terminal["groupDelayTest"].to_string();
     assert!(!serialized.contains(CONTROLLER_SECRET));
     assert!(!serialized.contains(mish_mihomo_controller::ROUTE_DELAY_TEST_URL));
     assert!(!serialized.contains("private.example.invalid"));
