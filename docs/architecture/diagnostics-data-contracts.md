@@ -124,6 +124,25 @@ diagnostic history and never becomes an application fact source. Browser and
 unsupported platforms advertise export as unavailable. No upload, telemetry,
 clipboard side effect, background generation, or loopback export RPC exists.
 
+### Termination and recovery evidence
+
+The desktop shell retains at most 32 local, semantic termination/recovery
+records for 30 days. A record is at most 512 bytes and the whole private store
+is at most 16 KiB; malformed, oversized, or unreadable files are ignored. The
+store deterministically evicts oldest records first. Export copies only the
+validated records into the `termination-recovery-evidence` preview category.
+
+Every exported record is restricted to application/build identity, OS and
+architecture, bounded timestamp, component, semantic category, safe error
+code, and recovery result. It never contains a profile, subscription, token,
+credential, path, environment value, URL, node, raw Core error, PID, or
+unrelated process/network data. A prior session marker without a normal Quit is
+recorded as an **unknown termination boundary**, not a crash. Explicit normal
+Quit and startup-recovery results are recorded at their authoritative lifecycle
+boundaries; observed managed Core loss is recorded without its raw error text.
+Records are created locally only and are disclosed only by the existing explicit
+support-bundle preview/save flow.
+
 ## Explicit exclusions
 
 The diagnostic-run RPC slice defines no export, upload, clipboard copy,

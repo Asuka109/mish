@@ -52,7 +52,7 @@ const statusStyles = tv({
       "max-profile-stack:gap-8 max-page-compact:grid-cols-1 runtime-mobile:grid-cols-1",
       "runtime-mobile:gap-6",
     ),
-    section: "min-w-0",
+    section: "min-w-0 self-start",
     sessionSection: "min-w-0 @container/session",
     heading:
       "flex min-h-11 items-center justify-between gap-4 px-1 pb-2.5 max-shell-mobile:items-start",
@@ -115,7 +115,8 @@ const statusStyles = tv({
       "[&>strong]:font-medium",
     ),
     policyList: cx(
-      "policy-group-list gap-0 bg-canvas [&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-hairline-soft",
+      "policy-group-list gap-0 bg-canvas",
+      "[&>:not(:first-child)]:border-t [&>:not(:first-child)]:border-hairline-soft",
       "[&>:first-child]:rounded-t-section-grid-inner [&>:last-child]:rounded-b-section-grid-inner",
     ),
     policyRow: cx(
@@ -477,7 +478,7 @@ export function StatusPage() {
                           count: group.childIds.length,
                         })}
                         currentLabel={selectedLabel ?? LL.status.noSelection()}
-                        density="default"
+                        density="status"
                         group={group}
                         latency={
                           latency === null ? null : (

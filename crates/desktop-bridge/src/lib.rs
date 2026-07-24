@@ -73,7 +73,7 @@ pub use server::{
 pub use service_probes::ServiceProbeConfig;
 pub use support_bundle::{
     PreparedSupportBundle, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleError, SupportBundlePlatform,
-    SupportBundlePreview, SupportBundleService,
+    SupportBundlePreview, SupportBundleService, TerminationEvidenceStore,
 };
 
 use std::sync::Arc;

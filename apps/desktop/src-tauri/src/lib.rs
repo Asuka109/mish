@@ -20,7 +20,8 @@ use mish_bridge::{
     PrivilegedCoreHost, ProfileActivationCoordinator, ProfileFileActions,
     RealManagedProcessPlatform, ReqwestHttpsSourceReader, SUPPORT_BUNDLE_MAX_BYTES,
     SupportBundleError, SupportBundlePlatform, SupportBundlePreview, SupportBundleService,
-    compose_desktop_runtime_with_capture, start_loopback_server_with_runtime_host_and_lifecycle,
+    TerminationEvidenceStore, compose_desktop_runtime_with_capture,
+    start_loopback_server_with_runtime_host_and_lifecycle,
 };
 use mish_platform_macos::{
     DEV_TUN_SERVICE_CORE_PATH, DevelopmentTunStartup, FileCaptureJournalStore,
@@ -691,6 +692,9 @@ pub(crate) fn request_graceful_exit(app: &tauri::AppHandle) {
 
         match bridge.shutdown().await {
             BridgeShutdownOutcome::Confirmed(report) if report.permits_exit() => {
+                app.state::<SupportBundleState>()
+                    .service
+                    .record_normal_quit(now_unix_milliseconds());
                 app.state::<graceful_exit::GracefulExitCoordinator>()
                     .authorize_exit();
                 app.exit(0);
@@ -865,9 +869,29 @@ fn initialize(
                 core_ownership,
             ),
         });
-        activation_manager.recover_startup().await.map_err(|_| {
+        let evidence_platform = SupportBundlePlatform {
+            architecture: tauri_plugin_os::arch().to_owned(),
+            operating_system: tauri_plugin_os::platform().to_owned(),
+            operating_system_version: tauri_plugin_os::version().to_string(),
+        };
+        let termination_evidence = TerminationEvidenceStore::new(
+            profile_root.join("support-evidence"),
+            env!("CARGO_PKG_VERSION"),
+            evidence_platform.clone(),
+        );
+        install_termination_panic_hook(termination_evidence.clone());
+        let prior_termination_boundary =
+            termination_evidence.begin_session(now_unix_milliseconds());
+        let startup_recovery = activation_manager.recover_startup().await;
+        if startup_recovery.is_err() {
+            termination_evidence.record_startup_failure(now_unix_milliseconds());
+        }
+        startup_recovery.map_err(|_| {
             io::Error::other("managed Core startup recovery could not be completed")
         })?;
+        if prior_termination_boundary {
+            termination_evidence.record_startup_recovery(now_unix_milliseconds(), true);
+        }
         let _ = capture.audit(CaptureAuditReason::Restart, false).await;
         activation_manager
             .shutdown()
@@ -882,7 +906,9 @@ fn initialize(
                 operating_system: tauri_plugin_os::platform().to_owned(),
                 operating_system_version: tauri_plugin_os::version().to_string(),
             },
+            termination_evidence,
         );
+        support_bundle.start_managed_core_exit_observation();
         let policy_capture = capture.clone();
         let policy_helper = tun_helper.clone();
         let policy_settings = settings_service.clone();
@@ -1174,6 +1200,14 @@ fn validate_development_mihomo_environment(
         );
     }
     Ok(())
+}
+
+fn install_termination_panic_hook(evidence: TerminationEvidenceStore) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        evidence.record_detected_application_crash_boundary(now_unix_milliseconds());
+        previous(info);
+    }));
 }
 
 fn desktop_demo_requested(is_dev: bool, requested: Option<&str>) -> bool {

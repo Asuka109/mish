@@ -1071,6 +1071,7 @@ const zh = {
         "events-summary": "近期事件摘要",
         "diagnostic-runs": "诊断结果",
         "redaction-report": "已隐藏的信息说明",
+        "termination-recovery-evidence": "终止与恢复证据",
       },
       confirmSave: "选择位置并保存",
       description: "先确认文件中包含和排除了哪些信息，再生成本地 JSON 文件。Mish 不会上传该文件。",
