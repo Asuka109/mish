@@ -29,12 +29,22 @@ test("cleanup inspection is bounded to exact app and account-local targets", () 
   const data = path.join(home, "Library/Application Support/com.asuka109.mish");
   const unrelated = path.join(home, "Library/Application Support/com.example.unrelated");
   const byHost = path.join(home, "Library/Preferences/ByHost");
+  const crashReporter = path.join(home, "Library/Application Support/CrashReporter");
+  const diagnosticReports = path.join(home, "Library/Logs/DiagnosticReports");
+  const legacyCache = path.join(home, "Library/Caches/mish-desktop");
   mkdirSync(app);
   mkdirSync(data, { recursive: true });
   mkdirSync(unrelated, { recursive: true });
   mkdirSync(byHost, { recursive: true });
+  mkdirSync(crashReporter, { recursive: true });
+  mkdirSync(diagnosticReports, { recursive: true });
+  mkdirSync(legacyCache, { recursive: true });
   writeFileSync(path.join(byHost, "com.asuka109.mish.UUID-1.plist"), "fixture");
   writeFileSync(path.join(byHost, "com.example.unrelated.UUID-1.plist"), "fixture");
+  writeFileSync(path.join(crashReporter, "mish-desktop_UUID-1.plist"), "fixture");
+  writeFileSync(path.join(crashReporter, "unrelated_UUID-1.plist"), "fixture");
+  writeFileSync(path.join(diagnosticReports, "mish-desktop_2026-07-25.ips"), "fixture");
+  writeFileSync(path.join(diagnosticReports, "unrelated_2026-07-25.ips"), "fixture");
 
   const inspection = inspectMacOsAppCleanup({
     homeDirectory: home,
@@ -46,9 +56,24 @@ test("cleanup inspection is bounded to exact app and account-local targets", () 
   assert.deepEqual(inspection.blockers, []);
   assert.deepEqual(
     inspection.existingTargets.sort(),
-    [app, data, path.join(byHost, "com.asuka109.mish.UUID-1.plist")].sort(),
+    [
+      app,
+      data,
+      legacyCache,
+      path.join(byHost, "com.asuka109.mish.UUID-1.plist"),
+      path.join(crashReporter, "mish-desktop_UUID-1.plist"),
+      path.join(diagnosticReports, "mish-desktop_2026-07-25.ips"),
+    ].sort(),
   );
   assert.equal(inspection.existingTargets.includes(unrelated), false);
+  assert.equal(
+    inspection.existingTargets.includes(path.join(crashReporter, "unrelated_UUID-1.plist")),
+    false,
+  );
+  assert.equal(
+    inspection.existingTargets.includes(path.join(diagnosticReports, "unrelated_2026-07-25.ips")),
+    false,
+  );
 });
 
 test("cleanup refuses running ownership, recovery journals, and loopback proxy state", () => {

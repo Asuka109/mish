@@ -262,7 +262,11 @@ unchanged. Process control is restricted to the installed
 `/Applications/Mish.app` (or account-local installed app) and its directly owned
 Core; a Mish instance running from another worktree is reported but never
 stopped. The facility never force-detaches a disk image or touches a Mish DMG
-mounted by another worktree. Listed files remain recoverable until the Trash is
+mounted by another worktree. Trash cleanup includes the entire private
+Application Support root (`settings.json`, profiles, runtime state, journals),
+preferences, caches, WebKit/HTTP storage, cookies, saved state, logs, and bounded
+Mish CrashReporter/DiagnosticReports entries, including legacy
+`mish-desktop`-named state. Listed files remain recoverable until the Trash is
 emptied. User-selected exports and backups, mounted DMGs, and development TUN
 services are intentionally not deleted. A developer who separately installed
 the development TUN service must also run `pnpm macos:tun:uninstall` from the

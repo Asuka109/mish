@@ -49,23 +49,33 @@ function knownTargets(homeDirectory: string, systemApplicationsDirectory: string
     path.join(systemApplicationsDirectory, "Mish.app"),
     path.join(homeDirectory, "Applications/Mish.app"),
     path.join(library, "Application Support", APP_ID),
+    path.join(library, "Application Support", "mish-desktop"),
     path.join(library, "Caches", APP_ID),
+    path.join(library, "Caches", "mish-desktop"),
     path.join(library, "HTTPStorages", APP_ID),
     path.join(library, "HTTPStorages", `${APP_ID}.binarycookies`),
+    path.join(library, "HTTPStorages", "mish-desktop"),
+    path.join(library, "HTTPStorages", "mish-desktop.binarycookies"),
     path.join(library, "WebKit", APP_ID),
+    path.join(library, "WebKit", "mish-desktop"),
     path.join(library, "Logs", APP_ID),
+    path.join(library, "Logs", "mish-desktop"),
     path.join(library, "Preferences", `${APP_ID}.plist`),
+    path.join(library, "Preferences", "mish-desktop.plist"),
     path.join(library, "Saved Application State", `${APP_ID}.savedState`),
+    path.join(library, "Saved Application State", "mish-desktop.savedState"),
     path.join(library, "Cookies", `${APP_ID}.binarycookies`),
+    path.join(library, "Cookies", "mish-desktop.binarycookies"),
     path.join(library, "Containers", APP_ID),
+    path.join(library, "Containers", "mish-desktop"),
     path.join(library, "Application Scripts", APP_ID),
+    path.join(library, "Application Scripts", "mish-desktop"),
     path.join(library, "LaunchAgents", `${APP_NAME}.plist`),
     path.join(library, "LaunchAgents", `${APP_ID}.plist`),
   ];
 }
 
-function byHostPreferences(homeDirectory: string): string[] {
-  const directory = path.join(homeDirectory, "Library/Preferences/ByHost");
+function matchingChildren(directory: string, pattern: RegExp): string[] {
   try {
     const metadata = lstatSync(directory);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) return [];
@@ -73,8 +83,26 @@ function byHostPreferences(homeDirectory: string): string[] {
     return [];
   }
   return readdirSync(directory)
-    .filter((name) => /^com\.asuka109\.mish\.[A-Za-z0-9-]+\.plist$/u.test(name))
+    .filter((name) => pattern.test(name))
     .map((name) => path.join(directory, name));
+}
+
+function generatedMacOsTargets(homeDirectory: string): string[] {
+  const library = path.join(homeDirectory, "Library");
+  return [
+    ...matchingChildren(
+      path.join(library, "Preferences/ByHost"),
+      /^(?:com\.asuka109\.mish|mish-desktop)\.[A-Za-z0-9-]+\.plist$/u,
+    ),
+    ...matchingChildren(
+      path.join(library, "Application Support/CrashReporter"),
+      /^mish-desktop_[A-Za-z0-9-]+\.plist$/u,
+    ),
+    ...matchingChildren(
+      path.join(library, "Logs/DiagnosticReports"),
+      /^(?:Mish|mish-desktop)[_-].+\.(?:crash|diag|hang|ips|spin)$/u,
+    ),
+  ];
 }
 
 function pathExists(candidate: string): boolean {
@@ -163,7 +191,7 @@ export function inspectMacOsAppCleanup(options: InspectOptions): MacOsAppCleanup
   }
   const existingTargets = [
     ...knownTargets(options.homeDirectory, systemApplicationsDirectory),
-    ...byHostPreferences(options.homeDirectory),
+    ...generatedMacOsTargets(options.homeDirectory),
   ].filter((target, index, all) => pathExists(target) && all.indexOf(target) === index);
   const mountedMishImages = (options.mountedImages ?? "")
     .split("\n")
