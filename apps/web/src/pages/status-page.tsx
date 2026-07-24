@@ -23,7 +23,6 @@ import { emptyStatusSessionTraffic, useStatusSessionTraffic } from "./status-ses
 import { useCaptureCommand } from "../data/capture-command";
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
-import { useOptionalSettings } from "../data/settings-provider";
 import { getCommandDescriptionId } from "../data/status-capabilities";
 import type { CaptureSelectionDto, RoutingMode } from "@mish/contracts";
 import { useI18nContext } from "../i18n/i18n-react";
@@ -167,7 +166,6 @@ export function StatusPage() {
     snapshot,
   } = useProduct();
   const { pending: capturePending, setCapture } = useCaptureCommand();
-  const settings = useOptionalSettings();
   const { LL, locale } = useI18nContext();
   const [pickerGroupId, setPickerGroupId] = useState<string | null>(null);
   const pickerTriggerRef = useRef<HTMLElement | null>(null);
