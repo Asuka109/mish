@@ -43,6 +43,9 @@ import {
   TableRow,
   ToggleGroup,
   ToggleGroupItem,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@mish/ui";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -756,7 +759,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
                 <small className="tabular-nums">:{connection.destinationPort}</small>
               </Button>
             </TableCell>
-            <TableCell title={connection.processPath ?? LL.traffic.processUnavailableDescription()}>
+            <TableCell>
               <ProcessIdentity connection={connection} LL={LL} />
             </TableCell>
             <TableCell className="tabular-nums">
@@ -822,6 +825,18 @@ function ProcessIdentity({
     };
   }, [connection.id, connection.processPath, getProcessIcon]);
 
+  const processName = connection.processName ?? LL.traffic.unavailable();
+  const name = connection.processPath ? (
+    <Tooltip>
+      <TooltipTrigger render={<span className={trafficStyles().processName()} tabIndex={0} />}>
+        {processName}
+      </TooltipTrigger>
+      <TooltipContent>{connection.processPath}</TooltipContent>
+    </Tooltip>
+  ) : (
+    <span className={trafficStyles().processName()}>{processName}</span>
+  );
+
   return (
     <span className={trafficStyles().processIdentity()}>
       {dataUrl ? (
@@ -834,9 +849,7 @@ function ProcessIdentity({
           width={20}
         />
       ) : null}
-      <span className={trafficStyles().processName()}>
-        {connection.processName ?? LL.traffic.unavailable()}
-      </span>
+      {name}
     </span>
   );
 }

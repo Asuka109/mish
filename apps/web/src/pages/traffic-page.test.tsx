@@ -187,7 +187,7 @@ describe("Traffic page", () => {
     expect(await screen.findByText(/Fictional local fixture data/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Close All Active Connections" })).toBeDisabled();
     const row = screen.getByRole("row", { name: /docs\.fixture\.invalid/ });
-    expect(within(row).getByText("Fixture Browser")).toBeVisible();
+    expect(within(row).getByText("Fixture Browser")).toHaveAttribute("tabindex", "0");
     expect(within(row).getByText(/Fixture Policy → Fixture Relay → Fixture Exit/)).toBeVisible();
     expect(within(row).getByRole("button", { name: "Close" })).toBeDisabled();
 

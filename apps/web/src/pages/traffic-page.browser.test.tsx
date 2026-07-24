@@ -111,6 +111,10 @@ describe("Traffic filtered-visible close", () => {
       .poll(() => container?.querySelector('img[src^="data:image/png;base64,"]') !== null)
       .toBe(true);
     expect(client.iconRequests.filter((id) => id === "fixture-connection-1")).toHaveLength(1);
+    await userEvent.hover(page.getByText("Fixture Browser"));
+    await expect
+      .element(page.getByText("/synthetic/apps/fixture-browser", { exact: true }))
+      .toBeVisible();
     await userEvent.fill(search, "process:browser");
     await userEvent.click(page.getByRole("button", { name: "Close Visible Connections" }));
     await expect
