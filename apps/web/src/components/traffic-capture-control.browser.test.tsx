@@ -27,10 +27,7 @@ const tunStatus = {
 };
 
 let root: Root;
-let onTunChange = vi.fn<(value: boolean) => void>();
-
 function renderHost(host: "Settings" | "Status") {
-  onTunChange = vi.fn<(value: boolean) => void>();
   root.render(
     <TypesafeI18n locale="en">
       <MemoryRouter>
@@ -44,12 +41,10 @@ function renderHost(host: "Settings" | "Status") {
               capabilities={{ systemProxy: "supported", tun: "unavailable" }}
               commandSupported
               onSystemProxyChange={vi.fn()}
-              onTunChange={onTunChange}
               systemProxyEnabled={false}
               systemProxySelected={false}
               systemProxyStatus={systemProxyStatus}
               tunEnabled={false}
-              tunGuideIdentity={null}
               tunSelected={false}
               tunStatus={tunStatus}
             />
@@ -79,8 +74,6 @@ describe("unavailable Virtual Interface tooltip", () => {
     await userEvent.hover(trigger);
     await expect.element(page.getByText(unavailableMessage, { exact: true })).toBeVisible();
     await expect.element(tun).toBeDisabled();
-
-    expect(onTunChange).not.toHaveBeenCalled();
   });
 
   test("opens on keyboard focus in the narrow Settings host", async () => {
@@ -97,7 +90,5 @@ describe("unavailable Virtual Interface tooltip", () => {
     });
     await expect.element(trigger).toHaveAccessibleDescription(unavailableMessage);
     await userEvent.keyboard("{Enter}");
-
-    expect(onTunChange).not.toHaveBeenCalled();
   });
 });

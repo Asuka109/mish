@@ -308,8 +308,6 @@ export function StatusPage() {
                 commandSupported={captureSupported}
                 disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
                 onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
-                onTunHelperInstall={settings?.installTunHelper}
-                onTunChange={(selected) => changeCaptureMode("tun", selected)}
                 pending={capturePending}
                 pendingMode={pendingCaptureMode}
                 systemProxyEnabled={captureRuntime.systemProxyEnabled}
@@ -319,20 +317,6 @@ export function StatusPage() {
                 }
                 systemProxyStatus={captureRuntime.systemProxy}
                 tunEnabled={captureRuntime.tunEnabled}
-                tunGuideIdentity={
-                  settings?.snapshot.tunHelper.installationId ??
-                  settings?.snapshot.tunHelper.installedVersion ??
-                  settings?.snapshot.tunHelper.expectedVersion ??
-                  null
-                }
-                tunHelperReady={
-                  settings?.snapshot.tunHelper.availability === "available" &&
-                  settings.snapshot.tunHelper.health === "healthy" &&
-                  settings.snapshot.tunHelper.installedVersion ===
-                    settings.snapshot.tunHelper.expectedVersion &&
-                  settings.snapshot.tunHelper.phase === "idle" &&
-                  settings.snapshot.tunHelper.lastFailure === null
-                }
                 tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
                 tunStatus={captureRuntime.tun}
               />

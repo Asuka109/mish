@@ -553,8 +553,6 @@ export function SettingsPage() {
               commandSupported={captureSupported}
               disabled={capturePending || captureRuntime.systemProxy.recoveryActions.length > 0}
               onSystemProxyChange={(selected) => changeCaptureMode("systemProxy", selected)}
-              onTunHelperInstall={settings.installTunHelper}
-              onTunChange={(selected) => changeCaptureMode("tun", selected)}
               pending={capturePending}
               pendingMode={pendingCaptureMode}
               systemProxyEnabled={captureRuntime.systemProxyEnabled}
@@ -564,10 +562,6 @@ export function SettingsPage() {
               }
               systemProxyStatus={captureRuntime.systemProxy}
               tunEnabled={captureRuntime.tunEnabled}
-              tunGuideIdentity={
-                helper.installationId ?? helper.installedVersion ?? helper.expectedVersion
-              }
-              tunHelperReady={helperAvailable}
               tunSelected={optimisticCaptureSelection?.tun ?? captureRuntime.captureSelection.tun}
               tunStatus={captureRuntime.tun}
             />
