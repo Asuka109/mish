@@ -13,14 +13,17 @@ use mish_bridge::{
     ActivationTiming, BridgeShutdownOutcome, BrowserAsset, BrowserAssetSource,
     BrowserPairingPrompt, DesktopMihomoProcess, DesktopMihomoProcessConfig, DesktopRuntimeHost,
     LoopbackPortSelection, LoopbackServerConfig, ManagedMihomoResolver, ManagedRuntimePolicy,
-    MihomoActivationManager, ProfileActivationCoordinator, ProfileFileActionError,
-    ProfileFileActionPlatform, ProfileFileActions, ReqwestHttpsSourceReader, ServiceProbeConfig,
-    start_loopback_server, start_loopback_server_with_runtime_host,
+    MihomoActivationManager, ProcessIcon, ProcessIconResolver, ProfileActivationCoordinator,
+    ProfileFileActionError, ProfileFileActionPlatform, ProfileFileActions,
+    ReqwestHttpsSourceReader, ServiceProbeConfig, start_loopback_server,
+    start_loopback_server_with_runtime_host,
 };
 use mish_runtime::{
     CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
     CaptureTransitionError, CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint,
     MishRuntime, NetworkServiceProxyState, NotificationPublication, NotificationSeverity,
+    StatusAdapterKind, StatusDataSource, StatusSnapshot, TrafficConnection, TrafficDataPhase,
+    TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
 };
 use mish_settings::{
     DnsObservation, LoadedSettings, NetworkDnsObservation, NetworkDnsObservationError,
@@ -111,6 +114,63 @@ impl CoreRuntime for RunningCore {
             pid: None,
             version: Some("rpc-fixture".into()),
         })))
+    }
+}
+
+struct ProcessIconDataSource;
+
+impl StatusDataSource for ProcessIconDataSource {
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+}
+
+impl TrafficDataSource for ProcessIconDataSource {
+    fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> TrafficDataSnapshot {
+        TrafficDataSnapshot {
+            active_connections: vec![TrafficConnection {
+                destination_host: Some("example.invalid".into()),
+                destination_ip: Some("192.0.2.1".into()),
+                destination_port: 443,
+                download_bytes: "0".into(),
+                id: "connection-with-icon".into(),
+                matched_rule: TrafficMatchedRule {
+                    kind: "Match".into(),
+                    payload: String::new(),
+                },
+                network: "tcp".into(),
+                process_name: Some("Example".into()),
+                process_path: Some("/Applications/Example.app/Contents/MacOS/Example".into()),
+                protocol: "HTTP".into(),
+                provider_chain: Vec::new(),
+                remote_destination: None,
+                route_chain: vec!["DIRECT".into()],
+                sniff_host: None,
+                source_ip: Some("127.0.0.1".into()),
+                source_port: 50_000,
+                started_at: "2026-07-24T00:00:00Z".into(),
+                upload_bytes: "0".into(),
+            }],
+            adapter_kind,
+            phase: TrafficDataPhase::Ready,
+            profile_id: "local".into(),
+            reconnect_count: 0,
+            rules: Vec::new(),
+            sequence: 1,
+            session_id: Some("traffic-session".into()),
+        }
+    }
+}
+
+#[derive(Default)]
+struct RecordingProcessIconResolver(Mutex<Vec<PathBuf>>);
+
+impl ProcessIconResolver for RecordingProcessIconResolver {
+    fn resolve(&self, process_path: &Path) -> Option<ProcessIcon> {
+        self.0.lock().unwrap().push(process_path.to_owned());
+        Some(ProcessIcon {
+            bytes: Arc::from(&b"\x89PNG\r\n\x1a\n"[..]),
+        })
     }
 }
 
@@ -387,6 +447,7 @@ fn config() -> LoopbackServerConfig {
         profile_activation: None,
         profile_file_actions: None,
         profile_service: None,
+        process_icon_resolver: None,
         service_probes: None,
         settings_service: None,
     }
@@ -1165,6 +1226,82 @@ async fn rejects_unauthenticated_and_malformed_requests() {
 }
 
 #[tokio::test]
+async fn process_icon_rpc_uses_only_the_authoritative_current_connection_path() {
+    let data_source = Arc::new(ProcessIconDataSource);
+    let runtime =
+        MishRuntime::with_data_sources(Arc::new(RunningCore), data_source.clone(), data_source);
+    let resolver = Arc::new(RecordingProcessIconResolver::default());
+    let mut bridge_config = config();
+    bridge_config.process_icon_resolver = Some(resolver.clone());
+    let bridge = start_loopback_server(bridge_config, runtime).await.unwrap();
+    let mut ws = socket(bridge.address).await;
+
+    let unauthenticated = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":1,
+            "method":"traffic.getProcessIcon",
+            "params":{"connectionId":"connection-with-icon"}
+        }),
+    )
+    .await;
+    assert_eq!(unauthenticated["error"]["code"], -32001);
+    authenticate(&mut ws).await;
+
+    let icon = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":2,
+            "method":"traffic.getProcessIcon",
+            "params":{"connectionId":"connection-with-icon"}
+        }),
+    )
+    .await;
+    assert_eq!(
+        icon["result"]["dataUrl"],
+        "data:image/png;base64,iVBORw0KGgo="
+    );
+    assert_eq!(
+        resolver.0.lock().unwrap().as_slice(),
+        [PathBuf::from(
+            "/Applications/Example.app/Contents/MacOS/Example"
+        )]
+    );
+
+    let arbitrary_path = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":3,
+            "method":"traffic.getProcessIcon",
+            "params":{
+                "connectionId":"connection-with-icon",
+                "processPath":"/private/etc/passwd"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(arbitrary_path["error"]["code"], -32602);
+    assert_eq!(resolver.0.lock().unwrap().len(), 1);
+
+    let stale_connection = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"traffic.getProcessIcon",
+            "params":{"connectionId":"missing-or-stale"}
+        }),
+    )
+    .await;
+    assert!(stale_connection["result"]["dataUrl"].is_null());
+    assert_eq!(resolver.0.lock().unwrap().len(), 1);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
 async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     let mut bridge_config = config();
     bridge_config.settings_service = Some(settings_service());
@@ -1191,6 +1328,10 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     assert_eq!(initial["result"]["privacy"]["authenticated"], "confirmed");
     assert_eq!(initial["result"]["privacy"]["originValidated"], "confirmed");
     assert_eq!(initial["result"]["privacy"]["lanControl"], "unavailable");
+    assert_eq!(
+        initial["result"]["preferences"]["processDiscoveryMode"],
+        "always"
+    );
     assert_eq!(
         initial["result"]["tunHelper"]["availability"],
         "unavailable"
@@ -1402,6 +1543,19 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
         available_ports["result"]["preferences"]["managedPorts"]["proxy"]
     );
 
+    let process_discovery = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":30, "method":"settings.setProcessDiscoveryMode",
+            "params":{"mode":"strict"}
+        }),
+    )
+    .await;
+    assert_eq!(
+        process_discovery["result"]["preferences"]["processDiscoveryMode"],
+        "strict"
+    );
+
     let close_behavior = request(
         &mut ws,
         json!({
@@ -1449,6 +1603,16 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
             12,
             "settings.setOnboardingWelcomeState",
             json!({"action":"complete","command":"start-core"}),
+        ),
+        (
+            31,
+            "settings.setProcessDiscoveryMode",
+            json!({"mode":"strict","processPath":"/private/secret"}),
+        ),
+        (
+            32,
+            "settings.setProcessDiscoveryMode",
+            json!({"mode":"aggressive"}),
         ),
     ] {
         let rejected = request(
@@ -1507,14 +1671,18 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 19);
+    assert_eq!(info["result"]["protocolVersion"], 22);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
     );
     assert_eq!(
         info["result"]["trafficCommands"],
-        json!({"closeAllActive": false, "closeConnection": false})
+        json!({
+            "closeAllActive": false,
+            "closeConnection": false,
+            "closeFilteredVisible": false
+        })
     );
     assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
@@ -2144,6 +2312,14 @@ async fn rejects_all_network_changing_status_commands_without_fake_success() {
             8,
             "traffic.closeAllActive",
             json!({"authority":{"profileId":"local", "sequence":0, "sessionId":"session"}}),
+        ),
+        (
+            9,
+            "traffic.closeFilteredVisible",
+            json!({
+                "authority":{"profileId":"local", "sequence":0, "sessionId":"session"},
+                "connectionIds":["fixture"]
+            }),
         ),
     ] {
         let response = request(

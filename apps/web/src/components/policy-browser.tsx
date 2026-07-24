@@ -24,7 +24,12 @@ import { Link } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { normalizeMeasuredLatency, POLICY_ENTITY_BATCH_SIZE } from "../pages/routes-model";
 
-export type PolicyBrowserDensity = "default" | "compact";
+/**
+ * `status` gives the Status host a compact, readable five-row rhythm. It
+ * deliberately relaxes to the normal row rhythm when the Status columns stack,
+ * so localized labels can use the available vertical space without clipping.
+ */
+export type PolicyBrowserDensity = "default" | "compact" | "status";
 export type PolicyEntityKind = "node" | "group";
 export type PolicySelectionState = "current" | "pending" | "unselected" | "read-only";
 export type PolicyLatencyState = "measured" | "unknown" | "testing" | "failed" | "cancelled";
@@ -39,6 +44,10 @@ const policyGroupSummaryRecipe = tv({
     density: {
       compact: "policy-browser-group-summary--compact min-h-11 px-2.5 py-1.5",
       default: "policy-browser-group-summary--default min-h-14.5 px-3 py-2",
+      status: cx(
+        "policy-browser-group-summary--status min-h-12.5 px-2.5 py-1",
+        "max-page-compact:min-h-14.5 max-page-compact:px-3 max-page-compact:py-2",
+      ),
     },
     interactive: {
       false: "policy-browser-group-summary--static",
@@ -76,6 +85,15 @@ const policyEntityRowRecipe = tv({
         "policy-browser-entity-row--default [&_.policy-browser-entity-primary]:min-h-13",
         "[&_.policy-browser-entity-primary]:py-1.75 [&_.policy-browser-entity-primary]:pr-3",
         "[&_.policy-browser-entity-primary]:pl-11",
+      ),
+      status: cx(
+        "policy-browser-entity-row--status [&_.policy-browser-entity-primary]:min-h-12.5",
+        "[&_.policy-browser-entity-primary]:px-2.5 [&_.policy-browser-entity-primary]:py-1",
+        "[&_.policy-browser-entity-primary]:pl-4",
+        "max-page-compact:[&_.policy-browser-entity-primary]:min-h-13",
+        "max-page-compact:[&_.policy-browser-entity-primary]:py-1.75",
+        "max-page-compact:[&_.policy-browser-entity-primary]:pr-3",
+        "max-page-compact:[&_.policy-browser-entity-primary]:pl-11",
       ),
     },
     disabled: {
@@ -323,6 +341,7 @@ export function PolicyGroupSummaryRow({
           interactive: false,
           ranked: rank !== undefined,
         })}
+        data-policy-browser-density={density}
       >
         {content}
       </div>
@@ -337,6 +356,7 @@ export function PolicyGroupSummaryRow({
         interactive: true,
         ranked: rank !== undefined,
       })}
+      data-policy-browser-density={density}
       data-policy-row-primary
       onClick={onOpen}
       type="button"

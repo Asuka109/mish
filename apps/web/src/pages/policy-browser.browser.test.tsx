@@ -31,6 +31,7 @@ function renderPolicyWorkspace(
   locale: Locales = "en",
   appearance: "light" | "dark" = "light",
   surface: "material" | "opaque" = "material",
+  client: FixtureStatusClient = new FixtureStatusClient(),
 ) {
   document.documentElement.dataset.runtime = "browser";
   container = document.createElement("div");
@@ -44,7 +45,7 @@ function renderPolicyWorkspace(
     >
       <TypesafeI18n locale={locale}>
         <MemoryRouter initialEntries={[route]}>
-          <ProductProvider client={new FixtureStatusClient()}>
+          <ProductProvider client={client}>
             <TooltipProvider>
               <AppRoutes />
             </TooltipProvider>
@@ -55,7 +56,151 @@ function renderPolicyWorkspace(
   );
 }
 
+class LocalizedStatusDensityClient extends FixtureStatusClient {
+  constructor(private readonly locale: Locales) {
+    super();
+  }
+
+  override async getSnapshot() {
+    const snapshot = await super.getSnapshot();
+    const labels =
+      this.locale === "zh"
+        ? [
+            "香港优选策略组・超长名称",
+            "流媒体专用策略组・超长名称",
+            "自动选择・中国大陆回退",
+            "日本节点负载均衡・超长名称",
+            "全球服务加速・超长名称",
+          ]
+        : [
+            "Hong Kong preferred policy group with a long name",
+            "Streaming policy group with a long name",
+            "Automatic mainland fallback policy group",
+            "Japan load-balanced policy group with a long name",
+            "Global service acceleration policy group",
+          ];
+    const nodeLabels =
+      this.locale === "zh"
+        ? ["香港专线节点・超长名称", "日本高速节点・超长名称", "新加坡稳定节点・超长名称"]
+        : [
+            "Hong Kong dedicated node with a long name",
+            "Japan high-speed node with a long name",
+            "Singapore stable node with a long name",
+          ];
+    return {
+      ...snapshot,
+      groups: snapshot.groups.map((group, index) => ({
+        ...group,
+        label: labels[index] ?? group.label,
+      })),
+      nodes: snapshot.nodes.map((node, index) => ({
+        ...node,
+        label: nodeLabels[index % nodeLabels.length] ?? node.label,
+      })),
+    };
+  }
+}
+
 describe("unified policy browser", () => {
+  test.each([
+    ["en", "light"],
+    ["zh", "dark"],
+  ] as const)(
+    "keeps five %s Status rows compact at wide width in %s appearance",
+    async (locale, appearance) => {
+      await page.viewport(1280, 800);
+      renderPolicyWorkspace(
+        "/status",
+        locale,
+        appearance,
+        "opaque",
+        new LocalizedStatusDensityClient(locale),
+      );
+      await expect
+        .element(page.getByRole("heading", { name: locale === "zh" ? "状态" : "Status" }))
+        .toBeVisible();
+      await vi.waitFor(() => {
+        expect(
+          document.querySelectorAll(".policy-group-list [data-policy-row-primary]"),
+        ).toHaveLength(5);
+      });
+
+      const rows = [
+        ...document.querySelectorAll<HTMLElement>(".policy-group-list [data-policy-row-primary]"),
+      ];
+      const groupSection = document.querySelector<HTMLElement>(
+        `[aria-label="${locale === "zh" ? "常用策略组" : "Frequently used policy groups"}"]`,
+      );
+      if (!groupSection) throw new Error("Missing Status Groups section");
+      expect(getComputedStyle(groupSection).alignSelf).toBe("flex-start");
+      expect(rows.every((row) => row.dataset.policyBrowserDensity === "status")).toBe(true);
+      expect(rows.every((row) => row.getBoundingClientRect().height === 50)).toBe(true);
+      rows.forEach((row) => {
+        const copy = row.querySelector<HTMLElement>(".policy-browser-summary-copy");
+        if (!copy) throw new Error("Missing Status policy summary copy");
+        const rowRect = row.getBoundingClientRect();
+        const copyRect = copy.getBoundingClientRect();
+        const topInset = copyRect.top - rowRect.top;
+        const bottomInset = rowRect.bottom - copyRect.bottom;
+        expect(Math.min(topInset, bottomInset)).toBeGreaterThanOrEqual(4);
+        expect(Math.abs(topInset - bottomInset)).toBeLessThanOrEqual(1);
+        expect(row.querySelectorAll(".user-authored-label")).toHaveLength(2);
+        expect(row.querySelector(".ui-badge")).not.toBeNull();
+        expect(row.querySelector("svg")).not.toBeNull();
+      });
+
+      const firstRow = rows[0];
+      if (!firstRow) throw new Error("Missing first Status row");
+      const restingBackground = getComputedStyle(firstRow).backgroundColor;
+      await page.elementLocator(firstRow).hover();
+      expect(getComputedStyle(firstRow).backgroundColor).not.toBe(restingBackground);
+      firstRow.focus();
+      expect(document.activeElement).toBe(firstRow);
+      await userEvent.click(page.elementLocator(firstRow));
+      await expect.element(page.getByRole("dialog")).toBeVisible();
+      const selectedElement = [
+        ...document.querySelectorAll<HTMLButtonElement>(
+          ".policy-picker-dialog [data-entity-id] [data-policy-row-primary]",
+        ),
+      ].find((candidate) => candidate.getAttribute("aria-pressed") === "false");
+      if (!selectedElement) throw new Error("Missing selectable node in shared picker");
+      const selected = page.elementLocator(selectedElement);
+      await selected.click();
+      await vi.waitFor(() => {
+        expect(document.querySelector(".policy-picker-dialog")).toBeNull();
+      });
+      expect(document.documentElement.dataset.theme).toBe(appearance);
+    },
+  );
+
+  test("relaxes the Status height contract after the desktop columns stack", async () => {
+    await page.viewport(800, 700);
+    renderPolicyWorkspace(
+      "/status",
+      "zh",
+      "dark",
+      "opaque",
+      new LocalizedStatusDensityClient("zh"),
+    );
+    await expect.element(page.getByRole("heading", { name: "状态" })).toBeVisible();
+    await vi.waitFor(() => {
+      expect(
+        document.querySelectorAll(".policy-group-list [data-policy-row-primary]"),
+      ).toHaveLength(5);
+    });
+    const policyList = document.querySelector<HTMLElement>(".policy-group-list");
+    const sessionList = document.querySelector<HTMLElement>(".session-list");
+    const rows = [
+      ...document.querySelectorAll<HTMLElement>(".policy-group-list [data-policy-row-primary]"),
+    ];
+    if (!policyList || !sessionList) throw new Error("Missing Status cards");
+    expect(rows.every((row) => row.getBoundingClientRect().height >= 58)).toBe(true);
+    expect(policyList.getBoundingClientRect().height).toBeGreaterThan(
+      sessionList.getBoundingClientRect().height,
+    );
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+  });
+
   test("keeps compact Status information and the focused picker operable at 800x600", async () => {
     await page.viewport(800, 600);
     renderPolicyWorkspace("/status", "en", "light", "opaque");

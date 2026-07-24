@@ -174,6 +174,8 @@ describe("local proxy listener feedback", () => {
 
   test("keeps the Chinese Settings row stable at a narrow width", async () => {
     const button = page.getByRole("button", { exact: true, name: "测试连接" });
+    button.element().scrollIntoView({ block: "center" });
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     const before = measureLocalProxyGeometry();
 
     await button.click();

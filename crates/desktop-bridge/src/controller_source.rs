@@ -1645,7 +1645,9 @@ impl TrafficDataSource for ControllerStatusSource {
                 == ControllerInitialObservation::Ready
             && matches!(
                 operation,
-                TrafficCommandOperation::CloseConnection | TrafficCommandOperation::CloseAllActive
+                TrafficCommandOperation::CloseConnection
+                    | TrafficCommandOperation::CloseFilteredVisible
+                    | TrafficCommandOperation::CloseAllActive
             )
     }
 
@@ -1658,7 +1660,7 @@ impl TrafficDataSource for ControllerStatusSource {
             self.run_traffic_command(
                 TrafficCommandOperation::CloseConnection,
                 authority,
-                Some(connection_id),
+                Some(vec![connection_id]),
             )
             .await
         })
@@ -1673,6 +1675,21 @@ impl TrafficDataSource for ControllerStatusSource {
                 .await
         })
     }
+
+    fn close_filtered_visible(
+        &self,
+        authority: TrafficCommandAuthority,
+        connection_ids: Vec<String>,
+    ) -> BoxFuture<'_, TrafficCommandExecution> {
+        Box::pin(async move {
+            self.run_traffic_command(
+                TrafficCommandOperation::CloseFilteredVisible,
+                authority,
+                Some(connection_ids),
+            )
+            .await
+        })
+    }
 }
 
 impl ControllerStatusSource {
@@ -1680,10 +1697,10 @@ impl ControllerStatusSource {
         &self,
         operation: TrafficCommandOperation,
         authority: TrafficCommandAuthority,
-        connection_id: Option<String>,
+        requested_ids: Option<Vec<String>>,
     ) -> TrafficCommandExecution {
         let execution = self
-            .confirm_traffic_command(operation, authority, connection_id)
+            .confirm_traffic_command(operation, authority, requested_ids)
             .await;
         if execution.failure.is_some() {
             self.refresh_connections_after_command().await;
@@ -1695,7 +1712,7 @@ impl ControllerStatusSource {
         &self,
         operation: TrafficCommandOperation,
         authority: TrafficCommandAuthority,
-        connection_id: Option<String>,
+        requested_ids: Option<Vec<String>>,
     ) -> TrafficCommandExecution {
         let Ok(_command) = self.inner.command.try_lock() else {
             return TrafficCommandExecution::failure(
@@ -1707,18 +1724,38 @@ impl ControllerStatusSource {
         };
         let _authority_lock = self.inner.authority.lock().await;
         let current = self.traffic_snapshot(StatusAdapterKind::Rpc);
-        if !traffic_authority_matches(&current, &authority) {
+        let authority_matches =
+            if matches!(operation, TrafficCommandOperation::CloseFilteredVisible) {
+                traffic_session_authority_matches(&current, &authority)
+            } else {
+                traffic_authority_matches(&current, &authority)
+            };
+        if !authority_matches {
+            let stale_targets =
+                if matches!(operation, TrafficCommandOperation::CloseFilteredVisible) {
+                    requested_ids.clone().unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
             return TrafficCommandExecution::failure(
                 operation,
                 TrafficCommandFailureKind::StaleSnapshot,
-                0,
-                Vec::new(),
+                stale_targets.len(),
+                stale_targets,
             );
         }
 
         let target_ids = match operation {
             TrafficCommandOperation::CloseConnection => {
-                let Some(connection_id) = connection_id else {
+                let Some(connection_ids) = requested_ids else {
+                    return TrafficCommandExecution::failure(
+                        operation,
+                        TrafficCommandFailureKind::InvalidRequest,
+                        0,
+                        Vec::new(),
+                    );
+                };
+                let [connection_id] = connection_ids.as_slice() else {
                     return TrafficCommandExecution::failure(
                         operation,
                         TrafficCommandFailureKind::InvalidRequest,
@@ -1729,7 +1766,7 @@ impl ControllerStatusSource {
                 if !current
                     .active_connections
                     .iter()
-                    .any(|connection| connection.id == connection_id)
+                    .any(|connection| connection.id == *connection_id)
                 {
                     return TrafficCommandExecution::failure(
                         operation,
@@ -1738,7 +1775,30 @@ impl ControllerStatusSource {
                         Vec::new(),
                     );
                 }
-                vec![connection_id]
+                connection_ids
+            }
+            TrafficCommandOperation::CloseFilteredVisible => {
+                let Some(connection_ids) = requested_ids else {
+                    return TrafficCommandExecution::failure(
+                        operation,
+                        TrafficCommandFailureKind::InvalidRequest,
+                        0,
+                        Vec::new(),
+                    );
+                };
+                let unique_ids = connection_id_set(&connection_ids);
+                if connection_ids.is_empty()
+                    || unique_ids.len() != connection_ids.len()
+                    || connection_ids.len() > 20_000
+                {
+                    return TrafficCommandExecution::failure(
+                        operation,
+                        TrafficCommandFailureKind::InvalidRequest,
+                        connection_ids.len(),
+                        connection_ids,
+                    );
+                }
+                connection_ids
             }
             TrafficCommandOperation::CloseAllActive => current
                 .active_connections
@@ -1792,10 +1852,28 @@ impl ControllerStatusSource {
                 target_ids,
             );
         }
+        let filtered_mutation_ids = target_ids
+            .iter()
+            .filter(|id| observed_ids.contains(id))
+            .cloned()
+            .collect::<Vec<_>>();
 
         let mutation = match operation {
             TrafficCommandOperation::CloseConnection => {
                 self.inner.client.close_connection(&target_ids[0]).await
+            }
+            TrafficCommandOperation::CloseFilteredVisible => {
+                for (index, connection_id) in filtered_mutation_ids.iter().enumerate() {
+                    if let Err(error) = self.inner.client.close_connection(connection_id).await {
+                        return traffic_controller_failure(
+                            operation,
+                            target_count,
+                            &filtered_mutation_ids[index..],
+                            error,
+                        );
+                    }
+                }
+                Ok(())
             }
             TrafficCommandOperation::CloseAllActive => {
                 self.inner.client.close_all_connections().await
@@ -1837,8 +1915,11 @@ impl ControllerStatusSource {
                 return TrafficCommandExecution::success(operation, target_count);
             }
             if tokio::time::Instant::now() >= deadline {
-                let failure = if matches!(operation, TrafficCommandOperation::CloseAllActive)
-                    && remaining.len() < target_count
+                let failure = if matches!(
+                    operation,
+                    TrafficCommandOperation::CloseAllActive
+                        | TrafficCommandOperation::CloseFilteredVisible
+                ) && remaining.len() < target_count
                 {
                     TrafficCommandFailureKind::PartialRemaining
                 } else {
@@ -1871,10 +1952,17 @@ fn traffic_authority_matches(
     snapshot: &TrafficDataSnapshot,
     authority: &TrafficCommandAuthority,
 ) -> bool {
+    traffic_session_authority_matches(snapshot, authority)
+        && snapshot.sequence == authority.sequence
+}
+
+fn traffic_session_authority_matches(
+    snapshot: &TrafficDataSnapshot,
+    authority: &TrafficCommandAuthority,
+) -> bool {
     snapshot.phase == TrafficDataPhase::Ready
         && snapshot.profile_id == authority.profile_id
         && snapshot.session_id.as_deref() == Some(authority.session_id.as_str())
-        && snapshot.sequence == authority.sequence
 }
 
 fn connection_ids(snapshot: &ConnectionSnapshot) -> Vec<String> {

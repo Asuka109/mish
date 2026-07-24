@@ -4,6 +4,7 @@ const IdentifierSchema = z.string().min(1);
 const NonNegativeIntegerSchema = z.number().int().nonnegative();
 const NonNegativeNumberSchema = z.number().nonnegative().finite();
 const BoundedTextSchema = z.string().max(8_192);
+const ProcessAttributionTextSchema = z.string().max(16_384);
 const DecimalIntegerSchema = z.string().regex(/^(0|[1-9]\d*)$/u);
 const SignedDecimalIntegerSchema = z.string().regex(/^-?(0|[1-9]\d*)$/u);
 
@@ -404,8 +405,8 @@ export const TrafficConnectionSchema = z
     id: IdentifierSchema,
     matchedRule: TrafficMatchedRuleSchema,
     network: BoundedTextSchema,
-    processName: BoundedTextSchema.nullable(),
-    processPath: BoundedTextSchema.nullable(),
+    processName: ProcessAttributionTextSchema.nullable(),
+    processPath: ProcessAttributionTextSchema.nullable(),
     protocol: BoundedTextSchema,
     providerChain: z.array(BoundedTextSchema).max(256),
     remoteDestination: BoundedTextSchema.nullable(),
@@ -418,6 +419,15 @@ export const TrafficConnectionSchema = z
   })
   .strict();
 export interface TrafficConnectionDto extends z.infer<typeof TrafficConnectionSchema> {}
+
+export const ProcessIconDataUrlSchema = z
+  .string()
+  .max(350_000)
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/u);
+export const ProcessIconResultSchema = z
+  .object({ dataUrl: ProcessIconDataUrlSchema.nullable() })
+  .strict();
+export interface ProcessIconResultDto extends z.infer<typeof ProcessIconResultSchema> {}
 
 export const EffectiveRuleSchema = z
   .object({
@@ -479,7 +489,11 @@ export const TrafficCommandAuthoritySchema = z
   .strict();
 export interface TrafficCommandAuthorityDto extends z.infer<typeof TrafficCommandAuthoritySchema> {}
 
-export const TrafficCommandOperationSchema = z.enum(["close-connection", "close-all-active"]);
+export const TrafficCommandOperationSchema = z.enum([
+  "close-connection",
+  "close-filtered-visible",
+  "close-all-active",
+]);
 export type TrafficCommandOperation = z.infer<typeof TrafficCommandOperationSchema>;
 
 export const TrafficCommandFailureSchema = z.enum([
@@ -547,6 +561,17 @@ export const CloseTrafficConnectionCommandSchema = z
 export const CloseAllActiveTrafficCommandSchema = z
   .object({ authority: TrafficCommandAuthoritySchema })
   .strict();
+export const CloseFilteredVisibleTrafficCommandSchema = z
+  .object({
+    authority: TrafficCommandAuthoritySchema,
+    connectionIds: z
+      .array(BoundedTextSchema.min(1))
+      .min(1)
+      .max(20_000)
+      .refine((ids) => new Set(ids).size === ids.length, "Connection IDs must be unique"),
+  })
+  .strict();
+export const GetProcessIconCommandSchema = z.object({ connectionId: IdentifierSchema }).strict();
 
 export const EventLevelSchema = z.enum(["debug", "info", "warning", "error"]);
 export type EventLevel = z.infer<typeof EventLevelSchema>;
@@ -962,6 +987,7 @@ export const SupportBundleCategorySchema = z.enum([
   "events-summary",
   "diagnostic-runs",
   "redaction-report",
+  "termination-recovery-evidence",
 ]);
 export type SupportBundleCategory = z.infer<typeof SupportBundleCategorySchema>;
 
@@ -995,7 +1021,7 @@ export const SupportBundleCategoryPreviewSchema = z
 
 export const SupportBundlePreviewSchema = z
   .object({
-    categories: z.array(SupportBundleCategoryPreviewSchema).length(10),
+    categories: z.array(SupportBundleCategoryPreviewSchema).length(11),
     contentBytes: NonNegativeIntegerSchema.max(256 * 1_024),
     excludedOrRedacted: z.array(SupportBundleRedactionCategorySchema).length(13),
     fileType: z.literal("application/json"),
@@ -1006,7 +1032,7 @@ export const SupportBundlePreviewSchema = z
   })
   .strict()
   .superRefine((preview, context) => {
-    if (new Set(preview.categories.map(({ category }) => category)).size !== 10) {
+    if (new Set(preview.categories.map(({ category }) => category)).size !== 11) {
       context.addIssue({ code: "custom", message: "Support bundle categories must be unique" });
     }
     if (new Set(preview.excludedOrRedacted).size !== 13) {
@@ -1458,6 +1484,9 @@ export const ManagedPortPreferencesSchema = z
   .refine((ports) => ports.controller !== ports.proxy, "Managed ports must differ");
 export interface ManagedPortPreferencesDto extends z.infer<typeof ManagedPortPreferencesSchema> {}
 
+export const ProcessDiscoveryModeSchema = z.enum(["always", "strict", "off"]);
+export type ProcessDiscoveryMode = z.infer<typeof ProcessDiscoveryModeSchema>;
+
 export const SystemProxyTakeoverPolicySchema = z.enum([
   "protect-existing",
   "replace-reversible-pac-or-auto-discovery",
@@ -1471,6 +1500,7 @@ export const SettingsPreferencesSchema = z
     language: LanguagePreferenceSchema,
     managedPorts: ManagedPortPreferencesSchema,
     onboarding: OnboardingPreferencesSchema,
+    processDiscoveryMode: ProcessDiscoveryModeSchema.default("always"),
     startup: StartupPreferencesSchema,
     systemProxyTakeoverPolicy: SystemProxyTakeoverPolicySchema,
     windowCloseBehavior: WindowCloseBehaviorSchema,
@@ -1950,7 +1980,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(19),
+    protocolVersion: z.literal(22),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -1960,7 +1990,11 @@ export const BridgeInfoSchema = z
       })
       .strict(),
     trafficCommands: z
-      .object({ closeAllActive: z.boolean(), closeConnection: z.boolean() })
+      .object({
+        closeAllActive: z.boolean(),
+        closeConnection: z.boolean(),
+        closeFilteredVisible: z.boolean(),
+      })
       .strict(),
   })
   .strict();
@@ -2716,6 +2750,14 @@ export const trafficRpcMethods = {
     params: CloseTrafficConnectionCommandSchema,
     result: RpcTrafficCommandResultSchema,
   },
+  "traffic.closeFilteredVisible": {
+    params: CloseFilteredVisibleTrafficCommandSchema,
+    result: RpcTrafficCommandResultSchema,
+  },
+  "traffic.getProcessIcon": {
+    params: GetProcessIconCommandSchema,
+    result: ProcessIconResultSchema,
+  },
   "traffic.getSnapshot": { params: EmptyCommandSchema, result: RpcTrafficDataSnapshotSchema },
   "traffic.subscribe": { params: EmptyCommandSchema, result: TrafficSubscriptionSchema },
   "traffic.unsubscribe": { params: TrafficSubscriptionIdSchema, result: z.boolean() },
@@ -2835,6 +2877,9 @@ export const SetWindowSurfacePreferenceCommandSchema = z
 export const SetSystemProxyTakeoverPolicyCommandSchema = z
   .object({ policy: SystemProxyTakeoverPolicySchema })
   .strict();
+export const SetProcessDiscoveryModeCommandSchema = z
+  .object({ mode: ProcessDiscoveryModeSchema })
+  .strict();
 
 export const settingsRpcMethods = {
   "settings.getSnapshot": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
@@ -2881,6 +2926,10 @@ export const settingsRpcMethods = {
   "settings.findManagedPorts": { params: EmptyCommandSchema, result: RpcSettingsSnapshotSchema },
   "settings.setSystemProxyTakeoverPolicy": {
     params: SetSystemProxyTakeoverPolicyCommandSchema,
+    result: RpcSettingsSnapshotSchema,
+  },
+  "settings.setProcessDiscoveryMode": {
+    params: SetProcessDiscoveryModeCommandSchema,
     result: RpcSettingsSnapshotSchema,
   },
   "settings.subscribe": { params: EmptyCommandSchema, result: SettingsSubscriptionSchema },
@@ -3072,6 +3121,10 @@ export interface SettingsClient {
     policy: SystemProxyTakeoverPolicy,
     options?: { signal?: AbortSignal },
   ): Promise<SettingsSnapshotDto>;
+  setProcessDiscoveryMode(
+    mode: ProcessDiscoveryMode,
+    options?: { signal?: AbortSignal },
+  ): Promise<SettingsSnapshotDto>;
   subscribeSnapshots(listener: (snapshot: SettingsSnapshotDto) => void): () => void;
   setWindowCloseBehavior(
     behavior: WindowCloseBehavior,
@@ -3213,6 +3266,15 @@ export interface TrafficClient {
     connectionId: string,
     options?: { signal?: AbortSignal },
   ): Promise<TrafficCommandResultDto>;
+  closeFilteredVisible(
+    authority: TrafficCommandAuthorityDto,
+    connectionIds: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto>;
+  getProcessIcon(
+    connectionId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ProcessIconResultDto>;
   dispose(): void;
   getConnectionState(): TrafficConnectionState;
   getSnapshot(options?: { signal?: AbortSignal }): Promise<TrafficDataSnapshotDto>;

@@ -8,6 +8,7 @@ import {
   type TrafficConnectionDto,
   type TrafficConnectionState,
   type TrafficDataSnapshotDto,
+  type ProcessIconResultDto,
 } from "@mish/contracts";
 
 const fixtureConnections: TrafficConnectionDto[] = [
@@ -205,6 +206,14 @@ export class FixtureTrafficClient implements TrafficClient {
     return this.unsupportedCommand("close-connection", options);
   }
 
+  async closeFilteredVisible(
+    _authority: TrafficCommandAuthorityDto,
+    _connectionIds: string[],
+    options?: { signal?: AbortSignal },
+  ): Promise<TrafficCommandResultDto> {
+    return this.unsupportedCommand("close-filtered-visible", options);
+  }
+
   dispose() {
     this.disposed = true;
     this.connectionListeners.clear();
@@ -219,6 +228,10 @@ export class FixtureTrafficClient implements TrafficClient {
     if (options?.signal?.aborted) throw new TrafficClientError("cancelled", "Request cancelled");
     if (this.disposed) throw new TrafficClientError("disconnected", "Traffic client disposed");
     return structuredClone(this.snapshot);
+  }
+
+  async getProcessIcon(_connectionId: string): Promise<ProcessIconResultDto> {
+    return { dataUrl: null };
   }
 
   publishSnapshot(snapshot: TrafficDataSnapshotDto) {

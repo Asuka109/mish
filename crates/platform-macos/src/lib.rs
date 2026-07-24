@@ -1,8 +1,10 @@
 //! Narrow macOS System Proxy adapter.
 
+mod process_icon;
 mod production_tun;
 mod tun_service;
 
+pub use process_icon::*;
 pub use production_tun::*;
 
 pub use tun_service::{

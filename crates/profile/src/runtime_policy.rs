@@ -130,6 +130,7 @@ pub struct ManagedRuntimeValues {
     pub controller_secret: String,
     pub mixed_port: u16,
     pub proxy_host: String,
+    pub process_discovery_mode: String,
     pub tun_enabled: bool,
 }
 
@@ -141,6 +142,7 @@ impl std::fmt::Debug for ManagedRuntimeValues {
             .field("controller_secret", &"[redacted]")
             .field("mixed_port", &"[managed]")
             .field("proxy_host", &"[redacted]")
+            .field("process_discovery_mode", &self.process_discovery_mode)
             .field("tun_enabled", &self.tun_enabled)
             .finish()
     }
@@ -155,6 +157,7 @@ enum RuleOperation {
     SetProxyHost,
     SetController,
     SetSecret,
+    SetProcessDiscoveryMode,
     SetWarning,
     SetRule,
     SetEmptySequence,
@@ -251,6 +254,11 @@ const APPLICATION_RULES: &[ManagedFieldRule] = &[
         PolicyReason::ManagedRuntimeBehavior,
         RuleOperation::SetWarning,
     ),
+    app(
+        "find-process-mode",
+        PolicyReason::ManagedRuntimeBehavior,
+        RuleOperation::SetProcessDiscoveryMode,
+    ),
     app_nested(
         "profile.store-fake-ip",
         PolicyReason::RuntimePersistenceDisabled,
@@ -320,7 +328,6 @@ const PORTABLE_ROOT_KEYS: &[&str] = &[
     "geo-auto-update",
     "geo-update-interval",
     "geox-url",
-    "find-process-mode",
     "unified-delay",
     "tcp-concurrent",
     "global-client-fingerprint",
@@ -649,6 +656,11 @@ fn apply_root_rule(
             root,
             rule.field_identity,
             Value::String(values.controller_secret.clone()),
+        ),
+        (RuleOperation::SetProcessDiscoveryMode, Some(values)) => insert(
+            root,
+            rule.field_identity,
+            Value::String(values.process_discovery_mode.clone()),
         ),
         (RuleOperation::SetWarning, Some(_)) => insert(
             root,

@@ -274,6 +274,12 @@ command. It accepts only `open`, `dismiss`, or `complete`, persists the existing
 versioned invitation record, and has no Core, capture, network, helper, or native
 platform side effect.
 
+Protocol version 20 adds authenticated `traffic.closeFilteredVisible`. The Web
+client supplies only current Traffic authority and a bounded unique stable-ID
+set. Rust revalidates that set against a fresh Controller snapshot and uses only
+single-connection deletes, so new unrelated connections cannot enter the
+confirmed scope.
+
 The approved Android direction pairs Kotlin `VpnService` with a reproducibly
 built embedded Go Core library. The approved iOS direction pairs Swift
 `NEPacketTunnelProvider` with the matching embedded Core framework. Both use a

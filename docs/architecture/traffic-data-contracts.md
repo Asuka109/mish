@@ -8,11 +8,11 @@ The same contract is consumed by the browser fixture, desktop RPC adapter, and
 future native adapters without exposing Mihomo Controller JSON directly to
 React.
 
-Traffic supports Active, recently Closed, and Rules investigation plus two
-confirmed desktop commands: close one current active connection and close all
-connections active in the current authoritative snapshot. Both commands are
-unavailable in the browser fixture, which never reports desktop mutation
-success.
+Traffic supports Active, recently Closed, and Rules investigation plus three
+confirmed desktop commands: close one current active connection, close the
+bounded stable-ID set matching the current filter, and close all connections
+active in the current authoritative snapshot. All three commands are unavailable
+in the browser fixture, which never reports desktop mutation success.
 
 ## Snapshot shape
 
@@ -30,6 +30,30 @@ and download byte counters, matched rule type and payload, provider chain, and
 complete ordered route chain. Empty Controller process or address strings map to
 explicit nullable fields. The UI labels null values unavailable rather than
 inventing process identity, geography, or another fallback fact.
+
+The managed desktop runtime overrides source `find-process-mode` with the
+private application setting `processDiscoveryMode`. Its bounded values map
+one-to-one to Mihomo `always`, `strict`, and `off`; the default is `always`, and
+a change applies on the next proxy start or Profile activation. This keeps
+subscription content from silently controlling local process inspection while
+allowing the user to reduce or disable it explicitly. Mihomo can still omit
+attribution for connection classes it cannot resolve; the UI explains that
+honest unavailable state. Process strings remain bounded by Controller
+validation and the local authenticated DTO boundary, and no remote, export, or
+telemetry surface is added.
+
+On supported macOS desktops, the UI may request a process icon lazily through
+`traffic.getProcessIcon`. The browser supplies only a current connection ID.
+Rust resolves that ID against the current authoritative Traffic snapshot and
+passes its already-validated process path to the platform adapter; RPC schemas
+reject a browser-supplied path, and missing or stale IDs return no icon. The
+platform adapter accepts only absolute existing files, prefers the enclosing
+application bundle, renders a bounded 64 × 64 PNG, and caps paths at 16 KiB and
+results at 256 KiB. It keeps at most 256 positive or negative entries and 8 MiB
+of PNG data. The UI deduplicates in-flight requests and keeps at most 128
+successful path-keyed results. Icons therefore stay inside the same
+authenticated loopback privacy boundary as process names and paths without
+creating an arbitrary local-file read surface.
 
 Connection byte counters are decimal strings. Mihomo exposes signed 64-bit
 values; the mapper rejects negatives transactionally and serializes valid values
@@ -61,6 +85,10 @@ the socket event cursor before sampling and sends the response before later
 notifications, matching the Status subscription ordering barrier. The RPC
 adapter also marks Traffic stale as soon as its transport disconnects. It does
 not continue presenting the last active rows as current while reconnecting.
+The adapter invalidates and refreshes its advertised close capabilities when
+the authoritative Traffic session ID changes. An application opened while the
+runtime is inactive therefore does not retain a permanently disabled command
+set after a profile starts.
 
 Desktop profile activation replaces the shared runtime host only after the
 candidate's first valid Traffic and Status observations and active-state commit.
@@ -71,15 +99,22 @@ profile context.
 ## Confirmed connection commands
 
 The command authority is limited to `profileId`, `sessionId`, `sequence`, and,
-for one-connection close, the stable Controller connection ID already present
-in that snapshot. Destination addresses, process names, process paths, URLs,
-and rendered row positions are never command authority. RPC parameter schemas
-reject unknown fields.
+for targeted closes, stable Controller connection IDs already present in that
+snapshot. Filtered-visible close accepts only a non-empty, unique, bounded ID
+list. Destination addresses, process names, process paths, URLs, and rendered
+row positions are never command authority. RPC parameter schemas reject unknown
+fields.
 
 Before mutation, the Controller source serializes commands with observation
 refreshes, verifies the pinned core version, validates the authority against
 the current ready snapshot, and performs a fresh `/connections` read. A
 one-connection command fails as `stale-connection` when its ID has disappeared.
+A filtered-visible command treats requested IDs already absent from the fresh
+Controller snapshot as completed no-ops and closes only the requested IDs still
+present through Mihomo's single-connection endpoint. It never adds IDs from the
+new snapshot, so unrelated connections observed after browser confirmation
+cannot be terminated. A changed profile or Traffic session still fails as
+`stale-snapshot`.
 A close-all command compares the complete fresh active-ID set with the
 authoritative snapshot and fails as `stale-snapshot` if it changed before
 mutation. This prevents a delayed confirmation from silently changing scope.
@@ -113,6 +148,16 @@ Because Mihomo's all-active endpoint operates at Controller handling time, it
 may also close a connection created in the narrow interval between Mish's fresh
 preflight and the DELETE request; Mish never claims that such a later ID was a
 confirmed target.
+
+“Close visible connections” means the complete filtered result set before
+incremental rendering limits. The confirmation freezes and displays its exact
+count. Search, network filter, and live refresh may continue; Rust revalidates
+the frozen stable-ID set immediately before mutation. Ordinary Traffic refreshes
+may advance the snapshot sequence while the confirmation is open, so this scope
+pins the profile and Traffic session rather than requiring the old sequence to
+remain current. Frozen IDs that already disappeared are successful no-ops;
+remaining frozen IDs are closed and confirmed absent. Later unrelated IDs are
+never added to the close set.
 
 ## Recently Closed derivation
 

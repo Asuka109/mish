@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
 use mish_runtime::{
     CapabilityAvailability, CorePhase, CoreStatus, DiagnosticCheck, DiagnosticCheckKind,
@@ -7,7 +12,7 @@ use mish_runtime::{
     EventSourcePhase, EventsDataPhase, EventsSnapshot, ProbeStatus, ServiceProbeFailureStage,
     StatusAdapterKind, StatusSnapshot, SystemProxyObservedState, SystemProxyPhase,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     ActivationFailureKind, ActivationOutcome, DesktopRuntimeHost, ManagedActivationState,
@@ -20,6 +25,12 @@ const SUPPORT_BUNDLE_RUN_LIMIT: usize = 8;
 const SUPPORT_BUNDLE_CHECK_LIMIT: usize = 16;
 const SUPPORT_BUNDLE_FORMAT_VERSION: u32 = 1;
 const SUPPORT_BUNDLE_PROTOCOL_VERSION: u32 = 9;
+pub const TERMINATION_EVIDENCE_MAX_RECORDS: usize = 32;
+pub const TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS: u64 = 30 * 24 * 60 * 60 * 1_000;
+pub const TERMINATION_EVIDENCE_MAX_RECORD_BYTES: usize = 512;
+pub const TERMINATION_EVIDENCE_MAX_BYTES: usize = 16 * 1_024;
+const TERMINATION_EVIDENCE_FILE: &str = "termination-evidence.json";
+const TERMINATION_SESSION_FILE: &str = "termination-session.json";
 
 #[derive(Clone, Debug)]
 pub struct SupportBundlePlatform {
@@ -29,11 +40,266 @@ pub struct SupportBundlePlatform {
 }
 
 #[derive(Clone)]
+pub struct TerminationEvidenceStore {
+    root: PathBuf,
+    platform: SupportBundlePlatform,
+    application_version: &'static str,
+    lock: Arc<Mutex<()>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TerminationEvidenceRecord {
+    application_version: String,
+    architecture: String,
+    category: TerminationCategory,
+    component: TerminationComponent,
+    observed_at: u64,
+    operating_system: String,
+    recovery_result: RecoveryResult,
+    safe_error_code: SafeTerminationErrorCode,
+    source_identity: String,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminationComponent {
+    Application,
+    ManagedCore,
+}
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TerminationCategory {
+    NormalQuit,
+    ForcedTerminationBoundary,
+    ApplicationCrashBoundary,
+    ManagedCoreExit,
+    StartupFailure,
+    UnknownTermination,
+}
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SafeTerminationErrorCode {
+    None,
+    StartupRecoveryFailed,
+    ManagedCoreUnavailable,
+}
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RecoveryResult {
+    NotApplicable,
+    NoRecoveryNeeded,
+    Recovered,
+    Failed,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TerminationEvidenceFile {
+    records: Vec<TerminationEvidenceRecord>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TerminationSession {
+    started_at: u64,
+}
+
+impl TerminationEvidenceRecord {
+    fn new(
+        observed_at: u64,
+        component: TerminationComponent,
+        category: TerminationCategory,
+        safe_error_code: SafeTerminationErrorCode,
+        recovery_result: RecoveryResult,
+    ) -> Self {
+        Self {
+            application_version: String::new(),
+            architecture: String::new(),
+            category,
+            component,
+            observed_at,
+            operating_system: String::new(),
+            recovery_result,
+            safe_error_code,
+            source_identity: "mish-desktop".into(),
+        }
+    }
+}
+
+impl TerminationEvidenceStore {
+    pub fn new(
+        root: PathBuf,
+        application_version: &'static str,
+        platform: SupportBundlePlatform,
+    ) -> Self {
+        Self {
+            root,
+            platform,
+            application_version,
+            lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    /// Returns true only when a prior session marker was present. This is an unknown
+    /// termination boundary, never proof that the application crashed.
+    pub fn begin_session(&self, observed_at: u64) -> bool {
+        let _guard = self
+            .lock
+            .lock()
+            .expect("termination evidence lock poisoned");
+        let previous = self.read_session().is_some();
+        if previous {
+            self.record_locked(TerminationEvidenceRecord::new(
+                observed_at,
+                TerminationComponent::Application,
+                TerminationCategory::UnknownTermination,
+                SafeTerminationErrorCode::None,
+                RecoveryResult::NoRecoveryNeeded,
+            ));
+        }
+        let _ = self.write_private(
+            &self.session_path(),
+            &TerminationSession {
+                started_at: observed_at,
+            },
+        );
+        previous
+    }
+
+    pub fn clear_session(&self) {
+        let _guard = self
+            .lock
+            .lock()
+            .expect("termination evidence lock poisoned");
+        let _ = fs::remove_file(self.session_path());
+    }
+    pub fn record_startup_recovery(&self, observed_at: u64, recovered: bool) {
+        self.record(TerminationEvidenceRecord::new(
+            observed_at,
+            TerminationComponent::Application,
+            TerminationCategory::UnknownTermination,
+            SafeTerminationErrorCode::None,
+            if recovered {
+                RecoveryResult::Recovered
+            } else {
+                RecoveryResult::NoRecoveryNeeded
+            },
+        ));
+    }
+    pub fn record_startup_failure(&self, observed_at: u64) {
+        self.record(TerminationEvidenceRecord::new(
+            observed_at,
+            TerminationComponent::Application,
+            TerminationCategory::StartupFailure,
+            SafeTerminationErrorCode::StartupRecoveryFailed,
+            RecoveryResult::Failed,
+        ));
+    }
+    pub fn record_detected_application_crash_boundary(&self, observed_at: u64) {
+        self.record(TerminationEvidenceRecord::new(
+            observed_at,
+            TerminationComponent::Application,
+            TerminationCategory::ApplicationCrashBoundary,
+            SafeTerminationErrorCode::None,
+            RecoveryResult::NotApplicable,
+        ));
+    }
+    pub fn record(&self, record: TerminationEvidenceRecord) {
+        let _guard = self
+            .lock
+            .lock()
+            .expect("termination evidence lock poisoned");
+        self.record_locked(record);
+    }
+    pub fn records(&self) -> Vec<TerminationEvidenceRecord> {
+        let _guard = self
+            .lock
+            .lock()
+            .expect("termination evidence lock poisoned");
+        self.load_records().unwrap_or_default()
+    }
+
+    fn record_locked(&self, mut record: TerminationEvidenceRecord) {
+        record.application_version = bounded_platform_value(self.application_version);
+        record.architecture = bounded_platform_value(&self.platform.architecture);
+        record.operating_system = bounded_platform_value(&self.platform.operating_system);
+        if serde_json::to_vec(&record).map_or(true, |bytes| {
+            bytes.len() > TERMINATION_EVIDENCE_MAX_RECORD_BYTES
+        }) {
+            return;
+        }
+        let mut records = self.load_records().unwrap_or_default();
+        let newest = record.observed_at;
+        records.push(record);
+        records.retain(|record| {
+            newest.saturating_sub(record.observed_at) <= TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS
+        });
+        records.sort_by_key(|record| record.observed_at);
+        while records.len() > TERMINATION_EVIDENCE_MAX_RECORDS
+            || serde_json::to_vec(&TerminationEvidenceFile {
+                records: records.clone(),
+            })
+            .map_or(true, |bytes| bytes.len() > TERMINATION_EVIDENCE_MAX_BYTES)
+        {
+            records.remove(0);
+        }
+        let _ = self.write_private(&self.records_path(), &TerminationEvidenceFile { records });
+    }
+
+    fn load_records(&self) -> Option<Vec<TerminationEvidenceRecord>> {
+        let bytes = fs::read(self.records_path()).ok()?;
+        if bytes.len() > TERMINATION_EVIDENCE_MAX_BYTES {
+            return None;
+        }
+        let file: TerminationEvidenceFile = serde_json::from_slice(&bytes).ok()?;
+        if file.records.iter().any(|record| {
+            serde_json::to_vec(record).map_or(true, |bytes| {
+                bytes.len() > TERMINATION_EVIDENCE_MAX_RECORD_BYTES
+            })
+        }) {
+            return None;
+        }
+        Some(file.records)
+    }
+    fn read_session(&self) -> Option<TerminationSession> {
+        let bytes = fs::read(self.session_path()).ok()?;
+        if bytes.len() > 256 {
+            return None;
+        }
+        serde_json::from_slice(&bytes).ok()
+    }
+    fn write_private<T: Serialize>(&self, path: &Path, value: &T) -> std::io::Result<()> {
+        fs::create_dir_all(&self.root)?;
+        let bytes = serde_json::to_vec(value).map_err(std::io::Error::other)?;
+        if bytes.len() > TERMINATION_EVIDENCE_MAX_BYTES {
+            return Err(std::io::Error::other("too large"));
+        }
+        let temporary = path.with_extension("tmp");
+        fs::write(&temporary, bytes)?;
+        fs::rename(temporary, path)
+    }
+    fn records_path(&self) -> PathBuf {
+        self.root.join(TERMINATION_EVIDENCE_FILE)
+    }
+    fn session_path(&self) -> PathBuf {
+        self.root.join(TERMINATION_SESSION_FILE)
+    }
+}
+
+fn now_milliseconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |value| value.as_millis() as u64)
+}
+
+#[derive(Clone)]
 pub struct SupportBundleService {
     activation: Arc<MihomoActivationManager>,
     application_version: &'static str,
     platform: SupportBundlePlatform,
     runtime: DesktopRuntimeHost,
+    termination_evidence: TerminationEvidenceStore,
 }
 
 impl SupportBundleService {
@@ -42,13 +308,93 @@ impl SupportBundleService {
         activation: Arc<MihomoActivationManager>,
         application_version: &'static str,
         platform: SupportBundlePlatform,
+        termination_evidence: TerminationEvidenceStore,
     ) -> Self {
         Self {
             activation,
             application_version,
             platform,
             runtime,
+            termination_evidence,
         }
+    }
+
+    pub fn begin_session(&self, observed_at: u64) -> bool {
+        self.termination_evidence.begin_session(observed_at)
+    }
+
+    pub fn record_normal_quit(&self, observed_at: u64) {
+        self.termination_evidence
+            .record(TerminationEvidenceRecord::new(
+                observed_at,
+                TerminationComponent::Application,
+                TerminationCategory::NormalQuit,
+                SafeTerminationErrorCode::None,
+                RecoveryResult::NotApplicable,
+            ));
+        self.termination_evidence.clear_session();
+    }
+
+    pub fn record_forced_termination_boundary(&self, observed_at: u64) {
+        self.termination_evidence
+            .record(TerminationEvidenceRecord::new(
+                observed_at,
+                TerminationComponent::Application,
+                TerminationCategory::ForcedTerminationBoundary,
+                SafeTerminationErrorCode::None,
+                RecoveryResult::NotApplicable,
+            ));
+    }
+
+    pub fn record_startup_recovery(&self, observed_at: u64, recovered: bool) {
+        self.termination_evidence
+            .record(TerminationEvidenceRecord::new(
+                observed_at,
+                TerminationComponent::Application,
+                TerminationCategory::UnknownTermination,
+                SafeTerminationErrorCode::None,
+                if recovered {
+                    RecoveryResult::Recovered
+                } else {
+                    RecoveryResult::NoRecoveryNeeded
+                },
+            ));
+    }
+
+    pub fn record_startup_failure(&self, observed_at: u64) {
+        self.termination_evidence
+            .record(TerminationEvidenceRecord::new(
+                observed_at,
+                TerminationComponent::Application,
+                TerminationCategory::StartupFailure,
+                SafeTerminationErrorCode::StartupRecoveryFailed,
+                RecoveryResult::Failed,
+            ));
+    }
+
+    pub fn start_managed_core_exit_observation(&self) {
+        let runtime = self.runtime.clone();
+        let evidence = self.termination_evidence.clone();
+        tokio::spawn(async move {
+            let mut previous = runtime.current().core_status().await.phase;
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                interval.tick().await;
+                let status = runtime.current().core_status().await;
+                if matches!(previous, CorePhase::Running)
+                    && matches!(status.phase, CorePhase::Failed | CorePhase::Stopped)
+                {
+                    evidence.record(TerminationEvidenceRecord::new(
+                        now_milliseconds(),
+                        TerminationComponent::ManagedCore,
+                        TerminationCategory::ManagedCoreExit,
+                        SafeTerminationErrorCode::ManagedCoreUnavailable,
+                        RecoveryResult::NotApplicable,
+                    ));
+                }
+                previous = status.phase;
+            }
+        });
     }
 
     pub async fn prepare(
@@ -62,6 +408,7 @@ impl SupportBundleService {
             .await;
         let diagnostics = self.runtime.diagnostic_history(StatusAdapterKind::Rpc);
         let activation = self.activation.managed_state().await;
+        let termination_evidence = self.termination_evidence.records();
         build_support_bundle(
             preview_id,
             SupportBundleInput {
@@ -73,6 +420,7 @@ impl SupportBundleService {
                 generated_at,
                 platform: &self.platform,
                 status: &status,
+                termination_evidence: &termination_evidence,
             },
         )
     }
@@ -118,6 +466,7 @@ struct SupportBundleManifest {
     platform: SupportPlatform,
     redaction_report: SupportRedactionReport,
     service_probes: SupportServiceProbes,
+    termination_recovery_evidence: Vec<TerminationEvidenceRecord>,
 }
 
 #[derive(Serialize)]
@@ -138,6 +487,7 @@ struct SupportBundleInput<'a> {
     generated_at: u64,
     platform: &'a SupportBundlePlatform,
     status: &'a StatusSnapshot,
+    termination_evidence: &'a [TerminationEvidenceRecord],
 }
 
 #[derive(Serialize)]
@@ -344,6 +694,7 @@ pub enum SupportBundleCategory {
     EventsSummary,
     DiagnosticRuns,
     RedactionReport,
+    TerminationRecoveryEvidence,
 }
 
 #[derive(Serialize)]
@@ -452,6 +803,7 @@ fn build_support_bundle(
             strategy_version: "mish-support-bundle-redaction-v1",
         },
         service_probes: summarize_service_probes(input.status),
+        termination_recovery_evidence: input.termination_evidence.to_vec(),
     };
     let bytes =
         serde_json::to_vec_pretty(&manifest).map_err(|_| SupportBundleError::Serialization)?;
@@ -481,6 +833,10 @@ fn build_support_bundle(
             preview_category(
                 SupportBundleCategory::RedactionReport,
                 manifest.redaction_report.categories.len(),
+            ),
+            preview_category(
+                SupportBundleCategory::TerminationRecoveryEvidence,
+                manifest.termination_recovery_evidence.len(),
             ),
         ],
         content_bytes: bytes.len(),
@@ -801,7 +1157,10 @@ mod tests {
 
     use super::{
         SUPPORT_BUNDLE_CHECK_LIMIT, SUPPORT_BUNDLE_EVENT_LIMIT, SUPPORT_BUNDLE_MAX_BYTES,
-        SUPPORT_BUNDLE_RUN_LIMIT, SupportBundleInput, SupportBundlePlatform, build_support_bundle,
+        SUPPORT_BUNDLE_RUN_LIMIT, SupportBundleInput, SupportBundlePlatform,
+        TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS, TERMINATION_EVIDENCE_MAX_RECORDS,
+        TerminationCategory, TerminationComponent, TerminationEvidenceRecord,
+        TerminationEvidenceStore, build_support_bundle,
     };
     use crate::ManagedActivationState;
 
@@ -822,6 +1181,7 @@ mod tests {
             generated_at: 1_721_286_400_000,
             platform: &platform,
             status: &status,
+            termination_evidence: &[],
         };
 
         let first = build_support_bundle("preview-1".into(), input()).unwrap();
@@ -852,6 +1212,51 @@ mod tests {
     }
 
     #[test]
+    fn termination_evidence_is_bounded_private_and_honest_about_unknown_termination() {
+        let root = tempfile::tempdir().unwrap();
+        let store =
+            TerminationEvidenceStore::new(root.path().join("evidence"), "0.1.0", platform());
+        assert!(!store.begin_session(1));
+        let reopened =
+            TerminationEvidenceStore::new(root.path().join("evidence"), "0.1.0", platform());
+        assert!(reopened.begin_session(2));
+        assert_eq!(
+            reopened.records()[0].category,
+            TerminationCategory::UnknownTermination
+        );
+        reopened.clear_session();
+        assert!(
+            !TerminationEvidenceStore::new(root.path().join("evidence"), "0.1.0", platform())
+                .begin_session(3)
+        );
+
+        for index in 0..(TERMINATION_EVIDENCE_MAX_RECORDS + 8) {
+            reopened.record(TerminationEvidenceRecord::new(
+                10 + index as u64,
+                TerminationComponent::ManagedCore,
+                TerminationCategory::ManagedCoreExit,
+                super::SafeTerminationErrorCode::ManagedCoreUnavailable,
+                super::RecoveryResult::NotApplicable,
+            ));
+        }
+        assert_eq!(reopened.records().len(), TERMINATION_EVIDENCE_MAX_RECORDS);
+        reopened.record(TerminationEvidenceRecord::new(
+            10 + TERMINATION_EVIDENCE_MAX_AGE_MILLISECONDS + 100,
+            TerminationComponent::Application,
+            TerminationCategory::StartupFailure,
+            super::SafeTerminationErrorCode::StartupRecoveryFailed,
+            super::RecoveryResult::Failed,
+        ));
+        assert_eq!(reopened.records().len(), 1);
+        std::fs::write(
+            root.path().join("evidence/termination-evidence.json"),
+            b"{bad",
+        )
+        .unwrap();
+        assert!(reopened.records().is_empty());
+    }
+
+    #[test]
     fn manifest_enforces_event_run_check_and_size_bounds() {
         let core = core_status();
         let status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Rpc);
@@ -871,6 +1276,7 @@ mod tests {
                 generated_at: 1,
                 platform: &platform,
                 status: &status,
+                termination_evidence: &[],
             },
         )
         .unwrap();
@@ -915,6 +1321,7 @@ mod tests {
                 generated_at: 1,
                 platform: &platform,
                 status: &status,
+                termination_evidence: &[],
             },
         )
         .unwrap();
@@ -953,6 +1360,7 @@ mod tests {
                 generated_at: 1,
                 platform: &platform,
                 status: &status,
+                termination_evidence: &[],
             },
         )
         .unwrap();

@@ -34,6 +34,7 @@ const settingsSnapshot = {
     language: "en" as const,
     managedPorts: { controller: 9090, proxy: 7890 },
     onboarding: { welcomeInvitation: null },
+    processDiscoveryMode: "always" as const,
     startup: {
       launchAtLogin: false,
       launchProxyWhenMishLaunches: false,
