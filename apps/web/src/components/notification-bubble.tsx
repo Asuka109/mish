@@ -179,6 +179,17 @@ export function NotificationBubble({
     ],
   );
 
+  const removeNotification = useCallback(
+    async (notificationId: string) => {
+      const notification = entryById.get(notificationId);
+      if (notification?.actions.some(({ id }) => id === "open-welcome")) {
+        if (!settings || !(await settings.setOnboardingWelcomeState("remove"))) return;
+      }
+      remove(notificationId);
+    },
+    [entryById, remove, settings],
+  );
+
   useEffect(() => {
     const nextPresented = new Map<string, string>();
     for (const notification of toastEntries) {
@@ -266,7 +277,7 @@ export function NotificationBubble({
                     pendingActionId: pendingActions.get(notification.id),
                   }}
                   onExecute={execute}
-                  onRemove={remove}
+                  onRemove={removeNotification}
                 />
               ))}
             </ol>
@@ -362,7 +373,7 @@ interface NotificationItemProps {
   locale: Locales;
   notification: DeliveredNotification;
   onExecute(notificationId: string, actionId: string): Promise<void>;
-  onRemove(notificationId: string): void;
+  onRemove(notificationId: string): Promise<void>;
 }
 
 function NotificationItem({
@@ -379,7 +390,7 @@ function NotificationItem({
         <Button
           aria-label={LL.notifications.remove({ message: notification.message })}
           className={notificationStyles().remove()}
-          onClick={() => onRemove(notification.id)}
+          onClick={() => void onRemove(notification.id)}
           size="icon-sm"
           variant="ghost"
         >

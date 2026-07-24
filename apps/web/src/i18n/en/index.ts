@@ -314,7 +314,7 @@ const en = {
     captureTunDescription:
       "Uses a virtual network interface to reach broader device traffic. It depends on platform support and may require system authorization.",
     captureTunTitle: "Virtual Interface (TUN)",
-    completedAnnouncement: "Welcome complete. The invitation was removed from Notifications.",
+    completedAnnouncement: "Welcome complete. You can reopen the introduction from Notifications.",
     completeWelcome: "Start Using Mish",
     coverPurpose:
       "Mish is an independent proxy client powered by the Mihomo core. It is being built around cross-platform support, clear interaction, and thoughtful design.",

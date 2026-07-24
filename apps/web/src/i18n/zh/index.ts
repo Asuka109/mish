@@ -290,7 +290,7 @@ const zh = {
     captureTunDescription:
       "通过虚拟网络接口覆盖更广泛的设备流量；它依赖平台支持，并可能需要系统授权。",
     captureTunTitle: "虚拟网卡（TUN）",
-    completedAnnouncement: "欢迎介绍已完成，邀请已从通知中移除。",
+    completedAnnouncement: "欢迎介绍已完成，你仍可从通知中重新打开。",
     completeWelcome: "开始使用 Mish",
     coverPurpose:
       "Mish 是一款由 Mihomo 内核驱动的独立代理客户端，目标是提供跨平台支持、清晰交互与更精致的设计。",

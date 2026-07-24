@@ -1006,7 +1006,7 @@ type RootTranslation = {
 		 */
 		captureTunTitle: string
 		/**
-		 * W​e​l​c​o​m​e​ ​c​o​m​p​l​e​t​e​.​ ​T​h​e​ ​i​n​v​i​t​a​t​i​o​n​ ​w​a​s​ ​r​e​m​o​v​e​d​ ​f​r​o​m​ ​N​o​t​i​f​i​c​a​t​i​o​n​s​.
+		 * W​e​l​c​o​m​e​ ​c​o​m​p​l​e​t​e​.​ ​Y​o​u​ ​c​a​n​ ​r​e​o​p​e​n​ ​t​h​e​ ​i​n​t​r​o​d​u​c​t​i​o​n​ ​f​r​o​m​ ​N​o​t​i​f​i​c​a​t​i​o​n​s​.
 		 */
 		completedAnnouncement: string
 		/**
@@ -5453,7 +5453,7 @@ export type TranslationFunctions = {
 		 */
 		captureTunTitle: () => LocalizedString
 		/**
-		 * Welcome complete. The invitation was removed from Notifications.
+		 * Welcome complete. You can reopen the introduction from Notifications.
 		 */
 		completedAnnouncement: () => LocalizedString
 		/**

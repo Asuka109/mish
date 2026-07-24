@@ -247,6 +247,10 @@ class DesktopSettingsClient implements SettingsClient {
   });
   setOnboardingWelcomeState = vi.fn(async (action: OnboardingWelcomeAction) => {
     const invitation = this.snapshot.preferences.onboarding.welcomeInvitation;
+    if (action === "remove") {
+      this.snapshot.preferences.onboarding.welcomeInvitation = null;
+      return this.getSnapshot();
+    }
     if (!invitation || invitation.completedAt !== null) return this.getSnapshot();
     const observedAt = Math.max(Date.now(), invitation.createdAt);
     invitation.promptedAt ??= observedAt;
@@ -934,8 +938,9 @@ describe("production routes", () => {
     ).toHaveLength(1);
   });
 
-  it("removes the welcome item locally without completing its durable invitation", async () => {
+  it("removes the welcome invitation durably without replaying its toast", async () => {
     const user = userEvent.setup();
+    const infoToast = vi.spyOn(toast, "info");
     const settingsClient = onboardingSettingsClient();
     const view = renderRoute(
       "/status",
@@ -963,13 +968,13 @@ describe("production routes", () => {
     );
 
     expect(within(notificationCenter).queryByRole("button", { name: "Open Welcome" })).toBeNull();
-    expect(
-      settingsClient.snapshot.preferences.onboarding.welcomeInvitation?.completedAt,
-    ).toBeNull();
+    expect(settingsClient.snapshot.preferences.onboarding.welcomeInvitation).toBeNull();
+    expect(settingsClient.setOnboardingWelcomeState).toHaveBeenCalledWith("remove");
     expect(settingsClient.setOnboardingWelcomeState).not.toHaveBeenCalledWith("complete");
     expect(settingsClient.setOnboardingWelcomeState).not.toHaveBeenCalledWith("dismiss");
 
     view.unmount();
+    infoToast.mockClear();
     renderRoute(
       "/status",
       "en",
@@ -978,12 +983,10 @@ describe("production routes", () => {
       settingsClient,
       structuredClone(settingsClient.snapshot),
     );
-    await user.click(
-      await screen.findByRole("button", {
-        name: /Notifications, \d+ unread/,
-      }),
-    );
-    expect(await screen.findByRole("button", { name: "Open Welcome" })).toBeVisible();
+    await act(async () => Promise.resolve());
+    expect(infoToast).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Notifications, 0 unread" }));
+    expect(screen.queryByRole("button", { name: "Open Welcome" })).toBeNull();
   });
 
   it("opens the durable welcome by keyboard, names it, restores focus, and retains it on dismiss", async () => {
@@ -1110,13 +1113,14 @@ describe("production routes", () => {
     expect(within(welcome).getByRole("button", { name: "开始使用 Mish" })).toBeVisible();
   });
 
-  it("announces completion, removes the invitation durably, and performs no runtime action", async () => {
+  it("announces completion, retains the welcome invitation, and performs no runtime action", async () => {
     const user = userEvent.setup();
+    const infoToast = vi.spyOn(toast, "info");
     const settingsClient = onboardingSettingsClient();
     const statusClient = new FixtureStatusClient();
     const setCapture = vi.spyOn(statusClient, "setCapture");
     const setRoutingMode = vi.spyOn(statusClient, "setRoutingMode");
-    renderRoute(
+    const view = renderRoute(
       "/status",
       "en",
       statusClient,
@@ -1134,10 +1138,11 @@ describe("production routes", () => {
     await user.click(within(welcome).getByRole("button", { name: "Show Me Around" }));
     await user.click(within(welcome).getByRole("button", { name: "Continue" }));
     await user.click(within(welcome).getByRole("button", { name: "Continue" }));
+    infoToast.mockClear();
     await user.click(within(welcome).getByRole("button", { name: "Start Using Mish" }));
 
     const announcement = await screen.findByText(
-      "Welcome complete. The invitation was removed from Notifications.",
+      "Welcome complete. You can reopen the introduction from Notifications.",
     );
     expect(announcement).toHaveAttribute("role", "status");
     await waitFor(() => expect(notificationTrigger).toHaveFocus());
@@ -1150,9 +1155,26 @@ describe("production routes", () => {
     expect(settingsClient.installTunHelper).not.toHaveBeenCalled();
     expect(settingsClient.repairTunHelper).not.toHaveBeenCalled();
     expect(settingsClient.removeTunHelper).not.toHaveBeenCalled();
+    expect(infoToast).not.toHaveBeenCalled();
 
     await user.click(notificationTrigger);
-    expect(screen.queryByRole("button", { name: "Open Welcome" })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Open Welcome" }));
+    expect(await screen.findByRole("dialog", { name: "Welcome to Mish" })).toBeVisible();
+
+    view.unmount();
+    infoToast.mockClear();
+    renderRoute(
+      "/status",
+      "en",
+      statusClient,
+      undefined,
+      settingsClient,
+      structuredClone(settingsClient.snapshot),
+    );
+    await act(async () => Promise.resolve());
+    expect(infoToast).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Notifications, 1 unread" }));
+    expect(await screen.findByRole("button", { name: "Open Welcome" })).toBeVisible();
   });
 
   it.each([
