@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { lstatSync, readdirSync } from "node:fs";
+import { accessSync, constants, lstatSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as wait } from "node:timers/promises";
 
 const APP_ID = "com.asuka109.mish";
 const APP_NAME = "Mish";
@@ -11,6 +12,21 @@ export type MacOsAppCleanupInspection = {
   existingTargets: string[];
   mountedMishImages: number;
 };
+
+export type ManagedMishProcess = {
+  command: string;
+  kind: "core" | "desktop";
+  parentPid: number;
+  pid: number;
+};
+
+export type MacOsAppCleanupAction =
+  | "all"
+  | "clean"
+  | "force-stop"
+  | "inspect"
+  | "reset-proxy"
+  | "stop";
 
 type InspectOptions = {
   homeDirectory: string;
@@ -70,15 +86,38 @@ function pathExists(candidate: string): boolean {
   }
 }
 
-function hasManagedProcess(processTable: string, appDataRoot: string): boolean {
+function appleScriptString(value: string): string {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+export function managedMishProcesses(
+  processTable: string,
+  appDataRoot: string,
+): ManagedMishProcess[] {
   const managedRuntime = path.join(appDataRoot, "runtime");
-  return processTable.split("\n").some((line) => {
-    const command = line.trim().replace(/^\d+\s+/u, "");
-    return (
-      /(?:^|\/)mish-desktop(?:\s|$)/u.test(command) ||
-      (command.includes(managedRuntime) && /(?:^|\/)mihomo(?:-|\s|$)/u.test(command))
-    );
-  });
+  const processes: ManagedMishProcess[] = [];
+  for (const line of processTable.split("\n")) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/u.exec(line);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const parentPid = Number(match[2]);
+    const command = match[3];
+    const kind = /(?:^|\/)mish-desktop(?:\s|$)/u.test(command)
+      ? "desktop"
+      : command.includes(managedRuntime) && /(?:^|\/)mihomo(?:-|\s|$)/u.test(command)
+        ? "core"
+        : undefined;
+    if (
+      kind &&
+      Number.isSafeInteger(pid) &&
+      pid > 1 &&
+      Number.isSafeInteger(parentPid) &&
+      parentPid >= 0
+    ) {
+      processes.push({ command, kind, parentPid, pid });
+    }
+  }
+  return processes;
 }
 
 export function hasEnabledLoopbackSystemProxy(proxyState: string): boolean {
@@ -107,7 +146,7 @@ export function inspectMacOsAppCleanup(options: InspectOptions): MacOsAppCleanup
   }
   const appDataRoot = path.join(options.homeDirectory, "Library/Application Support", APP_ID);
   const blockers: string[] = [];
-  if (hasManagedProcess(options.processTable, appDataRoot)) {
+  if (managedMishProcesses(options.processTable, appDataRoot).length > 0) {
     blockers.push(
       "A Mish desktop or managed Mihomo process is still running. Quit it normally before cleanup.",
     );
@@ -170,6 +209,214 @@ export function applyMacOsAppCleanup(
   }
 }
 
+type ProcessControlOptions = {
+  appDataRoot: string;
+  installedDesktopExecutables: string[];
+  pause?: (milliseconds: number) => Promise<unknown>;
+  readProcessTable: () => string;
+  run: CleanupRunner;
+};
+
+function controllableInstalledProcesses(
+  processTable: string,
+  options: Pick<ProcessControlOptions, "appDataRoot" | "installedDesktopExecutables">,
+): ManagedMishProcess[] {
+  const processes = managedMishProcesses(processTable, options.appDataRoot);
+  const installedDesktops = processes.filter(
+    ({ command, kind }) =>
+      kind === "desktop" &&
+      options.installedDesktopExecutables.some(
+        (executable) => command === executable || command.startsWith(`${executable} `),
+      ),
+  );
+  const desktopPids = new Set(installedDesktops.map(({ pid }) => pid));
+  return [
+    ...installedDesktops,
+    ...processes.filter(({ kind, parentPid }) => kind === "core" && desktopPids.has(parentPid)),
+  ];
+}
+
+async function waitForOwnedProcesses(
+  options: ProcessControlOptions,
+  ownedProcesses: ManagedMishProcess[],
+  maximumMilliseconds: number,
+): Promise<ManagedMishProcess[]> {
+  const pause = options.pause ?? wait;
+  for (let elapsed = 0; elapsed < maximumMilliseconds; elapsed += 250) {
+    const current = managedMishProcesses(options.readProcessTable(), options.appDataRoot);
+    const processes = ownedProcesses.filter((owned) =>
+      current.some(
+        ({ command, kind, pid }) =>
+          pid === owned.pid && kind === owned.kind && command === owned.command,
+      ),
+    );
+    if (processes.length === 0) return [];
+    await pause(250);
+  }
+  const current = managedMishProcesses(options.readProcessTable(), options.appDataRoot);
+  return ownedProcesses.filter((owned) =>
+    current.some(
+      ({ command, kind, pid }) =>
+        pid === owned.pid && kind === owned.kind && command === owned.command,
+    ),
+  );
+}
+
+export async function safelyStopMish(options: ProcessControlOptions): Promise<void> {
+  const processTable = options.readProcessTable();
+  const allProcesses = managedMishProcesses(processTable, options.appDataRoot);
+  if (allProcesses.length === 0) return;
+  const processes = controllableInstalledProcesses(processTable, options);
+  const desktops = processes.filter(({ kind }) => kind === "desktop");
+  if (desktops.length === 0) {
+    throw new Error("No running installed Mish instance can be safely controlled");
+  }
+  for (const desktop of desktops) {
+    const executable = options.installedDesktopExecutables.find(
+      (candidate) => desktop.command === candidate || desktop.command.startsWith(`${candidate} `),
+    );
+    if (!executable) throw new Error("The installed Mish executable identity changed");
+    const applicationPath = path.dirname(path.dirname(path.dirname(executable)));
+    const result = options.run("/usr/bin/osascript", [
+      "-e",
+      `tell application ${appleScriptString(applicationPath)} to quit`,
+    ]);
+    if (result.status !== 0) {
+      throw new Error("Installed Mish did not accept the application-level Quit request");
+    }
+  }
+  if ((await waitForOwnedProcesses(options, processes, 15_000)).length > 0) {
+    throw new Error("Installed Mish did not complete its safe shutdown within 15 seconds");
+  }
+}
+
+export async function forceStopMish(options: ProcessControlOptions): Promise<void> {
+  const processTable = options.readProcessTable();
+  const allProcesses = managedMishProcesses(processTable, options.appDataRoot);
+  if (allProcesses.length === 0) return;
+  const processes = controllableInstalledProcesses(processTable, options);
+  if (processes.length === 0) {
+    throw new Error("No running installed Mish instance has process ownership authority");
+  }
+  for (const process of processes) {
+    const { pid } = process;
+    const stillOwned = managedMishProcesses(options.readProcessTable(), options.appDataRoot).some(
+      (candidate) =>
+        candidate.pid === pid &&
+        candidate.kind === process.kind &&
+        candidate.command === process.command,
+    );
+    if (!stillOwned) continue;
+    const result = options.run("/bin/kill", ["-TERM", String(pid)]);
+    if (result.status !== 0) throw new Error(`Could not send TERM to owned Mish PID ${pid}`);
+  }
+  const remaining = await waitForOwnedProcesses(options, processes, 3_000);
+  for (const process of remaining) {
+    const { pid } = process;
+    const stillOwned = managedMishProcesses(options.readProcessTable(), options.appDataRoot).some(
+      (candidate) =>
+        candidate.pid === pid &&
+        candidate.kind === process.kind &&
+        candidate.command === process.command,
+    );
+    if (!stillOwned) continue;
+    const result = options.run("/bin/kill", ["-KILL", String(pid)]);
+    if (result.status !== 0) throw new Error(`Could not send KILL to owned Mish PID ${pid}`);
+  }
+  if ((await waitForOwnedProcesses(options, processes, 3_000)).length > 0) {
+    throw new Error("Owned Mish processes remain after the bounded force-stop sequence");
+  }
+}
+
+export function parseMacOsAppCleanupArguments(arguments_: string[]): {
+  action: MacOsAppCleanupAction;
+  apply: boolean;
+} {
+  const normalized = arguments_.filter((argument) => argument !== "--");
+  const apply = normalized.includes("--apply");
+  const positional = normalized.filter((argument) => argument !== "--apply");
+  const action = positional[0] ?? "inspect";
+  const actions: MacOsAppCleanupAction[] = [
+    "inspect",
+    "stop",
+    "force-stop",
+    "reset-proxy",
+    "clean",
+    "all",
+  ];
+  if (
+    positional.length > 1 ||
+    !actions.includes(action as MacOsAppCleanupAction) ||
+    (action === "inspect" && apply)
+  ) {
+    throw new Error(
+      "Usage: pnpm macos:app:clean -- <inspect|stop|force-stop|reset-proxy|clean|all> [--apply]",
+    );
+  }
+  return { action: action as MacOsAppCleanupAction, apply };
+}
+
+function resolveCargo(homeDirectory: string): string {
+  const candidates = [
+    process.env.CARGO,
+    path.join(homeDirectory, ".cargo/bin/cargo"),
+    "/opt/homebrew/bin/cargo",
+    "/usr/local/bin/cargo",
+  ].filter((candidate): candidate is string => Boolean(candidate && path.isAbsolute(candidate)));
+  for (const candidate of candidates) {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error("A trusted Cargo executable is required for exact System Proxy restoration");
+}
+
+function managedProxyPort(settingsPath: string): number {
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(settingsPath, "utf8"));
+  } catch {
+    throw new Error("Mish settings are required to identify the journaled proxy endpoint");
+  }
+  const port = (
+    value as {
+      preferences?: { managedPorts?: { proxy?: unknown } };
+    }
+  ).preferences?.managedPorts?.proxy;
+  if (!Number.isInteger(port) || Number(port) < 1 || Number(port) > 65_535) {
+    throw new Error("The managed proxy port is unavailable in Mish settings");
+  }
+  return Number(port);
+}
+
+export function restoreOwnedSystemProxy(
+  homeDirectory: string,
+  appDataRoot: string,
+  run: CleanupRunner,
+  cargoExecutable?: string,
+): void {
+  const journal = path.join(appDataRoot, "system-proxy-journal.json");
+  if (!pathExists(journal)) return;
+  const port = managedProxyPort(path.join(appDataRoot, "settings.json"));
+  const result = run(cargoExecutable ?? resolveCargo(homeDirectory), [
+    "run",
+    "--quiet",
+    "-p",
+    "mish-platform-macos",
+    "--bin",
+    "mish-macos-proxy-reset",
+    "--",
+    journal,
+    String(port),
+  ]);
+  if (result.status !== 0 || pathExists(journal)) {
+    throw new Error("The journaled System Proxy state could not be restored exactly");
+  }
+}
+
 function readCommand(executable: string, arguments_: string[]): string {
   try {
     return execFileSync(executable, arguments_, {
@@ -188,52 +435,128 @@ function readRequiredCommand(executable: string, arguments_: string[]): string {
   });
 }
 
-export function runMacOsAppCleanup(arguments_: string[] = process.argv.slice(2)): void {
+export async function runMacOsAppCleanup(
+  arguments_: string[] = process.argv.slice(2),
+): Promise<void> {
   if (process.platform !== "darwin") {
     throw new Error("The Mish application cleanup is available only on macOS");
   }
-  const normalized = arguments_.filter((argument) => argument !== "--");
-  if (normalized.some((argument) => argument !== "--apply")) {
-    throw new Error("Usage: pnpm macos:app:clean [-- --apply]");
-  }
-  const apply = normalized.includes("--apply");
-  const inspection = inspectMacOsAppCleanup({
-    homeDirectory: os.homedir(),
-    mountedImages: readCommand("/usr/bin/hdiutil", ["info"]),
-    processTable: readRequiredCommand("/bin/ps", ["-axo", "pid=,command="]),
-    proxyState: readRequiredCommand("/usr/sbin/scutil", ["--proxy"]),
-  });
+  const { action, apply } = parseMacOsAppCleanupArguments(arguments_);
+  const homeDirectory = os.homedir();
+  const appDataRoot = path.join(homeDirectory, "Library/Application Support", APP_ID);
+  const readProcessTable = () => readRequiredCommand("/bin/ps", ["-axo", "pid=,ppid=,command="]);
+  const run: CleanupRunner = (executable, commandArguments) =>
+    spawnSync(executable, commandArguments, { encoding: "utf8", stdio: "pipe" });
+  const inspect = () =>
+    inspectMacOsAppCleanup({
+      homeDirectory,
+      mountedImages: readCommand("/usr/bin/hdiutil", ["info"]),
+      processTable: readProcessTable(),
+      proxyState: readRequiredCommand("/usr/sbin/scutil", ["--proxy"]),
+    });
+  const printInspection = (inspection: MacOsAppCleanupInspection) => {
+    console.log(`Mish macOS application state (${action}${apply ? ", apply" : ", preview"}):`);
+    if (inspection.existingTargets.length === 0) {
+      console.log("- No account-local Mish application or state targets were found.");
+    } else {
+      for (const target of inspection.existingTargets) console.log(`- ${target}`);
+    }
+    if (inspection.mountedMishImages > 0) {
+      console.log(
+        `- Left ${inspection.mountedMishImages} mounted Mish disk image(s) untouched; this script never detaches images from other worktrees.`,
+      );
+    }
+  };
 
-  console.log(`Mish macOS application cleanup ${apply ? "apply" : "preview"}:`);
-  if (inspection.existingTargets.length === 0) {
-    console.log("- No account-local Mish application or state targets were found.");
-  } else {
-    for (const target of inspection.existingTargets) console.log(`- ${target}`);
-  }
-  if (inspection.mountedMishImages > 0) {
-    console.log(
-      `- Left ${inspection.mountedMishImages} mounted Mish disk image(s) untouched; this script never detaches images from other worktrees.`,
-    );
-  }
-  if (inspection.blockers.length > 0) {
+  let inspection = inspect();
+  printInspection(inspection);
+  if (action === "inspect") {
     for (const blocker of inspection.blockers) console.error(`BLOCKED: ${blocker}`);
-    throw new Error("Resolve every blocker before cleaning the Mish application state");
+    return;
   }
   if (!apply) {
     console.log(
-      "Preview only. Re-run with `pnpm macos:app:clean -- --apply` to move these targets to the Trash.",
+      `Preview only. Re-run with \`pnpm macos:app:clean -- ${action} --apply\` to execute this subcommand.`,
     );
     return;
   }
-  applyMacOsAppCleanup(inspection);
-  console.log(
-    "Cleanup complete. Listed files remain recoverable from the Trash; user-selected exports/backups, mounted DMGs, and development TUN services were intentionally left untouched.",
-  );
+  const processControl: ProcessControlOptions = {
+    appDataRoot,
+    installedDesktopExecutables: [
+      "/Applications/Mish.app/Contents/MacOS/mish-desktop",
+      path.join(homeDirectory, "Applications/Mish.app/Contents/MacOS/mish-desktop"),
+    ],
+    readProcessTable,
+    run,
+  };
+  if (action === "stop") {
+    await safelyStopMish(processControl);
+    if (pathExists(path.join(appDataRoot, "system-proxy-journal.json"))) {
+      throw new Error("Mish exited but its System Proxy recovery journal still requires attention");
+    }
+    console.log("Mish completed the application-level safe shutdown.");
+    return;
+  }
+  if (action === "force-stop") {
+    await forceStopMish(processControl);
+    console.log(
+      "Owned Mish processes were force-stopped. Run reset-proxy before deleting application state.",
+    );
+    return;
+  }
+  if (action === "reset-proxy") {
+    if (managedMishProcesses(readProcessTable(), appDataRoot).length > 0) {
+      throw new Error("Stop Mish and its managed Core before restoring System Proxy");
+    }
+    const ownedJournal = pathExists(path.join(appDataRoot, "system-proxy-journal.json"));
+    restoreOwnedSystemProxy(homeDirectory, appDataRoot, run);
+    if (
+      !ownedJournal &&
+      hasEnabledLoopbackSystemProxy(readRequiredCommand("/usr/sbin/scutil", ["--proxy"]))
+    ) {
+      throw new Error(
+        "A loopback System Proxy exists without Mish recovery authority and was left unchanged",
+      );
+    }
+    console.log(
+      ownedJournal
+        ? "The journaled pre-Mish System Proxy configuration was restored exactly."
+        : "No Mish-owned System Proxy transaction required restoration.",
+    );
+    return;
+  }
+  if (action === "all") {
+    try {
+      await safelyStopMish(processControl);
+    } catch (error) {
+      console.error(
+        `${error instanceof Error ? error.message : "Safe shutdown failed"}; entering the explicit force-stop fallback.`,
+      );
+      await forceStopMish(processControl);
+    }
+    if (managedMishProcesses(readProcessTable(), appDataRoot).length > 0) {
+      throw new Error(
+        "Another Mish instance still owns the shared runtime; System Proxy and application state were left unchanged",
+      );
+    }
+    restoreOwnedSystemProxy(homeDirectory, appDataRoot, run);
+    inspection = inspect();
+  }
+  if (action === "clean" || action === "all") {
+    if (inspection.blockers.length > 0) {
+      for (const blocker of inspection.blockers) console.error(`BLOCKED: ${blocker}`);
+      throw new Error("Resolve every blocker before cleaning the Mish application state");
+    }
+    applyMacOsAppCleanup(inspection, { run });
+    console.log(
+      "Cleanup complete. Listed files remain recoverable from the Trash; user-selected exports/backups, mounted DMGs, and development TUN services were intentionally left untouched.",
+    );
+  }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
   try {
-    runMacOsAppCleanup();
+    await runMacOsAppCleanup();
   } catch (error) {
     console.error(error instanceof Error ? error.message : "Mish cleanup failed");
     process.exitCode = 1;

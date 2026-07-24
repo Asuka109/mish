@@ -233,34 +233,40 @@ Proxy drift or the app was previously terminated abnormally, reopen it and use
 the offered repair action before deleting its data. `scutil --proxy` can be used
 as a read-only final check.
 
-Preview the exact app and account-local state that the cleanup will move to the
-Trash:
+Inspect Mish ownership, mounted images, and the exact app and account-local
+state targets without changing anything:
 
 ```sh
-pnpm macos:app:clean
+pnpm macos:app:clean -- inspect
 ```
 
-The preview refuses to continue while a Mish desktop or managed Core process is
-running, a System Proxy recovery journal exists, or an enabled loopback System
-Proxy remains observable. It never kills a process, force-detaches a disk image,
-or touches a Mish DMG mounted by another worktree. Resolve every reported
-ownership blocker through Mish's normal quit or offered recovery flow.
+Every mutating subcommand requires the explicit `--apply` confirmation:
 
-After reviewing the preview, perform the cleanup explicitly:
+| Subcommand            | Behavior                                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `stop --apply`        | Requests application-level Quit and waits up to 15 seconds for Mish's normal reconciliation.                                   |
+| `force-stop --apply`  | Sends TERM only to exact Mish/Core PIDs, then KILLs only PIDs that are still confirmed owned after the bounded wait.           |
+| `reset-proxy --apply` | Uses Mish's validated recovery journal and Rust platform adapter to restore the exact pre-Mish System Proxy state.             |
+| `clean --apply`       | Unregisters the account LaunchAgent and moves the inspected app and account-local state targets to the Trash.                  |
+| `all --apply`         | Attempts safe Quit, uses force-stop only as fallback, restores Mish-owned System Proxy state, then performs the Trash cleanup. |
+
+For example, perform the complete reset after reviewing `inspect`:
 
 ```sh
-pnpm macos:app:clean -- --apply
+pnpm macos:app:clean -- all --apply
 ```
 
-The apply path unregisters an account-local Mish LaunchAgent and moves only the
-listed installed apps and account-local containers, caches, WebKit data, saved
-state, logs, and preferences to the Trash. Those listed files remain
-recoverable until the Trash is emptied. User-selected exports and backups,
-mounted DMGs, and development TUN services are intentionally not deleted. The
-ad-hoc app package contains no TUN helper, launch daemon, system extension,
-updater, or crash-reporting state. A developer who separately installed the
-development TUN service must also run `pnpm macos:tun:uninstall` from the trusted
-checkout.
+System Proxy reset never blindly disables a network service. Without a valid
+Mish recovery journal, an existing loopback proxy is treated as unowned and left
+unchanged. Process control is restricted to the installed
+`/Applications/Mish.app` (or account-local installed app) and its directly owned
+Core; a Mish instance running from another worktree is reported but never
+stopped. The facility never force-detaches a disk image or touches a Mish DMG
+mounted by another worktree. Listed files remain recoverable until the Trash is
+emptied. User-selected exports and backups, mounted DMGs, and development TUN
+services are intentionally not deleted. A developer who separately installed
+the development TUN service must also run `pnpm macos:tun:uninstall` from the
+trusted checkout.
 
 ## Developer ID and notarization secrets
 
