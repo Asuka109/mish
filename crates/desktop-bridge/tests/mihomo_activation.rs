@@ -983,8 +983,8 @@ fn assert_default_service_presets(snapshot: &serde_json::Value) {
             "github",
             "cloudflare",
             "baidu",
-            "apple",
-            "microsoft",
+            "weixin",
+            "aws-us-east-1",
         ]
     );
 }

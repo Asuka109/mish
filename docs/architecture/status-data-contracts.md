@@ -407,20 +407,43 @@ Each probe policy should define:
 - explicit direct, proxy, or group-scoped route target; and
 - interval, backoff, and concurrency limits.
 
-When periodic testing is enabled, the desktop bridge starts one direct probe
-cycle immediately and then schedules cycles at the user-selected fixed interval
-(5 seconds, 10 seconds, 30 seconds, or 1 minute; 1 minute by default). The user
-may disable periodic cycles. In that mode, the bridge runs one full cycle
+When periodic testing is enabled, new and restored state uses a five-second
+cadence; the user may select 5, 10, 30, or 60 seconds, or disable periodic
+cycles. Initialization and each service-configuration revision generate a
+random service order. Each non-overlapping cycle retains that order and evenly
+spaces probe starts across the selected interval instead of issuing a burst.
+At most 12 service monitors are retained. A stored list longer than 12 is
+directly truncated to its first 12 definitions; old default identities, URLs,
+icons, and intervals are not otherwise migrated. In disabled mode, the bridge
+runs one evenly spaced cycle
 whenever Core starts and otherwise retains the latest results. The scheduler
 remains bridge-owned, so replacing Core does not discard those results. Monitor
 definitions and the selected interval are stored in the application-data
 directory and overlaid onto every Status snapshot, including lifecycle-only
 snapshots. Probe updates publish through the existing Status subscription.
 
+Automatic and immediate probes are independent requests, including when their
+URLs normalize to the same host. This preserves scheduled start offsets instead
+of queuing or coalescing work behind a slow request. Valid `Retry-After` values
+from HTTP 429 or 503 responses take precedence for requests that have not yet
+started; otherwise host failures back off through 5, 15, 30, and 60 minutes,
+then 2, 4, and at most 6 hours. A successful response resets that host state.
+Configuration revision changes and bridge shutdown cancel obsolete transport
+work, and stale revisions never publish.
+
 The immediate test command accepts only an existing monitor identifier. The
 bridge resolves the stored, previously validated URL, retains the last result
 while the request is running, and publishes the new outcome after completion.
 The RPC does not accept a caller-supplied URL or route target.
+
+The reported value ends when response headers arrive. It is direct HTTP
+first-response/service-connectivity latency, including DNS, TCP, TLS, and
+response-header time; it is not bandwidth, pure RTT, complete body load, Git
+operation performance, or complete application experience. One configured
+`reqwest::Client` is reused. Redirects remain disabled and the request bound is
+eight seconds. Responses with a known body no larger than 64 KiB may drain in
+the background for connection reuse; oversized or unknown bodies are closed
+without unbounded download and never delay the published header-time value.
 
 Validate URLs as HTTP or HTTPS and protect the local machine from unintended
 access to loopback, link-local, metadata, or private-network targets unless the

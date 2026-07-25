@@ -870,10 +870,12 @@ const zh = {
     interval10Seconds: "每 10 秒",
     interval30Seconds: "每 30 秒",
     interval1Minute: "每1分钟",
-    metadataDescription: "Mish 会直接测试此地址，不依赖 Mihomo 是否运行。",
+    metadataDescription:
+      "Mish 测量直连 HTTP 首次响应/服务连通性延迟，不依赖 Mihomo。Cloudflare 反映 Anycast 边缘；GitHub、百度和微信使用服务商静态资源/CDN 路径；AWS (us-east-1) 使用 DynamoDB。",
     probeUrl: "探测地址",
     removedToast: "已删除服务监控",
     restoreDefaults: "恢复默认值",
+    serviceLimit: "最多可添加 12 个服务监控。",
     serviceName: "服务名称",
     title: "标题",
     testInterval: "测试间隔",
@@ -972,7 +974,7 @@ const zh = {
     searchHelpDescription:
       "输入关键词可搜索当前显示的连接详情，也可以使用“字段:值”进行精确筛选。多个条件会同时生效。",
     searchHelpFields:
-      "可用字段：destination（目标）、process（进程）、rule（规则）、chain（路由链）、provider（Provider 链）、network（网络）、protocol（协议）和 state（状态）。",
+      "可用字段：destination（目标）、process（进程）、rule（规则）、geosite（GeoSite 规则内容）、chain（路由链）、provider（Provider 链）、network（网络）、protocol（协议）和 state（状态）。规则页还支持 type（类型）、payload（内容）、target（目标策略）和 enabled（是否启用）。",
     showing: "显示 {total} 项中的 {visible} 项",
     sortDestination: "目标",
     sortDownload: "下载量",
@@ -1101,7 +1103,7 @@ const zh = {
         capabilities: "能力状态",
         "active-profile": "当前配置的非敏感标识",
         capture: "流量接管设置与实际状态",
-        "service-probes": "直连服务探测摘要",
+        "service-probes": "直连 HTTP 首次响应探测摘要",
         "events-summary": "近期事件摘要",
         "diagnostic-runs": "诊断结果",
         "redaction-report": "已隐藏的信息说明",

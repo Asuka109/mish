@@ -163,7 +163,8 @@ derivation and persistence are specified in
 ## Services
 
 Service latency monitors a user-managed set of endpoint probes. The default fixture
-contains Google, GitHub, Cloudflare, Baidu, Apple, and Microsoft. Normal display
+contains Google `generate_204`, GitHub's favicon, Cloudflare `generate_204`,
+Baidu's favicon, a Weixin static icon, and AWS (us-east-1) DynamoDB `/ping`. Normal display
 shows a URL-backed service icon, title, and latency; activating a service runs
 that probe immediately and updates its latency in place. The probe URL and icon
 URL appear only in the editor. Default icons use bundled Remix Icon `v4.8.0`
@@ -172,7 +173,11 @@ while each service may supply its own HTTPS image URL. Failed or malformed
 images fall back to that bundled generic icon without removing the label or
 changing the row geometry. Only the browser loads custom images. Manage supports add, an Edit
 services dialog, automatic retest interval, delete, and Restore defaults.
-Automatic retesting offers 5-second, 10-second, 30-second, and 1-minute cycles.
+New and restored state uses a five-second cadence. Automatic retesting offers
+5-second, 10-second, 30-second, and 1-minute cycles.
+The desktop bridge randomizes the service order when the configuration is
+initialized or revised, then evenly spaces at most 12 probes across each
+selected interval instead of testing every service at once.
 Disabling it retains the latest results and runs one cycle each time the proxy
 starts. Keeping edit behind Manage preserves the service row as a single,
 unambiguous test action without adding a competing icon button to every row.
@@ -180,8 +185,12 @@ unambiguous test action without adding a competing icon button to every row.
 Manage remains openable when service mutation is unavailable so the menu can
 explain the capability boundary; unsupported commands remain disabled.
 
-A result means “the configured endpoint responded through the explicitly chosen
-probe path.” It is not proof of a globally active proxy node. Probe transport and
+A result means “the configured endpoint returned response headers through the
+explicitly chosen probe path.” It is direct HTTP first-response/service-connectivity
+latency, not bandwidth, pure RTT, full-body load, or complete application experience.
+Cloudflare reflects an Anycast edge; GitHub, Baidu, and Weixin reflect provider
+static-resource/CDN paths; AWS (us-east-1) uses DynamoDB. It is not proof of
+a globally active proxy node. Probe transport and
 security are specified in
 [`../architecture/status-data-contracts.md`](../architecture/status-data-contracts.md).
 

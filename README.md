@@ -65,6 +65,8 @@ Mish is local-first, not network-isolated. User profiles, Mihomo, provider
 updates, delay tests, and service probes can make outbound requests. Built-in
 service icons are bundled locally. A user-configured HTTPS service icon makes a
 direct browser image request; the Rust service does not fetch or proxy it. The
+service-probe value is HTTP first-response/service-connectivity latency through
+response headers, not bandwidth, pure RTT, or full application-load time. The
 current repository does not configure telemetry, a hosted account service, a
 crash reporter, or an automatic updater.
 

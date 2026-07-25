@@ -253,6 +253,18 @@ const expectedRemixIconAssets = [
     sha256: "c67d3330a759bc78bfa0a577e740c4de2ea0868bf6b645be0cbbb7a5755179e2",
   },
   {
+    upstreamPath: "icons/Logos/amazon-fill.svg",
+    upstreamGitBlobSha1: "fff21a6bfe8b5cadd182a5f426b0ea24ef75baa1",
+    localPath: "packages/brand-assets/public/assets/remix-icon/aws.svg",
+    sha256: "bce8eeaed93d3ca227e0c37d498d5025410cb8dcbfff9ca08ac0a0758c007d05",
+  },
+  {
+    upstreamPath: "icons/Logos/wechat-fill.svg",
+    upstreamGitBlobSha1: "d42f2bf62c30f91d077f1c4f13e400b5df3cfe17",
+    localPath: "packages/brand-assets/public/assets/remix-icon/wechat.svg",
+    sha256: "ebf85b4c671b76ba5e67b9688349684b8682b69fc0f300517258090c568692eb",
+  },
+  {
     upstreamPath: "icons/Business/cloud-fill.svg",
     upstreamGitBlobSha1: "94c4c46df76efb96df516c16174b273dddd2bcf8",
     localPath: "packages/brand-assets/public/assets/remix-icon/cloud.svg",
@@ -305,6 +317,9 @@ invariant(
     JSON.stringify(expectedRemixIconAssets.map((asset) => asset.localPath).sort()),
   "The Remix Icon static directory contains an unrecorded or missing asset.",
 );
+const currentDefaultRemixIconAssets = expectedRemixIconAssets.filter(
+  (asset) => !/\/(?:apple|microsoft)\.svg$/u.test(asset.localPath),
+);
 const remixLicenseDigest = createHash("sha256")
   .update(readFileSync(path.join(root, remixIconManifest.license.localPath)))
   .digest("hex");
@@ -326,7 +341,7 @@ for (const builtInSourcePath of [
 }
 includesAll(
   read("crates/runtime/src/status.rs"),
-  expectedRemixIconAssets.map((asset) =>
+  currentDefaultRemixIconAssets.map((asset) =>
     asset.localPath.replace("packages/brand-assets/public", ""),
   ),
   "Rust built-in service icon defaults",

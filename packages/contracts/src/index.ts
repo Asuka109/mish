@@ -1212,12 +1212,14 @@ const SERVICE_ICON_ASSET_BASE = "/assets/remix-icon";
 
 export const SERVICE_ICON_URLS = {
   apple: `${SERVICE_ICON_ASSET_BASE}/apple.svg`,
+  aws: `${SERVICE_ICON_ASSET_BASE}/aws.svg`,
   baidu: `${SERVICE_ICON_ASSET_BASE}/baidu.svg`,
   cloudflare: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
   fallback: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
   github: `${SERVICE_ICON_ASSET_BASE}/github.svg`,
   google: `${SERVICE_ICON_ASSET_BASE}/google.svg`,
   microsoft: `${SERVICE_ICON_ASSET_BASE}/microsoft.svg`,
+  weixin: `${SERVICE_ICON_ASSET_BASE}/wechat.svg`,
 } as const;
 
 const bundledServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
@@ -1828,12 +1830,12 @@ export const StatusSnapshotSchema = z
     groupUsage: z.array(GroupUsageSchema),
     metrics: RuntimeMetricsSchema,
     nodes: z.array(ProxyNodeSchema),
-    probeResults: z.array(ServiceProbeResultSchema),
+    probeResults: z.array(ServiceProbeResultSchema).max(12),
     profiles: z.array(ProfileSummarySchema),
     routingMode: RoutingModeSchema,
     runtime: RuntimeStatusSchema,
     serviceProbePolicy: ServiceProbePolicySchema,
-    services: z.array(ServiceMonitorSchema),
+    services: z.array(ServiceMonitorSchema).max(12),
     traffic: TrafficSnapshotSchema,
   })
   .strict();

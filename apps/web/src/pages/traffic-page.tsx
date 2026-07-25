@@ -67,6 +67,7 @@ import {
   type ConnectionSort,
   type RuleSort,
 } from "./traffic-model";
+import { formatConnectionProtocolLabel, formatNetworkIdentifier } from "./traffic-presentation";
 
 type TrafficTab = "active" | "closed" | "rules";
 type SelectedConnection = TrafficConnectionDto | ClosedTrafficConnection;
@@ -154,9 +155,16 @@ const trafficStyles = tv({
     ),
     empty: "mt-4 min-h-55 rounded-md border border-hairline",
     loadMore: "mt-3 flex items-center justify-end gap-3 pt-4 text-metadata text-muted-foreground",
-    detailDialog:
-      "max-h-[min(760px,calc(100vh_-_48px))] w-[min(680px,calc(100vw_-_32px))] overflow-auto",
-    detailBody: "flex flex-col",
+    detailDialog: cx(
+      "traffic-detail-dialog flex max-h-[min(760px,calc(100vh_-_48px))] flex-col",
+      "w-[min(680px,calc(100vw_-_32px))] overflow-hidden",
+    ),
+    detailHeader: "shrink-0",
+    detailBody: cx(
+      "traffic-detail-body min-h-0 flex-1 cursor-text overflow-x-hidden overflow-y-auto",
+      "overscroll-contain select-text",
+    ),
+    detailFooter: "shrink-0",
     detailGrid: cx(
       "m-4 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-hairline",
       "bg-hairline-soft max-shell-mobile:m-3 max-shell-mobile:grid-cols-1 [&>div]:min-w-0",
@@ -212,17 +220,20 @@ export function TrafficPage() {
   const [searchHelpOpen, setSearchHelpOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const activeConnections = isCurrent ? (snapshot?.activeConnections ?? []) : [];
-  const networks = useMemo(
-    () =>
-      [
-        "all",
-        ...new Set([...activeConnections, ...closed].map((item) => item.network.toLowerCase())),
-      ].map((value) => ({
-        label: value === "all" ? LL.traffic.allNetworks() : value.toUpperCase(),
+  const networks = useMemo(() => {
+    const identifiers = new Map<string, string>();
+    for (const connection of [...activeConnections, ...closed]) {
+      const normalized = connection.network.toLocaleLowerCase();
+      if (!identifiers.has(normalized)) identifiers.set(normalized, connection.network);
+    }
+    return [
+      { label: LL.traffic.allNetworks(), value: "all" },
+      ...[...identifiers].map(([value, raw]) => ({
+        label: formatNetworkIdentifier(raw),
         value,
       })),
-    [LL, activeConnections, closed],
-  );
+    ];
+  }, [LL, activeConnections, closed]);
   const filteredConnections = useMemo(() => {
     const source = tab === "closed" ? closed : activeConnections;
     return sortConnections(
@@ -571,6 +582,7 @@ export function TrafficPage() {
             <div className={trafficStyles().searchExamples()}>
               <code>destination:example.com</code>
               <code>process:browser network:tcp</code>
+              <code>geosite:youtube</code>
             </div>
           </div>
           <DialogFooter>
@@ -830,7 +842,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
               <ProcessIdentity connection={connection} LL={LL} />
             </TableCell>
             <TableCell className="tabular-nums">
-              {connection.network.toUpperCase()} · {connection.protocol}
+              {formatConnectionProtocolLabel(connection)}
             </TableCell>
             <TableCell className="tabular-nums">
               {formatDate(
@@ -1064,7 +1076,7 @@ function ConnectionDetailDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={connection !== null}>
       <DialogContent className={trafficStyles().detailDialog()} closeLabel={LL.common.close()}>
-        <DialogHeader>
+        <DialogHeader className={trafficStyles().detailHeader()}>
           <div>
             <DialogTitle className="dialog-title">{LL.traffic.connectionDetails()}</DialogTitle>
             <DialogDescription className="dialog-description">
@@ -1073,7 +1085,7 @@ function ConnectionDetailDialog({
           </div>
         </DialogHeader>
         {connection ? (
-          <div className={trafficStyles().detailBody()}>
+          <div className={trafficStyles().detailBody()} data-native-text-interaction tabIndex={-1}>
             <dl className={trafficStyles().detailGrid()}>
               <Detail
                 label={LL.traffic.destinationHost()}
@@ -1097,7 +1109,7 @@ function ConnectionDetailDialog({
               <Detail label={LL.traffic.sniffHost()} value={connection.sniffHost} LL={LL} />
               <Detail
                 label={LL.traffic.protocol()}
-                value={`${connection.network} · ${connection.protocol}`}
+                value={formatConnectionProtocolLabel(connection)}
                 LL={LL}
               />
               <Detail
@@ -1156,22 +1168,22 @@ function ConnectionDetailDialog({
                 <p>{LL.traffic.unavailable()}</p>
               )}
             </section>
-            <DialogFooter>
-              {!("closedAt" in connection) ? (
-                <Button
-                  aria-describedby={canClose ? undefined : "traffic-close-scope"}
-                  disabled={!canClose || isClosePending(connection.id)}
-                  loading={isClosePending(connection.id)}
-                  loadingText={LL.traffic.closingConnection()}
-                  onClick={() => onRequestClose(connection)}
-                  variant="destructive"
-                >
-                  {LL.traffic.close()}
-                </Button>
-              ) : null}
-            </DialogFooter>
           </div>
         ) : null}
+        <DialogFooter className={trafficStyles().detailFooter()}>
+          {connection && !("closedAt" in connection) ? (
+            <Button
+              aria-describedby={canClose ? undefined : "traffic-close-scope"}
+              disabled={!canClose || isClosePending(connection.id)}
+              loading={isClosePending(connection.id)}
+              loadingText={LL.traffic.closingConnection()}
+              onClick={() => onRequestClose(connection)}
+              variant="destructive"
+            >
+              {LL.traffic.close()}
+            </Button>
+          ) : null}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

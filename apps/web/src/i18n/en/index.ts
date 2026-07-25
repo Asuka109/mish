@@ -949,10 +949,12 @@ const en = {
     interval10Seconds: "Every 10 seconds",
     interval30Seconds: "Every 30 seconds",
     interval1Minute: "Every 1 minute",
-    metadataDescription: "Mish tests this endpoint directly, independently of Mihomo.",
+    metadataDescription:
+      "Mish measures direct HTTP first-response/service-connectivity latency, independently of Mihomo. Cloudflare is an Anycast edge; GitHub, Baidu, and Weixin use provider static-resource/CDN paths; AWS (us-east-1) uses DynamoDB.",
     probeUrl: "Probe URL",
     removedToast: "Service monitor removed",
     restoreDefaults: "Restore Defaults",
+    serviceLimit: "Up to 12 service monitors are allowed.",
     serviceName: "Service name",
     title: "Title",
     testInterval: "Test interval",
@@ -1063,7 +1065,7 @@ const en = {
     searchHelpDescription:
       "Enter text to search visible connection details, or use field:value filters for precise matches. Multiple filters are combined.",
     searchHelpFields:
-      "Available fields: destination, process, rule, chain, provider, network, protocol, and state.",
+      "Available fields: destination, process, rule, geosite (GeoSite rule payload), chain, provider, network, protocol, and state. Rules also support type, payload, target, and enabled.",
     showing: "Showing {visible:number} of {total:number}",
     sortDestination: "Destination",
     sortDownload: "Downloaded",
@@ -1207,7 +1209,7 @@ const en = {
         capabilities: "Capability status",
         "active-profile": "Active Profile identifiers",
         capture: "Capture desired / observed / drift",
-        "service-probes": "Direct service probe aggregates",
+        "service-probes": "Direct HTTP first-response probe aggregates",
         "events-summary": "Recent event aggregates",
         "diagnostic-runs": "Guided diagnostic checks",
         "redaction-report": "Redaction report entries",
