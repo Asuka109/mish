@@ -4,15 +4,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use mish_presentation_contract::ApplicationNotification;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::broadcast;
 
 pub const NOTIFICATION_RETENTION_LIMIT: usize = 128;
-pub const NOTIFICATION_PARAMETER_BYTES_LIMIT: usize = 2_048;
-pub const NOTIFICATION_PARAMETER_DEPTH_LIMIT: usize = 3;
-pub const NOTIFICATION_PARAMETER_ENTRIES_LIMIT: usize = 32;
-pub const NOTIFICATION_PARAMETER_STRING_LIMIT: usize = 160;
+pub const NOTIFICATION_PRESENTATION_BYTES_LIMIT: usize = 2_048;
+pub const NOTIFICATION_PRESENTATION_DEPTH_LIMIT: usize = 3;
+pub const NOTIFICATION_PRESENTATION_ENTRIES_LIMIT: usize = 32;
+pub const NOTIFICATION_PRESENTATION_STRING_LIMIT: usize = 160;
 pub const NOTIFICATION_REPLACEMENT_LIMIT: usize = 8;
 
 const IDENTIFIER_LIMIT: usize = 96;
@@ -27,22 +28,13 @@ pub enum NotificationSeverity {
     Error,
 }
 
-/// Optional local projection for Rust consumers that need to understand one notification type.
-/// The notification center itself stores parameters as opaque bounded JSON.
-pub trait TypedNotificationParameters: DeserializeOwned {
-    const NOTIFICATION_TYPE: &'static str;
-}
-
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NotificationPublication {
     pub dedupe_key: String,
-    #[serde(rename = "type")]
-    pub notification_type: String,
-    #[serde(default)]
-    pub params: Value,
     #[serde(default)]
     pub pinned: bool,
+    pub presentation: ApplicationNotification,
     #[serde(default)]
     pub replaces: Vec<String>,
     #[serde(default)]
@@ -57,25 +49,12 @@ pub struct NotificationRecord {
     pub dedupe_key: String,
     pub id: String,
     pub observed_at: u64,
-    #[serde(rename = "type")]
-    pub notification_type: String,
-    pub params: Value,
     pub pinned: bool,
+    pub presentation: ApplicationNotification,
     pub read: bool,
     pub resolved: bool,
     pub revision: u64,
     pub severity: NotificationSeverity,
-}
-
-impl NotificationRecord {
-    pub fn parameters_as<T: TypedNotificationParameters>(
-        &self,
-    ) -> Result<Option<T>, serde_json::Error> {
-        if self.notification_type != T::NOTIFICATION_TYPE {
-            return Ok(None);
-        }
-        serde_json::from_value(self.params.clone()).map(Some)
-    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -88,8 +67,7 @@ pub struct NotificationSnapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NotificationValidationError {
     InvalidDedupeKey,
-    InvalidNotificationType,
-    InvalidParameters,
+    InvalidPresentation,
     InvalidReplacement,
     TooManyReplacements,
 }
@@ -154,8 +132,7 @@ impl NotificationCenter {
         if !replacements_remove_something
             && existing_index.is_some_and(|index| {
                 let record = &state.records[index];
-                record.notification_type == publication.notification_type
-                    && record.params == publication.params
+                record.presentation == publication.presentation
                     && record.pinned == publication.pinned
                     && record.resolved == publication.resolved
                     && record.severity == publication.severity
@@ -179,10 +156,9 @@ impl NotificationCenter {
                 && (!record.resolved || publication.resolved)
         }) {
             let mut record = state.records.remove(index).expect("existing notification");
-            record.notification_type = publication.notification_type;
             record.observed_at = now_unix_milliseconds();
-            record.params = publication.params;
             record.pinned = publication.pinned;
+            record.presentation = publication.presentation;
             record.resolved = publication.resolved;
             record.revision = revision;
             record.severity = publication.severity;
@@ -194,10 +170,9 @@ impl NotificationCenter {
                 created_revision: revision,
                 dedupe_key: publication.dedupe_key,
                 id,
-                notification_type: publication.notification_type,
                 observed_at: now_unix_milliseconds(),
-                params: publication.params,
                 pinned: publication.pinned,
+                presentation: publication.presentation,
                 read: false,
                 resolved: publication.resolved,
                 revision,
@@ -330,9 +305,6 @@ fn validate_publication(
     if !valid_identifier(&publication.dedupe_key, true) {
         return Err(NotificationValidationError::InvalidDedupeKey);
     }
-    if !valid_identifier(&publication.notification_type, false) {
-        return Err(NotificationValidationError::InvalidNotificationType);
-    }
     if publication.replaces.len() > NOTIFICATION_REPLACEMENT_LIMIT {
         return Err(NotificationValidationError::TooManyReplacements);
     }
@@ -343,14 +315,19 @@ fn validate_publication(
     {
         return Err(NotificationValidationError::InvalidReplacement);
     }
-    let serialized = serde_json::to_vec(&publication.params)
-        .map_err(|_| NotificationValidationError::InvalidParameters)?;
+    if !publication.presentation.actions_valid() {
+        return Err(NotificationValidationError::InvalidPresentation);
+    }
+    let presentation = serde_json::to_value(&publication.presentation)
+        .map_err(|_| NotificationValidationError::InvalidPresentation)?;
+    let serialized = serde_json::to_vec(&presentation)
+        .map_err(|_| NotificationValidationError::InvalidPresentation)?;
     let mut entries = 0;
-    if !publication.params.is_object()
-        || serialized.len() > NOTIFICATION_PARAMETER_BYTES_LIMIT
-        || !valid_parameter_value(&publication.params, 0, &mut entries)
+    if !presentation.is_object()
+        || serialized.len() > NOTIFICATION_PRESENTATION_BYTES_LIMIT
+        || !valid_presentation_value(&presentation, 0, &mut entries)
     {
-        return Err(NotificationValidationError::InvalidParameters);
+        return Err(NotificationValidationError::InvalidPresentation);
     }
     Ok(())
 }
@@ -366,32 +343,33 @@ fn valid_identifier(value: &str, allow_colon: bool) -> bool {
         })
 }
 
-fn valid_parameter_value(value: &Value, depth: usize, entries: &mut usize) -> bool {
-    if depth > NOTIFICATION_PARAMETER_DEPTH_LIMIT {
+fn valid_presentation_value(value: &Value, depth: usize, entries: &mut usize) -> bool {
+    if depth > NOTIFICATION_PRESENTATION_DEPTH_LIMIT {
         return false;
     }
     match value {
         Value::Null | Value::Bool(_) => true,
         Value::Number(number) => number.as_f64().is_some_and(f64::is_finite),
-        Value::String(value) => valid_parameter_string(value),
+        Value::String(value) => valid_presentation_string(value),
         Value::Array(values) => {
             *entries = entries.saturating_add(values.len());
-            *entries <= NOTIFICATION_PARAMETER_ENTRIES_LIMIT
+            *entries <= NOTIFICATION_PRESENTATION_ENTRIES_LIMIT
                 && values
                     .iter()
-                    .all(|value| valid_parameter_value(value, depth + 1, entries))
+                    .all(|value| valid_presentation_value(value, depth + 1, entries))
         }
         Value::Object(values) => {
             *entries = entries.saturating_add(values.len());
-            *entries <= NOTIFICATION_PARAMETER_ENTRIES_LIMIT
+            *entries <= NOTIFICATION_PRESENTATION_ENTRIES_LIMIT
                 && values.iter().all(|(key, value)| {
-                    valid_parameter_key(key) && valid_parameter_value(value, depth + 1, entries)
+                    valid_presentation_key(key)
+                        && valid_presentation_value(value, depth + 1, entries)
                 })
         }
     }
 }
 
-fn valid_parameter_key(key: &str) -> bool {
+fn valid_presentation_key(key: &str) -> bool {
     if key.is_empty()
         || key.len() > IDENTIFIER_LIMIT
         || !key
@@ -416,8 +394,8 @@ fn valid_parameter_key(key: &str) -> bool {
     .any(|forbidden| lower.contains(forbidden))
 }
 
-fn valid_parameter_string(value: &str) -> bool {
-    if value.is_empty() || value.len() > NOTIFICATION_PARAMETER_STRING_LIMIT {
+fn valid_presentation_string(value: &str) -> bool {
+    if value.is_empty() || value.len() > NOTIFICATION_PRESENTATION_STRING_LIMIT {
         return false;
     }
     let lower = value.to_ascii_lowercase();
@@ -443,25 +421,25 @@ fn now_unix_milliseconds() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use mish_presentation_contract::{
+        ApplicationActionId, ApplicationNotificationContent,
+        ProfileCreatedApplicationNotificationData, ProfileSavedApplicationNotificationData,
+    };
 
     use super::*;
 
-    #[derive(Debug, Deserialize, PartialEq)]
-    struct TestNotificationParameters {
-        value: u64,
-    }
-
-    impl TypedNotificationParameters for TestNotificationParameters {
-        const NOTIFICATION_TYPE: &'static str = "test.notification";
-    }
-
     fn publication(key: &str, value: u64) -> NotificationPublication {
+        let content = if value % 2 == 0 {
+            ApplicationNotificationContent::ProfileCreated(
+                ProfileCreatedApplicationNotificationData {},
+            )
+        } else {
+            ApplicationNotificationContent::ProfileSaved(ProfileSavedApplicationNotificationData {})
+        };
         NotificationPublication {
             dedupe_key: key.into(),
-            notification_type: "test.notification".into(),
-            params: json!({ "value": value }),
             pinned: false,
+            presentation: ApplicationNotification::new(content, Vec::new()),
             replaces: Vec::new(),
             resolved: false,
             severity: NotificationSeverity::Info,
@@ -471,8 +449,7 @@ mod tests {
     #[test]
     fn publish_updates_stable_identity_and_monotonic_revision() {
         let center = NotificationCenter::new();
-        let mut first_publication = publication("same", 1);
-        first_publication.params = json!({ "camelCase": true, "value": 1 });
+        let first_publication = publication("same", 1);
         let first = center.publish(first_publication.clone()).unwrap();
         let id = first.notifications[0].id.clone();
         let unchanged = center.publish(first_publication).unwrap();
@@ -485,24 +462,15 @@ mod tests {
     }
 
     #[test]
-    fn typed_parameters_are_an_optional_projection_over_opaque_storage() {
+    fn generated_semantic_presentation_is_stored_without_localized_copy() {
         let center = NotificationCenter::new();
         let snapshot = center.publish(publication("typed", 7)).unwrap();
         let record = &snapshot.notifications[0];
 
-        assert_eq!(
-            record
-                .parameters_as::<TestNotificationParameters>()
-                .unwrap()
-                .expect("matching notification type"),
-            TestNotificationParameters { value: 7 }
-        );
-        let mut other = record.clone();
-        other.notification_type = "other.notification".into();
-        assert_eq!(
-            other.parameters_as::<TestNotificationParameters>().unwrap(),
-            None
-        );
+        assert_eq!(record.presentation.kind(), "profile.saved");
+        let serialized = serde_json::to_value(record).unwrap();
+        assert!(serialized.get("message").is_none());
+        assert!(serialized.get("detail").is_none());
     }
 
     #[test]
@@ -606,41 +574,55 @@ mod tests {
     }
 
     #[test]
-    fn rejects_oversized_nested_and_sensitive_parameters() {
+    fn rejects_invalid_actions_sensitive_data_and_missing_typed_arguments() {
         let center = NotificationCenter::new();
         let mut oversized = publication("oversized", 1);
-        oversized.params = json!({ "value": "x".repeat(NOTIFICATION_PARAMETER_STRING_LIMIT + 1) });
+        oversized.presentation = ApplicationNotification::new(
+            ApplicationNotificationContent::RouteSelectionFailed(
+                mish_presentation_contract::RouteSelectionFailedApplicationNotificationData {
+                    child: "x".repeat(NOTIFICATION_PRESENTATION_STRING_LIMIT + 1),
+                },
+            ),
+            Vec::new(),
+        );
         assert_eq!(
             center.publish(oversized),
-            Err(NotificationValidationError::InvalidParameters)
+            Err(NotificationValidationError::InvalidPresentation)
         );
 
-        let mut nested = publication("nested", 1);
-        nested.params = json!({ "a": { "b": { "c": { "d": true } } } });
+        let mut invalid_action = publication("invalid-action", 1);
+        invalid_action.presentation.action_ids = vec![ApplicationActionId::OpenDiagnostics];
         assert_eq!(
-            center.publish(nested),
-            Err(NotificationValidationError::InvalidParameters)
+            center.publish(invalid_action),
+            Err(NotificationValidationError::InvalidPresentation)
         );
 
         let mut sensitive = publication("sensitive", 1);
-        sensitive.params = json!({ "errorMessage": "raw Mihomo failure" });
+        sensitive.presentation = ApplicationNotification::new(
+            ApplicationNotificationContent::RouteSelectionFailed(
+                mish_presentation_contract::RouteSelectionFailedApplicationNotificationData {
+                    child: "https://private.invalid/token=secret".into(),
+                },
+            ),
+            Vec::new(),
+        );
         assert_eq!(
             center.publish(sensitive),
-            Err(NotificationValidationError::InvalidParameters)
+            Err(NotificationValidationError::InvalidPresentation)
         );
 
-        let mut scalar = publication("scalar", 1);
-        scalar.params = json!("not-an-object");
-        assert_eq!(
-            center.publish(scalar),
-            Err(NotificationValidationError::InvalidParameters)
-        );
-
-        let mut token_like = publication("token-like", 1);
-        token_like.params = json!({ "value": "a".repeat(64) });
-        assert_eq!(
-            center.publish(token_like),
-            Err(NotificationValidationError::InvalidParameters)
-        );
+        let missing = serde_json::from_value::<NotificationPublication>(serde_json::json!({
+            "dedupeKey": "missing",
+            "pinned": false,
+            "presentation": {
+                "actionIds": [],
+                "data": {},
+                "kind": "traffic.connections-closed"
+            },
+            "replaces": [],
+            "resolved": false,
+            "severity": "success"
+        }));
+        assert!(missing.is_err());
     }
 }

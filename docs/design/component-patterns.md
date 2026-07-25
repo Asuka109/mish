@@ -96,10 +96,10 @@ icon, and text changes without becoming a dark gray trough.
 Use the application-owned notification publication Interface for recoverable
 command failures, failed confirmations, and capture-state warnings. Feature code
 must not call Sonner directly or independently construct a notification-center
-item. It publishes a canonical type plus bounded semantic parameters to the Rust
-Module. The TypeScript registry derives localized title, message, detail,
-duration, and up to two data-only action descriptors. The Sonner Adapter is the
-sole imperative toast boundary. Do not insert these messages into page flow,
+item. It publishes a generated semantic kind, kind-specific typed data, and
+stable action IDs to the Rust Module. The TypeScript registry derives localized
+title, message, detail, duration, and bounded action descriptors. The Sonner
+Adapter is the sole imperative toast boundary. Do not insert these messages into page flow,
 because a transient failure must not move the control the user just operated.
 Keep load failures that prevent a page from presenting authoritative content in
 the page itself.

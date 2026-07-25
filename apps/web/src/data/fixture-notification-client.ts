@@ -28,11 +28,10 @@ export class FixtureNotificationCenter {
     );
     if (
       existing &&
-      existing.type === publication.type &&
       existing.severity === publication.severity &&
       existing.pinned === publication.pinned &&
       existing.resolved === publication.resolved &&
-      JSON.stringify(existing.params) === JSON.stringify(publication.params) &&
+      JSON.stringify(existing.presentation) === JSON.stringify(publication.presentation) &&
       publication.replaces.length === 0
     ) {
       return this.getSnapshot();
@@ -44,25 +43,23 @@ export class FixtureNotificationCenter {
       ? {
           ...existing,
           observedAt,
-          params: structuredClone(publication.params),
           pinned: publication.pinned,
+          presentation: structuredClone(publication.presentation),
           resolved: publication.resolved,
           revision,
           severity: publication.severity,
-          type: publication.type,
         }
       : {
           createdRevision: revision,
           dedupeKey: publication.dedupeKey,
           id: `notification:${++this.nextId}`,
           observedAt,
-          params: structuredClone(publication.params),
           pinned: publication.pinned,
+          presentation: structuredClone(publication.presentation),
           read: false,
           resolved: publication.resolved,
           revision,
           severity: publication.severity,
-          type: publication.type,
         };
     this.snapshot = {
       notifications: [

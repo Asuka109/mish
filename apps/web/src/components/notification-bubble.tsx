@@ -1,5 +1,6 @@
 import { Bell } from "@phosphor-icons/react/Bell";
 import { X } from "@phosphor-icons/react/X";
+import type { ApplicationActionId } from "@mish/contracts";
 import {
   Badge,
   Button,
@@ -104,7 +105,9 @@ export function NotificationBubble({
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
-  const [pendingActions, setPendingActions] = useState<ReadonlyMap<string, string>>(new Map());
+  const [pendingActions, setPendingActions] = useState<ReadonlyMap<string, ApplicationActionId>>(
+    new Map(),
+  );
   const [systemProxySettingsGuidance, setSystemProxySettingsGuidance] =
     useState<SystemProxySettingsGuidance | null>(null);
   const executingActions = useRef(new Set<string>());
@@ -112,7 +115,7 @@ export function NotificationBubble({
 
   const entryById = useMemo(() => new Map(entries.map((entry) => [entry.id, entry])), [entries]);
   const execute = useCallback(
-    async (notificationId: string, actionId: string) => {
+    async (notificationId: string, actionId: ApplicationActionId) => {
       if (executingActions.current.has(notificationId)) return;
       const notification = entryById.get(notificationId);
       const action = notification?.actions.find(({ id }) => id === actionId);
@@ -214,7 +217,7 @@ export function NotificationBubble({
         presented.current.get(notification.id) !== signature
       ) {
         presentNotificationToast(presentedNotification, (actionId) =>
-          execute(notification.id, actionId ?? notification.actions[0]?.id ?? ""),
+          execute(notification.id, actionId),
         );
       }
     }
@@ -374,7 +377,7 @@ interface NotificationItemProps {
   LL: TranslationFunctions;
   locale: Locales;
   notification: DeliveredNotification;
-  onExecute(notificationId: string, actionId: string): Promise<void>;
+  onExecute(notificationId: string, actionId: ApplicationActionId): Promise<void>;
   onRemove(notificationId: string): Promise<void>;
 }
 

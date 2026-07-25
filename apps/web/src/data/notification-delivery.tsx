@@ -1,4 +1,8 @@
 import type {
+  ApplicationActionId,
+  ApplicationNotification,
+  ApplicationNotificationDataByKind,
+  ApplicationNotificationKind,
   NotificationClient,
   NotificationPublicationDto,
   NotificationRecordDto,
@@ -141,35 +145,40 @@ function applyUpdate(
   setSnapshot(delivery.snapshot);
 }
 
-export function notificationPublication(
-  type: NotificationPublicationDto["type"],
-  options: Omit<
-    NotificationPublicationDto,
-    "dedupeKey" | "params" | "pinned" | "replaces" | "resolved" | "type"
-  > &
-    Partial<
-      Pick<NotificationPublicationDto, "dedupeKey" | "params" | "pinned" | "replaces" | "resolved">
-    >,
+export function notificationPublication<K extends ApplicationNotificationKind>(
+  kind: K,
+  options: {
+    actionIds?: readonly ApplicationActionId[];
+    dedupeKey?: string;
+    pinned?: boolean;
+    replaces?: string[];
+    resolved?: boolean;
+    severity: NotificationPublicationDto["severity"];
+  } & (ApplicationNotificationDataByKind[K] extends Record<string, never>
+    ? { data?: ApplicationNotificationDataByKind[K] }
+    : { data: ApplicationNotificationDataByKind[K] }),
 ): NotificationPublicationDto {
   return {
-    dedupeKey: options.dedupeKey ?? `${type}:${crypto.randomUUID()}`,
-    params: options.params ?? {},
+    dedupeKey: options.dedupeKey ?? `${kind}:${crypto.randomUUID()}`,
     pinned: options.pinned ?? false,
+    presentation: {
+      actionIds: [...(options.actionIds ?? [])],
+      data: options.data ?? {},
+      kind,
+    } as ApplicationNotification,
     replaces: options.replaces ?? [],
     resolved: options.resolved ?? false,
     severity: options.severity,
-    type,
   };
 }
 
 export function notificationRecord(
-  record: Partial<NotificationRecordDto> & Pick<NotificationRecordDto, "id" | "type">,
+  record: Partial<NotificationRecordDto> & Pick<NotificationRecordDto, "id" | "presentation">,
 ): NotificationRecordDto {
   return {
     createdRevision: 1,
     dedupeKey: record.id,
     observedAt: Date.now(),
-    params: {},
     pinned: false,
     read: false,
     resolved: false,

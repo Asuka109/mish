@@ -23,11 +23,56 @@ pub use capture::*;
 pub use diagnostics::*;
 pub use events::*;
 pub use lifecycle::*;
+pub use mish_presentation_contract::*;
 pub use notifications::*;
 pub use provider::*;
 pub use status::*;
 pub use traffic::*;
 pub use tun_helper::*;
+
+fn capture_failure_presentation_id(failure: CaptureFailureKind) -> &'static str {
+    match failure {
+        CaptureFailureKind::ApplyFailed => "apply-failed",
+        CaptureFailureKind::CapabilityUnavailable => "capability-unavailable",
+        CaptureFailureKind::ConfirmationFailed => "confirmation-failed",
+        CaptureFailureKind::CoreUnhealthy => "core-unhealthy",
+        CaptureFailureKind::ExternalDrift => "external-drift",
+        CaptureFailureKind::InvalidRecovery => "invalid-recovery",
+        CaptureFailureKind::ListenerUnavailable => "listener-unavailable",
+        CaptureFailureKind::ObservationFailed => "observation-failed",
+        CaptureFailureKind::PermissionDenied => "permission-denied",
+        CaptureFailureKind::PersistenceFailed => "persistence-failed",
+        CaptureFailureKind::RollbackFailed => "rollback-failed",
+        CaptureFailureKind::RuntimeTransition => "runtime-transition",
+        CaptureFailureKind::TakeoverRejected => "takeover-rejected",
+        CaptureFailureKind::UnsafeExistingConfiguration => "unsafe-existing-configuration",
+        CaptureFailureKind::UnsupportedSelection => "unsupported-selection",
+    }
+}
+
+fn system_proxy_observation_stage_presentation_id(
+    stage: SystemProxyObservationStage,
+) -> &'static str {
+    match stage {
+        SystemProxyObservationStage::DefaultRoute => "default-route",
+        SystemProxyObservationStage::NetworkServiceOrder => "network-service-order",
+        SystemProxyObservationStage::NetworkServiceResolution => "network-service-resolution",
+        SystemProxyObservationStage::ProxyConfiguration => "proxy-configuration",
+    }
+}
+
+fn system_proxy_takeover_rejection_presentation_id(
+    rejection: SystemProxyTakeoverRejection,
+) -> &'static str {
+    match rejection {
+        SystemProxyTakeoverRejection::AuthenticatedProxy => "authenticated-proxy",
+        SystemProxyTakeoverRejection::IncompleteObservation => "incomplete-observation",
+        SystemProxyTakeoverRejection::InvalidState => "invalid-state",
+        SystemProxyTakeoverRejection::ProtectedAutoDiscovery => "protected-auto-discovery",
+        SystemProxyTakeoverRejection::ProtectedPac => "protected-pac",
+        SystemProxyTakeoverRejection::UnrecoverableState => "unrecoverable-state",
+    }
+}
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -889,18 +934,38 @@ impl MishRuntime {
 
     fn record_capture_failure(&self, error: &CaptureTransitionError) {
         let failure = error.kind;
+        let action_ids = if error.takeover_rejection.is_some() {
+            vec![
+                ApplicationActionId::OpenSystemProxySettings,
+                ApplicationActionId::ShowSystemProxySettingsSteps,
+            ]
+        } else if failure == CaptureFailureKind::ExternalDrift {
+            vec![ApplicationActionId::Repair, ApplicationActionId::LeaveAsIs]
+        } else {
+            vec![ApplicationActionId::OpenDiagnostics]
+        };
         self.record_application_event(ApplicationDiagnosticEvent::capture_transition_failure(
             error,
         ));
         let _ = self.publish_notification(NotificationPublication {
             dedupe_key: "capture.failure".into(),
-            notification_type: "capture.failure".into(),
-            params: serde_json::json!({
-                "failure": failure,
-                "observationStage": error.observation_stage,
-                "takeoverReason": error.takeover_rejection,
-            }),
             pinned: false,
+            presentation: ApplicationNotification::new(
+                ApplicationNotificationContent::CaptureFailure(
+                    CaptureFailureApplicationNotificationData {
+                        failure: capture_failure_presentation_id(failure).into(),
+                        observation_stage: error
+                            .observation_stage
+                            .map(system_proxy_observation_stage_presentation_id)
+                            .map(str::to_owned),
+                        takeover_reason: error
+                            .takeover_rejection
+                            .map(system_proxy_takeover_rejection_presentation_id)
+                            .map(str::to_owned),
+                    },
+                ),
+                action_ids,
+            ),
             replaces: Vec::new(),
             resolved: false,
             severity: if failure == CaptureFailureKind::CoreUnhealthy {

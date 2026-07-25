@@ -1,12 +1,13 @@
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CaptureAuditReason, CapturePreflight, CaptureRecoveryAction,
+    ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
+    ApplicationNotificationContent, CaptureAuditReason, CapturePreflight, CaptureRecoveryAction,
     CaptureRequest, CaptureTransitionError, CoreError, CoreStatus, DiagnosticHistory,
     EventsSnapshot, MishRuntime, NotificationPublication, NotificationSnapshot,
     NotificationValidationError, ProviderAuthority, ProviderCommandExecution,
     ProviderCommandResult, ProviderKind, ProviderSnapshot, ProviderUpdateFailure, RoutingMode,
     StatusAdapterKind, StatusCommand, StatusCommandError, StatusSnapshot, TrafficCommandAuthority,
     TrafficCommandExecution, TrafficCommandFailureKind, TrafficCommandOperation,
-    TrafficCommandResult,
+    TrafficCommandResult, TrafficOperationFailedApplicationNotificationData,
 };
 use mish_state_authority::StateMutationAuthority;
 use serde_json::Value;
@@ -18,6 +19,23 @@ pub struct DesktopRuntimeHost {
     diagnostics: crate::DiagnosticCoordinator,
     mutation_authority: Option<StateMutationAuthority>,
     runtime: watch::Sender<MishRuntime>,
+}
+
+fn traffic_failure_id(failure: TrafficCommandFailureKind) -> &'static str {
+    match failure {
+        TrafficCommandFailureKind::Unsupported => "unsupported",
+        TrafficCommandFailureKind::InvalidRequest => "invalid-request",
+        TrafficCommandFailureKind::Conflict => "conflict",
+        TrafficCommandFailureKind::StaleSnapshot => "stale-snapshot",
+        TrafficCommandFailureKind::StaleConnection => "stale-connection",
+        TrafficCommandFailureKind::Timeout => "timeout",
+        TrafficCommandFailureKind::Disconnected => "disconnected",
+        TrafficCommandFailureKind::VersionDrift => "version-drift",
+        TrafficCommandFailureKind::ControllerRejected => "controller-rejected",
+        TrafficCommandFailureKind::RuntimeReplaced => "runtime-replaced",
+        TrafficCommandFailureKind::PartialRemaining => "partial-remaining",
+        TrafficCommandFailureKind::InconsistentObservation => "inconsistent-observation",
+    }
 }
 
 impl DesktopRuntimeHost {
@@ -430,17 +448,21 @@ impl DesktopRuntimeHost {
                 execution.clone()
             };
             if let Some(failure) = execution.failure {
-                current.record_application_event(ApplicationDiagnosticEvent::traffic_failure());
+                let failure_id = traffic_failure_id(failure);
+                current.record_application_event(ApplicationDiagnosticEvent::traffic_failure(
+                    failure_id,
+                ));
                 let _ = current.publish_notification(NotificationPublication {
                     dedupe_key: notification_key.clone(),
-                    notification_type: "traffic.operation-failed".into(),
-                    params: serde_json::json!({
-                        "failure": failure,
-                        "operation": execution.operation,
-                        "remainingCount": execution.remaining_connection_ids.len(),
-                        "targetCount": execution.target_count,
-                    }),
                     pinned: false,
+                    presentation: ApplicationNotification::new(
+                        ApplicationNotificationContent::TrafficOperationFailed(
+                            TrafficOperationFailedApplicationNotificationData {
+                                failure: failure_id.into(),
+                            },
+                        ),
+                        vec![ApplicationActionId::OpenDiagnostics],
+                    ),
                     replaces: Vec::new(),
                     resolved: false,
                     severity: mish_runtime::NotificationSeverity::Error,

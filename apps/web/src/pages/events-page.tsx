@@ -45,6 +45,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import { cx, tv } from "@mish/ui/tv";
 import { useEvents } from "../data/events-provider";
+import { presentEvent, type PresentedEventRecord } from "../data/event-presentation";
 import { useI18nContext } from "../i18n/i18n-react";
 import type { Locales, TranslationFunctions } from "../i18n/i18n-types";
 import {
@@ -250,18 +251,22 @@ export function EventsPage() {
 
   const viewPaused = paused && pausedSessionId === snapshot?.sessionId;
   const displayedEvents = viewPaused ? pausedEvents : events;
+  const presentedEvents = useMemo(
+    () => displayedEvents.map((event) => presentEvent(event, LL)),
+    [LL, displayedEvents],
+  );
   const filteredEvents = useMemo(
     () =>
       sortEvents(
         filterEvents(
-          displayedEvents,
+          presentedEvents,
           query,
           level === "all" ? new Set() : new Set([level]),
           source === "all" ? new Set() : new Set([source]),
         ),
         order,
       ),
-    [displayedEvents, level, order, query, source],
+    [level, order, presentedEvents, query, source],
   );
   const pausedIds = useMemo(() => new Set(pausedEvents.map(({ id }) => id)), [pausedEvents]);
   const bufferedWhilePaused = viewPaused ? events.filter(({ id }) => !pausedIds.has(id)).length : 0;
@@ -322,7 +327,7 @@ export function EventsPage() {
     setFollowLatest(atLatest);
   }
 
-  async function copyEvent(event: EventRecordDto) {
+  async function copyEvent(event: PresentedEventRecord) {
     if (!navigator.clipboard?.writeText) return;
     await navigator.clipboard.writeText(formatEventForCopy(event));
     setCopiedId(event.id);
@@ -811,11 +816,9 @@ function shortIdentifier(value: string) {
   return suffix.slice(0, 12);
 }
 
-function offersDiagnostics(event: EventRecordDto) {
+function offersDiagnostics(event: PresentedEventRecord) {
   if (event.level !== "warning" && event.level !== "error") return false;
-  return /core|start|profile|valid|permission|dns|system proxy|drift/iu.test(
-    `${event.message} ${event.detail ?? ""}`,
-  );
+  return event.actionIds.includes("open-diagnostics");
 }
 
 function runBadge(run: DiagnosticRunDto) {
@@ -923,7 +926,7 @@ function formatEventTime(value: number, locale: Locales) {
   }).format(value);
 }
 
-export function formatEventForCopy(event: EventRecordDto) {
+export function formatEventForCopy(event: PresentedEventRecord) {
   const header = `${new Date(event.observedAt).toISOString()} [${event.level.toUpperCase()}] [${event.source}] ${event.message}`;
   return event.detail ? `${header}\n${event.detail}` : header;
 }

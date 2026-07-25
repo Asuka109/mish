@@ -70,8 +70,9 @@ beforeAll(async () => {
   );
   await notificationClient.publish(
     notificationPublication("system-proxy.drift", {
+      actionIds: ["repair"],
       dedupeKey: "system-proxy.drift",
-      params: { canLeave: false, canRepair: true, repairRequiresCore: false },
+      data: { canLeave: false, canRepair: true, repairRequiresCore: false },
       severity: "warning",
     }),
   );

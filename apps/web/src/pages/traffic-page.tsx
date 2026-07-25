@@ -273,7 +273,7 @@ export function TrafficPage() {
     if (result?.status === "success") {
       publish(
         notificationPublication("traffic.connections-closed", {
-          params: { count: result.targetCount },
+          data: { count: result.targetCount },
           severity: "success",
         }),
       );
@@ -290,7 +290,7 @@ export function TrafficPage() {
     if (result?.status === "success") {
       publish(
         notificationPublication("traffic.connections-closed", {
-          params: { count: result.targetCount },
+          data: { count: result.targetCount },
           severity: "success",
         }),
       );

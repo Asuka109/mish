@@ -334,7 +334,7 @@ function ServiceEditorDialog({ draft, fixture, onClose, setDraft }: ServiceEdito
       if (!result.ok) return;
       publish(
         notificationPublication("service.saved", {
-          params: { operation: existingService ? "updated" : "added" },
+          data: { operation: existingService ? "updated" : "added" },
           severity: "success",
         }),
       );
