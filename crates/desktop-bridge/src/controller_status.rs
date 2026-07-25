@@ -612,7 +612,7 @@ fn map_connection(connection: Connection) -> Result<TrafficConnection, StatusMap
         process_name: non_empty(connection.metadata.process),
         process_path: non_empty(connection.metadata.process_path),
         protocol: connection.metadata.kind,
-        provider_chain: connection.provider_chains,
+        provider_chain: normalize_provider_chain(connection.provider_chains),
         remote_destination: non_empty(connection.metadata.remote_destination),
         route_chain: normalize_controller_route_chain(connection.chains),
         sniff_host: non_empty(connection.metadata.sniff_host),
@@ -621,6 +621,22 @@ fn map_connection(connection: Connection) -> Result<TrafficConnection, StatusMap
         started_at: connection.start,
         upload_bytes,
     })
+}
+
+fn normalize_provider_chain(provider_chains: Vec<String>) -> Vec<String> {
+    provider_chains
+        .into_iter()
+        .filter_map(|label| {
+            let trimmed = label.trim();
+            if trimmed.is_empty() {
+                None
+            } else if trimmed.len() == label.len() {
+                Some(label)
+            } else {
+                Some(trimmed.to_owned())
+            }
+        })
+        .collect()
 }
 
 /// Mihomo serializes `chains` from the final outbound back toward the first

@@ -208,7 +208,7 @@ Mihomo, active connections, profiles, rules, configuration, or logs.
 
 Plain text searches destination, process, rule, and route-chain values.
 Structured tokens compose with plain text: `destination:`, `process:`, `rule:`,
-`chain:`, `group:`, `child:`, `network:`, `protocol:`, and `state:`. Network is
+`chain:`, `group:`, `child:`, `provider:`, `network:`, `protocol:`, and `state:`. Network is
 also available as a structured select. Rules accept `type:`, `payload:`,
 `target:`, and `enabled:`.
 

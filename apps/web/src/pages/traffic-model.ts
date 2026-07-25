@@ -199,6 +199,7 @@ function matchesConnectionToken(
     String(connection.destinationPort),
   ];
   const process = [connection.processName, connection.processPath];
+  const providerChain = connection.providerChain;
   const rule = [connection.matchedRule.type, connection.matchedRule.payload];
   const routeChain = connection.routeChain;
   const fields: Record<string, Array<string | null>> = {
@@ -208,13 +209,14 @@ function matchesConnectionToken(
     group: routeChain,
     network: [connection.network],
     process,
+    provider: providerChain,
     protocol: [connection.protocol],
     rule,
     state: [state],
   };
   const values = token.field
     ? fields[token.field]
-    : [...destination, ...process, ...rule, ...routeChain];
+    : [...destination, ...process, ...rule, ...routeChain, ...providerChain];
   if (!values) return false;
   return values.some((value) => value?.toLocaleLowerCase().includes(token.value));
 }

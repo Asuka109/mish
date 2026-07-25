@@ -384,6 +384,81 @@ fn maps_nested_groups_opaque_metadata_metrics_and_group_scoped_selection() {
 }
 
 #[test]
+fn normalizes_provider_chain_once_before_traffic_dto_publication() {
+    let mut mapper = initialized_mapper();
+    let mut mixed = connection("mixed-provider-chain", &[OUTER_GROUP, DIRECT]);
+    mixed["providerChains"] = json!([
+        "",
+        " \t\n",
+        " Provider A ",
+        "DIRECT",
+        "Provider A",
+        " 東京 / 東京 🚀 ",
+        ""
+    ]);
+    let mut all_empty = connection("empty-provider-chain", &[DIRECT]);
+    all_empty["providerChains"] = json!(["", "\u{3000}\t"]);
+
+    mapper
+        .apply(ControllerObservationBatch {
+            connections: Some(connections(vec![mixed, all_empty])),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+
+    let traffic = mapper.traffic_snapshot(
+        StatusAdapterKind::Rpc,
+        TrafficDataPhase::Ready,
+        1,
+        Some("controller-1".into()),
+        0,
+    );
+    assert_eq!(
+        traffic.active_connections[0].provider_chain,
+        ["Provider A", "DIRECT", "Provider A", "東京 / 東京 🚀"]
+    );
+    assert_eq!(
+        traffic.active_connections[1].provider_chain,
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn preserves_every_valid_provider_chain_entry_within_the_controller_bound() {
+    let mut mapper = initialized_mapper();
+    let mut bounded = connection("bounded-provider-chain", &[DIRECT]);
+    let provider_chains = (0..128)
+        .map(|index| format!(" Provider {index} "))
+        .collect::<Vec<_>>();
+    bounded["providerChains"] = json!(provider_chains);
+
+    mapper
+        .apply(ControllerObservationBatch {
+            connections: Some(connections(vec![bounded])),
+            ..ControllerObservationBatch::default()
+        })
+        .unwrap();
+
+    let traffic = mapper.traffic_snapshot(
+        StatusAdapterKind::Rpc,
+        TrafficDataPhase::Ready,
+        1,
+        Some("controller-1".into()),
+        0,
+    );
+    let provider_chain = &traffic.active_connections[0].provider_chain;
+    assert_eq!(provider_chain.len(), 128);
+    assert_eq!(
+        provider_chain.first().map(String::as_str),
+        Some("Provider 0")
+    );
+    assert_eq!(
+        provider_chain.last().map(String::as_str),
+        Some("Provider 127")
+    );
+}
+
+#[test]
 fn normalizes_controller_route_chains_once_without_inventing_or_deduplicating_hops() {
     let mut mapper = initialized_mapper();
     let bounded_raw_chain = (0..256)

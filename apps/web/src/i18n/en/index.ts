@@ -1063,7 +1063,7 @@ const en = {
     searchHelpDescription:
       "Enter text to search visible connection details, or use field:value filters for precise matches. Multiple filters are combined.",
     searchHelpFields:
-      "Available fields: destination, process, rule, chain, network, protocol, and state.",
+      "Available fields: destination, process, rule, chain, provider, network, protocol, and state.",
     showing: "Showing {visible:number} of {total:number}",
     sortDestination: "Destination",
     sortDownload: "Downloaded",
