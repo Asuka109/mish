@@ -658,7 +658,7 @@ fn connections_many(ids: &[&str]) -> Value {
             "upload": 50,
             "download": 100,
             "start": "2026-07-19T00:00:00Z",
-            "chains": ["SELECT", "DIRECT"],
+            "chains": ["DIRECT", "SELECT"],
             "rule": "MATCH",
             "rulePayload": ""
         })).collect::<Vec<_>>()

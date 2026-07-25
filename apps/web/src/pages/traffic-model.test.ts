@@ -125,6 +125,15 @@ describe("Traffic filters and stable sorting", () => {
     ]);
   });
 
+  it("searches the normalized route chain without merging provider-chain labels", () => {
+    const value = connection("isolated", {
+      providerChain: ["Provider-only label"],
+      routeChain: ["Front group", "Final exit"],
+    });
+    expect(filterConnections([value], "chain:front", "active", "all")).toEqual([value]);
+    expect(filterConnections([value], "chain:provider-only", "active", "all")).toEqual([]);
+  });
+
   it("sorts exact decimal counters without losing stable ties", () => {
     const values = [
       connection("first", { downloadBytes: "9007199254740993" }),
