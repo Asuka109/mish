@@ -147,6 +147,162 @@ candidate because it directly violates the required rejected-Profile
 isolation: `mihomo -t` or provider initialization may mutate authority shared
 with the active or next candidate.
 
+### Route A: fresh private root with verified writes
+
+This is the current lifecycle:
+
+1. Create a private `.staging-<uuid>` root.
+2. Verify the packaged manifest and source bytes.
+3. Write private GeoData files, the scoped selection cache, and generated
+   configuration into that root.
+4. Run the pinned Core validation against only that root.
+5. Rename the root into its promoted UUID path.
+6. Launch and commit it after readiness, or delete it exactly on failure.
+7. Retire the prior root only after the replacement is authoritative.
+
+Its main property is locality: the complete set of files a candidate may mutate
+is also the cleanup unit and the ownership-journal target. Mish does not need
+to predict every relative provider file or Core-created database to reject,
+cancel, roll back, or retire an activation.
+
+The cost is repeated verification and approximately 41 MiB of logical writes.
+On the measured APFS host, however, this stage had a 46.7 ms median and
+represented about 1.4% of the lower pinned-Core cold activation sample. It is
+portable, has no persistent template invalidation state, and already has
+deterministic recovery coverage. Route A remains the baseline until another
+route demonstrates both a complete safety proof and at least a 10% end-to-end
+improvement.
+
+### Route B: fresh private root with copy-on-write clones
+
+This route changes how verified seed files enter the staging root, not what the
+root owns. On a capable filesystem, Mish would create independent copy-on-write
+regular files from the packaged assets. Configuration, selection cache, and
+provider resources would still be private writes. Unsupported filesystems and
+clone failures would use the portable sequential copy Adapter.
+
+The intended lifecycle is:
+
+1. Verify the source manifest and exact source files.
+2. Create the same private UUID staging root as Route A.
+3. Clone one asset at a time into that root, rejecting links and unexpected
+   file types.
+4. If capability detection or cloning fails, remove the partial staging root
+   and restart preparation with portable private copies.
+5. Perform the unchanged validation, promotion, readiness, rollback, and
+   retirement transaction.
+
+This preserves logical isolation because a copy-on-write clone is an
+independent file, unlike a symlink or hard link. It does introduce additional
+platform states: capability reported but operation unsupported, a partial set
+of cloned files, source replacement during preparation, clone success followed
+by metadata mismatch, and fallback failure. Those states need failure
+injection and must never mix a partial clone attempt with the fallback result.
+
+The prototype did not justify those states. Native `/bin/cp -c` succeeded but
+measured 79.8 ms median and 206.3 ms p95, versus 46.7 ms and 67.1 ms for current
+verified writes. Node `COPYFILE_FICLONE_FORCE` returned `ENOSYS`. A future
+in-process platform Adapter should be considered only if it beats Route A
+end-to-end, does not regress p95, and retains the portable fallback. A faster
+microbenchmark alone is insufficient because the impossible zero-cost upper
+bound for the entire current file stage is still below the materiality gate.
+
+### Route C: content-addressed prepared template
+
+This route introduces a durable immutable template between packaged resources
+and candidate roots:
+
+```text
+runtime/
+├── templates/
+│   ├── .staging-<template-id>/
+│   └── <core-version>-<manifest-digest>/
+│       ├── template-manifest.json
+│       ├── GeoSite.dat
+│       ├── GeoIP.dat
+│       ├── geoip.metadb
+│       └── ASN.mmdb
+└── candidates/
+    └── .staging-<activation-uuid>/home/
+```
+
+The template would contain only packaged immutable assets. Candidate config,
+selection cache, provider resources, and any file ever writable by a running
+Core remain outside it. Template construction would verify all inputs, publish
+through atomic rename, and key the result by the exact Core and manifest
+identity. Every activation would still create a private candidate root from
+the template by clone or sequential copy.
+
+This can move source discovery and possibly repeated digest work away from the
+activation critical path. It cannot remove the need to create private runtime
+files, and using a sequential copy retains most of the current I/O. If the
+template is writable by the same account, trusting it without use-time
+verification weakens the current tamper-detection boundary; if it is
+re-verified on every use, most of its proposed saving disappears.
+
+The template also becomes new durable authority. Correctness would require:
+
+- exclusive and atomic construction under concurrent launches;
+- exact Core/manifest invalidation and bounded stale-template cleanup;
+- private ownership, mode, regular-file, size, and digest enforcement;
+- recovery from interrupted construction or replacement;
+- proof that runtime mutation can never reach the template; and
+- candidate preparation fallback when the template is absent or rejected.
+
+Route C is a reasonable future direction only if candidate preparation becomes
+a measured bottleneck or the packaged resources gain an OS-sealed immutable
+identity that safely amortizes verification. Current evidence does not pay for
+the additional authority and recovery protocol.
+
+### Route D: persistent per-Profile or effective-fingerprint home
+
+This route changes the logical isolation boundary. A possible layout is:
+
+```text
+runtime/
+└── profile-homes/
+    └── <profile-id>/
+        └── <effective-fingerprint>/
+            ├── config.yaml
+            ├── cache.db
+            ├── GeoData
+            └── provider-created resources
+```
+
+Activation would select an existing home, refresh known inputs, validate it,
+and run it again. This resembles Mihomo Party's optional per-Profile runtime
+workdir and avoids recreating known files when revisiting a Profile.
+
+There are two ways to make failure rollback plausible:
+
+1. **Reset known paths.** Delete or replace configuration, cache, GeoData, and
+   known provider resources before validation.
+2. **Snapshot the complete home.** Create a private pre-validation snapshot,
+   mutate the reusable home, and restore the snapshot after rejection,
+   cancellation, launch failure, or crash recovery.
+
+The reset variant is not provable because Mish does not own the complete
+Profile-dependent set of paths Mihomo and providers may create. An unknown
+file can survive into a later activation, and cleanup cannot distinguish valid
+reusable state from partial candidate authority. The snapshot variant recovers
+the missing proof only by reintroducing a whole-root private copy plus a more
+complex restore journal—the cost and state space that reuse was meant to
+remove.
+
+Concurrency also becomes harder. An active, validating, updating, or retiring
+generation cannot share a writable home with another generation. Mish would
+need per-home generation locks, an explicit quarantine state, snapshot
+ownership, crash-resumable reset/restore, and rules for Core replacement while
+the old generation remains rollback authority. Candidate deletion would no
+longer be exact whole-root cleanup because part of the root is intended to
+survive.
+
+The best possible measured saving is still only the current tens-of-
+milliseconds preparation stage. Route D therefore accepts the largest
+correctness burden for an end-to-end gain that cannot reach the materiality
+threshold. It remains rejected unless the product intentionally relaxes exact
+rejected-Profile isolation and measurements change substantially.
+
 ## Evaluation criteria
 
 A narrower design is acceptable only if it:
