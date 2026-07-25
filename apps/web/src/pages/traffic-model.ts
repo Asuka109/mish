@@ -3,6 +3,7 @@ import type {
   TrafficConnectionDto,
   TrafficDataSnapshotDto,
 } from "@mish/contracts";
+import { trafficIdentifierSearchValues } from "./traffic-presentation";
 
 export const CLOSED_CONNECTION_LIMIT = 512;
 export const CLOSED_CONNECTION_MAX_AGE_MILLISECONDS = 30 * 60 * 1_000;
@@ -195,6 +196,7 @@ function matchesConnectionToken(
     return matchesGeosite(connection.matchedRule.type, connection.matchedRule.payload, token.value);
   }
 
+  const identifiers = trafficIdentifierSearchValues(connection);
   const destination = [
     connection.destinationHost,
     connection.destinationIp,
@@ -211,10 +213,10 @@ function matchesConnectionToken(
     child: routeChain,
     destination,
     group: routeChain,
-    network: [connection.network],
+    network: identifiers.network,
     process,
     provider: providerChain,
-    protocol: [connection.protocol],
+    protocol: identifiers.protocol,
     rule,
     state: [state],
   };
@@ -226,6 +228,8 @@ function matchesConnectionToken(
         ...(isGeositeType(connection.matchedRule.type) ? [] : rule),
         ...routeChain,
         ...providerChain,
+        ...identifiers.network,
+        ...identifiers.protocol,
       ];
   if (!values) return false;
   return values.some((value) => value?.toLocaleLowerCase().includes(token.value));

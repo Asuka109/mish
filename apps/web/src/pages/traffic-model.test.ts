@@ -144,6 +144,24 @@ describe("Traffic filters and stable sorting", () => {
     expect(values[0]?.providerChain).toEqual(["Provider A", "东京 🚀", "Provider A"]);
   });
 
+  it("searches raw and canonical network and protocol identifiers case-insensitively", () => {
+    const canonical = connection("canonical", { network: "tcp", protocol: "Socks5" });
+    const custom = connection("custom", {
+      network: "custom Transport",
+      protocol: "私有协议",
+    });
+
+    expect(filterConnections([canonical, custom], "TCP SOCKS5", "active", "all")).toEqual([
+      canonical,
+    ]);
+    expect(
+      filterConnections([canonical, custom], "network:tcp protocol:socks5", "active", "all"),
+    ).toEqual([canonical]);
+    expect(
+      filterConnections([canonical, custom], "custom transport 私有协议", "active", "all"),
+    ).toEqual([custom]);
+  });
+
   it("searches the normalized route chain without merging provider-chain labels", () => {
     const value = connection("isolated", {
       providerChain: ["Provider-only label"],
