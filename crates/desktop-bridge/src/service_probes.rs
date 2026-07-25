@@ -31,9 +31,8 @@ const DEFAULT_INTERVAL_SECONDS: u16 = 5;
 const DISABLED_INTERVAL_SECONDS: u16 = 0;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_MONITORS: usize = 12;
-const LEGACY_MAX_MONITORS: usize = 24;
+const MAX_PERSISTED_MONITORS: usize = 24;
 const ALLOWED_INTERVALS: [u16; 5] = [0, 5, 10, 30, 60];
-const PERSISTED_INTERVALS: [u16; 6] = [0, 5, 10, 30, 60, 300];
 const BODY_DRAIN_LIMIT_BYTES: usize = 64 * 1024;
 const FALLBACK_SERVICE_ICON_URL: &str = "/assets/remix-icon/cloud.svg";
 const BUNDLED_SERVICE_ICON_URLS: [&str; 8] = [
@@ -173,17 +172,14 @@ impl ServiceProbeService {
             .filter(valid_persisted_state);
         let interval_seconds = persisted
             .as_ref()
-            .map_or(DEFAULT_INTERVAL_SECONDS, |state| {
-                normalize_persisted_interval(state.interval_seconds)
-            });
+            .map_or(DEFAULT_INTERVAL_SECONDS, |state| state.interval_seconds);
         let mut services: Vec<ServiceMonitor> = persisted
             .map(|state| state.services)
             .unwrap_or_else(default_service_monitors)
             .into_iter()
-            .map(normalize_persisted_icon)
+            .map(sanitize_persisted_icon)
             .collect();
         services.truncate(MAX_MONITORS);
-        let services = migrate_legacy_defaults(services);
         let client = Client::builder()
             .connect_timeout(PROBE_TIMEOUT)
             .timeout(PROBE_TIMEOUT)
@@ -646,7 +642,7 @@ fn load_state(path: &Path) -> Result<PersistedState, io::Error> {
 fn valid_persisted_state(state: &PersistedState) -> bool {
     state.version == 1
         && valid_persisted_interval(state.interval_seconds)
-        && state.services.len() <= LEGACY_MAX_MONITORS
+        && state.services.len() <= MAX_PERSISTED_MONITORS
         && state.services.iter().all(|monitor| {
             valid_identifier(&monitor.id)
                 && monitor.icon.len() <= 2_048
@@ -656,186 +652,14 @@ fn valid_persisted_state(state: &PersistedState) -> bool {
 }
 
 fn valid_persisted_interval(interval_seconds: u16) -> bool {
-    PERSISTED_INTERVALS.contains(&interval_seconds)
+    ALLOWED_INTERVALS.contains(&interval_seconds)
 }
 
-fn normalize_persisted_interval(interval_seconds: u16) -> u16 {
-    if interval_seconds == 300 {
-        DEFAULT_INTERVAL_SECONDS
-    } else {
-        interval_seconds
-    }
-}
-
-fn normalize_persisted_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
-    if let Some(icon) = current_default_icon_url(&monitor.icon)
-        && default_monitor_uses_icon(&monitor, icon)
-    {
-        monitor.icon = icon.into();
-    } else if !valid_icon_url(&monitor.icon) {
+fn sanitize_persisted_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
+    if !valid_icon_url(&monitor.icon) {
         monitor.icon = FALLBACK_SERVICE_ICON_URL.into();
     }
     monitor
-}
-
-fn migrate_legacy_defaults(mut services: Vec<ServiceMonitor>) -> Vec<ServiceMonitor> {
-    let is_exact = |monitor: &ServiceMonitor, id: &str, label: &str, icon: &str, url: &str| {
-        monitor.id == id && monitor.label == label && monitor.icon == icon && monitor.url == url
-    };
-    let legacy_default_seen = services.iter().any(|monitor| {
-        is_exact(
-            monitor,
-            "github",
-            "GitHub",
-            "/assets/remix-icon/github.svg",
-            "https://github.com",
-        ) || is_exact(
-            monitor,
-            "baidu",
-            "Baidu",
-            "/assets/remix-icon/baidu.svg",
-            "https://www.baidu.com",
-        ) || is_exact(
-            monitor,
-            "apple",
-            "Apple",
-            "/assets/remix-icon/apple.svg",
-            "https://www.apple.com/library/test/success.html",
-        ) || is_exact(
-            monitor,
-            "microsoft",
-            "Microsoft",
-            "/assets/remix-icon/microsoft.svg",
-            "http://www.msftconnecttest.com/connecttest.txt",
-        ) || is_exact(
-            monitor,
-            "microsoft",
-            "Microsoft",
-            "/assets/remix-icon/microsoft.svg",
-            "https://www.msftconnecttest.com/connecttest.txt",
-        )
-    });
-    services.retain(|monitor| {
-        !is_exact(
-            monitor,
-            "apple",
-            "Apple",
-            "/assets/remix-icon/apple.svg",
-            "https://www.apple.com/library/test/success.html",
-        ) && !is_exact(
-            monitor,
-            "microsoft",
-            "Microsoft",
-            "/assets/remix-icon/microsoft.svg",
-            "http://www.msftconnecttest.com/connecttest.txt",
-        ) && !is_exact(
-            monitor,
-            "microsoft",
-            "Microsoft",
-            "/assets/remix-icon/microsoft.svg",
-            "https://www.msftconnecttest.com/connecttest.txt",
-        )
-    });
-    for monitor in &mut services {
-        if is_exact(
-            monitor,
-            "github",
-            "GitHub",
-            "/assets/remix-icon/github.svg",
-            "https://github.com",
-        ) {
-            monitor.url = "https://github.com/favicon.ico".into();
-        }
-        if is_exact(
-            monitor,
-            "baidu",
-            "Baidu",
-            "/assets/remix-icon/baidu.svg",
-            "https://www.baidu.com",
-        ) {
-            monitor.url = "https://www.baidu.com/favicon.ico".into();
-        }
-    }
-    if legacy_default_seen {
-        let defaults = default_service_monitors();
-        for default in &defaults[4..] {
-            if services.len() >= MAX_MONITORS {
-                break;
-            }
-            if !services
-                .iter()
-                .any(|monitor| monitor.id == default.id && monitor.url == default.url)
-            {
-                services.push(default.clone());
-            }
-        }
-    }
-    services
-}
-
-fn default_monitor_uses_icon(monitor: &ServiceMonitor, icon: &str) -> bool {
-    matches!(
-        (monitor.id.as_str(), monitor.label.as_str(), icon,),
-        ("apple", "Apple", "/assets/remix-icon/apple.svg")
-            | ("baidu", "Baidu", "/assets/remix-icon/baidu.svg")
-            | ("cloudflare", "Cloudflare", "/assets/remix-icon/cloud.svg")
-            | ("github", "GitHub", "/assets/remix-icon/github.svg")
-            | ("google", "Google", "/assets/remix-icon/google.svg")
-            | ("microsoft", "Microsoft", "/assets/remix-icon/microsoft.svg")
-    )
-}
-
-fn current_default_icon_url(value: &str) -> Option<&'static str> {
-    match value {
-        "apple"
-        | "device"
-        | "/assets/remix-icon/apple.svg"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/apple.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/apple-fill.svg" => {
-            Some("/assets/remix-icon/apple.svg")
-        }
-        "baidu"
-        | "compass"
-        | "/assets/remix-icon/baidu.svg"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/baidu-color.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/baidu-fill.svg" => {
-            Some("/assets/remix-icon/baidu.svg")
-        }
-        "cloudflare"
-        | "cloud"
-        | "/assets/remix-icon/cloud.svg"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg" => {
-            Some("/assets/remix-icon/cloud.svg")
-        }
-        "github"
-        | "code"
-        | "/assets/remix-icon/github.svg"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/github.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/github-fill.svg" => {
-            Some("/assets/remix-icon/github.svg")
-        }
-        "google"
-        | "search"
-        | "/assets/remix-icon/google.svg"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/google-color.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg" => {
-            Some("/assets/remix-icon/google.svg")
-        }
-        "microsoft"
-        | "squares"
-        | "/assets/remix-icon/microsoft.svg"
-        | "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/microsoft-color.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/microsoft-fill.svg" => {
-            Some("/assets/remix-icon/microsoft.svg")
-        }
-        "globe"
-        | "https://registry.npmmirror.com/bootstrap-icons/1.13.1/files/icons/globe.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Map/globe-fill.svg"
-        | "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Business/cloud-fill.svg" => {
-            Some(FALLBACK_SERVICE_ICON_URL)
-        }
-        _ => None,
-    }
 }
 
 fn validate_icon_url(value: &str) -> Result<(), ServiceProbeError> {
@@ -2003,29 +1827,34 @@ mod tests {
     }
 
     #[test]
-    fn legacy_five_minute_default_migrates_to_five_seconds() {
+    fn unsupported_persisted_interval_falls_back_to_current_defaults() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
         let state = PersistedState {
             interval_seconds: 300,
-            services: default_service_monitors(),
+            services: vec![test_monitor("custom", "https://custom.example/probe")],
             version: 1,
         };
+        assert!(!valid_persisted_state(&state));
         fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
 
         let restored = ServiceProbeService::new(ServiceProbeConfig {
             state_path: Some(state_path),
         });
         assert_eq!(restored.interval_seconds(), 5);
+        assert_eq!(
+            restored.inner.state.lock().unwrap().services,
+            default_service_monitors()
+        );
         assert!(restored.set_interval(300).is_err());
         assert!(restored.set_interval(900).is_err());
     }
 
     #[test]
-    fn legacy_monitor_lists_are_truncated_to_the_new_twelve_service_limit() {
+    fn persisted_monitor_lists_are_truncated_to_the_twelve_service_limit() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
-        let services = (0..LEGACY_MAX_MONITORS)
+        let services = (0..MAX_PERSISTED_MONITORS)
             .map(|index| {
                 test_monitor(
                     &format!("service-{index}"),
@@ -2073,7 +1902,7 @@ mod tests {
     }
 
     #[test]
-    fn persisted_icons_migrate_defaults_preserve_https_and_fallback_unsafe_values() {
+    fn persisted_icons_preserve_https_and_fallback_unsafe_values_without_alias_migration() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
         let state = PersistedState {
@@ -2136,8 +1965,8 @@ mod tests {
         assert_eq!(
             &restored_icons[..6],
             [
-                "/assets/remix-icon/google.svg",
                 "/assets/remix-icon/cloud.svg",
+                "https://registry.npmmirror.com/@lobehub/icons-static-svg/1.93.0/files/icons/cloudflare-color.svg",
                 "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
                 "https://example.com/custom.svg",
                 "/assets/remix-icon/cloud.svg",
@@ -2145,54 +1974,6 @@ mod tests {
             ]
         );
         assert_eq!(restored_icons.len(), 6);
-    }
-
-    #[test]
-    fn exact_legacy_defaults_migrate_without_rewriting_custom_monitors() {
-        let mut legacy = vec![
-            ServiceMonitor {
-                id: "github".into(),
-                label: "GitHub".into(),
-                icon: "/assets/remix-icon/github.svg".into(),
-                url: "https://github.com".into(),
-            },
-            ServiceMonitor {
-                id: "apple".into(),
-                label: "Apple".into(),
-                icon: "/assets/remix-icon/apple.svg".into(),
-                url: "https://www.apple.com/library/test/success.html".into(),
-            },
-            ServiceMonitor {
-                id: "github".into(),
-                label: "Work GitHub".into(),
-                icon: "/assets/remix-icon/github.svg".into(),
-                url: "https://github.com".into(),
-            },
-            ServiceMonitor {
-                id: "apple".into(),
-                label: "Work Apple".into(),
-                icon: "/assets/remix-icon/apple.svg".into(),
-                url: "https://example.com/custom-apple".into(),
-            },
-        ];
-        legacy =
-            migrate_legacy_defaults(legacy.into_iter().map(normalize_persisted_icon).collect());
-        assert!(
-            legacy.iter().any(|monitor| monitor.id == "apple"
-                && monitor.url == "https://example.com/custom-apple")
-        );
-        assert!(
-            legacy
-                .iter()
-                .any(|monitor| monitor.id == "github" && monitor.url.ends_with("/favicon.ico"))
-        );
-        assert!(
-            legacy.iter().any(
-                |monitor| monitor.label == "Work GitHub" && monitor.url == "https://github.com"
-            )
-        );
-        assert!(legacy.iter().any(|monitor| monitor.id == "weixin"));
-        assert!(legacy.iter().any(|monitor| monitor.id == "aws-us-east-1"));
     }
 
     #[test]

@@ -412,9 +412,10 @@ cadence; the user may select 5, 10, 30, or 60 seconds, or disable periodic
 cycles. Initialization and each service-configuration revision generate a
 random service order. Each non-overlapping cycle retains that order and evenly
 spaces probe starts across the selected interval instead of issuing a burst.
-At most 12 service monitors are retained; migration from the former 24-monitor
-limit keeps the first 12 definitions in their stored order. In disabled mode,
-the bridge runs one evenly spaced cycle
+At most 12 service monitors are retained. A stored list longer than 12 is
+directly truncated to its first 12 definitions; old default identities, URLs,
+icons, and intervals are not otherwise migrated. In disabled mode, the bridge
+runs one evenly spaced cycle
 whenever Core starts and otherwise retains the latest results. The scheduler
 remains bridge-owned, so replacing Core does not discard those results. Monitor
 definitions and the selected interval are stored in the application-data
