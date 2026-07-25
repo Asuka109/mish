@@ -1,0 +1,5 @@
+[package]
+name = "mish-presentation-contract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

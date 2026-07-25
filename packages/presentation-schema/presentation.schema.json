@@ -1,0 +1,46 @@
+{
+  "locales": ["en", "zh-CN"],
+  "messages": {
+    "status.open-mish": {},
+    "status.open-browser": {},
+    "status.open-routes": {},
+    "status.open-profiles": {},
+    "status.open-traffic": {},
+    "status.open-events": {},
+    "status.open-settings": {},
+    "status.launch-proxy": {},
+    "status.launch-proxy-pending": {},
+    "status.launch-proxy-failed": {},
+    "status.stop-proxy": {},
+    "status.auto-start-proxy": {},
+    "status.quit": {},
+    "status.live.idle": {},
+    "status.live.unavailable": {},
+    "status.live.most-active-node": { "args": { "label": "string" } },
+    "status.live.rate": {
+      "args": {
+        "direction": "string",
+        "rate": "string",
+        "total": "string"
+      }
+    },
+    "application.settings": {},
+    "application.find": {},
+    "application.quit": {}
+  },
+  "actions": [
+    "application.find",
+    "application.quit",
+    "application.settings",
+    "status-bar.open-browser",
+    "status-bar.open-events",
+    "status-bar.open-mish",
+    "status-bar.open-profiles",
+    "status-bar.open-routes",
+    "status-bar.open-settings",
+    "status-bar.open-traffic",
+    "status-bar.quit",
+    "status-bar.toggle-launch-on-start",
+    "status-bar.toggle-proxy"
+  ]
+}
