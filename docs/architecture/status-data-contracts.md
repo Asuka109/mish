@@ -422,12 +422,14 @@ definitions and the selected interval are stored in the application-data
 directory and overlaid onto every Status snapshot, including lifecycle-only
 snapshots. Probe updates publish through the existing Status subscription.
 
-Automatic and immediate probes share one in-flight request per normalized host.
-Valid `Retry-After` values from HTTP 429 or 503 responses take precedence;
-otherwise host failures back off through 5, 15, 30, and 60 minutes, then 2, 4,
-and at most 6 hours. A successful response resets that host state. Configuration
-revision changes and bridge shutdown cancel obsolete transport work, and stale
-revisions never publish.
+Automatic and immediate probes are independent requests, including when their
+URLs normalize to the same host. This preserves scheduled start offsets instead
+of queuing or coalescing work behind a slow request. Valid `Retry-After` values
+from HTTP 429 or 503 responses take precedence for requests that have not yet
+started; otherwise host failures back off through 5, 15, 30, and 60 minutes,
+then 2, 4, and at most 6 hours. A successful response resets that host state.
+Configuration revision changes and bridge shutdown cancel obsolete transport
+work, and stale revisions never publish.
 
 The immediate test command accepts only an existing monitor identifier. The
 bridge resolves the stored, previously validated URL, retains the last result

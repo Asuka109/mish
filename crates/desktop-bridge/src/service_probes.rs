@@ -8,11 +8,7 @@ use std::{
 };
 
 use chrono::Utc;
-use futures_util::{
-    FutureExt, StreamExt,
-    future::{BoxFuture, Shared},
-    stream::FuturesUnordered,
-};
+use futures_util::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use mish_runtime::{
     ProbeStatus, ServiceMonitor, ServiceProbeFailureStage, ServiceProbePolicy, ServiceProbeResult,
     StatusSnapshot, default_service_monitors,
@@ -85,8 +81,6 @@ struct ProbeOutcome {
     status: ProbeStatus,
 }
 
-type SharedProbe = Shared<BoxFuture<'static, ProbeExecution>>;
-
 #[derive(Clone, Debug)]
 enum ProbeExecution {
     Cancelled,
@@ -95,8 +89,8 @@ enum ProbeExecution {
 
 #[derive(Default)]
 struct HostState {
+    active_requests: usize,
     consecutive_failures: usize,
-    in_flight: Option<SharedProbe>,
     next_allowed_at: Option<tokio::time::Instant>,
 }
 
@@ -524,10 +518,18 @@ impl ServiceProbeService {
         monitor: ServiceMonitor,
     ) -> Option<ProbeOutcome> {
         let host = normalized_host(&monitor.url)?;
-        let (probe, owner) = {
+        {
             let mut states = self.inner.host_states.lock().await;
-            if !states.contains_key(&host) && states.len() >= MAX_MONITORS {
-                states.retain(|_, state| state.in_flight.is_some());
+            if !states.contains_key(&host)
+                && states.len() >= MAX_MONITORS
+                && let Some(inactive_host) = states
+                    .iter()
+                    .find(|(_, state)| {
+                        state.active_requests == 0 && state.next_allowed_at.is_none()
+                    })
+                    .map(|(host, _)| host.clone())
+            {
+                states.remove(&inactive_host);
             }
             let host_state = states.entry(host.clone()).or_default();
             if host_state
@@ -536,27 +538,20 @@ impl ServiceProbeService {
             {
                 return None;
             }
-            if let Some(in_flight) = &host_state.in_flight {
-                (in_flight.clone(), false)
-            } else {
-                let transport = self.inner.transport.clone();
-                let monitor = monitor.clone();
-                let cancel = revision_cancel.clone();
-                let probe = transport.execute(cancel, monitor).shared();
-                host_state.in_flight = Some(probe.clone());
-                (probe, true)
-            }
-        };
-
-        let execution = probe.await;
-        if owner {
-            let mut states = self.inner.host_states.lock().await;
-            let host_state = states.entry(host).or_default();
-            host_state.in_flight = None;
-            if let ProbeExecution::Finished(outcome) = &execution {
-                update_host_backoff(host_state, outcome);
-            }
+            host_state.active_requests = host_state.active_requests.saturating_add(1);
         }
+
+        let execution = self.inner.transport.execute(revision_cancel, monitor).await;
+        let mut states = self.inner.host_states.lock().await;
+        let host_state = states.entry(host.clone()).or_default();
+        host_state.active_requests = host_state.active_requests.saturating_sub(1);
+        if let ProbeExecution::Finished(outcome) = &execution {
+            update_host_backoff(host_state, outcome);
+        }
+        if host_state.active_requests == 0 && host_state.next_allowed_at.is_none() {
+            states.remove(&host);
+        }
+        drop(states);
         match execution {
             ProbeExecution::Cancelled => None,
             ProbeExecution::Finished(outcome) => Some(outcome),
@@ -1427,7 +1422,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn normalized_host_coalesces_manual_and_automatic_requests() {
+    async fn normalized_host_allows_manual_and_automatic_requests_to_overlap() {
         let transport = ControlledTransport::healthy();
         let services = vec![
             test_monitor("automatic", "https://EXAMPLE.com/automatic"),
@@ -1453,19 +1448,19 @@ mod tests {
                     .await
             })
         };
-        tokio::task::yield_now().await;
-        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+        transport.wait_until_started(2).await;
+        assert_eq!(transport.started.load(Ordering::SeqCst), 2);
         transport.release.notify_waiters();
         assert_eq!(
             automatic.await.unwrap().unwrap().status,
             ProbeStatus::Healthy
         );
         assert_eq!(manual.await.unwrap().unwrap().status, ProbeStatus::Healthy);
-        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+        assert_eq!(transport.started.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]
-    async fn coalesced_cycle_maps_one_host_outcome_to_each_monitor() {
+    async fn cycle_runs_same_host_monitors_as_independent_requests() {
         let transport = ControlledTransport::healthy();
         let services = vec![
             test_monitor("one", "https://example.com/one"),
@@ -1476,12 +1471,12 @@ mod tests {
             let service = service.clone();
             tokio::spawn(async move { service.run_cycle(0).await })
         };
-        transport.wait_until_started(1).await;
+        transport.wait_until_started(2).await;
         transport.release.notify_waiters();
         cycle.await.unwrap();
 
         let state = service.inner.state.lock().unwrap();
-        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+        assert_eq!(transport.started.load(Ordering::SeqCst), 2);
         assert!(
             state
                 .results
