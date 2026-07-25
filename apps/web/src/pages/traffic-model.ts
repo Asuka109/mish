@@ -220,7 +220,13 @@ function matchesConnectionToken(
   };
   const values = token.field
     ? fields[token.field]
-    : [...destination, ...process, ...rule, ...routeChain, ...providerChain];
+    : [
+        ...destination,
+        ...process,
+        ...(isGeositeType(connection.matchedRule.type) ? [] : rule),
+        ...routeChain,
+        ...providerChain,
+      ];
   if (!values) return false;
   return values.some((value) => value?.toLocaleLowerCase().includes(token.value));
 }
@@ -242,7 +248,11 @@ function matchesRuleToken(rule: EffectiveRuleDto, token: QueryToken) {
 }
 
 function matchesGeosite(type: string, payload: string, value: string) {
-  return type.toLocaleLowerCase() === "geosite" && payload.toLocaleLowerCase().includes(value);
+  return isGeositeType(type) && payload.toLocaleLowerCase().includes(value);
+}
+
+function isGeositeType(type: string) {
+  return type.toLocaleLowerCase() === "geosite";
 }
 
 function compareDecimal(left: string, right: string) {

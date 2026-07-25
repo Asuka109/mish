@@ -173,6 +173,8 @@ describe("Traffic filters and stable sorting", () => {
     expect(filterConnections(values, "GEOSITE:YOUTUBE network:TCP", "active", "all")).toEqual([
       values[0],
     ]);
+    expect(filterConnections([values[0]], "youtube", "active", "all")).toEqual([]);
+    expect(filterConnections([values[0]], "rule:youtube", "active", "all")).toEqual([values[0]]);
     expect(filterConnections(values, "geosite:youtube state:closed", "closed", "all")).toEqual([
       values[0],
     ]);

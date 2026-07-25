@@ -129,6 +129,9 @@ describe("Traffic browser interactions", () => {
       await expect.element(helpDialog).toHaveTextContent("geosite:youtube");
       await userEvent.keyboard("{Escape}");
 
+      await userEvent.fill(searchInput, "youtube");
+      await expect.element(page.getByText("media.fixture.invalid")).not.toBeInTheDocument();
+
       await userEvent.fill(searchInput, "GEOSITE:YOUTUBE");
       await expect.element(page.getByText("media.fixture.invalid")).toBeVisible();
       await expect.element(page.getByText("chat.fixture.invalid")).not.toBeInTheDocument();
