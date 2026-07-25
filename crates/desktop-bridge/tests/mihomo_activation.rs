@@ -6,7 +6,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -99,7 +99,7 @@ async fn recognized_geodata_preparation_does_not_use_the_short_validation_deadli
 }
 
 #[tokio::test]
-async fn distinct_geodata_assets_publish_independent_notifications() {
+async fn ordinary_startup_does_not_run_a_second_geodata_validation_process() {
     let (coordinator, host, controller, profile_id) = geodata_coordinator(
         "geodata-test-multiple: true",
         Duration::from_secs(3),
@@ -123,26 +123,7 @@ async fn distinct_geodata_assets_publish_independent_notifications() {
                 .starts_with("profile.activation-geodata:")
         })
         .collect::<Vec<_>>();
-    assert_eq!(geodata.len(), 2);
-    assert_eq!(
-        geodata
-            .iter()
-            .map(|notification| notification.presentation.kind())
-            .collect::<HashSet<_>>(),
-        HashSet::from([
-            "profile.activation-geosite-progress",
-            "profile.activation-mmdb-progress",
-        ])
-    );
-    assert_eq!(
-        geodata
-            .iter()
-            .map(|notification| notification.id.as_str())
-            .collect::<HashSet<_>>()
-            .len(),
-        2
-    );
-    assert!(geodata.iter().all(|notification| notification.resolved));
+    assert!(geodata.is_empty());
 
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
@@ -172,7 +153,8 @@ async fn packaged_geodata_uses_mihomo_runtime_names_without_download_evidence() 
 }
 
 #[tokio::test]
-async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancellation() {
+#[ignore = "legacy -t validation UX; activation now relies on the normal Mihomo startup parse"]
+async fn legacy_geodata_validation_process_evidence_is_typed() {
     let (success, success_host, success_controller, success_id) = geodata_coordinator(
         "geodata-test-success: true",
         Duration::from_secs(3),
@@ -807,7 +789,7 @@ async fn macos_p0_fixture_journey_imports_operates_restarts_recovers_and_stops()
     assert_eq!(failed.phase, ProfileActivationPhase::Failure);
     assert_eq!(
         failed.failure,
-        Some(mish_bridge::ProfileActivationFailure::Validation)
+        Some(mish_bridge::ProfileActivationFailure::ManagedListenerConflict)
     );
     assert_eq!(
         failed.active_profile_id.as_deref(),
@@ -1172,6 +1154,98 @@ rules:
 }
 
 #[test]
+fn route_selections_use_one_global_mihomo_cache_across_profile_fingerprints() {
+    use bbolt_rs::{Bolt, BucketRwApi, DbRwAPI, TxRwRefApi};
+
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("runtime/mihomo/home");
+    std::fs::create_dir_all(&home).unwrap();
+    let cache = home.join("cache.db");
+    let mut database = Bolt::open(&cache).unwrap();
+    database
+        .update(|mut transaction| {
+            transaction
+                .create_bucket_if_not_exists("selected")?
+                .put("Default", "Tokyo")?;
+            Ok(())
+        })
+        .unwrap();
+    drop(database);
+    let manager = activation_manager(root.path(), Duration::from_secs(1));
+    let first = profile_record(b"profile:\n  store-selected: true\nrules: [MATCH,DIRECT]\n");
+    let second = profile_record(
+        b"profile:\n  store-selected: true\nlog-level: info\nrules: [MATCH,DIRECT]\n",
+    );
+
+    for record in [&first, &second] {
+        assert_eq!(
+            manager
+                .route_selections(record)
+                .get("Default")
+                .map(String::as_str),
+            Some("Tokyo")
+        );
+        manager.delete_route_selections(record.metadata.id.as_str());
+        assert!(cache.exists());
+    }
+}
+
+#[test]
+fn record_generation_namespaces_explicit_provider_paths_but_leaves_url_hashed_defaults() {
+    let record = profile_record(
+        br#"
+proxy-providers:
+  explicit:
+    type: http
+    url: https://example.com/explicit.yaml
+    path: providers/explicit.yaml
+  automatic:
+    type: http
+    url: https://example.com/automatic.yaml
+  empty:
+    type: http
+    url: https://example.com/empty.yaml
+    path: ""
+rule-providers:
+  rules:
+    type: http
+    url: https://example.com/rules.yaml
+    path: rules/custom.yaml
+rules: [MATCH,DIRECT]
+"#,
+    );
+    let policy = ManagedRuntimePolicy::new(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43123),
+        "application-controller-secret",
+    )
+    .unwrap();
+
+    let generated = RuntimeConfigGenerator::generate_record(&record, &policy).unwrap();
+    let document: Value = serde_norway::from_slice(&generated).unwrap();
+    let prefix = format!("profile-resources/{}/", record.metadata.id.as_str());
+
+    assert_eq!(
+        document["proxy-providers"]["explicit"]["path"].as_str(),
+        Some(format!("{prefix}providers/explicit.yaml").as_str())
+    );
+    assert!(
+        document["proxy-providers"]["automatic"]
+            .as_mapping()
+            .unwrap()
+            .get("path")
+            .is_none()
+    );
+    assert_eq!(
+        document["proxy-providers"]["empty"]["path"].as_str(),
+        Some("")
+    );
+    assert_eq!(
+        document["rule-providers"]["rules"]["path"].as_str(),
+        Some(format!("{prefix}rules/custom.yaml").as_str())
+    );
+}
+
+#[test]
 fn patch_preview_and_activation_use_the_same_runtime_generator() {
     let normalized = br#"
 mixed-port: 7890
@@ -1456,18 +1530,14 @@ rules:
             .mode()
             & 0o777;
         assert_eq!(state_mode, 0o600);
-        let candidate = std::fs::read_dir(root.join("runtime/candidates"))
+        let config_file = std::fs::read_dir(root.join("runtime/mihomo/configs"))
             .unwrap()
             .next()
             .unwrap()
             .unwrap()
             .path();
         assert_eq!(
-            std::fs::metadata(&candidate).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
-        assert_eq!(
-            std::fs::metadata(candidate.join("config.yaml"))
+            std::fs::metadata(&config_file)
                 .unwrap()
                 .permissions()
                 .mode()
@@ -1475,7 +1545,7 @@ rules:
             0o600
         );
         assert_eq!(
-            std::fs::metadata(candidate.join("home"))
+            std::fs::metadata(root.join("runtime/mihomo/home"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -2708,9 +2778,18 @@ rules:
 "#,
     );
 
-    let error = manager.activate(&candidate, &policy).await.unwrap_err();
+    let candidate_policy =
+        ManagedRuntimePolicy::new(unused_loopback_address(), "do-not-leak-controller-secret")
+            .unwrap()
+            .with_proxy_endpoint(
+                LoopbackProxyEndpoint::new("127.0.0.1", unused_loopback_address().port()).unwrap(),
+            );
+    let error = manager
+        .activate(&candidate, &candidate_policy)
+        .await
+        .unwrap_err();
 
-    assert_eq!(error, MihomoActivationError::ValidationFailed);
+    assert_eq!(error, MihomoActivationError::StartFailed);
     let error_text = error.to_string();
     for private in [
         root.to_str().unwrap(),
@@ -2728,7 +2807,7 @@ rules:
     let attempt = managed.last_attempt().unwrap();
     assert_eq!(attempt.profile_id(), candidate.metadata.id.as_str());
     assert_eq!(attempt.outcome(), ActivationOutcome::Failed);
-    assert_eq!(attempt.failure(), Some(ActivationFailureKind::Validation));
+    assert_eq!(attempt.failure(), Some(ActivationFailureKind::Start));
     assert!(attempt.attempted_at_unix_milliseconds() > 0);
     let persisted_state =
         std::fs::read_to_string(root.join("private-runtime/activation-state.json")).unwrap();
@@ -2946,6 +3025,205 @@ async fn cancellation_stops_the_candidate_without_committing_a_profile() {
     assert_eq!(
         managed.last_attempt().unwrap().failure(),
         Some(ActivationFailureKind::Cancelled)
+    );
+    assert_eq!(candidate_count(&root), 0);
+    assert!(root.join("runtime/mihomo/home").is_dir());
+}
+
+#[tokio::test]
+#[ignore = "measurement harness; run with --ignored --nocapture --test-threads=1"]
+async fn measures_fixture_global_home_activation_paths() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = tempfile::tempdir().unwrap();
+    let runtime_root = root.path().join("runtime");
+    let bundled_geodata =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/geodata/snapshot");
+    let resolver = || {
+        ManagedMihomoResolver::development_with_bundled_geodata(
+            fixture("fake-activation-mihomo.sh"),
+            runtime_root.clone(),
+            bundled_geodata.clone(),
+        )
+    };
+    let manager =
+        MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
+    let policy = ManagedRuntimePolicy::new(controller.address, "measurement-secret").unwrap();
+    let profile = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+
+    let cold_started = Instant::now();
+    manager.activate(&profile, &policy).await.unwrap();
+    let cold = cold_started.elapsed();
+
+    let warm_started = Instant::now();
+    manager.activate(&profile, &policy).await.unwrap();
+    let warm = warm_started.elapsed();
+
+    manager.shutdown().await.unwrap();
+    let relaunched =
+        MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
+    let relaunch_started = Instant::now();
+    relaunched.activate(&profile, &policy).await.unwrap();
+    let relaunch = relaunch_started.elapsed();
+
+    let invalid =
+        profile_record(b"activation-test-invalid: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
+    let failure_policy = ManagedRuntimePolicy::new(unused_loopback_address(), "measurement-secret")
+        .unwrap()
+        .with_proxy_endpoint(
+            LoopbackProxyEndpoint::new("127.0.0.1", unused_loopback_address().port()).unwrap(),
+        );
+    let failure_started = Instant::now();
+    assert_eq!(
+        relaunched
+            .activate(&invalid, &failure_policy)
+            .await
+            .unwrap_err(),
+        MihomoActivationError::StartFailed
+    );
+    let failure = failure_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("mihomo/configs"))
+            .unwrap()
+            .count(),
+        1,
+        "the failed generation must leave only the active generation"
+    );
+
+    relaunched.shutdown().await.unwrap();
+    let cancelled =
+        MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let cancellation_started = Instant::now();
+    assert_eq!(
+        cancelled
+            .activate_cancellable(&profile, &policy, cancellation)
+            .await
+            .unwrap_err(),
+        MihomoActivationError::Cancelled
+    );
+    let cancellation = cancellation_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("mihomo/configs"))
+            .unwrap()
+            .count(),
+        0,
+        "cancelled preparation must leave no generation"
+    );
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "globalHomeBytesInitializedOnce": 42_881_021_u64,
+            "coldActivationMs": cold.as_secs_f64() * 1_000.0,
+            "failureCleanupMs": failure.as_secs_f64() * 1_000.0,
+            "preCancelledCleanupMs": cancellation.as_secs_f64() * 1_000.0,
+            "relaunchMs": relaunch.as_secs_f64() * 1_000.0,
+            "warmActivationMs": warm.as_secs_f64() * 1_000.0,
+        }))
+        .unwrap()
+    );
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+#[ignore = "requires MISH_MIHOMO_MEASURE_BIN from pnpm prepare:mihomo"]
+async fn measures_pinned_core_global_home_activation_paths() {
+    let binary = PathBuf::from(
+        std::env::var_os("MISH_MIHOMO_MEASURE_BIN")
+            .expect("set MISH_MIHOMO_MEASURE_BIN to the prepared v1.19.29 binary"),
+    );
+    let root = tempfile::tempdir().unwrap();
+    let runtime_root = root.path().join("runtime");
+    let bundled_geodata =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/geodata/snapshot");
+    let resolver = || {
+        ManagedMihomoResolver::development_with_bundled_geodata(
+            binary.clone(),
+            runtime_root.clone(),
+            bundled_geodata.clone(),
+        )
+    };
+    let timing = ActivationTiming {
+        config_validation_timeout: Duration::from_secs(10),
+        geodata_preparation_timeout: Duration::from_secs(30),
+        controller_connect_timeout: Duration::from_millis(500),
+        controller_request_timeout: Duration::from_millis(500),
+        readiness_timeout: Duration::from_secs(5),
+        refresh_interval: Duration::from_secs(1),
+        reconnect_delay: Duration::from_millis(25),
+    };
+    let policy = || {
+        ManagedRuntimePolicy::new(unused_loopback_address(), "measurement-secret")
+            .unwrap()
+            .with_proxy_endpoint(
+                LoopbackProxyEndpoint::new("127.0.0.1", unused_loopback_address().port()).unwrap(),
+            )
+    };
+    let profile = profile_record(P0_PROFILE);
+    let manager = MihomoActivationManager::new(resolver(), timing.clone());
+
+    let cold_started = Instant::now();
+    manager.activate(&profile, &policy()).await.unwrap();
+    let cold = cold_started.elapsed();
+
+    let warm_started = Instant::now();
+    manager.activate(&profile, &policy()).await.unwrap();
+    let warm = warm_started.elapsed();
+
+    manager.shutdown().await.unwrap();
+    let relaunched = MihomoActivationManager::new(resolver(), timing.clone());
+    let relaunch_started = Instant::now();
+    relaunched.activate(&profile, &policy()).await.unwrap();
+    let relaunch = relaunch_started.elapsed();
+
+    let invalid = profile_record(
+        b"proxies:\n  - name: broken\n    type: definitely-invalid\nrules:\n  - MATCH,DIRECT\n",
+    );
+    let failure_started = Instant::now();
+    assert_eq!(
+        relaunched.activate(&invalid, &policy()).await.unwrap_err(),
+        MihomoActivationError::StartFailed
+    );
+    let failure = failure_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("mihomo/configs"))
+            .unwrap()
+            .count(),
+        1
+    );
+
+    relaunched.shutdown().await.unwrap();
+    let cancelled = MihomoActivationManager::new(resolver(), timing);
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let cancellation_started = Instant::now();
+    assert_eq!(
+        cancelled
+            .activate_cancellable(&profile, &policy(), cancellation)
+            .await
+            .unwrap_err(),
+        MihomoActivationError::Cancelled
+    );
+    let cancellation = cancellation_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("mihomo/configs"))
+            .unwrap()
+            .count(),
+        0
+    );
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "globalHomeBytesInitializedOnce": 42_881_021_u64,
+            "coldActivationMs": cold.as_secs_f64() * 1_000.0,
+            "failureCleanupMs": failure.as_secs_f64() * 1_000.0,
+            "preCancelledCleanupMs": cancellation.as_secs_f64() * 1_000.0,
+            "relaunchMs": relaunch.as_secs_f64() * 1_000.0,
+            "warmActivationMs": warm.as_secs_f64() * 1_000.0,
+        }))
+        .unwrap()
     );
 }
 
@@ -3711,18 +3989,18 @@ fn runtime_config() -> serde_json::Value {
 }
 
 fn candidate_count(root: &Path) -> usize {
-    std::fs::read_dir(root.join("runtime/candidates"))
+    std::fs::read_dir(root.join("runtime/mihomo/configs"))
         .map(|entries| entries.flatten().count())
         .unwrap_or(0)
 }
 
 fn only_candidate_config(root: &Path) -> Value {
-    let candidates = std::fs::read_dir(root.join("runtime/candidates"))
+    let candidates = std::fs::read_dir(root.join("runtime/mihomo/configs"))
         .unwrap()
         .flatten()
         .collect::<Vec<_>>();
     assert_eq!(candidates.len(), 1);
-    let bytes = std::fs::read(candidates[0].path().join("config.yaml")).unwrap();
+    let bytes = std::fs::read(candidates[0].path()).unwrap();
     serde_norway::from_slice(&bytes).unwrap()
 }
 

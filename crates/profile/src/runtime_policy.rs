@@ -582,7 +582,15 @@ fn validate_provider_paths(root: &Mapping) -> Result<(), PolicyViolation> {
 
 fn unsafe_provider_path(value: &str) -> bool {
     let path = Path::new(value);
+    let normalized = value.replace('\\', "/");
+    let has_windows_drive_prefix = normalized
+        .as_bytes()
+        .get(0..2)
+        .is_some_and(|prefix| prefix[0].is_ascii_alphabetic() && prefix[1] == b':');
     path.is_absolute()
+        || normalized.starts_with('/')
+        || has_windows_drive_prefix
+        || normalized.split('/').any(|component| component == "..")
         || path.components().any(|component| {
             matches!(
                 component,

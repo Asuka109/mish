@@ -213,8 +213,8 @@ async fn restart_recovers_a_core_spawned_before_the_pid_commit() {
     let launch = first
         .begin_launch(
             fixture.binary.clone(),
-            fixture.candidate_root.join("home"),
-            fixture.candidate_root.join("config.yaml"),
+            fixture.config_directory.clone(),
+            fixture.config_file.clone(),
         )
         .unwrap();
     let pid = fixture.platform.spawn(launch.spec());
@@ -299,8 +299,8 @@ async fn normal_exit_clears_only_the_matching_generation() {
     let launch = first
         .begin_launch(
             fixture.binary.clone(),
-            fixture.candidate_root.join("home"),
-            fixture.candidate_root.join("config.yaml"),
+            fixture.config_directory.clone(),
+            fixture.config_file.clone(),
         )
         .unwrap();
     let pid = fixture.platform.spawn(launch.spec());
@@ -326,8 +326,8 @@ async fn managed_process_stop_terminates_waits_reaps_and_clears_ownership() {
     let process = DesktopMihomoProcess::new_pinned_owned(
         DesktopMihomoProcessConfig {
             binary: Some(test_fixture("fake-activation-mihomo.sh")),
-            config_directory: Some(fixture.candidate_root.join("home")),
-            config_file: Some(fixture.candidate_root.join("config.yaml")),
+            config_directory: Some(fixture.config_directory.clone()),
+            config_file: Some(fixture.config_file.clone()),
         },
         "v1.19.29",
         ownership.clone(),
@@ -359,8 +359,8 @@ async fn managed_process_preserves_ownership_when_child_inspection_fails() {
     let process = DesktopMihomoProcess::new_pinned_owned(
         DesktopMihomoProcessConfig {
             binary: Some(test_fixture("fake-activation-mihomo.sh")),
-            config_directory: Some(fixture.candidate_root.join("home")),
-            config_file: Some(fixture.candidate_root.join("config.yaml")),
+            config_directory: Some(fixture.config_directory.clone()),
+            config_file: Some(fixture.config_file.clone()),
         },
         "v1.19.29",
         ownership.clone(),
@@ -395,8 +395,8 @@ async fn managed_process_does_not_claim_an_external_listener() {
     let process = DesktopMihomoProcess::new_pinned_owned(
         DesktopMihomoProcessConfig {
             binary: Some(test_fixture("fake-activation-mihomo.sh")),
-            config_directory: Some(fixture.candidate_root.join("home")),
-            config_file: Some(fixture.candidate_root.join("config.yaml")),
+            config_directory: Some(fixture.config_directory.clone()),
+            config_file: Some(fixture.config_file.clone()),
         },
         "v1.19.29",
         ownership,
@@ -437,7 +437,8 @@ fn port_available(platform: &FakeProcessPlatform) -> bool {
 struct OwnershipFixture {
     _root: tempfile::TempDir,
     binary: std::path::PathBuf,
-    candidate_root: std::path::PathBuf,
+    config_directory: std::path::PathBuf,
+    config_file: std::path::PathBuf,
     platform: Arc<FakeProcessPlatform>,
     runtime_root: std::path::PathBuf,
 }
@@ -446,29 +447,26 @@ impl OwnershipFixture {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
         let runtime_root = root.path().join("runtime");
-        let candidate_root = runtime_root.join("candidates/11111111-1111-4111-8111-111111111111");
-        std::fs::create_dir_all(candidate_root.join("home")).unwrap();
-        std::fs::write(candidate_root.join("config.yaml"), "proxies: []\n").unwrap();
+        let config_directory = runtime_root.join("mihomo/home");
+        let config_file =
+            runtime_root.join("mihomo/configs/11111111-1111-4111-8111-111111111111.yaml");
+        std::fs::create_dir_all(&config_directory).unwrap();
+        std::fs::create_dir_all(config_file.parent().unwrap()).unwrap();
+        std::fs::write(&config_file, "proxies: []\n").unwrap();
         let binary = root.path().join("managed-mihomo");
         std::fs::write(&binary, "fixture").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(
-                candidate_root.join("home"),
-                std::fs::Permissions::from_mode(0o700),
-            )
-            .unwrap();
-            std::fs::set_permissions(
-                candidate_root.join("config.yaml"),
-                std::fs::Permissions::from_mode(0o600),
-            )
-            .unwrap();
+            std::fs::set_permissions(&config_directory, std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            std::fs::set_permissions(&config_file, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
         Self {
             _root: root,
             binary,
-            candidate_root,
+            config_directory,
+            config_file,
             platform: Arc::new(FakeProcessPlatform::default()),
             runtime_root,
         }
@@ -490,8 +488,8 @@ impl OwnershipFixture {
         let launch = first
             .begin_launch(
                 self.binary.clone(),
-                self.candidate_root.join("home"),
-                self.candidate_root.join("config.yaml"),
+                self.config_directory.clone(),
+                self.config_file.clone(),
             )
             .unwrap();
         let pid = self.platform.spawn(launch.spec());
