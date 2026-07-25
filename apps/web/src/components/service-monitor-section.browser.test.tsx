@@ -95,7 +95,7 @@ describe("service monitor latency colors", () => {
       SERVICE_ICON_URLS.github,
       SERVICE_ICON_URLS.cloudflare,
       SERVICE_ICON_URLS.baidu,
-      SERVICE_ICON_URLS.apple,
+      SERVICE_ICON_URLS.weixin,
     ]);
     for (const icon of icons) {
       const relativeSource = icon.getAttribute("src");

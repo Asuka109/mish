@@ -16,11 +16,19 @@ describe("FixtureStatusClient", () => {
     expect(second.runtime.captureSelection.systemProxy).toBe(false);
   });
 
-  it("uses the HTTP Microsoft connectivity-test endpoint by default", async () => {
+  it("uses the accepted six lightweight endpoints by default", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
 
-    expect(snapshot.services.find((service) => service.id === "microsoft")?.url).toBe(
-      "http://www.msftconnecttest.com/connecttest.txt",
+    expect(snapshot.services.map(({ id, url }) => ({ id, url }))).toEqual([
+      { id: "google", url: "https://www.google.com/generate_204" },
+      { id: "github", url: "https://github.com/favicon.ico" },
+      { id: "cloudflare", url: "https://cp.cloudflare.com/generate_204" },
+      { id: "baidu", url: "https://www.baidu.com/favicon.ico" },
+      { id: "weixin", url: "https://res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico" },
+      { id: "aws-us-east-1", url: "https://dynamodb.us-east-1.amazonaws.com/ping" },
+    ]);
+    expect(snapshot.services.find((service) => service.id === "aws-us-east-1")?.label).toBe(
+      "AWS (us-east-1)",
     );
   });
 
@@ -33,8 +41,8 @@ describe("FixtureStatusClient", () => {
       SERVICE_ICON_URLS.github,
       SERVICE_ICON_URLS.cloudflare,
       SERVICE_ICON_URLS.baidu,
-      SERVICE_ICON_URLS.apple,
-      SERVICE_ICON_URLS.microsoft,
+      SERVICE_ICON_URLS.weixin,
+      SERVICE_ICON_URLS.aws,
     ]);
     expect(icons.every((icon) => icon.startsWith("/assets/remix-icon/"))).toBe(true);
   });
@@ -78,10 +86,38 @@ describe("FixtureStatusClient", () => {
     }
   });
 
-  it("defaults service probes to a five-second interval", async () => {
+  it("defaults service probes to a five-second cadence", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
 
     expect(snapshot.serviceProbePolicy.intervalSeconds).toBe(5);
+  });
+
+  it("restores the default services and five-second cadence together", async () => {
+    const client = new FixtureStatusClient();
+    await client.setServiceProbeInterval(5);
+    const restored = await client.restoreDefaultServices();
+
+    expect(restored.serviceProbePolicy.intervalSeconds).toBe(5);
+    expect(restored.services).toHaveLength(6);
+  });
+
+  it("enforces the twelve-service limit", async () => {
+    const client = new FixtureStatusClient();
+    for (let index = 0; index < 6; index += 1) {
+      await client.upsertServiceMonitor({
+        icon: SERVICE_ICON_URLS.fallback,
+        label: `Custom ${index}`,
+        url: `https://service-${index}.example/probe`,
+      });
+    }
+
+    await expect(
+      client.upsertServiceMonitor({
+        icon: SERVICE_ICON_URLS.fallback,
+        label: "One too many",
+        url: "https://overflow.example/probe",
+      }),
+    ).rejects.toThrow("Service monitor limit reached");
   });
 
   it("keeps group selections scoped to group membership", async () => {

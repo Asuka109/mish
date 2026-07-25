@@ -3211,7 +3211,7 @@ type RootTranslation = {
 		 */
 		interval1Minute: string
 		/**
-		 * M​i​s​h​ ​t​e​s​t​s​ ​t​h​i​s​ ​e​n​d​p​o​i​n​t​ ​d​i​r​e​c​t​l​y​,​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​ ​o​f​ ​M​i​h​o​m​o​.
+		 * M​i​s​h​ ​m​e​a​s​u​r​e​s​ ​d​i​r​e​c​t​ ​H​T​T​P​ ​f​i​r​s​t​-​r​e​s​p​o​n​s​e​/​s​e​r​v​i​c​e​-​c​o​n​n​e​c​t​i​v​i​t​y​ ​l​a​t​e​n​c​y​,​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​ ​o​f​ ​M​i​h​o​m​o​.​ ​C​l​o​u​d​f​l​a​r​e​ ​i​s​ ​a​n​ ​A​n​y​c​a​s​t​ ​e​d​g​e​;​ ​G​i​t​H​u​b​,​ ​B​a​i​d​u​,​ ​a​n​d​ ​W​e​i​x​i​n​ ​u​s​e​ ​p​r​o​v​i​d​e​r​ ​s​t​a​t​i​c​-​r​e​s​o​u​r​c​e​/​C​D​N​ ​p​a​t​h​s​;​ ​A​W​S​ ​(​u​s​-​e​a​s​t​-​1​)​ ​u​s​e​s​ ​D​y​n​a​m​o​D​B​.
 		 */
 		metadataDescription: string
 		/**
@@ -3226,6 +3226,10 @@ type RootTranslation = {
 		 * R​e​s​t​o​r​e​ ​D​e​f​a​u​l​t​s
 		 */
 		restoreDefaults: string
+		/**
+		 * U​p​ ​t​o​ ​1​2​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​ ​a​r​e​ ​a​l​l​o​w​e​d​.
+		 */
+		serviceLimit: string
 		/**
 		 * S​e​r​v​i​c​e​ ​n​a​m​e
 		 */
@@ -4006,7 +4010,7 @@ type RootTranslation = {
 				 */
 				capture: string
 				/**
-				 * D​i​r​e​c​t​ ​s​e​r​v​i​c​e​ ​p​r​o​b​e​ ​a​g​g​r​e​g​a​t​e​s
+				 * D​i​r​e​c​t​ ​H​T​T​P​ ​f​i​r​s​t​-​r​e​s​p​o​n​s​e​ ​p​r​o​b​e​ ​a​g​g​r​e​g​a​t​e​s
 				 */
 				'service-probes': string
 				/**
@@ -7714,7 +7718,7 @@ export type TranslationFunctions = {
 		 */
 		interval1Minute: () => LocalizedString
 		/**
-		 * Mish tests this endpoint directly, independently of Mihomo.
+		 * Mish measures direct HTTP first-response/service-connectivity latency, independently of Mihomo. Cloudflare is an Anycast edge; GitHub, Baidu, and Weixin use provider static-resource/CDN paths; AWS (us-east-1) uses DynamoDB.
 		 */
 		metadataDescription: () => LocalizedString
 		/**
@@ -7729,6 +7733,10 @@ export type TranslationFunctions = {
 		 * Restore Defaults
 		 */
 		restoreDefaults: () => LocalizedString
+		/**
+		 * Up to 12 service monitors are allowed.
+		 */
+		serviceLimit: () => LocalizedString
 		/**
 		 * Service name
 		 */
@@ -8492,7 +8500,7 @@ export type TranslationFunctions = {
 				 */
 				capture: () => LocalizedString
 				/**
-				 * Direct service probe aggregates
+				 * Direct HTTP first-response probe aggregates
 				 */
 				'service-probes': () => LocalizedString
 				/**
