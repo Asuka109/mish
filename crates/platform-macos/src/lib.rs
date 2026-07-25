@@ -9,8 +9,9 @@ pub use production_tun::*;
 
 pub use tun_service::{
     DEV_TUN_SERVICE_CORE_PATH, DEV_TUN_SERVICE_HELPER_PATH, DEV_TUN_SERVICE_LABEL,
-    DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentTunStartup,
-    MacOsTunServiceClient, TunServiceConfig, development_socket_path, run_tun_service,
+    DEV_TUN_SERVICE_PLIST_PATH, DEV_TUN_SERVICE_SOCKET_PREFIX, DevelopmentCoreHostStatus,
+    DevelopmentTunStartup, MacOsTunServiceClient, TunServiceConfig,
+    development_pinned_core_version, development_socket_path, run_core_watchdog, run_tun_service,
 };
 
 use std::{

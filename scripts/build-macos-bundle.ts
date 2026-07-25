@@ -14,8 +14,19 @@ const alphaAdHoc =
   (arguments_.length === 2 || (arguments_.length === 3 && arguments_[2] === "--styled-dmg"));
 const styledDmg = arguments_.includes("--styled-dmg");
 const identity = process.env.APPLE_SIGNING_IDENTITY?.trim() || "-";
-const mihomo = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
-const expectedMihomoSha256 = "ec66e3e883bdc3fca06753784e324e08921e13239f8e945587cb1bfbf4c6b936";
+const mihomoRelease = JSON.parse(
+  readFileSync(path.resolve("resources/mihomo/macos-arm64.json"), "utf8"),
+) as {
+  asset: string;
+  binarySha256: string;
+  version: string;
+};
+const mihomo = path.resolve(
+  ".scratch/mihomo",
+  mihomoRelease.version,
+  mihomoRelease.asset.slice(0, -3),
+);
+const expectedMihomoSha256 = mihomoRelease.binarySha256;
 const production = identity !== "-";
 const productionFixture = process.argv.includes("--production-fixture");
 const productionLayout = production || productionFixture;

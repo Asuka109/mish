@@ -156,16 +156,16 @@ function sha256(content: Buffer): string {
 
 /** Read the Mihomo pin from the selected source tree, not the release tooling commit. */
 export function readPinnedMihomoVersion(root = repositoryRoot): string {
-  const prepareSource = readFileSync(path.join(root, "scripts/prepare-mihomo.ts"), "utf8");
-  const version = /^\s*version:\s*"(v\d+\.\d+\.\d+)"\s*,?\s*$/mu.exec(prepareSource)?.[1];
+  const manifestPath = path.join(root, "resources/mihomo/macos-arm64.json");
+  let version: unknown;
+  try {
+    version = (JSON.parse(readFileSync(manifestPath, "utf8")) as { version?: unknown }).version;
+  } catch {
+    throw new Error("Could not read pinned Mihomo manifest resources/mihomo/macos-arm64.json.");
+  }
   invariant(
-    version && pinnedMihomoVersion.test(version),
-    "Could not read pinned Mihomo version from scripts/prepare-mihomo.ts.",
-  );
-  const bundleSource = readFileSync(path.join(root, "scripts/build-macos-bundle.ts"), "utf8");
-  invariant(
-    bundleSource.includes(`.scratch/mihomo/${version}/`),
-    `scripts/build-macos-bundle.ts does not use pinned Mihomo ${version}.`,
+    typeof version === "string" && pinnedMihomoVersion.test(version),
+    "Could not read pinned Mihomo version from resources/mihomo/macos-arm64.json.",
   );
   return version;
 }

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "repository": "MetaCubeX/mihomo",
+  "version": "v1.19.29",
+  "asset": "mihomo-darwin-arm64-v1.19.29.gz",
+  "archiveSha256": "4dc25df9e899f14161911302a8ee5fc9e202ed9c976fc405bf82c50ff27466ca",
+  "binarySha256": "ec66e3e883bdc3fca06753784e324e08921e13239f8e945587cb1bfbf4c6b936"
+}

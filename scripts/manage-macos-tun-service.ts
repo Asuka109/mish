@@ -1,9 +1,18 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { access, chmod, constants, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { access, chmod, constants, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { accessSync, constants as syncConstants, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+type MacOsMihomoRelease = {
+  archiveSha256: string;
+  asset: string;
+  binarySha256: string;
+  repository: string;
+  schemaVersion: 1;
+  version: string;
+};
 
 type InstallerFailureKind =
   | "authorization-cancelled"
@@ -11,7 +20,11 @@ type InstallerFailureKind =
   | "preparation-failed";
 
 type InstallerResult =
-  | { ok: true; stage: "completed" | "prepared" }
+  | {
+      ok: true;
+      service?: "installed" | "not-installed";
+      stage: "completed" | "prepared" | "status";
+    }
   | { code: string; kind: InstallerFailureKind; ok: false; stage: string };
 
 class InstallerFailure extends Error {
@@ -32,7 +45,7 @@ const helperTarget = `/Library/PrivilegedHelperTools/${label}`;
 const helperDirectory = path.dirname(helperTarget);
 const coreTarget = "/Library/PrivilegedHelperTools/com.asuka109.mish.mihomo.dev";
 const plistTarget = `/Library/LaunchDaemons/${label}.plist`;
-const sourceCore = path.resolve(".scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29");
+const releaseManifestPath = path.resolve("resources/mihomo/macos-arm64.json");
 const runtimeRoot = path.join(
   os.homedir(),
   "Library/Application Support/com.asuka109.mish/runtime",
@@ -148,10 +161,24 @@ function buildHelper(cargo: string, environment: ToolchainEnvironment = process.
   try {
     const commandEnvironment = installerEnvironment(environment);
     commandEnvironment.PATH = `${path.dirname(cargo)}:${commandEnvironment.PATH ?? ""}`;
-    execFileSync(cargo, ["build", "-p", "mish-platform-macos", "--bin", "mish-tun-helper"], {
-      env: commandEnvironment,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    execFileSync(
+      cargo,
+      [
+        "build",
+        "-p",
+        "mish-platform-macos",
+        "--features",
+        "development-core-host",
+        "--bin",
+        "mish-tun-helper",
+        "--bin",
+        "mish-core-host-ctl",
+      ],
+      {
+        env: commandEnvironment,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
   } catch {
     throw new InstallerFailure("preparation-failed", "helper-build", "cargo-build-failed");
   }
@@ -227,6 +254,59 @@ function tolerantAuthorizedCommand(executable: string, args: string[]) {
   return `${authorizedCommand(executable, args)} >/dev/null 2>&1 || true`;
 }
 
+function moveIfPresentAuthorizedCommand(source: string, destination: string) {
+  const sourceArgument = quoteShellArgument(source);
+  return `if [ -e ${sourceArgument} ] || [ -L ${sourceArgument} ]; then ${authorizedCommand(
+    "/bin/mv",
+    [source, destination],
+  )}; fi`;
+}
+
+export function buildDevelopmentServiceUninstallScript(
+  uid: number,
+  gid: number,
+  quarantine: string,
+) {
+  if (
+    !Number.isSafeInteger(uid) ||
+    uid < 1 ||
+    !Number.isSafeInteger(gid) ||
+    gid < 1 ||
+    !path.isAbsolute(quarantine)
+  ) {
+    throw new InstallerFailure("preparation-failed", "uninstall", "invalid-uninstall-identity");
+  }
+  const socket = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
+  const targets = [plistTarget, helperTarget, coreTarget, socket, `${socket}.state`];
+  return [
+    tolerantAuthorizedCommand("/bin/launchctl", ["bootout", `system/${label}`]),
+    authorizedCommand("/usr/bin/install", [
+      "-d",
+      "-o",
+      uid.toString(),
+      "-g",
+      gid.toString(),
+      "-m",
+      "0700",
+      quarantine,
+    ]),
+    ...targets.map((target) =>
+      moveIfPresentAuthorizedCommand(target, path.join(quarantine, path.basename(target))),
+    ),
+    authorizedCommand("/usr/sbin/chown", ["-R", `${uid}:${gid}`, quarantine]),
+  ].join(" &&\n");
+}
+
+async function moveInstallerReceiptToTrash(quarantine: string) {
+  try {
+    await access(installerRoot);
+  } catch {
+    return;
+  }
+  await mkdir(path.dirname(quarantine), { recursive: true, mode: 0o700 });
+  await rename(installerRoot, path.join(quarantine, "tun-service-installer"));
+}
+
 async function writeResult(result: InstallerResult) {
   await mkdir(installerRoot, { recursive: true, mode: 0o700 });
   await chmod(installerRoot, 0o700);
@@ -243,15 +323,71 @@ async function report(result: InstallerResult) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
+function printResult(result: InstallerResult) {
+  process.stdout.write(`${JSON.stringify(result)}\n`);
+}
+
 async function prepare(uid: number) {
   await mkdir(runtimeRoot, { recursive: true, mode: 0o700 });
   await chmod(runtimeRoot, 0o700);
   await mkdir(installerRoot, { recursive: true, mode: 0o700 });
   await chmod(installerRoot, 0o700);
+  let release: MacOsMihomoRelease;
+  try {
+    release = JSON.parse(await readFile(releaseManifestPath, "utf8")) as MacOsMihomoRelease;
+  } catch {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "core-manifest",
+      "pinned-core-manifest-invalid",
+    );
+  }
+  const sourceCore = path.resolve(
+    ".scratch/mihomo",
+    release.version,
+    release.asset.replace(/\.gz$/u, ""),
+  );
   try {
     await access(sourceCore, constants.X_OK);
   } catch {
     throw new InstallerFailure("preparation-failed", "core-artifact", "pinned-core-missing");
+  }
+  const coreDigest = createHash("sha256")
+    .update(await readFile(sourceCore))
+    .digest("hex");
+  if (
+    release.schemaVersion !== 1 ||
+    !/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(release.version) ||
+    !/^[a-f0-9]{64}$/u.test(release.binarySha256) ||
+    coreDigest !== release.binarySha256
+  ) {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "core-artifact",
+      "pinned-core-digest-mismatch",
+    );
+  }
+  let reportedVersion: string;
+  try {
+    reportedVersion = execFileSync(sourceCore, ["-v"], {
+      encoding: "utf8",
+      env: installerEnvironment(process.env),
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5_000,
+    });
+  } catch {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "core-artifact",
+      "pinned-core-version-unavailable",
+    );
+  }
+  if (!reportedVersion.split(/\s+/u).includes(release.version)) {
+    throw new InstallerFailure(
+      "preparation-failed",
+      "core-artifact",
+      "pinned-core-version-mismatch",
+    );
   }
 
   const { cargo } = resolveStableCargo();
@@ -302,33 +438,48 @@ async function prepare(uid: number) {
   } catch {
     throw new InstallerFailure("preparation-failed", "installer-receipt", "receipt-write-failed");
   }
-  return { helperSource, installationId, socket };
+  return { helperSource, installationId, socket, sourceCore };
 }
 
 async function main() {
   const uid = process.getuid?.();
-  if (process.platform !== "darwin" || process.arch !== "arm64" || uid === undefined) {
+  const gid = process.getgid?.();
+  if (
+    process.platform !== "darwin" ||
+    process.arch !== "arm64" ||
+    uid === undefined ||
+    gid === undefined
+  ) {
     throw new InstallerFailure("preparation-failed", "platform", "unsupported-development-host");
   }
 
   if (action === "status") {
     const status = run("/bin/launchctl", ["print", `system/${label}`], { allowFailure: true });
-    if (!status) throw new Error("Development TUN service is not installed");
-    process.stdout.write(status);
+    printResult({
+      ok: true,
+      service: status ? "installed" : "not-installed",
+      stage: "status",
+    });
     return;
   }
 
   if (action === "uninstall") {
-    const socket = `/var/run/com.asuka109.mish.tun-helper.${uid}.sock`;
-    const commands = [
-      tolerantAuthorizedCommand("/bin/launchctl", ["bootout", `system/${label}`]),
-      ...[plistTarget, helperTarget, coreTarget, socket].map((target) =>
-        tolerantAuthorizedCommand("/usr/bin/trash", [target]),
-      ),
-    ];
-    runAuthorized(commands.join("\n"));
-    run("/usr/bin/trash", [installerRoot], { allowFailure: true });
-    await report({ ok: true, stage: "completed" });
+    const quarantine = path.join(
+      os.homedir(),
+      ".Trash",
+      `Mish Core Host Uninstall ${Date.now()} ${randomUUID()}`,
+    );
+    runAuthorized(buildDevelopmentServiceUninstallScript(uid, gid, quarantine));
+    try {
+      await moveInstallerReceiptToTrash(quarantine);
+    } catch {
+      throw new InstallerFailure(
+        "installation-failed",
+        "uninstall-receipt",
+        "receipt-trash-failed",
+      );
+    }
+    printResult({ ok: true, service: "not-installed", stage: "completed" });
     return;
   }
 
@@ -367,7 +518,7 @@ async function main() {
       "wheel",
       "-m",
       "0555",
-      sourceCore,
+      prepared.sourceCore,
       coreTarget,
     ]),
     authorizedCommand("/usr/bin/install", [

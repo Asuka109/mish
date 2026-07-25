@@ -73,6 +73,9 @@ of treating an implementation accident as intent.
 
 - [`operations/development-commands.md`](operations/development-commands.md) —
   authoritative command catalog derived from root `package.json`.
+- [`operations/macos-development-core-host.md`](operations/macos-development-core-host.md) —
+  administrator-operated Stage 1 Core-host install, security, crash, and
+  uninstall acceptance.
 - [`operations/macos-packaging.md`](operations/macos-packaging.md) and
   [`quality/macos-p0-acceptance.md`](quality/macos-p0-acceptance.md) — macOS
   packaging, signing, installation, daily journey, and recovery.

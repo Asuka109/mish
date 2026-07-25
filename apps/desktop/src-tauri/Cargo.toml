@@ -33,6 +33,7 @@ uuid = { version = "1.24.0", features = ["v4"] }
 [features]
 default = []
 custom-protocol = ["tauri/custom-protocol"]
+development-core-host = ["mish-platform-macos/development-core-host"]
 
 [dev-dependencies]
 futures-util = "0.3.31"
