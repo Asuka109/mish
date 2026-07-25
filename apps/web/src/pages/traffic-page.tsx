@@ -582,6 +582,7 @@ export function TrafficPage() {
             <div className={trafficStyles().searchExamples()}>
               <code>destination:example.com</code>
               <code>process:browser network:tcp</code>
+              <code>geosite:youtube</code>
             </div>
           </div>
           <DialogFooter>

@@ -3596,7 +3596,7 @@ type RootTranslation = {
 		 */
 		searchHelpDescription: string
 		/**
-		 * A​v​a​i​l​a​b​l​e​ ​f​i​e​l​d​s​:​ ​d​e​s​t​i​n​a​t​i​o​n​,​ ​p​r​o​c​e​s​s​,​ ​r​u​l​e​,​ ​c​h​a​i​n​,​ ​p​r​o​v​i​d​e​r​,​ ​n​e​t​w​o​r​k​,​ ​p​r​o​t​o​c​o​l​,​ ​a​n​d​ ​s​t​a​t​e​.
+		 * A​v​a​i​l​a​b​l​e​ ​f​i​e​l​d​s​:​ ​d​e​s​t​i​n​a​t​i​o​n​,​ ​p​r​o​c​e​s​s​,​ ​r​u​l​e​,​ ​g​e​o​s​i​t​e​ ​(​G​e​o​S​i​t​e​ ​r​u​l​e​ ​p​a​y​l​o​a​d​)​,​ ​c​h​a​i​n​,​ ​p​r​o​v​i​d​e​r​,​ ​n​e​t​w​o​r​k​,​ ​p​r​o​t​o​c​o​l​,​ ​a​n​d​ ​s​t​a​t​e​.​ ​R​u​l​e​s​ ​a​l​s​o​ ​s​u​p​p​o​r​t​ ​t​y​p​e​,​ ​p​a​y​l​o​a​d​,​ ​t​a​r​g​e​t​,​ ​a​n​d​ ​e​n​a​b​l​e​d​.
 		 */
 		searchHelpFields: string
 		/**
@@ -8088,7 +8088,7 @@ export type TranslationFunctions = {
 		 */
 		searchHelpDescription: () => LocalizedString
 		/**
-		 * Available fields: destination, process, rule, chain, provider, network, protocol, and state.
+		 * Available fields: destination, process, rule, geosite (GeoSite rule payload), chain, provider, network, protocol, and state. Rules also support type, payload, target, and enabled.
 		 */
 		searchHelpFields: () => LocalizedString
 		/**
