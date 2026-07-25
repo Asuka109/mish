@@ -3211,7 +3211,7 @@ type RootTranslation = {
 		 */
 		interval1Minute: string
 		/**
-		 * M​i​s​h​ ​m​e​a​s​u​r​e​s​ ​d​i​r​e​c​t​ ​H​T​T​P​ ​f​i​r​s​t​-​r​e​s​p​o​n​s​e​/​s​e​r​v​i​c​e​-​c​o​n​n​e​c​t​i​v​i​t​y​ ​l​a​t​e​n​c​y​,​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​ ​o​f​ ​M​i​h​o​m​o​.​ ​C​l​o​u​d​f​l​a​r​e​ ​i​s​ ​a​n​ ​A​n​y​c​a​s​t​ ​e​d​g​e​;​ ​G​i​t​H​u​b​,​ ​B​a​i​d​u​,​ ​a​n​d​ ​W​e​i​x​i​n​ ​u​s​e​ ​p​r​o​v​i​d​e​r​ ​s​t​a​t​i​c​-​r​e​s​o​u​r​c​e​/​C​D​N​ ​p​a​t​h​s​;​ ​A​W​S​ ​i​s​ ​D​y​n​a​m​o​D​B​ ​u​s​-​e​a​s​t​-​1​.
+		 * M​i​s​h​ ​m​e​a​s​u​r​e​s​ ​d​i​r​e​c​t​ ​H​T​T​P​ ​f​i​r​s​t​-​r​e​s​p​o​n​s​e​/​s​e​r​v​i​c​e​-​c​o​n​n​e​c​t​i​v​i​t​y​ ​l​a​t​e​n​c​y​,​ ​i​n​d​e​p​e​n​d​e​n​t​l​y​ ​o​f​ ​M​i​h​o​m​o​.​ ​C​l​o​u​d​f​l​a​r​e​ ​i​s​ ​a​n​ ​A​n​y​c​a​s​t​ ​e​d​g​e​;​ ​G​i​t​H​u​b​,​ ​B​a​i​d​u​,​ ​a​n​d​ ​W​e​i​x​i​n​ ​u​s​e​ ​p​r​o​v​i​d​e​r​ ​s​t​a​t​i​c​-​r​e​s​o​u​r​c​e​/​C​D​N​ ​p​a​t​h​s​;​ ​A​W​S​ ​(​u​s​-​e​a​s​t​-​1​)​ ​u​s​e​s​ ​D​y​n​a​m​o​D​B​.
 		 */
 		metadataDescription: string
 		/**
@@ -7718,7 +7718,7 @@ export type TranslationFunctions = {
 		 */
 		interval1Minute: () => LocalizedString
 		/**
-		 * Mish measures direct HTTP first-response/service-connectivity latency, independently of Mihomo. Cloudflare is an Anycast edge; GitHub, Baidu, and Weixin use provider static-resource/CDN paths; AWS is DynamoDB us-east-1.
+		 * Mish measures direct HTTP first-response/service-connectivity latency, independently of Mihomo. Cloudflare is an Anycast edge; GitHub, Baidu, and Weixin use provider static-resource/CDN paths; AWS (us-east-1) uses DynamoDB.
 		 */
 		metadataDescription: () => LocalizedString
 		/**

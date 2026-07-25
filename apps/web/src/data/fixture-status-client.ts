@@ -47,7 +47,7 @@ const defaultServices: ServiceMonitorDto[] = [
   {
     icon: SERVICE_ICON_URLS.aws,
     id: "aws-us-east-1",
-    label: "AWS us-east-1",
+    label: "AWS (us-east-1)",
     url: "https://dynamodb.us-east-1.amazonaws.com/ping",
   },
 ];

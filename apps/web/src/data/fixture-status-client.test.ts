@@ -27,6 +27,9 @@ describe("FixtureStatusClient", () => {
       { id: "weixin", url: "https://res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico" },
       { id: "aws-us-east-1", url: "https://dynamodb.us-east-1.amazonaws.com/ping" },
     ]);
+    expect(snapshot.services.find((service) => service.id === "aws-us-east-1")?.label).toBe(
+      "AWS (us-east-1)",
+    );
   });
 
   it("serializes every default service with a root-relative bundled icon URL", async () => {

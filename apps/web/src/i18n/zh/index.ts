@@ -871,7 +871,7 @@ const zh = {
     interval30Seconds: "每 30 秒",
     interval1Minute: "每1分钟",
     metadataDescription:
-      "Mish 测量直连 HTTP 首次响应/服务连通性延迟，不依赖 Mihomo。Cloudflare 反映 Anycast 边缘；GitHub、百度和微信使用服务商静态资源/CDN 路径；AWS 固定为 DynamoDB us-east-1。",
+      "Mish 测量直连 HTTP 首次响应/服务连通性延迟，不依赖 Mihomo。Cloudflare 反映 Anycast 边缘；GitHub、百度和微信使用服务商静态资源/CDN 路径；AWS (us-east-1) 使用 DynamoDB。",
     probeUrl: "探测地址",
     removedToast: "已删除服务监控",
     restoreDefaults: "恢复默认值",

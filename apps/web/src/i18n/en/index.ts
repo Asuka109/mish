@@ -950,7 +950,7 @@ const en = {
     interval30Seconds: "Every 30 seconds",
     interval1Minute: "Every 1 minute",
     metadataDescription:
-      "Mish measures direct HTTP first-response/service-connectivity latency, independently of Mihomo. Cloudflare is an Anycast edge; GitHub, Baidu, and Weixin use provider static-resource/CDN paths; AWS is DynamoDB us-east-1.",
+      "Mish measures direct HTTP first-response/service-connectivity latency, independently of Mihomo. Cloudflare is an Anycast edge; GitHub, Baidu, and Weixin use provider static-resource/CDN paths; AWS (us-east-1) uses DynamoDB.",
     probeUrl: "Probe URL",
     removedToast: "Service monitor removed",
     restoreDefaults: "Restore Defaults",

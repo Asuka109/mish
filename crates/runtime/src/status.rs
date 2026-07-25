@@ -384,7 +384,7 @@ pub fn default_service_monitors() -> Vec<ServiceMonitor> {
         (
             "/assets/remix-icon/aws.svg",
             "aws-us-east-1",
-            "AWS us-east-1",
+            "AWS (us-east-1)",
             "https://dynamodb.us-east-1.amazonaws.com/ping",
         ),
     ]
@@ -452,5 +452,15 @@ mod tests {
             ]
         );
         assert!(icons.iter().all(|icon| icon.starts_with('/')));
+    }
+
+    #[test]
+    fn default_aws_monitor_names_the_fixed_region() {
+        let aws = default_service_monitors()
+            .into_iter()
+            .find(|monitor| monitor.id == "aws-us-east-1")
+            .unwrap();
+
+        assert_eq!(aws.label, "AWS (us-east-1)");
     }
 }

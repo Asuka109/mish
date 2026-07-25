@@ -164,7 +164,7 @@ derivation and persistence are specified in
 
 Service latency monitors a user-managed set of endpoint probes. The default fixture
 contains Google `generate_204`, GitHub's favicon, Cloudflare `generate_204`,
-Baidu's favicon, a Weixin static icon, and DynamoDB us-east-1 `/ping`. Normal display
+Baidu's favicon, a Weixin static icon, and AWS (us-east-1) DynamoDB `/ping`. Normal display
 shows a URL-backed service icon, title, and latency; activating a service runs
 that probe immediately and updates its latency in place. The probe URL and icon
 URL appear only in the editor. Default icons use bundled Remix Icon `v4.8.0`
@@ -189,7 +189,7 @@ A result means “the configured endpoint returned response headers through the
 explicitly chosen probe path.” It is direct HTTP first-response/service-connectivity
 latency, not bandwidth, pure RTT, full-body load, or complete application experience.
 Cloudflare reflects an Anycast edge; GitHub, Baidu, and Weixin reflect provider
-static-resource/CDN paths; AWS is fixed to DynamoDB us-east-1. It is not proof of
+static-resource/CDN paths; AWS (us-east-1) uses DynamoDB. It is not proof of
 a globally active proxy node. Probe transport and
 security are specified in
 [`../architecture/status-data-contracts.md`](../architecture/status-data-contracts.md).
