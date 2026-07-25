@@ -14,6 +14,13 @@ import {
 const desktopConfig = JSON.parse(
   readFileSync(new URL("../apps/desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8"),
 );
+const desktopEnvironment = readFileSync(
+  new URL("../apps/desktop/.env.development", import.meta.url),
+  "utf8",
+);
+const desktopPackage = JSON.parse(
+  readFileSync(new URL("../apps/desktop/package.json", import.meta.url), "utf8"),
+);
 
 test("falls back when the preferred development port is occupied", async () => {
   const occupied = createServer();
@@ -85,6 +92,15 @@ test("keeps the checked-in main WebView Inspector configuration default-off", ()
   );
   assert(mainWindow);
   assert.equal(mainWindow.devtools, false);
+});
+
+test("enables detached DevTools only in tracked desktop development commands", () => {
+  assert.equal(desktopEnvironment, "MISH_DEVTOOLS=1\n");
+  assert.match(desktopPackage.scripts.dev, /--env-file=\.env\.development/u);
+  assert.match(desktopPackage.scripts.demo, /--env-file=\.env\.development/u);
+  assert.doesNotMatch(desktopPackage.scripts.build, /env-file|MISH_DEVTOOLS/u);
+  assert.doesNotMatch(desktopPackage.scripts["bundle:macos"], /env-file|MISH_DEVTOOLS/u);
+  assert.doesNotMatch(desktopPackage.scripts["bundle:macos:production"], /env-file|MISH_DEVTOOLS/u);
 });
 
 test("recognizes a native setup abort even when Tauri exits successfully", () => {

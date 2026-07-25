@@ -22,24 +22,31 @@ run desktop demos concurrently.
 
 ## Process-local WebView Inspector
 
-The desktop WebView Inspector is disabled by default in development and
-packaged builds. Enable it for one development process with either supported
-startup input:
+The desktop WebView Inspector remains default-off in the application binary.
+The tracked `.env.development` deliberately sets `MISH_DEVTOOLS=1` for
+`desktop:dev` and `desktop:demo`, so the normal source-development workflow
+opens WebKit Inspector as a separate window:
 
 ```sh
 pnpm prepare:mihomo
 MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  pnpm desktop:dev -- --devtools
-
-MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
-  MISH_DEVTOOLS=1 pnpm desktop:dev
+  pnpm desktop:dev
 ```
 
-The command-line flag takes precedence over `MISH_DEVTOOLS`. Without the flag,
-the environment value must be exactly `1` (enabled) or `0` (disabled). Any
-other value fails startup with the Inspector disabled. The option exists only
-in the current process and is never copied into Settings, application storage,
-or a later launch.
+An existing process environment takes precedence over the tracked development
+file. Disable the Inspector for one development process with:
+
+```sh
+MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  MISH_DEVTOOLS=0 pnpm desktop:dev
+```
+
+The application still accepts explicit `--devtools` and `MISH_DEVTOOLS=1`
+startup inputs outside that convenience workflow. The command-line flag takes
+precedence over `MISH_DEVTOOLS`. Without the flag, the environment value must be
+exactly `1` (enabled) or `0` (disabled). Any other value fails startup with the
+Inspector disabled. The option exists only in the current process and is never
+copied into Settings, application storage, or a later launch.
 
 On supported macOS builds, the opt-in opens WebKit's local Inspector for Mish's
 main desktop WebView. It does not expose the standalone Browser Client, start a

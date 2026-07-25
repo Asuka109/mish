@@ -132,6 +132,13 @@ still fails closed and never selects fixtures.
     API and follows Apple's per-WebView, default-off
     [`WKWebView.isInspectable`](https://developer.apple.com/documentation/webkit/wkwebview/isinspectable)
     lifecycle rather than creating a remote debugging service.
+    The two source-development package commands load the tracked
+    `apps/desktop/.env.development`, which deliberately provides
+    `MISH_DEVTOOLS=1` and opens Inspector as a separate window. An existing
+    process environment can override it with `MISH_DEVTOOLS=0`. Build, bundle,
+    packaged launch, Finder, Dock, and Login Item paths never load that file, so
+    the application binary and every packaged workflow retain the default-off
+    contract.
 
 ## Browser-client launch flow
 
