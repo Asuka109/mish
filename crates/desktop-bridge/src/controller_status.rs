@@ -614,7 +614,7 @@ fn map_connection(connection: Connection) -> Result<TrafficConnection, StatusMap
         protocol: connection.metadata.kind,
         provider_chain: normalize_provider_chain(connection.provider_chains),
         remote_destination: non_empty(connection.metadata.remote_destination),
-        route_chain: connection.chains,
+        route_chain: normalize_controller_route_chain(connection.chains),
         sniff_host: non_empty(connection.metadata.sniff_host),
         source_ip: non_empty(connection.metadata.source_ip),
         source_port: connection.metadata.source_port,
@@ -637,6 +637,14 @@ fn normalize_provider_chain(provider_chains: Vec<String>) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// Mihomo serializes `chains` from the final outbound back toward the first
+/// selected group or node. The Traffic DTO is intentionally the inverse:
+/// first reached hop through final exit. Keep every entry because duplicate
+/// labels can represent distinct nested traversal hops.
+fn normalize_controller_route_chain(chains: Vec<String>) -> Vec<String> {
+    chains.into_iter().rev().collect()
 }
 
 fn map_connection_value(

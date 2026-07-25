@@ -3596,7 +3596,7 @@ type RootTranslation = {
 		 */
 		searchHelpDescription: string
 		/**
-		 * A​v​a​i​l​a​b​l​e​ ​f​i​e​l​d​s​:​ ​d​e​s​t​i​n​a​t​i​o​n​,​ ​p​r​o​c​e​s​s​,​ ​r​u​l​e​,​ ​c​h​a​i​n​,​ ​n​e​t​w​o​r​k​,​ ​p​r​o​t​o​c​o​l​,​ ​a​n​d​ ​s​t​a​t​e​.
+		 * A​v​a​i​l​a​b​l​e​ ​f​i​e​l​d​s​:​ ​d​e​s​t​i​n​a​t​i​o​n​,​ ​p​r​o​c​e​s​s​,​ ​r​u​l​e​,​ ​c​h​a​i​n​,​ ​p​r​o​v​i​d​e​r​,​ ​n​e​t​w​o​r​k​,​ ​p​r​o​t​o​c​o​l​,​ ​a​n​d​ ​s​t​a​t​e​.
 		 */
 		searchHelpFields: string
 		/**
@@ -8037,7 +8037,7 @@ export type TranslationFunctions = {
 		 */
 		searchHelpDescription: () => LocalizedString
 		/**
-		 * Available fields: destination, process, rule, chain, network, protocol, and state.
+		 * Available fields: destination, process, rule, chain, provider, network, protocol, and state.
 		 */
 		searchHelpFields: () => LocalizedString
 		/**

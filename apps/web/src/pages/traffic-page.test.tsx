@@ -196,9 +196,11 @@ describe("Traffic page", () => {
     const dialog = screen.getByRole("dialog", { name: "Connection details" });
     const chain = within(dialog).getByRole("list");
     expect(within(chain).getAllByRole("listitem")).toHaveLength(3);
-    expect(chain).toHaveTextContent("Fixture Policy");
-    expect(chain).toHaveTextContent("Fixture Relay");
-    expect(chain).toHaveTextContent("Fixture Exit");
+    expect(
+      within(chain)
+        .getAllByRole("listitem")
+        .map((item) => item.textContent),
+    ).toEqual(["1Fixture Policy", "2Fixture Relay", "3Fixture Exit"]);
     expect(dialog).toHaveTextContent("/synthetic/apps/fixture-browser");
   });
 
