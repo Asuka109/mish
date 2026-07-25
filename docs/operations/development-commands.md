@@ -27,6 +27,35 @@ pnpm demo -- --port 4173
 pnpm web:test:run -- src/path/to/example.test.ts
 ```
 
+The desktop launcher recognizes `--devtools` as an application startup flag
+and passes it beyond Tauri's runner boundary. It opens the local WebKit
+Inspector for only the current Mish desktop process:
+
+```sh
+pnpm prepare:mihomo
+MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  pnpm desktop:dev -- --devtools
+```
+
+The equivalent allowlisted environment opt-in is:
+
+```sh
+MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  MISH_DEVTOOLS=1 pnpm desktop:dev
+```
+
+`--devtools` takes precedence. Without the flag, `MISH_DEVTOOLS` accepts exactly
+`1` or `0`; malformed values stop startup with the Inspector disabled. Missing
+input defaults off. No value is persisted, so the next ordinary launch is
+closed again.
+
+The Inspector can reveal local state, tokens, authenticated bridge payloads,
+Profile-derived data, network activity, and other sensitive diagnostics.
+Review and redact Inspector screenshots, exports, or copied values before
+sharing them. This option does not enable a remote debugging port, add a
+listener, affect the standalone Browser Client, or relax bridge, CSP, or RPC
+authorization.
+
 ## Scoped development and build commands
 
 | Scope   | Commands                                                                                                                                                    |

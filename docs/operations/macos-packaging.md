@@ -31,6 +31,46 @@ The verifier checks the application identifier, version, architecture, pinned
 Mihomo digest and version, offline Web resources, legal resources, signature
 structure, DMG layout, and clean detach.
 
+### Packaged WebView Inspector
+
+Packaged macOS builds retain an explicit, process-local WebView Inspector
+opt-in. Launch the installed executable directly with either form:
+
+```sh
+"/Applications/Mish.app/Contents/MacOS/mish-desktop" --devtools
+
+MISH_DEVTOOLS=1 "/Applications/Mish.app/Contents/MacOS/mish-desktop"
+```
+
+The command-line flag takes precedence over the environment. Without it,
+`MISH_DEVTOOLS` accepts exactly `1` or `0`; malformed values stop startup with
+the Inspector disabled. An ordinary Finder, Dock, Login Item, `open -a Mish`,
+or direct executable launch without either opt-in has no Web Inspector
+affordance. Quit Mish before testing the next form because the managed-runtime
+lease permits only one operational desktop process.
+
+The opt-in uses Tauri's local WebKit Inspector surface and does not open a
+remote-debugging port or network listener. It affects only Mish's main desktop
+WebView, not the standalone Browser Client, and does not change bridge
+authentication, CSP, or RPC authorization. The Tauri API uses a macOS private
+WebKit surface and is not compatible with a Mac App Store build; a requested
+unsupported platform returns a bounded startup diagnostic instead of claiming
+the Inspector is enabled.
+
+> **Sensitive diagnostic warning:** The Inspector can reveal local application
+> state, tokens, authenticated bridge payloads, Profile-derived data, network
+> activity, and other sensitive diagnostics. Do not share screenshots, exports,
+> or copied values without reviewing and redacting them.
+
+After an Inspector session, quit Mish and launch it normally:
+
+```sh
+"/Applications/Mish.app/Contents/MacOS/mish-desktop"
+```
+
+The later process must start with the Inspector closed because the opt-in is
+never persisted in Settings or application storage.
+
 Use the Finder-styled path only when intentionally preparing a delivery image:
 
 ```sh

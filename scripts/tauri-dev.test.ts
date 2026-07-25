@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import test from "node:test";
 
@@ -9,6 +10,10 @@ import {
   parseTauriDevelopmentArguments,
   resolveTauriDevelopmentExitCode,
 } from "./tauri-dev.ts";
+
+const desktopConfig = JSON.parse(
+  readFileSync(new URL("../apps/desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+);
 
 test("falls back when the preferred development port is occupied", async () => {
   const occupied = createServer();
@@ -50,13 +55,36 @@ test("configures an isolated backend-free desktop demo", () => {
 
 test("forwards pnpm pass-through options to the Tauri CLI", () => {
   assert.deepEqual(parseTauriDevelopmentArguments(["--", "--no-watch"]), {
+    application: [],
     demo: false,
     forwarded: ["--no-watch"],
   });
   assert.deepEqual(parseTauriDevelopmentArguments(["--demo", "--verbose"]), {
+    application: [],
     demo: true,
     forwarded: ["--verbose"],
   });
+});
+
+test("separates the process-local DevTools flag from Tauri CLI options", () => {
+  assert.deepEqual(parseTauriDevelopmentArguments(["--", "--devtools", "--no-watch"]), {
+    application: ["--devtools"],
+    demo: false,
+    forwarded: ["--no-watch"],
+  });
+  assert.deepEqual(parseTauriDevelopmentArguments(["--devtools=true"]), {
+    application: ["--devtools=true"],
+    demo: false,
+    forwarded: [],
+  });
+});
+
+test("keeps the checked-in main WebView Inspector configuration default-off", () => {
+  const mainWindow = desktopConfig.app.windows.find(
+    (window: { label?: string }) => window.label === "main",
+  );
+  assert(mainWindow);
+  assert.equal(mainWindow.devtools, false);
 });
 
 test("recognizes a native setup abort even when Tauri exits successfully", () => {

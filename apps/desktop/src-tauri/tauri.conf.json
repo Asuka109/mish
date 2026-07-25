@@ -15,6 +15,7 @@
       {
         "center": true,
         "decorations": true,
+        "devtools": false,
         "height": 760,
         "hiddenTitle": true,
         "label": "main",
