@@ -5,7 +5,8 @@ use std::sync::{
 
 use mish_runtime::{
     CaptureAuditReason, CaptureFailureKind, CorePhase, PlatformLifecycleEvent,
-    PlatformLifecycleEventKind, PlatformLifecycleEventSource, RuntimeObservationPauseReason,
+    PlatformLifecycleEventKind, PlatformLifecycleEventSource, RecentTrafficContinuity,
+    RuntimeObservationPauseReason,
 };
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 
@@ -63,10 +64,15 @@ impl DesktopLifecycleCoordinator {
         match event.kind {
             PlatformLifecycleEventKind::Sleep => {
                 self.sleeping.store(true, Ordering::Release);
+                let runtime = self.host.current();
+                let recent_revision = runtime.recent_traffic().snapshot().revision;
+                self.host.suspend_recent_traffic();
+                if runtime.recent_traffic().snapshot().revision != recent_revision {
+                    runtime.publish_current_status().await;
+                }
                 self.invalidate_network_dns();
                 self.host.invalidate_diagnostics();
-                self.host
-                    .current()
+                runtime
                     .pause_observations(RuntimeObservationPauseReason::Sleep)
                     .await;
                 Ok(LifecycleEventDisposition::Applied)
@@ -98,6 +104,7 @@ impl DesktopLifecycleCoordinator {
         self.host.invalidate_diagnostics();
         self.invalidate_network_dns();
         if !running {
+            self.host.suspend_recent_traffic();
             runtime
                 .pause_observations(RuntimeObservationPauseReason::CoreUnavailable)
                 .await;
@@ -111,10 +118,20 @@ impl DesktopLifecycleCoordinator {
             return Ok(());
         }
         runtime.resume_observations().await;
-        runtime
-            .restore_capture_intent()
-            .await
-            .map_err(capture_error)?;
+        if let Err(error) = runtime.restore_capture_intent().await {
+            let recent_revision = runtime.recent_traffic().snapshot().revision;
+            self.host.discontinue_recent_traffic();
+            if runtime.recent_traffic().snapshot().revision != recent_revision {
+                runtime.publish_current_status().await;
+            }
+            return Err(capture_error(error));
+        }
+        let recent_revision = runtime.recent_traffic().snapshot().revision;
+        self.host
+            .resume_recent_traffic(RecentTrafficContinuity::Continue);
+        if runtime.recent_traffic().snapshot().revision != recent_revision {
+            runtime.publish_current_status().await;
+        }
         self.refresh_network_dns().await;
         Ok(())
     }
@@ -150,6 +167,11 @@ impl DesktopLifecycleCoordinator {
     ) -> Result<(), LifecycleCoordinationError> {
         let runtime = self.host.current();
         self.host.invalidate_diagnostics();
+        let recent_revision = runtime.recent_traffic().snapshot().revision;
+        self.host.suspend_recent_traffic();
+        if runtime.recent_traffic().snapshot().revision != recent_revision {
+            runtime.publish_current_status().await;
+        }
         runtime.pause_observations(reason).await;
         if self.sleeping.load(Ordering::Acquire) {
             return Ok(());
@@ -163,11 +185,25 @@ impl DesktopLifecycleCoordinator {
                 .map_err(capture_error);
         }
         runtime.resume_observations().await;
-        runtime
-            .restore_capture_intent()
-            .await
-            .map(|_| ())
-            .map_err(capture_error)
+        match runtime.restore_capture_intent().await {
+            Ok(_) => {
+                let recent_revision = runtime.recent_traffic().snapshot().revision;
+                self.host
+                    .resume_recent_traffic(RecentTrafficContinuity::Continue);
+                if runtime.recent_traffic().snapshot().revision != recent_revision {
+                    runtime.publish_current_status().await;
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let recent_revision = runtime.recent_traffic().snapshot().revision;
+                self.host.discontinue_recent_traffic();
+                if runtime.recent_traffic().snapshot().revision != recent_revision {
+                    runtime.publish_current_status().await;
+                }
+                Err(capture_error(error))
+            }
+        }
     }
 
     fn invalidate_network_dns(&self) {

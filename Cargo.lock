@@ -2620,6 +2620,7 @@ dependencies = [
  "mish-state-authority",
  "rfd 0.17.2",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-autostart",
@@ -2722,6 +2723,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

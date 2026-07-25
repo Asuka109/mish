@@ -7,9 +7,9 @@ use mish_mihomo_controller::{
 };
 use mish_runtime::{
     CoreStatus, EffectiveRule, GroupDelayPolicy, GroupDelayTest, GroupUsage, PolicyGroup,
-    PolicyGroupKind, ProfileSummary, ProxyNode, RoutingMode, RuntimeMetrics,
-    STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot, TrafficConnection,
-    TrafficDataPhase, TrafficDataSnapshot, TrafficMatchedRule, TrafficSnapshot,
+    PolicyGroupKind, ProfileSummary, ProxyNode, RecentTrafficObservation, RoutingMode,
+    RuntimeMetrics, STATUS_TRAFFIC_SERIES_LIMIT, StatusAdapterKind, StatusSnapshot,
+    TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficMatchedRule, TrafficSnapshot,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -286,6 +286,22 @@ impl ControllerStatusMapper {
             rules: self.effective_rules.clone(),
             sequence,
             session_id,
+        }
+    }
+
+    pub fn recent_traffic_observation(
+        &self,
+        source_generation: u64,
+        source_sequence: u64,
+    ) -> RecentTrafficObservation {
+        RecentTrafficObservation {
+            source_generation,
+            source_sequence,
+            profile_id: self.context.profile_id.clone(),
+            downloaded_bytes: self.traffic.downloaded_bytes,
+            uploaded_bytes: self.traffic.uploaded_bytes,
+            download_bytes_per_second: self.traffic.download_bytes_per_second,
+            upload_bytes_per_second: self.traffic.upload_bytes_per_second,
         }
     }
 

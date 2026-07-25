@@ -63,6 +63,14 @@ describe("mock bridge", () => {
       systemProxyEnabled: false,
       tunEnabled: true,
     });
+    expect(resumed.recentTraffic).toMatchObject({
+      authorityId: "mock-status-authority",
+      phase: "active",
+      profileId: "home",
+      sessionId: "mock-status-session-1",
+    });
+    expect(resumed.traffic.downloadedBytes).toBe(4096);
+    expect(resumed.recentTraffic.downloadedBytes).toBe(0);
 
     const core = await rpc.request("core.start", {});
     expect(core).toMatchObject({ phase: "running", pid: 4242 });

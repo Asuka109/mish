@@ -75,13 +75,35 @@ impl DesktopRuntimeHost {
 
     pub fn replace(&self, runtime: MishRuntime) {
         self.diagnostics.invalidate_active();
-        let notifications = self.current().notification_center();
-        self.runtime
-            .send_replace(runtime.with_notification_center(notifications));
+        let current = self.current();
+        let notifications = current.notification_center();
+        let recent_traffic = current.recent_traffic();
+        if current.active_profile_identity() != runtime.active_profile_identity() {
+            recent_traffic.stop();
+        } else {
+            recent_traffic.suspend();
+        }
+        self.runtime.send_replace(
+            runtime
+                .with_notification_center(notifications)
+                .with_recent_traffic(recent_traffic),
+        );
     }
 
     pub fn invalidate_diagnostics(&self) {
         self.diagnostics.invalidate_active();
+    }
+
+    pub fn suspend_recent_traffic(&self) {
+        self.current().suspend_recent_traffic();
+    }
+
+    pub fn resume_recent_traffic(&self, continuity: mish_runtime::RecentTrafficContinuity) {
+        self.current().resume_recent_traffic(continuity);
+    }
+
+    pub fn discontinue_recent_traffic(&self) {
+        self.current().discontinue_recent_traffic();
     }
 
     pub fn diagnostic_history(&self, adapter_kind: StatusAdapterKind) -> DiagnosticHistory {
