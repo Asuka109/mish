@@ -67,6 +67,7 @@ import {
   type ConnectionSort,
   type RuleSort,
 } from "./traffic-model";
+import { formatConnectionProtocolLabel, formatNetworkIdentifier } from "./traffic-presentation";
 
 type TrafficTab = "active" | "closed" | "rules";
 type SelectedConnection = TrafficConnectionDto | ClosedTrafficConnection;
@@ -219,17 +220,20 @@ export function TrafficPage() {
   const [searchHelpOpen, setSearchHelpOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const activeConnections = isCurrent ? (snapshot?.activeConnections ?? []) : [];
-  const networks = useMemo(
-    () =>
-      [
-        "all",
-        ...new Set([...activeConnections, ...closed].map((item) => item.network.toLowerCase())),
-      ].map((value) => ({
-        label: value === "all" ? LL.traffic.allNetworks() : value.toUpperCase(),
+  const networks = useMemo(() => {
+    const identifiers = new Map<string, string>();
+    for (const connection of [...activeConnections, ...closed]) {
+      const normalized = connection.network.toLocaleLowerCase();
+      if (!identifiers.has(normalized)) identifiers.set(normalized, connection.network);
+    }
+    return [
+      { label: LL.traffic.allNetworks(), value: "all" },
+      ...[...identifiers].map(([value, raw]) => ({
+        label: formatNetworkIdentifier(raw),
         value,
       })),
-    [LL, activeConnections, closed],
-  );
+    ];
+  }, [LL, activeConnections, closed]);
   const filteredConnections = useMemo(() => {
     const source = tab === "closed" ? closed : activeConnections;
     return sortConnections(
@@ -837,7 +841,7 @@ function ConnectionPanel<T extends TrafficConnectionDto>({
               <ProcessIdentity connection={connection} LL={LL} />
             </TableCell>
             <TableCell className="tabular-nums">
-              {connection.network.toUpperCase()} · {connection.protocol}
+              {formatConnectionProtocolLabel(connection)}
             </TableCell>
             <TableCell className="tabular-nums">
               {formatDate(
@@ -1104,7 +1108,7 @@ function ConnectionDetailDialog({
               <Detail label={LL.traffic.sniffHost()} value={connection.sniffHost} LL={LL} />
               <Detail
                 label={LL.traffic.protocol()}
-                value={`${connection.network} · ${connection.protocol}`}
+                value={formatConnectionProtocolLabel(connection)}
                 LL={LL}
               />
               <Detail

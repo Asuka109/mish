@@ -3,6 +3,7 @@ import type {
   TrafficConnectionDto,
   TrafficDataSnapshotDto,
 } from "@mish/contracts";
+import { trafficIdentifierSearchValues } from "./traffic-presentation";
 
 export const CLOSED_CONNECTION_LIMIT = 512;
 export const CLOSED_CONNECTION_MAX_AGE_MILLISECONDS = 30 * 60 * 1_000;
@@ -191,6 +192,7 @@ function matchesConnectionToken(
   state: "active" | "closed",
   token: QueryToken,
 ) {
+  const identifiers = trafficIdentifierSearchValues(connection);
   const destination = [
     connection.destinationHost,
     connection.destinationIp,
@@ -207,16 +209,24 @@ function matchesConnectionToken(
     child: routeChain,
     destination,
     group: routeChain,
-    network: [connection.network],
+    network: identifiers.network,
     process,
     provider: providerChain,
-    protocol: [connection.protocol],
+    protocol: identifiers.protocol,
     rule,
     state: [state],
   };
   const values = token.field
     ? fields[token.field]
-    : [...destination, ...process, ...rule, ...routeChain, ...providerChain];
+    : [
+        ...destination,
+        ...process,
+        ...rule,
+        ...routeChain,
+        ...providerChain,
+        ...identifiers.network,
+        ...identifiers.protocol,
+      ];
   if (!values) return false;
   return values.some((value) => value?.toLocaleLowerCase().includes(token.value));
 }

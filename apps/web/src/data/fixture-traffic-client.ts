@@ -21,7 +21,7 @@ const fixtureConnections: TrafficConnectionDto[] = [
     network: "tcp",
     processName: "Fixture Browser",
     processPath: "/synthetic/apps/fixture-browser",
-    protocol: "HTTP",
+    protocol: "HTTPS",
     rulePayload: "fixture.invalid",
     ruleType: "DomainSuffix",
     routeChain: ["Fixture Policy", "Fixture Relay", "Fixture Exit"],
