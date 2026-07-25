@@ -213,6 +213,28 @@ describe("Events page", () => {
     expect(screen.getByRole("button", { name: "Preview Support Bundle" })).toBeDisabled();
   });
 
+  it("recovers a running diagnostic after one history refresh failure", async () => {
+    const user = userEvent.setup();
+    const fixture = new FixtureDiagnosticsClient();
+    const fixtureHistory = await fixture.startRun();
+    const completed: DiagnosticHistoryDto = {
+      ...fixtureHistory,
+      adapterKind: "rpc",
+      runs: fixtureHistory.runs.map((run) => ({ ...run, adapterKind: "rpc" })),
+    };
+    const client = new RecoveringDiagnosticsClient(completed);
+    renderEvents(new FixtureEventsClient(), undefined, client);
+    await screen.findByText("No diagnostic runs in local history.");
+
+    await user.click(await findEnabledButton("Run Diagnostics"));
+
+    expect(await screen.findByText("Diagnostics are currently unavailable.")).toBeVisible();
+    client.recover();
+    expect(await screen.findByText("Completed")).toBeVisible();
+    expect(screen.queryByText("Diagnostics are currently unavailable.")).not.toBeInTheDocument();
+    expect(client.getHistory).toHaveBeenCalledTimes(3);
+  });
+
   it("links common failure events to the focusable diagnostics section", async () => {
     const user = userEvent.setup();
     renderEvents(new FixtureEventsClient());
@@ -374,5 +396,51 @@ class TerminalDiagnosticsClient implements DiagnosticsClient {
 
   async startRun() {
     return structuredClone(this.history);
+  }
+}
+
+class RecoveringDiagnosticsClient implements DiagnosticsClient {
+  readonly getHistory = vi.fn(async () => {
+    this.historyRequests += 1;
+    if (this.historyRequests === 1) return structuredClone(this.emptyHistory);
+    if (this.historyRequests === 2) throw new Error("transient local RPC interruption");
+    await this.completion;
+    return structuredClone(this.completedHistory);
+  });
+  private readonly completion: Promise<void>;
+  private complete!: () => void;
+  private historyRequests = 0;
+  private readonly emptyHistory: DiagnosticHistoryDto;
+  private readonly runningHistory: DiagnosticHistoryDto;
+
+  constructor(private readonly completedHistory: DiagnosticHistoryDto) {
+    this.completion = new Promise((resolve) => {
+      this.complete = resolve;
+    });
+    const run = completedHistory.runs[0]!;
+    this.emptyHistory = {
+      activeRunId: null,
+      adapterKind: completedHistory.adapterKind,
+      runs: [],
+    };
+    this.runningHistory = {
+      activeRunId: run.id,
+      adapterKind: completedHistory.adapterKind,
+      runs: [{ ...run, checks: [], finishedAt: null, status: "running" }],
+    };
+  }
+
+  async cancelRun() {
+    return structuredClone(this.completedHistory);
+  }
+
+  dispose() {}
+
+  recover() {
+    this.complete();
+  }
+
+  async startRun() {
+    return structuredClone(this.runningHistory);
   }
 }

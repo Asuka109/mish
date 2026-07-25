@@ -49,6 +49,8 @@ interface EventsContextValue {
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
+const diagnosticPollIntervalMilliseconds = 200;
+const diagnosticMaximumRetryMilliseconds = 2_000;
 
 interface EventsProviderProps {
   children: ReactNode;
@@ -130,6 +132,7 @@ export function EventsProvider({
     if (!diagnosticHistory?.activeRunId) return;
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let retryMilliseconds = diagnosticPollIntervalMilliseconds;
     const poll = () => {
       const request = ++diagnosticRequest.current;
       resolvedDiagnosticsClient
@@ -138,15 +141,18 @@ export function EventsProvider({
           if (request !== diagnosticRequest.current) return;
           setDiagnosticHistory(history);
           setDiagnosticError(null);
-          if (history.activeRunId) timeout = setTimeout(poll, 200);
+          retryMilliseconds = diagnosticPollIntervalMilliseconds;
+          if (history.activeRunId) timeout = setTimeout(poll, diagnosticPollIntervalMilliseconds);
         })
         .catch(() => {
           if (!controller.signal.aborted && request === diagnosticRequest.current) {
             setDiagnosticError("Diagnostics could not be refreshed.");
+            timeout = setTimeout(poll, retryMilliseconds);
+            retryMilliseconds = Math.min(retryMilliseconds * 2, diagnosticMaximumRetryMilliseconds);
           }
         });
     };
-    timeout = setTimeout(poll, 200);
+    timeout = setTimeout(poll, diagnosticPollIntervalMilliseconds);
     return () => {
       controller.abort();
       if (timeout) clearTimeout(timeout);

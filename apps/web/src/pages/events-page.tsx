@@ -141,7 +141,8 @@ const eventStyles = tv({
       "max-toolbar-compact:flex-col max-toolbar-compact:items-stretch max-toolbar-compact:gap-1.75",
       "[&>div]:min-w-0 [&_p]:mt-1 [&_p]:max-w-190 [&_p]:text-metadata [&_p]:text-muted-foreground",
     ),
-    diagnosticMessage: "mt-2.5 text-metadata leading-4.75 text-muted-foreground",
+    diagnosticMessage: "text-metadata leading-4.75 text-muted-foreground",
+    diagnosticStatus: "mt-2.5 min-h-4.75",
     diagnosticFixture: "text-warning",
     diagnosticError: "text-error",
     diagnosticHistory: "diagnostic-history grid gap-6",
@@ -409,26 +410,27 @@ export function EventsPage() {
             </Button>
           )}
         </div>
-        {diagnosticHistory?.adapterKind === "fixture" ? (
-          <p
-            className={eventStyles().diagnosticMessage({
-              className: eventStyles().diagnosticFixture(),
-            })}
-            role="status"
-          >
-            {LL.diagnostics.fixtureNotice()}
-          </p>
-        ) : null}
-        {diagnosticError ? (
-          <p
-            className={eventStyles().diagnosticMessage({
-              className: eventStyles().diagnosticError(),
-            })}
-            role="alert"
-          >
-            {LL.diagnostics.error()}
-          </p>
-        ) : null}
+        <div className={eventStyles().diagnosticStatus()}>
+          {diagnosticHistory?.adapterKind === "fixture" ? (
+            <p
+              className={eventStyles().diagnosticMessage({
+                className: eventStyles().diagnosticFixture(),
+              })}
+              role="status"
+            >
+              {LL.diagnostics.fixtureNotice()}
+            </p>
+          ) : diagnosticError ? (
+            <p
+              className={eventStyles().diagnosticMessage({
+                className: eventStyles().diagnosticError(),
+              })}
+              role="alert"
+            >
+              {LL.diagnostics.error()}
+            </p>
+          ) : null}
+        </div>
         {diagnosticHistory?.runs.length ? (
           <div className={eventStyles().diagnosticHistory()}>
             {diagnosticHistory.runs.map((run) => (

@@ -293,14 +293,16 @@ describe("desktop runtime bootstrap", () => {
   });
 
   it("keeps the token in the RPC authentication message instead of the endpoint", async () => {
-    const transport = {
+    const transports = Array.from({ length: 2 }, () => ({
       addEventListener: vi.fn(),
       close: vi.fn(),
       readyState: 0,
       removeEventListener: vi.fn(),
       send: vi.fn(),
-    };
-    const openWebSocket = vi.fn((_url: string) => transport as unknown as WebSocket);
+    }));
+    const openWebSocket = vi.fn(
+      (_url: string) => transports[openWebSocket.mock.calls.length - 1] as unknown as WebSocket,
+    );
     const startup = await resolveStartupStatusClient({
       invokeBootstrap: async () => ({
         authToken: token,
@@ -315,12 +317,18 @@ describe("desktop runtime bootstrap", () => {
       openWebSocket,
     });
 
-    const request = startup.client?.getSnapshot();
+    const statusRequest = startup.client?.getSnapshot();
+    const diagnosticRequest = startup.diagnosticsClient?.getHistory();
     expect(startup.runtime).toBe("desktop");
     expect(startup.settingsSnapshot.capabilities.nativeSidebarMaterial).toBe("supported");
-    expect(openWebSocket).toHaveBeenCalledWith("ws://127.0.0.1:43123/rpc");
-    expect(openWebSocket.mock.calls[0][0]).not.toContain(token);
+    expect(openWebSocket).toHaveBeenCalledTimes(2);
+    expect(openWebSocket).toHaveBeenNthCalledWith(1, "ws://127.0.0.1:43123/rpc");
+    expect(openWebSocket).toHaveBeenNthCalledWith(2, "ws://127.0.0.1:43123/rpc");
+    expect(openWebSocket.mock.calls[0]?.[0]).not.toContain(token);
+    expect(openWebSocket.mock.calls[1]?.[0]).not.toContain(token);
+    expect(transports[0]).not.toBe(transports[1]);
     startup.dispose();
-    await expect(request).rejects.toMatchObject({ code: "disconnected" });
+    await expect(statusRequest).rejects.toMatchObject({ code: "disconnected" });
+    await expect(diagnosticRequest).rejects.toMatchObject({ name: "RpcDisposedError" });
   });
 });

@@ -53,7 +53,11 @@ pub enum DiagnosticFailure {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum DiagnosticRouteTarget {
     LocalBridge,
     ManagedCore,
@@ -65,7 +69,11 @@ pub enum DiagnosticRouteTarget {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum DiagnosticObservedFact {
     Bridge {
         authenticated: bool,
@@ -166,4 +174,43 @@ pub fn unavailable_proxy_diagnostic()
     Box::pin(std::future::ready(Err(
         ProxyDiagnosticFailure::NoScopedTarget,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{DiagnosticObservedFact, DiagnosticRouteTarget};
+
+    #[test]
+    fn diagnostic_variant_fields_serialize_for_the_web_contract() {
+        assert_eq!(
+            serde_json::to_value(DiagnosticObservedFact::Dns { address_count: 1 }).unwrap(),
+            json!({"addressCount": 1, "kind": "dns"})
+        );
+        assert_eq!(
+            serde_json::to_value(DiagnosticObservedFact::Reachability {
+                http_status: 204,
+                latency_milliseconds: 37,
+            })
+            .unwrap(),
+            json!({
+                "httpStatus": 204,
+                "kind": "reachability",
+                "latencyMilliseconds": 37,
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(DiagnosticRouteTarget::PolicyGroup {
+                child_id: "child".into(),
+                group_id: "group".into(),
+            })
+            .unwrap(),
+            json!({
+                "childId": "child",
+                "groupId": "group",
+                "kind": "policy-group",
+            })
+        );
+    }
 }
