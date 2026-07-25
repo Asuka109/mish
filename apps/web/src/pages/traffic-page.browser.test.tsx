@@ -108,9 +108,21 @@ describe("Traffic filtered-visible close", () => {
     await expect.element(row.getByText("TCP · HTTPS")).toBeVisible();
 
     await userEvent.click(row);
-    await expect
-      .element(page.getByRole("dialog", { name: "Connection details" }))
-      .toHaveTextContent("TCP · HTTPS");
+    const dialog = page.getByRole("dialog", { name: "Connection details" });
+    await expect.element(dialog).toHaveTextContent("TCP · HTTPS");
+
+    const protocol = dialog.getByText("TCP · HTTPS", { exact: true });
+    await userEvent.tripleClick(protocol);
+    let copiedText: string | null = null;
+    document.addEventListener(
+      "copy",
+      () => {
+        copiedText = document.getSelection()?.toString().trim() ?? null;
+      },
+      { once: true },
+    );
+    await userEvent.copy();
+    expect(copiedText).toBe("TCP · HTTPS");
   });
 
   test("renders the normalized provider chain without orphaned separators", async () => {
