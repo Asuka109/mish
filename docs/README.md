@@ -16,6 +16,7 @@ of treating an implementation accident as intent.
 | Local development         | [`../development.md`](../development.md)                                                         | [`operations/development-commands.md`](operations/development-commands.md), [`../bootstrap.md`](../bootstrap.md)                                                                                                             |
 | Web/desktop boundary      | [`architecture/frontend-platform-boundary.md`](architecture/frontend-platform-boundary.md)       | [`architecture/desktop-bootstrap.md`](architecture/desktop-bootstrap.md)                                                                                                                                                     |
 | Mihomo lifecycle/API      | [`architecture/mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md) | Status, Traffic, Events, or Diagnostics contract below                                                                                                                                                                       |
+| Runtime state ownership   | [`architecture/runtime-state-ownership.md`](architecture/runtime-state-ownership.md)             | The area-specific Status, Traffic, Profile, Settings, Events, notification, or native contract                                                                                                                               |
 | Profiles and settings     | [`architecture/profile-domain.md`](architecture/profile-domain.md)                               | [`architecture/settings-contracts.md`](architecture/settings-contracts.md), [`architecture/local-backup-restore.md`](architecture/local-backup-restore.md)                                                                   |
 | macOS native behavior     | [`architecture/native-status-bar-lifecycle.md`](architecture/native-status-bar-lifecycle.md)     | [`architecture/native-localization.md`](architecture/native-localization.md), TUN, packaging, network/DNS, or sidebar document below                                                                                         |
 | Android/mobile            | [`architecture/mobile-runtime-integration.md`](architecture/mobile-runtime-integration.md)       | [`architecture/mobile-core-abi.md`](architecture/mobile-core-abi.md), [`operations/android-phase0-prototype.md`](operations/android-phase0-prototype.md), [`quality/mobile-validation.md`](quality/mobile-validation.md)     |
@@ -44,6 +45,10 @@ of treating an implementation accident as intent.
   [`events-data-contracts.md`](architecture/events-data-contracts.md), and
   [`diagnostics-data-contracts.md`](architecture/diagnostics-data-contracts.md)
   — observable DTO and failure semantics by product area.
+- [`runtime-state-ownership.md`](architecture/runtime-state-ownership.md) —
+  canonical Authority, Derived DTO, Bounded cache, Optimistic projection, and
+  Presentation-only taxonomy; current ownership inventory; and the target
+  recent capture-session Traffic contract.
 - [`notification-center.md`](architecture/notification-center.md) — the
   Rust-authoritative semantic notification Module, RPC Interface, TypeScript
   presentation registry, and multi-client lifecycle.
