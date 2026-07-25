@@ -1298,7 +1298,6 @@ export const ServiceProbeIntervalSecondsSchema = z.union([
   z.literal(10),
   z.literal(30),
   z.literal(60),
-  z.literal(300),
 ]);
 export type ServiceProbeIntervalSeconds = z.infer<typeof ServiceProbeIntervalSecondsSchema>;
 
@@ -1869,12 +1868,12 @@ export const StatusSnapshotSchema = z
     groupUsage: z.array(GroupUsageSchema),
     metrics: RuntimeMetricsSchema,
     nodes: z.array(ProxyNodeSchema),
-    probeResults: z.array(ServiceProbeResultSchema),
+    probeResults: z.array(ServiceProbeResultSchema).max(12),
     profiles: z.array(ProfileSummarySchema),
     routingMode: RoutingModeSchema,
     runtime: RuntimeStatusSchema,
     serviceProbePolicy: ServiceProbePolicySchema,
-    services: z.array(ServiceMonitorSchema),
+    services: z.array(ServiceMonitorSchema).max(12),
     traffic: TrafficSnapshotSchema,
   })
   .strict();

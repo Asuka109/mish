@@ -3063,7 +3063,7 @@ describe("Status fixture experience", () => {
     ).not.toBeInTheDocument();
     expect(await screen.findByRole("menuitemradio", { name: "Every 5 seconds" })).toHaveAttribute(
       "aria-checked",
-      "false",
+      "true",
     );
     expect(screen.getByRole("menuitemradio", { name: "Never" })).toBeVisible();
     await user.click(await screen.findByRole("menuitemradio", { name: "Every 10 seconds" }));

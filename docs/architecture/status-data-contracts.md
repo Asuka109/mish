@@ -407,11 +407,14 @@ Each probe policy should define:
 - explicit direct, proxy, or group-scoped route target; and
 - interval, backoff, and concurrency limits.
 
-When periodic testing is enabled, the desktop bridge waits a randomized 0–60
-seconds before its first direct probe cycle. New and restored state uses a
-five-minute cadence; the user may select 5, 10, 30, or 60 seconds, or disable
-periodic cycles. Recurring cycles use ±20% jitter and never overlap. In disabled
-mode, the bridge runs one full cycle
+When periodic testing is enabled, new and restored state uses a five-second
+cadence; the user may select 5, 10, 30, or 60 seconds, or disable periodic
+cycles. Initialization and each service-configuration revision generate a
+random service order. Each non-overlapping cycle retains that order and evenly
+spaces probe starts across the selected interval instead of issuing a burst.
+At most 12 service monitors are retained; migration from the former 24-monitor
+limit keeps the first 12 definitions in their stored order. In disabled mode,
+the bridge runs one evenly spaced cycle
 whenever Core starts and otherwise retains the latest results. The scheduler
 remains bridge-owned, so replacing Core does not discard those results. Monitor
 definitions and the selected interval are stored in the application-data

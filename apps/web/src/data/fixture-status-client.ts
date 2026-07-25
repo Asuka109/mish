@@ -283,7 +283,7 @@ const initialSnapshot: StatusSnapshotDto = {
     },
     tunEnabled: false,
   },
-  serviceProbePolicy: { intervalSeconds: 300 },
+  serviceProbePolicy: { intervalSeconds: 5 },
   services: defaultServices,
   traffic: {
     downloadBytesPerSecond: 2_568_192,
@@ -498,6 +498,9 @@ export class FixtureStatusClient implements StatusClient {
     if (existingIndex >= 0) {
       this.snapshot.services[existingIndex] = monitor;
     } else {
+      if (this.snapshot.services.length >= 12) {
+        throw new StatusClientError("invalid-request", "Service monitor limit reached");
+      }
       this.snapshot.services.push(monitor);
       this.snapshot.probeResults.push({
         latencyMilliseconds: null,
@@ -527,7 +530,7 @@ export class FixtureStatusClient implements StatusClient {
       throw new StatusClientError("cancelled", "The fixture command was cancelled");
     }
     this.snapshot.services = structuredClone(defaultServices);
-    this.snapshot.serviceProbePolicy.intervalSeconds = 300;
+    this.snapshot.serviceProbePolicy.intervalSeconds = 5;
     this.snapshot.probeResults = structuredClone(initialSnapshot.probeResults);
     return this.snapshotAfterCommand();
   }

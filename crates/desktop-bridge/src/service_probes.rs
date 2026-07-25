@@ -23,14 +23,15 @@ use reqwest::{
     header::RETRY_AFTER,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, broadcast};
+use tokio::sync::{Mutex as AsyncMutex, Notify, broadcast};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-const DEFAULT_INTERVAL_SECONDS: u16 = 300;
+const DEFAULT_INTERVAL_SECONDS: u16 = 5;
 const DISABLED_INTERVAL_SECONDS: u16 = 0;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
-const MAX_MONITORS: usize = 24;
+const MAX_MONITORS: usize = 12;
+const LEGACY_MAX_MONITORS: usize = 24;
 const ALLOWED_INTERVALS: [u16; 5] = [0, 5, 10, 30, 60];
 const PERSISTED_INTERVALS: [u16; 6] = [0, 5, 10, 30, 60, 300];
 const BODY_DRAIN_LIMIT_BYTES: usize = 64 * 1024;
@@ -71,6 +72,7 @@ struct PersistedState {
 #[derive(Clone)]
 struct ProbeState {
     interval_seconds: u16,
+    probe_order: Vec<usize>,
     revision: u64,
     results: Vec<ServiceProbeResult>,
     services: Vec<ServiceMonitor>,
@@ -174,12 +176,13 @@ impl ServiceProbeService {
             .map_or(DEFAULT_INTERVAL_SECONDS, |state| {
                 normalize_persisted_interval(state.interval_seconds)
             });
-        let services: Vec<ServiceMonitor> = persisted
+        let mut services: Vec<ServiceMonitor> = persisted
             .map(|state| state.services)
             .unwrap_or_else(default_service_monitors)
             .into_iter()
             .map(normalize_persisted_icon)
             .collect();
+        services.truncate(MAX_MONITORS);
         let services = migrate_legacy_defaults(services);
         let client = Client::builder()
             .connect_timeout(PROBE_TIMEOUT)
@@ -212,6 +215,7 @@ impl ServiceProbeService {
                 revision_cancel: Mutex::new(cancel.child_token()),
                 state: Mutex::new(ProbeState {
                     interval_seconds,
+                    probe_order: randomized_probe_order(services.len()),
                     revision: 0,
                     results: pending_results(&services),
                     services,
@@ -274,6 +278,7 @@ impl ServiceProbeService {
                 url: draft.url,
             });
         }
+        next.probe_order = randomized_probe_order(next.services.len());
         next.revision = next.revision.wrapping_add(1);
         next.results = retained_results(&state.services, &state.results, &next.services);
         persist_locked(self.inner.state_path.as_deref(), &next)?;
@@ -297,6 +302,7 @@ impl ServiceProbeService {
         }
         next.results
             .retain(|result| result.monitor_id != monitor_id);
+        next.probe_order = randomized_probe_order(next.services.len());
         next.revision = next.revision.wrapping_add(1);
         persist_locked(self.inner.state_path.as_deref(), &next)?;
         *state = next;
@@ -314,6 +320,7 @@ impl ServiceProbeService {
         let mut next = state.clone();
         next.services = default_service_monitors();
         next.interval_seconds = DEFAULT_INTERVAL_SECONDS;
+        next.probe_order = randomized_probe_order(next.services.len());
         next.revision = next.revision.wrapping_add(1);
         next.results = retained_results(&state.services, &state.results, &next.services);
         persist_locked(self.inner.state_path.as_deref(), &next)?;
@@ -336,6 +343,7 @@ impl ServiceProbeService {
             .expect("service probe state poisoned");
         let mut next = state.clone();
         next.interval_seconds = interval_seconds;
+        next.probe_order = randomized_probe_order(next.services.len());
         next.revision = next.revision.wrapping_add(1);
         persist_locked(self.inner.state_path.as_deref(), &next)?;
         *state = next;
@@ -425,36 +433,22 @@ impl ServiceProbeService {
     }
 
     async fn run(&self) {
-        // Stagger automatic fleets after startup before any periodic cycle begins.
-        tokio::select! {
-            () = self.inner.cancel.cancelled() => return,
-            () = self.inner.wake.notified() => {},
-            () = tokio::time::sleep(initial_delay()) => {},
-        }
         loop {
             let interval_seconds = self.interval_seconds();
             if interval_seconds == DISABLED_INTERVAL_SECONDS {
                 tokio::select! {
                     () = self.inner.cancel.cancelled() => break,
                     () = self.inner.wake.notified() => {},
-                    () = self.inner.core_started.notified() => self.run_cycle().await,
+                    () = self.inner.core_started.notified() => {
+                        self.run_cycle(DEFAULT_INTERVAL_SECONDS).await
+                    },
                 }
                 continue;
             }
 
             tokio::select! {
                 () = self.inner.cancel.cancelled() => break,
-                () = self.run_cycle() => {},
-            }
-            let interval_seconds = self.interval_seconds();
-            if interval_seconds == DISABLED_INTERVAL_SECONDS {
-                continue;
-            }
-            let interval = jittered_interval(interval_seconds);
-            tokio::select! {
-                () = self.inner.cancel.cancelled() => break,
-                () = self.inner.wake.notified() => {},
-                () = tokio::time::sleep(interval) => {},
+                () = self.run_cycle(interval_seconds) => {},
             }
         }
     }
@@ -467,24 +461,35 @@ impl ServiceProbeService {
             .interval_seconds
     }
 
-    async fn run_cycle(&self) {
+    async fn run_cycle(&self, interval_seconds: u16) {
         let (revision, revision_cancel, services) = {
             let state = self
                 .inner
                 .state
                 .lock()
                 .expect("service probe state poisoned");
-            let services = state.services.clone();
+            let services = state
+                .probe_order
+                .iter()
+                .filter_map(|index| state.services.get(*index).cloned())
+                .collect::<Vec<_>>();
             (state.revision, self.revision_cancel_token(), services)
         };
-        let semaphore = Arc::new(Semaphore::new(4));
+        let cycle_started_at = tokio::time::Instant::now();
+        let cycle_duration = Duration::from_secs(u64::from(interval_seconds));
+        let service_count = services.len();
         let mut probes: FuturesUnordered<_> = services
             .into_iter()
-            .map(|monitor| {
-                let semaphore = semaphore.clone();
+            .enumerate()
+            .map(|(index, monitor)| {
                 let revision_cancel = revision_cancel.clone();
                 async move {
-                    let _permit = semaphore.acquire_owned().await.ok();
+                    let scheduled_at = cycle_started_at
+                        + evenly_spaced_offset(cycle_duration, index, service_count);
+                    tokio::select! {
+                        () = revision_cancel.cancelled() => return None,
+                        () = tokio::time::sleep_until(scheduled_at) => {},
+                    }
                     let outcome = self.probe_monitor(revision_cancel, monitor.clone()).await?;
                     Some(result_from_outcome(&monitor, outcome))
                 }
@@ -509,6 +514,11 @@ impl ServiceProbeService {
             *existing = result;
             drop(state);
             let _ = self.inner.updates.send(());
+        }
+        tokio::select! {
+            () = self.inner.cancel.cancelled() => {},
+            () = self.inner.wake.notified() => {},
+            () = tokio::time::sleep_until(cycle_started_at + cycle_duration) => {},
         }
     }
 
@@ -558,23 +568,24 @@ impl ServiceProbeService {
     }
 }
 
-fn initial_delay() -> Duration {
-    initial_delay_from_sample(Uuid::new_v4().as_bytes()[0])
+fn randomized_probe_order(service_count: usize) -> Vec<usize> {
+    probe_order_from_samples(service_count, Uuid::new_v4().as_bytes())
 }
 
-fn jittered_interval(interval_seconds: u16) -> Duration {
-    jittered_interval_from_sample(interval_seconds, Uuid::new_v4().as_bytes()[0])
+fn probe_order_from_samples(service_count: usize, samples: &[u8]) -> Vec<usize> {
+    let mut order: Vec<_> = (0..service_count).collect();
+    for (sample, upper) in samples.iter().zip((1..service_count).rev()) {
+        order.swap(upper, usize::from(*sample) % (upper + 1));
+    }
+    order
 }
 
-fn initial_delay_from_sample(sample: u8) -> Duration {
-    Duration::from_secs(u64::from(sample) * 60 / 255)
-}
-
-fn jittered_interval_from_sample(interval_seconds: u16, sample: u8) -> Duration {
-    let base = u64::from(interval_seconds) * 1_000;
-    let sample = i64::from(sample) - 128;
-    let delta = base as i64 * sample / (128 * 5);
-    Duration::from_millis((base as i64 + delta).max(0) as u64)
+fn evenly_spaced_offset(cycle_duration: Duration, index: usize, count: usize) -> Duration {
+    if count == 0 {
+        return Duration::ZERO;
+    }
+    let nanos = cycle_duration.as_nanos() * index as u128 / count as u128;
+    Duration::from_nanos(nanos.try_into().unwrap_or(u64::MAX))
 }
 
 fn normalized_host(value: &str) -> Option<String> {
@@ -635,7 +646,7 @@ fn load_state(path: &Path) -> Result<PersistedState, io::Error> {
 fn valid_persisted_state(state: &PersistedState) -> bool {
     state.version == 1
         && valid_persisted_interval(state.interval_seconds)
-        && state.services.len() <= MAX_MONITORS
+        && state.services.len() <= LEGACY_MAX_MONITORS
         && state.services.iter().all(|monitor| {
             valid_identifier(&monitor.id)
                 && monitor.icon.len() <= 2_048
@@ -649,7 +660,11 @@ fn valid_persisted_interval(interval_seconds: u16) -> bool {
 }
 
 fn normalize_persisted_interval(interval_seconds: u16) -> u16 {
-    interval_seconds
+    if interval_seconds == 300 {
+        DEFAULT_INTERVAL_SECONDS
+    } else {
+        interval_seconds
+    }
 }
 
 fn normalize_persisted_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
@@ -1176,6 +1191,11 @@ mod tests {
         started: Arc<AtomicUsize>,
     }
 
+    #[derive(Clone, Default)]
+    struct RecordingTransport {
+        starts: Arc<Mutex<Vec<(String, tokio::time::Instant)>>>,
+    }
+
     impl ControlledTransport {
         fn healthy() -> Self {
             Self {
@@ -1215,6 +1235,32 @@ mod tests {
                 tokio::select! {
                     () = cancel.cancelled() => ProbeExecution::Cancelled,
                     () = release.notified() => execution,
+                }
+            }
+            .boxed()
+        }
+    }
+
+    impl ProbeTransport for RecordingTransport {
+        fn execute(
+            &self,
+            cancel: CancellationToken,
+            monitor: ServiceMonitor,
+        ) -> BoxFuture<'static, ProbeExecution> {
+            let starts = self.starts.clone();
+            async move {
+                starts
+                    .lock()
+                    .unwrap()
+                    .push((monitor.id, tokio::time::Instant::now()));
+                tokio::select! {
+                    () = cancel.cancelled() => ProbeExecution::Cancelled,
+                    () = std::future::ready(()) => ProbeExecution::Finished(ProbeOutcome {
+                        failure_stage: None,
+                        latency_milliseconds: Some(12),
+                        retry_after: None,
+                        status: ProbeStatus::Healthy,
+                    }),
                 }
             }
             .boxed()
@@ -1412,21 +1458,37 @@ mod tests {
     }
 
     #[test]
-    fn service_probes_default_to_five_minutes() {
+    fn service_probes_default_to_five_seconds() {
         let service = ServiceProbeService::new(ServiceProbeConfig { state_path: None });
 
-        assert_eq!(service.interval_seconds(), 300);
+        assert_eq!(service.interval_seconds(), 5);
     }
 
     #[test]
-    fn automatic_delays_stay_within_the_documented_bounds() {
-        assert_eq!(initial_delay_from_sample(0), Duration::ZERO);
-        assert_eq!(initial_delay_from_sample(u8::MAX), Duration::from_secs(60));
+    fn initialized_probe_order_is_a_deterministic_permutation_for_fixed_samples() {
+        let order = probe_order_from_samples(6, &[0, 1, 2, 3, 4]);
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(order, probe_order_from_samples(6, &[0, 1, 2, 3, 4]));
+        assert_ne!(order, probe_order_from_samples(6, &[4, 3, 2, 1, 0]));
+    }
+
+    #[test]
+    fn probe_offsets_evenly_partition_the_selected_interval() {
         assert_eq!(
-            jittered_interval_from_sample(300, 0),
-            Duration::from_secs(240)
+            (0..6)
+                .map(|index| evenly_spaced_offset(Duration::from_secs(5), index, 6))
+                .collect::<Vec<_>>(),
+            vec![
+                Duration::ZERO,
+                Duration::from_nanos(833_333_333),
+                Duration::from_nanos(1_666_666_666),
+                Duration::from_millis(2_500),
+                Duration::from_nanos(3_333_333_333),
+                Duration::from_nanos(4_166_666_666),
+            ]
         );
-        assert!(jittered_interval_from_sample(300, u8::MAX) <= Duration::from_secs(360));
     }
 
     #[test]
@@ -1588,7 +1650,7 @@ mod tests {
         let service = service_with_transport(services, transport.clone());
         let cycle = {
             let service = service.clone();
-            tokio::spawn(async move { service.run_cycle().await })
+            tokio::spawn(async move { service.run_cycle(0).await })
         };
         transport.wait_until_started(1).await;
         transport.release.notify_waiters();
@@ -1602,6 +1664,46 @@ mod tests {
                 .iter()
                 .all(|result| result.status == ProbeStatus::Healthy)
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn automatic_cycle_uses_initialized_order_and_even_start_offsets() {
+        let transport = RecordingTransport::default();
+        let services = vec![
+            test_monitor("one", "https://one.example/probe"),
+            test_monitor("two", "https://two.example/probe"),
+            test_monitor("three", "https://three.example/probe"),
+        ];
+        let service = ServiceProbeService::from_parts(
+            ServiceProbeConfig { state_path: None },
+            6,
+            services,
+            Arc::new(transport.clone()),
+        );
+        service.inner.state.lock().unwrap().probe_order = vec![2, 0, 1];
+
+        let cycle = {
+            let service = service.clone();
+            tokio::spawn(async move { service.run_cycle(6).await })
+        };
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(2)).await;
+        cycle.await.unwrap();
+
+        let starts = transport.starts.lock().unwrap();
+        assert_eq!(
+            starts
+                .iter()
+                .map(|(monitor_id, _)| monitor_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["three", "one", "two"]
+        );
+        assert_eq!(starts[1].1 - starts[0].1, Duration::from_secs(2));
+        assert_eq!(starts[2].1 - starts[1].1, Duration::from_secs(2));
     }
 
     #[tokio::test(start_paused = true)]
@@ -1901,7 +2003,7 @@ mod tests {
     }
 
     #[test]
-    fn internal_five_minute_default_persists_but_is_not_user_selectable() {
+    fn legacy_five_minute_default_migrates_to_five_seconds() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
         let state = PersistedState {
@@ -1914,9 +2016,37 @@ mod tests {
         let restored = ServiceProbeService::new(ServiceProbeConfig {
             state_path: Some(state_path),
         });
-        assert_eq!(restored.interval_seconds(), DEFAULT_INTERVAL_SECONDS);
+        assert_eq!(restored.interval_seconds(), 5);
         assert!(restored.set_interval(300).is_err());
         assert!(restored.set_interval(900).is_err());
+    }
+
+    #[test]
+    fn legacy_monitor_lists_are_truncated_to_the_new_twelve_service_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let state_path = directory.path().join("service-monitors.json");
+        let services = (0..LEGACY_MAX_MONITORS)
+            .map(|index| {
+                test_monitor(
+                    &format!("service-{index}"),
+                    &format!("https://service-{index}.example/probe"),
+                )
+            })
+            .collect();
+        let state = PersistedState {
+            interval_seconds: 60,
+            services,
+            version: 1,
+        };
+        fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+        let restored = ServiceProbeService::new(ServiceProbeConfig {
+            state_path: Some(state_path),
+        });
+        let state = restored.inner.state.lock().unwrap();
+        assert_eq!(state.services.len(), MAX_MONITORS);
+        assert_eq!(state.services[0].id, "service-0");
+        assert_eq!(state.services[11].id, "service-11");
     }
 
     #[tokio::test]

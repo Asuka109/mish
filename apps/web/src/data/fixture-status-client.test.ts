@@ -83,19 +83,38 @@ describe("FixtureStatusClient", () => {
     }
   });
 
-  it("defaults service probes to the internal five-minute cadence", async () => {
+  it("defaults service probes to a five-second cadence", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
 
-    expect(snapshot.serviceProbePolicy.intervalSeconds).toBe(300);
+    expect(snapshot.serviceProbePolicy.intervalSeconds).toBe(5);
   });
 
-  it("restores the default services and five-minute cadence together", async () => {
+  it("restores the default services and five-second cadence together", async () => {
     const client = new FixtureStatusClient();
     await client.setServiceProbeInterval(5);
     const restored = await client.restoreDefaultServices();
 
-    expect(restored.serviceProbePolicy.intervalSeconds).toBe(300);
+    expect(restored.serviceProbePolicy.intervalSeconds).toBe(5);
     expect(restored.services).toHaveLength(6);
+  });
+
+  it("enforces the twelve-service limit", async () => {
+    const client = new FixtureStatusClient();
+    for (let index = 0; index < 6; index += 1) {
+      await client.upsertServiceMonitor({
+        icon: SERVICE_ICON_URLS.fallback,
+        label: `Custom ${index}`,
+        url: `https://service-${index}.example/probe`,
+      });
+    }
+
+    await expect(
+      client.upsertServiceMonitor({
+        icon: SERVICE_ICON_URLS.fallback,
+        label: "One too many",
+        url: "https://overflow.example/probe",
+      }),
+    ).rejects.toThrow("Service monitor limit reached");
   });
 
   it("keeps group selections scoped to group membership", async () => {

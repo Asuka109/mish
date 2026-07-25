@@ -954,6 +954,7 @@ const en = {
     probeUrl: "Probe URL",
     removedToast: "Service monitor removed",
     restoreDefaults: "Restore Defaults",
+    serviceLimit: "Up to 12 service monitors are allowed.",
     serviceName: "Service name",
     title: "Title",
     testInterval: "Test interval",

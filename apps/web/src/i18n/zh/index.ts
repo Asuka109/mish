@@ -875,6 +875,7 @@ const zh = {
     probeUrl: "探测地址",
     removedToast: "已删除服务监控",
     restoreDefaults: "恢复默认值",
+    serviceLimit: "最多可添加 12 个服务监控。",
     serviceName: "服务名称",
     title: "标题",
     testInterval: "测试间隔",

@@ -3227,6 +3227,10 @@ type RootTranslation = {
 		 */
 		restoreDefaults: string
 		/**
+		 * U​p​ ​t​o​ ​1​2​ ​s​e​r​v​i​c​e​ ​m​o​n​i​t​o​r​s​ ​a​r​e​ ​a​l​l​o​w​e​d​.
+		 */
+		serviceLimit: string
+		/**
 		 * S​e​r​v​i​c​e​ ​n​a​m​e
 		 */
 		serviceName: string
@@ -7678,6 +7682,10 @@ export type TranslationFunctions = {
 		 * Restore Defaults
 		 */
 		restoreDefaults: () => LocalizedString
+		/**
+		 * Up to 12 service monitors are allowed.
+		 */
+		serviceLimit: () => LocalizedString
 		/**
 		 * Service name
 		 */

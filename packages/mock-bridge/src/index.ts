@@ -108,7 +108,7 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
       },
       tunEnabled: false,
     },
-    serviceProbePolicy: { intervalSeconds: 300 },
+    serviceProbePolicy: { intervalSeconds: 5 },
     services: [structuredClone(defaultService)],
     traffic: {
       downloadBytesPerSecond: 1024,
@@ -377,7 +377,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
           }
           case "status.restoreDefaultServices":
             snapshot.services = [structuredClone(defaultService)];
-            snapshot.serviceProbePolicy.intervalSeconds = 300;
+            snapshot.serviceProbePolicy.intervalSeconds = 5;
             return structuredClone(snapshot);
           case "traffic.getProcessIcon":
             return { dataUrl: null };

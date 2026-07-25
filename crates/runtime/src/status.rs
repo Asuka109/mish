@@ -341,7 +341,7 @@ impl StatusSnapshot {
                 },
             ),
             service_probe_policy: ServiceProbePolicy {
-                interval_seconds: 300,
+                interval_seconds: 5,
             },
             services: default_service_monitors(),
             traffic: TrafficSnapshot::default(),

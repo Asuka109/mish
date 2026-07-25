@@ -173,8 +173,11 @@ while each service may supply its own HTTPS image URL. Failed or malformed
 images fall back to that bundled generic icon without removing the label or
 changing the row geometry. Only the browser loads custom images. Manage supports add, an Edit
 services dialog, automatic retest interval, delete, and Restore defaults.
-New and restored state uses a five-minute cadence. Automatic retesting offers
+New and restored state uses a five-second cadence. Automatic retesting offers
 5-second, 10-second, 30-second, and 1-minute cycles.
+The desktop bridge randomizes the service order when the configuration is
+initialized or revised, then evenly spaces at most 12 probes across each
+selected interval instead of testing every service at once.
 Disabling it retains the latest results and runs one cycle each time the proxy
 starts. Keeping edit behind Manage preserves the service row as a single,
 unambiguous test action without adding a competing icon button to every row.
