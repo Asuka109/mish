@@ -130,6 +130,10 @@ impl StatusDataSource for RecordingSource {
         StatusSnapshot::lifecycle_only(core, adapter_kind)
     }
 
+    fn profile_id(&self) -> Option<String> {
+        Some("profile-a".into())
+    }
+
     fn pause_observations(&self, reason: RuntimeObservationPauseReason) -> BoxFuture<'_, ()> {
         Box::pin(async move {
             self.state.lock().unwrap().pauses.push(reason);
@@ -486,6 +490,7 @@ async fn network_change_restores_the_old_service_before_applying_explicit_intent
 async fn core_crash_and_restart_drop_old_authority_and_restore_explicit_capture_intent() {
     let fixture = fixture(Arc::new(RecordingSource::new()));
     enable_capture(&fixture.runtime).await;
+    let started = fixture.runtime.recent_traffic().snapshot();
     fixture.core.set_phase(CorePhase::Failed);
 
     fixture
@@ -502,6 +507,9 @@ async fn core_crash_and_restart_drop_old_authority_and_restore_explicit_capture_
         fixture.source.pauses(),
         [RuntimeObservationPauseReason::CoreUnavailable]
     );
+    let suspended = fixture.runtime.recent_traffic().snapshot();
+    assert_eq!(suspended.phase, mish_runtime::RecentTrafficPhase::Suspended);
+    assert_eq!(suspended.session_id, started.session_id);
 
     fixture.core.set_phase(CorePhase::Running);
     fixture
@@ -517,6 +525,9 @@ async fn core_crash_and_restart_drop_old_authority_and_restore_explicit_capture_
             .is_mish_endpoint(&LoopbackProxyEndpoint::managed())
     );
     assert_eq!(fixture.source.resume_count(), 1);
+    let resumed = fixture.runtime.recent_traffic().snapshot();
+    assert_eq!(resumed.phase, mish_runtime::RecentTrafficPhase::Active);
+    assert_eq!(resumed.session_id, started.session_id);
 }
 
 #[tokio::test]
@@ -551,6 +562,10 @@ async fn failed_restart_recovery_is_typed_and_never_published_as_applied() {
         SystemProxyPhase::Failed
     );
     assert!(!snapshot.runtime.system_proxy_enabled);
+    assert_eq!(
+        snapshot.recent_traffic.phase,
+        mish_runtime::RecentTrafficPhase::Idle
+    );
 }
 
 #[tokio::test]

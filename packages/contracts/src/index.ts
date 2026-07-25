@@ -390,6 +390,81 @@ export const TrafficSnapshotSchema = z
   .strict();
 export interface TrafficSnapshotDto extends z.infer<typeof TrafficSnapshotSchema> {}
 
+export const RECENT_TRAFFIC_CADENCE_MILLISECONDS = 1_000 as const;
+export const RECENT_TRAFFIC_WINDOW_MILLISECONDS = 60_000 as const;
+export const RECENT_TRAFFIC_SAMPLE_LIMIT = 60 as const;
+
+export const RecentTrafficPhaseSchema = z.enum(["idle", "active", "suspended"]);
+export type RecentTrafficPhase = z.infer<typeof RecentTrafficPhaseSchema>;
+
+export const RecentTrafficSampleSchema = z
+  .object({
+    sequence: z.number().int().positive(),
+    offsetMilliseconds: NonNegativeIntegerSchema,
+    downloadBytesPerSecond: NonNegativeNumberSchema,
+    uploadBytesPerSecond: NonNegativeNumberSchema,
+  })
+  .strict();
+export interface RecentTrafficSampleDto extends z.infer<typeof RecentTrafficSampleSchema> {}
+
+export const RecentTrafficSnapshotSchema = z
+  .object({
+    authorityId: IdentifierSchema,
+    revision: NonNegativeIntegerSchema,
+    phase: RecentTrafficPhaseSchema,
+    sessionId: IdentifierSchema.nullable(),
+    profileId: IdentifierSchema.nullable(),
+    cadenceMilliseconds: z.literal(RECENT_TRAFFIC_CADENCE_MILLISECONDS),
+    windowMilliseconds: z.literal(RECENT_TRAFFIC_WINDOW_MILLISECONDS),
+    downloadedBytes: NonNegativeNumberSchema,
+    uploadedBytes: NonNegativeNumberSchema,
+    downloadBytesPerSecond: NonNegativeNumberSchema,
+    uploadBytesPerSecond: NonNegativeNumberSchema,
+    samples: z.array(RecentTrafficSampleSchema).max(RECENT_TRAFFIC_SAMPLE_LIMIT),
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    const idle = snapshot.phase === "idle";
+    if (
+      idle !== (snapshot.sessionId === null) ||
+      idle !== (snapshot.profileId === null) ||
+      (!idle && snapshot.revision === 0) ||
+      (idle &&
+        (snapshot.downloadedBytes !== 0 ||
+          snapshot.uploadedBytes !== 0 ||
+          snapshot.downloadBytesPerSecond !== 0 ||
+          snapshot.uploadBytesPerSecond !== 0 ||
+          snapshot.samples.length !== 0))
+    ) {
+      context.addIssue({ code: "custom", message: "Recent Traffic idle state is inconsistent" });
+    }
+    if (
+      snapshot.phase === "suspended" &&
+      (snapshot.downloadBytesPerSecond !== 0 || snapshot.uploadBytesPerSecond !== 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Suspended Recent Traffic cannot expose stale current rates",
+      });
+    }
+    for (let index = 0; index < snapshot.samples.length; index += 1) {
+      const sample = snapshot.samples[index];
+      const previous = snapshot.samples[index - 1];
+      if (
+        previous &&
+        (sample.sequence <= previous.sequence ||
+          sample.offsetMilliseconds <= previous.offsetMilliseconds)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Recent Traffic samples must be strictly ordered",
+          path: ["samples", index],
+        });
+      }
+    }
+  });
+export interface RecentTrafficSnapshotDto extends z.infer<typeof RecentTrafficSnapshotSchema> {}
+
 export const TrafficDataPhaseSchema = z.enum(["ready", "stale", "unavailable"]);
 export type TrafficDataPhase = z.infer<typeof TrafficDataPhaseSchema>;
 
@@ -1832,6 +1907,7 @@ export const StatusSnapshotSchema = z
     nodes: z.array(ProxyNodeSchema),
     probeResults: z.array(ServiceProbeResultSchema).max(12),
     profiles: z.array(ProfileSummarySchema),
+    recentTraffic: RecentTrafficSnapshotSchema,
     routingMode: RoutingModeSchema,
     runtime: RuntimeStatusSchema,
     serviceProbePolicy: ServiceProbePolicySchema,
@@ -1944,7 +2020,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(23),
+    protocolVersion: z.literal(24),
     statusCommands: z
       .object({
         group: z.boolean(),

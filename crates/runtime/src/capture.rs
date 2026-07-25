@@ -1830,6 +1830,8 @@ struct AggregateCaptureState {
     pending_projection: Option<CaptureRuntimeStatus>,
 }
 
+type ConfirmedCaptureObserver = Arc<dyn Fn(&CaptureRuntimeStatus) + Send + Sync>;
+
 pub struct CaptureReconciler {
     identity: u64,
     operation: AsyncMutex<()>,
@@ -1837,6 +1839,7 @@ pub struct CaptureReconciler {
     state: Mutex<AggregateCaptureState>,
     system_proxy: Arc<SystemProxyReconciler>,
     tun: Option<Arc<TunReconciler>>,
+    confirmed_observer: Mutex<Option<ConfirmedCaptureObserver>>,
     updates: broadcast::Sender<CaptureRuntimeStatus>,
 }
 
@@ -1884,6 +1887,7 @@ impl CaptureReconciler {
             }),
             system_proxy,
             tun,
+            confirmed_observer: Mutex::new(None),
             updates,
         }
     }
@@ -1926,6 +1930,13 @@ impl CaptureReconciler {
     /// pending, confirmed, and attention phases without inventing local operation state.
     pub fn subscribe(&self) -> broadcast::Receiver<CaptureRuntimeStatus> {
         self.updates.subscribe()
+    }
+
+    pub(crate) fn set_confirmed_observer(&self, observer: ConfirmedCaptureObserver) {
+        *self
+            .confirmed_observer
+            .lock()
+            .expect("confirmed Capture observer lock poisoned") = Some(observer);
     }
 
     pub fn publish_pending(&self, request: &CaptureRequest) -> CaptureRuntimeStatus {
@@ -2268,6 +2279,14 @@ impl CaptureReconciler {
         state.confirmed = status.clone();
         state.pending_projection = None;
         drop(state);
+        if let Some(observer) = self
+            .confirmed_observer
+            .lock()
+            .expect("confirmed Capture observer lock poisoned")
+            .clone()
+        {
+            observer(&status);
+        }
         let _ = self.updates.send(status);
     }
 

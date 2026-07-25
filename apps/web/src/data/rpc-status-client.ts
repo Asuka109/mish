@@ -5,6 +5,7 @@ import {
   type CaptureSelectionDto,
   type CaptureRecoveryAction,
   type LocalProxyTestResultDto,
+  type RecentTrafficSnapshotDto,
   type RoutingMode,
   type ServiceMonitorDraft,
   type ServiceProbeIntervalSeconds,
@@ -43,6 +44,7 @@ export class RpcStatusClient implements StatusClient {
   private capabilityPromise: Promise<void> | null = null;
   private capabilityProfileId: string | null = null;
   private capabilitiesLoaded = false;
+  private acceptedRecentTraffic: RecentTrafficSnapshotDto | null = null;
   private readonly supportedCommands = new Set<StatusCommand>();
 
   constructor(
@@ -221,9 +223,24 @@ export class RpcStatusClient implements StatusClient {
 
   private receiveSnapshot(notification: StatusSnapshotNotificationDto) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
+    const snapshot = this.acceptRecentTraffic(notification.snapshot);
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-    for (const listener of this.snapshotListeners) listener(notification.snapshot);
-    void this.ensureCommandCapabilities(notification.snapshot.activeProfileId);
+    for (const listener of this.snapshotListeners) listener(snapshot);
+    void this.ensureCommandCapabilities(snapshot.activeProfileId);
+  }
+
+  private acceptRecentTraffic(snapshot: StatusSnapshotDto): StatusSnapshotDto {
+    const incoming = snapshot.recentTraffic;
+    const accepted = this.acceptedRecentTraffic;
+    if (
+      !accepted ||
+      incoming.authorityId !== accepted.authorityId ||
+      incoming.revision > accepted.revision
+    ) {
+      this.acceptedRecentTraffic = structuredClone(incoming);
+      return snapshot;
+    }
+    return { ...snapshot, recentTraffic: structuredClone(accepted) };
   }
 
   private async ensureCommandCapabilities(profileId: string) {
@@ -293,7 +310,9 @@ export class RpcStatusClient implements StatusClient {
     options?: RpcRequestOptions,
   ): Promise<StatusSnapshotDto> {
     try {
-      const snapshot = await this.rpc.request(method, params as never, options);
+      const snapshot = this.acceptRecentTraffic(
+        await this.rpc.request(method, params as never, options),
+      );
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;

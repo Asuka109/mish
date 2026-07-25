@@ -1698,7 +1698,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 23);
+    assert_eq!(info["result"]["protocolVersion"], 24);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
@@ -1724,6 +1724,23 @@ async fn authenticates_and_serves_contract_compatible_status() {
     assert_eq!(
         snapshot["result"]["runtime"]["captureSelection"],
         json!({"systemProxy": false, "tun": false})
+    );
+    assert_eq!(snapshot["result"]["recentTraffic"]["phase"], "idle");
+    assert_eq!(snapshot["result"]["recentTraffic"]["revision"], 0);
+    assert_ne!(
+        snapshot["result"]["recentTraffic"]["authorityId"],
+        "detached-status-source"
+    );
+    assert_eq!(
+        snapshot["result"]["traffic"],
+        json!({
+            "downloadBytesPerSecond": 0,
+            "downloadSeries": [],
+            "downloadedBytes": 0,
+            "uploadBytesPerSecond": 0,
+            "uploadSeries": [],
+            "uploadedBytes": 0
+        })
     );
 
     let traffic = request(
@@ -2451,6 +2468,10 @@ async fn capture_pending_is_shared_and_rejects_a_second_client_command() {
     .await;
     assert!(first_subscription["result"]["subscriptionId"].is_string());
     assert!(second_subscription["result"]["subscriptionId"].is_string());
+    assert_eq!(
+        first_subscription["result"]["snapshot"]["recentTraffic"],
+        second_subscription["result"]["snapshot"]["recentTraffic"]
+    );
 
     first
         .send(Message::Text(
@@ -2488,25 +2509,49 @@ async fn capture_pending_is_shared_and_rejects_a_second_client_command() {
     assert_eq!(duplicate["error"]["data"]["kind"], "runtime-transition");
 
     platform.apply_release.notify_one();
-    let mut first_applied = false;
-    while !first_applied {
+    let first_applied = loop {
         let Message::Text(message) = first.next().await.unwrap().unwrap() else {
             continue;
         };
         let value: Value = serde_json::from_str(&message).unwrap();
-        first_applied = value["params"]["snapshot"]["runtime"]["systemProxy"]["phase"] == "applied";
-    }
-    let applied = request(
-        &mut second,
-        json!({"jsonrpc":"2.0","id":4,"method":"status.getSnapshot","params":{}}),
-    )
-    .await;
-    let applied_phase = if applied["method"] == "status.snapshot" {
-        &applied["params"]["snapshot"]["runtime"]["systemProxy"]["phase"]
-    } else {
-        &applied["result"]["runtime"]["systemProxy"]["phase"]
+        let snapshot = if value["method"] == "status.snapshot" {
+            &value["params"]["snapshot"]
+        } else {
+            &value["result"]
+        };
+        if snapshot["runtime"]["systemProxy"]["phase"] == "applied"
+            && snapshot["recentTraffic"]["phase"] == "active"
+        {
+            break snapshot.clone();
+        }
     };
-    assert_eq!(applied_phase, "applied");
+    second
+        .send(Message::Text(
+            json!({"jsonrpc":"2.0","id":4,"method":"status.getSnapshot","params":{}})
+                .to_string()
+                .into(),
+        ))
+        .await
+        .unwrap();
+    let second_applied = loop {
+        let value = next_json(&mut second).await;
+        let snapshot = if value["method"] == "status.snapshot" {
+            &value["params"]["snapshot"]
+        } else {
+            &value["result"]
+        };
+        if snapshot["runtime"]["systemProxy"]["phase"] == "applied"
+            && snapshot["recentTraffic"]["phase"] == "active"
+        {
+            break snapshot.clone();
+        }
+    };
+    assert_eq!(second_applied["runtime"]["systemProxy"]["phase"], "applied");
+    assert_eq!(
+        first_applied["recentTraffic"],
+        second_applied["recentTraffic"]
+    );
+    assert_eq!(first_applied["traffic"], second_applied["traffic"]);
     drop(first);
     drop(second);
     drop(bridge);

@@ -261,6 +261,20 @@ const initialSnapshot: StatusSnapshotDto = {
     { id: "work", label: "Work 工作" },
     { id: "travel", label: "旅行 ✈️" },
   ],
+  recentTraffic: {
+    authorityId: "fixture-status-authority",
+    revision: 0,
+    phase: "idle",
+    sessionId: null,
+    profileId: null,
+    cadenceMilliseconds: 1_000,
+    windowMilliseconds: 60_000,
+    downloadedBytes: 0,
+    uploadedBytes: 0,
+    downloadBytesPerSecond: 0,
+    uploadBytesPerSecond: 0,
+    samples: [],
+  },
   routingMode: "rule",
   runtime: {
     captureSelection: { systemProxy: false, tun: false },
@@ -305,6 +319,7 @@ function createMonitorId() {
 
 export class FixtureStatusClient implements StatusClient {
   private snapshot = cloneSnapshot(initialSnapshot);
+  private recentTrafficSession = 0;
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
   private readonly snapshotListeners = new Set<(snapshot: StatusSnapshotDto) => void>();
 
@@ -421,6 +436,28 @@ export class FixtureStatusClient implements StatusClient {
       },
       tunEnabled,
     };
+    this.snapshot.recentTraffic.revision += 1;
+    if (captureActive) {
+      if (this.snapshot.recentTraffic.phase === "idle") {
+        this.recentTrafficSession += 1;
+        this.snapshot.recentTraffic.sessionId = `fixture-status-session-${this.recentTrafficSession}`;
+      }
+      this.snapshot.recentTraffic.phase = "active";
+      this.snapshot.recentTraffic.profileId = this.snapshot.activeProfileId;
+    } else {
+      this.snapshot.recentTraffic = {
+        ...this.snapshot.recentTraffic,
+        revision: this.snapshot.recentTraffic.revision,
+        phase: "idle",
+        sessionId: null,
+        profileId: null,
+        downloadedBytes: 0,
+        uploadedBytes: 0,
+        downloadBytesPerSecond: 0,
+        uploadBytesPerSecond: 0,
+        samples: [],
+      };
+    }
     return this.snapshotAfterCommand();
   }
 
@@ -450,6 +487,20 @@ export class FixtureStatusClient implements StatusClient {
     }
 
     this.snapshot.activeProfileId = profileId;
+    if (this.snapshot.recentTraffic.phase !== "idle") {
+      this.recentTrafficSession += 1;
+      this.snapshot.recentTraffic = {
+        ...this.snapshot.recentTraffic,
+        revision: this.snapshot.recentTraffic.revision + 1,
+        sessionId: `fixture-status-session-${this.recentTrafficSession}`,
+        profileId,
+        downloadedBytes: 0,
+        uploadedBytes: 0,
+        downloadBytesPerSecond: 0,
+        uploadBytesPerSecond: 0,
+        samples: [],
+      };
+    }
     return this.snapshotAfterCommand();
   }
 

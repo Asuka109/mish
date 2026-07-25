@@ -69,6 +69,10 @@ impl StatusDataSource for ProfileSource {
         snapshot
     }
 
+    fn profile_id(&self) -> Option<String> {
+        Some(self.profile_id.into())
+    }
+
     fn supports_command(&self, command: StatusCommand) -> bool {
         command == StatusCommand::Routing && self.status_command_started.is_some()
     }
@@ -289,6 +293,10 @@ fn blocking_status_runtime(
 async fn replacing_the_runtime_changes_status_traffic_and_events_as_one_profile_context() {
     let host = DesktopRuntimeHost::new(runtime("profile-a"));
     let mut changes = host.subscribe_changes();
+    let recent = host
+        .current()
+        .recent_traffic()
+        .capture_applied("profile-a", None);
 
     host.replace(runtime("profile-b"));
 
@@ -301,6 +309,9 @@ async fn replacing_the_runtime_changes_status_traffic_and_events_as_one_profile_
     assert_eq!(events["profileId"], "profile-b");
     assert_eq!(events["sessionId"], "events-profile-b");
     assert_eq!(events["events"][0]["id"], "profile-b:1");
+    assert_eq!(status["recentTraffic"]["authorityId"], recent.authority_id);
+    assert_eq!(status["recentTraffic"]["phase"], "idle");
+    assert!(status["recentTraffic"]["revision"].as_u64().unwrap() > recent.revision);
 }
 
 #[test]
@@ -325,6 +336,26 @@ fn replacing_the_runtime_preserves_the_authoritative_notification_center() {
     host.replace(runtime("profile-b"));
 
     assert_eq!(host.notification_snapshot(), published);
+}
+
+#[tokio::test]
+async fn same_profile_runtime_replacement_suspends_recent_traffic_for_coordinator_decision() {
+    let host = DesktopRuntimeHost::new(runtime("profile-a"));
+    let started = host
+        .current()
+        .recent_traffic()
+        .capture_applied("profile-a", None);
+
+    host.replace(runtime("profile-a"));
+
+    let snapshot = host
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await
+        .recent_traffic;
+    assert_eq!(snapshot.authority_id, started.authority_id);
+    assert_eq!(snapshot.session_id, started.session_id);
+    assert_eq!(snapshot.phase, mish_runtime::RecentTrafficPhase::Suspended);
+    assert!(snapshot.revision > started.revision);
 }
 
 #[tokio::test]
