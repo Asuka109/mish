@@ -1868,8 +1868,8 @@ async fn service_probes_remain_available_while_core_is_stopped() {
             "/assets/remix-icon/github.svg",
             "/assets/remix-icon/cloud.svg",
             "/assets/remix-icon/baidu.svg",
-            "/assets/remix-icon/apple.svg",
-            "/assets/remix-icon/microsoft.svg",
+            "/assets/remix-icon/wechat.svg",
+            "/assets/remix-icon/aws.svg",
         ]
     );
     assert_eq!(

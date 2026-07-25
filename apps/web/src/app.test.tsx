@@ -3055,6 +3055,12 @@ describe("Status fixture experience", () => {
     await screen.findByText("Live demo traffic");
 
     await user.click(screen.getByRole("button", { name: "Manage" }));
+    expect(
+      screen.queryByRole("menuitemradio", { name: "Every 5 minutes" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitemradio", { name: "Every 15 minutes" }),
+    ).not.toBeInTheDocument();
     expect(await screen.findByRole("menuitemradio", { name: "Every 5 seconds" })).toHaveAttribute(
       "aria-checked",
       "true",

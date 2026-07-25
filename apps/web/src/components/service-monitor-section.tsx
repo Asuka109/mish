@@ -56,6 +56,7 @@ import {
 import { useI18nContext } from "../i18n/i18n-react";
 
 const serviceProbeIntervals = [0, 5, 10, 30, 60] as const;
+const serviceMonitorLimit = 12;
 const serviceMonitorMediumColumnCount = 3;
 const serviceMonitorWideColumnCount = 4;
 const maximumDisplayedLatency = 9999;
@@ -261,7 +262,13 @@ function ServiceManagerDialog({
               {LL.services.editServicesDescription()}
             </DialogDescription>
           </div>
-          <Button onClick={onAdd} type="button" variant="outline">
+          <Button
+            disabled={services.length >= serviceMonitorLimit}
+            onClick={onAdd}
+            title={services.length >= serviceMonitorLimit ? LL.services.serviceLimit() : undefined}
+            type="button"
+            variant="outline"
+          >
             <Plus aria-hidden="true" data-icon="inline-start" />
             {LL.services.add()}
           </Button>
