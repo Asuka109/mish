@@ -1,521 +1,312 @@
-# Candidate home isolation
+# Mihomo runtime home and activation generations
 
 ## RFC status
 
-- **Question:** Does every Profile activation still need a completely fresh
-  private Mihomo candidate home?
-- **Status:** Proposed no-change decision, pending maintainer acceptance of
-  Issue #185.
-- **Scope:** Candidate file isolation, preparation cost, validation mutation,
-  promotion, rollback, retirement, cancellation, and crash recovery.
-- **Non-goals:** GeoData fallback/update design, packaged-runtime fixes,
-  activation UX, or a different one-Core ownership model.
+- **Decision:** Adopt one persistent global Mihomo home and UUID-scoped
+  generated configuration files.
+- **Issue:** #185.
+- **Scope:** Profile activation storage, provider-path isolation, startup
+  validation, ownership recovery, rollback, retirement, and cleanup.
+- **Non-goals:** GeoData update/fallback policy, packaged-runtime repair,
+  activation UX, or the one-Core ownership model.
 
-## Existing behavior
+## Context
 
-A **candidate home** is the private filesystem workspace for one attempted
-Profile activation. It is not the selected Profile, the persistent Profile
-store, or the active-state record. It contains the exact files that the
-candidate Mihomo process may read or mutate during validation and, if accepted,
-while running.
+Mish previously created a complete private Mihomo home for every activation.
+It copied approximately 41 MiB of GeoData, restored a
+Profile-and-effective-fingerprint copy of `cache.db`, wrote `config.yaml`, ran
+`mihomo -t`, renamed the staging root, and then launched Mihomo from that root.
 
-Every activation currently creates a new UUID-scoped root:
+That boundary was stronger than Mihomo's native state model and the common
+Clash-client design. It also created three identities for one activation:
+Profile/effective fingerprint, candidate UUID, and a copied cache identity.
+The copied home was useful as a transaction boundary, but most of its contents
+were intentionally reusable Mihomo state rather than rejected configuration
+authority.
+
+The accepted product rule is now:
+
+- a Profile is identified by Mish's stable Profile ID;
+- generated configuration is activation-generation state;
+- Mihomo-native state is global and remains owned by Mihomo; and
+- explicit relative provider paths need Profile isolation, while Mihomo's
+  default URL-hashed HTTP provider paths may be shared.
+
+## Decision
+
+Mish uses this layout:
 
 ```text
 runtime/
 ├── activation-state.json
 ├── core-ownership.json
-├── profile-selection-cache/
-│   └── <profile-id>/<effective-fingerprint>/cache.db
-└── candidates/
-    ├── <active-uuid>/
-    │   ├── config.yaml
-    │   └── home/
-    │       ├── GeoSite.dat
-    │       ├── GeoIP.dat
-    │       ├── geoip.metadb
-    │       ├── ASN.mmdb
-    │       ├── cache.db
-    │       └── <Profile-defined provider resources>
-    └── .staging-<new-uuid>/
-        ├── config.yaml
-        └── home/
+└── mihomo/
+    ├── home/
+    │   ├── cache.db
+    │   ├── GeoSite.dat
+    │   ├── GeoIP.dat
+    │   ├── geoip.metadb
+    │   ├── ASN.mmdb
+    │   ├── proxies/<mihomo-url-hash>
+    │   ├── rules/<mihomo-url-hash>
+    │   └── profile-resources/<profile-id>/<explicit-relative-path>
+    └── configs/
+        └── <generation-uuid>.yaml
 ```
 
-The mechanism is transactional:
+The global home contains ordinary private files. Mish does not introduce
+symlinks, hard links, APFS clones, a template cache, or a filesystem-specific
+fallback state machine.
 
-1. Rust creates `.staging-<uuid>` with private permissions.
-2. Mish verifies the packaged GeoData manifest and source digests, then writes
-   private candidate files.
-3. Mish restores only the selection cache whose Profile ID and effective
-   fingerprint match the attempted activation.
-4. Rust generates the candidate-specific configuration and invokes the exact
-   pinned Mihomo with `-t`.
-5. Successful validation promotes the staging directory by rename. A failed or
-   cancelled validation deletes only that staging directory.
-6. Mish stops the prior Core only after the replacement is fully prepared,
-   records launch ownership for the exact new paths, and starts the candidate.
-7. The candidate becomes authoritative only after process, listener,
-   Controller version, and first-snapshot readiness succeed and Rust commits
-   active state.
-8. The prior candidate is then retired: Mish persists its bounded selection
-   cache and deletes its entire root.
-9. Any failure before commit stops and deletes the new candidate and restores
-   the prior Core/capture intent. Startup recovery reconciles the ownership
-   journal before deleting stale UUID roots.
+### Identity rules
 
-This design deliberately permits two candidate roots during replacement but
-never two active Cores. The prior root remains rollback authority while the new
-root is validated and started.
+| Identity              | Purpose                                                         | Does not control                 |
+| --------------------- | --------------------------------------------------------------- | -------------------------------- |
+| Profile ID            | Namespace explicit provider paths and identify selected Profile | Global cache lifetime            |
+| Effective fingerprint | Describe exact generated Profile meaning and diagnostics        | Home, cache, or generation reuse |
+| Generation UUID       | Name one generated config and one ownership launch              | Profile storage or Mihomo cache  |
 
-## Why review it
+`cache.db` is a single Mihomo bbolt database. Mihomo uses it for selections,
+fake-IP state, HTTP ETags, subscription information, and other native storage.
+Mish reads the bounded `selected` bucket for presentation but no longer copies,
+restores, or deletes the database per Profile. Mihomo already handles stale
+selector values by falling back when a named choice is unavailable.
 
-The packaged GeoData snapshot is about 41 MiB, and the existing implementation
-verifies and writes those assets for every attempted activation. This raises a
-reasonable performance question: could Mish retain a home per Profile or
-effective fingerprint, or use copy-on-write files, while preserving the same
-transactional guarantees?
+### Provider paths
 
-The review must answer two different questions:
+Mihomo derives default HTTP provider paths from the provider URL under its
+`proxies` and `rules` directories. Mish leaves providers without an explicit
+`path` unchanged, so this native content reuse remains global.
 
-1. **Logical isolation:** Which files and guarantees require a fresh root?
-2. **Physical copying:** Can private candidate files be created more cheaply
-   without changing that logical isolation?
-
-Conflating them would be unsafe. APFS cloning may optimize physical allocation
-while retaining independent files; persistent-home reuse changes the logical
-isolation and introduces stale mutable state.
-
-## Prior art: other Clash clients
-
-The review inspected source at fixed commits rather than inferring behavior
-from UI labels. The comparison is scoped to the filesystem boundary used for
-configuration validation and Core execution; it does not claim that these
-clients offer the same lifecycle guarantees as Mish.
-
-| Client and inspected revision                                                                                                      | Configuration validation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Runtime home scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Comparison with Mish                                                                                                                                                                                       |
-| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Clash Verge Rev `7ca20fc`](https://github.com/clash-verge-rev/clash-verge-rev/tree/7ca20fc4ede99aa4cc4fb0ff8519b0a2df2d9454)      | Generates a separate check YAML, but invokes the selected Core with `-t -d <app-home> -f <check-yaml>` in the [persistent app home](https://github.com/clash-verge-rev/clash-verge-rev/blob/7ca20fc4ede99aa4cc4fb0ff8519b0a2df2d9454/src-tauri/src/core/validate.rs#L330-L356).                                                                                                                                                                                                                                                                                                                                                                                                                     | The sidecar also starts with the same persistent app home and a generated run YAML ([source](https://github.com/clash-verge-rev/clash-verge-rev/blob/7ca20fc4ede99aa4cc4fb0ff8519b0a2df2d9454/src-tauri/src/core/manager/state.rs#L25-L50)).                                                                                                                                                                                                                                                                                                           | Rejected configuration bytes are discarded, but validation-time home mutations are not candidate-private.                                                                                                  |
-| [Clash Nyanpasu `3525ff0`](https://github.com/libnyanpasu/clash-nyanpasu/tree/3525ff032caebe890b645fc574dedd81490585f4)            | Uses a unique, exclusively-created candidate YAML, checks the exact bytes, verifies they did not change, and only then promotes them ([pipeline](https://github.com/libnyanpasu/clash-nyanpasu/blob/3525ff032caebe890b645fc574dedd81490585f4/backend/tauri/src/client/mod.rs#L774-L805), [identity gate](https://github.com/libnyanpasu/clash-nyanpasu/blob/3525ff032caebe890b645fc574dedd81490585f4/backend/tauri/src/client/core_bridge.rs#L77-L99)). The check nevertheless passes the persistent app data directory as the Core workdir ([source](https://github.com/libnyanpasu/clash-nyanpasu/blob/3525ff032caebe890b645fc574dedd81490585f4/backend/tauri/src/core/clash/core.rs#L423-L438)). | Persistent application data.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Strong configuration-product transaction, but not a private transaction for the complete Core home. This is the closest example of separating configuration publication from home isolation.               |
-| [Mihomo Party `e019290`](https://github.com/mihomo-party-org/mihomo-party/tree/e019290493cdd368452f1238aab4fa248eb76ed0)           | Validates the selected config with `-t`, but always supplies a persistent shared `test` directory as `-d` ([source](https://github.com/mihomo-party-org/mihomo-party/blob/e019290493cdd368452f1238aab4fa248eb76ed0/src/main/core/manager.ts#L928-L947)).                                                                                                                                                                                                                                                                                                                                                                                                                                            | A setting selects either one persistent global workdir or a persistent per-Profile workdir. A per-Profile workdir is reused and refreshed by copying newer GeoData from the global workdir ([preparation](https://github.com/mihomo-party-org/mihomo-party/blob/e019290493cdd368452f1238aab4fa248eb76ed0/src/main/core/factory.ts#L261-L293), [launch selection](https://github.com/mihomo-party-org/mihomo-party/blob/e019290493cdd368452f1238aab4fa248eb76ed0/src/main/core/manager.ts#L497-L527)).                                                  | The closest persistent per-Profile design, but validation does not use that runtime home and neither home is fresh per activation. Reuse therefore permits state to survive between activations by design. |
-| [FlClash `7c83185`](https://github.com/chen08209/FlClash/tree/7c831855efedceb1a72bd0b4c18da026593d0853)                            | Writes inline data to a temporary file, but the embedded validation handler only unmarshals the configuration ([caller](https://github.com/chen08209/FlClash/blob/7c831855efedceb1a72bd0b4c18da026593d0853/lib/core/controller.dart#L85-L96), [handler](https://github.com/chen08209/FlClash/blob/7c831855efedceb1a72bd0b4c18da026593d0853/core/hub.go#L90-L97)); it is not equivalent to Mish's pinned `mihomo -t`.                                                                                                                                                                                                                                                                                | One persistent application-support home is initialized once and holds `config.yaml` and GeoData ([paths](https://github.com/chen08209/FlClash/blob/7c831855efedceb1a72bd0b4c18da026593d0853/lib/common/path.dart#L59-L92), [initialization](https://github.com/chen08209/FlClash/blob/7c831855efedceb1a72bd0b4c18da026593d0853/lib/core/controller.dart#L45-L76)).                                                                                                                                                                                     | Temporary configuration bytes do not imply an isolated validation home, and the validation depth differs materially.                                                                                       |
-| [Clash Meta for Android `c67ed9c`](https://github.com/MetaCubeX/ClashMetaForAndroid/tree/c67ed9c9445bba3626cdac3249f788d6e49cba6d) | Copies a pending Profile into one shared `processing` directory, downloads and validates there, then copies the result into a persistent imported Profile directory ([source](https://github.com/MetaCubeX/ClashMetaForAndroid/blob/c67ed9c9445bba3626cdac3249f788d6e49cba6d/service/src/main/java/com/github/kr328/clash/service/ProfileProcessor.kt#L30-L88)). Operations are serialized by mutexes.                                                                                                                                                                                                                                                                                              | The embedded Core has one persistent `filesDir/clash` home for shared runtime data ([bridge](https://github.com/MetaCubeX/ClashMetaForAndroid/blob/c67ed9c9445bba3626cdac3249f788d6e49cba6d/core/src/main/java/com/github/kr328/clash/core/bridge/Bridge.kt#L60-L77)); selected Profile bundles persist separately and are loaded by UUID ([source](https://github.com/MetaCubeX/ClashMetaForAndroid/blob/c67ed9c9445bba3626cdac3249f788d6e49cba6d/service/src/main/java/com/github/kr328/clash/service/clash/module/ConfigurationModule.kt#L47-L70)). | This separates reusable Profile artifacts from shared Core data, but the single processing directory and shared Core home are a serialized pipeline, not per-attempt home isolation.                       |
-
-Two source-state caveats apply. The inspected Clash Verge Rev checkout was on a
-locally diverged `dev` revision, and the inspected Mihomo Party checkout was on
-its `smart_core` branch rather than a verified default branch. Their exact
-commits are recorded above so the findings remain reproducible and are not
-presented as claims about a later release.
-
-Across these five inspected clients, no implementation created a fresh private
-root containing the complete Mihomo workdir for every activation. The common
-pattern is a persistent global or per-Profile home plus a temporary/check
-configuration artifact. That pattern is useful prior art for a product willing
-to accept persistent mutable Core state, but it does not preserve Mish's exact
-rejected-Profile isolation, ownership-journal rollback, or whole-root cleanup
-contract.
-
-The comparison therefore sharpens, rather than answers, this RFC's decision:
-Mish could adopt the more common boundary only by weakening an explicit
-guarantee. Issue #185 requires that guarantee to remain intact. The prior art
-also provides no evidence that APFS cloning or persistent-home reuse produces
-a material launch improvement; the performance decision must still come from
-Mish's own measured activation path.
-
-## Decision routes
-
-The design space contains four distinct routes. They are separated by whether
-they change the logical isolation boundary or only the physical preparation
-Adapter.
-
-| Route                                                       | Design                                                                                                                                                                                                                                                                     | Expected leverage                                                                                                                                                                                                      | New correctness burden                                                                                                                                                                                                                                                                   | RFC disposition                                                                                                                                        |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **A. Fresh private root with verified writes**              | Keep the existing UUID candidate root. Verify packaged assets, write private regular files, validate, promote, and retire the complete root transactionally.                                                                                                               | No speculative gain; measured preparation median is 46.7 ms.                                                                                                                                                           | None beyond the lifecycle already covered by the ownership journal and activation tests.                                                                                                                                                                                                 | **Recommended now.** It is the reference behavior and the only route whose complete proof already exists.                                              |
-| **B. Fresh private root with copy-on-write clones**         | Preserve the same UUID root and ownership model, but clone verified immutable seed files into it on filesystems that support independent copy-on-write regular files. Fall back to sequential private copies everywhere else.                                              | Theoretical reduction in physical writes without weakening logical isolation. The measured `/bin/cp -c` prototype was slower at median and p95, and even a zero-cost file stage is below the 10% activation threshold. | A platform capability Adapter, clone verification, partial-clone cleanup, source replacement handling, and deterministic fallback tests.                                                                                                                                                 | **Do not implement for Issue #185.** Reconsider only if native clone measurements show a material end-to-end gain on supported production filesystems. |
-| **C. Content-addressed prepared template**                  | Build a read-only template keyed by packaged manifest, Core version, and asset digests. Each activation still creates a fresh private root from that template using clone or portable copies; mutable `cache.db`, config, and provider resources never enter the template. | Could move repeated source discovery or verification out of the activation critical path, while retaining a private runtime root. Current measurements cap the available gain at tens of milliseconds.                 | The template becomes a new durable authority requiring atomic construction, tamper detection, version invalidation, crash cleanup, and proof that no mutable Core-created path can enter it. Without an OS-sealed source, use-time trust cannot simply replace verification.             | **Research only.** It is safer than home reuse but adds an authority and invalidation state machine for an immaterial measured gain.                   |
-| **D. Persistent per-Profile or effective-fingerprint home** | Reuse one runtime root across activations, refreshing known assets and resetting candidate-specific state before validation. A snapshot or reset journal would be required for rollback and cancellation.                                                                  | Avoids most root preparation and resembles Mihomo Party's optional runtime layout. The measured upper bound is still below the materiality threshold.                                                                  | Must enumerate every Mihomo- and provider-created mutable path, distinguish reusable state from partial authority, prevent concurrent validation/runtime mutation, snapshot before validation, restore after failure, recover interrupted resets, and retire stale fingerprints exactly. | **Rejected under current guarantees.** The mutable-file set is Profile-dependent and not fully owned by Mish, so the safety proof is incomplete.       |
-
-Route A and Route B preserve the current logical boundary. Route C introduces
-a new immutable-source authority but still gives each attempt a private
-runtime root. Route D is the only route that actually narrows the isolation
-boundary; it is also the route that converts stale filesystem state into part
-of activation correctness.
-
-The common industry variant—one shared global home plus a temporary candidate
-configuration—is an even narrower form of Route D. It is not a separate Mish
-candidate because it directly violates the required rejected-Profile
-isolation: `mihomo -t` or provider initialization may mutate authority shared
-with the active or next candidate.
-
-### Route A: fresh private root with verified writes
-
-This is the current lifecycle:
-
-1. Create a private `.staging-<uuid>` root.
-2. Verify the packaged manifest and source bytes.
-3. Write private GeoData files, the scoped selection cache, and generated
-   configuration into that root.
-4. Run the pinned Core validation against only that root.
-5. Rename the root into its promoted UUID path.
-6. Launch and commit it after readiness, or delete it exactly on failure.
-7. Retire the prior root only after the replacement is authoritative.
-
-Its main property is locality: the complete set of files a candidate may mutate
-is also the cleanup unit and the ownership-journal target. Mish does not need
-to predict every relative provider file or Core-created database to reject,
-cancel, roll back, or retire an activation.
-
-The cost is repeated verification and approximately 41 MiB of logical writes.
-On the measured APFS host, however, this stage had a 46.7 ms median and
-represented about 1.4% of the lower pinned-Core cold activation sample. It is
-portable, has no persistent template invalidation state, and already has
-deterministic recovery coverage. Route A remains the baseline until another
-route demonstrates both a complete safety proof and at least a 10% end-to-end
-improvement.
-
-### Route B: fresh private root with copy-on-write clones
-
-This route changes how verified seed files enter the staging root, not what the
-root owns. On a capable filesystem, Mish would create independent copy-on-write
-regular files from the packaged assets. Configuration, selection cache, and
-provider resources would still be private writes. Unsupported filesystems and
-clone failures would use the portable sequential copy Adapter.
-
-The intended lifecycle is:
-
-1. Verify the source manifest and exact source files.
-2. Create the same private UUID staging root as Route A.
-3. Clone one asset at a time into that root, rejecting links and unexpected
-   file types.
-4. If capability detection or cloning fails, remove the partial staging root
-   and restart preparation with portable private copies.
-5. Perform the unchanged validation, promotion, readiness, rollback, and
-   retirement transaction.
-
-This preserves logical isolation because a copy-on-write clone is an
-independent file, unlike a symlink or hard link. It does introduce additional
-platform states: capability reported but operation unsupported, a partial set
-of cloned files, source replacement during preparation, clone success followed
-by metadata mismatch, and fallback failure. Those states need failure
-injection and must never mix a partial clone attempt with the fallback result.
-
-The prototype did not justify those states. Native `/bin/cp -c` succeeded but
-measured 79.8 ms median and 206.3 ms p95, versus 46.7 ms and 67.1 ms for current
-verified writes. Node `COPYFILE_FICLONE_FORCE` returned `ENOSYS`. A future
-in-process platform Adapter should be considered only if it beats Route A
-end-to-end, does not regress p95, and retains the portable fallback. A faster
-microbenchmark alone is insufficient because the impossible zero-cost upper
-bound for the entire current file stage is still below the materiality gate.
-
-### Route C: content-addressed prepared template
-
-This route introduces a durable immutable template between packaged resources
-and candidate roots:
+An explicit safe relative path is rewritten during record generation:
 
 ```text
-runtime/
-├── templates/
-│   ├── .staging-<template-id>/
-│   └── <core-version>-<manifest-digest>/
-│       ├── template-manifest.json
-│       ├── GeoSite.dat
-│       ├── GeoIP.dat
-│       ├── geoip.metadb
-│       └── ASN.mmdb
-└── candidates/
-    └── .staging-<activation-uuid>/home/
+providers/custom.yaml
+  -> profile-resources/<profile-id>/providers/custom.yaml
 ```
 
-The template would contain only packaged immutable assets. Candidate config,
-selection cache, provider resources, and any file ever writable by a running
-Core remain outside it. Template construction would verify all inputs, publish
-through atomic rename, and key the result by the exact Core and manifest
-identity. Every activation would still create a private candidate root from
-the template by clone or sequential copy.
+This prevents two Profiles from claiming the same mutable relative file without
+adding a home per Profile. Unsafe absolute or parent-traversal paths remain
+rejected by managed runtime policy.
 
-This can move source discovery and possibly repeated digest work away from the
-activation critical path. It cannot remove the need to create private runtime
-files, and using a sequential copy retains most of the current I/O. If the
-template is writable by the same account, trusting it without use-time
-verification weakens the current tamper-detection boundary; if it is
-re-verified on every use, most of its proposed saving disappears.
+### GeoData
 
-The template also becomes new durable authority. Correctness would require:
+The packaged manifest and all packaged source files are verified before any
+seed operation. Missing global GeoData files are written as private regular
+files. Existing regular files are preserved because the independent runtime
+GeoData updater may own a newer version. Links and non-file targets are
+rejected. If a seed write fails, only files created by that seed operation are
+removed.
 
-- exclusive and atomic construction under concurrent launches;
-- exact Core/manifest invalidation and bounded stale-template cleanup;
-- private ownership, mode, regular-file, size, and digest enforcement;
-- recovery from interrupted construction or replacement;
-- proof that runtime mutation can never reach the template; and
-- candidate preparation fallback when the template is absent or rejected.
+This is initialization, not a new GeoData update policy.
 
-Route C is a reasonable future direction only if candidate preparation becomes
-a measured bottleneck or the packaged resources gain an OS-sealed immutable
-identity that safely amortizes verification. Current evidence does not pay for
-the additional authority and recovery protocol.
+### Startup validation
 
-### Route D: persistent per-Profile or effective-fingerprint home
+Mish no longer launches a second `mihomo -t` process for every activation.
+Normal Mihomo startup parses the same generation file before becoming ready.
+Mish still:
 
-This route changes the logical isolation boundary. A possible layout is:
+- verifies the exact pinned Mihomo version before process launch;
+- records the exact binary, global home, generation config, token, and PID in
+  the authoritative ownership journal;
+- requires process survival, listener ownership, Controller version, and the
+  first valid snapshot before publishing active state.
 
-```text
-runtime/
-└── profile-homes/
-    └── <profile-id>/
-        └── <effective-fingerprint>/
-            ├── config.yaml
-            ├── cache.db
-            ├── GeoData
-            └── provider-created resources
-```
+Invalid startup is therefore a start/early-exit failure rather than a separate
+preflight-validation phase. The prior Core is stopped before the new Core can
+own the global home. If startup or readiness fails, Mish removes the failed
+generation config and restarts the prior generation config against the same
+global home.
 
-Activation would select an existing home, refresh known inputs, validate it,
-and run it again. This resembles Mihomo Party's optional per-Profile runtime
-workdir and avoids recreating known files when revisiting a Profile.
-
-There are two ways to make failure rollback plausible:
-
-1. **Reset known paths.** Delete or replace configuration, cache, GeoData, and
-   known provider resources before validation.
-2. **Snapshot the complete home.** Create a private pre-validation snapshot,
-   mutate the reusable home, and restore the snapshot after rejection,
-   cancellation, launch failure, or crash recovery.
-
-The reset variant is not provable because Mish does not own the complete
-Profile-dependent set of paths Mihomo and providers may create. An unknown
-file can survive into a later activation, and cleanup cannot distinguish valid
-reusable state from partial candidate authority. The snapshot variant recovers
-the missing proof only by reintroducing a whole-root private copy plus a more
-complex restore journal—the cost and state space that reuse was meant to
-remove.
-
-Concurrency also becomes harder. An active, validating, updating, or retiring
-generation cannot share a writable home with another generation. Mish would
-need per-home generation locks, an explicit quarantine state, snapshot
-ownership, crash-resumable reset/restore, and rules for Core replacement while
-the old generation remains rollback authority. Candidate deletion would no
-longer be exact whole-root cleanup because part of the root is intended to
-survive.
-
-The best possible measured saving is still only the current tens-of-
-milliseconds preparation stage. Route D therefore accepts the largest
-correctness burden for an end-to-end gain that cannot reach the materiality
-threshold. It remains rejected unless the product intentionally relaxes exact
-rejected-Profile isolation and measurements change substantially.
-
-## Evaluation criteria
-
-A narrower design is acceptable only if it:
-
-- preserves one active Core and one authoritative ownership record;
-- prevents validation, active, updating, and retiring runtimes from mutating
-  another candidate's files;
-- keeps rejected Profiles, cancellation, rollback, and cleanup exact;
-- preserves pinned validation, listener readiness, selection-cache scoping,
-  crash recovery, and Rust-authoritative publication;
-- has a portable sequential fallback and no mutable symlink or hard-link
-  authority; and
-- produces a material end-to-end activation improvement, defined here as at
-  least 10% of observed cold activation without a meaningful tail regression.
-
-## Conclusion
-
-Mish retains one fresh private Mihomo candidate root for every Profile
-activation. The review found no storage proposal that can produce a material
-end-to-end launch improvement while preserving the current transactional
-Interface. The bundled GeoData snapshot remains the shared immutable source;
-each validation and runtime still receives private regular-file copies.
-
-This is a no-change architecture decision. It does not change GeoData update or
-fallback behavior, packaged-runtime recovery, or activation UX.
-
-## Module and Seam
-
-`MihomoActivationManager` is the deep Module for candidate preparation, Core
-handoff, rollback, and retirement. Its external Interface is activation,
-shutdown, recovery, and the committed runtime/state projection. Candidate-root
-creation is an internal Seam: callers do not select a storage Adapter.
-
-The current Interface guarantees:
-
-- one active Core and one authoritative Core ownership record;
-- validation by the exact pinned Core before launch;
-- no state publication before listener and Controller readiness;
-- exact rejected-Profile isolation;
-- Profile-and-effective-fingerprint selection-cache scoping;
-- cancellation and failure rollback without partial authority;
-- crash recovery from the ownership journal and removal of stale candidates;
-- retirement and exact cleanup of the prior or rejected candidate; and
-- Rust-authoritative activation and runtime-host publication.
-
-## Candidate lifecycle DAG
+## Activation lifecycle DAG
 
 ```mermaid
 flowchart TD
-  Recover["Recover startup ownership journal"] --> Prune["Prune stale UUID candidate and staging roots"]
+  Recover["Recover ownership journal and retire proven orphan Core"] --> Prune["Prune stale generation configs and legacy candidate/cache roots"]
   Prune --> Validate["Validate Profile record and effective fingerprint"]
-  Validate --> Lock["Acquire activation-state mutex"]
-  Lock --> Stage["Create candidates/.staging-UUID (0700)"]
-  Stage --> Seed["Verify bundled manifest, file shape, sizes, SHA-256; write four private GeoData files"]
-  Seed --> Cache["Copy bounded Profile + effective-fingerprint cache.db when enabled"]
-  Cache --> Config["Generate candidate config.yaml (0600)"]
-  Config --> Version["Validate exact pinned Mihomo version"]
-  Version --> Test["Run mihomo -d candidate-home -f candidate-config -t"]
-  Test -->|success| Promote["Rename .staging-UUID to candidates/UUID"]
-  Test -->|failure or cancellation| DeleteStage["Guard deletes staging root"]
-  Promote --> Capture["Begin capture transition and suspend prior capture if required"]
-  Capture --> StopPrior["Stop prior Core"]
-  StopPrior --> Intent["Persist ownership launch intent for exact candidate paths and token"]
-  Intent --> Spawn["Spawn candidate Core and persist PID/start identity"]
-  Spawn --> Ready["Confirm process, mixed listener, Controller version, and first snapshot"]
-  Ready --> Resume["Resume prior capture intent"]
-  Resume --> Commit["Atomically replace activation-state.json"]
-  Commit --> Publish["Replace Rust runtime host and publish Profile projection"]
-  Publish --> Retire["Persist prior cache.db, then delete prior candidate root"]
-  Capture -->|failure| Rollback["Stop/delete candidate and restore prior Core/capture"]
-  StopPrior -->|failure| Rollback
-  Spawn -->|start, exit, readiness, or cancellation failure| Rollback
-  Ready -->|failure| Rollback
+  Validate --> Home["Ensure private global mihomo/home and seed missing verified GeoData"]
+  Home --> Config["Generate configs/generation-UUID.yaml (0600)"]
+  Config --> Capture["Begin capture transition and suspend prior capture when required"]
+  Capture --> Stop["Stop prior Core"]
+  Stop --> Intent["Persist launch intent: pinned binary + global home + generation config"]
+  Intent --> Start["Start Mihomo; normal startup parses config"]
+  Start --> Ready["Confirm process, listeners, Controller version, and first snapshot"]
+  Ready --> Resume["Resume capture"]
+  Resume --> Commit["Atomically publish activation-state.json"]
+  Commit --> Retire["Delete prior generation config"]
+  Capture -->|failure or cancellation| Reject["Delete new generation config"]
+  Stop -->|failure| Rollback["Restart prior generation"]
+  Start -->|failure| Rollback
+  Ready -->|failure or cancellation| Rollback
   Resume -->|failure| Rollback
   Commit -->|failure| Rollback
-  Rollback -->|prior restore succeeds| Preserve["Preserve prior authority"]
-  Rollback -->|prior restore fails| SafeStop["Clear active state and publish explicit safe stop"]
+  Rollback -->|success| Preserve["Preserve prior Profile authority"]
+  Rollback -->|failure| SafeStop["Clear active state and publish safe stop"]
 ```
 
-The activation-state mutex serializes the handoff, but serialization alone does
-not isolate validation-time or runtime file mutation. The fresh root provides
-that locality: every candidate's mutable file set and cleanup target are one
-directory.
+The activation mutex and one-Core ownership journal serialize all runtime
+mutation. Two generated configs may briefly exist for rollback, but only one
+Mihomo process may use the global home.
 
-## File ownership and mutation analysis
+## Recovery and migration
 
-| Resource                                               | Source                                                                     | Candidate behavior                                                                                                                                                                      | Required isolation                                     |
-| ------------------------------------------------------ | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `config.yaml`                                          | Generated from the persisted normalized Profile and managed runtime policy | Read by validation and runtime; candidate-specific and contains private controller configuration                                                                                        | Private regular file                                   |
-| `GeoSite.dat`, `GeoIP.dat`, `geoip.metadb`, `ASN.mmdb` | Verified packaged snapshot                                                 | Pinned `mihomo -t` reads them. Mihomo retains authority to create or replace missing runtime GeoData inside `-d`; Mish cannot treat the candidate paths as immutable runtime authority. | Shared source is safe; candidate paths remain private  |
-| `cache.db`                                             | Profile + effective-fingerprint cache                                      | Mihomo mutates policy selections while running; Mish copies it out only at retirement                                                                                                   | Private and fingerprint-scoped                         |
-| Relative provider files                                | Profile configuration, constrained to remain under the managed home        | Provider initialization and update can write candidate-local resources                                                                                                                  | Private; the complete mutable set is Profile-dependent |
-| `core-ownership.json`                                  | Rust ownership Module                                                      | Atomically records exact binary, candidate home/config, generation, token, PID, and start identity                                                                                      | One authoritative record outside candidate homes       |
-| `activation-state.json`                                | Rust activation Module                                                     | Atomically publishes display-safe active identity only after readiness                                                                                                                  | One authoritative record outside candidate homes       |
+Startup recovery runs before cleanup:
 
-Pinned v1.19.29 validation against the four prepared production assets did not
-change their hashes for the representative fixture. That observation is not an
-immutability guarantee: validation deliberately owns missing-GeoData recovery,
-and the running Core can mutate `cache.db` and Profile-defined relative
-provider resources. A persistent home would therefore need a complete
-Profile-dependent reset or snapshot protocol before every validation. That
-protocol recreates the private-candidate problem and adds stale-state and crash
-recovery states to the Interface.
+1. Read and validate the ownership record.
+2. Prove and terminate an orphan process, including one launched by the former
+   `candidates/<uuid>/home` layout.
+3. Remove UUID generation configs.
+4. Remove only UUID and `.staging-UUID` legacy candidate directories.
+5. Remove the obsolete `profile-selection-cache` tree.
+6. Preserve `mihomo/home` and unrelated maintainer files.
 
-No symlink or hard-link proposal is safe. An APFS clone produces independent
-copy-on-write files and is not the same as a hard link, but it still needs exact
-source verification and a portable sequential Adapter. It changes only the
-physical-copy implementation; it does not justify persistent homes or a
-narrower isolation Seam.
+New ownership records require `config_directory == runtime/mihomo/home` and a
+`runtime/mihomo/configs/<uuid>.yaml` config. The legacy path shape remains
+accepted only so upgrades can safely recover an already-launched old Core.
+Legacy per-Profile selection databases are not merged: bbolt buckets contain
+more Mihomo-native state than Mish can safely reconcile across multiple
+fingerprints. The first activation after upgrade therefore starts a new global
+cache and Mihomo applies its normal selector fallback once; subsequent
+selections persist globally.
 
-## Reproducible performance evidence
+## Industry comparison
 
-The repository-owned file harness is:
+Source review at fixed revisions found that none of five inspected clients
+created a fresh complete Mihomo home for every activation:
+
+| Client                                                                                                                             | Home model                                    | Configuration model                          |
+| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | -------------------------------------------- |
+| [Clash Verge Rev `7ca20fc`](https://github.com/clash-verge-rev/clash-verge-rev/tree/7ca20fc4ede99aa4cc4fb0ff8519b0a2df2d9454)      | Persistent application home                   | Generated check/run YAML                     |
+| [Clash Nyanpasu `3525ff0`](https://github.com/libnyanpasu/clash-nyanpasu/tree/3525ff032caebe890b645fc574dedd81490585f4)            | Persistent application data                   | Exclusive candidate YAML with identity check |
+| [Mihomo Party `e019290`](https://github.com/mihomo-party-org/mihomo-party/tree/e019290493cdd368452f1238aab4fa248eb76ed0)           | Global or persistent per-Profile home         | Separate validation config                   |
+| [FlClash `7c83185`](https://github.com/chen08209/FlClash/tree/7c831855efedceb1a72bd0b4c18da026593d0853)                            | One application-support home                  | Temporary config for embedded parse          |
+| [Clash Meta for Android `c67ed9c`](https://github.com/MetaCubeX/ClashMetaForAndroid/tree/c67ed9c9445bba3626cdac3249f788d6e49cba6d) | One persistent Core home plus Profile bundles | Serialized processing directory              |
+
+The adopted design follows the industry's simpler persistent-home boundary but
+keeps Mish-specific generation ownership, exact Rust state publication,
+listener readiness, cancellation, and rollback.
+
+## Alternatives
+
+### Fresh private candidate home
+
+This provides exact whole-root rejection but duplicates global Mihomo state,
+requires cache export/import semantics that Mihomo does not define, and repeats
+GeoData verification/writes. It remains useful only if the product later
+requires rejected attempts to leave no mutation in Mihomo-native state.
+
+### Persistent home per Profile or effective fingerprint
+
+This adds multiple cache and GeoData authorities plus invalidation and cleanup
+states. A fingerprint is an identity for generated Profile meaning, not for all
+files Mihomo may create. Profile ID namespaces the only known collision-prone
+input—explicit paths—without multiplying homes.
+
+### APFS clone, hard link, or symlink
+
+Links to mutable authority are unsafe, and APFS clone support requires a
+platform Adapter plus sequential fallback. Once the complete home copy is
+removed, clone complexity has no meaningful target. Ordinary files are the
+portable design.
+
+### Rename staging directory
+
+Directory promotion was necessary when the directory itself was the candidate
+transaction. The new transaction is one create-new UUID config file; it is
+never discovered by directory name and is passed directly to the owned
+process. A staging directory and rename add states without adding publication
+atomicity.
+
+## Performance evidence
+
+The earlier reproducible harness established the removable cost:
 
 ```sh
 pnpm measure:candidate-home -- --iterations 9
 node --test scripts/measure-candidate-home.test.ts
 ```
 
-It verifies the production manifest and 42,881,021 bytes on every sample,
-publishes a UUID staging directory through rename, checks the completed files,
-and measures injected failure and cancellation cleanup. `current` matches the
-Rust implementation: read and hash every asset, then write private files.
-`verified-sequential` performs the same verification followed by portable file
-copies. `verified-clone` performs the same verification followed by macOS
-`cp -c` APFS clones; the production-independent process Adapter makes this a
-conservative prototype rather than an implementation benchmark.
+On the recorded Apple Silicon APFS host, verifying and writing the 42,881,021
+byte private home measured 46.7 ms median and 67.1 ms p95. Sequential copy was
+69.9 ms median; `/bin/cp -c` clone was 79.8 ms median with a 206.3 ms p95. The
+old file-copy stage was only about 1.4% of the lower 3.27 s pinned cold sample.
 
-Measurements on an Apple Silicon APFS SSD:
+The file copy alone was not a large end-to-end bottleneck. Removing the second
+full Mihomo parse/startup path is material on warm, relaunch, and failure paths.
+The same prepared pinned v1.19.29 binary and production GeoData fixture produced:
 
-| Preparation Adapter             | First sample |  Median |      p95 | Result                 |
-| ------------------------------- | -----------: | ------: | -------: | ---------------------- |
-| Current verified private writes |      36.5 ms | 46.7 ms |  67.1 ms | Baseline               |
-| Verified sequential copies      |      65.6 ms | 69.9 ms | 108.3 ms | Slower                 |
-| Verified APFS clone prototype   |      54.1 ms | 79.8 ms | 206.3 ms | Slower and higher tail |
+| Pinned-Core path                  |        Fresh candidate baseline | Global-home implementation |                Change |
+| --------------------------------- | ------------------------------: | -------------------------: | --------------------: |
+| Cold activation                   |                       3267.9 ms |                  3269.8 ms | effectively unchanged |
+| Warm replacement                  | 3344.9 ms lower recorded sample |                  1221.5 ms |          63.5% faster |
+| Relaunch                          | 3292.2 ms lower recorded sample |                  1214.2 ms |          63.1% faster |
+| Invalid startup and rollback      | 2098.7 ms lower recorded sample |                   394.2 ms |          81.2% faster |
+| Pre-cancelled preparation cleanup | 2071.4 ms lower recorded sample |                    24.0 ms |          98.8% faster |
 
-An attempted Node `COPYFILE_FICLONE_FORCE` Adapter returned `ENOSYS` on the same
-APFS host, demonstrating why clone availability requires an explicit platform
-Adapter and fallback. Native `/bin/cp -c` succeeded. Even a zero-cost native
-clone cannot remove the per-activation read and SHA-256 verification; the
-observed current preparation cost is already only tens of milliseconds.
+Cold activation still pays first global-home initialization, so the result does
+not overclaim a cold-start improvement. Repeated activation paths avoid both
+home recreation and the duplicate `mihomo -t` process. This exceeds the RFC's
+10% materiality threshold for warm/relaunch/failure paths while also reducing
+lifecycle state.
 
-The ignored integration harnesses exercise the whole activation Interface with
-the production GeoData snapshot:
+The implementation benefits are:
+
+- no candidate directory construction or promotion;
+- no per-Profile/fingerprint cache copy-in/copy-out;
+- no duplicate config-parse process;
+- no clone/fallback Adapter;
+- one persistent Core home and one disposable generation file.
+
+The updated harness compares legacy fresh-home preparation with global-home
+initialization, warm reuse, generation creation, and injected seed/config
+failure cleanup. It reports file I/O counts and timings without claiming that
+filesystem preparation dominates Controller readiness.
+
+A five-sample rerun on the same class of APFS host produced:
+
+| Path                                    | Source bytes read |               Bytes written | Observed preparation |
+| --------------------------------------- | ----------------: | --------------------------: | -------------------: |
+| Global cold initialization              |        42,881,021 |                  42,885,117 |              32.2 ms |
+| Global warm generation (median of four) |                 0 |                       4,096 |              0.15 ms |
+| Injected cold seed failure              |        42,881,021 |   22,017,452 before cleanup |              29.7 ms |
+| Warm cancellation                       |                 0 | 4,096 before config cleanup |              0.24 ms |
+
+The 4 KiB generated config is a fixed representative harness payload. Runtime
+configs vary in size; the important reproducible difference is that warm
+activation performs no GeoData source read or write and creates only its
+generation file.
+
+## Deterministic regression contract
+
+Repository tests cover:
+
+- global cache reads across different Profiles/fingerprints and Profile delete;
+- explicit provider namespace rewriting and unchanged default URL-hash paths;
+- verified seed initialization, existing GeoData preservation, and corrupt
+  bundle rejection without partial writes;
+- generation guard cleanup and startup pruning that preserves global home;
+- validation/start failure, cancellation, shutdown, relaunch, duplicate launch,
+  capture transition, replacement, rollback, and state-commit failure;
+- new global-home ownership, legacy ownership recovery, stale record rejection,
+  process termination, and exact ownership clearing; and
+- normal activation without a second GeoData validation process.
+
+The bridge activation suite uses fixed managed ports and must run serially:
+
+```sh
+cargo test -p mish-bridge --test mihomo_activation -- --test-threads=1
+cargo test -p mish-bridge --test managed_core_ownership -- --test-threads=1
+```
+
+Whole-path measurements are opt-in:
 
 ```sh
 cargo test -p mish-bridge --test mihomo_activation \
-  measures_fixture_private_candidate_home_activation_paths \
+  measures_fixture_global_home_activation_paths \
   -- --ignored --nocapture --test-threads=1
 
-MISH_MIHOMO_MEASURE_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+MISH_MIHOMO_MEASURE_BIN=/absolute/path/to/pinned-mihomo \
   cargo test -p mish-bridge --test mihomo_activation \
-  measures_pinned_core_private_candidate_home_activation_paths \
+  measures_pinned_core_global_home_activation_paths \
   -- --ignored --nocapture --test-threads=1
 ```
-
-The pinned-Core samples used the binary produced by `pnpm prepare:mihomo` and
-reported:
-
-| Path                                     | Observed samples     |
-| ---------------------------------------- | -------------------- |
-| Cold activation from safe stop           | 3267.9 ms, 3676.8 ms |
-| Warm replacement activation              | 3344.9 ms, 5161.7 ms |
-| Relaunch after exact shutdown            | 3339.8 ms, 3292.2 ms |
-| Validation failure plus rollback cleanup | 2146.3 ms, 2098.7 ms |
-| Pre-cancelled preparation plus cleanup   | 2071.4 ms, 2087.7 ms |
-
-“Cold” here means no active candidate or Core, not a privileged
-operating-system page-cache purge. The separate first-sample and warm file
-results prevent that limitation from being hidden.
-
-The current 46.7 ms median file preparation is about 1.4% of the lower observed
-3.27 s pinned cold activation. Eliminating the entire file stage—not merely its
-write portion—cannot reach a 10% end-to-end improvement. The clone prototype
-also regressed both median and tail. The complexity therefore buys no material
-launch improvement.
-
-## Alternatives rejected
-
-### Persistent per-Profile home
-
-Rejected because Profile revision and effective fingerprint are not the full
-mutable-file identity. Runtime selection state, GeoData recovery, and
-Profile-defined provider resources can outlive or contaminate a later
-candidate. Cleaning those paths requires knowledge that is intentionally owned
-by Mihomo and the Profile configuration.
-
-### Persistent effective-fingerprint home
-
-Rejected for the same mutable-state reason. The fingerprint scopes generated
-Profile meaning and the selection cache, not every file Mihomo or a provider
-may create. Reusing a root would also make cancellation and rejected-validation
-cleanup distinguish reusable state from partial authority.
-
-### APFS clone with sequential fallback
-
-Rejected as production work for this issue. Copy-on-write regular files can
-preserve candidate isolation, but per-activation verification remains required,
-the measured prototype is slower, the portable path is slower, and even the
-impossible zero-copy upper bound is below the materiality threshold. The
-platform Seam and failure states would add Interface complexity without
-leverage.
-
-## Regression evidence
-
-The deterministic `mihomo_activation` suite remains the test surface for the
-deep activation Module. It covers validation failure, cancellation, shutdown,
-relaunch, duplicate/concurrent activation, Core replacement and retirement,
-post-promotion state-commit failure, stale ownership recovery, listener
-readiness, and rollback. Candidate cleanup unit tests cover stale UUID roots,
-partial staging, and a promoted path that fails before guard disarm. The file
-harness separately injects partial-copy failure and cancellation and asserts
-that no staging or candidate directory survives.
-
-Because the isolation Seam is unchanged, these are characterization and
-measurement regressions rather than a new storage implementation.

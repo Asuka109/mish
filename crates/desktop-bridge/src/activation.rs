@@ -27,9 +27,8 @@ use uuid::Uuid;
 
 use crate::{
     ControllerInitialObservation, ControllerObservationConfig, ControllerStatusSource,
-    DesktopMihomoProcess, DesktopMihomoProcessConfig, GeodataValidationObserver,
-    ManagedCoreOwnership, ManagedCoreRecoveryOutcome, ManagedProcessValidationError,
-    PrivilegedCoreHost, ProfileMappingContext,
+    DesktopMihomoProcess, DesktopMihomoProcessConfig, ManagedCoreOwnership,
+    ManagedCoreRecoveryOutcome, PrivilegedCoreHost, ProfileMappingContext,
 };
 
 enum ManagedBinaryLocation {
@@ -417,7 +416,7 @@ impl fmt::Debug for ActivationCommit {
 }
 
 struct ActiveMihomo {
-    candidate_root: PathBuf,
+    config_file: PathBuf,
     controller_address: SocketAddr,
     fingerprint: String,
     profile_id: String,
@@ -427,7 +426,6 @@ struct ActiveMihomo {
     runtime: MishRuntime,
     runtime_id: String,
     source: Arc<ControllerStatusSource>,
-    store_selected: bool,
 }
 
 #[derive(Default)]
@@ -521,7 +519,7 @@ impl MihomoActivationManager {
                 .map_err(|_| MihomoActivationError::OwnershipFailed)?,
             None => ManagedCoreRecoveryOutcome::NoRecord,
         };
-        prune_stale_candidates(&self.resolver.runtime_root);
+        prune_stale_runtime_artifacts(&self.resolver.runtime_root);
         *recovered = Some(outcome);
         Ok(outcome)
     }
@@ -548,16 +546,15 @@ impl MihomoActivationManager {
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
     ) -> Result<ActivationCommit, MihomoActivationError> {
-        self.activate_cancellable_observed(record, policy, cancellation, None)
+        self.activate_cancellable_inner(record, policy, cancellation)
             .await
     }
 
-    pub async fn activate_cancellable_observed(
+    async fn activate_cancellable_inner(
         &self,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
         cancellation: CancellationToken,
-        observer: Option<GeodataValidationObserver>,
     ) -> Result<ActivationCommit, MihomoActivationError> {
         self.recover_startup().await?;
         if !self.timing.valid() {
@@ -566,10 +563,7 @@ impl MihomoActivationManager {
         validate_activation_record(record)?;
         let resolved = self.resolver.resolve()?;
         let mut state = self.state.lock().await;
-        let candidate = match self
-            .stage_candidate(&resolved, record, policy, cancellation.clone(), observer)
-            .await
-        {
+        let candidate = match self.prepare_generation(&resolved, record, policy) {
             Ok(candidate) => candidate,
             Err(error) => {
                 record_failed_attempt(&mut state.managed, record, error);
@@ -779,15 +773,12 @@ impl MihomoActivationManager {
         if !mish_profile::profile_store_selected(record).unwrap_or(false) {
             return HashMap::new();
         }
-        read_selection_cache(&selection_cache_path(
-            &self.resolver.runtime_root,
-            record.metadata.id.as_str(),
-            record.effective_fingerprint().as_str(),
-        ))
+        read_selection_cache(&global_mihomo_home(&self.resolver.runtime_root).join("cache.db"))
     }
 
-    pub fn delete_route_selections(&self, profile_id: &str) {
-        remove_selection_cache_profile(&self.resolver.runtime_root, profile_id);
+    pub fn delete_route_selections(&self, _profile_id: &str) {
+        // Mihomo owns one global cache database. Profile deletion must not remove
+        // selections or provider metadata that remain useful to other Profiles.
     }
 
     pub async fn complete_runtime_handoff(&self) {
@@ -821,80 +812,32 @@ impl MihomoActivationManager {
         persist_managed_state(&self.resolver.runtime_root, &state.managed)
     }
 
-    async fn stage_candidate(
+    fn prepare_generation(
         &self,
         resolved: &ResolvedManagedMihomo,
         record: &ProfileRecord,
         policy: &ManagedRuntimePolicy,
-        cancellation: CancellationToken,
-        observer: Option<GeodataValidationObserver>,
     ) -> Result<ActiveMihomo, MihomoActivationError> {
-        let candidate_id = Uuid::new_v4().to_string();
-        let candidates_root = resolved.runtime_root().join("candidates");
-        create_private_runtime_directory(&candidates_root)?;
-        let staging_root = candidates_root.join(format!(".staging-{candidate_id}"));
-        fs::create_dir(&staging_root).map_err(|_| MihomoActivationError::StagingFailed)?;
-        let mut candidate_guard = CandidateDirectoryGuard::new(staging_root.clone());
-        set_private_directory_permissions(&staging_root)?;
-        let home = staging_root.join("home");
+        let generation_id = Uuid::new_v4().to_string();
+        let mihomo_root = resolved.runtime_root().join("mihomo");
+        create_private_runtime_directory(&mihomo_root)?;
+        let home = global_mihomo_home(resolved.runtime_root());
         create_private_runtime_directory(&home)?;
         seed_bundled_geodata(resolved.bundled_geodata(), &home)?;
-        let config_file = staging_root.join("config.yaml");
+        let configs_root = mihomo_root.join("configs");
+        create_private_runtime_directory(&configs_root)?;
+        let config_file = configs_root.join(format!("{generation_id}.yaml"));
+        let guard = GenerationConfigGuard::new(config_file.clone());
         let generated = RuntimeConfigGenerator::generate_record(record, policy)
             .map_err(|_| MihomoActivationError::InvalidArtifact)?;
-        let store_selected = mish_profile::profile_store_selected(record)
-            .map_err(|_| MihomoActivationError::InvalidArtifact)?;
-        if store_selected {
-            restore_selection_cache(resolved.runtime_root(), record, &home)?;
-        }
         let policy_group_order = mish_profile::configured_policy_group_order(&generated)
             .map_err(|_| MihomoActivationError::InvalidArtifact)?;
         write_private_file(&config_file, &generated)?;
 
-        let staging_process = DesktopMihomoProcess::new_pinned(
-            DesktopMihomoProcessConfig {
-                binary: Some(resolved.binary().to_path_buf()),
-                config_directory: Some(home.clone()),
-                config_file: Some(config_file.clone()),
-            },
-            PINNED_MIHOMO_VERSION,
-        );
-        let validation = staging_process
-            .validate_config_observed(
-                self.timing.config_validation_timeout,
-                self.timing.geodata_preparation_timeout,
-                cancellation.clone(),
-                observer,
-            )
-            .await
-            .map_err(|error| {
-                if cancellation.is_cancelled() {
-                    MihomoActivationError::Cancelled
-                } else {
-                    match error {
-                        ManagedProcessValidationError::VersionMismatch => {
-                            MihomoActivationError::VersionMismatch
-                        }
-                        ManagedProcessValidationError::GeodataFailed(asset) => {
-                            MihomoActivationError::GeodataFailed(asset)
-                        }
-                        ManagedProcessValidationError::GeodataTimeout(asset) => {
-                            MihomoActivationError::GeodataTimeout(asset)
-                        }
-                        _ => MihomoActivationError::ValidationFailed,
-                    }
-                }
-            });
-        validation?;
-
-        let candidate_root = candidates_root.join(&candidate_id);
-        fs::rename(&staging_root, &candidate_root)
-            .map_err(|_| MihomoActivationError::StagingFailed)?;
-        candidate_guard.track(candidate_root.clone());
         let process_config = DesktopMihomoProcessConfig {
             binary: Some(resolved.binary().to_path_buf()),
-            config_directory: Some(candidate_root.join("home")),
-            config_file: Some(candidate_root.join("config.yaml")),
+            config_directory: Some(home),
+            config_file: Some(config_file.clone()),
         };
         let process = Arc::new(match (&self.privileged_host, &self.ownership) {
             (Some(host), _) => DesktopMihomoProcess::new_pinned_privileged(
@@ -933,9 +876,9 @@ impl MihomoActivationManager {
             source.clone(),
             self.capture.clone(),
         );
-        candidate_guard.disarm();
+        guard.disarm();
         Ok(ActiveMihomo {
-            candidate_root,
+            config_file,
             controller_address: policy.controller_address(),
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
             profile_id: record.metadata.id.as_str().to_owned(),
@@ -943,9 +886,8 @@ impl MihomoActivationManager {
             proxy_endpoint: policy.proxy_endpoint().clone(),
             revision: record.metadata.revision.id.as_str().to_owned(),
             runtime,
-            runtime_id: candidate_id,
+            runtime_id: generation_id,
             source,
-            store_selected,
         })
     }
 
@@ -955,6 +897,16 @@ impl MihomoActivationManager {
         cancellation: CancellationToken,
     ) -> Result<(), MihomoActivationError> {
         if candidate.runtime.start_core().await.is_err() {
+            let status = candidate.process.status().await;
+            if status.error.as_deref()
+                == Some(
+                    crate::ManagedProcessValidationError::VersionMismatch
+                        .to_string()
+                        .as_str(),
+                )
+            {
+                return Err(MihomoActivationError::VersionMismatch);
+            }
             if let Some(endpoint) =
                 managed_listener_conflict(&candidate.proxy_endpoint, candidate.controller_address)
             {
@@ -1177,7 +1129,7 @@ fn managed_listener_endpoints(
 async fn rollback_candidate(candidate: ActiveMihomo) {
     candidate.source.close().await;
     let _ = candidate.runtime.stop_core().await;
-    remove_candidate(&candidate.candidate_root);
+    remove_generation_config(&candidate.config_file);
 }
 
 const SELECTION_CACHE_SIZE_LIMIT: u64 = 4 * 1024 * 1024;
@@ -1211,6 +1163,23 @@ fn seed_bundled_geodata(
     snapshot: Option<&Path>,
     candidate_home: &Path,
 ) -> Result<bool, MihomoActivationError> {
+    let mut missing_asset = false;
+    for (_, runtime_name) in BUNDLED_GEODATA_ASSETS {
+        match fs::symlink_metadata(candidate_home.join(runtime_name)) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                return Err(MihomoActivationError::StagingFailed);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                missing_asset = true;
+            }
+            Err(_) => return Err(MihomoActivationError::StagingFailed),
+        }
+    }
+    if !missing_asset {
+        return Ok(false);
+    }
+
     let Some(snapshot) = snapshot else {
         return Ok(false);
     };
@@ -1279,7 +1248,24 @@ fn seed_bundled_geodata(
     let mut written = Vec::with_capacity(verified.len());
     for (name, content) in verified {
         let destination = candidate_home.join(name);
+        match fs::symlink_metadata(&destination) {
+            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+                for prior in written {
+                    let _ = fs::remove_file(prior);
+                }
+                return Err(MihomoActivationError::StagingFailed);
+            }
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => {
+                for prior in written {
+                    let _ = fs::remove_file(prior);
+                }
+                return Err(MihomoActivationError::StagingFailed);
+            }
+        }
         if let Err(error) = write_private_file(&destination, &content) {
+            let _ = fs::remove_file(&destination);
             for prior in written {
                 let _ = fs::remove_file(prior);
             }
@@ -1290,92 +1276,8 @@ fn seed_bundled_geodata(
     Ok(true)
 }
 
-fn selection_cache_path(runtime_root: &Path, profile_id: &str, fingerprint: &str) -> PathBuf {
-    runtime_root
-        .join("profile-selection-cache")
-        .join(profile_id)
-        .join(fingerprint)
-        .join("cache.db")
-}
-
-fn restore_selection_cache(
-    runtime_root: &Path,
-    record: &ProfileRecord,
-    candidate_home: &Path,
-) -> Result<(), MihomoActivationError> {
-    restore_selection_cache_file(
-        runtime_root,
-        record.metadata.id.as_str(),
-        record.effective_fingerprint().as_str(),
-        candidate_home,
-    )
-}
-
-fn restore_selection_cache_file(
-    runtime_root: &Path,
-    profile_id: &str,
-    fingerprint: &str,
-    candidate_home: &Path,
-) -> Result<(), MihomoActivationError> {
-    let source = selection_cache_path(runtime_root, profile_id, fingerprint);
-    let Ok(metadata) = fs::symlink_metadata(&source) else {
-        return Ok(());
-    };
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.len() > SELECTION_CACHE_SIZE_LIMIT
-    {
-        return Ok(());
-    }
-    let bytes = fs::read(source).map_err(|_| MihomoActivationError::StagingFailed)?;
-    write_private_file(&candidate_home.join("cache.db"), &bytes)
-}
-
-fn persist_selection_cache(runtime_root: &Path, active: &ActiveMihomo) {
-    persist_selection_cache_file(
-        runtime_root,
-        &active.profile_id,
-        &active.fingerprint,
-        active.store_selected,
-        &active.candidate_root,
-    );
-}
-
-fn persist_selection_cache_file(
-    runtime_root: &Path,
-    profile_id: &str,
-    fingerprint: &str,
-    store_selected: bool,
-    candidate_root: &Path,
-) {
-    if !store_selected {
-        return;
-    }
-    let source = candidate_root.join("home/cache.db");
-    let Ok(metadata) = fs::symlink_metadata(&source) else {
-        return;
-    };
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.len() > SELECTION_CACHE_SIZE_LIMIT
-    {
-        return;
-    }
-    let Ok(bytes) = fs::read(source) else {
-        return;
-    };
-    let destination = selection_cache_path(runtime_root, profile_id, fingerprint);
-    let Some(parent) = destination.parent() else {
-        return;
-    };
-    if create_private_runtime_directory(parent).is_err() {
-        return;
-    }
-    let temporary = parent.join(format!(".cache-{}", Uuid::new_v4()));
-    if write_private_file(&temporary, &bytes).is_ok() {
-        let _ = fs::rename(&temporary, destination);
-    }
-    let _ = fs::remove_file(temporary);
+fn global_mihomo_home(runtime_root: &Path) -> PathBuf {
+    runtime_root.join("mihomo/home")
 }
 
 fn read_selection_cache(path: &Path) -> HashMap<String, String> {
@@ -1455,44 +1357,6 @@ mod selection_cache_tests {
 
         assert!(read_selection_cache(&path).is_empty());
     }
-
-    #[test]
-    fn persists_and_restores_profile_scoped_selection_cache() {
-        let root = TempDir::new().unwrap();
-        let candidate = root.path().join("candidates/source");
-        fs::create_dir_all(candidate.join("home")).unwrap();
-        let source = candidate.join("home/cache.db");
-        let mut database = Bolt::open(&source).unwrap();
-        database
-            .update(|mut transaction| {
-                transaction
-                    .create_bucket_if_not_exists("selected")?
-                    .put("Default", "Tokyo")?;
-                Ok(())
-            })
-            .unwrap();
-        drop(database);
-
-        persist_selection_cache_file(root.path(), "profile-a", "fingerprint-a", true, &candidate);
-        let persisted = selection_cache_path(root.path(), "profile-a", "fingerprint-a");
-        assert_eq!(
-            read_selection_cache(&persisted)
-                .get("Default")
-                .map(String::as_str),
-            Some("Tokyo")
-        );
-
-        let restored_home = root.path().join("candidates/restored/home");
-        fs::create_dir_all(&restored_home).unwrap();
-        restore_selection_cache_file(root.path(), "profile-a", "fingerprint-a", &restored_home)
-            .unwrap();
-        assert_eq!(
-            read_selection_cache(&restored_home.join("cache.db"))
-                .get("Default")
-                .map(String::as_str),
-            Some("Tokyo")
-        );
-    }
 }
 
 #[cfg(test)]
@@ -1563,6 +1427,41 @@ mod bundled_geodata_tests {
     }
 
     #[test]
+    fn preserves_existing_global_geodata_and_only_seeds_missing_assets() {
+        let root = TempDir::new().unwrap();
+        let source = snapshot(root.path());
+        let home = root.path().join("home");
+        fs::create_dir(&home).unwrap();
+        fs::write(home.join("GeoSite.dat"), b"newer runtime asset").unwrap();
+
+        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert_eq!(
+            fs::read(home.join("GeoSite.dat")).unwrap(),
+            b"newer runtime asset"
+        );
+        for (_, runtime_name, content) in ASSETS.into_iter().skip(1) {
+            assert_eq!(fs::read(home.join(runtime_name)).unwrap(), content);
+        }
+    }
+
+    #[test]
+    fn complete_global_geodata_does_not_revalidate_the_packaged_snapshot() {
+        let root = TempDir::new().unwrap();
+        let source = snapshot(root.path());
+        fs::write(source.join("geoip.dat"), b"broken packaged source").unwrap();
+        let home = root.path().join("home");
+        fs::create_dir(&home).unwrap();
+        for (_, runtime_name, _) in ASSETS {
+            fs::write(home.join(runtime_name), b"runtime-owned").unwrap();
+        }
+
+        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), false);
+        for (_, runtime_name, _) in ASSETS {
+            assert_eq!(fs::read(home.join(runtime_name)).unwrap(), b"runtime-owned");
+        }
+    }
+
+    #[test]
     fn ignores_a_corrupt_bundle_without_partially_seeding_the_home() {
         let root = TempDir::new().unwrap();
         let source = snapshot(root.path());
@@ -1619,30 +1518,33 @@ mod bundled_geodata_tests {
     }
 }
 
-fn remove_selection_cache_profile(runtime_root: &Path, profile_id: &str) {
-    if mish_profile::ProfileId::parse(profile_id.to_owned()).is_err() {
-        return;
-    }
-    let root = runtime_root.join("profile-selection-cache");
-    let profile = root.join(profile_id);
-    let Ok(metadata) = fs::symlink_metadata(&profile) else {
+fn retire_candidate(_runtime_root: &Path, active: &ActiveMihomo) {
+    remove_generation_config(&active.config_file);
+}
+
+fn prune_stale_runtime_artifacts(runtime_root: &Path) {
+    prune_generation_configs(runtime_root);
+    prune_legacy_candidates(runtime_root);
+    prune_legacy_selection_cache(runtime_root);
+}
+
+fn prune_generation_configs(runtime_root: &Path) {
+    let configs_root = runtime_root.join("mihomo/configs");
+    let Ok(metadata) = fs::symlink_metadata(&configs_root) else {
         return;
     };
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return;
     }
-    let deleting = root.join(format!(".deleting-{}", Uuid::new_v4()));
-    if fs::rename(&profile, &deleting).is_ok() {
-        let _ = fs::remove_dir_all(deleting);
+    let Ok(entries) = fs::read_dir(&configs_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        remove_generation_config(&entry.path());
     }
 }
 
-fn retire_candidate(runtime_root: &Path, active: &ActiveMihomo) {
-    persist_selection_cache(runtime_root, active);
-    remove_candidate(&active.candidate_root);
-}
-
-fn prune_stale_candidates(runtime_root: &Path) {
+fn prune_legacy_candidates(runtime_root: &Path) {
     let candidates_root = runtime_root.join("candidates");
     let Ok(metadata) = fs::symlink_metadata(&candidates_root) else {
         return;
@@ -1693,18 +1595,61 @@ fn remove_candidate(candidate_root: &Path) {
     }
 }
 
-struct CandidateDirectoryGuard {
+fn remove_generation_config(config_file: &Path) {
+    let Some(file_name) = config_file.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+    let Some(generation_id) = file_name.strip_suffix(".yaml") else {
+        return;
+    };
+    if Uuid::parse_str(generation_id).is_err()
+        || config_file
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            != Some("configs")
+        || config_file
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            != Some("mihomo")
+    {
+        return;
+    }
+    let Ok(metadata) = fs::symlink_metadata(config_file) else {
+        return;
+    };
+    if metadata.is_file() && !metadata.file_type().is_symlink() {
+        let _ = fs::remove_file(config_file);
+    }
+}
+
+fn prune_legacy_selection_cache(runtime_root: &Path) {
+    let cache_root = runtime_root.join("profile-selection-cache");
+    let Ok(metadata) = fs::symlink_metadata(&cache_root) else {
+        return;
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return;
+    }
+    let deleting = runtime_root.join(format!(
+        ".deleting-profile-selection-cache-{}",
+        Uuid::new_v4()
+    ));
+    if fs::rename(&cache_root, &deleting).is_ok() {
+        let _ = fs::remove_dir_all(deleting);
+    }
+}
+
+struct GenerationConfigGuard {
     armed: bool,
     path: PathBuf,
 }
 
-impl CandidateDirectoryGuard {
+impl GenerationConfigGuard {
     fn new(path: PathBuf) -> Self {
         Self { armed: true, path }
-    }
-
-    fn track(&mut self, path: PathBuf) {
-        self.path = path;
     }
 
     fn disarm(mut self) {
@@ -1712,16 +1657,16 @@ impl CandidateDirectoryGuard {
     }
 }
 
-impl Drop for CandidateDirectoryGuard {
+impl Drop for GenerationConfigGuard {
     fn drop(&mut self) {
         if self.armed {
-            remove_candidate(&self.path);
+            remove_generation_config(&self.path);
         }
     }
 }
 
 #[cfg(test)]
-mod candidate_cleanup_tests {
+mod runtime_artifact_cleanup_tests {
     use tempfile::TempDir;
 
     use super::*;
@@ -1739,7 +1684,7 @@ mod candidate_cleanup_tests {
             fs::write(path.join("evidence"), b"fixture").unwrap();
         }
 
-        prune_stale_candidates(root.path());
+        prune_legacy_candidates(root.path());
 
         assert!(!candidate.exists());
         assert!(!staging.exists());
@@ -1747,27 +1692,47 @@ mod candidate_cleanup_tests {
     }
 
     #[test]
-    fn candidate_guard_cleans_both_partial_staging_and_promoted_paths() {
+    fn generation_guard_removes_only_uuid_config_files() {
         let root = TempDir::new().unwrap();
-        let candidates = root.path().join("candidates");
-        fs::create_dir(&candidates).unwrap();
-
-        let staging = candidates.join(format!(".staging-{}", Uuid::new_v4()));
-        fs::create_dir(&staging).unwrap();
+        let configs = root.path().join("mihomo/configs");
+        fs::create_dir_all(&configs).unwrap();
+        let generation = configs.join(format!("{}.yaml", Uuid::new_v4()));
+        fs::write(&generation, b"fixture").unwrap();
         {
-            let _guard = CandidateDirectoryGuard::new(staging.clone());
+            let _guard = GenerationConfigGuard::new(generation.clone());
         }
-        assert!(!staging.exists());
+        assert!(!generation.exists());
 
-        let staging = candidates.join(format!(".staging-{}", Uuid::new_v4()));
-        let promoted = candidates.join(Uuid::new_v4().to_string());
-        fs::create_dir(&staging).unwrap();
-        {
-            let mut guard = CandidateDirectoryGuard::new(staging.clone());
-            fs::rename(&staging, &promoted).unwrap();
-            guard.track(promoted.clone());
-        }
-        assert!(!promoted.exists());
+        let unrelated = configs.join("maintainer-note.yaml");
+        fs::write(&unrelated, b"fixture").unwrap();
+        remove_generation_config(&unrelated);
+        assert!(unrelated.exists());
+    }
+
+    #[test]
+    fn startup_prunes_generation_configs_and_obsolete_profile_cache_but_keeps_global_home() {
+        let root = TempDir::new().unwrap();
+        let configs = root.path().join("mihomo/configs");
+        let home = root.path().join("mihomo/home");
+        let legacy_cache = root
+            .path()
+            .join("profile-selection-cache/profile-a/fingerprint-a");
+        fs::create_dir_all(&configs).unwrap();
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&legacy_cache).unwrap();
+        let generation = configs.join(format!("{}.yaml", Uuid::new_v4()));
+        let unrelated = configs.join("maintainer-note");
+        fs::write(&generation, b"fixture").unwrap();
+        fs::write(&unrelated, b"fixture").unwrap();
+        fs::write(home.join("cache.db"), b"global").unwrap();
+        fs::write(legacy_cache.join("cache.db"), b"legacy").unwrap();
+
+        prune_stale_runtime_artifacts(root.path());
+
+        assert!(!generation.exists());
+        assert!(unrelated.exists());
+        assert_eq!(fs::read(home.join("cache.db")).unwrap(), b"global");
+        assert!(!root.path().join("profile-selection-cache").exists());
     }
 }
 
@@ -2019,7 +1984,7 @@ impl RuntimeConfigGenerator {
             &record.patches,
         )
         .map_err(|_| RuntimeConfigGenerationError::InvalidPatches)?;
-        Self::generate_with_review(&patched.bytes, policy)
+        Self::generate_with_review_scoped(&patched.bytes, policy, Some(record.metadata.id.as_str()))
     }
 
     pub fn generate(
@@ -2032,6 +1997,14 @@ impl RuntimeConfigGenerator {
     pub fn generate_with_review(
         normalized_artifact: &[u8],
         policy: &ManagedRuntimePolicy,
+    ) -> Result<GeneratedRuntimeConfig, RuntimeConfigGenerationError> {
+        Self::generate_with_review_scoped(normalized_artifact, policy, None)
+    }
+
+    fn generate_with_review_scoped(
+        normalized_artifact: &[u8],
+        policy: &ManagedRuntimePolicy,
+        profile_id: Option<&str>,
     ) -> Result<GeneratedRuntimeConfig, RuntimeConfigGenerationError> {
         let mut document: Value = serde_norway::from_slice(normalized_artifact)
             .map_err(|_| RuntimeConfigGenerationError::InvalidArtifact)?;
@@ -2063,6 +2036,9 @@ impl RuntimeConfigGenerator {
                 RuntimeConfigGenerationError::InvalidArtifact
             }
         })?;
+        if let Some(profile_id) = profile_id {
+            namespace_explicit_provider_paths(&mut document, profile_id)?;
+        }
 
         let bytes = serde_norway::to_string(&document)
             .map(String::into_bytes)
@@ -2072,6 +2048,48 @@ impl RuntimeConfigGenerator {
             classifications,
         })
     }
+}
+
+fn namespace_explicit_provider_paths(
+    document: &mut Value,
+    profile_id: &str,
+) -> Result<(), RuntimeConfigGenerationError> {
+    let root = document
+        .as_mapping_mut()
+        .ok_or(RuntimeConfigGenerationError::InvalidArtifact)?;
+    for section in ["proxy-providers", "rule-providers"] {
+        let Some(providers) = root
+            .get_mut(Value::String(section.to_owned()))
+            .and_then(Value::as_mapping_mut)
+        else {
+            continue;
+        };
+        for provider in providers.values_mut() {
+            let Some(mapping) = provider.as_mapping_mut() else {
+                continue;
+            };
+            let key = Value::String("path".to_owned());
+            let Some(path) = mapping.get(&key).and_then(Value::as_str) else {
+                continue;
+            };
+            let normalized = path.replace('\\', "/");
+            let components = normalized
+                .split('/')
+                .filter(|component| !component.is_empty() && *component != ".")
+                .collect::<Vec<_>>();
+            if components.is_empty() || components.iter().any(|component| *component == "..") {
+                return Err(RuntimeConfigGenerationError::UnsafeManagedPath);
+            }
+            mapping.insert(
+                key,
+                Value::String(format!(
+                    "profile-resources/{profile_id}/{}",
+                    components.join("/")
+                )),
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

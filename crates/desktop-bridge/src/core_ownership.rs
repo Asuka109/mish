@@ -696,6 +696,21 @@ fn validate_candidate_paths(
     config_directory: &Path,
     config_file: &Path,
 ) -> Result<(), ManagedCoreOwnershipError> {
+    let global_home = runtime_root.join("mihomo/home");
+    let generation_configs = runtime_root.join("mihomo/configs");
+    let is_generation = config_directory == global_home
+        && config_file.parent() == Some(generation_configs.as_path())
+        && config_file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.strip_suffix(".yaml"))
+            .is_some_and(|generation| Uuid::parse_str(generation).is_ok());
+    if is_generation {
+        return Ok(());
+    }
+
+    // Accept the former private-candidate layout during startup recovery so an
+    // upgrade can still prove and retire a Core launched by the previous build.
     let candidates = runtime_root.join("candidates");
     let Some(candidate_root) = config_directory.parent() else {
         return Err(ManagedCoreOwnershipError::InvalidRecord);

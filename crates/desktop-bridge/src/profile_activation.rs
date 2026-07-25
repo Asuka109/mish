@@ -16,22 +16,18 @@ use mish_runtime::{
     ApplicationNotificationContent, CapabilityAvailability, CaptureFailureKind, CaptureRequest,
     CaptureSelection, CaptureTransitionError, MishRuntime, NotificationPublication,
     NotificationSeverity, ProfileActivationAsnFailedApplicationNotificationData,
-    ProfileActivationAsnProgressApplicationNotificationData,
     ProfileActivationFailedApplicationNotificationData,
     ProfileActivationGeoipFailedApplicationNotificationData,
-    ProfileActivationGeoipProgressApplicationNotificationData,
     ProfileActivationGeositeFailedApplicationNotificationData,
-    ProfileActivationGeositeProgressApplicationNotificationData,
     ProfileActivationListenerConflictApplicationNotificationData,
-    ProfileActivationMmdbFailedApplicationNotificationData,
-    ProfileActivationMmdbProgressApplicationNotificationData, ProviderSnapshot,
+    ProfileActivationMmdbFailedApplicationNotificationData, ProviderSnapshot,
     ProxyLaunchTimingApplicationEventData, StatusAdapterKind,
 };
 use mish_state_authority::{StateMutationAuthority, StateMutationPermit};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::{
-    sync::{Mutex, broadcast, mpsc},
+    sync::{Mutex, broadcast},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -349,24 +345,10 @@ impl ProfileActivationCoordinator {
         let coordinator = self.clone();
         let command_id = command_id.to_owned();
         tokio::spawn(async move {
-            let (geodata_tx, mut geodata_rx) = mpsc::channel(8);
-            let observer: crate::GeodataValidationObserver = Arc::new(move |event| {
-                let _ = geodata_tx.try_send(event);
-            });
-            let evidence_coordinator = coordinator.clone();
-            let evidence_command_id = command_id.clone();
-            let evidence_task = tokio::spawn(async move {
-                while let Some(event) = geodata_rx.recv().await {
-                    evidence_coordinator
-                        .record_geodata_evidence(&evidence_command_id, event)
-                        .await;
-                }
-            });
             let result = coordinator
                 .manager
-                .activate_cancellable_observed(&record, &policy, cancellation, Some(observer))
+                .activate_cancellable(&record, &policy, cancellation)
                 .await;
-            let _ = evidence_task.await;
             coordinator.finish_activation(&command_id, result).await;
             drop(permit);
         });
@@ -1306,42 +1288,6 @@ impl ProfileActivationCoordinator {
         self.state.lock().await.busy_profiles.remove(profile_id);
     }
 
-    async fn record_geodata_evidence(
-        &self,
-        command_id: &str,
-        event: crate::GeodataValidationEvent,
-    ) {
-        let (kind, asset) = match event {
-            crate::GeodataValidationEvent::Preparing(asset) => {
-                (ProfileActivationEvidenceKind::GeodataPreparing, asset)
-            }
-            crate::GeodataValidationEvent::Failed(asset) => {
-                (ProfileActivationEvidenceKind::GeodataFailed, asset)
-            }
-        };
-        let evidence = ProfileActivationEvidence { asset, kind };
-        let mut state = self.state.lock().await;
-        if state.snapshot.command_id.as_deref() != Some(command_id)
-            || state.snapshot.phase != ProfileActivationPhase::Pending
-            || state.snapshot.evidence == Some(evidence)
-        {
-            return;
-        }
-        state.snapshot.evidence = Some(evidence);
-        let _ = self.updates.send(state.snapshot.clone());
-        drop(state);
-        if kind == ProfileActivationEvidenceKind::GeodataPreparing {
-            let _ = self.host.publish_notification(NotificationPublication {
-                dedupe_key: geodata_notification_key(command_id, asset),
-                pinned: true,
-                presentation: geodata_progress_notification(asset),
-                replaces: Vec::new(),
-                resolved: false,
-                severity: NotificationSeverity::Info,
-            });
-        }
-    }
-
     async fn finish_preflight_activation(
         &self,
         command_id: &str,
@@ -1754,29 +1700,6 @@ fn profile_activation_failure_notification(
         ),
         vec![ApplicationActionId::OpenDiagnostics],
     )
-}
-
-fn geodata_progress_notification(asset: crate::GeodataAsset) -> ApplicationNotification {
-    let asset_id = geodata_asset_slug(asset).to_owned();
-    let content = match asset {
-        crate::GeodataAsset::GeoIp => {
-            ApplicationNotificationContent::ProfileActivationGeoipProgress(
-                ProfileActivationGeoipProgressApplicationNotificationData { asset: asset_id },
-            )
-        }
-        crate::GeodataAsset::GeoSite => {
-            ApplicationNotificationContent::ProfileActivationGeositeProgress(
-                ProfileActivationGeositeProgressApplicationNotificationData { asset: asset_id },
-            )
-        }
-        crate::GeodataAsset::Mmdb => ApplicationNotificationContent::ProfileActivationMmdbProgress(
-            ProfileActivationMmdbProgressApplicationNotificationData { asset: asset_id },
-        ),
-        crate::GeodataAsset::Asn => ApplicationNotificationContent::ProfileActivationAsnProgress(
-            ProfileActivationAsnProgressApplicationNotificationData { asset: asset_id },
-        ),
-    };
-    ApplicationNotification::new(content, Vec::new())
 }
 
 fn geodata_failure_notification(

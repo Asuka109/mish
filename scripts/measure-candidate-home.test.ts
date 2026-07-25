@@ -7,6 +7,7 @@ import test from "node:test";
 
 import {
   prepareMeasuredCandidateHome,
+  prepareMeasuredGlobalHome,
   summarizeCandidateHomeSamples,
   type CandidateHomeStrategy,
 } from "./measure-candidate-home.ts";
@@ -92,4 +93,45 @@ test("summary keeps first-run evidence separate from the warm median", () => {
       samples: 3,
     },
   });
+});
+
+test("global home pays asset I/O once and warm generations only write config", () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish global home measure "));
+  const snapshot = fixture(temporary.path);
+  const root = path.join(temporary.path, "runtime");
+
+  const cold = prepareMeasuredGlobalHome({ root, snapshot });
+  const warm = prepareMeasuredGlobalHome({ root, snapshot });
+
+  assert.equal(cold.mode, "cold");
+  assert.equal(cold.sourceBytesRead, 4 * 64 * 1024);
+  assert.equal(cold.writtenBytes, 4 * 64 * 1024 + 4 * 1024);
+  assert.equal(warm.mode, "warm");
+  assert.equal(warm.sourceBytesRead, 0);
+  assert.equal(warm.writtenBytes, 4 * 1024);
+  assert.equal(readdirSync(path.join(root, "mihomo", "home")).length, 4);
+});
+
+test("global seed failure removes only new assets and cancellation keeps the home", () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish global failure "));
+  const snapshot = fixture(temporary.path);
+  const failedRoot = path.join(temporary.path, "failed");
+  const failed = prepareMeasuredGlobalHome({
+    fault: "seed-failure",
+    root: failedRoot,
+    snapshot,
+  });
+  assert.equal(failed.outcome, "failure");
+  assert.deepEqual(readdirSync(path.join(failedRoot, "mihomo", "home")), []);
+
+  const activeRoot = path.join(temporary.path, "cancelled");
+  prepareMeasuredGlobalHome({ root: activeRoot, snapshot });
+  const cancelled = prepareMeasuredGlobalHome({
+    fault: "cancelled-after-prepare",
+    root: activeRoot,
+    snapshot,
+  });
+  assert.equal(cancelled.outcome, "cancelled");
+  assert.equal(readdirSync(path.join(activeRoot, "mihomo", "home")).length, 4);
+  assert.equal(readdirSync(path.join(activeRoot, "mihomo", "configs")).length, 1);
 });

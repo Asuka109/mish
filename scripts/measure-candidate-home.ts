@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   mkdtempDisposableSync,
@@ -43,6 +44,15 @@ export type CandidateHomeSample = {
   outcome: "cancelled" | "failure" | "success";
   prepareMilliseconds: number;
   strategy: CandidateHomeStrategy;
+};
+
+export type GlobalHomeSample = {
+  filesCreated: number;
+  mode: "cold" | "warm";
+  outcome: "cancelled" | "failure" | "success";
+  prepareMilliseconds: number;
+  sourceBytesRead: number;
+  writtenBytes: number;
 };
 
 const REQUIRED_ASSETS = [
@@ -145,6 +155,71 @@ export function prepareMeasuredCandidateHome(options: {
   };
 }
 
+export function prepareMeasuredGlobalHome(options: {
+  fault?: "cancelled-after-prepare" | "seed-failure";
+  root: string;
+  snapshot: string;
+}): GlobalHomeSample {
+  const home = path.join(options.root, "mihomo", "home");
+  const configs = path.join(options.root, "mihomo", "configs");
+  mkdirSync(home, { mode: 0o700, recursive: true });
+  mkdirSync(configs, { mode: 0o700, recursive: true });
+  const mode = REQUIRED_ASSETS.every(([, runtimeName]) => existsSync(path.join(home, runtimeName)))
+    ? "warm"
+    : "cold";
+  const started = performance.now();
+  const createdAssets: string[] = [];
+  const generation = path.join(configs, `${randomUUID()}.yaml`);
+  let sourceBytesRead = 0;
+  let writtenBytes = 0;
+  let outcome: GlobalHomeSample["outcome"] = "success";
+
+  try {
+    if (mode === "cold") {
+      const manifest = readManifest(options.snapshot);
+      const verified = verifiedAssets(options.snapshot, manifest);
+      sourceBytesRead = verified.reduce((total, item) => total + item.content.byteLength, 0);
+      for (const [index, { asset, content }] of verified.entries()) {
+        const destination = path.join(home, asset.runtimeName);
+        if (existsSync(destination)) continue;
+        if (options.fault === "seed-failure" && index === 2) {
+          outcome = "failure";
+          throw new Error("injected-seed-failure");
+        }
+        writeFileSync(destination, content, { flag: "wx", mode: 0o600 });
+        createdAssets.push(destination);
+        writtenBytes += content.byteLength;
+      }
+    } else {
+      for (const [, runtimeName] of REQUIRED_ASSETS) {
+        const metadata = lstatSync(path.join(home, runtimeName));
+        assert(metadata.isFile() && !metadata.isSymbolicLink());
+      }
+    }
+
+    const config = Buffer.alloc(4 * 1024, 1);
+    writeFileSync(generation, config, { flag: "wx", mode: 0o600 });
+    writtenBytes += config.byteLength;
+    if (options.fault === "cancelled-after-prepare") {
+      outcome = "cancelled";
+      rmSync(generation);
+    }
+  } catch (error) {
+    for (const asset of createdAssets) rmSync(asset, { force: true });
+    rmSync(generation, { force: true });
+    if (!options.fault) throw error;
+  }
+
+  return {
+    filesCreated: createdAssets.length + (existsSync(generation) ? 1 : 0),
+    mode,
+    outcome,
+    prepareMilliseconds: performance.now() - started,
+    sourceBytesRead,
+    writtenBytes,
+  };
+}
+
 function percentile(samples: number[], fraction: number) {
   const sorted = samples.toSorted((left, right) => left - right);
   return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))];
@@ -209,10 +284,33 @@ function run() {
       }),
     );
   }
+  const globalRoot = path.join(temporary.path, "global-runtime");
+  const globalSamples: GlobalHomeSample[] = [
+    prepareMeasuredGlobalHome({ root: globalRoot, snapshot }),
+  ];
+  for (let iteration = 1; iteration < iterations; iteration += 1) {
+    globalSamples.push(prepareMeasuredGlobalHome({ root: globalRoot, snapshot }));
+  }
+  globalSamples.push(
+    prepareMeasuredGlobalHome({
+      fault: "cancelled-after-prepare",
+      root: globalRoot,
+      snapshot,
+    }),
+  );
+  const failedRoot = path.join(temporary.path, "failed-global-runtime");
+  globalSamples.push(
+    prepareMeasuredGlobalHome({
+      fault: "seed-failure",
+      root: failedRoot,
+      snapshot,
+    }),
+  );
   process.stdout.write(
     `${JSON.stringify(
       {
         filesystem: process.platform === "darwin" ? "darwin" : process.platform,
+        globalSamples,
         iterations,
         samples,
         summary: summarizeCandidateHomeSamples(samples),
