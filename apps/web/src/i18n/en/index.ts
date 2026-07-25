@@ -949,7 +949,8 @@ const en = {
     interval10Seconds: "Every 10 seconds",
     interval30Seconds: "Every 30 seconds",
     interval1Minute: "Every 1 minute",
-    metadataDescription: "Mish tests this endpoint directly, independently of Mihomo.",
+    metadataDescription:
+      "Mish measures direct HTTP first-response/service-connectivity latency, independently of Mihomo. Cloudflare is an Anycast edge; GitHub, Baidu, and Weixin use provider static-resource/CDN paths; AWS is DynamoDB us-east-1.",
     probeUrl: "Probe URL",
     removedToast: "Service monitor removed",
     restoreDefaults: "Restore Defaults",
@@ -1168,7 +1169,7 @@ const en = {
         capabilities: "Capability status",
         "active-profile": "Active Profile identifiers",
         capture: "Capture desired / observed / drift",
-        "service-probes": "Direct service probe aggregates",
+        "service-probes": "Direct HTTP first-response probe aggregates",
         "events-summary": "Recent event aggregates",
         "diagnostic-runs": "Guided diagnostic checks",
         "redaction-report": "Redaction report entries",

@@ -1250,12 +1250,14 @@ const SERVICE_ICON_ASSET_BASE = "/assets/remix-icon";
 
 export const SERVICE_ICON_URLS = {
   apple: `${SERVICE_ICON_ASSET_BASE}/apple.svg`,
+  aws: `${SERVICE_ICON_ASSET_BASE}/aws.svg`,
   baidu: `${SERVICE_ICON_ASSET_BASE}/baidu.svg`,
   cloudflare: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
   fallback: `${SERVICE_ICON_ASSET_BASE}/cloud.svg`,
   github: `${SERVICE_ICON_ASSET_BASE}/github.svg`,
   google: `${SERVICE_ICON_ASSET_BASE}/google.svg`,
   microsoft: `${SERVICE_ICON_ASSET_BASE}/microsoft.svg`,
+  weixin: `${SERVICE_ICON_ASSET_BASE}/wechat.svg`,
 } as const;
 
 const bundledServiceIconUrls = new Set<string>(Object.values(SERVICE_ICON_URLS));
@@ -1296,6 +1298,7 @@ export const ServiceProbeIntervalSecondsSchema = z.union([
   z.literal(10),
   z.literal(30),
   z.literal(60),
+  z.literal(300),
 ]);
 export type ServiceProbeIntervalSeconds = z.infer<typeof ServiceProbeIntervalSecondsSchema>;
 

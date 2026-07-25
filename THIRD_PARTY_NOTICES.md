@@ -105,6 +105,9 @@ The source paths, local renamed paths, Git blob IDs, and SHA-256 hashes are
 recorded in
 [`packages/brand-assets/remix-icon-v4.8.0.json`](packages/brand-assets/remix-icon-v4.8.0.json).
 The exact commit has no upstream `NOTICE` file.
+The AWS preset uses Remix Icon's Amazon brand glyph, and the Weixin preset uses
+its WeChat brand glyph; these mappings identify the provider paths and do not
+imply affiliation or endorsement.
 Later `v4.9.0` and `v4.9.1` tags use Remix Icon License v1.0, whose official
 text warns of possible incompatibility with strong-copyleft licenses. No asset
 or license file from those tags, current `master`, an icon CDN, or a third-party

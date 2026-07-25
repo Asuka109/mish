@@ -341,7 +341,7 @@ impl StatusSnapshot {
                 },
             ),
             service_probe_policy: ServiceProbePolicy {
-                interval_seconds: 60,
+                interval_seconds: 300,
             },
             services: default_service_monitors(),
             traffic: TrafficSnapshot::default(),
@@ -361,7 +361,7 @@ pub fn default_service_monitors() -> Vec<ServiceMonitor> {
             "/assets/remix-icon/github.svg",
             "github",
             "GitHub",
-            "https://github.com",
+            "https://github.com/favicon.ico",
         ),
         (
             "/assets/remix-icon/cloud.svg",
@@ -373,19 +373,19 @@ pub fn default_service_monitors() -> Vec<ServiceMonitor> {
             "/assets/remix-icon/baidu.svg",
             "baidu",
             "Baidu",
-            "https://www.baidu.com",
+            "https://www.baidu.com/favicon.ico",
         ),
         (
-            "/assets/remix-icon/apple.svg",
-            "apple",
-            "Apple",
-            "https://www.apple.com/library/test/success.html",
+            "/assets/remix-icon/wechat.svg",
+            "weixin",
+            "Weixin",
+            "https://res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico",
         ),
         (
-            "/assets/remix-icon/microsoft.svg",
-            "microsoft",
-            "Microsoft",
-            "http://www.msftconnecttest.com/connecttest.txt",
+            "/assets/remix-icon/aws.svg",
+            "aws-us-east-1",
+            "AWS us-east-1",
+            "https://dynamodb.us-east-1.amazonaws.com/ping",
         ),
     ]
     .into_iter()
@@ -403,15 +403,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn microsoft_default_monitor_uses_the_http_connectivity_test_endpoint() {
-        let microsoft = default_service_monitors()
+    fn default_service_monitors_are_the_six_bounded_probe_targets() {
+        let targets: Vec<_> = default_service_monitors()
             .into_iter()
-            .find(|monitor| monitor.id == "microsoft")
-            .expect("Microsoft default monitor");
-
+            .map(|monitor| (monitor.id, monitor.url))
+            .collect();
         assert_eq!(
-            microsoft.url,
-            "http://www.msftconnecttest.com/connecttest.txt"
+            targets,
+            [
+                (
+                    "google".into(),
+                    "https://www.google.com/generate_204".into()
+                ),
+                ("github".into(), "https://github.com/favicon.ico".into()),
+                (
+                    "cloudflare".into(),
+                    "https://cp.cloudflare.com/generate_204".into()
+                ),
+                ("baidu".into(), "https://www.baidu.com/favicon.ico".into()),
+                (
+                    "weixin".into(),
+                    "https://res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico".into()
+                ),
+                (
+                    "aws-us-east-1".into(),
+                    "https://dynamodb.us-east-1.amazonaws.com/ping".into()
+                ),
+            ]
         );
     }
 
@@ -429,8 +447,8 @@ mod tests {
                 "/assets/remix-icon/github.svg",
                 "/assets/remix-icon/cloud.svg",
                 "/assets/remix-icon/baidu.svg",
-                "/assets/remix-icon/apple.svg",
-                "/assets/remix-icon/microsoft.svg",
+                "/assets/remix-icon/wechat.svg",
+                "/assets/remix-icon/aws.svg",
             ]
         );
         assert!(icons.iter().all(|icon| icon.starts_with('/')));

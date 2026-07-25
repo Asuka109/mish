@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs, io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::{Path, PathBuf},
@@ -7,35 +8,43 @@ use std::{
 };
 
 use chrono::Utc;
-use futures_util::{StreamExt, stream::FuturesUnordered};
+use futures_util::{
+    FutureExt, StreamExt,
+    future::{BoxFuture, Shared},
+    stream::FuturesUnordered,
+};
 use mish_runtime::{
     ProbeStatus, ServiceMonitor, ServiceProbeFailureStage, ServiceProbePolicy, ServiceProbeResult,
     StatusSnapshot, default_service_monitors,
 };
-use reqwest::{Client, Url};
+use reqwest::{
+    Client, StatusCode, Url,
+    dns::{Addrs, Name, Resolve, Resolving},
+    header::RETRY_AFTER,
+};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Notify, Semaphore, broadcast};
+use tokio::sync::{Mutex as AsyncMutex, Notify, Semaphore, broadcast};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-const DEFAULT_INTERVAL_SECONDS: u16 = 5;
+const DEFAULT_INTERVAL_SECONDS: u16 = 300;
 const DISABLED_INTERVAL_SECONDS: u16 = 0;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const MAX_MONITORS: usize = 24;
 const ALLOWED_INTERVALS: [u16; 5] = [0, 5, 10, 30, 60];
+const PERSISTED_INTERVALS: [u16; 6] = [0, 5, 10, 30, 60, 300];
+const BODY_DRAIN_LIMIT_BYTES: usize = 64 * 1024;
 const FALLBACK_SERVICE_ICON_URL: &str = "/assets/remix-icon/cloud.svg";
-const BUNDLED_SERVICE_ICON_URLS: [&str; 6] = [
+const BUNDLED_SERVICE_ICON_URLS: [&str; 8] = [
     "/assets/remix-icon/apple.svg",
+    "/assets/remix-icon/aws.svg",
     "/assets/remix-icon/baidu.svg",
     "/assets/remix-icon/cloud.svg",
     "/assets/remix-icon/github.svg",
     "/assets/remix-icon/google.svg",
     "/assets/remix-icon/microsoft.svg",
+    "/assets/remix-icon/wechat.svg",
 ];
-const LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL: &str =
-    "https://www.msftconnecttest.com/connecttest.txt";
-const MICROSOFT_CONNECTIVITY_TEST_URL: &str = "http://www.msftconnecttest.com/connecttest.txt";
-const MICROSOFT_DEFAULT_ICON_URL: &str = "/assets/remix-icon/microsoft.svg";
 
 #[derive(Clone, Debug)]
 pub struct ServiceProbeConfig {
@@ -67,13 +76,85 @@ struct ProbeState {
     services: Vec<ServiceMonitor>,
 }
 
+#[derive(Clone, Debug)]
+struct ProbeOutcome {
+    failure_stage: Option<ServiceProbeFailureStage>,
+    latency_milliseconds: Option<u64>,
+    retry_after: Option<Duration>,
+    status: ProbeStatus,
+}
+
+type SharedProbe = Shared<BoxFuture<'static, ProbeExecution>>;
+
+#[derive(Clone, Debug)]
+enum ProbeExecution {
+    Cancelled,
+    Finished(ProbeOutcome),
+}
+
+#[derive(Default)]
+struct HostState {
+    consecutive_failures: usize,
+    in_flight: Option<SharedProbe>,
+    next_allowed_at: Option<tokio::time::Instant>,
+}
+
 struct Inner {
     cancel: CancellationToken,
     core_started: Notify,
+    host_states: AsyncMutex<HashMap<String, HostState>>,
+    revision_cancel: Mutex<CancellationToken>,
     state: Mutex<ProbeState>,
     state_path: Option<PathBuf>,
     updates: broadcast::Sender<()>,
     wake: Notify,
+    transport: Arc<dyn ProbeTransport>,
+}
+
+#[derive(Clone)]
+struct PublicDnsResolver;
+
+impl Resolve for PublicDnsResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addresses: Vec<_> = tokio::net::lookup_host((host.as_str(), 0))
+                .await?
+                .filter(|address| is_public_ip(address.ip()))
+                .collect();
+            if addresses.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "service probe DNS resolution returned no public addresses",
+                )
+                .into());
+            }
+            Ok(Box::new(addresses.into_iter()) as Addrs)
+        })
+    }
+}
+
+trait ProbeTransport: Send + Sync {
+    fn execute(
+        &self,
+        cancel: CancellationToken,
+        monitor: ServiceMonitor,
+    ) -> BoxFuture<'static, ProbeExecution>;
+}
+
+struct HttpProbeTransport {
+    client: Client,
+}
+
+impl ProbeTransport for HttpProbeTransport {
+    fn execute(
+        &self,
+        cancel: CancellationToken,
+        monitor: ServiceMonitor,
+    ) -> BoxFuture<'static, ProbeExecution> {
+        let client = self.client.clone();
+        async move { probe(&client, cancel, monitor).await }.boxed()
+    }
 }
 
 #[derive(Clone)]
@@ -98,13 +179,37 @@ impl ServiceProbeService {
             .unwrap_or_else(default_service_monitors)
             .into_iter()
             .map(normalize_persisted_icon)
-            .map(upgrade_legacy_default_microsoft_url)
             .collect();
+        let services = migrate_legacy_defaults(services);
+        let client = Client::builder()
+            .connect_timeout(PROBE_TIMEOUT)
+            .timeout(PROBE_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .dns_resolver(Arc::new(PublicDnsResolver))
+            .build()
+            .expect("service probe client configuration must be valid");
+        Self::from_parts(
+            config,
+            interval_seconds,
+            services,
+            Arc::new(HttpProbeTransport { client }),
+        )
+    }
+
+    fn from_parts(
+        config: ServiceProbeConfig,
+        interval_seconds: u16,
+        services: Vec<ServiceMonitor>,
+        transport: Arc<dyn ProbeTransport>,
+    ) -> Self {
         let (updates, _) = broadcast::channel(32);
+        let cancel = CancellationToken::new();
         Self {
             inner: Arc::new(Inner {
-                cancel: CancellationToken::new(),
+                cancel: cancel.clone(),
                 core_started: Notify::new(),
+                host_states: AsyncMutex::new(HashMap::new()),
+                revision_cancel: Mutex::new(cancel.child_token()),
                 state: Mutex::new(ProbeState {
                     interval_seconds,
                     revision: 0,
@@ -114,6 +219,7 @@ impl ServiceProbeService {
                 state_path: config.state_path,
                 updates,
                 wake: Notify::new(),
+                transport,
             }),
         }
     }
@@ -207,6 +313,7 @@ impl ServiceProbeService {
             .expect("service probe state poisoned");
         let mut next = state.clone();
         next.services = default_service_monitors();
+        next.interval_seconds = DEFAULT_INTERVAL_SECONDS;
         next.revision = next.revision.wrapping_add(1);
         next.results = retained_results(&state.services, &state.results, &next.services);
         persist_locked(self.inner.state_path.as_deref(), &next)?;
@@ -238,7 +345,7 @@ impl ServiceProbeService {
     }
 
     pub async fn test(&self, monitor_id: &str) -> Result<(), ServiceProbeError> {
-        let (revision, monitor) = {
+        let (revision, revision_cancel, monitor) = {
             let state = self
                 .inner
                 .state
@@ -250,10 +357,16 @@ impl ServiceProbeService {
                 .find(|monitor| monitor.id == monitor_id)
                 .cloned()
                 .ok_or(ServiceProbeError::NotFound)?;
-            (state.revision, monitor)
+            (state.revision, self.revision_cancel_token(), monitor)
         };
 
-        let result = probe(monitor).await;
+        let Some(result) = self
+            .probe_monitor(revision_cancel, monitor.clone())
+            .await
+            .map(|outcome| result_from_outcome(&monitor, outcome))
+        else {
+            return Ok(());
+        };
         let mut state = self
             .inner
             .state
@@ -291,11 +404,33 @@ impl ServiceProbeService {
     }
 
     fn changed(&self) {
+        let mut cancellation = self
+            .inner
+            .revision_cancel
+            .lock()
+            .expect("service probe revision cancellation poisoned");
+        cancellation.cancel();
+        *cancellation = self.inner.cancel.child_token();
+        drop(cancellation);
         let _ = self.inner.updates.send(());
         self.inner.wake.notify_one();
     }
 
+    fn revision_cancel_token(&self) -> CancellationToken {
+        self.inner
+            .revision_cancel
+            .lock()
+            .expect("service probe revision cancellation poisoned")
+            .clone()
+    }
+
     async fn run(&self) {
+        // Stagger automatic fleets after startup before any periodic cycle begins.
+        tokio::select! {
+            () = self.inner.cancel.cancelled() => return,
+            () = self.inner.wake.notified() => {},
+            () = tokio::time::sleep(initial_delay()) => {},
+        }
         loop {
             let interval_seconds = self.interval_seconds();
             if interval_seconds == DISABLED_INTERVAL_SECONDS {
@@ -315,7 +450,7 @@ impl ServiceProbeService {
             if interval_seconds == DISABLED_INTERVAL_SECONDS {
                 continue;
             }
-            let interval = Duration::from_secs(u64::from(interval_seconds));
+            let interval = jittered_interval(interval_seconds);
             tokio::select! {
                 () = self.inner.cancel.cancelled() => break,
                 () = self.inner.wake.notified() => {},
@@ -333,27 +468,29 @@ impl ServiceProbeService {
     }
 
     async fn run_cycle(&self) {
-        let (revision, services) = {
+        let (revision, revision_cancel, services) = {
             let state = self
                 .inner
                 .state
                 .lock()
                 .expect("service probe state poisoned");
             let services = state.services.clone();
-            (state.revision, services)
+            (state.revision, self.revision_cancel_token(), services)
         };
         let semaphore = Arc::new(Semaphore::new(4));
         let mut probes: FuturesUnordered<_> = services
             .into_iter()
             .map(|monitor| {
                 let semaphore = semaphore.clone();
+                let revision_cancel = revision_cancel.clone();
                 async move {
                     let _permit = semaphore.acquire_owned().await.ok();
-                    probe(monitor).await
+                    let outcome = self.probe_monitor(revision_cancel, monitor.clone()).await?;
+                    Some(result_from_outcome(&monitor, outcome))
                 }
             })
             .collect();
-        while let Some(result) = probes.next().await {
+        while let Some(Some(result)) = probes.next().await {
             let mut state = self
                 .inner
                 .state
@@ -374,6 +511,103 @@ impl ServiceProbeService {
             let _ = self.inner.updates.send(());
         }
     }
+
+    async fn probe_monitor(
+        &self,
+        revision_cancel: CancellationToken,
+        monitor: ServiceMonitor,
+    ) -> Option<ProbeOutcome> {
+        let host = normalized_host(&monitor.url)?;
+        let (probe, owner) = {
+            let mut states = self.inner.host_states.lock().await;
+            if !states.contains_key(&host) && states.len() >= MAX_MONITORS {
+                states.retain(|_, state| state.in_flight.is_some());
+            }
+            let host_state = states.entry(host.clone()).or_default();
+            if host_state
+                .next_allowed_at
+                .is_some_and(|deadline| deadline > tokio::time::Instant::now())
+            {
+                return None;
+            }
+            if let Some(in_flight) = &host_state.in_flight {
+                (in_flight.clone(), false)
+            } else {
+                let transport = self.inner.transport.clone();
+                let monitor = monitor.clone();
+                let cancel = revision_cancel.clone();
+                let probe = transport.execute(cancel, monitor).shared();
+                host_state.in_flight = Some(probe.clone());
+                (probe, true)
+            }
+        };
+
+        let execution = probe.await;
+        if owner {
+            let mut states = self.inner.host_states.lock().await;
+            let host_state = states.entry(host).or_default();
+            host_state.in_flight = None;
+            if let ProbeExecution::Finished(outcome) = &execution {
+                update_host_backoff(host_state, outcome);
+            }
+        }
+        match execution {
+            ProbeExecution::Cancelled => None,
+            ProbeExecution::Finished(outcome) => Some(outcome),
+        }
+    }
+}
+
+fn initial_delay() -> Duration {
+    initial_delay_from_sample(Uuid::new_v4().as_bytes()[0])
+}
+
+fn jittered_interval(interval_seconds: u16) -> Duration {
+    jittered_interval_from_sample(interval_seconds, Uuid::new_v4().as_bytes()[0])
+}
+
+fn initial_delay_from_sample(sample: u8) -> Duration {
+    Duration::from_secs(u64::from(sample) * 60 / 255)
+}
+
+fn jittered_interval_from_sample(interval_seconds: u16, sample: u8) -> Duration {
+    let base = u64::from(interval_seconds) * 1_000;
+    let sample = i64::from(sample) - 128;
+    let delta = base as i64 * sample / (128 * 5);
+    Duration::from_millis((base as i64 + delta).max(0) as u64)
+}
+
+fn normalized_host(value: &str) -> Option<String> {
+    let url = Url::parse(value).ok()?;
+    let host = url.host_str()?.to_ascii_lowercase();
+    let port = url.port_or_known_default()?;
+    Some(format!("{host}:{port}"))
+}
+
+fn update_host_backoff(host: &mut HostState, outcome: &ProbeOutcome) {
+    if outcome.status == ProbeStatus::Healthy {
+        host.consecutive_failures = 0;
+        host.next_allowed_at = None;
+        return;
+    }
+    host.consecutive_failures = host.consecutive_failures.saturating_add(1);
+    let delay = outcome
+        .retry_after
+        .unwrap_or_else(|| failure_delay(host.consecutive_failures));
+    host.next_allowed_at = Some(tokio::time::Instant::now() + delay);
+}
+
+fn failure_delay(consecutive_failures: usize) -> Duration {
+    const DELAYS: [Duration; 7] = [
+        Duration::from_secs(5 * 60),
+        Duration::from_secs(15 * 60),
+        Duration::from_secs(30 * 60),
+        Duration::from_secs(60 * 60),
+        Duration::from_secs(2 * 60 * 60),
+        Duration::from_secs(4 * 60 * 60),
+        Duration::from_secs(6 * 60 * 60),
+    ];
+    DELAYS[consecutive_failures.saturating_sub(1).min(DELAYS.len() - 1)]
 }
 
 #[derive(Debug)]
@@ -411,14 +645,11 @@ fn valid_persisted_state(state: &PersistedState) -> bool {
 }
 
 fn valid_persisted_interval(interval_seconds: u16) -> bool {
-    ALLOWED_INTERVALS.contains(&interval_seconds) || matches!(interval_seconds, 300 | 900)
+    PERSISTED_INTERVALS.contains(&interval_seconds)
 }
 
 fn normalize_persisted_interval(interval_seconds: u16) -> u16 {
-    match interval_seconds {
-        300 | 900 => DEFAULT_INTERVAL_SECONDS,
-        interval_seconds => interval_seconds,
-    }
+    interval_seconds
 }
 
 fn normalize_persisted_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
@@ -432,6 +663,101 @@ fn normalize_persisted_icon(mut monitor: ServiceMonitor) -> ServiceMonitor {
     monitor
 }
 
+fn migrate_legacy_defaults(mut services: Vec<ServiceMonitor>) -> Vec<ServiceMonitor> {
+    let is_exact = |monitor: &ServiceMonitor, id: &str, label: &str, icon: &str, url: &str| {
+        monitor.id == id && monitor.label == label && monitor.icon == icon && monitor.url == url
+    };
+    let legacy_default_seen = services.iter().any(|monitor| {
+        is_exact(
+            monitor,
+            "github",
+            "GitHub",
+            "/assets/remix-icon/github.svg",
+            "https://github.com",
+        ) || is_exact(
+            monitor,
+            "baidu",
+            "Baidu",
+            "/assets/remix-icon/baidu.svg",
+            "https://www.baidu.com",
+        ) || is_exact(
+            monitor,
+            "apple",
+            "Apple",
+            "/assets/remix-icon/apple.svg",
+            "https://www.apple.com/library/test/success.html",
+        ) || is_exact(
+            monitor,
+            "microsoft",
+            "Microsoft",
+            "/assets/remix-icon/microsoft.svg",
+            "http://www.msftconnecttest.com/connecttest.txt",
+        ) || is_exact(
+            monitor,
+            "microsoft",
+            "Microsoft",
+            "/assets/remix-icon/microsoft.svg",
+            "https://www.msftconnecttest.com/connecttest.txt",
+        )
+    });
+    services.retain(|monitor| {
+        !is_exact(
+            monitor,
+            "apple",
+            "Apple",
+            "/assets/remix-icon/apple.svg",
+            "https://www.apple.com/library/test/success.html",
+        ) && !is_exact(
+            monitor,
+            "microsoft",
+            "Microsoft",
+            "/assets/remix-icon/microsoft.svg",
+            "http://www.msftconnecttest.com/connecttest.txt",
+        ) && !is_exact(
+            monitor,
+            "microsoft",
+            "Microsoft",
+            "/assets/remix-icon/microsoft.svg",
+            "https://www.msftconnecttest.com/connecttest.txt",
+        )
+    });
+    for monitor in &mut services {
+        if is_exact(
+            monitor,
+            "github",
+            "GitHub",
+            "/assets/remix-icon/github.svg",
+            "https://github.com",
+        ) {
+            monitor.url = "https://github.com/favicon.ico".into();
+        }
+        if is_exact(
+            monitor,
+            "baidu",
+            "Baidu",
+            "/assets/remix-icon/baidu.svg",
+            "https://www.baidu.com",
+        ) {
+            monitor.url = "https://www.baidu.com/favicon.ico".into();
+        }
+    }
+    if legacy_default_seen {
+        let defaults = default_service_monitors();
+        for default in &defaults[4..] {
+            if services.len() >= MAX_MONITORS {
+                break;
+            }
+            if !services
+                .iter()
+                .any(|monitor| monitor.id == default.id && monitor.url == default.url)
+            {
+                services.push(default.clone());
+            }
+        }
+    }
+    services
+}
+
 fn default_monitor_uses_icon(monitor: &ServiceMonitor, icon: &str) -> bool {
     matches!(
         (monitor.id.as_str(), monitor.label.as_str(), icon,),
@@ -442,17 +768,6 @@ fn default_monitor_uses_icon(monitor: &ServiceMonitor, icon: &str) -> bool {
             | ("google", "Google", "/assets/remix-icon/google.svg")
             | ("microsoft", "Microsoft", "/assets/remix-icon/microsoft.svg")
     )
-}
-
-fn upgrade_legacy_default_microsoft_url(mut monitor: ServiceMonitor) -> ServiceMonitor {
-    if monitor.id == "microsoft"
-        && monitor.label == "Microsoft"
-        && monitor.icon == MICROSOFT_DEFAULT_ICON_URL
-        && monitor.url == LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL
-    {
-        monitor.url = MICROSOFT_CONNECTIVITY_TEST_URL.into();
-    }
-    monitor
 }
 
 fn current_default_icon_url(value: &str) -> Option<&'static str> {
@@ -587,38 +902,119 @@ fn pending_result(monitor: &ServiceMonitor) -> ServiceProbeResult {
     }
 }
 
-async fn probe(monitor: ServiceMonitor) -> ServiceProbeResult {
+async fn probe(
+    client: &Client,
+    cancel: CancellationToken,
+    monitor: ServiceMonitor,
+) -> ProbeExecution {
     let started = Instant::now();
-    let (healthy, failure_stage) = match resolve_probe_target(&monitor.url).await {
-        Ok((url, addresses)) => match Client::builder()
-            .connect_timeout(PROBE_TIMEOUT)
-            .timeout(PROBE_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .resolve_to_addrs(url.host_str().expect("validated URL host"), &addresses)
-            .build()
-        {
-            Ok(client) => match client.get(url).send().await {
-                Ok(response) if response.status().is_success() => (true, None),
-                Ok(_) => (false, Some(ServiceProbeFailureStage::HttpStatus)),
-                Err(_) => (false, Some(ServiceProbeFailureStage::Transport)),
-            },
-            Err(_) => (false, Some(ServiceProbeFailureStage::ClientSetup)),
-        },
-        Err(error) => (false, Some(error.stage)),
+    let target = tokio::select! {
+        () = cancel.cancelled() => return ProbeExecution::Cancelled,
+        target = resolve_probe_target(&monitor.url) => target,
     };
+    let url = match target {
+        Ok((url, _addresses)) => url,
+        Err(error) => {
+            return ProbeExecution::Finished(ProbeOutcome {
+                failure_stage: Some(error.stage),
+                latency_milliseconds: None,
+                retry_after: None,
+                status: ProbeStatus::Error,
+            });
+        }
+    };
+    execute_http_probe(client, cancel, url, started).await
+}
+
+async fn execute_http_probe(
+    client: &Client,
+    cancel: CancellationToken,
+    url: Url,
+    started: Instant,
+) -> ProbeExecution {
+    let response = tokio::select! {
+        () = cancel.cancelled() => return ProbeExecution::Cancelled,
+        response = client.get(url).send() => response,
+    };
+    match response {
+        Ok(response) if response.status().is_success() => {
+            let latency_milliseconds =
+                u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            drain_small_body(cancel, response);
+            ProbeExecution::Finished(ProbeOutcome {
+                failure_stage: None,
+                latency_milliseconds: Some(latency_milliseconds),
+                retry_after: None,
+                status: ProbeStatus::Healthy,
+            })
+        }
+        Ok(response) => ProbeExecution::Finished(ProbeOutcome {
+            failure_stage: Some(ServiceProbeFailureStage::HttpStatus),
+            latency_milliseconds: None,
+            retry_after: retry_after(&response),
+            status: ProbeStatus::Error,
+        }),
+        Err(_) => ProbeExecution::Finished(ProbeOutcome {
+            failure_stage: Some(ServiceProbeFailureStage::Transport),
+            latency_milliseconds: None,
+            retry_after: None,
+            status: ProbeStatus::Error,
+        }),
+    }
+}
+
+fn result_from_outcome(monitor: &ServiceMonitor, outcome: ProbeOutcome) -> ServiceProbeResult {
     ServiceProbeResult {
-        failure_stage,
-        latency_milliseconds: healthy
-            .then(|| u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
-        monitor_id: monitor.id,
+        failure_stage: outcome.failure_stage,
+        latency_milliseconds: outcome.latency_milliseconds,
+        monitor_id: monitor.id.clone(),
         observed_at: Utc::now().to_rfc3339(),
         route_target: "direct".into(),
-        status: if healthy {
-            ProbeStatus::Healthy
-        } else {
-            ProbeStatus::Error
-        },
+        status: outcome.status,
     }
+}
+
+fn retry_after(response: &reqwest::Response) -> Option<Duration> {
+    if !matches!(
+        response.status(),
+        StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE
+    ) {
+        return None;
+    }
+    let value = response.headers().get(RETRY_AFTER)?.to_str().ok()?;
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    let deadline = chrono::DateTime::parse_from_rfc2822(value)
+        .ok()?
+        .with_timezone(&Utc);
+    deadline.signed_duration_since(Utc::now()).to_std().ok()
+}
+
+fn drain_small_body(cancel: CancellationToken, response: reqwest::Response) {
+    if response
+        .content_length()
+        .is_none_or(|length| length > BODY_DRAIN_LIMIT_BYTES as u64)
+    {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut body = response.bytes_stream();
+        let mut drained = 0usize;
+        loop {
+            let next = tokio::select! {
+                () = cancel.cancelled() => return,
+                next = body.next() => next,
+            };
+            let Some(Ok(chunk)) = next else {
+                return;
+            };
+            drained = drained.saturating_add(chunk.len());
+            if drained > BODY_DRAIN_LIMIT_BYTES {
+                return;
+            }
+        }
+    });
 }
 
 async fn validate_probe_url(value: &str) -> Result<(), ServiceProbeError> {
@@ -760,6 +1156,232 @@ fn is_public_ipv6(address: Ipv6Addr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    struct HttpFixture {
+        address: SocketAddr,
+        connections: Arc<AtomicUsize>,
+        methods: Arc<Mutex<Vec<String>>>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    #[derive(Clone)]
+    struct ControlledTransport {
+        execution: ProbeExecution,
+        release: Arc<Notify>,
+        started: Arc<AtomicUsize>,
+    }
+
+    impl ControlledTransport {
+        fn healthy() -> Self {
+            Self {
+                execution: ProbeExecution::Finished(ProbeOutcome {
+                    failure_stage: None,
+                    latency_milliseconds: Some(12),
+                    retry_after: None,
+                    status: ProbeStatus::Healthy,
+                }),
+                release: Arc::new(Notify::new()),
+                started: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+
+        async fn wait_until_started(&self, expected: usize) {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while self.started.load(Ordering::SeqCst) < expected {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+    }
+
+    impl ProbeTransport for ControlledTransport {
+        fn execute(
+            &self,
+            cancel: CancellationToken,
+            _monitor: ServiceMonitor,
+        ) -> BoxFuture<'static, ProbeExecution> {
+            let execution = self.execution.clone();
+            let release = self.release.clone();
+            let started = self.started.clone();
+            async move {
+                started.fetch_add(1, Ordering::SeqCst);
+                tokio::select! {
+                    () = cancel.cancelled() => ProbeExecution::Cancelled,
+                    () = release.notified() => execution,
+                }
+            }
+            .boxed()
+        }
+    }
+
+    fn test_monitor(id: &str, url: &str) -> ServiceMonitor {
+        ServiceMonitor {
+            icon: FALLBACK_SERVICE_ICON_URL.into(),
+            id: id.into(),
+            label: id.into(),
+            url: url.into(),
+        }
+    }
+
+    fn service_with_transport(
+        services: Vec<ServiceMonitor>,
+        transport: ControlledTransport,
+    ) -> ServiceProbeService {
+        ServiceProbeService::from_parts(
+            ServiceProbeConfig { state_path: None },
+            DEFAULT_INTERVAL_SECONDS,
+            services,
+            Arc::new(transport),
+        )
+    }
+
+    impl Drop for HttpFixture {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    impl HttpFixture {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let connections = Arc::new(AtomicUsize::new(0));
+            let methods = Arc::new(Mutex::new(Vec::new()));
+            let task_connections = connections.clone();
+            let task_methods = methods.clone();
+            let task = tokio::spawn(async move {
+                loop {
+                    let Ok((mut stream, _)) = listener.accept().await else {
+                        return;
+                    };
+                    task_connections.fetch_add(1, Ordering::SeqCst);
+                    let methods = task_methods.clone();
+                    tokio::spawn(async move {
+                        loop {
+                            let mut request = Vec::new();
+                            let mut byte = [0_u8; 1];
+                            while !request.ends_with(b"\r\n\r\n") {
+                                let Ok(read) = stream.read(&mut byte).await else {
+                                    return;
+                                };
+                                if read == 0 {
+                                    return;
+                                }
+                                request.push(byte[0]);
+                                if request.len() > 8_192 {
+                                    return;
+                                }
+                            }
+                            let request = String::from_utf8_lossy(&request);
+                            let mut parts = request
+                                .lines()
+                                .next()
+                                .unwrap_or_default()
+                                .split_ascii_whitespace();
+                            let method = parts.next().unwrap_or_default().to_owned();
+                            let path = parts.next().unwrap_or_default();
+                            methods.lock().unwrap().push(method);
+                            match path {
+                                "/ok" => {
+                                    if stream
+                                        .write_all(
+                                            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nok",
+                                        )
+                                        .await
+                                        .is_err()
+                                    {
+                                        return;
+                                    }
+                                }
+                                "/redirect" => {
+                                    let _ = stream
+                                        .write_all(
+                                            b"HTTP/1.1 302 Found\r\nLocation: /ok\r\nContent-Length: 0\r\n\r\n",
+                                        )
+                                        .await;
+                                }
+                                "/status" => {
+                                    let _ = stream
+                                        .write_all(
+                                            b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 120\r\nContent-Length: 0\r\n\r\n",
+                                        )
+                                        .await;
+                                }
+                                "/slow-body" => {
+                                    if stream
+                                        .write_all(
+                                            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: keep-alive\r\n\r\n",
+                                        )
+                                        .await
+                                        .is_err()
+                                    {
+                                        return;
+                                    }
+                                    tokio::time::sleep(Duration::from_millis(250)).await;
+                                    let _ = stream.write_all(b"slow").await;
+                                }
+                                "/oversized" => {
+                                    let _ = stream
+                                        .write_all(
+                                            b"HTTP/1.1 200 OK\r\nContent-Length: 131072\r\nConnection: keep-alive\r\n\r\npartial",
+                                        )
+                                        .await;
+                                    return;
+                                }
+                                "/unknown" => {
+                                    let _ = stream
+                                        .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\npartial")
+                                        .await;
+                                    return;
+                                }
+                                "/timeout" | "/cancel" => {
+                                    tokio::time::sleep(Duration::from_secs(30)).await;
+                                    return;
+                                }
+                                _ => return,
+                            }
+                        }
+                    });
+                }
+            });
+            Self {
+                address,
+                connections,
+                methods,
+                task,
+            }
+        }
+
+        fn client(&self, timeout: Duration) -> Client {
+            Client::builder()
+                .timeout(timeout)
+                .redirect(reqwest::redirect::Policy::none())
+                .resolve("fixture.test", self.address)
+                .build()
+                .unwrap()
+        }
+
+        fn url(&self, path: &str) -> Url {
+            Url::parse(&format!("http://fixture.test{path}")).unwrap()
+        }
+
+        async fn execute(&self, client: &Client, path: &str) -> ProbeExecution {
+            execute_http_probe(
+                client,
+                CancellationToken::new(),
+                self.url(path),
+                Instant::now(),
+            )
+            .await
+        }
+    }
 
     #[test]
     fn rejects_non_public_targets() {
@@ -790,34 +1412,376 @@ mod tests {
     }
 
     #[test]
-    fn service_probes_default_to_five_seconds() {
+    fn service_probes_default_to_five_minutes() {
         let service = ServiceProbeService::new(ServiceProbeConfig { state_path: None });
 
-        assert_eq!(service.interval_seconds(), 5);
+        assert_eq!(service.interval_seconds(), 300);
+    }
+
+    #[test]
+    fn automatic_delays_stay_within_the_documented_bounds() {
+        assert_eq!(initial_delay_from_sample(0), Duration::ZERO);
+        assert_eq!(initial_delay_from_sample(u8::MAX), Duration::from_secs(60));
+        assert_eq!(
+            jittered_interval_from_sample(300, 0),
+            Duration::from_secs(240)
+        );
+        assert!(jittered_interval_from_sample(300, u8::MAX) <= Duration::from_secs(360));
+    }
+
+    #[test]
+    fn host_failure_delay_steps_and_caps_at_six_hours() {
+        let expected = [5, 15, 30, 60, 120, 240, 360, 360];
+        for (failure_count, minutes) in (1..).zip(expected) {
+            assert_eq!(
+                failure_delay(failure_count),
+                Duration::from_secs(minutes * 60)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn local_http_fixture_covers_get_redirect_status_and_retry_after() {
+        let fixture = HttpFixture::start().await;
+        let client = fixture.client(Duration::from_secs(1));
+
+        let ProbeExecution::Finished(ok) = fixture.execute(&client, "/ok").await else {
+            panic!("request should complete");
+        };
+        assert_eq!(ok.status, ProbeStatus::Healthy);
+
+        let ProbeExecution::Finished(redirect) = fixture.execute(&client, "/redirect").await else {
+            panic!("redirect should be classified");
+        };
+        assert_eq!(
+            redirect.failure_stage,
+            Some(ServiceProbeFailureStage::HttpStatus)
+        );
+
+        let ProbeExecution::Finished(status) = fixture.execute(&client, "/status").await else {
+            panic!("status should be classified");
+        };
+        assert_eq!(
+            status.failure_stage,
+            Some(ServiceProbeFailureStage::HttpStatus)
+        );
+        assert_eq!(status.retry_after, Some(Duration::from_secs(120)));
+        assert!(
+            fixture
+                .methods
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|method| method == "GET")
+        );
+    }
+
+    #[tokio::test]
+    async fn header_latency_does_not_wait_for_slow_or_unbounded_bodies() {
+        let fixture = HttpFixture::start().await;
+        let client = fixture.client(Duration::from_secs(1));
+        for path in ["/slow-body", "/oversized", "/unknown"] {
+            let started = Instant::now();
+            let ProbeExecution::Finished(outcome) = fixture.execute(&client, path).await else {
+                panic!("headers should complete for {path}");
+            };
+            assert_eq!(outcome.status, ProbeStatus::Healthy);
+            assert!(
+                started.elapsed() < Duration::from_millis(150),
+                "{path} waited for response body"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn timeout_and_cancellation_are_distinct_transport_outcomes() {
+        let fixture = HttpFixture::start().await;
+        let client = fixture.client(Duration::from_millis(50));
+        let ProbeExecution::Finished(timeout) = fixture.execute(&client, "/timeout").await else {
+            panic!("timeout should be classified");
+        };
+        assert_eq!(
+            timeout.failure_stage,
+            Some(ServiceProbeFailureStage::Transport)
+        );
+
+        let cancel = CancellationToken::new();
+        let child = cancel.clone();
+        let client = fixture.client(Duration::from_secs(1));
+        let url = fixture.url("/cancel");
+        let request =
+            tokio::spawn(
+                async move { execute_http_probe(&client, child, url, Instant::now()).await },
+            );
+        tokio::task::yield_now().await;
+        cancel.cancel();
+        assert!(matches!(request.await.unwrap(), ProbeExecution::Cancelled));
+    }
+
+    #[tokio::test]
+    async fn eligible_small_bodies_allow_connection_reuse() {
+        let fixture = HttpFixture::start().await;
+        let client = fixture.client(Duration::from_secs(1));
+        assert!(matches!(
+            fixture.execute(&client, "/ok").await,
+            ProbeExecution::Finished(ProbeOutcome {
+                status: ProbeStatus::Healthy,
+                ..
+            })
+        ));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(matches!(
+            fixture.execute(&client, "/ok").await,
+            ProbeExecution::Finished(ProbeOutcome {
+                status: ProbeStatus::Healthy,
+                ..
+            })
+        ));
+        assert_eq!(fixture.connections.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn normalized_host_coalesces_manual_and_automatic_requests() {
+        let transport = ControlledTransport::healthy();
+        let services = vec![
+            test_monitor("automatic", "https://EXAMPLE.com/automatic"),
+            test_monitor("manual", "https://example.com:443/manual"),
+        ];
+        let service = service_with_transport(services.clone(), transport.clone());
+        let automatic = {
+            let service = service.clone();
+            let monitor = services[0].clone();
+            tokio::spawn(async move {
+                service
+                    .probe_monitor(service.revision_cancel_token(), monitor)
+                    .await
+            })
+        };
+        transport.wait_until_started(1).await;
+        let manual = {
+            let service = service.clone();
+            let monitor = services[1].clone();
+            tokio::spawn(async move {
+                service
+                    .probe_monitor(service.revision_cancel_token(), monitor)
+                    .await
+            })
+        };
+        tokio::task::yield_now().await;
+        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+        transport.release.notify_waiters();
+        assert_eq!(
+            automatic.await.unwrap().unwrap().status,
+            ProbeStatus::Healthy
+        );
+        assert_eq!(manual.await.unwrap().unwrap().status, ProbeStatus::Healthy);
+        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn coalesced_cycle_maps_one_host_outcome_to_each_monitor() {
+        let transport = ControlledTransport::healthy();
+        let services = vec![
+            test_monitor("one", "https://example.com/one"),
+            test_monitor("two", "https://example.com/two"),
+        ];
+        let service = service_with_transport(services, transport.clone());
+        let cycle = {
+            let service = service.clone();
+            tokio::spawn(async move { service.run_cycle().await })
+        };
+        transport.wait_until_started(1).await;
+        transport.release.notify_waiters();
+        cycle.await.unwrap();
+
+        let state = service.inner.state.lock().unwrap();
+        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+        assert!(
+            state
+                .results
+                .iter()
+                .all(|result| result.status == ProbeStatus::Healthy)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn host_backoff_suppresses_requests_until_fake_clock_deadline() {
+        let transport = ControlledTransport {
+            execution: ProbeExecution::Finished(ProbeOutcome {
+                failure_stage: Some(ServiceProbeFailureStage::Transport),
+                latency_milliseconds: None,
+                retry_after: None,
+                status: ProbeStatus::Error,
+            }),
+            ..ControlledTransport::healthy()
+        };
+        let monitor = test_monitor("probe", "https://example.com/probe");
+        let service = service_with_transport(vec![monitor.clone()], transport.clone());
+
+        let first = {
+            let service = service.clone();
+            let monitor = monitor.clone();
+            tokio::spawn(async move {
+                service
+                    .probe_monitor(service.revision_cancel_token(), monitor)
+                    .await
+            })
+        };
+        transport.wait_until_started(1).await;
+        transport.release.notify_waiters();
+        assert_eq!(first.await.unwrap().unwrap().status, ProbeStatus::Error);
+
+        assert!(
+            service
+                .probe_monitor(service.revision_cancel_token(), monitor.clone())
+                .await
+                .is_none()
+        );
+        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+
+        tokio::time::advance(Duration::from_secs(5 * 60)).await;
+        let third = {
+            let service = service.clone();
+            tokio::spawn(async move {
+                service
+                    .probe_monitor(service.revision_cancel_token(), monitor)
+                    .await
+            })
+        };
+        transport.wait_until_started(2).await;
+        transport.release.notify_waiters();
+        assert_eq!(third.await.unwrap().unwrap().status, ProbeStatus::Error);
+        assert_eq!(transport.started.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn automatic_cycles_do_not_overlap_while_a_probe_is_in_flight() {
+        let transport = ControlledTransport::healthy();
+        let monitor = test_monitor("probe", "https://example.com/probe");
+        let service = ServiceProbeService::from_parts(
+            ServiceProbeConfig { state_path: None },
+            5,
+            vec![monitor],
+            Arc::new(transport.clone()),
+        );
+        service.start();
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        transport.wait_until_started(1).await;
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert_eq!(transport.started.load(Ordering::SeqCst), 1);
+        service.shutdown();
+    }
+
+    #[tokio::test]
+    async fn revision_change_and_shutdown_cancel_obsolete_transport() {
+        let monitor = test_monitor("probe", "https://example.com/probe");
+        for shutdown in [false, true] {
+            let transport = ControlledTransport::healthy();
+            let service = service_with_transport(vec![monitor.clone()], transport.clone());
+            let request = {
+                let service = service.clone();
+                let monitor = monitor.clone();
+                tokio::spawn(async move {
+                    service
+                        .probe_monitor(service.revision_cancel_token(), monitor)
+                        .await
+                })
+            };
+            transport.wait_until_started(1).await;
+            if shutdown {
+                service.shutdown();
+            } else {
+                service.set_interval(60).unwrap();
+            }
+            assert!(request.await.unwrap().is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn obsolete_revision_never_publishes_a_stale_result() {
+        let transport = ControlledTransport::healthy();
+        let monitor = test_monitor("probe", "https://example.com/probe");
+        let service = service_with_transport(vec![monitor], transport.clone());
+        let request = {
+            let service = service.clone();
+            tokio::spawn(async move { service.test("probe").await })
+        };
+        transport.wait_until_started(1).await;
+        service.set_interval(60).unwrap();
+        request.await.unwrap().unwrap();
+
+        let state = service.inner.state.lock().unwrap();
+        assert_eq!(state.results[0].status, ProbeStatus::Pending);
+        assert_eq!(state.results[0].latency_milliseconds, None);
+    }
+
+    #[test]
+    fn success_resets_host_failure_state_and_retry_after_wins() {
+        let mut host = HostState::default();
+        update_host_backoff(
+            &mut host,
+            &ProbeOutcome {
+                failure_stage: Some(ServiceProbeFailureStage::Transport),
+                latency_milliseconds: None,
+                retry_after: Some(Duration::from_secs(42)),
+                status: ProbeStatus::Error,
+            },
+        );
+        assert_eq!(host.consecutive_failures, 1);
+        let remaining = host.next_allowed_at.unwrap() - tokio::time::Instant::now();
+        assert!(remaining <= Duration::from_secs(42));
+        assert!(remaining > Duration::from_secs(40));
+
+        update_host_backoff(
+            &mut host,
+            &ProbeOutcome {
+                failure_stage: None,
+                latency_milliseconds: Some(10),
+                retry_after: None,
+                status: ProbeStatus::Healthy,
+            },
+        );
+        assert_eq!(host.consecutive_failures, 0);
+        assert!(host.next_allowed_at.is_none());
     }
 
     #[tokio::test]
     async fn direct_probe_failures_identify_target_validation_and_address_policy_stages() {
-        let invalid = probe(ServiceMonitor {
-            icon: FALLBACK_SERVICE_ICON_URL.into(),
-            id: "invalid".into(),
-            label: "Invalid".into(),
-            url: "not a URL".into(),
-        })
+        let invalid = probe(
+            &Client::new(),
+            CancellationToken::new(),
+            ServiceMonitor {
+                icon: FALLBACK_SERVICE_ICON_URL.into(),
+                id: "invalid".into(),
+                label: "Invalid".into(),
+                url: "not a URL".into(),
+            },
+        )
         .await;
+        let ProbeExecution::Finished(invalid) = invalid else {
+            panic!("invalid target must produce a classified result");
+        };
         assert_eq!(invalid.status, ProbeStatus::Error);
         assert_eq!(
             invalid.failure_stage,
             Some(ServiceProbeFailureStage::TargetValidation)
         );
 
-        let local = probe(ServiceMonitor {
-            icon: FALLBACK_SERVICE_ICON_URL.into(),
-            id: "local".into(),
-            label: "Local".into(),
-            url: "http://localhost/".into(),
-        })
+        let local = probe(
+            &Client::new(),
+            CancellationToken::new(),
+            ServiceMonitor {
+                icon: FALLBACK_SERVICE_ICON_URL.into(),
+                id: "local".into(),
+                label: "Local".into(),
+                url: "http://localhost/".into(),
+            },
+        )
         .await;
+        let ProbeExecution::Finished(local) = local else {
+            panic!("local target must produce a classified result");
+        };
         assert_eq!(local.status, ProbeStatus::Error);
         assert_eq!(
             local.failure_stage,
@@ -903,6 +1867,17 @@ mod tests {
     }
 
     #[test]
+    fn restore_defaults_restores_targets_and_internal_cadence() {
+        let service = ServiceProbeService::new(ServiceProbeConfig { state_path: None });
+        service.set_interval(5).unwrap();
+        service.restore_defaults().unwrap();
+
+        let state = service.inner.state.lock().unwrap();
+        assert_eq!(state.interval_seconds, DEFAULT_INTERVAL_SECONDS);
+        assert_eq!(state.services, default_service_monitors());
+    }
+
+    #[test]
     fn selected_interval_is_restored_from_disk() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
@@ -926,7 +1901,7 @@ mod tests {
     }
 
     #[test]
-    fn removed_long_intervals_are_migrated_to_one_minute() {
+    fn internal_five_minute_default_persists_but_is_not_user_selectable() {
         let directory = tempfile::tempdir().unwrap();
         let state_path = directory.path().join("service-monitors.json");
         let state = PersistedState {
@@ -940,6 +1915,8 @@ mod tests {
             state_path: Some(state_path),
         });
         assert_eq!(restored.interval_seconds(), DEFAULT_INTERVAL_SECONDS);
+        assert!(restored.set_interval(300).is_err());
+        assert!(restored.set_interval(900).is_err());
     }
 
     #[tokio::test]
@@ -1027,8 +2004,8 @@ mod tests {
             .collect();
 
         assert_eq!(
-            restored_icons,
-            vec![
+            &restored_icons[..6],
+            [
                 "/assets/remix-icon/google.svg",
                 "/assets/remix-icon/cloud.svg",
                 "https://registry.npmmirror.com/remixicon/4.9.1/files/icons/Logos/google-fill.svg",
@@ -1037,103 +2014,55 @@ mod tests {
                 "/assets/remix-icon/cloud.svg",
             ]
         );
+        assert_eq!(restored_icons.len(), 6);
     }
 
     #[test]
-    fn exact_legacy_default_microsoft_monitor_is_upgraded_to_http() {
-        let directory = tempfile::tempdir().unwrap();
-        let state_path = directory.path().join("service-monitors.json");
-        let mut services = default_service_monitors();
-        let microsoft = services
-            .iter_mut()
-            .find(|monitor| monitor.id == "microsoft")
-            .expect("Microsoft default monitor");
-        microsoft.url = LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL.into();
-        let state = PersistedState {
-            interval_seconds: 60,
-            services,
-            version: 1,
-        };
-        fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
-
-        let restored = ServiceProbeService::new(ServiceProbeConfig {
-            state_path: Some(state_path),
-        });
-        let state = restored
-            .inner
-            .state
-            .lock()
-            .expect("service probe state poisoned");
-        let microsoft = state
-            .services
-            .iter()
-            .find(|monitor| monitor.id == "microsoft")
-            .expect("Microsoft monitor");
-
-        assert_eq!(microsoft.url, MICROSOFT_CONNECTIVITY_TEST_URL);
-    }
-
-    #[test]
-    fn legacy_microsoft_url_upgrade_preserves_customized_and_non_default_monitors() {
-        let default_microsoft = default_service_monitors()
-            .into_iter()
-            .find(|monitor| monitor.id == "microsoft")
-            .expect("Microsoft default monitor");
-        let mut cases = [
-            ("custom URL", default_microsoft.clone()),
-            ("custom label", default_microsoft.clone()),
-            ("custom icon", default_microsoft.clone()),
-            ("non-default monitor", default_microsoft),
+    fn exact_legacy_defaults_migrate_without_rewriting_custom_monitors() {
+        let mut legacy = vec![
+            ServiceMonitor {
+                id: "github".into(),
+                label: "GitHub".into(),
+                icon: "/assets/remix-icon/github.svg".into(),
+                url: "https://github.com".into(),
+            },
+            ServiceMonitor {
+                id: "apple".into(),
+                label: "Apple".into(),
+                icon: "/assets/remix-icon/apple.svg".into(),
+                url: "https://www.apple.com/library/test/success.html".into(),
+            },
+            ServiceMonitor {
+                id: "github".into(),
+                label: "Work GitHub".into(),
+                icon: "/assets/remix-icon/github.svg".into(),
+                url: "https://github.com".into(),
+            },
+            ServiceMonitor {
+                id: "apple".into(),
+                label: "Work Apple".into(),
+                icon: "/assets/remix-icon/apple.svg".into(),
+                url: "https://example.com/custom-apple".into(),
+            },
         ];
-
-        for (kind, monitor) in &mut cases {
-            monitor.url = LEGACY_MICROSOFT_CONNECTIVITY_TEST_URL.into();
-            match *kind {
-                "custom URL" => monitor.url = "https://example.com/custom-target".into(),
-                "custom label" => monitor.label = "Work Microsoft".into(),
-                "custom icon" => monitor.icon = "https://example.com/microsoft.svg".into(),
-                "non-default monitor" => monitor.id = "custom-microsoft".into(),
-                _ => unreachable!(),
-            }
-
-            assert_eq!(
-                upgrade_legacy_default_microsoft_url(monitor.clone()),
-                *monitor,
-                "{kind} must not be rewritten"
-            );
-        }
-    }
-
-    #[test]
-    fn restoring_defaults_returns_the_http_microsoft_connectivity_test_endpoint() {
-        let service = ServiceProbeService::new(ServiceProbeConfig { state_path: None });
-        {
-            let mut state = service
-                .inner
-                .state
-                .lock()
-                .expect("service probe state poisoned");
-            state
-                .services
-                .iter_mut()
-                .find(|monitor| monitor.id == "microsoft")
-                .expect("Microsoft default monitor")
-                .url = "https://example.com/custom-target".into();
-        }
-        service.restore_defaults().unwrap();
-
-        let state = service
-            .inner
-            .state
-            .lock()
-            .expect("service probe state poisoned");
-        let microsoft = state
-            .services
-            .iter()
-            .find(|monitor| monitor.id == "microsoft")
-            .expect("Microsoft default monitor");
-
-        assert_eq!(microsoft.url, MICROSOFT_CONNECTIVITY_TEST_URL);
+        legacy =
+            migrate_legacy_defaults(legacy.into_iter().map(normalize_persisted_icon).collect());
+        assert!(
+            legacy.iter().any(|monitor| monitor.id == "apple"
+                && monitor.url == "https://example.com/custom-apple")
+        );
+        assert!(
+            legacy
+                .iter()
+                .any(|monitor| monitor.id == "github" && monitor.url.ends_with("/favicon.ico"))
+        );
+        assert!(
+            legacy.iter().any(
+                |monitor| monitor.label == "Work GitHub" && monitor.url == "https://github.com"
+            )
+        );
+        assert!(legacy.iter().any(|monitor| monitor.id == "weixin"));
+        assert!(legacy.iter().any(|monitor| monitor.id == "aws-us-east-1"));
     }
 
     #[test]

@@ -16,12 +16,17 @@ describe("FixtureStatusClient", () => {
     expect(second.runtime.captureSelection.systemProxy).toBe(false);
   });
 
-  it("uses the HTTP Microsoft connectivity-test endpoint by default", async () => {
+  it("uses the accepted six lightweight endpoints by default", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
 
-    expect(snapshot.services.find((service) => service.id === "microsoft")?.url).toBe(
-      "http://www.msftconnecttest.com/connecttest.txt",
-    );
+    expect(snapshot.services.map(({ id, url }) => ({ id, url }))).toEqual([
+      { id: "google", url: "https://www.google.com/generate_204" },
+      { id: "github", url: "https://github.com/favicon.ico" },
+      { id: "cloudflare", url: "https://cp.cloudflare.com/generate_204" },
+      { id: "baidu", url: "https://www.baidu.com/favicon.ico" },
+      { id: "weixin", url: "https://res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico" },
+      { id: "aws-us-east-1", url: "https://dynamodb.us-east-1.amazonaws.com/ping" },
+    ]);
   });
 
   it("serializes every default service with a root-relative bundled icon URL", async () => {
@@ -33,8 +38,8 @@ describe("FixtureStatusClient", () => {
       SERVICE_ICON_URLS.github,
       SERVICE_ICON_URLS.cloudflare,
       SERVICE_ICON_URLS.baidu,
-      SERVICE_ICON_URLS.apple,
-      SERVICE_ICON_URLS.microsoft,
+      SERVICE_ICON_URLS.weixin,
+      SERVICE_ICON_URLS.aws,
     ]);
     expect(icons.every((icon) => icon.startsWith("/assets/remix-icon/"))).toBe(true);
   });
@@ -78,10 +83,19 @@ describe("FixtureStatusClient", () => {
     }
   });
 
-  it("defaults service probes to a five-second interval", async () => {
+  it("defaults service probes to the internal five-minute cadence", async () => {
     const snapshot = await new FixtureStatusClient().getSnapshot();
 
-    expect(snapshot.serviceProbePolicy.intervalSeconds).toBe(5);
+    expect(snapshot.serviceProbePolicy.intervalSeconds).toBe(300);
+  });
+
+  it("restores the default services and five-minute cadence together", async () => {
+    const client = new FixtureStatusClient();
+    await client.setServiceProbeInterval(5);
+    const restored = await client.restoreDefaultServices();
+
+    expect(restored.serviceProbePolicy.intervalSeconds).toBe(300);
+    expect(restored.services).toHaveLength(6);
   });
 
   it("keeps group selections scoped to group membership", async () => {

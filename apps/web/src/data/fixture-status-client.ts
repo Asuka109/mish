@@ -20,25 +20,35 @@ const defaultServices: ServiceMonitorDto[] = [
     label: "Google",
     url: "https://www.google.com/generate_204",
   },
-  { icon: SERVICE_ICON_URLS.github, id: "github", label: "GitHub", url: "https://github.com" },
+  {
+    icon: SERVICE_ICON_URLS.github,
+    id: "github",
+    label: "GitHub",
+    url: "https://github.com/favicon.ico",
+  },
   {
     icon: SERVICE_ICON_URLS.cloudflare,
     id: "cloudflare",
     label: "Cloudflare",
     url: "https://cp.cloudflare.com/generate_204",
   },
-  { icon: SERVICE_ICON_URLS.baidu, id: "baidu", label: "Baidu", url: "https://www.baidu.com" },
   {
-    icon: SERVICE_ICON_URLS.apple,
-    id: "apple",
-    label: "Apple",
-    url: "https://www.apple.com/library/test/success.html",
+    icon: SERVICE_ICON_URLS.baidu,
+    id: "baidu",
+    label: "Baidu",
+    url: "https://www.baidu.com/favicon.ico",
   },
   {
-    icon: SERVICE_ICON_URLS.microsoft,
-    id: "microsoft",
-    label: "Microsoft",
-    url: "http://www.msftconnecttest.com/connecttest.txt",
+    icon: SERVICE_ICON_URLS.weixin,
+    id: "weixin",
+    label: "Weixin",
+    url: "https://res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico",
+  },
+  {
+    icon: SERVICE_ICON_URLS.aws,
+    id: "aws-us-east-1",
+    label: "AWS us-east-1",
+    url: "https://dynamodb.us-east-1.amazonaws.com/ping",
   },
 ];
 
@@ -233,14 +243,14 @@ const initialSnapshot: StatusSnapshotDto = {
     },
     {
       latencyMilliseconds: 56,
-      monitorId: "apple",
+      monitorId: "weixin",
       observedAt: "2026-07-18T08:00:00Z",
       routeTarget: "fixture-only",
       status: "healthy",
     },
     {
       latencyMilliseconds: 64,
-      monitorId: "microsoft",
+      monitorId: "aws-us-east-1",
       observedAt: "2026-07-18T08:00:00Z",
       routeTarget: "fixture-only",
       status: "healthy",
@@ -273,7 +283,7 @@ const initialSnapshot: StatusSnapshotDto = {
     },
     tunEnabled: false,
   },
-  serviceProbePolicy: { intervalSeconds: 5 },
+  serviceProbePolicy: { intervalSeconds: 300 },
   services: defaultServices,
   traffic: {
     downloadBytesPerSecond: 2_568_192,
@@ -517,6 +527,7 @@ export class FixtureStatusClient implements StatusClient {
       throw new StatusClientError("cancelled", "The fixture command was cancelled");
     }
     this.snapshot.services = structuredClone(defaultServices);
+    this.snapshot.serviceProbePolicy.intervalSeconds = 300;
     this.snapshot.probeResults = structuredClone(initialSnapshot.probeResults);
     return this.snapshotAfterCommand();
   }

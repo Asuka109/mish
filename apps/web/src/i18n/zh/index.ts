@@ -870,7 +870,8 @@ const zh = {
     interval10Seconds: "每 10 秒",
     interval30Seconds: "每 30 秒",
     interval1Minute: "每1分钟",
-    metadataDescription: "Mish 会直接测试此地址，不依赖 Mihomo 是否运行。",
+    metadataDescription:
+      "Mish 测量直连 HTTP 首次响应/服务连通性延迟，不依赖 Mihomo。Cloudflare 反映 Anycast 边缘；GitHub、百度和微信使用服务商静态资源/CDN 路径；AWS 固定为 DynamoDB us-east-1。",
     probeUrl: "探测地址",
     removedToast: "已删除服务监控",
     restoreDefaults: "恢复默认值",
@@ -1072,7 +1073,7 @@ const zh = {
         capabilities: "能力状态",
         "active-profile": "当前配置的非敏感标识",
         capture: "流量接管设置与实际状态",
-        "service-probes": "直连服务探测摘要",
+        "service-probes": "直连 HTTP 首次响应探测摘要",
         "events-summary": "近期事件摘要",
         "diagnostic-runs": "诊断结果",
         "redaction-report": "已隐藏的信息说明",
