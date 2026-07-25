@@ -9,6 +9,7 @@ import { trafficFailureMessage } from "./traffic-failure-message";
 export type NotificationActionTone = "primary" | "secondary" | "destructive";
 
 export interface NotificationActionDescriptor {
+  diagnosticFailure?: string;
   id: string;
   label: string;
   tone?: NotificationActionTone;
@@ -95,7 +96,10 @@ function knownPresentation(
         toast: boolean("prompt") ? "present" : "never",
       };
     case "profile.activation-failed":
-      return { message: LL.profiles.activationFailed() };
+      return {
+        actions: [openDiagnosticsAction(LL, activationDiagnosticFailure(string("failure")))],
+        message: LL.profiles.activationFailed(),
+      };
     case "profile.activation-asn-failed":
     case "profile.activation-geoip-failed":
     case "profile.activation-geosite-failed":
@@ -174,7 +178,7 @@ function knownPresentation(
       return { message: LL.settingsPage.updateFailed() };
     case "status.operation-failed":
       return {
-        actions: [openDiagnosticsAction(LL)],
+        actions: [openDiagnosticsAction(LL, string("failure"))],
         message: LL.errors.command(),
       };
     case "system-proxy.drift":
@@ -202,7 +206,7 @@ function knownPresentation(
       };
     case "system-proxy.failed":
       return {
-        actions: [openDiagnosticsAction(LL)],
+        actions: [openDiagnosticsAction(LL, string("failure"))],
         message: systemProxyFailure(string("failure"), LL),
       };
     case "traffic.connection-closed":
@@ -274,8 +278,19 @@ function isTakeoverRejection(value: string | undefined) {
   ].includes(value ?? "");
 }
 
-function openDiagnosticsAction(LL: TranslationFunctions): NotificationActionDescriptor {
-  return { id: "open-diagnostics", label: LL.diagnostics.open() };
+function openDiagnosticsAction(
+  LL: TranslationFunctions,
+  diagnosticFailure?: string,
+): NotificationActionDescriptor {
+  return { diagnosticFailure, id: "open-diagnostics", label: LL.diagnostics.open() };
+}
+
+function activationDiagnosticFailure(failure: string | undefined) {
+  if (failure === "version-mismatch") return "version-drift";
+  if (failure === "capture") return "capture-drift";
+  if (failure === "invalid-profile") return "profile-invalid";
+  if (failure === "cancelled") return "cancelled";
+  return "core-unhealthy";
 }
 
 function openSystemProxySettingsAction(LL: TranslationFunctions): NotificationActionDescriptor {

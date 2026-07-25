@@ -1148,6 +1148,25 @@ const en = {
   },
   diagnostics: {
     cancel: "Cancel Run",
+    conclusion: {
+      capture: "System Proxy state needs attention. Review its observed state before retrying.",
+      core: "The managed core is not ready for route checks. Start or repair it, then run diagnostics again.",
+      dns: "The fixed endpoint could not be resolved. Check the current DNS connection, then run again.",
+      evidence: "Based on {count:number} supporting check(s).",
+      healthy: "No prioritized failure was found in this bounded run.",
+      profile:
+        "The active Profile context is not ready. Select or repair a valid Profile, then retry.",
+      proxy: "A safe scoped proxy observation is unavailable. Retry after the core reconnects.",
+      reachability:
+        "The fixed endpoint could not be reached on this route. Check connectivity, then retry.",
+      retry:
+        "This run ended before a stable result. Run diagnostics again for a new runtime context.",
+      running:
+        "Checking the current runtime. A conclusion will appear when the bounded run finishes.",
+      title: "What to do next",
+      unavailable:
+        "Some evidence is unavailable. No broader network claim is made; retry when the runtime is ready.",
+    },
     check: {
       capture: "Capture desired / observed",
       core: "Pinned core health and version",

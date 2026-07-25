@@ -1,3 +1,8 @@
+use std::sync::Arc;
+
+use mish_native_i18n::{NativeMessage, translate};
+use mish_presentation_contract::{Locale, NativeActionId};
+use mish_settings::{LanguagePreference, SettingsAdapterKind, SettingsService};
 use tauri::{
     Emitter,
     menu::{MenuItemBuilder, MenuItemKind, PredefinedMenuItem},
@@ -5,43 +10,100 @@ use tauri::{
 
 use crate::status_bar::show_main_window;
 
-const FIND_MENU_ID: &str = "application.find";
-const QUIT_MENU_ID: &str = "application.quit";
+const FIND_MENU_ID: &str = NativeActionId::ApplicationFind.as_str();
+const QUIT_MENU_ID: &str = NativeActionId::ApplicationQuit.as_str();
 pub(crate) const APPLICATION_MENU_ACCELERATORS: &[(&str, &str)] = &[
     ("application.find", "CmdOrCtrl+F"),
     ("application.quit", "CmdOrCtrl+Q"),
     ("application.settings", "CmdOrCtrl+,"),
 ];
 const QUIT_ACCELERATOR: &str = APPLICATION_MENU_ACCELERATORS[1].1;
-const SETTINGS_MENU_ID: &str = "application.settings";
+const SETTINGS_MENU_ID: &str = NativeActionId::ApplicationSettings.as_str();
 
-pub(crate) fn install<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+struct ApplicationMenuItems<R: tauri::Runtime> {
+    find: tauri::menu::MenuItem<R>,
+    settings: tauri::menu::MenuItem<R>,
+    quit: tauri::menu::MenuItem<R>,
+}
+
+impl<R: tauri::Runtime> Clone for ApplicationMenuItems<R> {
+    fn clone(&self) -> Self {
+        Self {
+            find: self.find.clone(),
+            settings: self.settings.clone(),
+            quit: self.quit.clone(),
+        }
+    }
+}
+
+pub(crate) fn install<R: tauri::Runtime>(
+    app: &tauri::App<R>,
+    settings_service: Arc<SettingsService>,
+) -> tauri::Result<()> {
+    // Attach before the initial read: updates published while the menu is constructed remain queued.
+    let (mut updates, initial) = settings_service.subscribe_with_snapshot(SettingsAdapterKind::Rpc);
+    let mut current_revision = initial.revision;
+    let items = install_for_locale(app, locale(initial.preferences.language))?;
+    let app_handle = app.handle().clone();
+    let settings = settings_service.clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let snapshot = match updates.recv().await {
+                Ok(snapshot) => snapshot,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    settings.snapshot(SettingsAdapterKind::Rpc)
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            };
+            if snapshot.revision <= current_revision {
+                continue;
+            }
+            current_revision = snapshot.revision;
+            let locale = locale(snapshot.preferences.language);
+            let items = items.clone();
+            let _ = app_handle.run_on_main_thread(move || apply_locale(&items, locale));
+        }
+    });
+    Ok(())
+}
+
+pub(crate) fn install_demo<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    let _ = install_for_locale(app, Locale::En)?;
+    Ok(())
+}
+
+fn install_for_locale<R: tauri::Runtime>(
+    app: &tauri::App<R>,
+    locale: Locale,
+) -> tauri::Result<ApplicationMenuItems<R>> {
     let Some(menu) = app.menu() else {
-        return Ok(());
+        return Err(std::io::Error::other("native application menu is unavailable").into());
     };
     let items = menu.items()?;
     let app_name = app.package_info().name.as_str();
-    let app_menu = find_submenu(&items, app_name);
-    let edit_menu = find_submenu(&items, "Edit");
-
-    if let Some(app_menu) = app_menu {
-        replace_native_quit(app, &app_menu, app_name)?;
-        let settings = MenuItemBuilder::with_id(SETTINGS_MENU_ID, "Settings…")
-            .accelerator(APPLICATION_MENU_ACCELERATORS[2].1)
-            .build(app)?;
-        let separator = PredefinedMenuItem::separator(app)?;
-        app_menu.insert_items(&[&settings, &separator], 2)?;
-    }
-
-    if let Some(edit_menu) = edit_menu {
-        let separator = PredefinedMenuItem::separator(app)?;
-        let find = MenuItemBuilder::with_id(FIND_MENU_ID, "Find…")
-            .accelerator(APPLICATION_MENU_ACCELERATORS[0].1)
-            .build(app)?;
-        edit_menu.append_items(&[&separator, &find])?;
-    }
-
-    Ok(())
+    let app_menu = find_submenu(&items, app_name)
+        .ok_or_else(|| std::io::Error::other("native application menu is unavailable"))?;
+    let edit_menu = find_submenu(&items, "Edit")
+        .ok_or_else(|| std::io::Error::other("native Edit menu is unavailable"))?;
+    let quit = replace_native_quit(app, &app_menu, locale)?;
+    let settings = MenuItemBuilder::with_id(
+        SETTINGS_MENU_ID,
+        tr(locale, NativeMessage::ApplicationSettings),
+    )
+    .accelerator(APPLICATION_MENU_ACCELERATORS[2].1)
+    .build(app)?;
+    let app_separator = PredefinedMenuItem::separator(app)?;
+    app_menu.insert_items(&[&settings, &app_separator], 2)?;
+    let edit_separator = PredefinedMenuItem::separator(app)?;
+    let find = MenuItemBuilder::with_id(FIND_MENU_ID, tr(locale, NativeMessage::ApplicationFind))
+        .accelerator(APPLICATION_MENU_ACCELERATORS[0].1)
+        .build(app)?;
+    edit_menu.append_items(&[&edit_separator, &find])?;
+    Ok(ApplicationMenuItems {
+        find,
+        settings,
+        quit,
+    })
 }
 
 pub(crate) fn handle_menu_event(app: &tauri::AppHandle, event: tauri::menu::MenuEvent) {
@@ -66,8 +128,8 @@ fn is_graceful_exit_menu_command(id: &str) -> bool {
 fn replace_native_quit<R: tauri::Runtime, M: tauri::Manager<R>>(
     manager: &M,
     app_menu: &tauri::menu::Submenu<R>,
-    app_name: &str,
-) -> tauri::Result<()> {
+    locale: Locale,
+) -> tauri::Result<tauri::menu::MenuItem<R>> {
     let items = app_menu.items()?;
     let quit_position = items.iter().rposition(|item| {
         item.as_predefined_menuitem()
@@ -78,10 +140,32 @@ fn replace_native_quit<R: tauri::Runtime, M: tauri::Manager<R>>(
         return Err(std::io::Error::other("native Quit menu item is unavailable").into());
     };
     app_menu.remove_at(quit_position)?;
-    let quit = MenuItemBuilder::with_id(QUIT_MENU_ID, format!("Quit {app_name}"))
+    let quit = MenuItemBuilder::with_id(QUIT_MENU_ID, tr(locale, NativeMessage::ApplicationQuit))
         .accelerator(QUIT_ACCELERATOR)
         .build(manager)?;
-    app_menu.insert(&quit, quit_position)
+    app_menu.insert(&quit, quit_position)?;
+    Ok(quit)
+}
+
+fn locale(language: LanguagePreference) -> Locale {
+    match language {
+        LanguagePreference::En => Locale::En,
+        LanguagePreference::Zh => Locale::ZhCn,
+    }
+}
+fn tr(locale: Locale, message: NativeMessage<'_>) -> String {
+    translate(locale, message)
+}
+fn apply_locale<R: tauri::Runtime>(items: &ApplicationMenuItems<R>, locale: Locale) {
+    let _ = items
+        .settings
+        .set_text(tr(locale, NativeMessage::ApplicationSettings));
+    let _ = items
+        .find
+        .set_text(tr(locale, NativeMessage::ApplicationFind));
+    let _ = items
+        .quit
+        .set_text(tr(locale, NativeMessage::ApplicationQuit));
 }
 
 fn is_native_quit_label(label: &str) -> bool {
@@ -128,5 +212,24 @@ mod tests {
                 "duplicate application accelerator: {accelerator}"
             );
         }
+    }
+
+    #[test]
+    fn application_menu_copy_is_complete_in_both_native_locales() {
+        assert_eq!(
+            tr(Locale::En, NativeMessage::ApplicationSettings),
+            "Settings…"
+        );
+        assert_eq!(
+            tr(Locale::ZhCn, NativeMessage::ApplicationSettings),
+            "设置…"
+        );
+        assert_eq!(tr(Locale::En, NativeMessage::ApplicationFind), "Find…");
+        assert_eq!(tr(Locale::ZhCn, NativeMessage::ApplicationFind), "查找…");
+        assert_eq!(tr(Locale::En, NativeMessage::ApplicationQuit), "Quit Mish");
+        assert_eq!(
+            tr(Locale::ZhCn, NativeMessage::ApplicationQuit),
+            "退出 Mish"
+        );
     }
 }

@@ -598,6 +598,7 @@ struct SupportDiagnostics {
 struct SupportDiagnosticRun {
     adapter_kind: StatusAdapterKind,
     checks: Vec<SupportDiagnosticCheck>,
+    conclusion: SupportDiagnosticConclusion,
     finished_at: Option<u64>,
     policy: SupportDiagnosticPolicy,
     profile_id: Option<String>,
@@ -605,6 +606,21 @@ struct SupportDiagnosticRun {
     started_at: u64,
     status: DiagnosticRunStatus,
     truncated_check_count: usize,
+}
+
+/// Stable, prose-free conclusion key shared with the guided-diagnostics priority order.
+#[derive(Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum SupportDiagnosticConclusion {
+    Capture,
+    Core,
+    Dns,
+    Healthy,
+    Profile,
+    Proxy,
+    Reachability,
+    Retry,
+    Unavailable,
 }
 
 #[derive(Serialize)]
@@ -956,6 +972,7 @@ fn summarize_run(sequence: usize, run: &DiagnosticRun) -> SupportDiagnosticRun {
             .take(SUPPORT_BUNDLE_CHECK_LIMIT)
             .map(summarize_check)
             .collect(),
+        conclusion: summarize_conclusion(run),
         finished_at: run.finished_at,
         policy: SupportDiagnosticPolicy {
             expected_http_status: run.policy.expected_http_status,
@@ -967,6 +984,46 @@ fn summarize_run(sequence: usize, run: &DiagnosticRun) -> SupportDiagnosticRun {
         started_at: run.started_at,
         status: run.status,
         truncated_check_count: run.checks.len().saturating_sub(SUPPORT_BUNDLE_CHECK_LIMIT),
+    }
+}
+
+fn summarize_conclusion(run: &DiagnosticRun) -> SupportDiagnosticConclusion {
+    if matches!(
+        run.status,
+        DiagnosticRunStatus::Cancelled | DiagnosticRunStatus::Invalidated
+    ) {
+        return SupportDiagnosticConclusion::Retry;
+    }
+    let failures = |failure| {
+        run.checks
+            .iter()
+            .any(|check| check.failure == Some(failure))
+    };
+    if failures(DiagnosticFailure::CaptureDrift) || failures(DiagnosticFailure::PermissionDenied) {
+        SupportDiagnosticConclusion::Capture
+    } else if failures(DiagnosticFailure::CoreUnhealthy)
+        || failures(DiagnosticFailure::VersionDrift)
+    {
+        SupportDiagnosticConclusion::Core
+    } else if failures(DiagnosticFailure::NoActiveProfile)
+        || failures(DiagnosticFailure::ProfileInvalid)
+    {
+        SupportDiagnosticConclusion::Profile
+    } else if failures(DiagnosticFailure::DnsFailed) {
+        SupportDiagnosticConclusion::Dns
+    } else if failures(DiagnosticFailure::EndpointUnreachable)
+        || failures(DiagnosticFailure::Timeout)
+    {
+        SupportDiagnosticConclusion::Reachability
+    } else if failures(DiagnosticFailure::ControllerDisconnected) {
+        SupportDiagnosticConclusion::Proxy
+    } else if failures(DiagnosticFailure::Unavailable) {
+        SupportDiagnosticConclusion::Unavailable
+    } else if failures(DiagnosticFailure::RuntimeReplaced) || failures(DiagnosticFailure::Cancelled)
+    {
+        SupportDiagnosticConclusion::Retry
+    } else {
+        SupportDiagnosticConclusion::Healthy
     }
 }
 
@@ -1286,6 +1343,10 @@ mod tests {
             SUPPORT_BUNDLE_EVENT_LIMIT
         );
         assert_eq!(manifest["events"]["truncatedCount"], 40);
+        assert_eq!(
+            manifest["diagnostics"]["runs"][0]["conclusion"],
+            "unavailable"
+        );
         assert_eq!(
             manifest["diagnostics"]["runs"].as_array().unwrap().len(),
             SUPPORT_BUNDLE_RUN_LIMIT

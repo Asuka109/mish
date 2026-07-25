@@ -1,0 +1,23 @@
+status:
+  open-mish: 打开 Mish
+  open-browser: 打开浏览器客户端
+  open-routes: 路由
+  open-profiles: 配置
+  open-traffic: 流量
+  open-events: 事件
+  open-settings: 设置
+  launch-proxy: 启动代理
+  launch-proxy-pending: 启动代理 — 等待中
+  launch-proxy-failed: 启动代理 — 失败
+  stop-proxy: 停止代理
+  auto-start-proxy: 应用启动时自动启动代理
+  quit: 退出 Mish
+  live:
+    idle: 空闲
+    unavailable: 不可用
+    most-active-node: ">> %{label}"
+    rate: "%{direction} %{rate}/秒 · %{total}"
+application:
+  settings: 设置…
+  find: 查找…
+  quit: 退出 Mish

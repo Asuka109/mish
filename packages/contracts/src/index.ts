@@ -1,4 +1,5 @@
 import * as z from "zod";
+export * from "./generated/presentation";
 
 const IdentifierSchema = z.string().min(1);
 const NonNegativeIntegerSchema = z.number().int().nonnegative();

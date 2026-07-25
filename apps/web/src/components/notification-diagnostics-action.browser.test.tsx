@@ -85,7 +85,7 @@ describe("notification diagnostics action", () => {
 
     await expect
       .element(page.getByLabelText("Current route"))
-      .toHaveTextContent("/events?diagnostics=1");
+      .toHaveTextContent("/events?diagnostics=1&failure=core-unhealthy");
     await vi.waitFor(() =>
       expect(document.querySelectorAll("[data-sonner-toast]")).toHaveLength(0),
     );

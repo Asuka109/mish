@@ -78,7 +78,8 @@ recorded in the lockfiles.
 | [Recharts](https://github.com/recharts/recharts)          | Bundled Status traffic sparkline                                   | MIT                       |
 | [Sonner](https://github.com/emilkowalski/sonner)          | In-application transient notifications                             | MIT                       |
 
-Rust application dependencies include Tauri, Tokio, Axum, Reqwest, Serde, and
+Rust application dependencies include Tauri, Tokio, Axum, Reqwest, Serde,
+[rust-i18n](https://github.com/longbridge/rust-i18n) (MIT), and
 their transitive dependency graphs under their declared licenses. Before public
 binary distribution, the exact target artifact needs a generated and reviewed
 license/notice collection rather than relying only on this summary. The
