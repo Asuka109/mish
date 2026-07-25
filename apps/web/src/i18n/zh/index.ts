@@ -973,7 +973,7 @@ const zh = {
     searchHelpDescription:
       "输入关键词可搜索当前显示的连接详情，也可以使用“字段:值”进行精确筛选。多个条件会同时生效。",
     searchHelpFields:
-      "可用字段：destination（目标）、process（进程）、rule（规则）、chain（路由链）、network（网络）、protocol（协议）和 state（状态）。",
+      "可用字段：destination（目标）、process（进程）、rule（规则）、chain（路由链）、provider（Provider 链）、network（网络）、protocol（协议）和 state（状态）。",
     showing: "显示 {total} 项中的 {visible} 项",
     sortDestination: "目标",
     sortDownload: "下载量",
