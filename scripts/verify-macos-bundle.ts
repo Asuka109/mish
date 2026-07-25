@@ -7,6 +7,16 @@ import {
   productionHelperRelativePath,
   verifyMacOsPrivilegedBundle,
 } from "./macos-privileged-bundle.ts";
+import {
+  collectSignedDirectBundleEntries,
+  collectSignedDirectSignature,
+  signedDirectApplicationIdentifier,
+  signedDirectMainExecutable,
+  signedDirectMihomoExecutable,
+  signedDirectMihomoIdentifier,
+  signedDirectSigningOrder,
+  verifySignedDirectEvidence,
+} from "./macos-signed-direct-policy.ts";
 
 const application = path.resolve(
   process.env.MISH_MACOS_APP_PATH ?? "target/release/bundle/macos/Mish.app",
@@ -28,10 +38,15 @@ const canonicalGplV3Sha256 = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6
 const production = process.env.MISH_MACOS_PACKAGE_MODE === "production";
 const productionFixture = process.env.MISH_MACOS_PACKAGE_MODE === "production-fixture";
 const alphaAdHoc = process.env.MISH_MACOS_PACKAGE_MODE === "alpha-ad-hoc";
+const signedDirect = process.env.MISH_MACOS_PACKAGE_MODE === "signed-direct";
+const signedDirectFixture = process.env.MISH_MACOS_PACKAGE_MODE === "signed-direct-fixture";
 const productionLayout = production || productionFixture;
 
-if (alphaAdHoc && productionLayout) {
-  throw new Error("The alpha-ad-hoc verifier cannot accept a production TUN layout");
+if (
+  [production, productionFixture, alphaAdHoc, signedDirect, signedDirectFixture].filter(Boolean)
+    .length !== 1
+) {
+  throw new Error("Bundle verification requires exactly one explicit macOS package mode");
 }
 
 function command(program: string, arguments_: string[]) {
@@ -221,10 +236,72 @@ if (productionLayout) {
 execFileSync("codesign", ["--verify", "--strict", bundledMihomo], {
   stdio: "inherit",
 });
+if (signedDirect || signedDirectFixture) {
+  const teamIdentifier = process.env.MISH_EXPECTED_APPLE_TEAM_IDENTIFIER;
+  const identity = process.env.APPLE_SIGNING_IDENTITY;
+  if (!teamIdentifier || !identity) {
+    throw new Error("signed-direct verification requires protected identity and team inputs");
+  }
+  const requirement = (signingIdentifier: string) =>
+    `anchor apple generic and identifier "${signingIdentifier}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${teamIdentifier}"`;
+  const developerIdRequirements = [
+    [requirement(signedDirectMihomoIdentifier), bundledMihomo],
+    [requirement(signedDirectApplicationIdentifier), application],
+  ] as const;
+  for (const [developerIdRequirement, artifact] of developerIdRequirements) {
+    const arguments_ = [
+      "--verify",
+      ...(artifact === application ? ["--deep"] : []),
+      "--strict",
+      "-R",
+      developerIdRequirement,
+      artifact,
+    ];
+    if (signedDirect) {
+      execFileSync("codesign", arguments_, { stdio: "inherit" });
+    } else if (spawnSync("codesign", arguments_, { stdio: "ignore" }).status === 0) {
+      throw new Error(`Credential-free fixture unexpectedly satisfied Developer ID: ${artifact}`);
+    }
+  }
+  const runtimeEvidence = JSON.parse(command(executable, ["--release-profile-evidence"])) as {
+    profile?: unknown;
+    tun?: unknown;
+  };
+  if (runtimeEvidence.profile !== "signed-direct") {
+    throw new Error("signed-direct executable reports an unexpected release profile");
+  }
+  const signatures = [
+    collectSignedDirectSignature(bundledMihomo, signedDirectMihomoExecutable),
+    collectSignedDirectSignature(application, "Mish.app"),
+  ];
+  if (signedDirectFixture) {
+    for (const signature of signatures) {
+      signature.identity = "Developer ID Application: Mish Fixture (ABCDE12345)";
+      signature.teamIdentifier = "ABCDE12345";
+    }
+  }
+  verifySignedDirectEvidence({
+    advertisedTun: runtimeEvidence.tun !== "unavailable",
+    entries: await collectSignedDirectBundleEntries(application),
+    expectedIdentity: {
+      identity: signedDirectFixture
+        ? "Developer ID Application: Mish Fixture (ABCDE12345)"
+        : identity,
+      teamIdentifier,
+    },
+    signatures,
+    signingOrder: [...signedDirectSigningOrder],
+  });
+  if (
+    path.relative(application, executable).split(path.sep).join("/") !== signedDirectMainExecutable
+  ) {
+    throw new Error("signed-direct main executable path changed unexpectedly");
+  }
+}
 execFileSync("codesign", ["--verify", "--deep", "--strict", application], {
   stdio: "inherit",
 });
 
 console.log(
-  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : "no TUN helper"}`,
+  `Verified ${application}: ${identifier}, ARM64, Mihomo v1.19.29, ${geodataManifest.assets.length} pinned GeoData assets, ${sourceWebFiles.length} offline Web files, GPL notices, ${production ? "production TUN gate" : productionFixture ? "credential-free negative production TUN fixture" : alphaAdHoc ? "alpha-ad-hoc System Proxy-only" : signedDirectFixture ? "credential-free signed-direct identity/layout fixture" : "signed-direct Developer ID System Proxy-only"}`,
 );

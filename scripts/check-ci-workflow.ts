@@ -148,6 +148,11 @@ invariant(
   packageJson.scripts?.["check:pr"] === expectedPrValidation,
   "check:pr must stay bounded to fast static, style-source, TypeScript, unit, format, token, and documentation checks.",
 );
+invariant(
+  packageJson.scripts?.["test:unit"]?.includes("pnpm test:scripts") &&
+    packageJson.scripts?.["test:scripts"]?.includes("macos-signed-direct-policy.test.ts"),
+  "The Fast PR gate must execute the credential-free signed-direct policy and package fixture.",
+);
 
 const inspectMain = job("inspect-main");
 invariant(inspectMain.if === inspectionOnly, "Heavy validation must be inspection-only.");
@@ -186,6 +191,15 @@ invariant(upload.id === "package-upload", "The upload step must expose traceable
 invariant(upload.uses === "actions/upload-artifact@v7", "Packaging must use upload-artifact v7.");
 invariant(upload.if === packageTrigger, "Artifact upload must follow the bounded package trigger.");
 invariant(upload.with?.["retention-days"] === 14, "The package must be retained for 14 days.");
+invariant(
+  step(packageMacos, "Build and verify application bundle").run === "pnpm desktop:build:macos",
+  "Routine macOS packaging must use the explicit alpha-ad-hoc command.",
+);
+invariant(
+  packageJson.scripts?.["desktop:build:macos"] ===
+    "node scripts/build-macos-bundle.ts --profile alpha-ad-hoc",
+  "Routine macOS packaging must select alpha-ad-hoc independently from signing secrets.",
+);
 
 for (const [jobName, candidateJob] of Object.entries(workflow.jobs ?? {})) {
   if (jobName === "package-macos" || jobName === "package-android") continue;
@@ -197,8 +211,6 @@ for (const [jobName, candidateJob] of Object.entries(workflow.jobs ?? {})) {
   );
 }
 
-const signing = step(packageMacos, "Configure Apple signing");
-const signingScript = signing.run ?? "";
 const signingSecrets = [
   "MISH_APPLE_CERTIFICATE_BASE64",
   "MISH_APPLE_CERTIFICATE_PASSWORD",
@@ -209,29 +221,13 @@ const signingSecrets = [
 ];
 for (const secret of signingSecrets) {
   invariant(
-    packageMacos.env?.[secret] === `\${{ secrets.${secret} }}`,
-    `${secret} must come directly from its matching GitHub secret.`,
+    !source.includes(`secrets.${secret}`),
+    `Routine CI must not read protected signed-release input ${secret}.`,
   );
-  invariant(signingScript.includes(secret), `The signing gate must count ${secret}.`);
 }
 invariant(
-  signingScript.includes('"$present" -ne 0 && "$present" -ne "${#values[@]}"'),
-  "Partial Apple signing secrets must fail closed.",
-);
-invariant(
-  signingScript.includes("umask 077"),
-  "Temporary signing files must default to mode 0600.",
-);
-invariant(
-  signingScript.includes('chmod 600 "$certificate" "$notary_key"'),
-  "The temporary certificate and notary key must be explicitly mode 0600.",
-);
-
-const cleanup = step(packageMacos, "Remove temporary signing material");
-invariant(cleanup.if === "always()", "Temporary signing material must always be cleaned up.");
-invariant(
-  cleanup.run?.includes("mish-developer-id.p12") && cleanup.run.includes("AuthKey_*.p8"),
-  "Cleanup must cover the temporary certificate and notary key.",
+  !packageMacos.steps?.some((candidate) => candidate.name === "Configure Apple signing"),
+  "Routine CI must not infer a release profile from Apple signing inputs.",
 );
 
 const archive = step(packageMacos, "Create app archive");
@@ -255,6 +251,7 @@ for (const field of [
   "App ID",
   "Architecture",
   "Mihomo version",
+  "Release profile",
   "Signing mode",
   "Notarized",
   "Archive SHA-256",
@@ -265,6 +262,12 @@ for (const field of [
 invariant(
   summarySource.includes("steps.package-upload.outputs.artifact-id"),
   "The package summary must use upload-artifact's real artifact ID output.",
+);
+invariant(
+  summarySource.includes("alpha-ad-hoc") &&
+    summarySource.includes("ad-hoc") &&
+    summarySource.includes("Notarized"),
+  "The routine package summary must report the explicit unnotarized Alpha profile.",
 );
 invariant(
   !summarySource.includes("MISH_APPLE_") && !summarySource.includes("APPLE_API_"),

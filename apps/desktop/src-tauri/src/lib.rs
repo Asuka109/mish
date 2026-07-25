@@ -62,6 +62,7 @@ const DEV_ORIGIN_ENV: &str = "MISH_DEV_ORIGIN";
 const DESKTOP_DEMO_ENV: &str = "MISH_DESKTOP_DEMO";
 const DEVTOOLS_ENV: &str = "MISH_DEVTOOLS";
 const DEVTOOLS_ARGUMENT: &str = "--devtools";
+const RELEASE_PROFILE_EVIDENCE_ARGUMENT: &str = "--release-profile-evidence";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
 const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
 
@@ -165,6 +166,13 @@ struct RuntimeBootstrap {
     rpc_url: String,
     settings_snapshot: SettingsSnapshot,
     support_bundle_export: bool,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseProfileEvidence {
+    profile: &'static str,
+    tun: SettingsAvailability,
 }
 
 struct MainWindowStartup {
@@ -614,11 +622,18 @@ fn invalidate_pending<T>(pending: &Mutex<Option<T>>) -> Result<(), LocalBackupCo
 }
 
 pub fn run() -> Result<i32, String> {
-    let startup_options = StartupOptions::parse(
-        std::env::args_os(),
-        std::env::var_os(DEVTOOLS_ENV).as_deref(),
-    )
-    .map_err(|error| error.to_string())?;
+    let arguments = std::env::args_os().collect::<Vec<_>>();
+    if arguments.len() == 2 && arguments[1] == OsStr::new(RELEASE_PROFILE_EVIDENCE_ARGUMENT) {
+        println!(
+            "{}",
+            serde_json::to_string(&release_profile_evidence())
+                .map_err(|_| "release profile evidence is unavailable")?
+        );
+        return Ok(0);
+    }
+    let startup_options =
+        StartupOptions::parse(arguments, std::env::var_os(DEVTOOLS_ENV).as_deref())
+            .map_err(|error| error.to_string())?;
     let mut context = tauri::generate_context!();
     let open_devtools = configure_main_webview(&mut context, startup_options)?;
     if desktop_demo_requested(
@@ -1227,13 +1242,28 @@ fn production_team_identifier() -> Option<&'static str> {
     )
 }
 
+fn release_profile_evidence() -> ReleaseProfileEvidence {
+    let profile = option_env!("MISH_MACOS_RELEASE_PROFILE").unwrap_or("development");
+    ReleaseProfileEvidence {
+        profile,
+        tun: if production_team_identifier().is_some() {
+            SettingsAvailability::Supported
+        } else {
+            SettingsAvailability::Unavailable
+        },
+    }
+}
+
 fn production_team_identifier_for_profile(
     release_profile: Option<&'static str>,
     team_identifier: Option<&'static str>,
 ) -> Option<&'static str> {
-    (release_profile != Some("alpha-ad-hoc"))
-        .then_some(team_identifier.filter(|team| !team.is_empty()))
-        .flatten()
+    matches!(
+        release_profile,
+        Some("tun-production") | Some("tun-production-fixture")
+    )
+    .then_some(team_identifier.filter(|team| !team.is_empty()))
+    .flatten()
 }
 
 fn platform_lifecycle_event_source()
@@ -1736,9 +1766,9 @@ mod tests {
         SUPPORT_BUNDLE_MAX_BYTES, StartupOptions, SupportBundleSaveStatus, allowed_origins,
         atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
         generate_auth_token, invalidate_pending, main_window_close_action, managed_mihomo_resolver,
-        production_team_identifier_for_profile, read_local_backup, resolve_devtools_behavior,
-        save_support_bundle_selection, should_intercept_exit_request, should_show_main_window,
-        validate_development_mihomo_environment,
+        production_team_identifier_for_profile, read_local_backup, release_profile_evidence,
+        resolve_devtools_behavior, save_support_bundle_selection, should_intercept_exit_request,
+        should_show_main_window, validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
     use mish_settings::{LoginLaunchBehavior, WindowCloseBehavior};
@@ -1876,14 +1906,35 @@ mod tests {
     }
 
     #[test]
-    fn alpha_ad_hoc_profile_cannot_enable_the_production_tun_capability() {
+    fn only_an_explicit_tun_production_profile_can_enable_the_production_tun_capability() {
+        for release_profile in [None, Some("alpha-ad-hoc"), Some("signed-direct")] {
+            assert_eq!(
+                production_team_identifier_for_profile(release_profile, Some("ABCDE12345")),
+                None
+            );
+        }
         assert_eq!(
-            production_team_identifier_for_profile(Some("alpha-ad-hoc"), Some("ABCDE12345")),
-            None
-        );
-        assert_eq!(
-            production_team_identifier_for_profile(None, Some("ABCDE12345")),
+            production_team_identifier_for_profile(
+                Some("tun-production-fixture"),
+                Some("ABCDE12345")
+            ),
             Some("ABCDE12345")
+        );
+    }
+
+    #[test]
+    fn packaged_release_profile_evidence_cannot_infer_tun_from_a_signing_team() {
+        let evidence = release_profile_evidence();
+        assert_eq!(
+            evidence.tun,
+            if matches!(
+                evidence.profile,
+                "tun-production" | "tun-production-fixture"
+            ) {
+                mish_settings::SettingsAvailability::Supported
+            } else {
+                mish_settings::SettingsAvailability::Unavailable
+            }
         );
     }
 
