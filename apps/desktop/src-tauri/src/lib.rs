@@ -640,7 +640,7 @@ fn run_demo(context: tauri::Context<tauri::Wry>) -> Result<i32, String> {
                 window.set_title("Mish Demo")?;
             }
             if cfg!(target_os = "macos") {
-                native_menu::install(app)?;
+                native_menu::install_demo(app)?;
             }
             Ok(())
         })
@@ -1022,7 +1022,7 @@ fn initialize(
         .lock()
         .map_err(|_| io::Error::other("desktop bridge state is unavailable"))? = Some(bridge);
     if cfg!(target_os = "macos") {
-        native_menu::install(app)?;
+        native_menu::install(app, settings_service.clone())?;
         status_bar::initialize(app, status_bar_state)?;
     }
     if settings_service

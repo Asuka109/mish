@@ -7,11 +7,13 @@ use mish_bridge::{
     BrowserClientHandle, DesktopRuntimeHost, ProfileActivationAvailability,
     ProfileActivationCoordinator, ProfileActivationPhase, ProfileActivationSnapshot,
 };
+use mish_native_i18n::{NativeMessage, translate};
 use mish_platform_macos::{open_browser_url, show_browser_open_error, show_proxy_launch_error};
+use mish_presentation_contract::{Locale, NativeActionId};
 use mish_runtime::{
     CaptureRequest, StatusAdapterKind, StatusSnapshot, TrafficDataPhase, TrafficSnapshot,
 };
-use mish_settings::{SettingsAdapterKind, SettingsService};
+use mish_settings::{LanguagePreference, SettingsAdapterKind, SettingsService, SettingsSnapshot};
 use tauri::{
     Emitter, Manager,
     menu::{
@@ -25,16 +27,17 @@ use uuid::Uuid;
 use crate::route_activity_summary::RouteActivitySummaryHandle;
 
 const TRAY_ID: &str = "mish-status-bar";
-const OPEN_MISH_ID: &str = "status-bar.open-mish";
-const OPEN_BROWSER_ID: &str = "status-bar.open-browser";
-const OPEN_ROUTES_ID: &str = "status-bar.open-routes";
-const OPEN_PROFILES_ID: &str = "status-bar.open-profiles";
-const OPEN_TRAFFIC_ID: &str = "status-bar.open-traffic";
-const OPEN_EVENTS_ID: &str = "status-bar.open-events";
-const OPEN_SETTINGS_ID: &str = "status-bar.open-settings";
-const TOGGLE_PROXY_ID: &str = "status-bar.toggle-proxy";
-const TOGGLE_LAUNCH_ON_START_ID: &str = "status-bar.toggle-launch-on-start";
-const QUIT_ID: &str = "status-bar.quit";
+const OPEN_MISH_ID: &str = NativeActionId::StatusBarOpenMish.as_str();
+const OPEN_BROWSER_ID: &str = NativeActionId::StatusBarOpenBrowser.as_str();
+const OPEN_ROUTES_ID: &str = NativeActionId::StatusBarOpenRoutes.as_str();
+const OPEN_PROFILES_ID: &str = NativeActionId::StatusBarOpenProfiles.as_str();
+const OPEN_TRAFFIC_ID: &str = NativeActionId::StatusBarOpenTraffic.as_str();
+const OPEN_EVENTS_ID: &str = NativeActionId::StatusBarOpenEvents.as_str();
+const OPEN_SETTINGS_ID: &str = NativeActionId::StatusBarOpenSettings.as_str();
+const TOGGLE_PROXY_ID: &str = NativeActionId::StatusBarToggleProxy.as_str();
+const TOGGLE_LAUNCH_ON_START_ID: &str = NativeActionId::StatusBarToggleLaunchOnStart.as_str();
+const QUIT_ID: &str = NativeActionId::StatusBarQuit.as_str();
+#[cfg(test)]
 const AUTO_START_PROXY_LABEL: &str = "Auto-start proxy on app launch";
 const STATUS_BAR_MENU_ACCELERATORS: &[(&str, &str)] = &[
     (TOGGLE_PROXY_ID, "CmdOrCtrl+Shift+P"),
@@ -78,16 +81,21 @@ impl StatusBarState {
     }
 
     async fn model(&self) -> StatusBarModel {
+        let settings = self.settings.snapshot(SettingsAdapterKind::Rpc);
+        self.model_for_settings(&settings).await
+    }
+
+    async fn model_for_settings(&self, settings: &SettingsSnapshot) -> StatusBarModel {
         let (status, traffic) = self.runtime.native_traffic_handoff().await;
         self.traffic_observations.observe(&status, &traffic);
         let activation = self.activation.activation_snapshot().await;
-        let launch_on_start = self
-            .settings
-            .snapshot(SettingsAdapterKind::Rpc)
-            .preferences
-            .startup
-            .launch_proxy_when_mish_launches;
-        StatusBarModel::new(&status, &activation, launch_on_start)
+        StatusBarModel::new(
+            &status,
+            &activation,
+            settings.preferences.startup.launch_proxy_when_mish_launches,
+            locale(settings.preferences.language),
+            settings.revision,
+        )
     }
 
     async fn model_with_capture(
@@ -102,13 +110,14 @@ impl StatusBarState {
         status.runtime.tun_enabled = capture.tun_enabled;
         self.traffic_observations.observe(&status, &traffic);
         let activation = self.activation.activation_snapshot().await;
-        let launch_on_start = self
-            .settings
-            .snapshot(SettingsAdapterKind::Rpc)
-            .preferences
-            .startup
-            .launch_proxy_when_mish_launches;
-        StatusBarModel::new(&status, &activation, launch_on_start)
+        let settings = self.settings.snapshot(SettingsAdapterKind::Rpc);
+        StatusBarModel::new(
+            &status,
+            &activation,
+            settings.preferences.startup.launch_proxy_when_mish_launches,
+            locale(settings.preferences.language),
+            settings.revision,
+        )
     }
 }
 
@@ -159,7 +168,7 @@ impl NativeTrafficObservations {
         }
     }
 
-    fn live_status_at(&self, observed_at: Duration) -> LiveStatusModel {
+    fn live_status_at(&self, observed_at: Duration, locale: Locale) -> LiveStatusModel {
         let latest = self
             .latest
             .lock()
@@ -169,21 +178,28 @@ impl NativeTrafficObservations {
         LiveStatusModel {
             visible: latest.proxy_running,
             most_active_node: match (available, self.handle.summary_at(observed_at)) {
-                (true, Some(summary)) => format!(">> {}", summary.label),
-                (true, None) => ">> Idle".into(),
-                (false, _) => ">> Unavailable".into(),
+                (true, Some(summary)) => translate(
+                    locale,
+                    NativeMessage::StatusLiveMostActiveNode {
+                        label: &summary.label,
+                    },
+                ),
+                (true, None) => live_label(locale, NativeMessage::StatusLiveIdle),
+                (false, _) => live_label(locale, NativeMessage::StatusLiveUnavailable),
             },
             download: rate_title(
                 "⬇️",
                 latest.rates.downloaded_bytes,
                 latest.rates.download_bytes_per_second,
                 available,
+                locale,
             ),
             upload: rate_title(
                 "⬆️",
                 latest.rates.uploaded_bytes,
                 latest.rates.upload_bytes_per_second,
                 available,
+                locale,
             ),
         }
     }
@@ -194,12 +210,36 @@ struct StatusMenuModel {
     launch_on_start: bool,
     live_status_visible: bool,
     proxy_enabled: bool,
-    proxy_title: &'static str,
+    proxy_title: String,
+    labels: StatusLabels,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StatusLabels {
+    open: String,
+    routes: String,
+    profiles: String,
+    traffic: String,
+    events: String,
+    settings: String,
+    browser: String,
+    auto_start: String,
+    quit: String,
+    unavailable: String,
+}
+
+#[derive(Clone)]
 struct StatusMenuItems {
     menu: Menu<tauri::Wry>,
     proxy: MenuItem<tauri::Wry>,
+    open: MenuItem<tauri::Wry>,
+    routes: MenuItem<tauri::Wry>,
+    profiles: MenuItem<tauri::Wry>,
+    traffic: MenuItem<tauri::Wry>,
+    events: MenuItem<tauri::Wry>,
+    settings: MenuItem<tauri::Wry>,
+    browser: MenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
     most_active_node: MenuItem<tauri::Wry>,
     download: MenuItem<tauri::Wry>,
     live_status_separator: PredefinedMenuItem<tauri::Wry>,
@@ -207,6 +247,7 @@ struct StatusMenuItems {
     upload: MenuItem<tauri::Wry>,
 }
 
+#[derive(Clone)]
 struct StatusBarItems {
     menu: StatusMenuItems,
     tray: TrayIcon<tauri::Wry>,
@@ -214,9 +255,18 @@ struct StatusBarItems {
 
 impl StatusMenuItems {
     fn apply(&self, previous: &StatusMenuModel, next: &StatusMenuModel) -> tauri::Result<()> {
-        self.proxy.set_text(next.proxy_title)?;
+        self.proxy.set_text(&next.proxy_title)?;
         self.proxy.set_enabled(next.proxy_enabled)?;
         self.launch_on_start.set_checked(next.launch_on_start)?;
+        self.open.set_text(&next.labels.open)?;
+        self.routes.set_text(&next.labels.routes)?;
+        self.profiles.set_text(&next.labels.profiles)?;
+        self.traffic.set_text(&next.labels.traffic)?;
+        self.events.set_text(&next.labels.events)?;
+        self.settings.set_text(&next.labels.settings)?;
+        self.browser.set_text(&next.labels.browser)?;
+        self.launch_on_start.set_text(&next.labels.auto_start)?;
+        self.quit.set_text(&next.labels.quit)?;
         if previous.live_status_visible == next.live_status_visible {
             return Ok(());
         }
@@ -250,12 +300,25 @@ impl StatusMenuModel {
         status: &StatusSnapshot,
         activation: &ProfileActivationSnapshot,
         launch_on_start: bool,
+        locale: Locale,
     ) -> Self {
         Self {
             launch_on_start,
             live_status_visible: status.runtime.system_proxy_enabled || status.runtime.tun_enabled,
-            proxy_title: proxy_title(status, activation),
+            proxy_title: proxy_title(status, activation, locale),
             proxy_enabled: proxy_enabled(status, activation),
+            labels: StatusLabels {
+                open: tr(locale, NativeMessage::StatusOpenMish),
+                routes: tr(locale, NativeMessage::StatusOpenRoutes),
+                profiles: tr(locale, NativeMessage::StatusOpenProfiles),
+                traffic: tr(locale, NativeMessage::StatusOpenTraffic),
+                events: tr(locale, NativeMessage::StatusOpenEvents),
+                settings: tr(locale, NativeMessage::StatusOpenSettings),
+                browser: tr(locale, NativeMessage::StatusOpenBrowser),
+                auto_start: tr(locale, NativeMessage::StatusAutoStartProxy),
+                quit: tr(locale, NativeMessage::StatusQuit),
+                unavailable: tr(locale, NativeMessage::StatusLiveUnavailable),
+            },
         }
     }
 }
@@ -264,6 +327,8 @@ impl StatusMenuModel {
 struct StatusBarModel {
     menu: StatusMenuModel,
     icon_active: bool,
+    locale: Locale,
+    language_revision: u64,
 }
 
 impl StatusBarModel {
@@ -271,10 +336,14 @@ impl StatusBarModel {
         status: &StatusSnapshot,
         activation: &ProfileActivationSnapshot,
         launch_on_start: bool,
+        locale: Locale,
+        language_revision: u64,
     ) -> Self {
         Self {
-            menu: StatusMenuModel::new(status, activation, launch_on_start),
+            menu: StatusMenuModel::new(status, activation, launch_on_start, locale),
             icon_active: status.runtime.system_proxy_enabled || status.runtime.tun_enabled,
+            locale,
+            language_revision,
         }
     }
 }
@@ -289,7 +358,10 @@ pub(crate) fn initialize(
     app: &tauri::App,
     state: StatusBarState,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let model = tauri::async_runtime::block_on(state.model());
+    let (settings_updates, initial_settings) = state
+        .settings
+        .subscribe_with_snapshot(SettingsAdapterKind::Rpc);
+    let model = tauri::async_runtime::block_on(state.model_for_settings(&initial_settings));
     let menu = build_menu(app, &model.menu)?;
     let handler_state = state.clone();
     let tray = TrayIconBuilder::with_id(TRAY_ID)
@@ -304,8 +376,9 @@ pub(crate) fn initialize(
     let tray = tray.build(app)?;
     let items = StatusBarItems { menu, tray };
 
+    let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
-        watch_status_menu(state, model, items).await;
+        watch_status_menu(state, model, items, app_handle, settings_updates).await;
     });
     Ok(())
 }
@@ -444,22 +517,33 @@ async fn watch_status_menu(
     state: StatusBarState,
     mut current_model: StatusBarModel,
     items: StatusBarItems,
+    app: tauri::AppHandle,
+    mut settings_updates: tokio::sync::broadcast::Receiver<SettingsSnapshot>,
 ) {
     let mut runtime_changes = state.runtime.subscribe_changes();
     let mut status_updates = runtime_changes.borrow_and_update().subscribe_status();
     let mut capture_updates = runtime_changes.borrow().subscribe_capture();
     let mut activation_updates = state.activation.subscribe();
-    let mut settings_updates = state.settings.subscribe();
     let mut refresh = tokio::time::interval(Duration::from_secs(1));
-    let mut current_live = state.traffic_observations.live_status_at(Duration::ZERO);
-    let _ = items.menu.apply_live_status(&current_live);
+    let mut current_live = state
+        .traffic_observations
+        .live_status_at(Duration::ZERO, current_model.locale);
+    let menu = items.menu.clone();
+    let live_for_menu = current_live.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = menu.apply_live_status(&live_for_menu);
+    });
 
     loop {
         tokio::select! {
             _ = refresh.tick() => {
-                let next_live = state.traffic_observations.live_status_at(state.traffic_observations.origin.elapsed());
+                let next_live = state.traffic_observations.live_status_at(state.traffic_observations.origin.elapsed(), current_model.locale);
                 if next_live != current_live {
-                    let _ = items.menu.apply_live_status(&next_live);
+                    let menu = items.menu.clone();
+                    let live_for_menu = next_live.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        let _ = menu.apply_live_status(&live_for_menu);
+                    });
                     current_live = next_live;
                 }
                 continue;
@@ -490,14 +574,25 @@ async fn watch_status_menu(
                 if update.menu_changed {
                     let previous_menu = current_model.menu.clone();
                     current_model.menu = next_model.menu.clone();
-                    let _ = items.menu.apply(&previous_menu, &current_model.menu);
+                    let next_menu = current_model.menu.clone();
+                    let menu = items.menu.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        let _ = menu.apply(&previous_menu, &next_menu);
+                    });
                 }
                 if update.icon_changed {
                     current_model.icon_active = next_model.icon_active;
-                    let _ = items
-                        .tray
-                        .set_icon_with_as_template(Some(status_bar_icon(current_model.icon_active)), true);
+                    let tray = items.tray.clone();
+                    let icon_active = current_model.icon_active;
+                    let _ = app.run_on_main_thread(move || {
+                        let _ = tray.set_icon_with_as_template(
+                            Some(status_bar_icon(icon_active)),
+                            true,
+                        );
+                    });
                 }
+                current_model.locale = next_model.locale;
+                current_model.language_revision = next_model.language_revision;
                 continue;
             }
             update = activation_updates.recv() => {
@@ -506,9 +601,34 @@ async fn watch_status_menu(
                 }
             }
             update = settings_updates.recv() => {
-                if update.is_err() && settings_updates.is_closed() {
-                    break;
+                let snapshot = match update {
+                    Ok(snapshot) => snapshot,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        state.settings.snapshot(SettingsAdapterKind::Rpc)
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                };
+                if !is_newer_language_revision(current_model.language_revision, snapshot.revision) {
+                    continue;
                 }
+                // AppKit owns menu mutation; dispatch locale-driven handle updates to Tauri's main thread.
+                let next_model = state.model_for_settings(&snapshot).await;
+                let previous = current_model.menu.clone();
+                current_model = next_model;
+                let next_menu = current_model.menu.clone();
+                let menu = items.menu.clone();
+                let tray = items.tray.clone();
+                let icon_active = current_model.icon_active;
+                let _ = app.run_on_main_thread(move || {
+                    let _ = menu.apply(&previous, &next_menu);
+                    let _ = tray.set_icon_with_as_template(Some(status_bar_icon(icon_active)), true);
+                });
+                let next_live = state.traffic_observations.live_status_at(state.traffic_observations.origin.elapsed(), current_model.locale);
+                let menu = items.menu.clone();
+                let live_for_menu = next_live.clone();
+                let _ = app.run_on_main_thread(move || { let _ = menu.apply_live_status(&live_for_menu); });
+                current_live = next_live;
+                continue;
             }
         }
         let next_model = state.model().await;
@@ -516,19 +636,32 @@ async fn watch_status_menu(
         if update.menu_changed {
             let previous_menu = current_model.menu.clone();
             current_model.menu = next_model.menu.clone();
-            let _ = items.menu.apply(&previous_menu, &current_model.menu);
+            let next_menu = current_model.menu.clone();
+            let menu = items.menu.clone();
+            let _ = app.run_on_main_thread(move || {
+                let _ = menu.apply(&previous_menu, &next_menu);
+            });
         }
         if update.icon_changed {
             current_model.icon_active = next_model.icon_active;
-            let _ = items
-                .tray
-                .set_icon_with_as_template(Some(status_bar_icon(current_model.icon_active)), true);
+            let tray = items.tray.clone();
+            let icon_active = current_model.icon_active;
+            let _ = app.run_on_main_thread(move || {
+                let _ = tray.set_icon_with_as_template(Some(status_bar_icon(icon_active)), true);
+            });
         }
-        let next_live = state
-            .traffic_observations
-            .live_status_at(state.traffic_observations.origin.elapsed());
+        current_model.locale = next_model.locale;
+        current_model.language_revision = next_model.language_revision;
+        let next_live = state.traffic_observations.live_status_at(
+            state.traffic_observations.origin.elapsed(),
+            current_model.locale,
+        );
         if next_live != current_live {
-            let _ = items.menu.apply_live_status(&next_live);
+            let menu = items.menu.clone();
+            let live_for_menu = next_live.clone();
+            let _ = app.run_on_main_thread(move || {
+                let _ = menu.apply_live_status(&live_for_menu);
+            });
             current_live = next_live;
         }
     }
@@ -541,48 +674,53 @@ fn status_bar_update(current: &StatusBarModel, next: &StatusBarModel) -> StatusB
     }
 }
 
+fn is_newer_language_revision(current: u64, next: u64) -> bool {
+    next > current
+}
+
 fn build_menu<M: Manager<tauri::Wry>>(
     manager: &M,
     model: &StatusMenuModel,
 ) -> tauri::Result<StatusMenuItems> {
-    let open = MenuItemBuilder::with_id(OPEN_MISH_ID, "Open Mish")
+    let open = MenuItemBuilder::with_id(OPEN_MISH_ID, &model.labels.open)
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[1].1)
         .build(manager)?;
-    let proxy = MenuItemBuilder::with_id(TOGGLE_PROXY_ID, model.proxy_title)
+    let proxy = MenuItemBuilder::with_id(TOGGLE_PROXY_ID, &model.proxy_title)
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[0].1)
         .enabled(model.proxy_enabled)
         .build(manager)?;
-    let most_active_node = MenuItemBuilder::new(">> Unavailable")
+    let most_active_node = MenuItemBuilder::new(format!(">> {}", model.labels.unavailable))
         .enabled(false)
         .build(manager)?;
-    let download = MenuItemBuilder::new("⬇️ Unavailable")
+    let download = MenuItemBuilder::new(format!("⬇️ {}", model.labels.unavailable))
         .enabled(false)
         .build(manager)?;
-    let upload = MenuItemBuilder::new("⬆️ Unavailable")
+    let upload = MenuItemBuilder::new(format!("⬆️ {}", model.labels.unavailable))
         .enabled(false)
         .build(manager)?;
     let live_status_separator = PredefinedMenuItem::separator(manager)?;
-    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, "Routes")
+    let routes = MenuItemBuilder::with_id(OPEN_ROUTES_ID, &model.labels.routes)
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[2].1)
         .build(manager)?;
-    let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, "Profiles")
+    let profiles = MenuItemBuilder::with_id(OPEN_PROFILES_ID, &model.labels.profiles)
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[3].1)
         .build(manager)?;
-    let traffic_destination = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, "Traffic")
+    let traffic_destination = MenuItemBuilder::with_id(OPEN_TRAFFIC_ID, &model.labels.traffic)
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[4].1)
         .build(manager)?;
-    let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, "Events")
+    let events = MenuItemBuilder::with_id(OPEN_EVENTS_ID, &model.labels.events)
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[5].1)
         .build(manager)?;
-    let settings = MenuItemBuilder::with_id(OPEN_SETTINGS_ID, "Settings").build(manager)?;
-    let browser = MenuItemBuilder::with_id(OPEN_BROWSER_ID, "Open Browser Client")
+    let settings =
+        MenuItemBuilder::with_id(OPEN_SETTINGS_ID, &model.labels.settings).build(manager)?;
+    let browser = MenuItemBuilder::with_id(OPEN_BROWSER_ID, &model.labels.browser)
         .accelerator(STATUS_BAR_MENU_ACCELERATORS[6].1)
         .build(manager)?;
     let launch_on_start =
-        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, AUTO_START_PROXY_LABEL)
+        CheckMenuItemBuilder::with_id(TOGGLE_LAUNCH_ON_START_ID, &model.labels.auto_start)
             .checked(model.launch_on_start)
             .build(manager)?;
-    let quit = MenuItemBuilder::with_id(QUIT_ID, "Quit Mish").build(manager)?;
+    let quit = MenuItemBuilder::with_id(QUIT_ID, &model.labels.quit).build(manager)?;
 
     let mut menu = MenuBuilder::new(manager)
         .item(&proxy)
@@ -605,6 +743,14 @@ fn build_menu<M: Manager<tauri::Wry>>(
     Ok(StatusMenuItems {
         menu,
         proxy,
+        open,
+        routes,
+        profiles,
+        traffic: traffic_destination,
+        events,
+        settings,
+        browser,
+        quit,
         most_active_node,
         download,
         launch_on_start,
@@ -613,14 +759,36 @@ fn build_menu<M: Manager<tauri::Wry>>(
     })
 }
 
-fn proxy_title(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> &'static str {
+fn locale(language: LanguagePreference) -> Locale {
+    match language {
+        LanguagePreference::En => Locale::En,
+        LanguagePreference::Zh => Locale::ZhCn,
+    }
+}
+fn tr(locale: Locale, message: NativeMessage<'_>) -> String {
+    translate(locale, message)
+}
+fn live_label(locale: Locale, message: NativeMessage<'_>) -> String {
+    translate(
+        locale,
+        NativeMessage::StatusLiveMostActiveNode {
+            label: &tr(locale, message),
+        },
+    )
+}
+
+fn proxy_title(
+    status: &StatusSnapshot,
+    activation: &ProfileActivationSnapshot,
+    locale: Locale,
+) -> String {
     if status.runtime.system_proxy_enabled || status.runtime.tun_enabled {
-        "Stop Proxy"
+        tr(locale, NativeMessage::StatusStopProxy)
     } else if activation.phase == ProfileActivationPhase::Pending
         || status.runtime.system_proxy.phase == mish_runtime::SystemProxyPhase::Pending
         || status.runtime.tun.phase == mish_runtime::TunPhase::Pending
     {
-        "Launch Proxy — Pending"
+        tr(locale, NativeMessage::StatusLaunchProxyPending)
     } else if activation.phase == ProfileActivationPhase::Failure
         || matches!(
             status.runtime.system_proxy.phase,
@@ -631,9 +799,9 @@ fn proxy_title(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) 
             mish_runtime::TunPhase::Failed | mish_runtime::TunPhase::Drift
         )
     {
-        "Launch Proxy — Failed"
+        tr(locale, NativeMessage::StatusLaunchProxyFailed)
     } else {
-        "Launch Proxy"
+        tr(locale, NativeMessage::StatusLaunchProxy)
     }
 }
 
@@ -652,15 +820,27 @@ struct LiveStatusModel {
     upload: String,
 }
 
-fn rate_title(direction: &str, total_bytes: u64, bytes_per_second: u64, available: bool) -> String {
+fn rate_title(
+    direction: &str,
+    total_bytes: u64,
+    bytes_per_second: u64,
+    available: bool,
+    locale: Locale,
+) -> String {
     if available {
-        format!(
-            "{direction} {}/s · {}",
-            format_rate(bytes_per_second),
-            format_rate(total_bytes)
+        translate(
+            locale,
+            NativeMessage::StatusLiveRate {
+                direction,
+                rate: &format_rate(bytes_per_second),
+                total: &format_rate(total_bytes),
+            },
         )
     } else {
-        format!("{direction} Unavailable")
+        format!(
+            "{direction} {}",
+            tr(locale, NativeMessage::StatusLiveUnavailable)
+        )
     }
 }
 
@@ -696,10 +876,10 @@ fn status_bar_icon(active: bool) -> tauri::image::Image<'static> {
 #[cfg(test)]
 mod tests {
     use super::{
-        AUTO_START_PROXY_LABEL, MENU_SECTIONS, NativeTrafficObservations,
-        STATUS_BAR_MENU_ACCELERATORS, StatusBarModel, StatusMenuModel, format_bytes,
-        is_quit_menu_command, is_status_destination, rate_title, status_bar_icon,
-        status_bar_update,
+        AUTO_START_PROXY_LABEL, Locale, MENU_SECTIONS, NativeMessage, NativeTrafficObservations,
+        STATUS_BAR_MENU_ACCELERATORS, StatusBarModel, StatusLabels, StatusMenuModel,
+        TOGGLE_PROXY_ID, format_bytes, is_newer_language_revision, is_quit_menu_command,
+        is_status_destination, rate_title, status_bar_icon, status_bar_update, translate,
     };
     use crate::native_menu::APPLICATION_MENU_ACCELERATORS;
     use futures_util::future::BoxFuture;
@@ -825,12 +1005,12 @@ mod tests {
         assert_eq!(traffic_fetches.load(Ordering::Relaxed), 1);
         observations.observe_at(&status, &traffic, Duration::ZERO);
         assert_eq!(
-            observations.live_status_at(Duration::ZERO),
+            observations.live_status_at(Duration::ZERO, Locale::En),
             super::LiveStatusModel {
                 visible: false,
                 most_active_node: ">> Tokyo".into(),
-                download: rate_title("⬇️", 1_048_576, 1_024, true),
-                upload: rate_title("⬆️", 12_582_912, 12_288, true),
+                download: rate_title("⬇️", 1_048_576, 1_024, true, Locale::En),
+                upload: rate_title("⬆️", 12_582_912, 12_288, true, Locale::En),
             }
         );
         assert_eq!(
@@ -847,7 +1027,7 @@ mod tests {
         );
         assert_eq!(
             observations
-                .live_status_at(Duration::from_secs(60))
+                .live_status_at(Duration::from_secs(60), Locale::En)
                 .most_active_node,
             ">> Idle"
         );
@@ -864,12 +1044,20 @@ mod tests {
         let observations = NativeTrafficObservations::default();
         let (mut status, traffic) = host.native_traffic_handoff().await;
         observations.observe_at(&status, &traffic, Duration::ZERO);
-        assert!(!observations.live_status_at(Duration::ZERO).visible);
+        assert!(
+            !observations
+                .live_status_at(Duration::ZERO, Locale::En)
+                .visible
+        );
 
         status.runtime.system_proxy_enabled = true;
         status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
         observations.observe_at(&status, &traffic, Duration::from_secs(1));
-        assert!(observations.live_status_at(Duration::from_secs(1)).visible);
+        assert!(
+            observations
+                .live_status_at(Duration::from_secs(1), Locale::En)
+                .visible
+        );
     }
 
     #[test]
@@ -878,10 +1066,24 @@ mod tests {
             menu: StatusMenuModel {
                 launch_on_start: false,
                 live_status_visible: false,
-                proxy_title: "Launch Proxy",
+                proxy_title: "Launch Proxy".into(),
+                labels: StatusLabels {
+                    open: String::new(),
+                    routes: String::new(),
+                    profiles: String::new(),
+                    traffic: String::new(),
+                    events: String::new(),
+                    settings: String::new(),
+                    browser: String::new(),
+                    auto_start: String::new(),
+                    quit: String::new(),
+                    unavailable: String::new(),
+                },
                 proxy_enabled: true,
             },
             icon_active: false,
+            locale: Locale::En,
+            language_revision: 1,
         };
 
         assert_eq!(status_bar_update(&current, &current), Default::default());
@@ -900,7 +1102,7 @@ mod tests {
 
         let menu_changed = StatusBarModel {
             menu: StatusMenuModel {
-                proxy_title: "Stop Proxy",
+                proxy_title: "Stop Proxy".into(),
                 ..current.menu.clone()
             },
             ..current
@@ -921,29 +1123,72 @@ mod tests {
         let mut activation = ProfileActivationSnapshot::unavailable();
         activation.availability = ProfileActivationAvailability::Available;
         assert_eq!(
-            StatusMenuModel::new(&status, &activation, false).proxy_title,
+            StatusMenuModel::new(&status, &activation, false, Locale::En).proxy_title,
             "Launch Proxy"
         );
-        assert!(StatusMenuModel::new(&status, &activation, false).proxy_enabled);
+        assert!(StatusMenuModel::new(&status, &activation, false, Locale::En).proxy_enabled);
 
         activation.phase = ProfileActivationPhase::Pending;
-        let pending = StatusMenuModel::new(&status, &activation, false);
+        let pending = StatusMenuModel::new(&status, &activation, false, Locale::En);
         assert_eq!(pending.proxy_title, "Launch Proxy — Pending");
         assert!(!pending.proxy_enabled);
+        assert_eq!(
+            StatusMenuModel::new(&status, &activation, false, Locale::ZhCn).proxy_title,
+            "启动代理 — 等待中"
+        );
 
         activation.phase = ProfileActivationPhase::Failure;
-        let failed = StatusMenuModel::new(&status, &activation, false);
+        let failed = StatusMenuModel::new(&status, &activation, false, Locale::En);
         assert_eq!(failed.proxy_title, "Launch Proxy — Failed");
         assert!(failed.proxy_enabled);
+        assert_eq!(
+            StatusMenuModel::new(&status, &activation, false, Locale::ZhCn).proxy_title,
+            "启动代理 — 失败"
+        );
 
         activation.phase = ProfileActivationPhase::Idle;
         status.runtime.system_proxy_enabled = true;
         status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
-        let active = StatusMenuModel::new(&status, &activation, true);
+        let active = StatusMenuModel::new(&status, &activation, true, Locale::En);
         assert_eq!(active.proxy_title, "Stop Proxy");
         assert!(active.proxy_enabled);
         assert!(active.launch_on_start);
         assert!(active.live_status_visible);
+        assert_eq!(
+            StatusMenuModel::new(&status, &activation, true, Locale::ZhCn).proxy_title,
+            "停止代理"
+        );
+    }
+
+    #[test]
+    fn native_projection_localizes_copy_but_preserves_user_labels_and_command_identity() {
+        let core = running_core_status();
+        let status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
+        let mut activation = ProfileActivationSnapshot::unavailable();
+        activation.availability = ProfileActivationAvailability::Available;
+        let zh = StatusMenuModel::new(&status, &activation, false, Locale::ZhCn);
+        assert_eq!(zh.proxy_title, "启动代理");
+        assert_eq!(zh.labels.open, "打开 Mish");
+        assert_eq!(
+            STATUS_BAR_MENU_ACCELERATORS[0],
+            (TOGGLE_PROXY_ID, "CmdOrCtrl+Shift+P")
+        );
+        let label = "用户节点";
+        assert_eq!(
+            translate(
+                Locale::ZhCn,
+                NativeMessage::StatusLiveMostActiveNode { label }
+            ),
+            ">> 用户节点"
+        );
+    }
+
+    #[test]
+    fn native_language_projection_accepts_only_newer_revisions() {
+        assert!(!is_newer_language_revision(7, 6));
+        assert!(!is_newer_language_revision(7, 7));
+        assert!(is_newer_language_revision(7, 8));
+        assert!(is_newer_language_revision(8, 12));
     }
 
     #[test]
@@ -1005,11 +1250,11 @@ mod tests {
         assert_eq!(format_bytes(1_024), "1.00 KB");
         assert_eq!(format_bytes(12_288), "12.0 KB");
         assert_eq!(
-            rate_title("⬇️", 1_048_576, 1_024, true),
+            rate_title("⬇️", 1_048_576, 1_024, true, Locale::En),
             "⬇️ 1.00KB/s · 1.00MB"
         );
-        assert_eq!(rate_title("⬆️", 0, 0, true), "⬆️ 0KB/s · 0KB");
-        assert_eq!(rate_title("⬆️", 0, 0, false), "⬆️ Unavailable");
+        assert_eq!(rate_title("⬆️", 0, 0, true, Locale::En), "⬆️ 0KB/s · 0KB");
+        assert_eq!(rate_title("⬆️", 0, 0, false, Locale::En), "⬆️ Unavailable");
     }
 
     #[test]
@@ -1056,16 +1301,16 @@ mod tests {
         let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
         let mut activation = ProfileActivationSnapshot::unavailable();
         activation.phase = ProfileActivationPhase::Pending;
-        assert!(!StatusBarModel::new(&status, &activation, false).icon_active);
+        assert!(!StatusBarModel::new(&status, &activation, false, Locale::En, 1).icon_active);
 
         status.runtime.system_proxy_enabled = true;
-        assert!(StatusBarModel::new(&status, &activation, false).icon_active);
+        assert!(StatusBarModel::new(&status, &activation, false, Locale::En, 1).icon_active);
 
         status.runtime.system_proxy_enabled = false;
         status.runtime.tun_enabled = true;
-        assert!(StatusBarModel::new(&status, &activation, false).icon_active);
+        assert!(StatusBarModel::new(&status, &activation, false, Locale::En, 1).icon_active);
 
         status.runtime.tun_enabled = false;
-        assert!(!StatusBarModel::new(&status, &activation, false).icon_active);
+        assert!(!StatusBarModel::new(&status, &activation, false, Locale::En, 1).icon_active);
     }
 }
