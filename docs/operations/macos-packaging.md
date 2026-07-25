@@ -86,6 +86,71 @@ rejection or **Open Anyway** is the expected Alpha boundary; do not describe the
 DMG as trusted or notarized. This profile does not install a helper, request
 administrator authorization, or modify host network state.
 
+## Signed-direct Stage 1 profile
+
+`signed-direct` is the explicit future Developer ID profile for the same
+System Proxy-only application. It is never selected from the presence of a
+certificate, identity, keychain, or notary input. The build entry point is:
+
+```sh
+pnpm desktop:bundle:signed-direct:macos
+```
+
+Do not run that command with a real identity until Issue #171 has established
+the maintainer-owned protected GitHub Environment. Stage 1 defines and tests
+the input boundary without provisioning, importing, or reading credentials.
+After the protected environment imports the certificate into an ephemeral
+keychain, the build step receives only:
+
+- `APPLE_SIGNING_IDENTITY`, containing an exact `Developer ID Application: … (TEAMID)` identity;
+- `MISH_EXPECTED_APPLE_TEAM_IDENTIFIER`, matching that identity; and
+- `MISH_PROTECTED_RELEASE_ENVIRONMENT=macos-developer-id`, asserting that the
+  reviewer-protected boundary has already been crossed.
+
+The build step rejects certificate payloads, passwords, notary keys, inherited
+package modes, and raw `MISH_APPLE_*` inputs. Import and cleanup remain owned by
+the future protected-environment adapter from #171, not by general packaging
+code or pull-request CI.
+
+The profile signs the pinned Mihomo executable first with identifier
+`com.asuka109.mish.mihomo`, then lets Tauri seal `Mish.app` with identifier
+`com.asuka109.mish`. Both signatures require the hardened-runtime flag. The
+reviewed minimum entitlement set is empty and is recorded explicitly in
+`apps/desktop/src-tauri/Entitlements.signed-direct.plist`; this direct,
+non-sandboxed System Proxy application currently requires no Apple entitlement.
+Adding an entitlement is a policy change and fails the fixture contract.
+
+The signed layout allows exactly the main executable and pinned Mihomo as
+Mach-O code. It excludes every TUN helper, LaunchDaemon, SMAppService or XPC
+payload, Login Item, development helper, and other privileged artifact.
+Runtime capability is compiled from the explicit profile and reports TUN
+unavailable; a signing team identifier alone cannot enable the production TUN
+adapter.
+
+The live verifier checks the exact Developer ID identity, team, identifiers,
+hardened runtime, empty entitlements, nested-code order, and
+`codesign --verify --deep --strict`. It also rejects unsigned or unexpected
+nested code, symlinks, writable or hard-linked payloads, case/normalization
+duplicates, privileged content, and a layout that advertises TUN. Credential-
+free tests use synthetic identity evidence and prove this policy without
+claiming Apple trust, notarization, or release readiness:
+
+```sh
+pnpm test:macos:bundle
+pnpm desktop:bundle:fixture:signed-direct:macos
+```
+
+The second command builds the real System Proxy-only app layout, seals it
+ad hoc, runs the packaged capability probe, applies synthetic Developer ID
+identity evidence to the policy verifier, and proves that the actual bundle
+does not satisfy the Apple Developer ID requirement. It is package-shape
+evidence only.
+
+Stage 1 does not produce a live Developer ID artifact, DMG, notarization
+submission, stapled ticket, Gatekeeper acceptance, release, updater, Intel
+binary, or production TUN capability. Those boundaries remain blocked by #171
+or explicitly out of scope.
+
 ## Draft Alpha release staging
 
 The **Stage macOS Alpha Draft** Actions workflow is the credential-free staging
@@ -139,7 +204,7 @@ pnpm test:macos:release
 pnpm check:macos:release-workflow
 ```
 
-## Legacy test app bundle
+## Routine test app bundle
 
 Run the same bundle path locally on an Apple Silicon Mac:
 
@@ -148,27 +213,26 @@ pnpm install --frozen-lockfile
 pnpm desktop:build:macos
 ```
 
-The command downloads only the pinned Mihomo v1.19.29 Darwin ARM64 release with
-`gh`, checks the published archive SHA-256 before extraction, signs the Core and
-application ad hoc when no identity is supplied, then enables the packaging-only
-Tauri resource configuration and builds `Mish.app`. Keeping generated resources
-out of the base Tauri configuration lets clean validation builds remain offline.
+The command is an explicit alias for `alpha-ad-hoc`; it does not inspect Apple
+credentials to choose a layout. It downloads only the pinned Mihomo v1.19.29
+Darwin ARM64 release with `gh`, checks the published archive SHA-256 before
+extraction, signs the Core and application ad hoc, then enables the
+packaging-only Tauri resource configuration and builds `Mish.app`. Keeping
+generated resources out of the base Tauri configuration lets clean validation
+builds remain offline.
 The post-build verifier checks the stable application identifier, ARM64
 architecture, exact uncompressed Core checksum and version, complete
 byte-for-byte offline Web resource mirror, the repository's `LICENSE`,
 `THIRD_PARTY_NOTICES.md`, the complete pinned GeoData fallback snapshot, and
-code-signing structure. Ad-hoc
-packages must contain no privileged artifact. Developer ID packages additionally
-require the exact sealed helper and LaunchDaemon layout, Developer ID
-application/helper identifiers and team, helper/protocol versions, and no
-misplaced, linked, mutable, duplicate, set-id, or unexpected privileged content.
+code-signing structure. Ad-hoc packages must contain no privileged artifact.
 
 Run `pnpm test:macos:bundle` for fast synthetic negative layouts. Run
 `pnpm desktop:bundle:fixture:macos` to produce and inspect the complete
-production layout without credentials. That fixture signs the app and helper
-ad-hoc, proves the structure and closed version probes, and additionally proves
-that both artifacts fail the required Developer ID team checks. It never
-registers or launches the LaunchDaemon.
+legacy privileged-layout fixture without credentials. That fixture remains only
+to prevent accidental weakening of the production TUN gate: it signs the app
+and helper ad hoc, proves the structure and closed version probes, and proves
+that both artifacts fail the required Developer ID team checks. It is not a
+release profile and never registers or launches the LaunchDaemon.
 
 GitHub Actions wraps the app with `ditto` as `Mish-<short-sha>.app.zip` and
 uploads an artifact named `mish-macos-arm64-<short-sha>` for 14 days. This is a
@@ -181,18 +245,18 @@ The completed packaging-readiness audit selected a System Proxy-only first
 public release. That release does not depend on a production privileged TUN
 helper and must omit both the helper executable and LaunchDaemon property list.
 The explicit `alpha-ad-hoc` profile implements a credential-free no-helper Alpha
-mode. It is not a Developer ID or notarized public distribution mode; supplying
-release signing credentials remains a separate helper-bearing path and must not
-be used for the System Proxy-only Alpha.
+mode. The explicit `signed-direct` Stage 1 profile defines the future Developer
+ID no-helper application contract without using credentials. Signing inputs no
+longer select or imply a helper-bearing layout.
 
-Before public distribution, implement and verify the no-helper mode, Developer
-ID signing and notarization with independent `codesign`, stapler, and Gatekeeper
-distribution checks, a versioned DMG and GitHub Release with SHA-256 and exact
-source revision, and clean-account install, upgrade, relocation, uninstall,
-recovery, System Proxy restoration, and rollback-policy acceptance. Release,
-support, privacy, security-contact, dependency-notice, and supply-chain policies
-also remain open. Dependency attribution and unresolved license-source questions
-are recorded in
+Before public distribution, complete live Developer ID signing and notarization
+with independent `codesign`, stapler, and Gatekeeper distribution checks, a
+versioned DMG and GitHub Release with SHA-256 and exact source revision, and
+clean-account install, upgrade, relocation, uninstall, recovery, System Proxy
+restoration, and rollback-policy acceptance. Release, support, privacy,
+security-contact, dependency-notice, and supply-chain policies also remain
+open. Dependency attribution and unresolved license-source questions are
+recorded in
 [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md).
 
 A TUN-enabled distribution remains a separate future path tracked by
