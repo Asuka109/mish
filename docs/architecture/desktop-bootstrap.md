@@ -112,6 +112,33 @@ still fails closed and never selects fixtures.
     authorizes the final Tauri exit request. A failure keeps Mish alive with a
     native actionable recovery alert. Cleanup after `run_return` remains an
     idempotent abnormal-boundary fallback rather than the normal quit path.
+15. Before Tauri creates the configured `main` window, one typed startup-options
+    parser resolves the process-local WebView Inspector contract. `--devtools`
+    has precedence over `MISH_DEVTOOLS`; without the flag, only exact values `1`
+    and `0` are accepted. Missing input defaults off, and malformed input aborts
+    before window creation with a bounded diagnostic that states the Inspector
+    remains disabled. The resolved value overrides the final merged window
+    configuration, while the checked-in base configuration also explicitly
+    defaults `devtools` to `false`.
+    Supported macOS opt-in launches Tauri's local WebKit Inspector only for the
+    configured desktop WebView. The value is not part of `RuntimeBootstrap`,
+    Settings, browser storage, app data, or any RPC contract, so a later process
+    without an opt-in is closed again. Unsupported desktop platforms reject an
+    enable request instead of claiming success. The boundary adds no browser
+    argument, remote-debugging port, listener, Browser Client capability,
+    bridge bypass, CSP change, or RPC authorization change.
+    This uses the pinned
+    [`WebviewWindow::open_devtools`](https://docs.rs/tauri/2.11.5/tauri/webview/struct.WebviewWindow.html#method.open_devtools)
+    API and follows Apple's per-WebView, default-off
+    [`WKWebView.isInspectable`](https://developer.apple.com/documentation/webkit/wkwebview/isinspectable)
+    lifecycle rather than creating a remote debugging service.
+    The two source-development package commands load the tracked
+    `apps/desktop/.env.development`, which deliberately provides
+    `MISH_DEVTOOLS=1` and opens Inspector as a separate window. An existing
+    process environment can override it with `MISH_DEVTOOLS=0`. Build, bundle,
+    packaged launch, Finder, Dock, and Login Item paths never load that file, so
+    the application binary and every packaged workflow retain the default-off
+    contract.
 
 ## Browser-client launch flow
 
