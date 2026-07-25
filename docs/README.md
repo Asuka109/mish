@@ -39,6 +39,9 @@ of treating an implementation accident as intent.
 - [`candidate-home-isolation.md`](architecture/candidate-home-isolation.md) —
   private candidate lifecycle DAG, mutation analysis, reproducible storage and
   pinned-Core measurements, and the retained-isolation decision.
+- [`state-lifecycle-race-audit.md`](architecture/state-lifecycle-race-audit.md)
+  — repository-wide state scope, transition, race, optimistic-state, cleanup,
+  and bounded state-machine adoption decisions.
 - [`mihomo-controller-integration.md`](architecture/mihomo-controller-integration.md)
   — pinned Controller API, process lifecycle, activation, and reconciliation.
 - [`profile-domain.md`](architecture/profile-domain.md) — profile sources,
