@@ -154,9 +154,16 @@ const trafficStyles = tv({
     ),
     empty: "mt-4 min-h-55 rounded-md border border-hairline",
     loadMore: "mt-3 flex items-center justify-end gap-3 pt-4 text-metadata text-muted-foreground",
-    detailDialog:
-      "max-h-[min(760px,calc(100vh_-_48px))] w-[min(680px,calc(100vw_-_32px))] overflow-auto",
-    detailBody: "flex flex-col",
+    detailDialog: cx(
+      "traffic-detail-dialog flex max-h-[min(760px,calc(100vh_-_48px))] flex-col",
+      "w-[min(680px,calc(100vw_-_32px))] overflow-hidden",
+    ),
+    detailHeader: "shrink-0",
+    detailBody: cx(
+      "traffic-detail-body min-h-0 flex-1 cursor-text overflow-x-hidden overflow-y-auto",
+      "overscroll-contain select-text",
+    ),
+    detailFooter: "shrink-0",
     detailGrid: cx(
       "m-4 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-hairline",
       "bg-hairline-soft max-shell-mobile:m-3 max-shell-mobile:grid-cols-1 [&>div]:min-w-0",
@@ -1064,7 +1071,7 @@ function ConnectionDetailDialog({
   return (
     <Dialog onOpenChange={onOpenChange} open={connection !== null}>
       <DialogContent className={trafficStyles().detailDialog()} closeLabel={LL.common.close()}>
-        <DialogHeader>
+        <DialogHeader className={trafficStyles().detailHeader()}>
           <div>
             <DialogTitle className="dialog-title">{LL.traffic.connectionDetails()}</DialogTitle>
             <DialogDescription className="dialog-description">
@@ -1073,7 +1080,7 @@ function ConnectionDetailDialog({
           </div>
         </DialogHeader>
         {connection ? (
-          <div className={trafficStyles().detailBody()}>
+          <div className={trafficStyles().detailBody()} data-native-text-interaction tabIndex={-1}>
             <dl className={trafficStyles().detailGrid()}>
               <Detail
                 label={LL.traffic.destinationHost()}
@@ -1156,22 +1163,22 @@ function ConnectionDetailDialog({
                 <p>{LL.traffic.unavailable()}</p>
               )}
             </section>
-            <DialogFooter>
-              {!("closedAt" in connection) ? (
-                <Button
-                  aria-describedby={canClose ? undefined : "traffic-close-scope"}
-                  disabled={!canClose || isClosePending(connection.id)}
-                  loading={isClosePending(connection.id)}
-                  loadingText={LL.traffic.closingConnection()}
-                  onClick={() => onRequestClose(connection)}
-                  variant="destructive"
-                >
-                  {LL.traffic.close()}
-                </Button>
-              ) : null}
-            </DialogFooter>
           </div>
         ) : null}
+        <DialogFooter className={trafficStyles().detailFooter()}>
+          {connection && !("closedAt" in connection) ? (
+            <Button
+              aria-describedby={canClose ? undefined : "traffic-close-scope"}
+              disabled={!canClose || isClosePending(connection.id)}
+              loading={isClosePending(connection.id)}
+              loadingText={LL.traffic.closingConnection()}
+              onClick={() => onRequestClose(connection)}
+              variant="destructive"
+            >
+              {LL.traffic.close()}
+            </Button>
+          ) : null}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

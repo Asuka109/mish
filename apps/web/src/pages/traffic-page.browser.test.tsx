@@ -97,7 +97,133 @@ function renderTraffic(client: BrowserCommandTrafficClient) {
   );
 }
 
+async function overflowingTrafficClient() {
+  const client = new BrowserCommandTrafficClient();
+  const snapshot = await client.getSnapshot();
+  const connection = snapshot.activeConnections[0]!;
+  client.publishSnapshot({
+    ...snapshot,
+    activeConnections: [
+      {
+        ...connection,
+        providerChain: Array.from({ length: 12 }, (_, index) => `Provider ${index + 1}`),
+        routeChain: Array.from({ length: 48 }, (_, index) => `Route hop ${index + 1}`),
+      },
+    ],
+    adapterKind: "rpc",
+    sequence: snapshot.sequence + 1,
+  });
+  return client;
+}
+
 describe("Traffic filtered-visible close", () => {
+  test.each([
+    ["wide", 1_200, 800],
+    ["narrow", 390, 700],
+    ["short", 900, 420],
+  ])(
+    "keeps the detail shell bounded with body-only scrolling in a %s viewport",
+    async (_name, width, height) => {
+      await page.viewport(width, height);
+      const client = await overflowingTrafficClient();
+      renderTraffic(client);
+
+      const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
+      await expect.element(row).toBeVisible();
+      row.element().focus();
+      await userEvent.keyboard("{Enter}");
+      const dialog = page.getByRole("dialog", { name: "Connection details" });
+      await expect.element(dialog).toBeVisible();
+
+      const shell = dialog.element() as HTMLElement;
+      const header = shell.querySelector<HTMLElement>(".dialog-header");
+      const body = shell.querySelector<HTMLElement>(".traffic-detail-body");
+      const footer = shell.querySelector<HTMLElement>(".dialog-footer");
+      const workspace = document.querySelector<HTMLElement>(".workspace-page-scroll");
+      if (!header || !body || !footer || !workspace)
+        throw new Error("Missing detail dialog anatomy");
+
+      const shellRect = shell.getBoundingClientRect();
+      expect(shellRect.top).toBeGreaterThanOrEqual(23);
+      expect(shellRect.bottom).toBeLessThanOrEqual(height - 23);
+      expect(getComputedStyle(shell).overflow).toBe("hidden");
+      expect(getComputedStyle(body).overflowY).toBe("auto");
+      expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
+      expect(body.getBoundingClientRect().top).toBeCloseTo(
+        header.getBoundingClientRect().bottom,
+        0,
+      );
+      expect(body.getBoundingClientRect().bottom).toBeCloseTo(
+        footer.getBoundingClientRect().top,
+        0,
+      );
+
+      const headerTop = header.getBoundingClientRect().top;
+      const footerTop = footer.getBoundingClientRect().top;
+      const workspaceScrollTop = workspace.scrollTop;
+      const documentScrollTop = document.scrollingElement?.scrollTop ?? 0;
+      body.scrollTop = body.scrollHeight;
+      await expect.poll(() => body.scrollTop).toBeGreaterThan(0);
+
+      expect(header.getBoundingClientRect().top).toBeCloseTo(headerTop, 1);
+      expect(footer.getBoundingClientRect().top).toBeCloseTo(footerTop, 1);
+      expect(workspace.scrollTop).toBe(workspaceScrollTop);
+      expect(document.scrollingElement?.scrollTop ?? 0).toBe(documentScrollTop);
+      expect(
+        [...body.querySelectorAll<HTMLElement>("*")].filter((element) => {
+          const style = getComputedStyle(element);
+          return (
+            (style.overflowY === "auto" || style.overflowY === "scroll") &&
+            element.scrollHeight > element.clientHeight
+          );
+        }),
+      ).toHaveLength(0);
+    },
+  );
+
+  test("preserves detail selection, actions, Escape, and close focus restoration", async () => {
+    await page.viewport(900, 420);
+    const client = await overflowingTrafficClient();
+    renderTraffic(client);
+
+    const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
+    await expect.element(row).toBeVisible();
+    row.element().focus();
+    await userEvent.keyboard("{Enter}");
+    const dialog = page.getByRole("dialog", { name: "Connection details" });
+    await expect.element(dialog).toBeVisible();
+
+    const destination = dialog.getByText("docs.fixture.invalid", { exact: true });
+    expect(getComputedStyle(destination.element()).userSelect).toBe("text");
+    await userEvent.tripleClick(destination);
+    expect(document.getSelection()?.toString().trim()).toBe("docs.fixture.invalid");
+    let copiedText: string | null = null;
+    document.addEventListener(
+      "copy",
+      () => {
+        copiedText = document.getSelection()?.toString().trim() ?? null;
+      },
+      { once: true },
+    );
+    await userEvent.copy();
+    expect(copiedText).toBe("docs.fixture.invalid");
+
+    const action = dialog.element().querySelector<HTMLButtonElement>(".dialog-footer button");
+    if (!action) throw new Error("Missing connection close action");
+    await userEvent.click(action);
+    const confirmation = page.getByRole("alertdialog", {
+      name: "Close this active connection?",
+    });
+    await expect.element(confirmation).toBeVisible();
+    await userEvent.click(confirmation.getByRole("button", { name: "Cancel" }));
+    await expect.element(confirmation).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(action);
+
+    await userEvent.keyboard("{Escape}");
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(row.element());
+  });
+
   test("renders the normalized provider chain without orphaned separators", async () => {
     await page.viewport(1_200, 700);
     const client = new BrowserCommandTrafficClient();
