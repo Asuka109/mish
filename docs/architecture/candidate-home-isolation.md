@@ -1,6 +1,107 @@
 # Candidate home isolation
 
-## Decision
+## RFC status
+
+- **Question:** Does every Profile activation still need a completely fresh
+  private Mihomo candidate home?
+- **Status:** Proposed no-change decision, pending maintainer acceptance of
+  Issue #185.
+- **Scope:** Candidate file isolation, preparation cost, validation mutation,
+  promotion, rollback, retirement, cancellation, and crash recovery.
+- **Non-goals:** GeoData fallback/update design, packaged-runtime fixes,
+  activation UX, or a different one-Core ownership model.
+
+## Existing behavior
+
+A **candidate home** is the private filesystem workspace for one attempted
+Profile activation. It is not the selected Profile, the persistent Profile
+store, or the active-state record. It contains the exact files that the
+candidate Mihomo process may read or mutate during validation and, if accepted,
+while running.
+
+Every activation currently creates a new UUID-scoped root:
+
+```text
+runtime/
+├── activation-state.json
+├── core-ownership.json
+├── profile-selection-cache/
+│   └── <profile-id>/<effective-fingerprint>/cache.db
+└── candidates/
+    ├── <active-uuid>/
+    │   ├── config.yaml
+    │   └── home/
+    │       ├── GeoSite.dat
+    │       ├── GeoIP.dat
+    │       ├── geoip.metadb
+    │       ├── ASN.mmdb
+    │       ├── cache.db
+    │       └── <Profile-defined provider resources>
+    └── .staging-<new-uuid>/
+        ├── config.yaml
+        └── home/
+```
+
+The mechanism is transactional:
+
+1. Rust creates `.staging-<uuid>` with private permissions.
+2. Mish verifies the packaged GeoData manifest and source digests, then writes
+   private candidate files.
+3. Mish restores only the selection cache whose Profile ID and effective
+   fingerprint match the attempted activation.
+4. Rust generates the candidate-specific configuration and invokes the exact
+   pinned Mihomo with `-t`.
+5. Successful validation promotes the staging directory by rename. A failed or
+   cancelled validation deletes only that staging directory.
+6. Mish stops the prior Core only after the replacement is fully prepared,
+   records launch ownership for the exact new paths, and starts the candidate.
+7. The candidate becomes authoritative only after process, listener,
+   Controller version, and first-snapshot readiness succeed and Rust commits
+   active state.
+8. The prior candidate is then retired: Mish persists its bounded selection
+   cache and deletes its entire root.
+9. Any failure before commit stops and deletes the new candidate and restores
+   the prior Core/capture intent. Startup recovery reconciles the ownership
+   journal before deleting stale UUID roots.
+
+This design deliberately permits two candidate roots during replacement but
+never two active Cores. The prior root remains rollback authority while the new
+root is validated and started.
+
+## Why review it
+
+The packaged GeoData snapshot is about 41 MiB, and the existing implementation
+verifies and writes those assets for every attempted activation. This raises a
+reasonable performance question: could Mish retain a home per Profile or
+effective fingerprint, or use copy-on-write files, while preserving the same
+transactional guarantees?
+
+The review must answer two different questions:
+
+1. **Logical isolation:** Which files and guarantees require a fresh root?
+2. **Physical copying:** Can private candidate files be created more cheaply
+   without changing that logical isolation?
+
+Conflating them would be unsafe. APFS cloning may optimize physical allocation
+while retaining independent files; persistent-home reuse changes the logical
+isolation and introduces stale mutable state.
+
+## Evaluation criteria
+
+A narrower design is acceptable only if it:
+
+- preserves one active Core and one authoritative ownership record;
+- prevents validation, active, updating, and retiring runtimes from mutating
+  another candidate's files;
+- keeps rejected Profiles, cancellation, rollback, and cleanup exact;
+- preserves pinned validation, listener readiness, selection-cache scoping,
+  crash recovery, and Rust-authoritative publication;
+- has a portable sequential fallback and no mutable symlink or hard-link
+  authority; and
+- produces a material end-to-end activation improvement, defined here as at
+  least 10% of observed cold activation without a meaningful tail regression.
+
+## Conclusion
 
 Mish retains one fresh private Mihomo candidate root for every Profile
 activation. The review found no storage proposal that can produce a material
