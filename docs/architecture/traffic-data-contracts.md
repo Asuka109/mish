@@ -31,6 +31,34 @@ complete ordered route chain. Empty Controller process or address strings map to
 explicit nullable fields. The UI labels null values unavailable rather than
 inventing process identity, geography, or another fallback fact.
 
+### Route-chain direction
+
+`routeChain` is Mish's one semantic route-traversal contract: index 0 is the
+first selected/front policy group or node reached by the connection; later
+entries are subsequent nested groups or nodes; the last entry is the final
+outbound/exit. The Rust Controller-to-Traffic mapper establishes this order
+once. React, fixtures, table summaries, numbered details, filtering, and
+diagnostic consumers must consume it as-is and must not reverse it locally.
+
+Mihomo's raw Controller `connections[].chains` has the opposite direction. At
+the pinned Mihomo commit
+[`e26714a181ac0e2fa803453c0a8e9a9ce94e31cb`](https://github.com/MetaCubeX/mihomo/tree/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb),
+the connection route serializes the tracker `conn.Chains()` value
+([`tunnel/statistic/tracker.go`](https://github.com/MetaCubeX/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/tunnel/statistic/tracker.go));
+each base outbound appends its own name when it creates a connection, while an
+outer group appends after its child has returned
+([`adapter/outbound/base.go`](https://github.com/MetaCubeX/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/adapter/outbound/base.go)).
+The same source defines index 0 as the chain's `Last()` hop. Therefore raw
+chains run final-exit-to-front, and Mish reverses the bounded array at that
+shared boundary.
+
+Do not deduplicate, parse, or synthesize route labels: repeated labels can be
+real nested traversal hops, and all labels are opaque Unicode user content. A
+one-element raw chain (including `DIRECT` when Mihomo reports it) remains a
+one-element route chain; an empty raw chain remains empty. Mish never invents
+a missing direct or exit hop. `providerChain` is distinct metadata and is never
+merged with `routeChain`, including during route-chain search.
+
 The managed desktop runtime overrides source `find-process-mode` with the
 private application setting `processDiscoveryMode`. Its bounded values map
 one-to-one to Mihomo `always`, `strict`, and `off`; the default is `always`, and
@@ -180,7 +208,7 @@ Mihomo, active connections, profiles, rules, configuration, or logs.
 
 Plain text searches destination, process, rule, and route-chain values.
 Structured tokens compose with plain text: `destination:`, `process:`, `rule:`,
-`chain:`, `group:`, `child:`, `network:`, `protocol:`, and `state:`. Network is
+`chain:`, `group:`, `child:`, `provider:`, `network:`, `protocol:`, and `state:`. Network is
 also available as a structured select. Rules accept `type:`, `payload:`,
 `target:`, and `enabled:`.
 
@@ -190,6 +218,23 @@ bytes. Rules can sort by priority, type, target, or exact hit count. The UI
 sorts and filters the complete bounded snapshot, then renders 250 rows per
 incremental batch so large valid snapshots do not create an unbounded initial
 DOM.
+
+## View pause
+
+Traffic pause is a client/view-scoped presentation state. The Web provider
+retains the newest authoritative snapshot and continues reconciling Closed
+history while a paused page renders a deep-copied snapshot and its matching
+Closed collection captured at the pause boundary. Search, sorting, filters,
+counts, details, selection, and incremental rendering therefore all read one
+displayed snapshot. Resume swaps that displayed state to the retained latest
+state immediately; it never waits for another Controller refresh.
+
+The capture expires on an observation gap, Profile replacement, or Traffic
+session replacement. It is neither persisted nor command authority. Close one
+and close all always form authority from the latest ready snapshot; a
+filtered-visible close retains only its displayed stable-ID set and pinned
+profile/session for Rust to revalidate. Command results refresh the latest
+authority but do not partially alter a still-paused presentation.
 
 ## Privacy and fixture policy
 

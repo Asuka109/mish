@@ -98,6 +98,38 @@ function renderTraffic(client: BrowserCommandTrafficClient) {
 }
 
 describe("Traffic filtered-visible close", () => {
+  test("renders the normalized provider chain without orphaned separators", async () => {
+    await page.viewport(1_200, 700);
+    const client = new BrowserCommandTrafficClient();
+    const snapshot = await client.getSnapshot();
+    const connection = snapshot.activeConnections[0]!;
+    client.publishSnapshot({
+      ...snapshot,
+      activeConnections: [{ ...connection, providerChain: [] }],
+      sequence: snapshot.sequence + 1,
+    });
+    renderTraffic(client);
+
+    await userEvent.click(page.getByRole("row", { name: /docs\.fixture\.invalid/ }));
+    const dialog = page.getByRole("dialog", { name: "Connection details" });
+    await expect.element(dialog).toHaveTextContent("Provider chain");
+    await expect.element(dialog).toHaveTextContent("Unavailable");
+    await expect.element(dialog).not.toHaveTextContent("→");
+
+    await userEvent.keyboard("{Escape}");
+    client.publishSnapshot({
+      ...snapshot,
+      activeConnections: [
+        { ...connection, providerChain: ["Provider A", "东京 🚀", "Provider A"] },
+      ],
+      sequence: snapshot.sequence + 2,
+    });
+    await userEvent.click(page.getByRole("row", { name: /docs\.fixture\.invalid/ }));
+    await expect
+      .element(page.getByRole("dialog", { name: "Connection details" }))
+      .toHaveTextContent("Provider A → 东京 🚀 → Provider A");
+  });
+
   test("opens details from the whole row without clipping or hijacking Close", async () => {
     await page.viewport(1_200, 700);
     const client = new BrowserCommandTrafficClient();
@@ -176,5 +208,73 @@ describe("Traffic filtered-visible close", () => {
     await expect.element(page.getByText("newer.fixture.invalid")).toBeVisible();
     expect(client.receivedAuthority?.sequence).toBe(initial.sequence);
     expect(client.receivedIds).toEqual([initial.activeConnections[0]!.id]);
+  });
+
+  test("pauses one complete view, keeps keyboard details stable, and resumes without a layout jump", async () => {
+    await page.viewport(390, 700);
+    const client = new BrowserCommandTrafficClient();
+    const initial = await client.getSnapshot();
+    client.publishSnapshot({ ...initial, adapterKind: "rpc" });
+    renderTraffic(client);
+
+    const pause = page.getByRole("button", { name: "Pause View" });
+    await expect.element(pause).toBeVisible();
+    const beforeHeight = document.documentElement.scrollHeight;
+    await userEvent.click(pause);
+    await expect.element(page.getByRole("button", { name: "Resume View" })).toBeVisible();
+
+    client.publishSnapshot({
+      ...initial,
+      activeConnections: [
+        ...initial.activeConnections,
+        {
+          ...initial.activeConnections[0]!,
+          destinationHost: "paused-newer.fixture.invalid",
+          id: "paused-newer-connection",
+        },
+      ],
+      adapterKind: "rpc",
+      sequence: initial.sequence + 1,
+    });
+
+    await expect.element(page.getByText(/1 newer updates are ready/)).toBeVisible();
+    await expect.element(page.getByText("paused-newer.fixture.invalid")).not.toBeInTheDocument();
+    const row = page.getByRole("row", { name: /docs\.fixture\.invalid/ });
+    row.element().focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("dialog", { name: "Connection details" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    expect(document.documentElement.scrollHeight).toBeGreaterThanOrEqual(beforeHeight);
+    await userEvent.click(page.getByRole("button", { name: "Resume View" }));
+    await expect.element(page.getByText("paused-newer.fixture.invalid")).toBeVisible();
+  });
+
+  test("expires a paused view on Traffic session replacement", async () => {
+    const client = new BrowserCommandTrafficClient();
+    const initial = await client.getSnapshot();
+    client.publishSnapshot({ ...initial, adapterKind: "rpc" });
+    renderTraffic(client);
+
+    await userEvent.click(page.getByRole("button", { name: "Pause View" }));
+    client.publishSnapshot({
+      ...initial,
+      activeConnections: [
+        {
+          ...initial.activeConnections[0]!,
+          destinationHost: "replacement.fixture.invalid",
+          id: "replacement-connection",
+        },
+      ],
+      adapterKind: "rpc",
+      profileId: "replacement-profile",
+      reconnectCount: 1,
+      sequence: 1,
+      sessionId: "replacement-session",
+    });
+
+    await expect.element(page.getByRole("button", { name: "Pause View" })).toBeVisible();
+    await expect.element(page.getByText("replacement.fixture.invalid")).toBeVisible();
+    await expect.element(page.getByText("docs.fixture.invalid")).not.toBeInTheDocument();
   });
 });

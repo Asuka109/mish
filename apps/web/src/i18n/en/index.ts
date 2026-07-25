@@ -1035,6 +1035,8 @@ const en = {
     noMatchesDescription: "Clear or change the text and structured filters.",
     orderedChain: "Ordered route chain",
     payload: "Payload",
+    pause: "Pause View",
+    paused: "View paused at {time:string}; {updates:number} newer updates are ready.",
     priority: "Priority",
     process: "Process",
     processPath: "Process path",
@@ -1047,6 +1049,7 @@ const en = {
     providerChain: "Provider chain",
     reconnect: "Observation session {session:string}; reconnects {count:number}",
     retention: "Local Closed retention: 30 minutes / 512 rows",
+    resume: "Resume View",
     route: "Route",
     remoteDestination: "Remote destination",
     rule: "Matched rule",
@@ -1060,7 +1063,7 @@ const en = {
     searchHelpDescription:
       "Enter text to search visible connection details, or use field:value filters for precise matches. Multiple filters are combined.",
     searchHelpFields:
-      "Available fields: destination, process, rule, chain, network, protocol, and state.",
+      "Available fields: destination, process, rule, chain, provider, network, protocol, and state.",
     showing: "Showing {visible:number} of {total:number}",
     sortDestination: "Destination",
     sortDownload: "Downloaded",

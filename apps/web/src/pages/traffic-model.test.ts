@@ -114,7 +114,11 @@ describe("Traffic closed history", () => {
 describe("Traffic filters and stable sorting", () => {
   it("composes plain text with structured connection dimensions", () => {
     const values = [
-      connection("one", { processName: "Fixture Browser", routeChain: ["Fixture Media"] }),
+      connection("one", {
+        processName: "Fixture Browser",
+        providerChain: ["Provider A", "东京 🚀", "Provider A"],
+        routeChain: ["Fixture Media"],
+      }),
       connection("two", { network: "udp", processName: null, routeChain: ["Fixture Direct"] }),
     ];
     expect(
@@ -123,6 +127,18 @@ describe("Traffic filters and stable sorting", () => {
     expect(filterConnections(values, "destination:two network:udp", "active", "udp")).toEqual([
       values[1],
     ]);
+    expect(filterConnections(values, "provider:东京", "active", "all")).toEqual([values[0]]);
+    expect(values[0]?.providerChain).toEqual(["Provider A", "东京 🚀", "Provider A"]);
+  });
+
+  it("searches the normalized route chain without merging provider-chain labels", () => {
+    const value = connection("isolated", {
+      providerChain: ["Provider-only label"],
+      routeChain: ["Front group", "Final exit"],
+    });
+    expect(filterConnections([value], "chain:front", "active", "all")).toEqual([value]);
+    expect(filterConnections([value], "chain:provider-only", "active", "all")).toEqual([]);
+    expect(filterConnections([value], "provider:provider-only", "active", "all")).toEqual([value]);
   });
 
   it("sorts exact decimal counters without losing stable ties", () => {

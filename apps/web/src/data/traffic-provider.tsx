@@ -26,6 +26,7 @@ import {
 } from "../pages/traffic-model";
 
 interface TrafficContextValue {
+  authoritativeSnapshot: TrafficDataSnapshotDto | null;
   closeAllActive(): Promise<TrafficCommandResultDto | null>;
   closeConnection(connectionId: string): Promise<TrafficCommandResultDto | null>;
   closeFilteredVisible(
@@ -44,7 +45,11 @@ interface TrafficContextValue {
   isCloseConnectionPending(connectionId: string): boolean;
   isCloseFilteredVisiblePending: boolean;
   isCommandSupported(command: TrafficCommandOperation): boolean;
+  isViewPaused: boolean;
+  pausedAt: Date | null;
+  pausedUpdateCount: number;
   snapshot: TrafficDataSnapshotDto | null;
+  toggleViewPause(): void;
 }
 
 const TrafficContext = createContext<TrafficContextValue | null>(null);
@@ -56,7 +61,14 @@ interface TrafficProviderProps {
 
 export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const resolvedClient = useMemo(() => client ?? createFixtureTrafficClient(), [client]);
-  const [snapshot, setSnapshot] = useState<TrafficDataSnapshotDto | null>(null);
+  // `latestSnapshot` is the sole Web-side copy of current RPC authority. The optional
+  // capture is presentation-only and deliberately never feeds command authority.
+  const [latestSnapshot, setLatestSnapshot] = useState<TrafficDataSnapshotDto | null>(null);
+  const [pausedView, setPausedView] = useState<{
+    capturedAt: Date;
+    closed: ClosedTrafficConnection[];
+    snapshot: TrafficDataSnapshotDto;
+  } | null>(null);
   const [connection, setConnection] = useState(() => resolvedClient.getConnectionState());
   const [history, setHistory] = useState(createTrafficHistoryState);
   const [error, setError] = useState<string | null>(null);
@@ -69,9 +81,19 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const pendingConnectionIdsRef = useRef(new Set<string>());
   const processIconCacheRef = useRef(new Map<string, string>());
   const processIconRequestsRef = useRef(new Map<string, Promise<string | null>>());
+  const latestSnapshotRef = useRef<TrafficDataSnapshotDto | null>(null);
 
   const acceptSnapshot = useCallback((nextSnapshot: TrafficDataSnapshotDto) => {
-    setSnapshot(nextSnapshot);
+    if (!isNewerTrafficSnapshot(latestSnapshotRef.current, nextSnapshot)) return;
+    latestSnapshotRef.current = nextSnapshot;
+    setLatestSnapshot(nextSnapshot);
+    setPausedView((current) =>
+      current &&
+      (current.snapshot.profileId !== nextSnapshot.profileId ||
+        current.snapshot.sessionId !== nextSnapshot.sessionId)
+        ? null
+        : current,
+    );
     setHistory((current) => reconcileTrafficSnapshot(current, nextSnapshot));
     setError(null);
   }, []);
@@ -84,6 +106,9 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       setConnection(nextConnection);
       if (!nextConnection.stale) return;
       setHistory((current) => ({ ...current, baseline: null }));
+      // A transport gap invalidates the observation session boundary. Do not leave
+      // a paused capture looking current through reconnect or runtime replacement.
+      setPausedView(null);
     });
     const unsubscribeSnapshots = resolvedClient.subscribeSnapshots(acceptSnapshot);
     resolvedClient
@@ -101,16 +126,55 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     };
   }, [acceptSnapshot, resolvedClient]);
 
+  useEffect(() => {
+    if (
+      !pausedView ||
+      !latestSnapshot ||
+      (pausedView.snapshot.profileId === latestSnapshot.profileId &&
+        pausedView.snapshot.sessionId === latestSnapshot.sessionId &&
+        !connection.stale)
+    ) {
+      return;
+    }
+    setPausedView(null);
+  }, [connection.stale, latestSnapshot, pausedView]);
+
+  const snapshot = pausedView?.snapshot ?? latestSnapshot;
+  const closed = pausedView?.closed ?? history.closed;
+  const pausedUpdateCount =
+    pausedView &&
+    latestSnapshot?.profileId === pausedView.snapshot.profileId &&
+    latestSnapshot.sessionId === pausedView.snapshot.sessionId
+      ? Math.max(0, latestSnapshot.sequence - pausedView.snapshot.sequence)
+      : 0;
+
+  const toggleViewPause = useCallback(() => {
+    setPausedView((current) => {
+      if (current) return null;
+      if (!latestSnapshot || latestSnapshot.phase !== "ready" || connection.stale) return null;
+      return {
+        capturedAt: new Date(),
+        closed: structuredClone(history.closed),
+        snapshot: structuredClone(latestSnapshot),
+      };
+    });
+  }, [connection.stale, history.closed, latestSnapshot]);
+
   const commandAuthority = useCallback(() => {
-    if (!snapshot || snapshot.phase !== "ready" || !snapshot.sessionId || connection.stale) {
+    if (
+      !latestSnapshot ||
+      latestSnapshot.phase !== "ready" ||
+      !latestSnapshot.sessionId ||
+      connection.stale
+    ) {
       return null;
     }
     return {
-      profileId: snapshot.profileId,
-      sequence: snapshot.sequence,
-      sessionId: snapshot.sessionId,
+      profileId: latestSnapshot.profileId,
+      sequence: latestSnapshot.sequence,
+      sessionId: latestSnapshot.sessionId,
     };
-  }, [connection.stale, snapshot]);
+  }, [connection.stale, latestSnapshot]);
 
   const closeAllActive = useCallback(async () => {
     const authority = commandAuthority();
@@ -242,26 +306,31 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
 
   const value = useMemo<TrafficContextValue>(
     () => ({
+      authoritativeSnapshot: latestSnapshot,
       closeAllActive,
       closeConnection,
       closeFilteredVisible,
       clearClosed: () => setHistory((current) => clearClosedHistory(current)),
-      closed: history.closed,
+      closed,
       commandFailure,
       connection,
       error,
       getProcessIcon,
       isCurrent: snapshot?.phase === "ready" && !connection.stale,
-      isLoading: snapshot === null && error === null,
+      isLoading: latestSnapshot === null && error === null,
       isCloseAllPending,
       isCloseConnectionPending: (connectionId) => pendingConnectionIds.has(connectionId),
       isCloseFilteredVisiblePending,
       isCommandSupported: (command) =>
-        snapshot?.adapterKind === "rpc" &&
-        snapshot.phase === "ready" &&
+        latestSnapshot?.adapterKind === "rpc" &&
+        latestSnapshot.phase === "ready" &&
         !connection.stale &&
         resolvedClient.supportsCommand(command),
+      isViewPaused: pausedView !== null,
+      pausedAt: pausedView?.capturedAt ?? null,
+      pausedUpdateCount,
       snapshot,
+      toggleViewPause,
     }),
     [
       closeAllActive,
@@ -270,17 +339,30 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       commandFailure,
       connection,
       error,
-      history.closed,
+      closed,
       getProcessIcon,
       isCloseAllPending,
       isCloseFilteredVisiblePending,
       pendingConnectionIds,
       resolvedClient,
+      latestSnapshot,
+      pausedUpdateCount,
+      pausedView,
       snapshot,
+      toggleViewPause,
     ],
   );
 
   return <TrafficContext.Provider value={value}>{children}</TrafficContext.Provider>;
+}
+
+function isNewerTrafficSnapshot(
+  current: TrafficDataSnapshotDto | null,
+  next: TrafficDataSnapshotDto,
+) {
+  if (!current) return true;
+  if (current.profileId !== next.profileId || current.sessionId !== next.sessionId) return true;
+  return next.sequence > current.sequence;
 }
 
 export function useTraffic() {
