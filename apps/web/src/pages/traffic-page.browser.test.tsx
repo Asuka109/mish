@@ -98,6 +98,21 @@ function renderTraffic(client: BrowserCommandTrafficClient) {
 }
 
 describe("Traffic filtered-visible close", () => {
+  test("shares canonical protocol presentation across the row, accessibility tree, and detail", async () => {
+    await page.viewport(1_200, 700);
+    const client = new BrowserCommandTrafficClient();
+    renderTraffic(client);
+
+    const row = page.getByRole("row", { name: /docs\.fixture\.invalid.*TCP · HTTPS/ });
+    await expect.element(row).toBeVisible();
+    await expect.element(row.getByText("TCP · HTTPS")).toBeVisible();
+
+    await userEvent.click(row);
+    await expect
+      .element(page.getByRole("dialog", { name: "Connection details" }))
+      .toHaveTextContent("TCP · HTTPS");
+  });
+
   test("renders the normalized provider chain without orphaned separators", async () => {
     await page.viewport(1_200, 700);
     const client = new BrowserCommandTrafficClient();
