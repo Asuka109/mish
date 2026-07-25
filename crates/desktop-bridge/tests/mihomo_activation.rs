@@ -1543,6 +1543,66 @@ async fn repository_backed_activation_atomically_replaces_the_profile_context() 
 }
 
 #[tokio::test]
+async fn missing_managed_core_rejects_launch_with_one_actionable_notification() {
+    let root = tempfile::tempdir().unwrap();
+    let profiles =
+        Arc::new(ReqwestHttpsSourceReader::profile_service(root.path().join("profiles")).unwrap());
+    let manager = Arc::new(MihomoActivationManager::new(
+        ManagedMihomoResolver::development(
+            root.path().join("missing-mihomo"),
+            root.path().join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(1)),
+    ));
+    let safe_runtime = MishRuntime::new(Arc::new(DesktopMihomoProcess::new(
+        DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        },
+    )));
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        || {
+            ManagedRuntimePolicy::new(
+                "127.0.0.1:9090".parse().unwrap(),
+                "missing-core-fixture-secret",
+            )
+        },
+    ));
+    let command_id = Uuid::new_v4().to_string();
+
+    assert!(
+        coordinator
+            .activate(&command_id, "missing-core-profile")
+            .await
+            .is_err()
+    );
+
+    let activation = coordinator.activation_snapshot().await;
+    assert_eq!(activation.phase, ProfileActivationPhase::Failure);
+    assert_eq!(
+        activation.failure,
+        Some(ProfileActivationFailure::MissingBinary)
+    );
+    let notification = host
+        .notification_snapshot()
+        .notifications
+        .into_iter()
+        .find(|record| record.notification_type == "profile.activation-failed")
+        .expect("missing Core activation notification");
+    assert_eq!(notification.params["failure"], "missing-binary");
+    assert_eq!(
+        notification.dedupe_key,
+        format!("profile.activation-failure:{command_id}")
+    );
+}
+
+#[tokio::test]
 async fn capture_survives_activation_and_restores_on_core_stop_and_shutdown() {
     let controller = FakeController::start("v1.19.29").await;
     let root = std::env::temp_dir().join(format!("mish-capture-activation-{}", Uuid::new_v4()));

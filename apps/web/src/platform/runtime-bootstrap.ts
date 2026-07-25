@@ -162,18 +162,21 @@ function createRpcStartup(
   runtime: "browser" | "desktop",
   clientName: string,
 ): StartupStatusClient {
-  const rpc = new RpcClient({
-    authentication: () => ({
-      clientName,
-      clientVersion: "bootstrap-v1",
-      token: bootstrap.authToken,
-    }),
-    methods: mishRpcMethods,
-    transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
-  });
+  const createRpcClient = (connectionName: string) =>
+    new RpcClient({
+      authentication: () => ({
+        clientName: connectionName,
+        clientVersion: "bootstrap-v1",
+        token: bootstrap.authToken,
+      }),
+      methods: mishRpcMethods,
+      transportFactory: () => dependencies.openWebSocket(bootstrap.rpcUrl),
+    });
+  const rpc = createRpcClient(clientName);
+  const diagnosticsRpc = createRpcClient(`${clientName}-diagnostics`);
   const client = new RpcStatusClient(rpc, true);
   const eventsClient = new RpcEventsClient(rpc);
-  const diagnosticsClient = new RpcDiagnosticsClient(rpc);
+  const diagnosticsClient = new RpcDiagnosticsClient(diagnosticsRpc);
   const profileClient = new RpcProfileClient(
     rpc,
     runtime === "desktop" ? dependencies.invokeLocalProfilePreflight : null,
@@ -210,6 +213,7 @@ function createRpcStartup(
     dispose: () => {
       profileClient.dispose();
       diagnosticsClient.dispose();
+      diagnosticsRpc.dispose();
       eventsClient.dispose();
       notificationClient.dispose();
       trafficClient.dispose();

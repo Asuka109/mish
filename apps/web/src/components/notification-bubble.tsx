@@ -141,7 +141,9 @@ export function NotificationBubble({
         } else if (actionId === "open-diagnostics") {
           dismissNotificationToast(notificationId);
           setOpen(false);
-          navigate("/events?diagnostics=1");
+          const query = new URLSearchParams({ diagnostics: "1" });
+          if (action.diagnosticFailure) query.set("failure", action.diagnosticFailure);
+          navigate(`/events?${query}`);
         } else if (actionId === "show-system-proxy-settings-steps") {
           setOpen(false);
           setSystemProxySettingsGuidance("manual");

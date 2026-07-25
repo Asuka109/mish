@@ -1,4 +1,12 @@
-import type { EventLevel, EventRecordDto, EventSource, EventsSnapshotDto } from "@mish/contracts";
+import type {
+  DiagnosticCheckDto,
+  DiagnosticFailure,
+  DiagnosticRunDto,
+  EventLevel,
+  EventRecordDto,
+  EventSource,
+  EventsSnapshotDto,
+} from "@mish/contracts";
 
 export const EVENTS_LOCAL_BUFFER_LIMIT = 1_024;
 
@@ -11,6 +19,84 @@ export interface EventsBufferState {
 }
 
 export type EventsOrder = "oldest" | "newest";
+
+export type DiagnosticConclusionKind =
+  | "capture"
+  | "core"
+  | "dns"
+  | "profile"
+  | "proxy"
+  | "reachability"
+  | "retry"
+  | "running"
+  | "unavailable"
+  | "healthy";
+
+export interface DiagnosticConclusion {
+  evidence: readonly DiagnosticCheckDto[];
+  kind: DiagnosticConclusionKind;
+}
+
+const failurePriority: readonly DiagnosticFailure[] = [
+  "capture-drift",
+  "permission-denied",
+  "core-unhealthy",
+  "version-drift",
+  "no-active-profile",
+  "profile-invalid",
+  "dns-failed",
+  "endpoint-unreachable",
+  "timeout",
+  "controller-disconnected",
+  "unavailable",
+  "runtime-replaced",
+  "cancelled",
+];
+
+export function selectDiagnosticConclusion(run: DiagnosticRunDto): DiagnosticConclusion {
+  if (run.status === "running") return { evidence: run.checks.slice(-1), kind: "running" };
+  if (run.status === "cancelled" || run.status === "invalidated")
+    return { evidence: [], kind: "retry" };
+  const failed = run.checks.filter((check) => check.failure !== null);
+  const primary = failurePriority.find((failure) =>
+    failed.some((check) => check.failure === failure),
+  );
+  const kind = conclusionKind(primary);
+  return {
+    evidence: failed.filter((check) => conclusionKind(check.failure) === kind).slice(0, 2),
+    kind,
+  };
+}
+
+export function conclusionKind(
+  failure: DiagnosticFailure | null | undefined,
+): DiagnosticConclusionKind {
+  switch (failure) {
+    case "capture-drift":
+    case "permission-denied":
+      return "capture";
+    case "core-unhealthy":
+    case "version-drift":
+      return "core";
+    case "no-active-profile":
+    case "profile-invalid":
+      return "profile";
+    case "dns-failed":
+      return "dns";
+    case "endpoint-unreachable":
+    case "timeout":
+      return "reachability";
+    case "controller-disconnected":
+      return "proxy";
+    case "unavailable":
+      return "unavailable";
+    case "runtime-replaced":
+    case "cancelled":
+      return "retry";
+    default:
+      return "healthy";
+  }
+}
 
 export function createEventsBufferState(): EventsBufferState {
   return { events: [], profileId: null, seenIds: new Set(), sequence: 0, sessionId: null };

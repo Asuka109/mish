@@ -268,8 +268,10 @@ impl ProfileActivationCoordinator {
         profile_id: &str,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
-        if self.activation_snapshot().await.availability != ProfileActivationAvailability::Available
-        {
+        let availability = self.activation_snapshot().await.availability;
+        if availability != ProfileActivationAvailability::Available {
+            self.reject_unavailable_activation(command_id, profile_id, availability)
+                .await;
             return Err(ProfileActivationCoordinatorError::Unavailable);
         }
         {
@@ -358,6 +360,48 @@ impl ProfileActivationCoordinator {
             drop(permit);
         });
         Ok(pending)
+    }
+
+    async fn reject_unavailable_activation(
+        &self,
+        command_id: &str,
+        profile_id: &str,
+        availability: ProfileActivationAvailability,
+    ) {
+        let failure = match availability {
+            ProfileActivationAvailability::MissingBinary => ProfileActivationFailure::MissingBinary,
+            ProfileActivationAvailability::Unavailable => ProfileActivationFailure::UnsafeRuntime,
+            ProfileActivationAvailability::Available => return,
+        };
+        let mut state = self.state.lock().await;
+        if state.snapshot.phase == ProfileActivationPhase::Pending {
+            return;
+        }
+        state.snapshot.command_id = Some(command_id.to_owned());
+        state.snapshot.attempted_at = Some(now_unix_milliseconds());
+        state.snapshot.evidence = None;
+        state.snapshot.failure = Some(failure);
+        state.snapshot.failure_endpoint = None;
+        state.snapshot.operation = Some(ProfileActivationOperation::Activate);
+        state.snapshot.phase = ProfileActivationPhase::Failure;
+        state.snapshot.target_profile_id = Some(profile_id.to_owned());
+        let _ = self.updates.send(state.snapshot.clone());
+        drop(state);
+        self.host
+            .record_application_event(ApplicationDiagnosticEvent::new(
+                EventLevel::Error,
+                "Profile activation failed",
+                Some("Restore the managed Core runtime, then retry the selected Profile"),
+            ));
+        let _ = self.host.publish_notification(NotificationPublication {
+            dedupe_key: format!("profile.activation-failure:{command_id}"),
+            notification_type: "profile.activation-failed".into(),
+            params: serde_json::json!({ "failure": failure }),
+            pinned: false,
+            replaces: vec!["status.operation-failed".into()],
+            resolved: false,
+            severity: NotificationSeverity::Error,
+        });
     }
 
     pub async fn cancel(

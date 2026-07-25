@@ -149,3 +149,21 @@ The diagnostic-run RPC slice defines no export, upload, clipboard copy,
 arbitrary probe endpoint, service editor, persistent history, automatic
 schedule, telemetry, or recovery command. Local support bundle export is the
 separate private Tauri boundary above; ordinary loopback RPC cannot invoke it.
+
+## Guided conclusion review
+
+The original Events presentation gave every check equal visual weight, making
+bridge/Core/Profile/capture failures compete with downstream DNS and endpoint
+checks. It also required users to infer priority from check order, while an
+“Open Diagnostics” notification action dropped the failure that caused it.
+
+The UI now derives one bounded conclusion in this order: capture/permission,
+Core/version, Profile, DNS, direct reachability, scoped proxy, then
+retry/unavailable. Presentation localizes the conclusion and names a bounded
+supporting-check count; it never renders a raw Core error. Its advice is limited
+to safe review or retry and cannot mutate capture, Core, Profile, routing, or
+policy selection. Notification actions carry only the closed failure key in the
+existing bounded action descriptor. Superseded history responses are discarded
+after newer start, cancel, retry, or poll requests. Support bundles serialize
+the same prose-free conclusion key alongside already bounded checks and retain
+the established redaction and termination/recovery boundaries.

@@ -221,9 +221,16 @@ impl DiagnosticCoordinator {
             return;
         }
 
-        let core = runtime.core_status().await;
+        let core = match tokio::time::timeout(PROBE_TIMEOUT, runtime.core_status()).await {
+            Ok(status) => status,
+            Err(_) => {
+                self.push_check(&run_id, timed_out_core_check(&run_id));
+                self.finish(&run_id);
+                return;
+            }
+        };
         self.push_check(&run_id, core_check(&run_id, &core));
-        let status = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
+        let status = runtime.snapshot_typed_from_status(&core, StatusAdapterKind::Rpc);
         self.set_profile(&run_id, status.active_profile_id.clone());
         self.push_check(&run_id, profile_check(&run_id, &status));
         self.push_check(&run_id, capture_check(&run_id, &status));
@@ -412,6 +419,24 @@ fn core_check(run_id: &str, core: &mish_runtime::CoreStatus) -> DiagnosticCheck 
         scope: "Managed pinned Mihomo process",
         started_at: at,
         status,
+    }
+}
+
+fn timed_out_core_check(run_id: &str) -> DiagnosticCheck {
+    let at = now_milliseconds();
+    DiagnosticCheck {
+        failure: Some(DiagnosticFailure::CoreUnhealthy),
+        finished_at: at,
+        id: format!("{run_id}:core"),
+        interpretation: "The managed core state did not respond before the bounded diagnostic deadline.",
+        kind: DiagnosticCheckKind::Core,
+        observed_fact: DiagnosticObservedFact::Failure {
+            reason: "The bounded core state check timed out",
+        },
+        route_target: DiagnosticRouteTarget::ManagedCore,
+        scope: "Managed pinned Mihomo process",
+        started_at: at,
+        status: DiagnosticCheckStatus::Failed,
     }
 }
 
@@ -689,6 +714,7 @@ fn now_milliseconds() -> u64 {
 mod tests {
     use super::*;
     use mish_runtime::{CoreError, CoreRuntime, CoreStatus};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct FixedCore;
 
@@ -704,6 +730,37 @@ mod tests {
                 pid: Some(1),
                 version: Some("Mihomo Meta v1.19.29".into()),
             }))
+        }
+
+        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { unreachable!() })
+        }
+
+        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { unreachable!() })
+        }
+    }
+
+    struct FirstStatusOnlyCore {
+        calls: AtomicUsize,
+    }
+
+    impl CoreRuntime for FirstStatusOnlyCore {
+        fn configured(&self) -> bool {
+            true
+        }
+
+        fn status(&self) -> BoxFuture<'_, CoreStatus> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                Box::pin(std::future::ready(CoreStatus {
+                    error: None,
+                    phase: CorePhase::Stopped,
+                    pid: None,
+                    version: None,
+                }))
+            } else {
+                Box::pin(std::future::pending())
+            }
         }
 
         fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
@@ -824,6 +881,24 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn one_bounded_core_read_is_reused_for_the_status_snapshot() {
+        let coordinator = DiagnosticCoordinator::with_network(Arc::new(FixedNetwork));
+        let runtime = MishRuntime::new(Arc::new(FirstStatusOnlyCore {
+            calls: AtomicUsize::new(0),
+        }));
+        let (_changes, receiver) = watch::channel(runtime.clone());
+
+        coordinator.start(runtime, receiver, StatusAdapterKind::Rpc);
+        let history = wait_for_terminal_history(&coordinator).await;
+
+        assert_eq!(history.runs[0].status, DiagnosticRunStatus::Completed);
+        assert!(history.runs[0].checks.iter().any(|check| {
+            check.kind == DiagnosticCheckKind::Core
+                && check.failure == Some(DiagnosticFailure::CoreUnhealthy)
+        }));
+    }
+
     #[test]
     fn failures_remain_typed_and_observations_do_not_overclaim() {
         let dns = dns_check("run", 1, Err(DiagnosticFailure::DnsFailed));
@@ -840,6 +915,14 @@ mod tests {
             proxy.failure,
             Some(DiagnosticFailure::ControllerDisconnected)
         );
+
+        let timed_out = timed_out_core_check("run");
+        assert_eq!(timed_out.status, DiagnosticCheckStatus::Failed);
+        assert_eq!(timed_out.failure, Some(DiagnosticFailure::CoreUnhealthy));
+        assert!(matches!(
+            timed_out.route_target,
+            DiagnosticRouteTarget::ManagedCore
+        ));
     }
 
     #[test]

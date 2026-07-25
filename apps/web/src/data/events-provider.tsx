@@ -7,7 +7,15 @@ import type {
   SupportBundleClient,
   SupportBundlePreviewDto,
 } from "@mish/contracts";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   clearLocalEvents,
   createEventsBufferState,
@@ -41,6 +49,8 @@ interface EventsContextValue {
 }
 
 const EventsContext = createContext<EventsContextValue | null>(null);
+const diagnosticPollIntervalMilliseconds = 200;
+const diagnosticMaximumRetryMilliseconds = 2_000;
 
 interface EventsProviderProps {
   children: ReactNode;
@@ -71,6 +81,7 @@ export function EventsProvider({
   const [diagnosticHistory, setDiagnosticHistory] = useState<DiagnosticHistoryDto | null>(null);
   const [diagnosticError, setDiagnosticError] = useState<string | null>(null);
   const [diagnosticPending, setDiagnosticPending] = useState(false);
+  const diagnosticRequest = useRef(0);
   const [supportBundlePending, setSupportBundlePending] = useState(false);
   const [supportBundlePreview, setSupportBundlePreview] = useState<SupportBundlePreviewDto | null>(
     null,
@@ -103,11 +114,16 @@ export function EventsProvider({
 
   useEffect(() => {
     const controller = new AbortController();
+    const request = ++diagnosticRequest.current;
     resolvedDiagnosticsClient
       .getHistory({ signal: controller.signal })
-      .then(setDiagnosticHistory)
+      .then((history) => {
+        if (request === diagnosticRequest.current) setDiagnosticHistory(history);
+      })
       .catch(() => {
-        if (!controller.signal.aborted) setDiagnosticError("Diagnostics could not be loaded.");
+        if (!controller.signal.aborted && request === diagnosticRequest.current) {
+          setDiagnosticError("Diagnostics could not be loaded.");
+        }
       });
     return () => controller.abort();
   }, [resolvedDiagnosticsClient]);
@@ -116,19 +132,27 @@ export function EventsProvider({
     if (!diagnosticHistory?.activeRunId) return;
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
+    let retryMilliseconds = diagnosticPollIntervalMilliseconds;
     const poll = () => {
+      const request = ++diagnosticRequest.current;
       resolvedDiagnosticsClient
         .getHistory({ signal: controller.signal })
         .then((history) => {
+          if (request !== diagnosticRequest.current) return;
           setDiagnosticHistory(history);
           setDiagnosticError(null);
-          if (history.activeRunId) timeout = setTimeout(poll, 200);
+          retryMilliseconds = diagnosticPollIntervalMilliseconds;
+          if (history.activeRunId) timeout = setTimeout(poll, diagnosticPollIntervalMilliseconds);
         })
         .catch(() => {
-          if (!controller.signal.aborted) setDiagnosticError("Diagnostics could not be refreshed.");
+          if (!controller.signal.aborted && request === diagnosticRequest.current) {
+            setDiagnosticError("Diagnostics could not be refreshed.");
+            timeout = setTimeout(poll, retryMilliseconds);
+            retryMilliseconds = Math.min(retryMilliseconds * 2, diagnosticMaximumRetryMilliseconds);
+          }
         });
     };
-    timeout = setTimeout(poll, 200);
+    timeout = setTimeout(poll, diagnosticPollIntervalMilliseconds);
     return () => {
       controller.abort();
       if (timeout) clearTimeout(timeout);
@@ -143,12 +167,18 @@ export function EventsProvider({
         setSupportBundleResult("idle");
       },
       cancelDiagnosticRun: async (runId) => {
+        const request = ++diagnosticRequest.current;
         setDiagnosticPending(true);
         try {
-          setDiagnosticHistory(await resolvedDiagnosticsClient.cancelRun(runId));
-          setDiagnosticError(null);
+          const history = await resolvedDiagnosticsClient.cancelRun(runId);
+          if (request === diagnosticRequest.current) {
+            setDiagnosticHistory(history);
+            setDiagnosticError(null);
+          }
         } catch {
-          setDiagnosticError("The diagnostic run could not be cancelled.");
+          if (request === diagnosticRequest.current) {
+            setDiagnosticError("The diagnostic run could not be cancelled.");
+          }
         } finally {
           setDiagnosticPending(false);
         }
@@ -188,12 +218,18 @@ export function EventsProvider({
         }
       },
       startDiagnosticRun: async () => {
+        const request = ++diagnosticRequest.current;
         setDiagnosticPending(true);
         try {
-          setDiagnosticHistory(await resolvedDiagnosticsClient.startRun());
-          setDiagnosticError(null);
+          const history = await resolvedDiagnosticsClient.startRun();
+          if (request === diagnosticRequest.current) {
+            setDiagnosticHistory(history);
+            setDiagnosticError(null);
+          }
         } catch {
-          setDiagnosticError("The diagnostic run could not be started.");
+          if (request === diagnosticRequest.current) {
+            setDiagnosticError("The diagnostic run could not be started.");
+          }
         } finally {
           setDiagnosticPending(false);
         }

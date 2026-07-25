@@ -5,6 +5,7 @@ import {
   createEventsBufferState,
   filterEvents,
   reconcileEventsSnapshot,
+  selectDiagnosticConclusion,
   sortEvents,
 } from "./events-model";
 
@@ -44,6 +45,66 @@ function snapshot(
 }
 
 describe("Events local buffer", () => {
+  it("does not claim a healthy conclusion while a run is still active", () => {
+    const conclusion = selectDiagnosticConclusion({
+      adapterKind: "fixture",
+      checks: [],
+      finishedAt: null,
+      id: "running",
+      policy: {
+        endpointLabel: "fixture",
+        expectedHttpStatus: 204,
+        id: "fixture",
+        timeoutMilliseconds: 1,
+      },
+      profileId: null,
+      startedAt: 1,
+      status: "running",
+    });
+
+    expect(conclusion.kind).toBe("running");
+  });
+
+  it("prioritizes one actionable conclusion over an unstructured failure list", () => {
+    const check = (
+      kind: "capture" | "core" | "dns",
+      failure: "capture-drift" | "core-unhealthy" | "dns-failed",
+    ) => ({
+      failure,
+      finishedAt: 2,
+      id: `run:${kind}`,
+      interpretation: "fixture",
+      kind,
+      observedFact: { kind: "failure" as const, reason: "fixture" },
+      routeTarget: { kind: "local-bridge" as const },
+      scope: "fixture",
+      startedAt: 1,
+      status: "failed" as const,
+    });
+    const conclusion = selectDiagnosticConclusion({
+      adapterKind: "fixture",
+      checks: [
+        check("dns", "dns-failed"),
+        check("core", "core-unhealthy"),
+        check("capture", "capture-drift"),
+      ],
+      finishedAt: 2,
+      id: "run",
+      policy: {
+        endpointLabel: "fixture",
+        expectedHttpStatus: 204,
+        id: "fixture",
+        timeoutMilliseconds: 1,
+      },
+      profileId: null,
+      startedAt: 1,
+      status: "completed",
+    });
+
+    expect(conclusion.kind).toBe("capture");
+    expect(conclusion.evidence.map(({ kind }) => kind)).toEqual(["capture"]);
+  });
+
   it("keeps a stable bounded order and clear only affects the local view", () => {
     let state = reconcileEventsSnapshot(
       createEventsBufferState(),
