@@ -92,11 +92,14 @@ rejected by managed runtime policy.
 ### GeoData
 
 The packaged manifest and all packaged source files are verified before any
-seed operation. Missing global GeoData files are written as private regular
-files. Existing regular files are preserved because the independent runtime
-GeoData updater may own a newer version. Links and non-file targets are
-rejected. If a seed write fails, only files created by that seed operation are
-removed.
+seed operation. After the prior Core has stopped, missing global GeoData files
+are written to same-directory private temporary files, synced, atomically
+renamed, and followed by a directory sync on Unix. Stale seed temporaries are
+removed on retry. Existing non-empty regular files are preserved because the
+independent runtime GeoData updater may own a newer version; zero-byte files
+are incomplete and may be replaced from the verified snapshot. Links and
+non-file targets are rejected. If a seed write fails, only files created by
+that seed operation are removed.
 
 This is initialization, not a new GeoData update policy.
 
@@ -112,6 +115,12 @@ Mish still:
 - requires process survival, listener ownership, Controller version, and the
   first valid snapshot before publishing active state.
 
+When all four global GeoData assets are non-empty regular files, readiness uses
+the normal short deadline. If an asset remains unavailable after packaged
+initialization, startup uses the longer GeoData preparation deadline so
+Mihomo's native fallback download is not killed by the short Controller
+readiness window.
+
 Invalid startup is therefore a start/early-exit failure rather than a separate
 preflight-validation phase. The prior Core is stopped before the new Core can
 own the global home. If startup or readiness fails, Mish removes the failed
@@ -124,11 +133,12 @@ global home.
 flowchart TD
   Recover["Recover ownership journal and retire proven orphan Core"] --> Prune["Prune stale generation configs and legacy candidate/cache roots"]
   Prune --> Validate["Validate Profile record and effective fingerprint"]
-  Validate --> Home["Ensure private global mihomo/home and seed missing verified GeoData"]
+  Validate --> Home["Ensure private global mihomo/home"]
   Home --> Config["Generate configs/generation-UUID.yaml (0600)"]
   Config --> Capture["Begin capture transition and suspend prior capture when required"]
   Capture --> Stop["Stop prior Core"]
-  Stop --> Intent["Persist launch intent: pinned binary + global home + generation config"]
+  Stop --> Seed["Atomically seed missing verified GeoData"]
+  Seed --> Intent["Persist launch intent: pinned binary + global home + generation config"]
   Intent --> Start["Start Mihomo; normal startup parses config"]
   Start --> Ready["Confirm process, listeners, Controller version, and first snapshot"]
   Ready --> Resume["Resume capture"]
@@ -136,6 +146,7 @@ flowchart TD
   Commit --> Retire["Delete prior generation config"]
   Capture -->|failure or cancellation| Reject["Delete new generation config"]
   Stop -->|failure| Rollback["Restart prior generation"]
+  Seed -->|failure| Rollback
   Start -->|failure| Rollback
   Ready -->|failure or cancellation| Rollback
   Resume -->|failure| Rollback

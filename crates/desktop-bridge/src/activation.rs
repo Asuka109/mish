@@ -419,6 +419,7 @@ struct ActiveMihomo {
     config_file: PathBuf,
     controller_address: SocketAddr,
     fingerprint: String,
+    home: PathBuf,
     profile_id: String,
     process: Arc<DesktopMihomoProcess>,
     proxy_endpoint: LoopbackProxyEndpoint,
@@ -639,6 +640,32 @@ impl MihomoActivationManager {
             return Err(MihomoActivationError::PriorStopFailed);
         }
 
+        if let Err(error) = seed_bundled_geodata(resolved.bundled_geodata(), &candidate.home) {
+            rollback_candidate(candidate).await;
+            let restored = self
+                .restore_previous(
+                    state.active.as_ref(),
+                    suspended_capture.as_ref(),
+                    capture_transition.as_ref(),
+                )
+                .await;
+            record_failed_attempt(&mut state.managed, record, error);
+            if !restored {
+                if let Some(previous) = state.active.take() {
+                    previous.source.close().await;
+                    retire_candidate(resolved.runtime_root(), &previous);
+                }
+                state.managed.active_fingerprint = None;
+                state.managed.active_profile_id = None;
+                state.managed.active_revision = None;
+                state.managed.active_runtime_id = None;
+                persist_managed_state(resolved.runtime_root(), &state.managed)?;
+                return Err(MihomoActivationError::RollbackFailedSafeStopped);
+            }
+            persist_managed_state(resolved.runtime_root(), &state.managed)?;
+            return Err(error);
+        }
+
         if let Err(error) = self.start_candidate(&candidate, cancellation.clone()).await {
             rollback_candidate(candidate).await;
             let restored = self
@@ -823,7 +850,6 @@ impl MihomoActivationManager {
         create_private_runtime_directory(&mihomo_root)?;
         let home = global_mihomo_home(resolved.runtime_root());
         create_private_runtime_directory(&home)?;
-        seed_bundled_geodata(resolved.bundled_geodata(), &home)?;
         let configs_root = mihomo_root.join("configs");
         create_private_runtime_directory(&configs_root)?;
         let config_file = configs_root.join(format!("{generation_id}.yaml"));
@@ -836,7 +862,7 @@ impl MihomoActivationManager {
 
         let process_config = DesktopMihomoProcessConfig {
             binary: Some(resolved.binary().to_path_buf()),
-            config_directory: Some(home),
+            config_directory: Some(home.clone()),
             config_file: Some(config_file.clone()),
         };
         let process = Arc::new(match (&self.privileged_host, &self.ownership) {
@@ -881,6 +907,7 @@ impl MihomoActivationManager {
             config_file,
             controller_address: policy.controller_address(),
             fingerprint: record.effective_fingerprint().as_str().to_owned(),
+            home,
             profile_id: record.metadata.id.as_str().to_owned(),
             process,
             proxy_endpoint: policy.proxy_endpoint().clone(),
@@ -921,7 +948,7 @@ impl MihomoActivationManager {
             &candidate.process,
             &candidate.proxy_endpoint,
             candidate.controller_address,
-            self.timing.readiness_timeout,
+            candidate_readiness_timeout(&candidate.home, &self.timing),
             cancellation,
         )
         .await
@@ -1159,15 +1186,106 @@ struct BundledGeodataManifestAsset {
     sha256: String,
 }
 
+fn bundled_geodata_assets_complete(candidate_home: &Path) -> bool {
+    BUNDLED_GEODATA_ASSETS.iter().all(|(_, runtime_name)| {
+        match fs::symlink_metadata(candidate_home.join(runtime_name)) {
+            Ok(metadata) => {
+                !metadata.file_type().is_symlink() && metadata.is_file() && metadata.len() > 0
+            }
+            Err(_) => false,
+        }
+    })
+}
+
+fn candidate_readiness_timeout(candidate_home: &Path, timing: &ActivationTiming) -> Duration {
+    if bundled_geodata_assets_complete(candidate_home) {
+        timing.readiness_timeout
+    } else {
+        timing.geodata_preparation_timeout
+    }
+}
+
+fn prune_stale_geodata_seed_files(candidate_home: &Path) -> Result<(), MihomoActivationError> {
+    let entries = fs::read_dir(candidate_home).map_err(|_| MihomoActivationError::StagingFailed)?;
+    for entry in entries {
+        let entry = entry.map_err(|_| MihomoActivationError::StagingFailed)?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(id) = name.strip_prefix(".geodata-seed-") else {
+            continue;
+        };
+        if Uuid::parse_str(id).is_err() {
+            continue;
+        }
+        let metadata =
+            fs::symlink_metadata(entry.path()).map_err(|_| MihomoActivationError::StagingFailed)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(MihomoActivationError::StagingFailed);
+        }
+        fs::remove_file(entry.path()).map_err(|_| MihomoActivationError::StagingFailed)?;
+    }
+    Ok(())
+}
+
+fn publish_private_file_atomically(
+    destination: &Path,
+    contents: &[u8],
+) -> Result<bool, MihomoActivationError> {
+    let parent = destination
+        .parent()
+        .ok_or(MihomoActivationError::StagingFailed)?;
+    let temporary = parent.join(format!(".geodata-seed-{}", Uuid::new_v4()));
+    write_private_file(&temporary, contents)?;
+
+    match fs::symlink_metadata(destination) {
+        Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+            let _ = fs::remove_file(&temporary);
+            return Err(MihomoActivationError::StagingFailed);
+        }
+        Ok(metadata) if metadata.len() > 0 => {
+            fs::remove_file(&temporary).map_err(|_| MihomoActivationError::StagingFailed)?;
+            return Ok(false);
+        }
+        Ok(_) => {
+            fs::remove_file(destination).map_err(|_| MihomoActivationError::StagingFailed)?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {
+            let _ = fs::remove_file(&temporary);
+            return Err(MihomoActivationError::StagingFailed);
+        }
+    }
+
+    if fs::rename(&temporary, destination).is_err() {
+        let _ = fs::remove_file(&temporary);
+        return Err(MihomoActivationError::StagingFailed);
+    }
+    #[cfg(unix)]
+    if fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .is_err()
+    {
+        let _ = fs::remove_file(destination);
+        return Err(MihomoActivationError::StagingFailed);
+    }
+    Ok(true)
+}
+
 fn seed_bundled_geodata(
     snapshot: Option<&Path>,
     candidate_home: &Path,
 ) -> Result<bool, MihomoActivationError> {
+    prune_stale_geodata_seed_files(candidate_home)?;
     let mut missing_asset = false;
     for (_, runtime_name) in BUNDLED_GEODATA_ASSETS {
         match fs::symlink_metadata(candidate_home.join(runtime_name)) {
             Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
                 return Err(MihomoActivationError::StagingFailed);
+            }
+            Ok(metadata) if metadata.len() == 0 => {
+                missing_asset = true;
             }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1248,30 +1366,16 @@ fn seed_bundled_geodata(
     let mut written = Vec::with_capacity(verified.len());
     for (name, content) in verified {
         let destination = candidate_home.join(name);
-        match fs::symlink_metadata(&destination) {
-            Ok(metadata) if metadata.file_type().is_symlink() || !metadata.is_file() => {
+        match publish_private_file_atomically(&destination, &content) {
+            Ok(true) => written.push(destination),
+            Ok(false) => {}
+            Err(error) => {
                 for prior in written {
                     let _ = fs::remove_file(prior);
                 }
-                return Err(MihomoActivationError::StagingFailed);
-            }
-            Ok(_) => continue,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(_) => {
-                for prior in written {
-                    let _ = fs::remove_file(prior);
-                }
-                return Err(MihomoActivationError::StagingFailed);
+                return Err(error);
             }
         }
-        if let Err(error) = write_private_file(&destination, &content) {
-            let _ = fs::remove_file(&destination);
-            for prior in written {
-                let _ = fs::remove_file(prior);
-            }
-            return Err(error);
-        }
-        written.push(destination);
     }
     Ok(true)
 }
@@ -1424,6 +1528,70 @@ mod bundled_geodata_tests {
         for (_, runtime_name, content) in ASSETS {
             assert_eq!(fs::read(home.join(runtime_name)).unwrap(), content);
         }
+        assert!(fs::read_dir(&home).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".geodata-seed-")
+        }));
+        assert!(bundled_geodata_assets_complete(&home));
+    }
+
+    #[test]
+    fn replaces_an_incomplete_asset_through_atomic_publication() {
+        let root = TempDir::new().unwrap();
+        let source = snapshot(root.path());
+        let home = root.path().join("home");
+        fs::create_dir(&home).unwrap();
+        fs::write(home.join("GeoSite.dat"), []).unwrap();
+
+        assert!(!bundled_geodata_assets_complete(&home));
+        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert_eq!(
+            fs::read(home.join("GeoSite.dat")).unwrap(),
+            b"geosite fixture"
+        );
+        assert!(bundled_geodata_assets_complete(&home));
+    }
+
+    #[test]
+    fn prunes_interrupted_atomic_seed_before_retrying() {
+        let root = TempDir::new().unwrap();
+        let source = snapshot(root.path());
+        let home = root.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let stale = home.join(format!(".geodata-seed-{}", Uuid::new_v4()));
+        fs::write(&stale, b"interrupted").unwrap();
+
+        assert_eq!(seed_bundled_geodata(Some(&source), &home).unwrap(), true);
+        assert!(!stale.exists());
+        assert!(bundled_geodata_assets_complete(&home));
+    }
+
+    #[test]
+    fn missing_geodata_uses_the_preparation_deadline() {
+        let root = TempDir::new().unwrap();
+        let timing = ActivationTiming {
+            geodata_preparation_timeout: Duration::from_secs(300),
+            readiness_timeout: Duration::from_secs(15),
+            ..ActivationTiming::default()
+        };
+
+        assert_eq!(
+            candidate_readiness_timeout(root.path(), &timing),
+            Duration::from_secs(300)
+        );
+
+        let source = snapshot(root.path());
+        assert_eq!(
+            seed_bundled_geodata(Some(&source), root.path()).unwrap(),
+            true
+        );
+        assert_eq!(
+            candidate_readiness_timeout(root.path(), &timing),
+            Duration::from_secs(15)
+        );
     }
 
     #[test]
@@ -2072,6 +2240,9 @@ fn namespace_explicit_provider_paths(
             let Some(path) = mapping.get(&key).and_then(Value::as_str) else {
                 continue;
             };
+            if path.is_empty() {
+                continue;
+            }
             let normalized = path.replace('\\', "/");
             let components = normalized
                 .split('/')

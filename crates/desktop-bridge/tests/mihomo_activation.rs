@@ -1202,6 +1202,10 @@ proxy-providers:
   automatic:
     type: http
     url: https://example.com/automatic.yaml
+  empty:
+    type: http
+    url: https://example.com/empty.yaml
+    path: ""
 rule-providers:
   rules:
     type: http
@@ -1230,6 +1234,10 @@ rules: [MATCH,DIRECT]
             .unwrap()
             .get("path")
             .is_none()
+    );
+    assert_eq!(
+        document["proxy-providers"]["empty"]["path"].as_str(),
+        Some("")
     );
     assert_eq!(
         document["rule-providers"]["rules"]["path"].as_str(),
