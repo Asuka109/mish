@@ -2410,7 +2410,7 @@ describe("desktop RPC experience", () => {
 });
 
 describe("Status fixture experience", () => {
-  it("clears Status session telemetry when capture stops and establishes a fresh baseline on relaunch", async () => {
+  it("renders fixture Recent Traffic authority without deriving from low-level Status traffic", async () => {
     const client = new FixtureStatusClient();
     renderRoute("/status", "en", client);
     const session = await screen.findByLabelText("Current session");
@@ -2426,7 +2426,11 @@ describe("Status fixture experience", () => {
     expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
-    await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
+    let firstSessionId: string | null = null;
+    await act(async () => {
+      firstSessionId = (await client.setCapture({ systemProxy: true, tun: false }, true))
+        .recentTraffic.sessionId;
+    });
     await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
     expect(
       [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
@@ -2435,8 +2439,9 @@ describe("Status fixture experience", () => {
     await waitFor(() =>
       expect(
         [...session.querySelectorAll(".traffic-rate-value")].map((value) => value.textContent),
-      ).toEqual(["2.45 MB/s", "1.18 MB/s"]),
+      ).toEqual(["0 B/s", "0 B/s"]),
     );
+    expect((await client.getSnapshot()).traffic.downloadBytesPerSecond).toBe(2_568_192);
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
     await act(() => client.setCapture({ systemProxy: true, tun: false }, false));
@@ -2453,9 +2458,14 @@ describe("Status fixture experience", () => {
     expect(within(session).queryByText("- B/s")).not.toBeInTheDocument();
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
 
-    await act(() => client.setCapture({ systemProxy: true, tun: false }, true));
+    let secondSessionId: string | null = null;
+    await act(async () => {
+      secondSessionId = (await client.setCapture({ systemProxy: true, tun: false }, true))
+        .recentTraffic.sessionId;
+    });
     await waitFor(() => expect(session.querySelectorAll("small")[0]).toHaveTextContent("0 B"));
     expect(session.querySelectorAll(".traffic-sparkline path")).toHaveLength(0);
+    expect(secondSessionId).not.toBe(firstSessionId);
   });
 
   it("labels fixture state and renders opaque Unicode labels verbatim", async () => {

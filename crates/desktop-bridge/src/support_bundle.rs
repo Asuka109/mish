@@ -1208,8 +1208,8 @@ mod tests {
         CorePhase, DiagnosticCheck, DiagnosticCheckKind, DiagnosticCheckStatus, DiagnosticFailure,
         DiagnosticHistory, DiagnosticObservedFact, DiagnosticProbePolicy, DiagnosticRouteTarget,
         DiagnosticRun, DiagnosticRunStatus, EventLevel, EventRecord, EventSource, EventsSnapshot,
-        ProbeStatus, ServiceProbeFailureStage, ServiceProbeResult, StatusAdapterKind,
-        StatusSnapshot,
+        ProbeStatus, RecentTrafficPhase, RecentTrafficSample, ServiceProbeFailureStage,
+        ServiceProbeResult, StatusAdapterKind, StatusSnapshot,
     };
 
     use super::{
@@ -1224,7 +1224,20 @@ mod tests {
     #[test]
     fn manifest_is_deterministic_and_excludes_sensitive_categories_at_the_source() {
         let core = core_status();
-        let status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Rpc);
+        let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Rpc);
+        status.recent_traffic.authority_id = "private-recent-authority".into();
+        status.recent_traffic.revision = 7;
+        status.recent_traffic.phase = RecentTrafficPhase::Active;
+        status.recent_traffic.session_id = Some("private-recent-session".into());
+        status.recent_traffic.profile_id = Some(status.active_profile_id.clone());
+        status.recent_traffic.downloaded_bytes = 123_456;
+        status.recent_traffic.download_bytes_per_second = 321;
+        status.recent_traffic.samples = vec![RecentTrafficSample {
+            sequence: 1,
+            offset_milliseconds: 1_000,
+            download_bytes_per_second: 321,
+            upload_bytes_per_second: 123,
+        }];
         let events = malicious_events(2);
         let diagnostics = malicious_diagnostics(1, 1);
         let activation = ManagedActivationState::default();
@@ -1259,6 +1272,9 @@ mod tests {
             "Controller payload",
             "Status bar label",
             "diagnostic private prose",
+            "private-recent-authority",
+            "private-recent-session",
+            "recentTraffic",
         ] {
             assert!(!exported.contains(forbidden), "leaked {forbidden}");
         }

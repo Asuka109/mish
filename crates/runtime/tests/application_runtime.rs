@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -9,7 +9,8 @@ use mish_runtime::{
     CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
     CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, LoopbackProxyEndpoint,
     ManualProxyState, MishRuntime, NetworkServiceProxyState, ProfileSummary,
-    RuntimeShutdownFailure, StatusAdapterKind, StatusDataSource, StatusSnapshot,
+    RecentTrafficObservation, RuntimeShutdownFailure, StatusAdapterKind, StatusDataSource,
+    StatusSnapshot,
 };
 use tokio::{
     sync::Notify,
@@ -54,6 +55,11 @@ impl CoreRuntime for EmbeddedCore {
 struct UnavailableCore;
 
 struct SuppliedStatusSource;
+
+struct PublishingStatusSource {
+    observation: Mutex<Option<RecentTrafficObservation>>,
+    sink: OnceLock<CoreStatusEventSink>,
+}
 
 struct ShutdownRecordingSource {
     order: Arc<Mutex<Vec<&'static str>>>,
@@ -242,6 +248,39 @@ impl StatusDataSource for SuppliedStatusSource {
     }
 }
 
+impl PublishingStatusSource {
+    fn publish(&self, observation: RecentTrafficObservation) {
+        *self.observation.lock().unwrap() = Some(observation);
+        self.sink
+            .get()
+            .expect("runtime must attach the source sink")
+            .publish(CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: None,
+                version: Some("embedded-test".into()),
+            });
+    }
+}
+
+impl StatusDataSource for PublishingStatusSource {
+    fn attach_status_event_sink(&self, sink: CoreStatusEventSink) {
+        let _ = self.sink.set(sink);
+    }
+
+    fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
+        StatusSnapshot::lifecycle_only(core, adapter_kind)
+    }
+
+    fn profile_id(&self) -> Option<String> {
+        Some("profile-a".into())
+    }
+
+    fn recent_traffic_observation(&self) -> Option<RecentTrafficObservation> {
+        self.observation.lock().unwrap().clone()
+    }
+}
+
 impl StatusDataSource for ShutdownRecordingSource {
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
         StatusSnapshot::lifecycle_only(core, adapter_kind)
@@ -404,6 +443,43 @@ async fn runtime_uses_an_injected_transport_neutral_status_source() {
     assert_eq!(snapshot["activeProfileId"], "supplied-profile");
     assert_eq!(snapshot["profiles"][0]["label"], "Supplied profile");
     assert_eq!(snapshot["adapterKind"], "native");
+}
+
+#[tokio::test]
+async fn source_publication_advances_recent_traffic_without_a_snapshot_reader() {
+    let source = Arc::new(PublishingStatusSource {
+        observation: Mutex::new(Some(RecentTrafficObservation {
+            source_generation: 1,
+            source_sequence: 1,
+            profile_id: "profile-a".into(),
+            downloaded_bytes: 100,
+            uploaded_bytes: 200,
+            download_bytes_per_second: 10,
+            upload_bytes_per_second: 20,
+        })),
+        sink: OnceLock::new(),
+    });
+    let runtime = MishRuntime::with_status_source(Arc::new(EmbeddedCore), source.clone());
+    let started = runtime
+        .recent_traffic()
+        .capture_applied("profile-a", source.recent_traffic_observation());
+
+    source.publish(RecentTrafficObservation {
+        source_generation: 1,
+        source_sequence: 2,
+        profile_id: "profile-a".into(),
+        downloaded_bytes: 130,
+        uploaded_bytes: 250,
+        download_bytes_per_second: 30,
+        upload_bytes_per_second: 50,
+    });
+
+    let advanced = runtime.recent_traffic().snapshot();
+    assert!(advanced.revision > started.revision);
+    assert_eq!(advanced.downloaded_bytes, 30);
+    assert_eq!(advanced.uploaded_bytes, 50);
+    assert_eq!(advanced.download_bytes_per_second, 30);
+    assert_eq!(advanced.upload_bytes_per_second, 50);
 }
 
 #[tokio::test]

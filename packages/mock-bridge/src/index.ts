@@ -86,6 +86,20 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
       { id: "home", label: "Home" },
       { id: "travel", label: "旅行 ✈️" },
     ],
+    recentTraffic: {
+      authorityId: "mock-status-authority",
+      revision: 0,
+      phase: "idle",
+      sessionId: null,
+      profileId: null,
+      cadenceMilliseconds: 1_000,
+      windowMilliseconds: 60_000,
+      downloadedBytes: 0,
+      uploadedBytes: 0,
+      downloadBytesPerSecond: 0,
+      uploadBytesPerSecond: 0,
+      samples: [],
+    },
     routingMode: "rule",
     runtime: {
       captureSelection: { systemProxy: false, tun: false },
@@ -129,6 +143,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
   if (options.authToken.length < 16) throw new Error("The mock token must contain 16 characters");
 
   let snapshot = createMockStatusSnapshot();
+  let recentTrafficSession = 0;
   let core: CoreStatusDto = {
     error: null,
     phase: "stopped",
@@ -262,7 +277,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 23,
+              protocolVersion: 24,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: {
                 closeAllActive: false,
@@ -334,6 +349,27 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
               },
               tunEnabled,
             };
+            snapshot.recentTraffic.revision += 1;
+            if (captureActive) {
+              if (snapshot.recentTraffic.phase === "idle") {
+                recentTrafficSession += 1;
+                snapshot.recentTraffic.sessionId = `mock-status-session-${recentTrafficSession}`;
+              }
+              snapshot.recentTraffic.phase = "active";
+              snapshot.recentTraffic.profileId = snapshot.activeProfileId;
+            } else {
+              snapshot.recentTraffic = {
+                ...snapshot.recentTraffic,
+                phase: "idle",
+                sessionId: null,
+                profileId: null,
+                downloadedBytes: 0,
+                uploadedBytes: 0,
+                downloadBytesPerSecond: 0,
+                uploadBytesPerSecond: 0,
+                samples: [],
+              };
+            }
             return structuredClone(snapshot);
           }
           case "status.recoverSystemProxy":
