@@ -15,14 +15,15 @@ import type {
 } from "@mish/contracts";
 import { TrafficProvider } from "../data/traffic-provider";
 import TypesafeI18n from "../i18n/i18n-react";
+import type { Locales } from "../i18n/i18n-types";
 import { loadAllLocales } from "../i18n/i18n-util.sync";
 
 loadAllLocales();
 
-function renderTraffic(client: FixtureTrafficClient) {
+function renderTraffic(client: FixtureTrafficClient, locale: Locales = "en") {
   return render(
     <AppearanceProvider>
-      <TypesafeI18n locale="en">
+      <TypesafeI18n locale={locale}>
         <MemoryRouter initialEntries={["/traffic"]}>
           <ProductProvider>
             <TrafficProvider client={client}>
@@ -187,6 +188,8 @@ describe("Traffic page", () => {
     expect(await screen.findByText(/Fictional local fixture data/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Close All Active Connections" })).toBeDisabled();
     const row = screen.getByRole("row", { name: /docs\.fixture\.invalid/ });
+    expect(row).toHaveAccessibleName(/TCP · HTTPS/);
+    expect(within(row).getByText("TCP · HTTPS")).toBeVisible();
     expect(within(row).getByText("Fixture Browser")).toHaveAttribute("tabindex", "0");
     expect(within(row).getByText(/Fixture Policy → Fixture Relay → Fixture Exit/)).toBeVisible();
     expect(within(row).getByRole("button", { name: "Close" })).toBeDisabled();
@@ -194,6 +197,7 @@ describe("Traffic page", () => {
 
     await user.click(row);
     const dialog = screen.getByRole("dialog", { name: "Connection details" });
+    expect(dialog).toHaveTextContent("TCP · HTTPS");
     const chain = within(dialog).getByRole("list");
     expect(within(chain).getAllByRole("listitem")).toHaveLength(3);
     expect(
@@ -202,6 +206,33 @@ describe("Traffic page", () => {
         .map((item) => item.textContent),
     ).toEqual(["1Fixture Policy", "2Fixture Relay", "3Fixture Exit"]);
     expect(dialog).toHaveTextContent("/synthetic/apps/fixture-browser");
+  });
+
+  it("keeps canonical identifiers identical in English and Chinese", async () => {
+    const english = renderTraffic(new FixtureTrafficClient(), "en");
+    expect(
+      await screen.findByRole("row", { name: /docs\.fixture\.invalid.*TCP · HTTPS/ }),
+    ).toBeVisible();
+    english.unmount();
+
+    renderTraffic(new FixtureTrafficClient(), "zh");
+    expect(
+      await screen.findByRole("row", { name: /docs\.fixture\.invalid.*TCP · HTTPS/ }),
+    ).toBeVisible();
+  });
+
+  it("searches the shared canonical and raw protocol presentation", async () => {
+    const user = userEvent.setup();
+    renderTraffic(new FixtureTrafficClient());
+    const search = await screen.findByRole("textbox", { name: "Search Traffic" });
+
+    await user.type(search, "TCP HTTPS");
+    expect(await screen.findByRole("row", { name: /docs\.fixture\.invalid/ })).toBeVisible();
+    expect(screen.queryByRole("row", { name: /media\.fixture\.invalid/ })).not.toBeInTheDocument();
+
+    await user.clear(search);
+    await user.type(search, "network:tcp protocol:https");
+    expect(await screen.findByRole("row", { name: /docs\.fixture\.invalid/ })).toBeVisible();
   });
 
   it("renders unavailable for an empty normalized provider chain and preserves mixed chain order", async () => {

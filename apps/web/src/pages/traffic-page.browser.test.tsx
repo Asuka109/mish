@@ -224,6 +224,33 @@ describe("Traffic filtered-visible close", () => {
     expect(document.activeElement).toBe(row.element());
   });
 
+  test("shares canonical protocol presentation across the row, accessibility tree, detail, and copy", async () => {
+    await page.viewport(1_200, 700);
+    const client = new BrowserCommandTrafficClient();
+    renderTraffic(client);
+
+    const row = page.getByRole("row", { name: /docs\.fixture\.invalid.*TCP · HTTPS/ });
+    await expect.element(row).toBeVisible();
+    await expect.element(row.getByText("TCP · HTTPS")).toBeVisible();
+
+    await userEvent.click(row);
+    const dialog = page.getByRole("dialog", { name: "Connection details" });
+    await expect.element(dialog).toHaveTextContent("TCP · HTTPS");
+
+    const protocol = dialog.getByText("TCP · HTTPS", { exact: true });
+    await userEvent.tripleClick(protocol);
+    let copiedText: string | null = null;
+    document.addEventListener(
+      "copy",
+      () => {
+        copiedText = document.getSelection()?.toString().trim() ?? null;
+      },
+      { once: true },
+    );
+    await userEvent.copy();
+    expect(copiedText).toBe("TCP · HTTPS");
+  });
+
   test("renders the normalized provider chain without orphaned separators", async () => {
     await page.viewport(1_200, 700);
     const client = new BrowserCommandTrafficClient();

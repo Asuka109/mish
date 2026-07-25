@@ -219,6 +219,35 @@ sorts and filters the complete bounded snapshot, then renders 250 rows per
 incremental batch so large valid snapshots do not create an unbounded initial
 DOM.
 
+### Network and protocol presentation
+
+Traffic preserves Mihomo's raw `metadata.network` and `metadata.type` strings in
+the DTO. One Web presentation formatter supplies list rows, connection details,
+accessible row names, search aliases, and any future explicitly authorized copy
+surface. English and Chinese interfaces consume the same non-localized result.
+Known identifiers are matched case-insensitively; unknown and user-provided
+identifiers are returned byte-for-byte without title-casing, substring expansion,
+or inferred security semantics.
+
+The allowlist is deliberately bounded by the pinned Mihomo v1.19.29 source.
+Mihomo's [`constant/metadata.go`](https://github.com/MetaCubeX/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/constant/metadata.go)
+serializes transport as `tcp` or `udp` and defines the inbound identifiers used
+by the Controller connection metadata. Its
+[`constant/sniffer/sniffer.go`](https://github.com/MetaCubeX/mihomo/blob/e26714a181ac0e2fa803453c0a8e9a9ce94e31cb/constant/sniffer/sniffer.go)
+defines `TLS`, `HTTP`, and `QUIC` sniffers. Mish canonically displays:
+
+| Identifier kind | Accepted raw spelling (case-insensitive) | Display                             |
+| --------------- | ---------------------------------------- | ----------------------------------- |
+| Network         | `tcp`, `udp`                             | `TCP`, `UDP`                        |
+| Protocol        | `http`, `https`, `socks4`, `socks5`      | `HTTP`, `HTTPS`, `SOCKS4`, `SOCKS5` |
+| Protocol        | `tls`, `quic`, `tun`, `tuic`             | `TLS`, `QUIC`, `TUN`, `TUIC`        |
+| Protocol        | `redir`, `tproxy`                        | `REDIR`, `TPROXY`                   |
+
+Search includes both the raw and formatted values, including plain text and the
+`network:` / `protocol:` structured fields. Network selection compares a
+normalized presentation key while command and RPC authority continue to use the
+unchanged DTO.
+
 ## View pause
 
 Traffic pause is a client/view-scoped presentation state. The Web provider
