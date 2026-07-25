@@ -9,6 +9,7 @@ import {
   createTrafficHistoryState,
   filterConnections,
   filterRules,
+  parseQuery,
   reconcileTrafficSnapshot,
   sortConnections,
   sortRules,
@@ -112,6 +113,18 @@ describe("Traffic closed history", () => {
 });
 
 describe("Traffic filters and stable sorting", () => {
+  it("parses structured tokens without reinterpreting edge cases", () => {
+    expect(parseQuery("  GEOSITE:YouTube\tunknown:value  ")).toEqual([
+      { field: "geosite", value: "youtube" },
+      { field: "unknown", value: "value" },
+    ]);
+    expect(parseQuery("geosite:youtube:music geosite: bare :youtube")).toEqual([
+      { field: "geosite", value: "youtube:music" },
+      { field: null, value: "bare" },
+      { field: null, value: ":youtube" },
+    ]);
+  });
+
   it("composes plain text with structured connection dimensions", () => {
     const values = [
       connection("one", {
@@ -139,6 +152,32 @@ describe("Traffic filters and stable sorting", () => {
     expect(filterConnections([value], "chain:front", "active", "all")).toEqual([value]);
     expect(filterConnections([value], "chain:provider-only", "active", "all")).toEqual([]);
     expect(filterConnections([value], "provider:provider-only", "active", "all")).toEqual([value]);
+  });
+
+  it("matches GeoSite connection payloads by typed rule with case-insensitive AND semantics", () => {
+    const values = [
+      connection("geosite", {
+        matchedRule: { payload: "YouTube-Music", type: "gEoSiTe" },
+        network: "tcp",
+      }),
+      connection("wrong-type", {
+        matchedRule: { payload: "youtube-music", type: "Domain" },
+        network: "tcp",
+      }),
+      connection("wrong-payload", {
+        matchedRule: { payload: "Netflix", type: "GeoSite" },
+        network: "tcp",
+      }),
+    ];
+
+    expect(filterConnections(values, "GEOSITE:YOUTUBE network:TCP", "active", "all")).toEqual([
+      values[0],
+    ]);
+    expect(filterConnections(values, "geosite:youtube state:closed", "closed", "all")).toEqual([
+      values[0],
+    ]);
+    expect(filterConnections(values, "geosite:youtube network:udp", "active", "all")).toEqual([]);
+    expect(filterConnections(values, "unknown:youtube", "active", "all")).toEqual([]);
   });
 
   it("sorts exact decimal counters without losing stable ties", () => {
@@ -179,5 +218,34 @@ describe("Traffic filters and stable sorting", () => {
     ];
     expect(filterRules(rules, "enabled:false target:fixture")).toEqual([rules[1]]);
     expect(sortRules(rules, "hits-desc", "en")).toEqual(rules);
+  });
+
+  it("matches only typed GeoSite rules and preserves unknown-field behavior", () => {
+    const rules: EffectiveRuleDto[] = [
+      {
+        enabled: true,
+        hitCount: "10",
+        lastHitAt: null,
+        payload: "YouTube-Music",
+        priority: 0,
+        size: "-1",
+        target: "Fixture Media",
+        type: "GEOSITE",
+      },
+      {
+        enabled: true,
+        hitCount: "5",
+        lastHitAt: null,
+        payload: "youtube-music",
+        priority: 1,
+        size: "-1",
+        target: "Fixture Domain",
+        type: "Domain",
+      },
+    ];
+
+    expect(filterRules(rules, "geosite:YOUTUBE target:media")).toEqual([rules[0]]);
+    expect(filterRules(rules, "geosite:youtube target:domain")).toEqual([]);
+    expect(filterRules(rules, "unknown:youtube")).toEqual([]);
   });
 });

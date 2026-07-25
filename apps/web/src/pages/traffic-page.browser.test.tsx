@@ -76,13 +76,13 @@ afterEach(() => {
   container = null;
 });
 
-function renderTraffic(client: BrowserCommandTrafficClient) {
+function renderTraffic(client: BrowserCommandTrafficClient, locale: "en" | "zh" = "en") {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
   root.render(
     <AppearanceProvider initialPreference="light">
-      <TypesafeI18n locale="en">
+      <TypesafeI18n locale={locale}>
         <MemoryRouter initialEntries={["/traffic"]}>
           <ProductProvider client={new FixtureStatusClient()}>
             <TrafficProvider client={client}>
@@ -97,7 +97,65 @@ function renderTraffic(client: BrowserCommandTrafficClient) {
   );
 }
 
-describe("Traffic filtered-visible close", () => {
+describe("Traffic browser interactions", () => {
+  test.each([
+    {
+      closed: /Closed/,
+      help: "Explain Traffic search syntax",
+      locale: "en" as const,
+      noMatches: "No effective rules",
+      rules: /Rules/,
+      search: "Search Traffic",
+    },
+    {
+      closed: /已关闭/,
+      help: "了解流量搜索语法",
+      locale: "zh" as const,
+      noMatches: "没有规则",
+      rules: /规则/,
+      search: "搜索流量",
+    },
+  ])(
+    "filters typed GeoSite payloads across Active, Closed, and Rules in $locale",
+    async ({ closed, help, locale, noMatches, rules, search }) => {
+      const client = new BrowserCommandTrafficClient();
+      const initial = await client.getSnapshot();
+      renderTraffic(client, locale);
+
+      const searchInput = page.getByRole("textbox", { name: search });
+      await expect.element(searchInput).toBeVisible();
+      await userEvent.click(page.getByRole("button", { name: help }));
+      const helpDialog = page.getByRole("dialog");
+      await expect.element(helpDialog).toHaveTextContent("geosite:youtube");
+      await userEvent.keyboard("{Escape}");
+
+      await userEvent.fill(searchInput, "GEOSITE:YOUTUBE");
+      await expect.element(page.getByText("media.fixture.invalid")).toBeVisible();
+      await expect.element(page.getByText("chat.fixture.invalid")).not.toBeInTheDocument();
+
+      client.publishSnapshot({
+        ...initial,
+        activeConnections: initial.activeConnections.filter(
+          ({ id }) => id !== "fixture-connection-2" && id !== "fixture-connection-5",
+        ),
+        sequence: initial.sequence + 1,
+      });
+      await userEvent.click(page.getByRole("button", { name: closed }));
+      await expect.element(page.getByText("media.fixture.invalid")).toBeVisible();
+      await expect.element(page.getByText("chat.fixture.invalid")).not.toBeInTheDocument();
+
+      await userEvent.click(page.getByRole("button", { name: rules }));
+      await userEvent.fill(searchInput, "geosite:youtube target:media");
+      await expect.element(page.getByRole("row", { name: /YouTube.*Fixture Media/ })).toBeVisible();
+      await expect
+        .element(page.getByRole("row", { name: /youtube.*Fixture Messaging/ }))
+        .not.toBeInTheDocument();
+
+      await userEvent.fill(searchInput, "unknown:youtube");
+      await expect.element(page.getByText(noMatches)).toBeVisible();
+    },
+  );
+
   test("renders the normalized provider chain without orphaned separators", async () => {
     await page.viewport(1_200, 700);
     const client = new BrowserCommandTrafficClient();
