@@ -4,6 +4,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use mish_presentation_contract::{
+    ApplicationActionId, ApplicationEvent, ApplicationEventContent,
+    CaptureFailureApplicationEventData, ControllerSessionStaleApplicationEventData,
+    ControllerSessionStartedApplicationEventData, ControllerStreamUnavailableApplicationEventData,
+    ProfileActivationFailedApplicationEventData, ProxyLaunchTimingApplicationEventData,
+    SettingsOperationFailedApplicationEventData, TrafficOperationFailedApplicationEventData,
+};
 use serde::Serialize;
 
 use crate::{
@@ -43,180 +50,140 @@ pub enum EventSource {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationDiagnosticEvent {
-    detail: Option<ApplicationDiagnosticDetail>,
     level: EventLevel,
-    message: &'static str,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum ApplicationDiagnosticDetail {
-    Owned(String),
-    Static(&'static str),
+    presentation: ApplicationEvent,
 }
 
 impl ApplicationDiagnosticEvent {
-    pub const fn new(
+    pub fn new(
         level: EventLevel,
-        message: &'static str,
-        detail: Option<&'static str>,
+        content: ApplicationEventContent,
+        action_ids: Vec<ApplicationActionId>,
     ) -> Self {
         Self {
-            detail: match detail {
-                Some(detail) => Some(ApplicationDiagnosticDetail::Static(detail)),
-                None => None,
-            },
             level,
-            message,
+            presentation: ApplicationEvent::new(content, action_ids),
         }
     }
 
-    pub fn with_owned_detail(
-        level: EventLevel,
-        message: &'static str,
-        detail: impl Into<String>,
-    ) -> Self {
-        Self {
-            detail: Some(ApplicationDiagnosticDetail::Owned(detail.into())),
-            level,
-            message,
-        }
-    }
-
-    pub const fn capture_failure(failure: CaptureFailureKind) -> Self {
-        match failure {
-            CaptureFailureKind::InvalidRecovery => Self::new(
-                EventLevel::Error,
-                "System Proxy recovery record is invalid",
-                Some(
-                    "Leave the external proxy unchanged to clear Mish ownership, then retry capture",
-                ),
-            ),
-            CaptureFailureKind::PersistenceFailed => Self::new(
-                EventLevel::Error,
-                "System Proxy recovery storage is unavailable",
-                Some("Check Mish application-data permissions before retrying capture"),
-            ),
-            CaptureFailureKind::CoreUnhealthy => Self::new(
-                EventLevel::Warning,
-                "Traffic capture was blocked because Mihomo is not healthy",
-                Some(
-                    "Activate a valid profile and wait for healthy Status before enabling capture",
-                ),
-            ),
-            CaptureFailureKind::ListenerUnavailable => Self::new(
-                EventLevel::Error,
-                "Traffic capture was blocked because the managed listener is unavailable",
-                Some("Restart the active profile and retry only after Status is healthy"),
-            ),
-            CaptureFailureKind::ApplyFailed => Self::new(
-                EventLevel::Error,
-                "System Proxy mutation failed",
-                Some(
-                    "macOS did not complete the requested System Proxy mutation; the prior state was retained or restored",
-                ),
-            ),
-            CaptureFailureKind::ConfirmationFailed => Self::new(
-                EventLevel::Error,
-                "System Proxy propagation was not confirmed",
-                Some("Mish waited for an exact macOS observation before restoring the prior state"),
-            ),
-            CaptureFailureKind::ExternalDrift => Self::new(
-                EventLevel::Warning,
-                "System Proxy changed outside Mish",
-                Some("Choose Repair or Leave as is from the Status recovery controls"),
-            ),
-            CaptureFailureKind::ObservationFailed => Self::new(
-                EventLevel::Error,
-                "System Proxy state could not be observed",
-                Some("Mish did not apply or confirm capture without a complete macOS observation"),
-            ),
-            CaptureFailureKind::RollbackFailed => Self::new(
-                EventLevel::Error,
-                "System Proxy recovery was not confirmed",
-                Some(
-                    "The prior System Proxy state could not be confirmed; review the Status recovery controls",
-                ),
-            ),
-            CaptureFailureKind::TakeoverRejected
-            | CaptureFailureKind::UnsafeExistingConfiguration => Self::new(
-                EventLevel::Warning,
-                "Existing System Proxy settings were left unchanged",
-                Some("Review the System Proxy takeover policy before retrying capture"),
-            ),
-            CaptureFailureKind::PermissionDenied => Self::new(
-                EventLevel::Error,
-                "macOS denied the System Proxy mutation",
-                Some("No successful capture state was published"),
-            ),
-            CaptureFailureKind::CapabilityUnavailable
-            | CaptureFailureKind::UnsupportedSelection => Self::new(
-                EventLevel::Error,
-                "Requested traffic capture is unavailable",
-                Some("Review the available capture modes before retrying"),
-            ),
-            CaptureFailureKind::RuntimeTransition => Self::new(
-                EventLevel::Warning,
-                "Traffic capture transition did not complete",
-                Some("Wait for the current Core or capture transition to finish before retrying"),
-            ),
-        }
+    pub fn capture_failure(failure: CaptureFailureKind) -> Self {
+        Self::capture_failure_with_stage(failure, None)
     }
 
     pub fn capture_transition_failure(error: &CaptureTransitionError) -> Self {
-        if error.kind != CaptureFailureKind::ObservationFailed {
-            return Self::capture_failure(error.kind);
-        }
-        let detail = match error.observation_stage {
-            Some(SystemProxyObservationStage::DefaultRoute) => {
-                "macOS default-route observation failed before Mish selected a network service"
-            }
-            Some(SystemProxyObservationStage::NetworkServiceOrder) => {
-                "/usr/sbin/networksetup could not list the bounded network-service order"
-            }
-            Some(SystemProxyObservationStage::NetworkServiceResolution) => {
-                "The macOS default-route device did not resolve to one exact network service"
-            }
-            Some(SystemProxyObservationStage::ProxyConfiguration) => {
-                "/usr/sbin/networksetup did not return one complete proxy configuration"
-            }
-            None => "Mish did not apply or confirm capture without a complete macOS observation",
+        Self::capture_failure_with_stage(error.kind, error.observation_stage)
+    }
+
+    fn capture_failure_with_stage(
+        failure: CaptureFailureKind,
+        observation_stage: Option<SystemProxyObservationStage>,
+    ) -> Self {
+        let level = if matches!(
+            failure,
+            CaptureFailureKind::CoreUnhealthy
+                | CaptureFailureKind::ExternalDrift
+                | CaptureFailureKind::RuntimeTransition
+                | CaptureFailureKind::TakeoverRejected
+                | CaptureFailureKind::UnsafeExistingConfiguration
+        ) {
+            EventLevel::Warning
+        } else {
+            EventLevel::Error
         };
         Self::new(
-            EventLevel::Error,
-            "System Proxy state could not be observed",
-            Some(detail),
+            level,
+            ApplicationEventContent::CaptureFailure(CaptureFailureApplicationEventData {
+                failure: capture_failure_id(failure).into(),
+                observation_stage: observation_stage
+                    .map(observation_stage_id)
+                    .map(str::to_owned),
+            }),
+            vec![ApplicationActionId::OpenDiagnostics],
         )
     }
 
-    pub const fn settings_failure() -> Self {
+    pub fn settings_failure(failure: impl Into<String>) -> Self {
         Self::new(
             EventLevel::Error,
-            "Application settings update failed",
-            Some("Review the current Settings snapshot, then retry the requested change"),
+            ApplicationEventContent::SettingsOperationFailed(
+                SettingsOperationFailedApplicationEventData {
+                    failure: failure.into(),
+                },
+            ),
+            Vec::new(),
         )
     }
 
-    pub const fn traffic_failure() -> Self {
+    pub fn controller_session_started() -> Self {
+        Self::new(
+            EventLevel::Info,
+            ApplicationEventContent::ControllerSessionStarted(
+                ControllerSessionStartedApplicationEventData {},
+            ),
+            Vec::new(),
+        )
+    }
+
+    pub fn controller_session_stale() -> Self {
+        Self::new(
+            EventLevel::Warning,
+            ApplicationEventContent::ControllerSessionStale(
+                ControllerSessionStaleApplicationEventData {},
+            ),
+            Vec::new(),
+        )
+    }
+
+    pub fn controller_stream_unavailable(failure: impl Into<String>) -> Self {
+        Self::new(
+            EventLevel::Warning,
+            ApplicationEventContent::ControllerStreamUnavailable(
+                ControllerStreamUnavailableApplicationEventData {
+                    failure: failure.into(),
+                },
+            ),
+            Vec::new(),
+        )
+    }
+
+    pub fn profile_activation_failure(failure: impl Into<String>) -> Self {
         Self::new(
             EventLevel::Error,
-            "Traffic operation failed",
-            Some("Refresh Traffic to confirm the remaining connections before retrying"),
+            ApplicationEventContent::ProfileActivationFailed(
+                ProfileActivationFailedApplicationEventData {
+                    failure: failure.into(),
+                },
+            ),
+            vec![ApplicationActionId::OpenDiagnostics],
         )
     }
 
-    pub fn detail(&self) -> Option<&str> {
-        self.detail.as_ref().map(|detail| match detail {
-            ApplicationDiagnosticDetail::Owned(detail) => detail.as_str(),
-            ApplicationDiagnosticDetail::Static(detail) => *detail,
-        })
+    pub fn proxy_launch_timing(data: ProxyLaunchTimingApplicationEventData) -> Self {
+        Self::new(
+            EventLevel::Debug,
+            ApplicationEventContent::ProxyLaunchTiming(data),
+            Vec::new(),
+        )
+    }
+
+    pub fn traffic_failure(failure: impl Into<String>) -> Self {
+        Self::new(
+            EventLevel::Error,
+            ApplicationEventContent::TrafficOperationFailed(
+                TrafficOperationFailedApplicationEventData {
+                    failure: failure.into(),
+                },
+            ),
+            vec![ApplicationActionId::OpenDiagnostics],
+        )
     }
 
     pub const fn level(&self) -> EventLevel {
         self.level
     }
 
-    pub const fn message(&self) -> &'static str {
-        self.message
+    pub fn presentation(&self) -> &ApplicationEvent {
+        &self.presentation
     }
 }
 
@@ -232,13 +199,20 @@ pub enum EventSourcePhase {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EventRecord {
-    pub detail: Option<String>,
+    pub application: Option<ApplicationEvent>,
+    pub evidence: Option<EventEvidence>,
     pub id: String,
     pub level: EventLevel,
-    pub message: String,
     pub observed_at: u64,
     pub sequence: u64,
     pub source: EventSource,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventEvidence {
+    pub detail: Option<String>,
+    pub message: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -289,6 +263,35 @@ impl EventsSnapshot {
     }
 }
 
+fn capture_failure_id(failure: CaptureFailureKind) -> &'static str {
+    match failure {
+        CaptureFailureKind::ApplyFailed => "apply-failed",
+        CaptureFailureKind::CapabilityUnavailable => "capability-unavailable",
+        CaptureFailureKind::ConfirmationFailed => "confirmation-failed",
+        CaptureFailureKind::CoreUnhealthy => "core-unhealthy",
+        CaptureFailureKind::ExternalDrift => "external-drift",
+        CaptureFailureKind::InvalidRecovery => "invalid-recovery",
+        CaptureFailureKind::ListenerUnavailable => "listener-unavailable",
+        CaptureFailureKind::ObservationFailed => "observation-failed",
+        CaptureFailureKind::PermissionDenied => "permission-denied",
+        CaptureFailureKind::PersistenceFailed => "persistence-failed",
+        CaptureFailureKind::RollbackFailed => "rollback-failed",
+        CaptureFailureKind::RuntimeTransition => "runtime-transition",
+        CaptureFailureKind::TakeoverRejected => "takeover-rejected",
+        CaptureFailureKind::UnsafeExistingConfiguration => "unsafe-existing-configuration",
+        CaptureFailureKind::UnsupportedSelection => "unsupported-selection",
+    }
+}
+
+fn observation_stage_id(stage: SystemProxyObservationStage) -> &'static str {
+    match stage {
+        SystemProxyObservationStage::DefaultRoute => "default-route",
+        SystemProxyObservationStage::NetworkServiceOrder => "network-service-order",
+        SystemProxyObservationStage::NetworkServiceResolution => "network-service-resolution",
+        SystemProxyObservationStage::ProxyConfiguration => "proxy-configuration",
+    }
+}
+
 pub(crate) struct ApplicationEventBuffer {
     events: VecDeque<EventRecord>,
     sequence: u64,
@@ -311,17 +314,17 @@ impl ApplicationEventBuffer {
         if self.events.back().is_some_and(|previous| {
             previous.source == EventSource::Application
                 && previous.level == event.level()
-                && previous.message == event.message()
-                && previous.detail.as_deref() == event.detail()
+                && previous.application.as_ref() == Some(event.presentation())
         }) {
             return false;
         }
         self.sequence = self.sequence.saturating_add(1);
+        let level = event.level;
         self.events.push_back(EventRecord {
-            detail: event.detail().map(str::to_owned),
+            application: Some(event.presentation),
+            evidence: None,
             id: format!("{}:{}", self.session_id, self.sequence),
-            level: event.level(),
-            message: event.message().to_owned(),
+            level,
             observed_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
@@ -383,14 +386,8 @@ mod tests {
             ApplicationDiagnosticEvent::capture_failure(CaptureFailureKind::ConfirmationFailed);
 
         assert_eq!(event.level(), EventLevel::Error);
-        assert_eq!(
-            event.message(),
-            "System Proxy propagation was not confirmed"
-        );
-        assert_eq!(
-            event.detail(),
-            Some("Mish waited for an exact macOS observation before restoring the prior state")
-        );
+        assert_eq!(event.presentation().kind(), "capture.failure");
+        assert!(format!("{event:?}").contains("confirmation-failed"));
     }
 
     #[test]
@@ -399,10 +396,7 @@ mod tests {
             ApplicationDiagnosticEvent::capture_failure(CaptureFailureKind::TakeoverRejected);
 
         assert_eq!(event.level(), EventLevel::Warning);
-        assert_eq!(
-            event.message(),
-            "Existing System Proxy settings were left unchanged"
-        );
+        assert_eq!(event.presentation().kind(), "capture.failure");
         assert!(!format!("{event:?}").contains("service"));
         assert!(!format!("{event:?}").contains("PAC"));
     }
@@ -416,10 +410,7 @@ mod tests {
         .at_observation_stage(SystemProxyObservationStage::NetworkServiceResolution);
         let event = ApplicationDiagnosticEvent::capture_transition_failure(&error);
 
-        assert_eq!(
-            event.detail(),
-            Some("The macOS default-route device did not resolve to one exact network service")
-        );
+        assert!(format!("{event:?}").contains("network-service-resolution"));
         assert!(!format!("{event:?}").contains("private fixture detail"));
     }
 }

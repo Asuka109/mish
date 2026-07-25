@@ -3687,6 +3687,60 @@ type RootTranslation = {
 		upload: string
 	}
 	events: {
+		application: {
+			/**
+			 * O​p​e​n​ ​G​u​i​d​e​d​ ​D​i​a​g​n​o​s​t​i​c​s​ ​f​o​r​ ​s​t​r​u​c​t​u​r​e​d​ ​e​v​i​d​e​n​c​e​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​ ​t​h​e​ ​c​a​p​t​u​r​e​ ​a​c​t​i​o​n​.
+			 */
+			captureFailureDetail: string
+			/**
+			 * C​o​n​t​r​o​l​l​e​r​ ​e​v​e​n​t​ ​s​e​s​s​i​o​n​ ​s​t​a​r​t​e​d
+			 */
+			controllerSessionStarted: string
+			/**
+			 * A​ ​n​e​w​ ​s​e​s​s​i​o​n​ ​b​o​u​n​d​a​r​y​ ​w​a​s​ ​c​r​e​a​t​e​d​;​ ​e​a​r​l​i​e​r​ ​e​v​e​n​t​s​ ​a​r​e​ ​n​o​t​ ​c​o​n​t​i​n​u​o​u​s​.
+			 */
+			controllerSessionStartedDetail: string
+			/**
+			 * C​o​n​t​r​o​l​l​e​r​ ​e​v​e​n​t​ ​s​e​s​s​i​o​n​ ​b​e​c​a​m​e​ ​s​t​a​l​e
+			 */
+			controllerSessionStale: string
+			/**
+			 * C​o​l​l​e​c​t​i​o​n​ ​w​i​l​l​ ​r​e​s​u​m​e​ ​i​n​ ​a​ ​n​e​w​ ​s​e​s​s​i​o​n​ ​a​f​t​e​r​ ​t​h​e​ ​C​o​n​t​r​o​l​l​e​r​ ​r​e​c​o​n​n​e​c​t​s​.
+			 */
+			controllerSessionStaleDetail: string
+			/**
+			 * C​o​n​t​r​o​l​l​e​r​ ​e​v​e​n​t​ ​s​t​r​e​a​m​ ​i​s​ ​u​n​a​v​a​i​l​a​b​l​e
+			 */
+			controllerStreamUnavailable: string
+			/**
+			 * S​a​f​e​ ​f​a​i​l​u​r​e​ ​c​a​t​e​g​o​r​y​:​ ​{​f​a​i​l​u​r​e​}​.
+			 * @param {string} failure
+			 */
+			controllerStreamUnavailableDetail: RequiredParams<'failure'>
+			/**
+			 * A​c​t​i​v​a​t​i​o​n​ ​s​t​o​p​p​e​d​ ​w​i​t​h​ ​s​a​f​e​ ​f​a​i​l​u​r​e​ ​c​a​t​e​g​o​r​y​ ​{​f​a​i​l​u​r​e​}​.​ ​O​p​e​n​ ​G​u​i​d​e​d​ ​D​i​a​g​n​o​s​t​i​c​s​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
+			 * @param {string} failure
+			 */
+			profileActivationFailedDetail: RequiredParams<'failure'>
+			/**
+			 * L​a​u​n​c​h​ ​P​r​o​x​y​ ​t​i​m​i​n​g
+			 */
+			proxyLaunchTiming: string
+			/**
+			 * O​u​t​c​o​m​e​ ​{​o​u​t​c​o​m​e​}​;​ ​t​o​t​a​l​ ​{​t​o​t​a​l​}​ ​m​s​.
+			 * @param {string} outcome
+			 * @param {number} total
+			 */
+			proxyLaunchTimingDetail: RequiredParams<'outcome' | 'total'>
+			/**
+			 * R​e​v​i​e​w​ ​t​h​e​ ​a​u​t​h​o​r​i​t​a​t​i​v​e​ ​S​e​t​t​i​n​g​s​ ​s​n​a​p​s​h​o​t​,​ ​t​h​e​n​ ​r​e​t​r​y​ ​t​h​e​ ​r​e​q​u​e​s​t​e​d​ ​c​h​a​n​g​e​.
+			 */
+			settingsOperationFailedDetail: string
+			/**
+			 * R​e​f​r​e​s​h​ ​T​r​a​f​f​i​c​ ​t​o​ ​c​o​n​f​i​r​m​ ​t​h​e​ ​r​e​m​a​i​n​i​n​g​ ​c​o​n​n​e​c​t​i​o​n​s​ ​b​e​f​o​r​e​ ​r​e​t​r​y​i​n​g​.
+			 */
+			trafficOperationFailedDetail: string
+		}
 		/**
 		 * A​l​l​ ​l​e​v​e​l​s
 		 */
@@ -8181,6 +8235,56 @@ export type TranslationFunctions = {
 		upload: () => LocalizedString
 	}
 	events: {
+		application: {
+			/**
+			 * Open Guided Diagnostics for structured evidence before retrying the capture action.
+			 */
+			captureFailureDetail: () => LocalizedString
+			/**
+			 * Controller event session started
+			 */
+			controllerSessionStarted: () => LocalizedString
+			/**
+			 * A new session boundary was created; earlier events are not continuous.
+			 */
+			controllerSessionStartedDetail: () => LocalizedString
+			/**
+			 * Controller event session became stale
+			 */
+			controllerSessionStale: () => LocalizedString
+			/**
+			 * Collection will resume in a new session after the Controller reconnects.
+			 */
+			controllerSessionStaleDetail: () => LocalizedString
+			/**
+			 * Controller event stream is unavailable
+			 */
+			controllerStreamUnavailable: () => LocalizedString
+			/**
+			 * Safe failure category: {failure}.
+			 */
+			controllerStreamUnavailableDetail: (arg: { failure: string }) => LocalizedString
+			/**
+			 * Activation stopped with safe failure category {failure}. Open Guided Diagnostics before retrying.
+			 */
+			profileActivationFailedDetail: (arg: { failure: string }) => LocalizedString
+			/**
+			 * Launch Proxy timing
+			 */
+			proxyLaunchTiming: () => LocalizedString
+			/**
+			 * Outcome {outcome}; total {total} ms.
+			 */
+			proxyLaunchTimingDetail: (arg: { outcome: string, total: number }) => LocalizedString
+			/**
+			 * Review the authoritative Settings snapshot, then retry the requested change.
+			 */
+			settingsOperationFailedDetail: () => LocalizedString
+			/**
+			 * Refresh Traffic to confirm the remaining connections before retrying.
+			 */
+			trafficOperationFailedDetail: () => LocalizedString
+		}
 		/**
 		 * All levels
 		 */

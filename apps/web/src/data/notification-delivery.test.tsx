@@ -46,6 +46,7 @@ describe("Rust-authoritative notification delivery projection", () => {
     const randomUuid = vi.spyOn(crypto, "randomUUID");
 
     const publication = notificationPublication("system-proxy.drift", {
+      data: { canLeave: true, canRepair: true, repairRequiresCore: false },
       dedupeKey: "system-proxy.drift",
       severity: "warning",
     });
@@ -65,7 +66,7 @@ describe("Rust-authoritative notification delivery projection", () => {
       }),
     );
     const client = new FixtureNotificationClient(center);
-    render(
+    const view = render(
       <TypesafeI18n locale="en">
         <NotificationDeliveryProvider client={client}>
           <Probe />
@@ -79,7 +80,7 @@ describe("Rust-authoritative notification delivery projection", () => {
       publisher.publish(
         notificationPublication("traffic.connections-closed", {
           dedupeKey: "traffic.connections-closed",
-          params: { count: 2 },
+          data: { count: 2 },
           severity: "success",
         }),
       ),
@@ -92,7 +93,7 @@ describe("Rust-authoritative notification delivery projection", () => {
       publisher.publish(
         notificationPublication("traffic.connections-closed", {
           dedupeKey: "traffic.connections-closed",
-          params: { count: 3 },
+          data: { count: 3 },
           severity: "success",
         }),
       ),
@@ -102,6 +103,28 @@ describe("Rust-authoritative notification delivery projection", () => {
     );
     expect(delivery?.toastEntries).toHaveLength(1);
     expect(delivery?.toastEntries[0]?.id).toBe(id);
+    act(() => delivery?.markRead([id]));
+    await vi.waitFor(() =>
+      expect(delivery?.entries.find((entry) => entry.id === id)?.read).toBe(true),
+    );
+    const authorityBeforeLocaleChange = await client.getSnapshot();
+
+    view.rerender(
+      <TypesafeI18n key="zh" locale="zh">
+        <NotificationDeliveryProvider client={client}>
+          <Probe />
+        </NotificationDeliveryProvider>
+      </TypesafeI18n>,
+    );
+    await vi.waitFor(() =>
+      expect(delivery?.entries.find((entry) => entry.id === id)?.message).toBe(
+        "已关闭 3 条活动连接",
+      ),
+    );
+    expect(delivery?.entries).toHaveLength(2);
+    expect(delivery?.toastEntries).toEqual([]);
+    expect(delivery?.entries.find((entry) => entry.id === id)?.read).toBe(true);
+    expect(await client.getSnapshot()).toEqual(authorityBeforeLocaleChange);
   });
 
   it("writes read and remove lifecycle through the shared authority", async () => {

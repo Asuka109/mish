@@ -8,8 +8,8 @@
     "bundle:macos": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json",
     "bundle:macos:alpha-ad-hoc": "tauri build --bundles dmg --features custom-protocol --config src-tauri/tauri.bundle.conf.json",
     "bundle:macos:production": "tauri build --bundles app --features custom-protocol --config src-tauri/tauri.bundle.conf.json --config src-tauri/tauri.production.conf.json",
-    "demo": "node ../../scripts/tauri-dev.ts --demo",
-    "dev": "node ../../scripts/tauri-dev.ts",
+    "demo": "node --env-file=.env.development ../../scripts/tauri-dev.ts --demo",
+    "dev": "node --env-file=.env.development ../../scripts/tauri-dev.ts",
     "test:run": "cargo test --manifest-path src-tauri/Cargo.toml",
     "typecheck": "cargo check --manifest-path src-tauri/Cargo.toml"
   },

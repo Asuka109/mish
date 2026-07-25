@@ -997,6 +997,21 @@ const zh = {
     upload: "上传",
   },
   events: {
+    application: {
+      captureFailureDetail: "重试流量接管前，请打开引导式诊断查看结构化证据。",
+      controllerSessionStarted: "控制器事件会话已开始",
+      controllerSessionStartedDetail: "已建立新的会话边界；此前事件与本会话并不连续。",
+      controllerSessionStale: "控制器事件会话已过期",
+      controllerSessionStaleDetail: "控制器重新连接后，事件收集会在新会话中恢复。",
+      controllerStreamUnavailable: "控制器事件流不可用",
+      controllerStreamUnavailableDetail: "安全失败分类：{failure}。",
+      profileActivationFailedDetail:
+        "配置启用已停止，安全失败分类为 {failure}。重试前请打开引导式诊断。",
+      proxyLaunchTiming: "启动代理耗时",
+      proxyLaunchTimingDetail: "结果 {outcome}；总耗时 {total} 毫秒。",
+      settingsOperationFailedDetail: "请先查看当前设置状态，再重试刚才的更改。",
+      trafficOperationFailedDetail: "请刷新流量页面确认剩余连接后再重试。",
+    },
     allLevels: "全部级别",
     allSources: "全部来源",
     clearLocal: "清空本地",

@@ -1,5 +1,8 @@
 import type { EventRecordDto, EventsSnapshotDto } from "@mish/contracts";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { presentEvent } from "../data/event-presentation";
+import { i18nObject } from "../i18n/i18n-util";
+import { loadAllLocales } from "../i18n/i18n-util.sync";
 import {
   clearLocalEvents,
   createEventsBufferState,
@@ -11,16 +14,18 @@ import {
 
 function event(sequence: number, overrides: Partial<EventRecordDto> = {}): EventRecordDto {
   return {
-    detail: null,
+    application: null,
+    evidence: { detail: null, message: `event ${sequence}` },
     id: `session-a:${sequence}`,
     level: "info",
-    message: `event ${sequence}`,
     observedAt: 1_720_000_000_000 + sequence,
     sequence,
     source: "core",
     ...overrides,
   };
 }
+
+beforeAll(loadAllLocales);
 
 function snapshot(
   sequence: number,
@@ -126,22 +131,30 @@ describe("Events local buffer", () => {
     let state = reconcileEventsSnapshot(createEventsBufferState(), snapshot(1, [event(1)]));
     state = reconcileEventsSnapshot(
       state,
-      snapshot(1, [event(1, { id: "session-b:1", message: "new session" })], {
-        profileId: "profile-a",
-        reconnectCount: 1,
-        sessionId: "session-b",
-      }),
+      snapshot(
+        1,
+        [event(1, { evidence: { detail: null, message: "new session" }, id: "session-b:1" })],
+        {
+          profileId: "profile-a",
+          reconnectCount: 1,
+          sessionId: "session-b",
+        },
+      ),
     );
-    expect(state.events.map(({ message }) => message)).toEqual(["new session"]);
+    expect(state.events.map(({ evidence }) => evidence?.message)).toEqual(["new session"]);
 
     state = reconcileEventsSnapshot(
       state,
-      snapshot(1, [event(1, { id: "runtime-c:1", message: "replacement" })], {
-        profileId: "profile-b",
-        sessionId: "runtime-c",
-      }),
+      snapshot(
+        1,
+        [event(1, { evidence: { detail: null, message: "replacement" }, id: "runtime-c:1" })],
+        {
+          profileId: "profile-b",
+          sessionId: "runtime-c",
+        },
+      ),
     );
-    expect(state.events.map(({ message }) => message)).toEqual(["replacement"]);
+    expect(state.events.map(({ evidence }) => evidence?.message)).toEqual(["replacement"]);
 
     state = reconcileEventsSnapshot(
       state,
@@ -157,10 +170,18 @@ describe("Events local buffer", () => {
 
   it("composes text, level, and source filters with stable order switching", () => {
     const values = [
-      event(1, { detail: "dns fixture.invalid", level: "warning", source: "core" }),
-      event(2, { message: "RPC connected", source: "rpc" }),
-      event(3, { level: "error", message: "DNS failed", source: "core" }),
-    ];
+      event(1, {
+        evidence: { detail: "dns fixture.invalid", message: "event 1" },
+        level: "warning",
+        source: "core",
+      }),
+      event(2, { evidence: { detail: null, message: "RPC connected" }, source: "rpc" }),
+      event(3, {
+        evidence: { detail: null, message: "DNS failed" },
+        level: "error",
+        source: "core",
+      }),
+    ].map((value) => presentEvent(value, i18nObject("en")));
     const filtered = filterEvents(values, "dns", new Set(["warning", "error"]), new Set(["core"]));
     expect(filtered.map(({ sequence }) => sequence)).toEqual([1, 3]);
     expect(sortEvents(filtered, "newest").map(({ sequence }) => sequence)).toEqual([3, 1]);

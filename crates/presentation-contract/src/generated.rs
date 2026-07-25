@@ -152,3 +152,601 @@ impl NativeActionId {
         }
     }
 }
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, Hash, PartialEq, serde::Serialize)]
+pub enum ApplicationActionId {
+    #[serde(rename = "find-ports-and-retry")]
+    FindPortsAndRetry,
+    #[serde(rename = "leave-as-is")]
+    LeaveAsIs,
+    #[serde(rename = "open-diagnostics")]
+    OpenDiagnostics,
+    #[serde(rename = "open-system-proxy-settings")]
+    OpenSystemProxySettings,
+    #[serde(rename = "open-welcome")]
+    OpenWelcome,
+    #[serde(rename = "repair")]
+    Repair,
+    #[serde(rename = "show-system-proxy-settings-steps")]
+    ShowSystemProxySettingsSteps,
+}
+impl ApplicationActionId {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FindPortsAndRetry => "find-ports-and-retry",
+            Self::LeaveAsIs => "leave-as-is",
+            Self::OpenDiagnostics => "open-diagnostics",
+            Self::OpenSystemProxySettings => "open-system-proxy-settings",
+            Self::OpenWelcome => "open-welcome",
+            Self::Repair => "repair",
+            Self::ShowSystemProxySettingsSteps => "show-system-proxy-settings-steps",
+        }
+    }
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaptureFailureApplicationNotificationData {
+    pub failure: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation_stage: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub takeover_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocalProxyFeedbackApplicationNotificationData {
+    pub outcome: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OnboardingWelcomeApplicationNotificationData {
+    pub prompt: bool,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationAsnFailedApplicationNotificationData {
+    pub asset: String,
+    pub outcome: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationAsnProgressApplicationNotificationData {
+    pub asset: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationFailedApplicationNotificationData {
+    pub failure: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationGeoipFailedApplicationNotificationData {
+    pub asset: String,
+    pub outcome: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationGeoipProgressApplicationNotificationData {
+    pub asset: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationGeositeFailedApplicationNotificationData {
+    pub asset: String,
+    pub outcome: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationGeositeProgressApplicationNotificationData {
+    pub asset: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationListenerConflictApplicationNotificationData {
+    pub endpoint: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationMmdbFailedApplicationNotificationData {
+    pub asset: String,
+    pub outcome: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationMmdbProgressApplicationNotificationData {
+    pub asset: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileCreateFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileCreatedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileDetachFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileDetachedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileFileActionFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileImportFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfilePatchLoadFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfilePatchSaveFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfilePatchSavedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileRefreshFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileSaveFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileSavedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileScheduleFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileSubscriptionUpdatedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileSwitchFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouteSelectionFailedApplicationNotificationData {
+    pub child: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServiceDefaultsRestoredApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServiceRemovedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServiceSavedApplicationNotificationData {
+    pub operation: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingsOperationFailedApplicationNotificationData {
+    pub failure: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StatusOperationFailedApplicationNotificationData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SystemProxyDriftApplicationNotificationData {
+    pub can_leave: bool,
+    pub can_repair: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+    pub repair_requires_core: bool,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SystemProxyFailedApplicationNotificationData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrafficConnectionClosedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrafficConnectionsClosedApplicationNotificationData {
+    pub count: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrafficOperationFailedApplicationNotificationData {
+    pub failure: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TunDriftApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TunFailedApplicationNotificationData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", content = "data")]
+pub enum ApplicationNotificationContent {
+    #[serde(rename = "capture.failure")]
+    CaptureFailure(CaptureFailureApplicationNotificationData),
+    #[serde(rename = "local-proxy.feedback")]
+    LocalProxyFeedback(LocalProxyFeedbackApplicationNotificationData),
+    #[serde(rename = "onboarding.welcome")]
+    OnboardingWelcome(OnboardingWelcomeApplicationNotificationData),
+    #[serde(rename = "profile.activation-asn-failed")]
+    ProfileActivationAsnFailed(ProfileActivationAsnFailedApplicationNotificationData),
+    #[serde(rename = "profile.activation-asn-progress")]
+    ProfileActivationAsnProgress(ProfileActivationAsnProgressApplicationNotificationData),
+    #[serde(rename = "profile.activation-failed")]
+    ProfileActivationFailed(ProfileActivationFailedApplicationNotificationData),
+    #[serde(rename = "profile.activation-geoip-failed")]
+    ProfileActivationGeoipFailed(ProfileActivationGeoipFailedApplicationNotificationData),
+    #[serde(rename = "profile.activation-geoip-progress")]
+    ProfileActivationGeoipProgress(ProfileActivationGeoipProgressApplicationNotificationData),
+    #[serde(rename = "profile.activation-geosite-failed")]
+    ProfileActivationGeositeFailed(ProfileActivationGeositeFailedApplicationNotificationData),
+    #[serde(rename = "profile.activation-geosite-progress")]
+    ProfileActivationGeositeProgress(ProfileActivationGeositeProgressApplicationNotificationData),
+    #[serde(rename = "profile.activation-listener-conflict")]
+    ProfileActivationListenerConflict(ProfileActivationListenerConflictApplicationNotificationData),
+    #[serde(rename = "profile.activation-mmdb-failed")]
+    ProfileActivationMmdbFailed(ProfileActivationMmdbFailedApplicationNotificationData),
+    #[serde(rename = "profile.activation-mmdb-progress")]
+    ProfileActivationMmdbProgress(ProfileActivationMmdbProgressApplicationNotificationData),
+    #[serde(rename = "profile.create-failed")]
+    ProfileCreateFailed(ProfileCreateFailedApplicationNotificationData),
+    #[serde(rename = "profile.created")]
+    ProfileCreated(ProfileCreatedApplicationNotificationData),
+    #[serde(rename = "profile.detach-failed")]
+    ProfileDetachFailed(ProfileDetachFailedApplicationNotificationData),
+    #[serde(rename = "profile.detached")]
+    ProfileDetached(ProfileDetachedApplicationNotificationData),
+    #[serde(rename = "profile.file-action-failed")]
+    ProfileFileActionFailed(ProfileFileActionFailedApplicationNotificationData),
+    #[serde(rename = "profile.import-failed")]
+    ProfileImportFailed(ProfileImportFailedApplicationNotificationData),
+    #[serde(rename = "profile.patch-load-failed")]
+    ProfilePatchLoadFailed(ProfilePatchLoadFailedApplicationNotificationData),
+    #[serde(rename = "profile.patch-save-failed")]
+    ProfilePatchSaveFailed(ProfilePatchSaveFailedApplicationNotificationData),
+    #[serde(rename = "profile.patch-saved")]
+    ProfilePatchSaved(ProfilePatchSavedApplicationNotificationData),
+    #[serde(rename = "profile.refresh-failed")]
+    ProfileRefreshFailed(ProfileRefreshFailedApplicationNotificationData),
+    #[serde(rename = "profile.save-failed")]
+    ProfileSaveFailed(ProfileSaveFailedApplicationNotificationData),
+    #[serde(rename = "profile.saved")]
+    ProfileSaved(ProfileSavedApplicationNotificationData),
+    #[serde(rename = "profile.schedule-failed")]
+    ProfileScheduleFailed(ProfileScheduleFailedApplicationNotificationData),
+    #[serde(rename = "profile.subscription-updated")]
+    ProfileSubscriptionUpdated(ProfileSubscriptionUpdatedApplicationNotificationData),
+    #[serde(rename = "profile.switch-failed")]
+    ProfileSwitchFailed(ProfileSwitchFailedApplicationNotificationData),
+    #[serde(rename = "route.selection-failed")]
+    RouteSelectionFailed(RouteSelectionFailedApplicationNotificationData),
+    #[serde(rename = "service.defaults-restored")]
+    ServiceDefaultsRestored(ServiceDefaultsRestoredApplicationNotificationData),
+    #[serde(rename = "service.removed")]
+    ServiceRemoved(ServiceRemovedApplicationNotificationData),
+    #[serde(rename = "service.saved")]
+    ServiceSaved(ServiceSavedApplicationNotificationData),
+    #[serde(rename = "settings.operation-failed")]
+    SettingsOperationFailed(SettingsOperationFailedApplicationNotificationData),
+    #[serde(rename = "status.operation-failed")]
+    StatusOperationFailed(StatusOperationFailedApplicationNotificationData),
+    #[serde(rename = "system-proxy.drift")]
+    SystemProxyDrift(SystemProxyDriftApplicationNotificationData),
+    #[serde(rename = "system-proxy.failed")]
+    SystemProxyFailed(SystemProxyFailedApplicationNotificationData),
+    #[serde(rename = "traffic.connection-closed")]
+    TrafficConnectionClosed(TrafficConnectionClosedApplicationNotificationData),
+    #[serde(rename = "traffic.connections-closed")]
+    TrafficConnectionsClosed(TrafficConnectionsClosedApplicationNotificationData),
+    #[serde(rename = "traffic.operation-failed")]
+    TrafficOperationFailed(TrafficOperationFailedApplicationNotificationData),
+    #[serde(rename = "tun.drift")]
+    TunDrift(TunDriftApplicationNotificationData),
+    #[serde(rename = "tun.failed")]
+    TunFailed(TunFailedApplicationNotificationData),
+}
+impl ApplicationNotificationContent {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::CaptureFailure(_) => "capture.failure",
+            Self::LocalProxyFeedback(_) => "local-proxy.feedback",
+            Self::OnboardingWelcome(_) => "onboarding.welcome",
+            Self::ProfileActivationAsnFailed(_) => "profile.activation-asn-failed",
+            Self::ProfileActivationAsnProgress(_) => "profile.activation-asn-progress",
+            Self::ProfileActivationFailed(_) => "profile.activation-failed",
+            Self::ProfileActivationGeoipFailed(_) => "profile.activation-geoip-failed",
+            Self::ProfileActivationGeoipProgress(_) => "profile.activation-geoip-progress",
+            Self::ProfileActivationGeositeFailed(_) => "profile.activation-geosite-failed",
+            Self::ProfileActivationGeositeProgress(_) => "profile.activation-geosite-progress",
+            Self::ProfileActivationListenerConflict(_) => "profile.activation-listener-conflict",
+            Self::ProfileActivationMmdbFailed(_) => "profile.activation-mmdb-failed",
+            Self::ProfileActivationMmdbProgress(_) => "profile.activation-mmdb-progress",
+            Self::ProfileCreateFailed(_) => "profile.create-failed",
+            Self::ProfileCreated(_) => "profile.created",
+            Self::ProfileDetachFailed(_) => "profile.detach-failed",
+            Self::ProfileDetached(_) => "profile.detached",
+            Self::ProfileFileActionFailed(_) => "profile.file-action-failed",
+            Self::ProfileImportFailed(_) => "profile.import-failed",
+            Self::ProfilePatchLoadFailed(_) => "profile.patch-load-failed",
+            Self::ProfilePatchSaveFailed(_) => "profile.patch-save-failed",
+            Self::ProfilePatchSaved(_) => "profile.patch-saved",
+            Self::ProfileRefreshFailed(_) => "profile.refresh-failed",
+            Self::ProfileSaveFailed(_) => "profile.save-failed",
+            Self::ProfileSaved(_) => "profile.saved",
+            Self::ProfileScheduleFailed(_) => "profile.schedule-failed",
+            Self::ProfileSubscriptionUpdated(_) => "profile.subscription-updated",
+            Self::ProfileSwitchFailed(_) => "profile.switch-failed",
+            Self::RouteSelectionFailed(_) => "route.selection-failed",
+            Self::ServiceDefaultsRestored(_) => "service.defaults-restored",
+            Self::ServiceRemoved(_) => "service.removed",
+            Self::ServiceSaved(_) => "service.saved",
+            Self::SettingsOperationFailed(_) => "settings.operation-failed",
+            Self::StatusOperationFailed(_) => "status.operation-failed",
+            Self::SystemProxyDrift(_) => "system-proxy.drift",
+            Self::SystemProxyFailed(_) => "system-proxy.failed",
+            Self::TrafficConnectionClosed(_) => "traffic.connection-closed",
+            Self::TrafficConnectionsClosed(_) => "traffic.connections-closed",
+            Self::TrafficOperationFailed(_) => "traffic.operation-failed",
+            Self::TunDrift(_) => "tun.drift",
+            Self::TunFailed(_) => "tun.failed",
+        }
+    }
+    pub const fn allowed_actions(&self) -> &'static [ApplicationActionId] {
+        match self {
+            Self::CaptureFailure(_) => &[
+                ApplicationActionId::LeaveAsIs,
+                ApplicationActionId::OpenDiagnostics,
+                ApplicationActionId::OpenSystemProxySettings,
+                ApplicationActionId::Repair,
+                ApplicationActionId::ShowSystemProxySettingsSteps,
+            ],
+            Self::LocalProxyFeedback(_) => &[],
+            Self::OnboardingWelcome(_) => &[ApplicationActionId::OpenWelcome],
+            Self::ProfileActivationAsnFailed(_) => &[],
+            Self::ProfileActivationAsnProgress(_) => &[],
+            Self::ProfileActivationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::ProfileActivationGeoipFailed(_) => &[],
+            Self::ProfileActivationGeoipProgress(_) => &[],
+            Self::ProfileActivationGeositeFailed(_) => &[],
+            Self::ProfileActivationGeositeProgress(_) => &[],
+            Self::ProfileActivationListenerConflict(_) => &[ApplicationActionId::FindPortsAndRetry],
+            Self::ProfileActivationMmdbFailed(_) => &[],
+            Self::ProfileActivationMmdbProgress(_) => &[],
+            Self::ProfileCreateFailed(_) => &[],
+            Self::ProfileCreated(_) => &[],
+            Self::ProfileDetachFailed(_) => &[],
+            Self::ProfileDetached(_) => &[],
+            Self::ProfileFileActionFailed(_) => &[],
+            Self::ProfileImportFailed(_) => &[],
+            Self::ProfilePatchLoadFailed(_) => &[],
+            Self::ProfilePatchSaveFailed(_) => &[],
+            Self::ProfilePatchSaved(_) => &[],
+            Self::ProfileRefreshFailed(_) => &[],
+            Self::ProfileSaveFailed(_) => &[],
+            Self::ProfileSaved(_) => &[],
+            Self::ProfileScheduleFailed(_) => &[],
+            Self::ProfileSubscriptionUpdated(_) => &[],
+            Self::ProfileSwitchFailed(_) => &[],
+            Self::RouteSelectionFailed(_) => &[],
+            Self::ServiceDefaultsRestored(_) => &[],
+            Self::ServiceRemoved(_) => &[],
+            Self::ServiceSaved(_) => &[],
+            Self::SettingsOperationFailed(_) => &[],
+            Self::StatusOperationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::SystemProxyDrift(_) => {
+                &[ApplicationActionId::LeaveAsIs, ApplicationActionId::Repair]
+            }
+            Self::SystemProxyFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::TrafficConnectionClosed(_) => &[],
+            Self::TrafficConnectionsClosed(_) => &[],
+            Self::TrafficOperationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::TunDrift(_) => &[],
+            Self::TunFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+        }
+    }
+}
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApplicationNotification {
+    #[serde(flatten)]
+    pub content: ApplicationNotificationContent,
+    pub action_ids: Vec<ApplicationActionId>,
+}
+impl ApplicationNotification {
+    pub fn new(
+        content: ApplicationNotificationContent,
+        action_ids: Vec<ApplicationActionId>,
+    ) -> Self {
+        Self {
+            content,
+            action_ids,
+        }
+    }
+    pub const fn kind(&self) -> &'static str {
+        self.content.kind()
+    }
+    pub fn actions_valid(&self) -> bool {
+        self.action_ids
+            .iter()
+            .all(|action| self.content.allowed_actions().contains(action))
+            && self
+                .action_ids
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                == self.action_ids.len()
+    }
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaptureFailureApplicationEventData {
+    pub failure: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation_stage: Option<String>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ControllerSessionStartedApplicationEventData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ControllerSessionStaleApplicationEventData {}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ControllerStreamUnavailableApplicationEventData {
+    pub failure: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProfileActivationFailedApplicationEventData {
+    pub failure: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProxyLaunchTimingApplicationEventData {
+    pub listener_journal_mutation_confirmation_ms: u64,
+    pub outcome: String,
+    pub overlap_ms: u64,
+    pub preparation_wall_ms: u64,
+    pub profile_core_ms: u64,
+    pub schema_version: u64,
+    pub system_proxy_preflight_ms: u64,
+    pub total_ms: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingsOperationFailedApplicationEventData {
+    pub failure: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrafficOperationFailedApplicationEventData {
+    pub failure: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", content = "data")]
+pub enum ApplicationEventContent {
+    #[serde(rename = "capture.failure")]
+    CaptureFailure(CaptureFailureApplicationEventData),
+    #[serde(rename = "controller.session-started")]
+    ControllerSessionStarted(ControllerSessionStartedApplicationEventData),
+    #[serde(rename = "controller.session-stale")]
+    ControllerSessionStale(ControllerSessionStaleApplicationEventData),
+    #[serde(rename = "controller.stream-unavailable")]
+    ControllerStreamUnavailable(ControllerStreamUnavailableApplicationEventData),
+    #[serde(rename = "profile.activation-failed")]
+    ProfileActivationFailed(ProfileActivationFailedApplicationEventData),
+    #[serde(rename = "proxy.launch-timing")]
+    ProxyLaunchTiming(ProxyLaunchTimingApplicationEventData),
+    #[serde(rename = "settings.operation-failed")]
+    SettingsOperationFailed(SettingsOperationFailedApplicationEventData),
+    #[serde(rename = "traffic.operation-failed")]
+    TrafficOperationFailed(TrafficOperationFailedApplicationEventData),
+}
+impl ApplicationEventContent {
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::CaptureFailure(_) => "capture.failure",
+            Self::ControllerSessionStarted(_) => "controller.session-started",
+            Self::ControllerSessionStale(_) => "controller.session-stale",
+            Self::ControllerStreamUnavailable(_) => "controller.stream-unavailable",
+            Self::ProfileActivationFailed(_) => "profile.activation-failed",
+            Self::ProxyLaunchTiming(_) => "proxy.launch-timing",
+            Self::SettingsOperationFailed(_) => "settings.operation-failed",
+            Self::TrafficOperationFailed(_) => "traffic.operation-failed",
+        }
+    }
+    pub const fn allowed_actions(&self) -> &'static [ApplicationActionId] {
+        match self {
+            Self::CaptureFailure(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::ControllerSessionStarted(_) => &[],
+            Self::ControllerSessionStale(_) => &[],
+            Self::ControllerStreamUnavailable(_) => &[],
+            Self::ProfileActivationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+            Self::ProxyLaunchTiming(_) => &[],
+            Self::SettingsOperationFailed(_) => &[],
+            Self::TrafficOperationFailed(_) => &[ApplicationActionId::OpenDiagnostics],
+        }
+    }
+}
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApplicationEvent {
+    #[serde(flatten)]
+    pub content: ApplicationEventContent,
+    pub action_ids: Vec<ApplicationActionId>,
+}
+impl ApplicationEvent {
+    pub fn new(content: ApplicationEventContent, action_ids: Vec<ApplicationActionId>) -> Self {
+        Self {
+            content,
+            action_ids,
+        }
+    }
+    pub const fn kind(&self) -> &'static str {
+        self.content.kind()
+    }
+    pub fn actions_valid(&self) -> bool {
+        self.action_ids
+            .iter()
+            .all(|action| self.content.allowed_actions().contains(action))
+            && self
+                .action_ids
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                == self.action_ids.len()
+    }
+}

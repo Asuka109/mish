@@ -1,4 +1,5 @@
 use std::{
+    ffi::{OsStr, OsString},
     fmt::Write as _,
     fs, io,
     io::Read as _,
@@ -59,8 +60,102 @@ mod status_bar;
 const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
 const DEV_ORIGIN_ENV: &str = "MISH_DEV_ORIGIN";
 const DESKTOP_DEMO_ENV: &str = "MISH_DESKTOP_DEMO";
+const DEVTOOLS_ENV: &str = "MISH_DEVTOOLS";
+const DEVTOOLS_ARGUMENT: &str = "--devtools";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
 const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StartupOptions {
+    devtools: DevtoolsStartup,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DevtoolsStartup {
+    Disabled,
+    Enabled(DevtoolsStartupSource),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DevtoolsStartupSource {
+    CommandLine,
+    Environment,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StartupOptionsError {
+    MalformedDevtoolsArgument,
+    MalformedDevtoolsEnvironment,
+}
+
+impl std::fmt::Display for StartupOptionsError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MalformedDevtoolsArgument => formatter.write_str(
+                "--devtools does not accept a value; the WebView Inspector remains disabled",
+            ),
+            Self::MalformedDevtoolsEnvironment => formatter.write_str(
+                "MISH_DEVTOOLS must be exactly 1 or 0; the WebView Inspector remains disabled",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for StartupOptionsError {}
+
+impl StartupOptions {
+    fn parse<I, S>(
+        arguments: I,
+        devtools_environment: Option<&OsStr>,
+    ) -> Result<Self, StartupOptionsError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        let mut devtools_argument = false;
+        for argument in arguments.into_iter().skip(1).map(Into::into) {
+            if argument == OsStr::new("--") {
+                break;
+            }
+            if argument == OsStr::new(DEVTOOLS_ARGUMENT) {
+                devtools_argument = true;
+                continue;
+            }
+            if argument
+                .to_str()
+                .is_some_and(|argument| argument.starts_with("--devtools="))
+            {
+                return Err(StartupOptionsError::MalformedDevtoolsArgument);
+            }
+        }
+
+        if devtools_argument {
+            return Ok(Self {
+                devtools: DevtoolsStartup::Enabled(DevtoolsStartupSource::CommandLine),
+            });
+        }
+
+        let devtools = match devtools_environment {
+            None => DevtoolsStartup::Disabled,
+            Some(value) if value == OsStr::new("0") => DevtoolsStartup::Disabled,
+            Some(value) if value == OsStr::new("1") => {
+                DevtoolsStartup::Enabled(DevtoolsStartupSource::Environment)
+            }
+            Some(_) => return Err(StartupOptionsError::MalformedDevtoolsEnvironment),
+        };
+        Ok(Self { devtools })
+    }
+
+    fn devtools_enabled(self) -> bool {
+        matches!(self.devtools, DevtoolsStartup::Enabled(_))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DesktopWebviewInspectorSupport {
+    Supported,
+    UnsupportedPlatform,
+}
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -519,12 +614,18 @@ fn invalidate_pending<T>(pending: &Mutex<Option<T>>) -> Result<(), LocalBackupCo
 }
 
 pub fn run() -> Result<i32, String> {
-    let context = tauri::generate_context!();
+    let startup_options = StartupOptions::parse(
+        std::env::args_os(),
+        std::env::var_os(DEVTOOLS_ENV).as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut context = tauri::generate_context!();
+    let open_devtools = configure_main_webview(&mut context, startup_options)?;
     if desktop_demo_requested(
         tauri::is_dev(),
         std::env::var(DESKTOP_DEMO_ENV).ok().as_deref(),
     ) {
-        return run_demo(context);
+        return run_demo(context, open_devtools);
     }
 
     let requested_mihomo = std::env::var_os("MISH_MIHOMO_BIN").map(PathBuf::from);
@@ -548,7 +649,7 @@ pub fn run() -> Result<i32, String> {
         )
         .manage(graceful_exit::GracefulExitCoordinator::new())
         .manage(bridge_state.clone())
-        .setup(move |app| initialize(app, requested_mihomo))
+        .setup(move |app| initialize(app, requested_mihomo, open_devtools))
         .on_menu_event(native_menu::handle_menu_event)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
@@ -628,20 +729,21 @@ pub fn run() -> Result<i32, String> {
     Ok(exit_code)
 }
 
-fn run_demo(context: tauri::Context<tauri::Wry>) -> Result<i32, String> {
+fn run_demo(context: tauri::Context<tauri::Wry>, open_devtools: bool) -> Result<i32, String> {
     let app = tauri::Builder::default()
         .manage(graceful_exit::GracefulExitCoordinator::new())
         .manage(BridgeState(Arc::new(Mutex::new(None))))
         .manage(MainWindowStartup {
             reveal_on_ready: true,
         })
-        .setup(|app| {
+        .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
                 window.set_title("Mish Demo")?;
             }
             if cfg!(target_os = "macos") {
                 native_menu::install_demo(app)?;
             }
+            open_main_webview_inspector(app, open_devtools)?;
             Ok(())
         })
         .on_menu_event(native_menu::handle_menu_event)
@@ -719,6 +821,7 @@ pub(crate) fn request_graceful_exit(app: &tauri::AppHandle) {
 fn initialize(
     app: &mut tauri::App,
     requested_mihomo: Option<PathBuf>,
+    open_devtools: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
@@ -1038,6 +1141,63 @@ fn initialize(
             .into();
         launch_proxy_on_application_start(activation, selection);
     }
+    open_main_webview_inspector(app, open_devtools)?;
+    Ok(())
+}
+
+fn configure_main_webview(
+    context: &mut tauri::Context<tauri::Wry>,
+    startup_options: StartupOptions,
+) -> Result<bool, String> {
+    let open_devtools =
+        resolve_devtools_behavior(startup_options, current_desktop_webview_inspector_support())?;
+    let main_window = context
+        .config_mut()
+        .app
+        .windows
+        .iter_mut()
+        .find(|window| window.label == "main")
+        .ok_or_else(|| "the main desktop WebView configuration is unavailable".to_owned())?;
+    main_window.devtools = Some(open_devtools);
+    Ok(open_devtools)
+}
+
+fn resolve_devtools_behavior(
+    startup_options: StartupOptions,
+    support: DesktopWebviewInspectorSupport,
+) -> Result<bool, String> {
+    if !startup_options.devtools_enabled() {
+        return Ok(false);
+    }
+    match support {
+        DesktopWebviewInspectorSupport::Supported => Ok(true),
+        DesktopWebviewInspectorSupport::UnsupportedPlatform => Err(
+            "the WebView Inspector was requested, but this desktop platform is unsupported; the Inspector remains disabled"
+                .to_owned(),
+        ),
+    }
+}
+
+fn current_desktop_webview_inspector_support() -> DesktopWebviewInspectorSupport {
+    if cfg!(target_os = "macos") {
+        DesktopWebviewInspectorSupport::Supported
+    } else {
+        DesktopWebviewInspectorSupport::UnsupportedPlatform
+    }
+}
+
+fn open_main_webview_inspector(
+    app: &tauri::App,
+    open_devtools: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !open_devtools {
+        return Ok(());
+    }
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| io::Error::other("the main desktop WebView is unavailable"))?;
+    window.open_devtools();
+    eprintln!("Mish desktop WebView Inspector requested for this process only.");
     Ok(())
 }
 
@@ -1571,12 +1731,13 @@ mod tests {
     use std::{fs, path::PathBuf, sync::Mutex};
 
     use super::{
-        AtomicWriteFailurePoint, DEV_ORIGIN, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction,
-        PRODUCTION_ORIGINS, SUPPORT_BUNDLE_MAX_BYTES, SupportBundleSaveStatus, allowed_origins,
+        AtomicWriteFailurePoint, DEV_ORIGIN, DesktopWebviewInspectorSupport, DevtoolsStartup,
+        DevtoolsStartupSource, LOCAL_BACKUP_MAX_BYTES, MainWindowCloseAction, PRODUCTION_ORIGINS,
+        SUPPORT_BUNDLE_MAX_BYTES, StartupOptions, SupportBundleSaveStatus, allowed_origins,
         atomic_write_bounded, atomic_write_support_bundle_with_failure, desktop_demo_requested,
         generate_auth_token, invalidate_pending, main_window_close_action, managed_mihomo_resolver,
-        production_team_identifier_for_profile, read_local_backup, save_support_bundle_selection,
-        should_intercept_exit_request, should_show_main_window,
+        production_team_identifier_for_profile, read_local_backup, resolve_devtools_behavior,
+        save_support_bundle_selection, should_intercept_exit_request, should_show_main_window,
         validate_development_mihomo_environment,
     };
     use mish_bridge::MihomoResolveError;
@@ -1590,6 +1751,102 @@ mod tests {
         assert_eq!(first.len(), 64);
         assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn devtools_startup_defaults_off_and_accepts_only_exact_environment_values() {
+        assert_eq!(
+            StartupOptions::parse(["mish"], None).unwrap(),
+            StartupOptions {
+                devtools: DevtoolsStartup::Disabled,
+            }
+        );
+        assert_eq!(
+            StartupOptions::parse(["mish"], Some("0".as_ref())).unwrap(),
+            StartupOptions {
+                devtools: DevtoolsStartup::Disabled,
+            }
+        );
+        assert_eq!(
+            StartupOptions::parse(["mish"], Some("1".as_ref())).unwrap(),
+            StartupOptions {
+                devtools: DevtoolsStartup::Enabled(DevtoolsStartupSource::Environment),
+            }
+        );
+        for value in ["", "true", "TRUE", "yes", " 1", "1 "] {
+            let error = StartupOptions::parse(["mish"], Some(value.as_ref()))
+                .expect_err("non-allowlisted values must fail closed")
+                .to_string();
+            assert!(error.contains("must be exactly 1 or 0"));
+            assert!(error.contains("remains disabled"));
+        }
+    }
+
+    #[test]
+    fn devtools_command_line_flag_has_deterministic_environment_precedence() {
+        for environment in [None, Some("0".as_ref()), Some("invalid".as_ref())] {
+            assert_eq!(
+                StartupOptions::parse(["mish", "--devtools"], environment).unwrap(),
+                StartupOptions {
+                    devtools: DevtoolsStartup::Enabled(DevtoolsStartupSource::CommandLine),
+                }
+            );
+        }
+        assert_eq!(
+            StartupOptions::parse(["mish", "--", "--devtools"], Some("0".as_ref())).unwrap(),
+            StartupOptions {
+                devtools: DevtoolsStartup::Disabled,
+            }
+        );
+    }
+
+    #[test]
+    fn malformed_devtools_command_line_values_fail_closed() {
+        for argument in ["--devtools=1", "--devtools=true", "--devtools=0"] {
+            let error = StartupOptions::parse(["mish", argument], Some("1".as_ref()))
+                .expect_err("the flag must not accept values")
+                .to_string();
+            assert!(error.contains("does not accept a value"));
+            assert!(error.contains("remains disabled"));
+        }
+    }
+
+    #[test]
+    fn devtools_opt_in_is_process_local_and_is_not_reused_by_later_parses() {
+        let opted_in = StartupOptions::parse(["mish", "--devtools"], None).unwrap();
+        let later_launch = StartupOptions::parse(["mish"], None).unwrap();
+
+        assert!(opted_in.devtools_enabled());
+        assert!(!later_launch.devtools_enabled());
+    }
+
+    #[test]
+    fn unsupported_platforms_return_a_bounded_diagnostic() {
+        let requested = StartupOptions::parse(["mish", "--devtools"], None).unwrap();
+        let error = resolve_devtools_behavior(
+            requested,
+            DesktopWebviewInspectorSupport::UnsupportedPlatform,
+        )
+        .expect_err("unsupported platforms must not claim the Inspector is enabled");
+
+        assert!(error.contains("desktop platform is unsupported"));
+        assert!(error.contains("remains disabled"));
+        assert!(error.len() < 160);
+    }
+
+    #[test]
+    fn supported_platform_behavior_tracks_only_the_current_startup_options() {
+        let enabled = StartupOptions::parse(["mish"], Some("1".as_ref())).unwrap();
+        let disabled = StartupOptions::parse(["mish"], None).unwrap();
+
+        assert_eq!(
+            resolve_devtools_behavior(enabled, DesktopWebviewInspectorSupport::Supported),
+            Ok(true)
+        );
+        assert_eq!(
+            resolve_devtools_behavior(disabled, DesktopWebviewInspectorSupport::Supported),
+            Ok(false)
+        );
     }
 
     #[test]

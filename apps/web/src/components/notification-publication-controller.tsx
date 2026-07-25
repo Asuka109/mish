@@ -26,8 +26,9 @@ export function NotificationPublicationController() {
     if (welcomeInvitation.promptedAt !== null) {
       publish(
         notificationPublication("onboarding.welcome", {
+          actionIds: ["open-welcome"],
+          data: { prompt: false },
           dedupeKey: "onboarding.welcome",
-          params: { prompt: false },
           severity: "info",
         }),
       );
@@ -40,8 +41,9 @@ export function NotificationPublicationController() {
       if (!prompted) return;
       publish(
         notificationPublication("onboarding.welcome", {
+          actionIds: ["open-welcome"],
+          data: { prompt: true },
           dedupeKey: "onboarding.welcome",
-          params: { prompt: true },
           severity: "info",
         }),
       );
@@ -67,11 +69,11 @@ export function NotificationPublicationController() {
         if (asset === failure?.asset) {
           publish(
             notificationPublication(geodataFailureType(failure.asset), {
-              dedupeKey: progress.key,
-              params: {
+              data: {
                 asset,
                 outcome: failure.kind === "geodata-timeout" ? "timeout" : "failed",
               },
+              dedupeKey: progress.key,
               replaces: ["status.operation-failed"],
               severity: "error",
             }),
@@ -80,8 +82,8 @@ export function NotificationPublicationController() {
         }
         publish(
           notificationPublication(progress.type, {
+            data: { asset },
             dedupeKey: progress.key,
-            params: { asset },
             pinned: false,
             resolved: true,
             severity: "success",
@@ -97,8 +99,8 @@ export function NotificationPublicationController() {
     geodataProgress.current.set(asset, { key, type });
     publish(
       notificationPublication(type, {
+        data: { asset },
         dedupeKey: key,
-        params: { asset },
         pinned: true,
         severity: "info",
       }),
@@ -124,8 +126,8 @@ export function NotificationPublicationController() {
           : "error";
     publish(
       notificationPublication("local-proxy.feedback", {
+        data: { outcome },
         dedupeKey: "local-proxy.feedback",
-        params: { outcome },
         severity,
       }),
     );
@@ -139,6 +141,8 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("status.operation-failed", {
+        actionIds: ["open-diagnostics"],
+        data: { failure: error },
         dedupeKey: "status.operation-failed",
         severity: "error",
       }),
@@ -155,13 +159,21 @@ export function NotificationPublicationController() {
       systemProxy.recoveryActions.includes("repair") && snapshot?.runtime.phase !== "healthy";
     publish(
       notificationPublication("system-proxy.drift", {
-        dedupeKey: "system-proxy.drift",
-        params: {
+        actionIds: [
+          ...(systemProxy.recoveryActions.includes("repair") && !repairRequiresCore
+            ? (["repair"] as const)
+            : []),
+          ...(systemProxy.recoveryActions.includes("leave-as-is")
+            ? (["leave-as-is"] as const)
+            : []),
+        ],
+        data: {
           canLeave: systemProxy.recoveryActions.includes("leave-as-is"),
           canRepair: systemProxy.recoveryActions.includes("repair") && !repairRequiresCore,
-          failure: systemProxy.failure,
+          failure: systemProxy.failure ?? undefined,
           repairRequiresCore,
         },
+        dedupeKey: "system-proxy.drift",
         severity: "warning",
       }),
     );
@@ -175,8 +187,9 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("system-proxy.failed", {
+        actionIds: ["open-diagnostics"],
+        data: { failure: systemProxy.failure ?? undefined },
         dedupeKey: "system-proxy.failed",
-        params: { failure: systemProxy.failure },
         severity: "error",
       }),
     );
@@ -190,6 +203,7 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication(tun.phase === "drift" ? "tun.drift" : "tun.failed", {
+        actionIds: tun.phase === "failed" ? ["open-diagnostics"] : [],
         dedupeKey: "tun.state-warning",
         severity: tun.phase === "drift" ? "warning" : "error",
       }),
@@ -204,6 +218,7 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("settings.operation-failed", {
+        data: { failure: "fixture" },
         dedupeKey: "settings.operation-failed",
         severity: "error",
       }),
@@ -218,8 +233,9 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("traffic.operation-failed", {
+        actionIds: ["open-diagnostics"],
+        data: { failure: traffic.commandFailure },
         dedupeKey: "traffic.operation-failed",
-        params: { failure: traffic.commandFailure },
         severity: "error",
       }),
     );
@@ -233,8 +249,9 @@ export function NotificationPublicationController() {
     }
     publish(
       notificationPublication("profile.activation-listener-conflict", {
+        actionIds: ["find-ports-and-retry"],
+        data: { endpoint: activation.failureEndpoint ?? "127.0.0.1" },
         dedupeKey: "profile.activation-failure",
-        params: { endpoint: activation.failureEndpoint ?? "127.0.0.1" },
         replaces: ["status.operation-failed"],
         severity: "error",
       }),

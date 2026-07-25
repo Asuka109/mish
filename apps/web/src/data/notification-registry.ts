@@ -1,5 +1,6 @@
 import {
-  KnownNotificationTypeSchema,
+  type ApplicationActionId,
+  type ApplicationNotification,
   type NotificationRecordDto,
   type NotificationSeverity,
 } from "@mish/contracts";
@@ -10,7 +11,7 @@ export type NotificationActionTone = "primary" | "secondary" | "destructive";
 
 export interface NotificationActionDescriptor {
   diagnosticFailure?: string;
-  id: string;
+  id: ApplicationActionId;
   label: string;
   tone?: NotificationActionTone;
 }
@@ -23,7 +24,7 @@ export interface DeliveredNotification {
   level: NotificationSeverity;
   message: string;
   observedAt: number;
-  pendingActionId?: string;
+  pendingActionId?: ApplicationActionId;
   read: boolean;
   removable: boolean;
   title?: string;
@@ -31,7 +32,6 @@ export interface DeliveredNotification {
 }
 
 interface PresentationCopy {
-  actions?: readonly NotificationActionDescriptor[];
   detail?: string;
   message: string;
   title?: string;
@@ -42,15 +42,11 @@ export function presentNotification(
   record: NotificationRecordDto,
   LL: TranslationFunctions,
 ): DeliveredNotification {
-  const parsedType = KnownNotificationTypeSchema.safeParse(record.type);
-  const copy = parsedType.success
-    ? knownPresentation(parsedType.data, record, LL)
-    : {
-        message: LL.notifications.unknownMessage(),
-        title: LL.notifications.unknownTitle(),
-      };
+  const copy = knownPresentation(record.presentation, record.resolved, LL);
   return {
-    actions: record.resolved ? [] : (copy.actions ?? []),
+    actions: record.resolved
+      ? []
+      : record.presentation.actionIds.map((id) => actionDescriptor(id, record.presentation, LL)),
     detail: copy.detail,
     duration: record.pinned ? Number.POSITIVE_INFINITY : undefined,
     id: record.id,
@@ -65,39 +61,34 @@ export function presentNotification(
 }
 
 function knownPresentation(
-  type: ReturnType<typeof KnownNotificationTypeSchema.parse>,
-  record: NotificationRecordDto,
+  presentation: ApplicationNotification,
+  resolved: boolean,
   LL: TranslationFunctions,
 ): PresentationCopy {
+  const { kind: type } = presentation;
+  const data = presentation.data as Record<string, unknown>;
   const string = (key: string) => {
-    const value = record.params[key];
+    const value = data[key];
     return typeof value === "string" ? value : undefined;
   };
   const number = (key: string) => {
-    const value = record.params[key];
+    const value = data[key];
     return typeof value === "number" && Number.isFinite(value) ? value : undefined;
   };
-  const boolean = (key: string) => record.params[key] === true;
+  const boolean = (key: string) => data[key] === true;
   switch (type) {
     case "capture.failure":
-      return captureFailurePresentation(
-        string("failure"),
-        string("takeoverReason"),
-        record.resolved,
-        LL,
-      );
+      return captureFailurePresentation(string("failure"), string("takeoverReason"), resolved, LL);
     case "local-proxy.feedback":
       return { message: localProxyFeedback(string("outcome"), LL) };
     case "onboarding.welcome":
       return {
-        actions: [{ id: "open-welcome", label: LL.onboarding.notificationAction() }],
         message: LL.onboarding.notificationMessage(),
         title: LL.onboarding.promptTitle(),
         toast: boolean("prompt") ? "present" : "never",
       };
     case "profile.activation-failed":
       return {
-        actions: [openDiagnosticsAction(LL, activationDiagnosticFailure(string("failure")))],
         message: LL.profiles.activationFailed(),
       };
     case "profile.activation-asn-failed":
@@ -119,15 +110,12 @@ function knownPresentation(
     case "profile.activation-mmdb-progress":
       return {
         detail: LL.profiles.geodataPreparingDetail(),
-        message: record.resolved
+        message: resolved
           ? LL.profiles.geodataPrepared({ asset: geodataAssetName(string("asset")) })
           : LL.profiles.geodataPreparing({ asset: geodataAssetName(string("asset")) }),
       };
     case "profile.activation-listener-conflict":
       return {
-        actions: [
-          { id: "find-ports-and-retry", label: LL.settingsPage.managedPortsFindAndRetry() },
-        ],
         message: LL.settingsPage.managedPortsConflict({ endpoint: string("endpoint") ?? "—" }),
       };
     case "profile.create-failed":
@@ -178,25 +166,10 @@ function knownPresentation(
       return { message: LL.settingsPage.updateFailed() };
     case "status.operation-failed":
       return {
-        actions: [openDiagnosticsAction(LL, string("failure"))],
         message: LL.errors.command(),
       };
     case "system-proxy.drift":
       return {
-        actions: [
-          ...(boolean("canRepair")
-            ? [{ id: "repair", label: LL.capture.repairSystemProxy() }]
-            : []),
-          ...(boolean("canLeave")
-            ? [
-                {
-                  id: "leave-as-is",
-                  label: LL.capture.leaveAsIs(),
-                  tone: "secondary" as const,
-                },
-              ]
-            : []),
-        ],
         message:
           string("failure") === "invalid-recovery"
             ? LL.capture.systemProxyInvalidRecovery()
@@ -206,7 +179,6 @@ function knownPresentation(
       };
     case "system-proxy.failed":
       return {
-        actions: [openDiagnosticsAction(LL, string("failure"))],
         message: systemProxyFailure(string("failure"), LL),
       };
     case "traffic.connection-closed":
@@ -219,7 +191,6 @@ function knownPresentation(
       return { message: LL.capture.tunDrift() };
     case "tun.failed":
       return {
-        actions: [openDiagnosticsAction(LL)],
         message: LL.capture.tunFailure(),
       };
   }
@@ -234,37 +205,22 @@ function captureFailurePresentation(
   if (resolved) return { message: LL.capture.systemProxyApplied(), toast: "dismiss" };
   if (isTakeoverRejection(takeoverReason)) {
     return {
-      actions: [
-        openSystemProxySettingsAction(LL),
-        {
-          id: "show-system-proxy-settings-steps",
-          label: LL.capture.showSystemProxySettingsSteps(),
-          tone: "secondary",
-        },
-      ],
       message: LL.settingsPage.systemProxyTakeoverRejected(),
     };
   }
-  const actions = [openDiagnosticsAction(LL)];
   if (failure === "invalid-recovery") {
-    return { actions, message: LL.capture.systemProxyInvalidRecovery() };
+    return { message: LL.capture.systemProxyInvalidRecovery() };
   }
   if (failure === "persistence-failed") {
-    return { actions, message: LL.capture.systemProxyPersistenceFailure() };
+    return { message: LL.capture.systemProxyPersistenceFailure() };
   }
   if (failure === "core-unhealthy") {
-    return { actions, message: LL.capture.systemProxyCoreFailure() };
+    return { message: LL.capture.systemProxyCoreFailure() };
   }
   if (failure === "external-drift") {
-    return {
-      actions: [
-        { id: "repair", label: LL.capture.repairSystemProxy() },
-        { id: "leave-as-is", label: LL.capture.leaveAsIs(), tone: "secondary" },
-      ],
-      message: LL.capture.systemProxyDrift(),
-    };
+    return { message: LL.capture.systemProxyDrift() };
   }
-  return { actions, message: LL.capture.systemProxyFailure() };
+  return { message: LL.capture.systemProxyFailure() };
 }
 
 function isTakeoverRejection(value: string | undefined) {
@@ -283,6 +239,40 @@ function openDiagnosticsAction(
   diagnosticFailure?: string,
 ): NotificationActionDescriptor {
   return { diagnosticFailure, id: "open-diagnostics", label: LL.diagnostics.open() };
+}
+
+function actionDescriptor(
+  id: ApplicationActionId,
+  presentation: ApplicationNotification,
+  LL: TranslationFunctions,
+): NotificationActionDescriptor {
+  const data = presentation.data as Record<string, unknown>;
+  const failure = typeof data.failure === "string" ? data.failure : undefined;
+  switch (id) {
+    case "find-ports-and-retry":
+      return { id, label: LL.settingsPage.managedPortsFindAndRetry() };
+    case "leave-as-is":
+      return { id, label: LL.capture.leaveAsIs(), tone: "secondary" };
+    case "open-diagnostics":
+      return openDiagnosticsAction(
+        LL,
+        presentation.kind === "profile.activation-failed"
+          ? activationDiagnosticFailure(failure)
+          : failure,
+      );
+    case "open-system-proxy-settings":
+      return openSystemProxySettingsAction(LL);
+    case "open-welcome":
+      return { id, label: LL.onboarding.notificationAction() };
+    case "repair":
+      return { id, label: LL.capture.repairSystemProxy() };
+    case "show-system-proxy-settings-steps":
+      return {
+        id,
+        label: LL.capture.showSystemProxySettingsSteps(),
+        tone: "secondary",
+      };
+  }
 }
 
 function activationDiagnosticFailure(failure: string | undefined) {

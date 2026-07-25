@@ -7,15 +7,19 @@ native presentation slice consumes canonical `en` and `zh-CN` locale IDs plus a
 monotonic settings revision; it does not persist or mutate another locale.
 
 `packages/presentation-schema/presentation.schema.json` owns the bounded locale,
-native message, typed argument, and notification-action identifiers shared
-across runtimes. `scripts/generate-presentation-contract.ts` emits exhaustive
-Rust and TypeScript bindings. `pnpm check:i18n` fails when either generated file
-drifts, a locale resource is absent, a catalog has an extra or missing key, or a
-message's interpolation arguments differ from the schema.
+native message and typed arguments, native action identifiers, and the neutral
+Application notification/event kind, typed-data, and stable action-ID
+contracts shared across runtimes. `scripts/generate-presentation-contract.ts`
+emits exhaustive Rust and TypeScript bindings. `pnpm check:i18n` fails when a
+generated file drifts, a native locale resource is absent, a catalog has an
+extra or missing key, or a native message's interpolation arguments differ from
+the schema.
 
-This schema deliberately does not cut application events or notifications over
-to a new payload. Semantic event data and action transport remain Issue #156
-Stage 5.
+Application producers use generated semantic payloads with no localized
+transport fields. React owns the exhaustive render-time projection, so retained
+notification and event history re-localizes without migration. Generated Zod
+contracts reject missing typed data, unknown kinds, invalid action IDs, and the
+removed legacy shape.
 
 ## Native translation
 
@@ -30,9 +34,10 @@ fallback to conceal an incomplete Chinese catalog. Profile, node, and service
 labels remain opaque user-provided values and are interpolated without
 translation.
 
-Web-only copy remains in the existing `typesafe-i18n` catalogs. The neutral
-schema does not move the React catalog into Rust or require the two runtimes to
-share an implementation library.
+Web-only copy remains in the existing `typesafe-i18n` catalogs. Its generated
+types make missing locale keys or typed interpolation arguments fail the Web
+check. The neutral schema does not move the React catalog into Rust or require
+the two runtimes to share an implementation library.
 
 ## Native projection lifecycle
 

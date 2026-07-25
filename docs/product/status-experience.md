@@ -93,7 +93,7 @@ The DOM element owns the fallback blue surface and text contrast.
   naturally and remain selectable, and source labels are omitted. Users can
   dismiss the client-local toast without changing history, or remove an
   individual center record with its X control; removal is written through Rust
-  and synchronized across clients. A notification type is a presentation
+  and synchronized across clients. A notification kind is a presentation
   definition rather than a singleton: separate operation attempts create
   separate records, while revisions of one explicit lifecycle keep the same ID.
   The center X and toast X stay hidden until hover or their own keyboard focus;

@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { cx, tv } from "@mish/ui/tv";
 import { createElement } from "react";
+import type { ApplicationActionId } from "@mish/contracts";
 import type { DeliveredNotification } from "./notification-delivery";
 
 const notificationToastStyles = tv({
@@ -21,8 +22,8 @@ function ToastActionGroup({
   pendingActionId,
 }: {
   actions: DeliveredNotification["actions"];
-  execute(actionId: string): Promise<void>;
-  pendingActionId?: string;
+  execute(actionId: ApplicationActionId): Promise<void>;
+  pendingActionId?: ApplicationActionId;
 }) {
   const pending = Boolean(pendingActionId);
   const styles = notificationToastStyles();
@@ -53,7 +54,7 @@ function ToastActionGroup({
 /** The only production boundary allowed to call Sonner's imperative API. */
 export function presentNotificationToast(
   notification: DeliveredNotification,
-  execute: (actionId?: string) => Promise<void>,
+  execute: (actionId: ApplicationActionId) => Promise<void>,
 ) {
   const styles = notificationToastStyles();
   const options = {

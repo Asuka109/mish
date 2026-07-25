@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { applicationEventSchema, applicationNotificationSchema } from "./generated/presentation";
 export * from "./generated/presentation";
 
 const IdentifierSchema = z.string().min(1);
@@ -586,17 +587,42 @@ export type EventsDataPhase = z.infer<typeof EventsDataPhaseSchema>;
 export const EventSourcePhaseSchema = z.enum(["fixture-only", "ready", "stale", "unavailable"]);
 export type EventSourcePhase = z.infer<typeof EventSourcePhaseSchema>;
 
-export const EventRecordSchema = z
+export const EventEvidenceSchema = z
   .object({
     detail: BoundedTextSchema.nullable(),
+    message: BoundedTextSchema,
+  })
+  .strict();
+export interface EventEvidenceDto extends z.infer<typeof EventEvidenceSchema> {}
+
+export const EventRecordSchema = z
+  .object({
+    application: applicationEventSchema.nullable(),
+    evidence: EventEvidenceSchema.nullable(),
     id: IdentifierSchema,
     level: EventLevelSchema,
-    message: BoundedTextSchema,
     observedAt: NonNegativeIntegerSchema,
     sequence: NonNegativeIntegerSchema,
     source: EventSourceSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((event, context) => {
+    const applicationContent = event.application !== null;
+    const evidenceContent = event.evidence !== null;
+    if (applicationContent === evidenceContent) {
+      context.addIssue({
+        code: "custom",
+        message: "An event requires exactly one semantic application payload or evidence payload",
+      });
+    }
+    if ((event.source === "application") !== applicationContent) {
+      context.addIssue({
+        code: "custom",
+        message: "Application event sources require semantic application payloads",
+        path: ["source"],
+      });
+    }
+  });
 export interface EventRecordDto extends z.infer<typeof EventRecordSchema> {}
 
 export const EventSourceStatusSchema = z
@@ -677,83 +703,19 @@ export interface RpcEventsSnapshotDto extends z.infer<typeof RpcEventsSnapshotSc
 export const NotificationSeveritySchema = z.enum(["debug", "info", "success", "warning", "error"]);
 export type NotificationSeverity = z.infer<typeof NotificationSeveritySchema>;
 
-export const KnownNotificationTypeSchema = z.enum([
-  "capture.failure",
-  "local-proxy.feedback",
-  "onboarding.welcome",
-  "profile.activation-asn-failed",
-  "profile.activation-asn-progress",
-  "profile.activation-failed",
-  "profile.activation-geoip-failed",
-  "profile.activation-geoip-progress",
-  "profile.activation-geosite-failed",
-  "profile.activation-geosite-progress",
-  "profile.activation-listener-conflict",
-  "profile.activation-mmdb-failed",
-  "profile.activation-mmdb-progress",
-  "profile.create-failed",
-  "profile.created",
-  "profile.detach-failed",
-  "profile.detached",
-  "profile.file-action-failed",
-  "profile.import-failed",
-  "profile.patch-load-failed",
-  "profile.patch-save-failed",
-  "profile.patch-saved",
-  "profile.refresh-failed",
-  "profile.save-failed",
-  "profile.saved",
-  "profile.schedule-failed",
-  "profile.subscription-updated",
-  "profile.switch-failed",
-  "route.selection-failed",
-  "service.defaults-restored",
-  "service.removed",
-  "service.saved",
-  "settings.operation-failed",
-  "status.operation-failed",
-  "system-proxy.drift",
-  "system-proxy.failed",
-  "traffic.connection-closed",
-  "traffic.connections-closed",
-  "traffic.operation-failed",
-  "tun.drift",
-  "tun.failed",
-]);
-export type KnownNotificationType = z.infer<typeof KnownNotificationTypeSchema>;
-
 const NotificationReferenceSchema = z
   .string()
   .min(1)
   .max(96)
   .regex(/^[a-z0-9][a-z0-9._:-]*$/u);
-const NotificationTypeReferenceSchema = z
-  .string()
-  .min(1)
-  .max(96)
-  .regex(/^[a-z0-9][a-z0-9._-]*$/u);
-const NotificationParameterKeySchema = z
-  .string()
-  .min(1)
-  .max(96)
-  .regex(/^[A-Za-z][A-Za-z0-9._-]*$/u);
-export const NotificationParamsSchema = z
-  .record(NotificationParameterKeySchema, z.json())
-  .superRefine((params, context) => {
-    if (JSON.stringify(params).length <= 2_048) return;
-    context.addIssue({ code: "custom", message: "Notification parameters exceed 2,048 bytes" });
-  });
-export interface NotificationParamsDto extends z.infer<typeof NotificationParamsSchema> {}
-
 export const NotificationPublicationSchema = z
   .object({
     dedupeKey: NotificationReferenceSchema,
-    params: NotificationParamsSchema.default({}),
     pinned: z.boolean().default(false),
+    presentation: applicationNotificationSchema,
     replaces: z.array(NotificationReferenceSchema).max(8).default([]),
     resolved: z.boolean().default(false),
     severity: NotificationSeveritySchema,
-    type: KnownNotificationTypeSchema,
   })
   .strict();
 export interface NotificationPublicationDto extends z.infer<typeof NotificationPublicationSchema> {}
@@ -764,13 +726,12 @@ export const NotificationRecordSchema = z
     dedupeKey: NotificationReferenceSchema,
     id: NotificationReferenceSchema,
     observedAt: NonNegativeIntegerSchema,
-    params: NotificationParamsSchema,
     pinned: z.boolean(),
+    presentation: applicationNotificationSchema,
     read: z.boolean(),
     resolved: z.boolean(),
     revision: NonNegativeIntegerSchema,
     severity: NotificationSeveritySchema,
-    type: NotificationTypeReferenceSchema,
   })
   .strict();
 export interface NotificationRecordDto extends z.infer<typeof NotificationRecordSchema> {}
@@ -1983,7 +1944,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(22),
+    protocolVersion: z.literal(23),
     statusCommands: z
       .object({
         group: z.boolean(),

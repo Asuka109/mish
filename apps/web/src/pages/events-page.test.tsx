@@ -100,10 +100,10 @@ describe("Events page", () => {
       events: [
         ...before.events,
         {
-          detail: null,
+          application: null,
+          evidence: { detail: null, message: "Buffered while paused" },
           id: "fixture-events:4",
           level: "info",
-          message: "Buffered while paused",
           observedAt: Date.parse("2026-07-18T08:00:03Z"),
           sequence: 4,
           source: "core",
@@ -174,10 +174,13 @@ describe("Events page", () => {
       ...snapshot,
       events: [
         {
-          detail: "token=[redacted] path=[redacted-path]",
+          application: null,
+          evidence: {
+            detail: "token=[redacted] path=[redacted-path]",
+            message: "Request to [redacted-url] failed",
+          },
           id: "fixture-events:safe",
           level: "error",
-          message: "Request to [redacted-url] failed",
           observedAt: Date.parse("2026-07-18T08:00:04Z"),
           sequence: 4,
           source: "core",

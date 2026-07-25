@@ -1286,8 +1286,9 @@ describe("production routes", () => {
     const center = new FixtureNotificationCenter();
     center.publish(
       notificationPublication("profile.activation-listener-conflict", {
+        actionIds: ["find-ports-and-retry"],
         dedupeKey: "profile.activation-failure",
-        params: { endpoint: "127.0.0.1:7890" },
+        data: { endpoint: "127.0.0.1:7890" },
         severity: "error",
       }),
     );
@@ -1365,8 +1366,9 @@ describe("production routes", () => {
 
     await notificationClient.publish(
       notificationPublication("profile.activation-listener-conflict", {
+        actionIds: ["find-ports-and-retry"],
         dedupeKey: "fixture.listener-conflict",
-        params: { endpoint: "127.0.0.1:7890" },
+        data: { endpoint: "127.0.0.1:7890" },
         severity: "error",
       }),
     );
@@ -2637,8 +2639,9 @@ describe("Status fixture experience", () => {
     const center = new FixtureNotificationCenter();
     center.publish(
       notificationPublication("system-proxy.failed", {
+        actionIds: ["open-diagnostics"],
         dedupeKey: "system-proxy.failed",
-        params: { failure: "core-unhealthy" },
+        data: { failure: "core-unhealthy" },
         severity: "error",
       }),
     );

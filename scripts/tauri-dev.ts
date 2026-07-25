@@ -53,13 +53,19 @@ export function createTauriDevelopmentConfig(origin: string, demo = false): stri
 }
 
 export function parseTauriDevelopmentArguments(arguments_: string[]): {
+  application: string[];
   demo: boolean;
   forwarded: string[];
 } {
   const normalized = arguments_[0] === "--" ? arguments_.slice(1) : arguments_;
+  const isDevtoolsArgument = (argument: string): boolean =>
+    argument === "--devtools" || argument.startsWith("--devtools=");
   return {
+    application: normalized.filter(isDevtoolsArgument),
     demo: normalized.includes("--demo"),
-    forwarded: normalized.filter((argument) => argument !== "--demo"),
+    forwarded: normalized.filter(
+      (argument) => argument !== "--demo" && !isDevtoolsArgument(argument),
+    ),
   };
 }
 
@@ -102,6 +108,7 @@ async function run(): Promise<void> {
       "--config",
       createTauriDevelopmentConfig(origin, invocation.demo),
       ...invocation.forwarded,
+      ...(invocation.application.length > 0 ? ["--", "--", ...invocation.application] : []),
     ],
     {
       cwd: desktopRoot,

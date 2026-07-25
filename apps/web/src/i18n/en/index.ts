@@ -1089,6 +1089,26 @@ const en = {
     upload: "Uploaded",
   },
   events: {
+    application: {
+      captureFailureDetail:
+        "Open Guided Diagnostics for structured evidence before retrying the capture action.",
+      controllerSessionStarted: "Controller event session started",
+      controllerSessionStartedDetail:
+        "A new session boundary was created; earlier events are not continuous.",
+      controllerSessionStale: "Controller event session became stale",
+      controllerSessionStaleDetail:
+        "Collection will resume in a new session after the Controller reconnects.",
+      controllerStreamUnavailable: "Controller event stream is unavailable",
+      controllerStreamUnavailableDetail: "Safe failure category: {failure:string}.",
+      profileActivationFailedDetail:
+        "Activation stopped with safe failure category {failure:string}. Open Guided Diagnostics before retrying.",
+      proxyLaunchTiming: "Launch Proxy timing",
+      proxyLaunchTimingDetail: "Outcome {outcome:string}; total {total:number} ms.",
+      settingsOperationFailedDetail:
+        "Review the authoritative Settings snapshot, then retry the requested change.",
+      trafficOperationFailedDetail:
+        "Refresh Traffic to confirm the remaining connections before retrying.",
+    },
     allLevels: "All levels",
     allSources: "All sources",
     clearLocal: "Clear Local",

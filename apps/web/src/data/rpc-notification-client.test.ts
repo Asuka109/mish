@@ -58,13 +58,12 @@ function snapshot(revision: number): NotificationSnapshotDto {
               dedupeKey: "profile.saved",
               id: "notification:1",
               observedAt: 1,
-              params: {},
               pinned: false,
+              presentation: { actionIds: [], data: {}, kind: "profile.saved" },
               read: false,
               resolved: false,
               revision,
               severity: "success",
-              type: "profile.saved",
             },
           ],
     revision,
@@ -106,12 +105,11 @@ describe("RpcNotificationClient", () => {
     const client = new RpcNotificationClient(rpc);
     const publication = client.publish({
       dedupeKey: "profile.saved",
-      params: {},
       pinned: false,
+      presentation: { actionIds: [], data: {}, kind: "profile.saved" },
       replaces: [],
       resolved: false,
       severity: "success",
-      type: "profile.saved",
     });
 
     await authenticate(transport);

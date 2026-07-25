@@ -42,5 +42,137 @@
     "status-bar.quit",
     "status-bar.toggle-launch-on-start",
     "status-bar.toggle-proxy"
-  ]
+  ],
+  "applicationActions": [
+    "find-ports-and-retry",
+    "leave-as-is",
+    "open-diagnostics",
+    "open-system-proxy-settings",
+    "open-welcome",
+    "repair",
+    "show-system-proxy-settings-steps"
+  ],
+  "notifications": {
+    "capture.failure": {
+      "data": {
+        "failure": "string",
+        "observationStage": { "type": "string", "optional": true },
+        "takeoverReason": { "type": "string", "optional": true }
+      },
+      "actions": [
+        "leave-as-is",
+        "open-diagnostics",
+        "open-system-proxy-settings",
+        "repair",
+        "show-system-proxy-settings-steps"
+      ]
+    },
+    "local-proxy.feedback": { "data": { "outcome": "string" } },
+    "onboarding.welcome": {
+      "data": { "prompt": "boolean" },
+      "actions": ["open-welcome"]
+    },
+    "profile.activation-asn-failed": {
+      "data": { "asset": "string", "outcome": "string" }
+    },
+    "profile.activation-asn-progress": { "data": { "asset": "string" } },
+    "profile.activation-failed": {
+      "data": { "failure": "string" },
+      "actions": ["open-diagnostics"]
+    },
+    "profile.activation-geoip-failed": {
+      "data": { "asset": "string", "outcome": "string" }
+    },
+    "profile.activation-geoip-progress": { "data": { "asset": "string" } },
+    "profile.activation-geosite-failed": {
+      "data": { "asset": "string", "outcome": "string" }
+    },
+    "profile.activation-geosite-progress": { "data": { "asset": "string" } },
+    "profile.activation-listener-conflict": {
+      "data": { "endpoint": "string" },
+      "actions": ["find-ports-and-retry"]
+    },
+    "profile.activation-mmdb-failed": {
+      "data": { "asset": "string", "outcome": "string" }
+    },
+    "profile.activation-mmdb-progress": { "data": { "asset": "string" } },
+    "profile.create-failed": { "data": {} },
+    "profile.created": { "data": {} },
+    "profile.detach-failed": { "data": {} },
+    "profile.detached": { "data": {} },
+    "profile.file-action-failed": { "data": {} },
+    "profile.import-failed": { "data": {} },
+    "profile.patch-load-failed": { "data": {} },
+    "profile.patch-save-failed": { "data": {} },
+    "profile.patch-saved": { "data": {} },
+    "profile.refresh-failed": { "data": {} },
+    "profile.save-failed": { "data": {} },
+    "profile.saved": { "data": {} },
+    "profile.schedule-failed": { "data": {} },
+    "profile.subscription-updated": { "data": {} },
+    "profile.switch-failed": { "data": {} },
+    "route.selection-failed": { "data": { "child": "string" } },
+    "service.defaults-restored": { "data": {} },
+    "service.removed": { "data": {} },
+    "service.saved": { "data": { "operation": "string" } },
+    "settings.operation-failed": { "data": { "failure": "string" } },
+    "status.operation-failed": {
+      "data": { "failure": { "type": "string", "optional": true } },
+      "actions": ["open-diagnostics"]
+    },
+    "system-proxy.drift": {
+      "data": {
+        "canLeave": "boolean",
+        "canRepair": "boolean",
+        "failure": { "type": "string", "optional": true },
+        "repairRequiresCore": "boolean"
+      },
+      "actions": ["leave-as-is", "repair"]
+    },
+    "system-proxy.failed": {
+      "data": { "failure": { "type": "string", "optional": true } },
+      "actions": ["open-diagnostics"]
+    },
+    "traffic.connection-closed": { "data": {} },
+    "traffic.connections-closed": { "data": { "count": "number" } },
+    "traffic.operation-failed": {
+      "data": { "failure": "string" },
+      "actions": ["open-diagnostics"]
+    },
+    "tun.drift": { "data": {} },
+    "tun.failed": { "data": {}, "actions": ["open-diagnostics"] }
+  },
+  "applicationEvents": {
+    "capture.failure": {
+      "data": {
+        "failure": "string",
+        "observationStage": { "type": "string", "optional": true }
+      },
+      "actions": ["open-diagnostics"]
+    },
+    "controller.session-started": { "data": {} },
+    "controller.session-stale": { "data": {} },
+    "controller.stream-unavailable": { "data": { "failure": "string" } },
+    "profile.activation-failed": {
+      "data": { "failure": "string" },
+      "actions": ["open-diagnostics"]
+    },
+    "proxy.launch-timing": {
+      "data": {
+        "listenerJournalMutationConfirmationMs": "number",
+        "outcome": "string",
+        "overlapMs": "number",
+        "preparationWallMs": "number",
+        "profileCoreMs": "number",
+        "schemaVersion": "number",
+        "systemProxyPreflightMs": "number",
+        "totalMs": "number"
+      }
+    },
+    "settings.operation-failed": { "data": { "failure": "string" } },
+    "traffic.operation-failed": {
+      "data": { "failure": "string" },
+      "actions": ["open-diagnostics"]
+    }
+  }
 }

@@ -462,10 +462,11 @@ rules into the independent Traffic snapshot and confirmed command surface docume
 [`traffic-data-contracts.md`](traffic-data-contracts.md). Exact connection byte
 counters cross that boundary as decimal strings.
 
-Structured `/logs` messages use a separate Events source documented in
+Structured `/logs` observations use a separate Events source documented in
 [`events-data-contracts.md`](events-data-contracts.md). Their message and field
-values are redacted before they enter the bounded runtime DTO. Reconnect creates
-a new Events session rather than joining logs across an observation gap.
+values become bounded, redacted non-localized evidence. Application-owned rows
+use the generated semantic event contract instead. Reconnect creates a new
+Events session rather than joining logs across an observation gap.
 
 ## Shutdown order
 

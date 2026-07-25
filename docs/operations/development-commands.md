@@ -27,6 +27,40 @@ pnpm demo -- --port 4173
 pnpm web:test:run -- src/path/to/example.test.ts
 ```
 
+The tracked `apps/desktop/.env.development` sets `MISH_DEVTOOLS=1` for
+`desktop:dev` and `desktop:demo`. The normal development command therefore
+opens the local WebKit Inspector as a separate window for only the current Mish
+desktop process:
+
+```sh
+pnpm prepare:mihomo
+MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  pnpm desktop:dev
+```
+
+The existing process environment takes precedence over the tracked development
+file. Disable it for one development process with:
+
+```sh
+MISH_MIHOMO_BIN="$PWD/.scratch/mihomo/v1.19.29/mihomo-darwin-arm64-v1.19.29" \
+  MISH_DEVTOOLS=0 pnpm desktop:dev
+```
+
+The desktop launcher also recognizes `--devtools` as an application startup
+flag and passes it beyond Tauri's runner boundary. It takes precedence over the
+environment. Without the flag, `MISH_DEVTOOLS` accepts exactly `1` or `0`;
+malformed values stop startup with the Inspector disabled. Missing input
+defaults off. The `.env.development` file is loaded only by the two source
+development commands; release builds and packaged launch never load it. No
+value is persisted.
+
+The Inspector can reveal local state, tokens, authenticated bridge payloads,
+Profile-derived data, network activity, and other sensitive diagnostics.
+Review and redact Inspector screenshots, exports, or copied values before
+sharing them. This option does not enable a remote debugging port, add a
+listener, affect the standalone Browser Client, or relax bridge, CSP, or RPC
+authorization.
+
 ## Scoped development and build commands
 
 | Scope   | Commands                                                                                                                                                    |
