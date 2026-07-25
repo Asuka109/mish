@@ -16,11 +16,11 @@ use mish_mihomo_controller::{
     TrafficSnapshot, shared_http_transport,
 };
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CaptureSelection, CorePhase, CoreRuntime, CoreStatus,
-    CoreStatusEventSink, EVENTS_BUFFER_LIMIT, EventLevel, EventRecord, EventSource,
-    EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource, EventsSnapshot,
-    GroupDelayChildPhase, GroupDelayChildResult, GroupDelayFailure, GroupDelayPolicy,
-    GroupDelayTest, GroupDelayTestPhase, ProfileSummary, ProviderAuthority,
+    ApplicationDiagnosticEvent, ApplicationEvent, CaptureSelection, CorePhase, CoreRuntime,
+    CoreStatus, CoreStatusEventSink, EVENTS_BUFFER_LIMIT, EventEvidence, EventLevel, EventRecord,
+    EventSource, EventSourcePhase, EventSourceStatus, EventsDataPhase, EventsDataSource,
+    EventsSnapshot, GroupDelayChildPhase, GroupDelayChildResult, GroupDelayFailure,
+    GroupDelayPolicy, GroupDelayTest, GroupDelayTestPhase, ProfileSummary, ProviderAuthority,
     ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
     ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateFailure,
     ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure, ProxyDiagnosticObservation,
@@ -2100,8 +2100,7 @@ impl EventsDataSource for ControllerStatusSource {
         if state.events.back().is_some_and(|previous| {
             previous.source == EventSource::Application
                 && previous.level == event.level()
-                && previous.message == event.message()
-                && previous.detail.as_deref() == event.detail()
+                && previous.application.as_ref() == Some(event.presentation())
         }) {
             return;
         }
@@ -2109,8 +2108,8 @@ impl EventsDataSource for ControllerStatusSource {
             &mut state,
             event.level(),
             EventSource::Application,
-            event.message().to_owned(),
-            event.detail().map(str::to_owned),
+            Some(event.presentation().clone()),
+            None,
         );
         drop(state);
         publish_event_change(&self.inner);
@@ -2783,12 +2782,13 @@ fn start_event_session(inner: &SourceInner, generation: u64) {
     }
     reset_event_session(&mut state, inner);
     state.event_phase = EventsDataPhase::Ready;
+    let event = ApplicationDiagnosticEvent::controller_session_started();
     push_event(
         &mut state,
-        EventLevel::Info,
+        event.level(),
         EventSource::Application,
-        "Controller event session started".into(),
-        Some("A new session boundary was created; earlier events are not continuous".into()),
+        Some(event.presentation().clone()),
+        None,
     );
     drop(state);
     publish_event_change(inner);
@@ -2814,23 +2814,19 @@ fn record_event_failure(inner: &SourceInner, error: &ControllerStatusSourceError
         reset_event_session(&mut state, inner);
     }
     state.event_phase = failure_phase;
-    let (message, detail) = match failure_phase {
-        EventsDataPhase::Stale => (
-            "Controller event session became stale",
-            "Collection will resume in a new session after reconnect",
-        ),
-        EventsDataPhase::Unavailable => (
-            "Controller event stream is unavailable",
+    let event = match failure_phase {
+        EventsDataPhase::Stale => ApplicationDiagnosticEvent::controller_session_stale(),
+        EventsDataPhase::Unavailable => ApplicationDiagnosticEvent::controller_stream_unavailable(
             safe_event_source_error(error),
         ),
         EventsDataPhase::Connecting | EventsDataPhase::Ready => unreachable!(),
     };
     push_event(
         &mut state,
-        EventLevel::Warning,
+        event.level(),
         EventSource::Application,
-        message.into(),
-        Some(detail.into()),
+        Some(event.presentation().clone()),
+        None,
     );
     drop(state);
     publish_event_change(inner);
@@ -2906,8 +2902,11 @@ fn apply_log_message(inner: &Arc<SourceInner>, message: LogMessage, generation: 
         &mut state,
         level,
         EventSource::Core,
-        redact_event_text(&message.message),
-        detail,
+        None,
+        Some(EventEvidence {
+            message: redact_event_text(&message.message),
+            detail,
+        }),
     );
     drop(state);
     publish_event_change(inner);
@@ -2917,18 +2916,18 @@ fn push_event(
     state: &mut SourceState,
     level: EventLevel,
     source: EventSource,
-    message: String,
-    detail: Option<String>,
+    application: Option<ApplicationEvent>,
+    evidence: Option<EventEvidence>,
 ) {
     let Some(session_id) = &state.event_session_id else {
         return;
     };
     state.event_sequence = state.event_sequence.saturating_add(1);
     state.events.push_back(EventRecord {
-        detail,
+        application,
+        evidence,
         id: format!("{session_id}:{}", state.event_sequence),
         level,
-        message,
         observed_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()

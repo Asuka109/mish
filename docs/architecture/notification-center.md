@@ -17,42 +17,41 @@ Adapter for notification retention.
 
 ## Semantic transport and presentation
 
-The Rust/TypeScript **Seam** carries only a canonical type reference, severity,
-bounded JSON parameters, a dedupe key, replacement keys, pinned/resolution
-state, and Rust-owned lifecycle metadata. It never carries localized title,
-message, or detail text, and never carries functions.
+The Rust/TypeScript **Seam** carries a generated `ApplicationNotification`
+presentation (`kind`, kind-specific typed `data`, and stable `actionIds`),
+severity, a dedupe key, replacement keys, pinned/resolution state, and
+Rust-owned lifecycle metadata. It never carries localized title, message, or
+detail text, and never carries functions.
 
-A notification type names a presentation definition, not a singleton record.
+A notification kind names a presentation definition, not a singleton record.
 Each independent occurrence receives a distinct bounded dedupe key and therefore
 a distinct Rust-owned ID. A producer reuses a dedupe key only while updating one
 explicit lifecycle; after that lifecycle is resolved, publishing the key again
 creates a new instance.
 
 Profile activation gives each allowlisted GeoData asset its own notification
-type and `command + asset` dedupe key. GeoSite, GeoIP, MMDB, and ASN preparation
+kind and `command + asset` dedupe key. GeoSite, GeoIP, MMDB, and ASN preparation
 can therefore remain visible at the same time, and each progress record keeps
 its Rust-owned ID when it is resolved or upgraded to that asset's failure type.
 Managed listener collisions use the separate
 `profile.activation-listener-conflict` type and an activation-failure key; they
 never replace or reuse a GeoData notification.
 
-Rust rejects identifiers over 96 bytes, more than eight replacements, parameters
-over 2,048 serialized bytes, nesting deeper than three levels, more than 32
-aggregate entries, or strings over 160 bytes. Sensitive key names and values that
-look like URLs, paths, credentials, bearer values, or long tokens are rejected.
-Native producers map raw failures to closed semantic categories before the Seam.
-After this generic validation, the Rust Module treats type-specific parameters as
-opaque data: it has no central enum or concrete payload structure per notification
-type. A future native consumer that needs one type can define a local
-`TypedNotificationParameters` projection and decode it through
-`NotificationRecord::parameters_as`; that opt-in projection does not change the
-stored envelope or the notification-center Interface.
+Rust rejects identifiers over 96 bytes, more than eight replacements, semantic
+presentations over 2,048 serialized bytes, nesting deeper than three levels,
+more than 32 aggregate entries, or strings over 160 bytes. Sensitive key names
+and values that look like URLs, paths, credentials, bearer values, or long
+tokens are rejected. Generated exhaustive Rust enums require every native
+producer to construct the exact data struct for its kind and reject action IDs
+that are not allowlisted for that kind. Native producers map raw failures to
+closed semantic categories before the Seam.
 
-TypeScript owns a single presentation registry. Its Implementation maps type plus
-parameters to localized title, message, detail, toast policy, and bounded action
-descriptors. Unknown types use a fixed safe fallback and do not display their
-parameters. Action descriptors contain data only; the UI Adapter dispatches them
-to existing typed commands and keeps pending state client-local.
+TypeScript validates the same generated discriminated union at the RPC boundary
+and owns one exhaustive presentation registry. Its Implementation maps semantic
+kind and typed data to localized title, message, detail, and toast policy. It
+maps transported stable action IDs to localized labels and existing typed
+commands while keeping pending state client-local. There is no unknown-kind
+fallback, dual reader, or legacy localized-field adapter.
 
 System Proxy takeover refusals use a closed, redacted Rust reason only. The presentation maps a
 recognized reason to a zero-argument native action; it never renders host names, PAC URLs,
@@ -65,7 +64,7 @@ the notification popover, returns focus to its trigger, and never resolves the r
 
 This split provides **Leverage**: Rust guarantees one synchronized lifecycle for
 every surface while TypeScript can re-localize retained records without changing
-or migrating stored copy.
+their identity, order, read/removal state, or stored copy.
 
 ## Client synchronization
 

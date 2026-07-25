@@ -7,6 +7,7 @@ import type {
   EventSource,
   EventsSnapshotDto,
 } from "@mish/contracts";
+import type { PresentedEventRecord } from "../data/event-presentation";
 
 export const EVENTS_LOCAL_BUFFER_LIMIT = 1_024;
 
@@ -142,7 +143,7 @@ export function clearLocalEvents(state: EventsBufferState): EventsBufferState {
 }
 
 export function filterEvents(
-  events: EventRecordDto[],
+  events: PresentedEventRecord[],
   query: string,
   levels: ReadonlySet<EventLevel>,
   sources: ReadonlySet<EventSource>,
@@ -156,12 +157,15 @@ export function filterEvents(
   });
 }
 
-export function sortEvents(events: EventRecordDto[], order: EventsOrder) {
+export function sortEvents<T extends Pick<EventRecordDto, "id" | "sequence">>(
+  events: T[],
+  order: EventsOrder,
+): T[] {
   const sorted = stableEvents(events);
   return order === "newest" ? sorted.toReversed() : sorted;
 }
 
-function stableEvents(events: EventRecordDto[]) {
+function stableEvents<T extends Pick<EventRecordDto, "id" | "sequence">>(events: T[]): T[] {
   return events
     .map((event, index) => ({ event, index }))
     .toSorted(

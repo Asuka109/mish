@@ -213,7 +213,7 @@ export function PolicyGroupBrowser({
     }
     publish(
       notificationPublication("route.selection-failed", {
-        params: {
+        data: {
           child:
             graph.nodeById.get(childId)?.label ?? graph.groupById.get(childId)?.label ?? childId,
         },

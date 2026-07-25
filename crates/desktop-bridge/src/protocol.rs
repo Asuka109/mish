@@ -15,11 +15,13 @@ use mish_profile::{
     RepositoryError,
 };
 use mish_runtime::{
-    ApplicationDiagnosticEvent, CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction,
-    CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
+    ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
+    CapabilityAvailability, CaptureFailureKind, CaptureRecoveryAction, CaptureRequest,
+    CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
     NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
-    StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
-    SystemProxyTakeoverPolicy, TrafficCommandAuthority, TrafficCommandOperation,
+    SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
+    StatusCommandError, StatusCommandErrorKind, SystemProxyTakeoverPolicy, TrafficCommandAuthority,
+    TrafficCommandOperation,
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
@@ -740,7 +742,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 22,
+            "protocolVersion": 23,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -2051,9 +2053,6 @@ fn settings_capability_error(id: Value) -> Value {
 }
 
 fn settings_error_response(state: &ProtocolState, id: Value, error: SettingsServiceError) -> Value {
-    state
-        .runtime
-        .record_application_event(ApplicationDiagnosticEvent::settings_failure());
     let failure = match &error {
         SettingsServiceError::CapabilityUnavailable => "capability-unavailable",
         SettingsServiceError::Persistence => "persistence",
@@ -2062,11 +2061,20 @@ fn settings_error_response(state: &ProtocolState, id: Value, error: SettingsServ
         SettingsServiceError::WindowSurface => "window-surface",
         SettingsServiceError::Busy => "busy",
     };
+    state
+        .runtime
+        .record_application_event(ApplicationDiagnosticEvent::settings_failure(failure));
     let _ = state.runtime.publish_notification(NotificationPublication {
         dedupe_key: format!("settings.operation-failed:{}", Uuid::new_v4()),
-        notification_type: "settings.operation-failed".into(),
-        params: json!({ "failure": failure }),
         pinned: false,
+        presentation: ApplicationNotification::new(
+            ApplicationNotificationContent::SettingsOperationFailed(
+                SettingsOperationFailedApplicationNotificationData {
+                    failure: failure.into(),
+                },
+            ),
+            Vec::new(),
+        ),
         replaces: Vec::new(),
         resolved: false,
         severity: NotificationSeverity::Error,

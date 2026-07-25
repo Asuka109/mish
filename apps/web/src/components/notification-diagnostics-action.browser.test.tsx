@@ -67,8 +67,9 @@ describe("notification diagnostics action", () => {
   test("opens diagnostics from a durable startup-failure toast by keyboard", async () => {
     await publisher.publish(
       notificationPublication("system-proxy.failed", {
+        actionIds: ["open-diagnostics"],
         dedupeKey: "system-proxy.failed",
-        params: { failure: "core-unhealthy" },
+        data: { failure: "core-unhealthy" },
         severity: "error",
       }),
     );

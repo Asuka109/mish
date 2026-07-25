@@ -162,10 +162,15 @@ impl EventsDataSource for ProfileSource {
         EventsSnapshot {
             adapter_kind,
             events: vec![EventRecord {
-                detail: None,
+                application: Some(mish_runtime::ApplicationEvent::new(
+                    mish_runtime::ApplicationEventContent::ControllerSessionStarted(
+                        mish_runtime::ControllerSessionStartedApplicationEventData {},
+                    ),
+                    Vec::new(),
+                )),
+                evidence: None,
                 id: format!("{}:1", self.profile_id),
                 level: EventLevel::Info,
-                message: "runtime replacement boundary".into(),
                 observed_at: 1,
                 sequence: 1,
                 source: EventSource::Application,
@@ -304,9 +309,13 @@ fn replacing_the_runtime_preserves_the_authoritative_notification_center() {
     let published = host
         .publish_notification(NotificationPublication {
             dedupe_key: "profile.saved".into(),
-            notification_type: "profile.saved".into(),
-            params: serde_json::json!({}),
             pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::ProfileSaved(
+                    mish_runtime::ProfileSavedApplicationNotificationData {},
+                ),
+                Vec::new(),
+            ),
             replaces: Vec::new(),
             resolved: false,
             severity: NotificationSeverity::Success,

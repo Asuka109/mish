@@ -611,7 +611,7 @@ async fn authoritative_application_notifications_reach_every_notification_client
         assert!(subscribed["result"]["subscriptionId"].is_string());
     }
 
-    let published = request(
+    let legacy = request(
         &mut first,
         json!({
             "jsonrpc":"2.0", "id":4, "method":"notifications.publish",
@@ -626,15 +626,36 @@ async fn authoritative_application_notifications_reach_every_notification_client
         }),
     )
     .await;
+    assert_eq!(legacy["error"]["code"], -32602);
+
+    let published = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0", "id":5, "method":"notifications.publish",
+            "params": {
+                "dedupeKey": "profile.saved",
+                "pinned": false,
+                "presentation": {
+                    "actionIds": [],
+                    "data": {},
+                    "kind": "profile.saved"
+                },
+                "replaces": [],
+                "resolved": false,
+                "severity": "success"
+            }
+        }),
+    )
+    .await;
     assert_eq!(
-        published["result"]["notifications"][0]["type"],
+        published["result"]["notifications"][0]["presentation"]["kind"],
         "profile.saved"
     );
     for socket in [&mut first, &mut second] {
         let notification = next_json(socket).await;
         assert_eq!(notification["method"], "notifications.snapshot");
         assert_eq!(
-            notification["params"]["snapshot"]["notifications"][0]["type"],
+            notification["params"]["snapshot"]["notifications"][0]["presentation"]["kind"],
             "profile.saved"
         );
     }
@@ -642,9 +663,15 @@ async fn authoritative_application_notifications_reach_every_notification_client
     runtime
         .publish_notification(NotificationPublication {
             dedupe_key: "settings.operation-failed".into(),
-            notification_type: "settings.operation-failed".into(),
-            params: json!({ "failure": "persistence" }),
             pinned: false,
+            presentation: mish_runtime::ApplicationNotification::new(
+                mish_runtime::ApplicationNotificationContent::SettingsOperationFailed(
+                    mish_runtime::SettingsOperationFailedApplicationNotificationData {
+                        failure: "persistence".into(),
+                    },
+                ),
+                Vec::new(),
+            ),
             replaces: Vec::new(),
             resolved: false,
             severity: NotificationSeverity::Error,
@@ -655,7 +682,7 @@ async fn authoritative_application_notifications_reach_every_notification_client
         let notification = next_json(socket).await;
         assert_eq!(notification["method"], "notifications.snapshot");
         assert_eq!(
-            notification["params"]["snapshot"]["notifications"][0]["type"],
+            notification["params"]["snapshot"]["notifications"][0]["presentation"]["kind"],
             "settings.operation-failed"
         );
     }
@@ -1651,7 +1678,7 @@ async fn settings_rpc_is_authenticated_bounded_and_reports_confirmed_privacy() {
     )
     .await;
     assert_eq!(
-        notifications["result"]["notifications"][0]["type"],
+        notifications["result"]["notifications"][0]["presentation"]["kind"],
         "settings.operation-failed"
     );
 
@@ -1671,7 +1698,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 22);
+    assert_eq!(info["result"]["protocolVersion"], 23);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})

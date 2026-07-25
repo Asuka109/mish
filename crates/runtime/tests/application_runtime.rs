@@ -7,8 +7,8 @@ use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
     ApplicationDiagnosticEvent, CaptureJournal, CaptureJournalStore, CapturePlatform,
     CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError,
-    CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, EventLevel,
-    LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState, ProfileSummary,
+    CoreErrorKind, CorePhase, CoreRuntime, CoreStatus, CoreStatusEventSink, LoopbackProxyEndpoint,
+    ManualProxyState, MishRuntime, NetworkServiceProxyState, ProfileSummary,
     RuntimeShutdownFailure, StatusAdapterKind, StatusDataSource, StatusSnapshot,
 };
 use tokio::{
@@ -588,10 +588,8 @@ async fn runtime_reports_core_stop_failure_after_capture_is_safe() {
 #[test]
 fn safe_stopped_runtime_exposes_bounded_actionable_application_events() {
     let runtime = MishRuntime::new(Arc::new(UnavailableCore));
-    runtime.record_application_event(ApplicationDiagnosticEvent::new(
-        EventLevel::Error,
-        "Profile activation failed",
-        Some("Resolve System Proxy recovery on Status, then retry activation"),
+    runtime.record_application_event(ApplicationDiagnosticEvent::profile_activation_failure(
+        "capture",
     ));
 
     let snapshot = runtime.events_snapshot_typed(StatusAdapterKind::Rpc);
@@ -602,11 +600,17 @@ fn safe_stopped_runtime_exposes_bounded_actionable_application_events() {
         snapshot.events[0].source,
         mish_runtime::EventSource::Application
     );
-    assert_eq!(snapshot.events[0].message, "Profile activation failed");
     assert_eq!(
-        snapshot.events[0].detail.as_deref(),
-        Some("Resolve System Proxy recovery on Status, then retry activation")
+        snapshot.events[0]
+            .application
+            .as_ref()
+            .expect("semantic application event")
+            .kind(),
+        "profile.activation-failed"
     );
+    let serialized = serde_json::to_value(&snapshot.events[0]).unwrap();
+    assert!(serialized.get("message").is_none());
+    assert!(serialized.get("detail").is_none());
     assert!(!format!("{snapshot:?}").contains("subscription"));
 }
 

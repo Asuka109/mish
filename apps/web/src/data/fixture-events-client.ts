@@ -7,31 +7,41 @@ import {
 
 const fixtureEvents: EventRecordDto[] = [
   {
-    detail: "Synthetic session boundary; no desktop Controller was contacted",
+    application: {
+      actionIds: ["open-diagnostics"],
+      data: { failure: "fixture-capture-failed" },
+      kind: "capture.failure",
+    },
+    evidence: null,
     id: "fixture-events:1",
-    level: "info",
-    message: "Fixture event session started",
+    level: "error",
     observedAt: Date.parse("2026-07-18T08:00:00Z"),
     sequence: 1,
     source: "application",
   },
   {
-    detail: null,
+    application: null,
+    evidence: {
+      detail: null,
+      message: "Synthetic DNS lookup timed out for api.fixture.invalid",
+    },
     id: "fixture-events:2",
     level: "warning",
-    message: "Synthetic DNS lookup timed out for api.fixture.invalid",
     observedAt: Date.parse("2026-07-18T08:00:01Z"),
     sequence: 2,
     source: "core",
   },
   {
-    detail: "Documentation address 198.51.100.24 was replaced before this fixture was committed",
+    application: null,
+    evidence: {
+      detail: "Documentation address 198.51.100.24 was replaced before this fixture was committed",
+      message: "Synthetic route check failed",
+    },
     id: "fixture-events:3",
     level: "error",
-    message: "Synthetic route check failed",
     observedAt: Date.parse("2026-07-18T08:00:02Z"),
     sequence: 3,
-    source: "application",
+    source: "core",
   },
 ];
 

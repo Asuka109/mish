@@ -127,7 +127,7 @@ async fn distinct_geodata_assets_publish_independent_notifications() {
     assert_eq!(
         geodata
             .iter()
-            .map(|notification| notification.notification_type.as_str())
+            .map(|notification| notification.presentation.kind())
             .collect::<HashSet<_>>(),
         HashSet::from([
             "profile.activation-geosite-progress",
@@ -195,7 +195,7 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     );
     let progress = success_host.notification_snapshot();
     assert_eq!(
-        progress.notifications[0].notification_type,
+        progress.notifications[0].presentation.kind(),
         "profile.activation-geosite-progress"
     );
     assert!(progress.notifications[0].pinned);
@@ -232,7 +232,7 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     );
     let failed_progress = failed_host.notification_snapshot();
     assert_eq!(
-        failed_progress.notifications[0].notification_type,
+        failed_progress.notifications[0].presentation.kind(),
         "profile.activation-geoip-failed"
     );
     assert!(!failed_progress.notifications[0].pinned);
@@ -261,7 +261,9 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
         .notification_snapshot()
         .notifications
         .into_iter()
-        .filter(|notification| notification.notification_type == "profile.activation-geoip-failed")
+        .filter(|notification| {
+            notification.presentation.kind() == "profile.activation-geoip-failed"
+        })
         .map(|notification| notification.id)
         .collect::<HashSet<_>>();
     assert_eq!(geodata_failure_ids.len(), 2);
@@ -298,7 +300,9 @@ async fn geodata_preparation_is_typed_across_success_failure_timeout_and_cancell
     assert!(status.nodes.is_empty());
     assert_eq!(status.metrics.active_connections, 0);
     assert_eq!(
-        timeout_host.notification_snapshot().notifications[0].notification_type,
+        timeout_host.notification_snapshot().notifications[0]
+            .presentation
+            .kind(),
         "profile.activation-mmdb-failed"
     );
     assert!(
@@ -1593,9 +1597,12 @@ async fn missing_managed_core_rejects_launch_with_one_actionable_notification() 
         .notification_snapshot()
         .notifications
         .into_iter()
-        .find(|record| record.notification_type == "profile.activation-failed")
+        .find(|record| record.presentation.kind() == "profile.activation-failed")
         .expect("missing Core activation notification");
-    assert_eq!(notification.params["failure"], "missing-binary");
+    assert_eq!(
+        serde_json::to_value(&notification.presentation).unwrap()["data"]["failure"],
+        "missing-binary"
+    );
     assert_eq!(
         notification.dedupe_key,
         format!("profile.activation-failure:{command_id}")
@@ -1831,10 +1838,9 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|event| event["message"] == "Launch Proxy timing")
+        .find(|event| event["application"]["kind"] == "proxy.launch-timing")
         .expect("successful launch did not publish privacy-safe stage timing");
-    let timing: serde_json::Value =
-        serde_json::from_str(timing_event["detail"].as_str().unwrap()).unwrap();
+    let timing = &timing_event["application"]["data"];
     assert_eq!(timing["schemaVersion"], 1);
     assert_eq!(timing["outcome"], "success");
     for field in [
@@ -1850,6 +1856,8 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
     let serialized_timing = timing.to_string();
     assert!(!serialized_timing.contains(record.metadata.id.as_str()));
     assert!(!serialized_timing.contains(replacement.metadata.id.as_str()));
+    assert!(timing_event.get("message").is_none());
+    assert!(timing_event.get("detail").is_none());
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 
@@ -2048,9 +2056,9 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
         .iter()
         .find(|notification| notification.dedupe_key == "capture.failure")
         .expect("preflight failure notification was not published");
-    assert_eq!(preflight_failure.notification_type, "capture.failure");
+    assert_eq!(preflight_failure.presentation.kind(), "capture.failure");
     assert_eq!(
-        preflight_failure.params["failure"],
+        serde_json::to_value(&preflight_failure.presentation).unwrap()["data"]["failure"],
         serde_json::json!("observation-failed")
     );
     assert!(!preflight_failure.resolved);
@@ -2175,16 +2183,16 @@ async fn failed_cold_aggregate_launch_stops_the_new_core_and_returns_safe_stoppe
             .as_array()
             .unwrap()
             .iter()
-            .any(|event| event["message"] == "System Proxy mutation failed")
+            .any(|event| event["application"]["kind"] == "capture.failure")
     );
     let notifications = host.notification_snapshot();
     assert_eq!(notifications.notifications.len(), 1);
     assert_eq!(
-        notifications.notifications[0].notification_type,
+        notifications.notifications[0].presentation.kind(),
         "capture.failure"
     );
     assert_eq!(
-        notifications.notifications[0].params["failure"],
+        serde_json::to_value(&notifications.notifications[0].presentation).unwrap()["data"]["failure"],
         "apply-failed"
     );
 
@@ -2397,7 +2405,7 @@ async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable
         .notification_snapshot()
         .notifications
         .into_iter()
-        .filter(|notification| notification.notification_type == "profile.activation-failed")
+        .filter(|notification| notification.presentation.kind() == "profile.activation-failed")
         .map(|notification| notification.id)
         .collect::<HashSet<_>>();
     assert_eq!(
@@ -2411,15 +2419,18 @@ async fn invalid_capture_recovery_blocks_reactivation_with_a_redacted_actionable
         .as_array()
         .unwrap()
         .iter()
-        .find(|event| event["message"] == "Profile activation failed")
+        .find(|event| {
+            event["application"]["kind"] == "profile.activation-failed"
+                && event["application"]["data"]["failure"] == "capture"
+        })
         .unwrap();
     assert_eq!(activation_event["source"], "application");
-    assert!(
-        activation_event["detail"]
-            .as_str()
-            .unwrap()
-            .contains("System Proxy recovery")
+    assert_eq!(
+        activation_event["application"]["actionIds"],
+        serde_json::json!(["open-diagnostics"])
     );
+    assert!(activation_event.get("message").is_none());
+    assert!(activation_event.get("detail").is_none());
     let serialized_events = events.to_string();
     assert!(!serialized_events.contains("synthetic-invalid-capture-secret"));
     assert!(!serialized_events.contains("profile.yaml"));

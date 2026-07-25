@@ -84,8 +84,9 @@ async function renderTakeoverRejection(
   publisher = new FixtureNotificationClient(center);
   await publisher.publish(
     notificationPublication("capture.failure", {
+      actionIds: ["open-system-proxy-settings", "show-system-proxy-settings-steps"],
       dedupeKey: "capture.failure",
-      params: {
+      data: {
         failure: "takeover-rejected",
         takeoverReason: "protected-pac",
       },

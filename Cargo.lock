@@ -2693,6 +2693,9 @@ dependencies = [
 [[package]]
 name = "mish-presentation-contract"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "mish-profile"
@@ -2715,6 +2718,7 @@ name = "mish-runtime"
 version = "0.1.0"
 dependencies = [
  "futures-util",
+ "mish-presentation-contract",
  "serde",
  "serde_json",
  "tokio",

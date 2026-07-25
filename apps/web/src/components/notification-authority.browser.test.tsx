@@ -76,7 +76,7 @@ beforeAll(async () => {
   await bootstrapPublisher.publish(
     notificationPublication("traffic.connections-closed", {
       dedupeKey: "traffic.connections-closed",
-      params: { count: 2 },
+      data: { count: 2 },
       severity: "success",
     }),
   );
@@ -120,8 +120,9 @@ describe("Rust-authoritative notification browser projection", () => {
 
     await secondClient.publish(
       notificationPublication("system-proxy.drift", {
+        actionIds: ["repair"],
         dedupeKey: "system-proxy.drift",
-        params: { canLeave: false, canRepair: true, repairRequiresCore: false },
+        data: { canLeave: false, canRepair: true, repairRequiresCore: false },
         severity: "warning",
       }),
     );
@@ -158,8 +159,9 @@ describe("Rust-authoritative notification browser projection", () => {
     expect(driftId).toBeDefined();
     await secondClient.publish(
       notificationPublication("system-proxy.drift", {
+        actionIds: ["repair", "leave-as-is"],
         dedupeKey: "system-proxy.drift",
-        params: { canLeave: true, canRepair: true, repairRequiresCore: false },
+        data: { canLeave: true, canRepair: true, repairRequiresCore: false },
         severity: "warning",
       }),
     );
@@ -210,7 +212,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-geosite-progress", {
         dedupeKey: "profile.activation-geodata:fixture:geo-site",
-        params: { asset: "geo-site" },
+        data: { asset: "geo-site" },
         pinned: true,
         severity: "info",
       }),
@@ -221,7 +223,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-mmdb-progress", {
         dedupeKey: "profile.activation-geodata:fixture:mmdb",
-        params: { asset: "mmdb" },
+        data: { asset: "mmdb" },
         pinned: true,
         severity: "info",
       }),
@@ -261,7 +263,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-geosite-progress", {
         dedupeKey: "profile.activation-geodata:fixture:geo-site",
-        params: { asset: "geo-site" },
+        data: { asset: "geo-site" },
         pinned: false,
         resolved: true,
         severity: "success",
@@ -270,7 +272,7 @@ describe("Rust-authoritative notification browser projection", () => {
     await secondClient.publish(
       notificationPublication("profile.activation-mmdb-progress", {
         dedupeKey: "profile.activation-geodata:fixture:mmdb",
-        params: { asset: "mmdb" },
+        data: { asset: "mmdb" },
         pinned: false,
         resolved: true,
         severity: "success",
