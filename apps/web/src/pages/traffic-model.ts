@@ -145,7 +145,7 @@ export function destinationLabel(connection: TrafficConnectionDto) {
   );
 }
 
-interface QueryToken {
+export interface QueryToken {
   field: string | null;
   value: string;
 }
@@ -171,7 +171,7 @@ function pruneClosed(
     .slice(0, retention.maxEntries);
 }
 
-function parseQuery(query: string): QueryToken[] {
+export function parseQuery(query: string): QueryToken[] {
   return query
     .trim()
     .split(/\s+/u)
@@ -192,6 +192,10 @@ function matchesConnectionToken(
   state: "active" | "closed",
   token: QueryToken,
 ) {
+  if (token.field === "geosite") {
+    return matchesGeosite(connection.matchedRule.type, connection.matchedRule.payload, token.value);
+  }
+
   const identifiers = trafficIdentifierSearchValues(connection);
   const destination = [
     connection.destinationHost,
@@ -221,7 +225,7 @@ function matchesConnectionToken(
     : [
         ...destination,
         ...process,
-        ...rule,
+        ...(isGeositeType(connection.matchedRule.type) ? [] : rule),
         ...routeChain,
         ...providerChain,
         ...identifiers.network,
@@ -232,6 +236,10 @@ function matchesConnectionToken(
 }
 
 function matchesRuleToken(rule: EffectiveRuleDto, token: QueryToken) {
+  if (token.field === "geosite") {
+    return matchesGeosite(rule.type, rule.payload, token.value);
+  }
+
   const fields: Record<string, Array<string | null>> = {
     enabled: [String(rule.enabled)],
     payload: [rule.payload],
@@ -241,6 +249,14 @@ function matchesRuleToken(rule: EffectiveRuleDto, token: QueryToken) {
   const values = token.field ? fields[token.field] : [rule.type, rule.payload, rule.target];
   if (!values) return false;
   return values.some((value) => value?.toLocaleLowerCase().includes(token.value));
+}
+
+function matchesGeosite(type: string, payload: string, value: string) {
+  return isGeositeType(type) && payload.toLocaleLowerCase().includes(value);
+}
+
+function isGeositeType(type: string) {
+  return type.toLocaleLowerCase() === "geosite";
 }
 
 function compareDecimal(left: string, right: string) {

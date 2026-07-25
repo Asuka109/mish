@@ -179,6 +179,8 @@ describe("Traffic page", () => {
     const dialog = screen.getByRole("dialog", { name: "Search Traffic" });
     expect(dialog).toHaveTextContent("destination:");
     expect(dialog).toHaveTextContent("process:browser network:tcp");
+    expect(dialog).toHaveTextContent("geosite:youtube");
+    expect(dialog).toHaveTextContent("GeoSite rule payload");
   });
 
   it("renders fictional active observations, explicitly unsupported close controls, and complete row detail", async () => {
