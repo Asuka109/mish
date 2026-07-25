@@ -1720,6 +1720,57 @@ impl Drop for CandidateDirectoryGuard {
     }
 }
 
+#[cfg(test)]
+mod candidate_cleanup_tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn startup_prunes_only_uuid_candidate_and_staging_roots() {
+        let root = TempDir::new().unwrap();
+        let candidates = root.path().join("candidates");
+        fs::create_dir(&candidates).unwrap();
+        let candidate = candidates.join(Uuid::new_v4().to_string());
+        let staging = candidates.join(format!(".staging-{}", Uuid::new_v4()));
+        let unrelated = candidates.join("maintainer-note");
+        for path in [&candidate, &staging, &unrelated] {
+            fs::create_dir(path).unwrap();
+            fs::write(path.join("evidence"), b"fixture").unwrap();
+        }
+
+        prune_stale_candidates(root.path());
+
+        assert!(!candidate.exists());
+        assert!(!staging.exists());
+        assert!(unrelated.join("evidence").exists());
+    }
+
+    #[test]
+    fn candidate_guard_cleans_both_partial_staging_and_promoted_paths() {
+        let root = TempDir::new().unwrap();
+        let candidates = root.path().join("candidates");
+        fs::create_dir(&candidates).unwrap();
+
+        let staging = candidates.join(format!(".staging-{}", Uuid::new_v4()));
+        fs::create_dir(&staging).unwrap();
+        {
+            let _guard = CandidateDirectoryGuard::new(staging.clone());
+        }
+        assert!(!staging.exists());
+
+        let staging = candidates.join(format!(".staging-{}", Uuid::new_v4()));
+        let promoted = candidates.join(Uuid::new_v4().to_string());
+        fs::create_dir(&staging).unwrap();
+        {
+            let mut guard = CandidateDirectoryGuard::new(staging.clone());
+            fs::rename(&staging, &promoted).unwrap();
+            guard.track(promoted.clone());
+        }
+        assert!(!promoted.exists());
+    }
+}
+
 fn record_failed_attempt(
     state: &mut ManagedActivationState,
     record: &ProfileRecord,

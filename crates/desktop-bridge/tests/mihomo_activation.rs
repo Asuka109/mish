@@ -6,7 +6,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -2935,6 +2935,195 @@ async fn cancellation_stops_the_candidate_without_committing_a_profile() {
     assert_eq!(
         managed.last_attempt().unwrap().failure(),
         Some(ActivationFailureKind::Cancelled)
+    );
+}
+
+#[tokio::test]
+#[ignore = "measurement harness; run with --ignored --nocapture --test-threads=1"]
+async fn measures_fixture_private_candidate_home_activation_paths() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = tempfile::tempdir().unwrap();
+    let runtime_root = root.path().join("runtime");
+    let bundled_geodata =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/geodata/snapshot");
+    let resolver = || {
+        ManagedMihomoResolver::development_with_bundled_geodata(
+            fixture("fake-activation-mihomo.sh"),
+            runtime_root.clone(),
+            bundled_geodata.clone(),
+        )
+    };
+    let manager =
+        MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
+    let policy = ManagedRuntimePolicy::new(controller.address, "measurement-secret").unwrap();
+    let profile = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+
+    let cold_started = Instant::now();
+    manager.activate(&profile, &policy).await.unwrap();
+    let cold = cold_started.elapsed();
+
+    let warm_started = Instant::now();
+    manager.activate(&profile, &policy).await.unwrap();
+    let warm = warm_started.elapsed();
+
+    manager.shutdown().await.unwrap();
+    let relaunched =
+        MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
+    let relaunch_started = Instant::now();
+    relaunched.activate(&profile, &policy).await.unwrap();
+    let relaunch = relaunch_started.elapsed();
+
+    let invalid =
+        profile_record(b"activation-test-invalid: true\nproxies: []\nrules: [MATCH,DIRECT]\n");
+    let failure_started = Instant::now();
+    assert_eq!(
+        relaunched.activate(&invalid, &policy).await.unwrap_err(),
+        MihomoActivationError::ValidationFailed
+    );
+    let failure = failure_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("candidates"))
+            .unwrap()
+            .count(),
+        1,
+        "the failed candidate must leave only the active candidate"
+    );
+
+    relaunched.shutdown().await.unwrap();
+    let cancelled =
+        MihomoActivationManager::new(resolver(), activation_timing(Duration::from_secs(2)));
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let cancellation_started = Instant::now();
+    assert_eq!(
+        cancelled
+            .activate_cancellable(&profile, &policy, cancellation)
+            .await
+            .unwrap_err(),
+        MihomoActivationError::Cancelled
+    );
+    let cancellation = cancellation_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("candidates"))
+            .unwrap()
+            .count(),
+        0,
+        "cancelled preparation must leave no candidate"
+    );
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "bytesPerCandidate": 42_881_021_u64,
+            "coldActivationMs": cold.as_secs_f64() * 1_000.0,
+            "failureCleanupMs": failure.as_secs_f64() * 1_000.0,
+            "preCancelledCleanupMs": cancellation.as_secs_f64() * 1_000.0,
+            "relaunchMs": relaunch.as_secs_f64() * 1_000.0,
+            "warmActivationMs": warm.as_secs_f64() * 1_000.0,
+        }))
+        .unwrap()
+    );
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+#[ignore = "requires MISH_MIHOMO_MEASURE_BIN from pnpm prepare:mihomo"]
+async fn measures_pinned_core_private_candidate_home_activation_paths() {
+    let binary = PathBuf::from(
+        std::env::var_os("MISH_MIHOMO_MEASURE_BIN")
+            .expect("set MISH_MIHOMO_MEASURE_BIN to the prepared v1.19.29 binary"),
+    );
+    let root = tempfile::tempdir().unwrap();
+    let runtime_root = root.path().join("runtime");
+    let bundled_geodata =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/geodata/snapshot");
+    let resolver = || {
+        ManagedMihomoResolver::development_with_bundled_geodata(
+            binary.clone(),
+            runtime_root.clone(),
+            bundled_geodata.clone(),
+        )
+    };
+    let timing = ActivationTiming {
+        config_validation_timeout: Duration::from_secs(10),
+        geodata_preparation_timeout: Duration::from_secs(30),
+        controller_connect_timeout: Duration::from_millis(500),
+        controller_request_timeout: Duration::from_millis(500),
+        readiness_timeout: Duration::from_secs(5),
+        refresh_interval: Duration::from_secs(1),
+        reconnect_delay: Duration::from_millis(25),
+    };
+    let policy = || {
+        ManagedRuntimePolicy::new(unused_loopback_address(), "measurement-secret")
+            .unwrap()
+            .with_proxy_endpoint(
+                LoopbackProxyEndpoint::new("127.0.0.1", unused_loopback_address().port()).unwrap(),
+            )
+    };
+    let profile = profile_record(P0_PROFILE);
+    let manager = MihomoActivationManager::new(resolver(), timing.clone());
+
+    let cold_started = Instant::now();
+    manager.activate(&profile, &policy()).await.unwrap();
+    let cold = cold_started.elapsed();
+
+    let warm_started = Instant::now();
+    manager.activate(&profile, &policy()).await.unwrap();
+    let warm = warm_started.elapsed();
+
+    manager.shutdown().await.unwrap();
+    let relaunched = MihomoActivationManager::new(resolver(), timing.clone());
+    let relaunch_started = Instant::now();
+    relaunched.activate(&profile, &policy()).await.unwrap();
+    let relaunch = relaunch_started.elapsed();
+
+    let invalid = profile_record(
+        b"proxies:\n  - name: broken\n    type: definitely-invalid\nrules:\n  - MATCH,DIRECT\n",
+    );
+    let failure_started = Instant::now();
+    assert_eq!(
+        relaunched.activate(&invalid, &policy()).await.unwrap_err(),
+        MihomoActivationError::ValidationFailed
+    );
+    let failure = failure_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("candidates"))
+            .unwrap()
+            .count(),
+        1
+    );
+
+    relaunched.shutdown().await.unwrap();
+    let cancelled = MihomoActivationManager::new(resolver(), timing);
+    let cancellation = CancellationToken::new();
+    cancellation.cancel();
+    let cancellation_started = Instant::now();
+    assert_eq!(
+        cancelled
+            .activate_cancellable(&profile, &policy(), cancellation)
+            .await
+            .unwrap_err(),
+        MihomoActivationError::Cancelled
+    );
+    let cancellation = cancellation_started.elapsed();
+    assert_eq!(
+        std::fs::read_dir(runtime_root.join("candidates"))
+            .unwrap()
+            .count(),
+        0
+    );
+
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "bytesPerCandidate": 42_881_021_u64,
+            "coldActivationMs": cold.as_secs_f64() * 1_000.0,
+            "failureCleanupMs": failure.as_secs_f64() * 1_000.0,
+            "preCancelledCleanupMs": cancellation.as_secs_f64() * 1_000.0,
+            "relaunchMs": relaunch.as_secs_f64() * 1_000.0,
+            "warmActivationMs": warm.as_secs_f64() * 1_000.0,
+        }))
+        .unwrap()
     );
 }
 
