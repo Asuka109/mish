@@ -3907,6 +3907,10 @@ type RootTranslation = {
 			 */
 			retry: string
 			/**
+			 * C​h​e​c​k​i​n​g​ ​t​h​e​ ​c​u​r​r​e​n​t​ ​r​u​n​t​i​m​e​.​ ​A​ ​c​o​n​c​l​u​s​i​o​n​ ​w​i​l​l​ ​a​p​p​e​a​r​ ​w​h​e​n​ ​t​h​e​ ​b​o​u​n​d​e​d​ ​r​u​n​ ​f​i​n​i​s​h​e​s​.
+			 */
+			running: string
+			/**
 			 * W​h​a​t​ ​t​o​ ​d​o​ ​n​e​x​t
 			 */
 			title: string
@@ -8376,6 +8380,10 @@ export type TranslationFunctions = {
 			 * This run ended before a stable result. Run diagnostics again for a new runtime context.
 			 */
 			retry: () => LocalizedString
+			/**
+			 * Checking the current runtime. A conclusion will appear when the bounded run finishes.
+			 */
+			running: () => LocalizedString
 			/**
 			 * What to do next
 			 */

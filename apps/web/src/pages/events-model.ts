@@ -28,6 +28,7 @@ export type DiagnosticConclusionKind =
   | "proxy"
   | "reachability"
   | "retry"
+  | "running"
   | "unavailable"
   | "healthy";
 
@@ -53,6 +54,7 @@ const failurePriority: readonly DiagnosticFailure[] = [
 ];
 
 export function selectDiagnosticConclusion(run: DiagnosticRunDto): DiagnosticConclusion {
+  if (run.status === "running") return { evidence: run.checks.slice(-1), kind: "running" };
   if (run.status === "cancelled" || run.status === "invalidated")
     return { evidence: [], kind: "retry" };
   const failed = run.checks.filter((check) => check.failure !== null);

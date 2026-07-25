@@ -45,6 +45,26 @@ function snapshot(
 }
 
 describe("Events local buffer", () => {
+  it("does not claim a healthy conclusion while a run is still active", () => {
+    const conclusion = selectDiagnosticConclusion({
+      adapterKind: "fixture",
+      checks: [],
+      finishedAt: null,
+      id: "running",
+      policy: {
+        endpointLabel: "fixture",
+        expectedHttpStatus: 204,
+        id: "fixture",
+        timeoutMilliseconds: 1,
+      },
+      profileId: null,
+      startedAt: 1,
+      status: "running",
+    });
+
+    expect(conclusion.kind).toBe("running");
+  });
+
   it("prioritizes one actionable conclusion over an unstructured failure list", () => {
     const check = (
       kind: "capture" | "core" | "dns",

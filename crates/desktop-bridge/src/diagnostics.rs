@@ -230,7 +230,7 @@ impl DiagnosticCoordinator {
             }
         };
         self.push_check(&run_id, core_check(&run_id, &core));
-        let status = runtime.status_snapshot_typed(StatusAdapterKind::Rpc).await;
+        let status = runtime.snapshot_typed_from_status(&core, StatusAdapterKind::Rpc);
         self.set_profile(&run_id, status.active_profile_id.clone());
         self.push_check(&run_id, profile_check(&run_id, &status));
         self.push_check(&run_id, capture_check(&run_id, &status));
@@ -714,6 +714,7 @@ fn now_milliseconds() -> u64 {
 mod tests {
     use super::*;
     use mish_runtime::{CoreError, CoreRuntime, CoreStatus};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct FixedCore;
 
@@ -729,6 +730,37 @@ mod tests {
                 pid: Some(1),
                 version: Some("Mihomo Meta v1.19.29".into()),
             }))
+        }
+
+        fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { unreachable!() })
+        }
+
+        fn stop(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
+            Box::pin(async { unreachable!() })
+        }
+    }
+
+    struct FirstStatusOnlyCore {
+        calls: AtomicUsize,
+    }
+
+    impl CoreRuntime for FirstStatusOnlyCore {
+        fn configured(&self) -> bool {
+            true
+        }
+
+        fn status(&self) -> BoxFuture<'_, CoreStatus> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                Box::pin(std::future::ready(CoreStatus {
+                    error: None,
+                    phase: CorePhase::Stopped,
+                    pid: None,
+                    version: None,
+                }))
+            } else {
+                Box::pin(std::future::pending())
+            }
         }
 
         fn start(&self) -> BoxFuture<'_, Result<CoreStatus, CoreError>> {
@@ -847,6 +879,24 @@ mod tests {
                 .iter()
                 .any(|check| check.status == DiagnosticCheckStatus::Failed)
         );
+    }
+
+    #[tokio::test]
+    async fn one_bounded_core_read_is_reused_for_the_status_snapshot() {
+        let coordinator = DiagnosticCoordinator::with_network(Arc::new(FixedNetwork));
+        let runtime = MishRuntime::new(Arc::new(FirstStatusOnlyCore {
+            calls: AtomicUsize::new(0),
+        }));
+        let (_changes, receiver) = watch::channel(runtime.clone());
+
+        coordinator.start(runtime, receiver, StatusAdapterKind::Rpc);
+        let history = wait_for_terminal_history(&coordinator).await;
+
+        assert_eq!(history.runs[0].status, DiagnosticRunStatus::Completed);
+        assert!(history.runs[0].checks.iter().any(|check| {
+            check.kind == DiagnosticCheckKind::Core
+                && check.failure == Some(DiagnosticFailure::CoreUnhealthy)
+        }));
     }
 
     #[test]

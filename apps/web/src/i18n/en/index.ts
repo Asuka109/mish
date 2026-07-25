@@ -1156,6 +1156,8 @@ const en = {
         "The fixed endpoint could not be reached on this route. Check connectivity, then retry.",
       retry:
         "This run ended before a stable result. Run diagnostics again for a new runtime context.",
+      running:
+        "Checking the current runtime. A conclusion will appear when the bounded run finishes.",
       title: "What to do next",
       unavailable:
         "Some evidence is unavailable. No broader network claim is made; retry when the runtime is ready.",
