@@ -98,6 +98,28 @@ describe("commandFeedbackReducer", () => {
     expect(afterOldFinally.operations.get("domain")).toEqual(newOperation);
   });
 
+  it("orders terminal operations by completion rather than submission", () => {
+    const first = pending("operation-first", "scope", "domain-first");
+    const second = pending("operation-second", "scope", "domain-second");
+    let state = begin(begin(createCommandFeedbackState(), first), second);
+
+    state = commandFeedbackReducer(state, {
+      operation: second,
+      phase: "success",
+      type: "transition",
+    });
+    state = commandFeedbackReducer(state, {
+      operation: first,
+      phase: "failure",
+      type: "transition",
+    });
+
+    expect([...state.operations.values()].at(-1)).toMatchObject({
+      domainKey: "domain-first",
+      phase: "failure",
+    });
+  });
+
   it("does not publish stale success or failure into a replaced scope", () => {
     for (const phase of ["success", "failure"] as const) {
       const oldOperation = pending(`old-${phase}`);

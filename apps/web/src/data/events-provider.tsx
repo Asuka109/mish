@@ -305,20 +305,20 @@ export function EventsProvider({
           const history = await resolvedDiagnosticsClient.cancelRun(runId, {
             signal: command.controller.signal,
           });
-          if (
-            request === diagnosticRequest.current &&
-            isCurrentCommandFeedback(command.operation, "pending")
-          ) {
+          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
+          if (request === diagnosticRequest.current && commandIsCurrent) {
             setDiagnosticHistory(history);
             setDiagnosticError(null);
+          }
+          if (commandIsCurrent) {
             transitionCommandFeedback(command.operation, "success");
           }
         } catch {
-          if (
-            request === diagnosticRequest.current &&
-            isCurrentCommandFeedback(command.operation, "pending")
-          ) {
+          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
+          if (request === diagnosticRequest.current && commandIsCurrent) {
             setDiagnosticError("The diagnostic run could not be cancelled.");
+          }
+          if (commandIsCurrent) {
             transitionCommandFeedback(command.operation, "failure");
           }
         } finally {
@@ -391,20 +391,20 @@ export function EventsProvider({
           const history = await resolvedDiagnosticsClient.startRun({
             signal: command.controller.signal,
           });
-          if (
-            request === diagnosticRequest.current &&
-            isCurrentCommandFeedback(command.operation, "pending")
-          ) {
+          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
+          if (request === diagnosticRequest.current && commandIsCurrent) {
             setDiagnosticHistory(history);
             setDiagnosticError(null);
+          }
+          if (commandIsCurrent) {
             transitionCommandFeedback(command.operation, "success");
           }
         } catch {
-          if (
-            request === diagnosticRequest.current &&
-            isCurrentCommandFeedback(command.operation, "pending")
-          ) {
+          const commandIsCurrent = isCurrentCommandFeedback(command.operation, "pending");
+          if (request === diagnosticRequest.current && commandIsCurrent) {
             setDiagnosticError("The diagnostic run could not be started.");
+          }
+          if (commandIsCurrent) {
             transitionCommandFeedback(command.operation, "failure");
           }
         } finally {

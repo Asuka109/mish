@@ -23,6 +23,17 @@ class SubscriptionWinsRaceClient extends FixtureStatusClient {
     });
   }
 
+  override async restoreDefaultServices(): Promise<StatusSnapshotDto> {
+    const snapshot = await super.getSnapshot();
+    const result = snapshot.probeResults.find(({ monitorId }) => monitorId === "google");
+    if (!result) throw new Error("Missing result for google");
+    result.latencyMilliseconds = 84;
+    result.observedAt = "2026-07-21T12:01:00Z";
+    result.status = "healthy";
+    snapshot.applicationOrder.order += 1;
+    return snapshot;
+  }
+
   async publishConfirmedResult(monitorId: string) {
     const snapshot = await super.getSnapshot();
     const result = snapshot.probeResults.find((candidate) => candidate.monitorId === monitorId);
@@ -40,14 +51,22 @@ class SubscriptionWinsRaceClient extends FixtureStatusClient {
 }
 
 function ProbeHarness() {
-  const { hasServiceProbeFailed, isServiceProbePending, snapshot, testServiceMonitor } =
-    useProduct();
+  const {
+    hasServiceProbeFailed,
+    isServiceProbePending,
+    restoreDefaultServices,
+    snapshot,
+    testServiceMonitor,
+  } = useProduct();
   const monitorId = "google";
   const result = snapshot?.probeResults.find((candidate) => candidate.monitorId === monitorId);
   return (
     <>
       <button onClick={() => void testServiceMonitor(monitorId)} type="button">
         Test probe
+      </button>
+      <button onClick={() => void restoreDefaultServices()} type="button">
+        Restore services
       </button>
       <output data-testid="failure">{String(hasServiceProbeFailed(monitorId))}</output>
       <output data-testid="pending">{String(isServiceProbePending(monitorId))}</output>
@@ -73,6 +92,31 @@ describe("ProductProvider service probe command state", () => {
 
     await act(async () => client.publishConfirmedResult("google"));
     await waitFor(() => expect(screen.getByTestId("latency")).toHaveTextContent("42"));
+
+    await act(async () => client.rejectPendingProbe());
+    await waitFor(() => {
+      expect(screen.getByTestId("failure")).toHaveTextContent("false");
+      expect(screen.getByTestId("pending")).toHaveTextContent("false");
+    });
+  });
+
+  it("terminates a probe superseded by another command snapshot", async () => {
+    const client = new SubscriptionWinsRaceClient();
+    render(
+      <TypesafeI18n locale="en">
+        <ProductProvider client={client}>
+          <ProbeHarness />
+        </ProductProvider>
+      </TypesafeI18n>,
+    );
+
+    await screen.findByTestId("latency");
+    fireEvent.click(screen.getByRole("button", { name: "Test probe" }));
+    await waitFor(() => expect(screen.getByTestId("pending")).toHaveTextContent("true"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore services" }));
+    await waitFor(() => expect(screen.getByTestId("latency")).toHaveTextContent("84"));
+    expect(screen.getByTestId("pending")).toHaveTextContent("true");
 
     await act(async () => client.rejectPendingProbe());
     await waitFor(() => {

@@ -83,12 +83,12 @@ export function commandFeedbackReducer(
     }
     case "transition": {
       if (!matchesPendingOperation(current, action.operation)) return state;
-      return replaceOperation(state, { ...current, phase: action.phase });
+      return replaceOperation(state, { ...current, phase: action.phase }, true);
     }
     case "authority-confirmed": {
       if (!matchesPendingOperation(current, action.operation)) return state;
       if (!isConfirmedAuthorityNewer(action.authority, current.confirmedAuthority)) return state;
-      return replaceOperation(state, { ...current, phase: "superseded" });
+      return replaceOperation(state, { ...current, phase: "superseded" }, true);
     }
     case "cleanup": {
       if (!matchesOperation(current, action.operation) || current.phase === "pending") return state;

@@ -86,6 +86,45 @@ class DelayedDiagnosticsClient implements DiagnosticsClient {
   }
 }
 
+class PollingDiagnosticsClient implements DiagnosticsClient {
+  private readonly cancelRequests: Array<{
+    resolve(history: DiagnosticHistoryDto): void;
+  }> = [];
+  private historyRequests = 0;
+
+  constructor(private history: DiagnosticHistoryDto) {}
+
+  cancelRun(): Promise<DiagnosticHistoryDto> {
+    return new Promise((resolve) => {
+      this.cancelRequests.push({ resolve });
+    });
+  }
+
+  dispose() {}
+
+  async getHistory(): Promise<DiagnosticHistoryDto> {
+    this.historyRequests += 1;
+    return structuredClone(this.history);
+  }
+
+  async startRun(): Promise<DiagnosticHistoryDto> {
+    return structuredClone(this.history);
+  }
+
+  completeCancel(index: number) {
+    this.history = { ...this.history, activeRunId: null };
+    this.cancelRequests[index]?.resolve(structuredClone(this.history));
+  }
+
+  cancelRequestCount() {
+    return this.cancelRequests.length;
+  }
+
+  historyRequestCount() {
+    return this.historyRequests;
+  }
+}
+
 class DelayedSupportBundleClient implements SupportBundleClient {
   readonly availability = "supported" as const;
   private readonly requests: Array<{
@@ -122,8 +161,8 @@ class DelayedSupportBundleClient implements SupportBundleClient {
 
 function renderProvider(
   client: ReplacementEventsClient,
-  diagnosticsClient: DelayedDiagnosticsClient,
-  supportBundleClient: DelayedSupportBundleClient,
+  diagnosticsClient: DiagnosticsClient,
+  supportBundleClient: SupportBundleClient,
 ) {
   events = null;
   return render(
@@ -193,5 +232,34 @@ describe("EventsProvider command feedback", () => {
     await act(async () => support.resolve(1, "replacement-preview"));
     await waitFor(() => expect(events?.supportBundlePending).toBe(false));
     expect(events?.supportBundlePreview?.previewId).toBe("replacement-preview");
+  });
+
+  it("terminates diagnostic feedback when polling advances the read token", async () => {
+    const client = new ReplacementEventsClient();
+    const initialHistory = await new FixtureDiagnosticsClient().startRun();
+    initialHistory.activeRunId = initialHistory.runs[0]!.id;
+    const diagnostics = new PollingDiagnosticsClient(initialHistory);
+    await client.initialize();
+    renderProvider(client, diagnostics, new DelayedSupportBundleClient());
+    await waitFor(() => expect(events?.diagnosticHistory?.activeRunId).toBeTruthy());
+
+    const historyRequestsBeforeCancel = diagnostics.historyRequestCount();
+    act(() => {
+      void events?.cancelDiagnosticRun(initialHistory.activeRunId!);
+    });
+    expect(diagnostics.cancelRequestCount()).toBe(1);
+    expect(events?.diagnosticPending).toBe(true);
+    await waitFor(() =>
+      expect(diagnostics.historyRequestCount()).toBeGreaterThan(historyRequestsBeforeCancel),
+    );
+
+    await act(async () => diagnostics.completeCancel(0));
+    await waitFor(() => expect(events?.diagnosticPending).toBe(false));
+
+    act(() => {
+      void events?.cancelDiagnosticRun(initialHistory.activeRunId!);
+    });
+    expect(diagnostics.cancelRequestCount()).toBe(2);
+    await act(async () => diagnostics.completeCancel(1));
   });
 });

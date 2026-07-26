@@ -578,15 +578,19 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
             result.status !== "pending" &&
             result.observedAt !== previousObservedAt,
         );
-        if (!hasNewConfirmedResult && isCurrentCommandFeedback(feedbackOperation, "pending")) {
-          setServiceProbeFailures((current) => ({
-            ...current,
-            [monitorId]: {
-              operationId: feedbackOperation.operationId,
-              previousObservedAt,
-            },
-          }));
-          transitionCommandFeedback(feedbackOperation, "failure");
+        if (isCurrentCommandFeedback(feedbackOperation, "pending")) {
+          if (hasNewConfirmedResult) {
+            transitionCommandFeedback(feedbackOperation, "superseded");
+          } else {
+            setServiceProbeFailures((current) => ({
+              ...current,
+              [monitorId]: {
+                operationId: feedbackOperation.operationId,
+                previousObservedAt,
+              },
+            }));
+            transitionCommandFeedback(feedbackOperation, "failure");
+          }
         }
         return { error: typedError, ok: false } satisfies ProductCommandResult;
       } finally {
