@@ -63,11 +63,11 @@ authorization.
 
 ## Scoped development and build commands
 
-| Scope   | Commands                                                                                                                                                    |
-| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web     | `web:demo`, `web:dev`, `web:build`, `web:preview`, `web:test`, `web:test:run`                                                                               |
-| Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:build:macos`, `desktop:bundle:macos`, `desktop:bundle:macos:styled`, `desktop:bundle:verify:macos` |
-| Android | `mobile:android:init`, `mobile:android:configure`, `mobile:android:prepare-tests`, `mobile:android:test`, `mobile:android:build`                            |
+| Scope   | Commands                                                                                                                                                                                          |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web     | `web:demo`, `web:dev`, `web:build`, `web:preview`, `web:test`, `web:test:run`                                                                                                                     |
+| Desktop | `desktop:demo`, `desktop:dev`, `desktop:build`, `desktop:build:macos`, `desktop:bundle:macos`, `desktop:bundle:macos:styled`, `desktop:bundle:signed-direct:macos`, `desktop:bundle:verify:macos` |
+| Android | `mobile:android:init`, `mobile:android:configure`, `mobile:android:prepare-tests`, `mobile:android:test`, `mobile:android:build`                                                                  |
 
 The development-only privileged Core host is opt-in and uses
 `macos:core-host:build`, `macos:core-host:install`, `macos:core-host:status`,
