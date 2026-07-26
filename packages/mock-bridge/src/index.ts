@@ -103,6 +103,11 @@ export function createMockStatusSnapshot(): RpcStatusSnapshotDto {
     },
     routingMode: "rule",
     runtime: {
+      captureOperation: {
+        operationId: null,
+        phase: "idle",
+        scopeEpoch: "mock-capture-scope",
+      },
       captureSelection: { systemProxy: false, tun: false },
       message: "Mock transport is connected",
       phase: "inactive",
@@ -278,7 +283,7 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             return {
               bridgeVersion: "mock",
               coreConfigured: true,
-              protocolVersion: 25,
+              protocolVersion: 26,
               statusCommands: { group: true, groupDelay: false, routing: true, services: true },
               trafficCommands: {
                 closeAllActive: false,
@@ -323,7 +328,16 @@ export async function startMockBridge(options: MockBridgeOptions): Promise<MockB
             const systemProxyEnabled = active && selection.systemProxy;
             const tunEnabled = active && selection.tun;
             const captureActive = systemProxyEnabled || tunEnabled;
+            const previousOperationId = snapshot.runtime.captureOperation.operationId;
+            const operationId = (
+              previousOperationId === null ? 1n : BigInt(previousOperationId) + 1n
+            ).toString();
             snapshot.runtime = {
+              captureOperation: {
+                operationId,
+                phase: "applied",
+                scopeEpoch: "mock-capture-scope",
+              },
               captureSelection: { ...selection },
               message: captureActive ? "Mock capture is active" : "Mock capture is inactive",
               phase: captureActive ? "healthy" : "inactive",

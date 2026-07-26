@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { SERVICE_ICON_URLS, ServiceIconUrlSchema } from "@mish/contracts";
+import {
+  CaptureOperationStatusSchema,
+  SERVICE_ICON_URLS,
+  ServiceIconUrlSchema,
+} from "@mish/contracts";
 import { FixtureStatusClient } from "./fixture-status-client";
 
 describe("FixtureStatusClient", () => {
@@ -20,6 +24,30 @@ describe("FixtureStatusClient", () => {
       revision: 0,
       sessionId: null,
     });
+  });
+
+  it("requires bounded aggregate operation identity on every non-idle projection", () => {
+    expect(
+      CaptureOperationStatusSchema.safeParse({
+        operationId: "18446744073709551615",
+        phase: "recovery-required",
+        scopeEpoch: "capture-scope",
+      }).success,
+    ).toBe(true);
+    expect(
+      CaptureOperationStatusSchema.safeParse({
+        operationId: null,
+        phase: "pending",
+        scopeEpoch: "capture-scope",
+      }).success,
+    ).toBe(false);
+    expect(
+      CaptureOperationStatusSchema.safeParse({
+        operationId: "184467440737095516150",
+        phase: "applied",
+        scopeEpoch: "capture-scope",
+      }).success,
+    ).toBe(false);
   });
 
   it("uses the accepted six lightweight endpoints by default", async () => {

@@ -122,6 +122,18 @@ function recentSnapshot(
   return next;
 }
 
+function captureSnapshot(
+  snapshot: StatusSnapshotDto,
+  operationId: string | null,
+  phase: StatusSnapshotDto["runtime"]["captureOperation"]["phase"],
+  scopeEpoch = "capture-scope-a",
+) {
+  const next = structuredClone(snapshot);
+  next.applicationOrder.order = ++statusSnapshotOrder;
+  next.runtime.captureOperation = { operationId, phase, scopeEpoch };
+  return next;
+}
+
 afterEach(() => {
   statusSnapshotOrder = 0;
   vi.useRealTimers();
@@ -185,6 +197,105 @@ describe("RpcStatusClient", () => {
       applicationOrder: { authorityId: "status-authority-B" },
     });
 
+    client.dispose();
+  });
+
+  it("keeps terminal Capture truth over delayed pending and retired-scope projections", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+    const received: StatusSnapshotDto[] = [];
+    client.subscribeSnapshots((snapshot) => received.push(snapshot));
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    const base = captureSnapshot(await createRpcSnapshot(), "1", "pending");
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: base, subscriptionId: "capture-subscription" },
+    });
+    await flushMicrotasks();
+
+    const publish = (snapshot: StatusSnapshotDto) =>
+      transport.respond({
+        jsonrpc: "2.0",
+        method: "status.snapshot",
+        params: { snapshot, subscriptionId: "capture-subscription" },
+      });
+    publish(captureSnapshot(base, "1", "failed"));
+    publish(captureSnapshot(base, "1", "pending"));
+    expect(received.at(-1)?.runtime.captureOperation).toMatchObject({
+      operationId: "1",
+      phase: "failed",
+    });
+
+    publish(captureSnapshot(base, "2", "pending"));
+    publish(captureSnapshot(base, "1", "applied"));
+    expect(received.at(-1)?.runtime.captureOperation).toMatchObject({
+      operationId: "2",
+      phase: "pending",
+    });
+    publish(captureSnapshot(base, "2", "recovery-required"));
+
+    publish(captureSnapshot(base, null, "idle", "capture-scope-b"));
+    publish(captureSnapshot(base, "2", "recovery-required", "capture-scope-a"));
+    expect(received.at(-1)?.runtime.captureOperation).toEqual({
+      operationId: null,
+      phase: "idle",
+      scopeEpoch: "capture-scope-b",
+    });
+    client.dispose();
+  });
+
+  it("keeps repeated no-op audit snapshots terminal until a real drift operation", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+    const received: StatusSnapshotDto[] = [];
+    client.subscribeSnapshots((snapshot) => received.push(snapshot));
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    const terminal = captureSnapshot(await createRpcSnapshot(), "7", "applied");
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: terminal, subscriptionId: "capture-audit-subscription" },
+    });
+    await flushMicrotasks();
+
+    const publish = (snapshot: StatusSnapshotDto) =>
+      transport.respond({
+        jsonrpc: "2.0",
+        method: "status.snapshot",
+        params: { snapshot, subscriptionId: "capture-audit-subscription" },
+      });
+    for (let audit = 0; audit < 3; audit += 1) {
+      publish(structuredClone(terminal));
+      expect(received.at(-1)?.runtime.captureOperation).toEqual({
+        operationId: "7",
+        phase: "applied",
+        scopeEpoch: "capture-scope-a",
+      });
+    }
+
+    publish(captureSnapshot(terminal, "8", "pending"));
+    expect(received.at(-1)?.runtime.captureOperation).toMatchObject({
+      operationId: "8",
+      phase: "pending",
+    });
+    publish(captureSnapshot(terminal, "8", "recovery-required"));
+    expect(received.at(-1)?.runtime.captureOperation).toMatchObject({
+      operationId: "8",
+      phase: "recovery-required",
+    });
     client.dispose();
   });
 
@@ -289,7 +400,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 25,
+        protocolVersion: 26,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -327,7 +438,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 25,
+        protocolVersion: 26,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -355,7 +466,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 25,
+        protocolVersion: 26,
         statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: {
           closeAllActive: false,
