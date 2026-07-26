@@ -99,8 +99,8 @@ export function NotificationBubble({
   const notificationTriggerRef = useRef<HTMLButtonElement>(null);
   const navigate = useNavigate();
   const settings = useOptionalSettings();
-  const { commandStates, recoverSystemProxy, snapshot } = useProduct();
-  const { setCapture } = useCaptureCommand();
+  const { recoverSystemProxy, snapshot } = useProduct();
+  const { pending: capturePending, setCapture } = useCaptureCommand();
   const { entries, markRead, remove, toastEntries } = useNotificationDelivery();
   const { LL, locale } = useI18nContext();
   const [open, setOpen] = useState(false);
@@ -273,7 +273,7 @@ export function NotificationBubble({
             <ol className={notificationStyles().list()}>
               {visibleNotifications.map((notification) => (
                 <NotificationItem
-                  disabled={commandStates.capture.phase === "pending" || Boolean(settings?.pending)}
+                  disabled={capturePending || Boolean(settings?.pending)}
                   key={notification.id}
                   LL={LL}
                   locale={locale}

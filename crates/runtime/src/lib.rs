@@ -792,6 +792,38 @@ impl MishRuntime {
         Ok(self.snapshot_from_status(&core, adapter_kind))
     }
 
+    pub async fn set_capture_with_admitted_preflight(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        preflight: CapturePreflight,
+        operation: &CaptureOperation,
+    ) -> Result<Value, CaptureTransitionError> {
+        let Some(capture) = &self.capture else {
+            return Err(CaptureTransitionError::new(
+                CaptureFailureKind::CapabilityUnavailable,
+                "System Proxy is unavailable in this runtime",
+            ));
+        };
+        let core = self.core.status().await;
+        let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let explicit_active = request.active;
+        let result = capture
+            .reconcile_admitted_with_preflight(request, healthy, preflight, operation)
+            .await;
+        if let Err(error) = result {
+            self.record_capture_failure(&error);
+            return Err(error);
+        }
+        let recent_revision = self.recent_traffic.snapshot().revision;
+        self.reconcile_recent_traffic_after_capture(explicit_active);
+        if self.recent_traffic.snapshot().revision != recent_revision {
+            self.publish_status(&core);
+        }
+        self.notifications.resolve_by_dedupe_key("capture.failure");
+        Ok(self.snapshot_from_status(&core, adapter_kind))
+    }
+
     pub fn set_system_proxy_takeover_policy(&self, policy: SystemProxyTakeoverPolicy) {
         if let Some(capture) = &self.capture {
             capture.set_system_proxy_takeover_policy(policy);
@@ -1208,6 +1240,7 @@ impl MishRuntime {
                 .observe(Some(&capture_status), Instant::now());
             snapshot.capabilities.system_proxy = capture.availability();
             snapshot.capabilities.tun = capture.tun_availability();
+            snapshot.runtime.capture_operation = capture_status.capture_operation;
             snapshot.runtime.capture_selection = capture_status.capture_selection;
             snapshot.runtime.system_proxy = capture_status.system_proxy;
             snapshot.runtime.system_proxy_enabled = capture_status.system_proxy_enabled;
@@ -1231,6 +1264,7 @@ impl MishRuntime {
         capture_status: CaptureRuntimeStatus,
     ) -> StatusSnapshot {
         let mut snapshot = self.snapshot_typed_from_status(status, adapter_kind);
+        snapshot.runtime.capture_operation = capture_status.capture_operation;
         snapshot.runtime.capture_selection = capture_status.capture_selection;
         snapshot.runtime.system_proxy = capture_status.system_proxy;
         snapshot.runtime.system_proxy_enabled = capture_status.system_proxy_enabled;
@@ -1252,16 +1286,27 @@ impl MishRuntime {
     pub fn publish_capture_pending(
         &self,
         request: &CaptureRequest,
-    ) -> Option<CaptureRuntimeStatus> {
+    ) -> Result<CaptureOperation, CaptureTransitionError> {
         self.capture
             .as_ref()
-            .map(|capture| capture.publish_pending(request))
+            .ok_or_else(|| {
+                CaptureTransitionError::new(
+                    CaptureFailureKind::CapabilityUnavailable,
+                    "System Proxy is unavailable in this runtime",
+                )
+            })?
+            .admit_operation(request)
     }
 
-    pub fn restore_capture_status(&self, status: CaptureRuntimeStatus) {
+    pub fn finish_capture_operation_failure(
+        &self,
+        operation: &CaptureOperation,
+        error: &CaptureTransitionError,
+    ) -> Option<CaptureRuntimeStatus> {
         if let Some(capture) = &self.capture {
-            capture.restore_status(status);
+            return Some(capture.finish_operation_failure(operation, error));
         }
+        None
     }
 
     pub async fn shutdown(&self) -> Result<CoreStatus, RuntimeShutdownFailure> {
@@ -1307,12 +1352,18 @@ mod proxy_session_uptime_tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        CaptureRuntimeStatus, CaptureSelection, ProxySessionUptime, SystemProxyObservedState,
-        SystemProxyPhase, SystemProxyRuntimeStatus, TunRuntimeStatus,
+        CaptureOperationPhase, CaptureOperationStatus, CaptureRuntimeStatus, CaptureSelection,
+        ProxySessionUptime, SystemProxyObservedState, SystemProxyPhase, SystemProxyRuntimeStatus,
+        TunRuntimeStatus,
     };
 
     fn capture(system_proxy_enabled: bool, tun_enabled: bool) -> CaptureRuntimeStatus {
         CaptureRuntimeStatus {
+            capture_operation: CaptureOperationStatus {
+                operation_id: None,
+                phase: CaptureOperationPhase::Idle,
+                scope_epoch: "runtime-test-capture-scope".into(),
+            },
             capture_selection: CaptureSelection {
                 system_proxy: true,
                 tun: true,

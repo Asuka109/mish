@@ -1,8 +1,8 @@
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
-    ApplicationNotificationContent, CaptureAuditReason, CapturePreflight, CaptureRecoveryAction,
-    CaptureRequest, CaptureTransitionError, CoreError, CoreStatus, DiagnosticHistory,
-    EventsSnapshot, MishRuntime, NotificationPublication, NotificationSnapshot,
+    ApplicationNotificationContent, CaptureAuditReason, CaptureOperation, CapturePreflight,
+    CaptureRecoveryAction, CaptureRequest, CaptureTransitionError, CoreError, CoreStatus,
+    DiagnosticHistory, EventsSnapshot, MishRuntime, NotificationPublication, NotificationSnapshot,
     NotificationValidationError, ProviderAuthority, ProviderCommandExecution,
     ProviderCommandResult, ProviderKind, ProviderSnapshot, ProviderUpdateFailure, RoutingMode,
     StatusAdapterKind, StatusCommand, StatusCommandError, StatusSnapshot, TrafficCommandAuthority,
@@ -169,6 +169,18 @@ impl DesktopRuntimeHost {
     ) -> Result<Value, CaptureTransitionError> {
         self.current()
             .set_capture_with_preflight(request, adapter_kind, preflight)
+            .await
+    }
+
+    pub async fn set_capture_with_admitted_preflight(
+        &self,
+        request: CaptureRequest,
+        adapter_kind: StatusAdapterKind,
+        preflight: CapturePreflight,
+        operation: &CaptureOperation,
+    ) -> Result<Value, CaptureTransitionError> {
+        self.current()
+            .set_capture_with_admitted_preflight(request, adapter_kind, preflight, operation)
             .await
     }
 

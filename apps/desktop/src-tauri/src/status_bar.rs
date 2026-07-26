@@ -104,6 +104,7 @@ impl StatusBarState {
         capture: mish_runtime::CaptureRuntimeStatus,
     ) -> StatusBarModel {
         let (mut status, traffic) = self.runtime.native_traffic_handoff().await;
+        status.runtime.capture_operation = capture.capture_operation;
         status.runtime.capture_selection = capture.capture_selection;
         status.runtime.system_proxy = capture.system_proxy;
         status.runtime.system_proxy_enabled = capture.system_proxy_enabled;
@@ -787,11 +788,15 @@ fn proxy_title(
     if status.runtime.system_proxy_enabled || status.runtime.tun_enabled {
         tr(locale, NativeMessage::StatusStopProxy)
     } else if activation.phase == ProfileActivationPhase::Pending
-        || status.runtime.system_proxy.phase == mish_runtime::SystemProxyPhase::Pending
-        || status.runtime.tun.phase == mish_runtime::TunPhase::Pending
+        || status.runtime.capture_operation.phase == mish_runtime::CaptureOperationPhase::Pending
     {
         tr(locale, NativeMessage::StatusLaunchProxyPending)
     } else if activation.phase == ProfileActivationPhase::Failure
+        || matches!(
+            status.runtime.capture_operation.phase,
+            mish_runtime::CaptureOperationPhase::Failed
+                | mish_runtime::CaptureOperationPhase::RecoveryRequired
+        )
         || matches!(
             status.runtime.system_proxy.phase,
             mish_runtime::SystemProxyPhase::Failed | mish_runtime::SystemProxyPhase::Drift
@@ -810,8 +815,7 @@ fn proxy_title(
 fn proxy_enabled(status: &StatusSnapshot, activation: &ProfileActivationSnapshot) -> bool {
     activation.availability == ProfileActivationAvailability::Available
         && activation.phase != ProfileActivationPhase::Pending
-        && status.runtime.system_proxy.phase != mish_runtime::SystemProxyPhase::Pending
-        && status.runtime.tun.phase != mish_runtime::TunPhase::Pending
+        && status.runtime.capture_operation.phase != mish_runtime::CaptureOperationPhase::Pending
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -891,9 +895,10 @@ mod tests {
         ProfileActivationSnapshot,
     };
     use mish_runtime::{
-        CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime, ProxyNode, StatusAdapterKind,
-        StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficConnection, TrafficDataPhase,
-        TrafficDataSnapshot, TrafficDataSource, TrafficMatchedRule,
+        CaptureOperationPhase, CoreError, CorePhase, CoreRuntime, CoreStatus, MishRuntime,
+        ProxyNode, StatusAdapterKind, StatusDataSource, StatusSnapshot, SystemProxyPhase,
+        TrafficConnection, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+        TrafficMatchedRule,
     };
     use std::sync::{
         Arc,
@@ -1151,6 +1156,18 @@ mod tests {
         );
 
         activation.phase = ProfileActivationPhase::Idle;
+        status.runtime.capture_operation.operation_id = Some("1".into());
+        status.runtime.capture_operation.phase = CaptureOperationPhase::Pending;
+        let capture_pending = StatusMenuModel::new(&status, &activation, false, Locale::En);
+        assert_eq!(capture_pending.proxy_title, "Launch Proxy — Pending");
+        assert!(!capture_pending.proxy_enabled);
+
+        status.runtime.capture_operation.phase = CaptureOperationPhase::RecoveryRequired;
+        let recovery_required = StatusMenuModel::new(&status, &activation, false, Locale::En);
+        assert_eq!(recovery_required.proxy_title, "Launch Proxy — Failed");
+        assert!(recovery_required.proxy_enabled);
+
+        status.runtime.capture_operation.phase = CaptureOperationPhase::Applied;
         status.runtime.system_proxy_enabled = true;
         status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
         let active = StatusMenuModel::new(&status, &activation, true, Locale::En);
@@ -1162,6 +1179,45 @@ mod tests {
             StatusMenuModel::new(&status, &activation, true, Locale::ZhCn).proxy_title,
             "停止代理"
         );
+    }
+
+    #[test]
+    fn native_controls_preserve_terminal_audit_truth_until_a_real_drift_operation() {
+        let core = running_core_status();
+        let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
+        let mut activation = ProfileActivationSnapshot::unavailable();
+        activation.availability = ProfileActivationAvailability::Available;
+        status.runtime.capture_operation.operation_id = Some("7".into());
+        status.runtime.capture_operation.phase = CaptureOperationPhase::Applied;
+        status.runtime.system_proxy_enabled = true;
+        status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
+
+        for repeated_audit in [status.clone(), status.clone(), status.clone()] {
+            let model = StatusMenuModel::new(&repeated_audit, &activation, false, Locale::En);
+            assert_eq!(model.proxy_title, "Stop Proxy");
+            assert!(model.proxy_enabled);
+            assert_eq!(
+                repeated_audit
+                    .runtime
+                    .capture_operation
+                    .operation_id
+                    .as_deref(),
+                Some("7")
+            );
+        }
+
+        status.runtime.capture_operation.operation_id = Some("8".into());
+        status.runtime.capture_operation.phase = CaptureOperationPhase::Pending;
+        let pending = StatusMenuModel::new(&status, &activation, false, Locale::En);
+        assert_eq!(pending.proxy_title, "Stop Proxy");
+        assert!(!pending.proxy_enabled);
+
+        status.runtime.capture_operation.phase = CaptureOperationPhase::RecoveryRequired;
+        status.runtime.system_proxy_enabled = false;
+        status.runtime.system_proxy.phase = SystemProxyPhase::Drift;
+        let drift = StatusMenuModel::new(&status, &activation, false, Locale::En);
+        assert_eq!(drift.proxy_title, "Launch Proxy — Failed");
+        assert!(drift.proxy_enabled);
     }
 
     #[test]
