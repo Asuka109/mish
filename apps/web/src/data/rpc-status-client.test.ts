@@ -239,6 +239,56 @@ describe("RpcStatusClient", () => {
     client.dispose();
   });
 
+  it("keeps terminal Capture truth over runtime-replaced command reconciliation", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+    client.subscribeSnapshots(() => undefined);
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    const terminal = captureSnapshot(await createRpcSnapshot(), "7", "applied");
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: terminal, subscriptionId: "capture-reconciliation-subscription" },
+    });
+    await flushMicrotasks();
+
+    const command = client.setRoutingMode("direct");
+    const request = await waitForRequest(transport, 2);
+    const replacement = captureSnapshot(terminal, "7", "pending");
+    replacement.activeProfileId = "profile-replacement";
+    replacement.profiles = [{ id: "profile-replacement", label: "Replacement profile" }];
+    transport.respond({
+      error: {
+        code: -32_054,
+        data: { kind: "runtime-replaced", snapshot: replacement },
+        message: "The Status runtime was replaced before the command completed",
+      },
+      id: request.id,
+      jsonrpc: "2.0",
+    });
+
+    await expect(command).rejects.toMatchObject({
+      code: "runtime-replaced",
+      snapshot: {
+        activeProfileId: "profile-replacement",
+        runtime: {
+          captureOperation: {
+            operationId: "7",
+            phase: "applied",
+            scopeEpoch: "capture-scope-a",
+          },
+        },
+      },
+    });
+    client.dispose();
+  });
+
   it("rejects stale and duplicate Recent Traffic revisions without synthesizing authority", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({
@@ -433,6 +483,18 @@ describe("RpcStatusClient", () => {
     );
   });
 
+  it("keeps runtime replacement errors compatible when an older bridge omits reconciliation", () => {
+    expect(
+      mapRpcError(new RpcRemoteError(-32_054, "Runtime replaced", { kind: "runtime-replaced" })),
+    ).toEqual(
+      expect.objectContaining<Partial<StatusClientError>>({
+        code: "runtime-replaced",
+        retryable: true,
+        snapshot: null,
+      }),
+    );
+  });
+
   it("sends remembered capture selection separately from aggregate active state", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({
@@ -613,10 +675,13 @@ describe("RpcStatusClient", () => {
 
     const replacedCommand = client.setRoutingMode("direct");
     const replacedRequest = await waitForRequest(transports[0], 4);
+    const replacementSnapshot = structuredClone(preReconnect);
+    replacementSnapshot.activeProfileId = "profile-replacement";
+    replacementSnapshot.profiles = [{ id: "profile-replacement", label: "Replacement profile" }];
     transports[0].respond({
       error: {
         code: -32_054,
-        data: { kind: "runtime-replaced" },
+        data: { kind: "runtime-replaced", snapshot: replacementSnapshot },
         message: "The Status runtime was replaced before the command completed",
       },
       id: replacedRequest.id,
@@ -625,6 +690,10 @@ describe("RpcStatusClient", () => {
     await expect(replacedCommand).rejects.toMatchObject({
       code: "runtime-replaced",
       retryable: true,
+      snapshot: {
+        activeProfileId: "profile-replacement",
+        recentTraffic: { downloadedBytes: 600, revision: 6 },
+      },
     });
 
     transports[0].close(1006, "Lost");

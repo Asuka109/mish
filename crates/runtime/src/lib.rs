@@ -312,12 +312,17 @@ pub enum StatusCommandErrorKind {
 #[derive(Clone, Debug)]
 pub struct StatusCommandError {
     pub kind: StatusCommandErrorKind,
+    pub reconciliation: Option<StatusSnapshot>,
     message: &'static str,
 }
 
 impl StatusCommandError {
     pub const fn new(kind: StatusCommandErrorKind, message: &'static str) -> Self {
-        Self { kind, message }
+        Self {
+            kind,
+            reconciliation: None,
+            message,
+        }
     }
 
     pub const fn unsupported() -> Self {
@@ -332,6 +337,11 @@ impl StatusCommandError {
             StatusCommandErrorKind::RuntimeReplaced,
             "The Status runtime was replaced before the command completed",
         )
+    }
+
+    pub fn with_reconciliation(mut self, snapshot: StatusSnapshot) -> Self {
+        self.reconciliation = Some(snapshot);
+        self
     }
 }
 
@@ -953,8 +963,19 @@ impl MishRuntime {
         mode: RoutingMode,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
+        Ok(
+            serde_json::to_value(self.set_routing_mode_typed(mode, adapter_kind).await?)
+                .expect("Status state must serialize"),
+        )
+    }
+
+    pub async fn set_routing_mode_typed(
+        &self,
+        mode: RoutingMode,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         self.status_source.set_routing_mode(mode).await?;
-        Ok(self.status_snapshot(adapter_kind).await)
+        Ok(self.status_snapshot_typed(adapter_kind).await)
     }
 
     pub async fn select_group_child(
@@ -963,10 +984,23 @@ impl MishRuntime {
         child_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
+        Ok(serde_json::to_value(
+            self.select_group_child_typed(group_id, child_id, adapter_kind)
+                .await?,
+        )
+        .expect("Status state must serialize"))
+    }
+
+    pub async fn select_group_child_typed(
+        &self,
+        group_id: String,
+        child_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         self.status_source
             .select_group_child(group_id, child_id)
             .await?;
-        Ok(self.status_snapshot(adapter_kind).await)
+        Ok(self.status_snapshot_typed(adapter_kind).await)
     }
 
     pub async fn start_group_delay_test(
@@ -974,8 +1008,20 @@ impl MishRuntime {
         group_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
+        Ok(serde_json::to_value(
+            self.start_group_delay_test_typed(group_id, adapter_kind)
+                .await?,
+        )
+        .expect("Status state must serialize"))
+    }
+
+    pub async fn start_group_delay_test_typed(
+        &self,
+        group_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         self.status_source.start_group_delay_test(group_id).await?;
-        Ok(self.status_snapshot(adapter_kind).await)
+        Ok(self.status_snapshot_typed(adapter_kind).await)
     }
 
     pub async fn cancel_group_delay_test(
@@ -983,8 +1029,20 @@ impl MishRuntime {
         test_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
+        Ok(serde_json::to_value(
+            self.cancel_group_delay_test_typed(test_id, adapter_kind)
+                .await?,
+        )
+        .expect("Status state must serialize"))
+    }
+
+    pub async fn cancel_group_delay_test_typed(
+        &self,
+        test_id: String,
+        adapter_kind: StatusAdapterKind,
+    ) -> Result<StatusSnapshot, StatusCommandError> {
         self.status_source.cancel_group_delay_test(test_id).await?;
-        Ok(self.status_snapshot(adapter_kind).await)
+        Ok(self.status_snapshot_typed(adapter_kind).await)
     }
 
     pub fn traffic_snapshot(&self, adapter_kind: StatusAdapterKind) -> Value {

@@ -269,6 +269,11 @@ export function ProductProvider({ children, client }: ProductProviderProps) {
           ...states,
           [command]: { error: typedError, phase: "failure" },
         }));
+        if (typedError.snapshot !== null) {
+          snapshotRef.current = typedError.snapshot;
+          setSnapshot(typedError.snapshot);
+          return { error: typedError, ok: false } satisfies ProductCommandResult;
+        }
         try {
           const nextSnapshot = await resolvedClient.getSnapshot();
           acceptSnapshot(nextSnapshot, "request");

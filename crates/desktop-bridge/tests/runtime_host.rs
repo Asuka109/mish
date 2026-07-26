@@ -50,6 +50,13 @@ impl CoreRuntime for RunningCore {
     }
 }
 
+struct StatusCommandBarrier {
+    admitted: Arc<Notify>,
+    continue_to_mutation: Arc<Notify>,
+    mutated: Arc<Notify>,
+    continue_to_response: Arc<Notify>,
+}
+
 struct ProfileSource {
     command_continue: Option<Arc<Notify>>,
     command_started: Option<Arc<Notify>>,
@@ -57,8 +64,7 @@ struct ProfileSource {
     provider_continue: Option<Arc<Notify>>,
     provider_started: Option<Arc<Notify>>,
     profile_id: &'static str,
-    status_command_continue: Option<Arc<Notify>>,
-    status_command_started: Option<Arc<Notify>>,
+    status_command_barrier: Option<Arc<StatusCommandBarrier>>,
 }
 
 impl StatusDataSource for ProfileSource {
@@ -74,22 +80,39 @@ impl StatusDataSource for ProfileSource {
     }
 
     fn supports_command(&self, command: StatusCommand) -> bool {
-        command == StatusCommand::Routing && self.status_command_started.is_some()
+        matches!(
+            command,
+            StatusCommand::Routing | StatusCommand::Group | StatusCommand::GroupDelay
+        ) && self.status_command_barrier.is_some()
     }
 
     fn set_routing_mode(
         &self,
         _mode: RoutingMode,
     ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
-        Box::pin(async move {
-            self.status_command_started.as_ref().unwrap().notify_one();
-            self.status_command_continue
-                .as_ref()
-                .unwrap()
-                .notified()
-                .await;
-            Ok(())
-        })
+        self.run_status_command()
+    }
+
+    fn select_group_child(
+        &self,
+        _group_id: String,
+        _child_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.run_status_command()
+    }
+
+    fn start_group_delay_test(
+        &self,
+        _group_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.run_status_command()
+    }
+
+    fn cancel_group_delay_test(
+        &self,
+        _test_id: String,
+    ) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        self.run_status_command()
     }
 
     fn provider_snapshot(&self) -> ProviderSnapshot {
@@ -133,6 +156,19 @@ impl StatusDataSource for ProfileSource {
                 operation: ProviderCommandOperation::UpdateOne,
                 succeeded_provider_ids: vec![provider_id],
             }
+        })
+    }
+}
+
+impl ProfileSource {
+    fn run_status_command(&self) -> BoxFuture<'_, Result<(), StatusCommandError>> {
+        Box::pin(async move {
+            let barrier = self.status_command_barrier.as_ref().unwrap();
+            barrier.admitted.notify_one();
+            barrier.continue_to_mutation.notified().await;
+            barrier.mutated.notify_one();
+            barrier.continue_to_response.notified().await;
+            Ok(())
         })
     }
 }
@@ -207,8 +243,7 @@ fn runtime(profile_id: &'static str) -> MishRuntime {
         provider_continue: None,
         provider_started: None,
         profile_id,
-        status_command_continue: None,
-        status_command_started: None,
+        status_command_barrier: None,
     });
     MishRuntime::with_data_sources_and_events(
         Arc::new(RunningCore),
@@ -231,8 +266,7 @@ fn blocking_runtime(
         provider_continue: None,
         provider_started: None,
         profile_id,
-        status_command_continue: None,
-        status_command_started: None,
+        status_command_barrier: None,
     });
     MishRuntime::with_data_sources_and_events(
         Arc::new(RunningCore),
@@ -255,8 +289,7 @@ fn blocking_provider_runtime(
         provider_continue: Some(provider_continue),
         provider_started: Some(provider_started),
         profile_id,
-        status_command_continue: None,
-        status_command_started: None,
+        status_command_barrier: None,
     });
     MishRuntime::with_data_sources_and_events(
         Arc::new(RunningCore),
@@ -271,6 +304,23 @@ fn blocking_status_runtime(
     command_started: Arc<Notify>,
     command_continue: Arc<Notify>,
 ) -> MishRuntime {
+    let continue_to_mutation = Arc::new(Notify::new());
+    continue_to_mutation.notify_one();
+    let mutated = Arc::new(Notify::new());
+    let continue_to_response = command_continue;
+    let barrier = Arc::new(StatusCommandBarrier {
+        admitted: command_started,
+        continue_to_mutation,
+        mutated,
+        continue_to_response,
+    });
+    status_barrier_runtime(profile_id, barrier)
+}
+
+fn status_barrier_runtime(
+    profile_id: &'static str,
+    barrier: Arc<StatusCommandBarrier>,
+) -> MishRuntime {
     let (event_updates, _) = broadcast::channel(1);
     let source = Arc::new(ProfileSource {
         command_continue: None,
@@ -279,8 +329,7 @@ fn blocking_status_runtime(
         provider_continue: None,
         provider_started: None,
         profile_id,
-        status_command_continue: Some(command_continue),
-        status_command_started: Some(command_started),
+        status_command_barrier: Some(barrier),
     });
     MishRuntime::with_data_sources_and_events(
         Arc::new(RunningCore),
@@ -431,9 +480,98 @@ async fn replacing_the_runtime_during_a_routing_command_returns_a_typed_failure(
 
     assert_eq!(error.kind, StatusCommandErrorKind::RuntimeReplaced);
     assert_eq!(
+        error
+            .reconciliation
+            .as_ref()
+            .map(|snapshot| snapshot.active_profile_id.as_str()),
+        Some("profile-b")
+    );
+    assert_eq!(
         host.status_snapshot(StatusAdapterKind::Rpc).await["activeProfileId"],
         "profile-b"
     );
+}
+
+#[tokio::test]
+async fn replacement_before_group_mutation_uses_the_admitted_runtime_and_reconciles_current_state()
+{
+    let barrier = Arc::new(StatusCommandBarrier {
+        admitted: Arc::new(Notify::new()),
+        continue_to_mutation: Arc::new(Notify::new()),
+        mutated: Arc::new(Notify::new()),
+        continue_to_response: Arc::new(Notify::new()),
+    });
+    let host = DesktopRuntimeHost::new(status_barrier_runtime("profile-a", barrier.clone()));
+    let command_host = host.clone();
+    let command = tokio::spawn(async move {
+        command_host
+            .select_group_child("group-a".into(), "child-a".into(), StatusAdapterKind::Rpc)
+            .await
+    });
+
+    barrier.admitted.notified().await;
+    host.replace(runtime("profile-b"));
+    barrier.continue_to_mutation.notify_one();
+    barrier.mutated.notified().await;
+    barrier.continue_to_response.notify_one();
+    let error = command.await.unwrap().unwrap_err();
+
+    assert_eq!(error.kind, StatusCommandErrorKind::RuntimeReplaced);
+    assert_eq!(error.reconciliation.unwrap().active_profile_id, "profile-b");
+}
+
+#[tokio::test]
+async fn replacement_after_group_delay_start_mutation_rejects_the_old_terminal_success() {
+    let barrier = Arc::new(StatusCommandBarrier {
+        admitted: Arc::new(Notify::new()),
+        continue_to_mutation: Arc::new(Notify::new()),
+        mutated: Arc::new(Notify::new()),
+        continue_to_response: Arc::new(Notify::new()),
+    });
+    let host = DesktopRuntimeHost::new(status_barrier_runtime("profile-a", barrier.clone()));
+    let command_host = host.clone();
+    let command = tokio::spawn(async move {
+        command_host
+            .start_group_delay_test("group-a".into(), StatusAdapterKind::Rpc)
+            .await
+    });
+
+    barrier.admitted.notified().await;
+    barrier.continue_to_mutation.notify_one();
+    barrier.mutated.notified().await;
+    host.replace(runtime("profile-b"));
+    barrier.continue_to_response.notify_one();
+    let error = command.await.unwrap().unwrap_err();
+
+    assert_eq!(error.kind, StatusCommandErrorKind::RuntimeReplaced);
+    assert_eq!(error.reconciliation.unwrap().active_profile_id, "profile-b");
+}
+
+#[tokio::test]
+async fn replacement_while_group_delay_cancel_is_blocked_rejects_the_old_terminal_success() {
+    let barrier = Arc::new(StatusCommandBarrier {
+        admitted: Arc::new(Notify::new()),
+        continue_to_mutation: Arc::new(Notify::new()),
+        mutated: Arc::new(Notify::new()),
+        continue_to_response: Arc::new(Notify::new()),
+    });
+    let host = DesktopRuntimeHost::new(status_barrier_runtime("profile-a", barrier.clone()));
+    let command_host = host.clone();
+    let command = tokio::spawn(async move {
+        command_host
+            .cancel_group_delay_test("delay-a".into(), StatusAdapterKind::Rpc)
+            .await
+    });
+
+    barrier.admitted.notified().await;
+    barrier.continue_to_mutation.notify_one();
+    barrier.mutated.notified().await;
+    host.replace(runtime("profile-b"));
+    barrier.continue_to_response.notify_one();
+    let error = command.await.unwrap().unwrap_err();
+
+    assert_eq!(error.kind, StatusCommandErrorKind::RuntimeReplaced);
+    assert_eq!(error.reconciliation.unwrap().active_profile_id, "profile-b");
 }
 
 #[tokio::test]

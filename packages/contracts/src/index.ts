@@ -1966,6 +1966,31 @@ export const RpcStatusSnapshotSchema = StatusSnapshotSchema.extend({
 });
 export interface RpcStatusSnapshotDto extends z.infer<typeof RpcStatusSnapshotSchema> {}
 
+export const StatusCommandErrorKindSchema = z.enum([
+  "unsupported",
+  "invalid-request",
+  "not-found",
+  "conflict",
+  "timeout",
+  "disconnected",
+  "cancelled",
+  "rejected",
+  "runtime-replaced",
+  "version-drift",
+  "inconsistent-observation",
+  "unsupported-group",
+  "stale-membership",
+]);
+export type StatusCommandErrorKind = z.infer<typeof StatusCommandErrorKindSchema>;
+
+export const StatusCommandErrorDataSchema = z
+  .object({
+    kind: StatusCommandErrorKindSchema,
+    snapshot: RpcStatusSnapshotSchema.optional(),
+  })
+  .strict();
+export interface StatusCommandErrorDataDto extends z.infer<typeof StatusCommandErrorDataSchema> {}
+
 export const NativeStatusSnapshotSchema = StatusSnapshotSchema.extend({
   adapterKind: z.literal("native"),
 });
@@ -3138,12 +3163,19 @@ export type StatusClientErrorCode =
 export class StatusClientError extends Error {
   readonly code: StatusClientErrorCode;
   readonly retryable: boolean;
+  readonly snapshot: StatusSnapshotDto | null;
 
-  constructor(code: StatusClientErrorCode, message: string, retryable = false) {
+  constructor(
+    code: StatusClientErrorCode,
+    message: string,
+    retryable = false,
+    snapshot: StatusSnapshotDto | null = null,
+  ) {
     super(message);
     this.name = "StatusClientError";
     this.code = code;
     this.retryable = retryable;
+    this.snapshot = snapshot;
   }
 }
 

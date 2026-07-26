@@ -20,8 +20,8 @@ use mish_runtime::{
     CaptureSelection, CaptureTransitionError, CoreError, CoreErrorKind, CoreStatus,
     NotificationPublication, NotificationSeverity, ProviderAuthority, ProviderKind, RoutingMode,
     SettingsOperationFailedApplicationNotificationData, StatusAdapterKind, StatusCommand,
-    StatusCommandError, StatusCommandErrorKind, SystemProxyTakeoverPolicy, TrafficCommandAuthority,
-    TrafficCommandOperation,
+    StatusCommandError, StatusCommandErrorKind, StatusSnapshot, SystemProxyTakeoverPolicy,
+    TrafficCommandAuthority, TrafficCommandOperation,
 };
 use mish_settings::{
     AppearancePreference, LanguagePreference, ManagedPortPreferences, OnboardingWelcomeAction,
@@ -72,15 +72,40 @@ pub(crate) struct ProtocolState {
 impl ProtocolState {
     async fn status_snapshot(&self) -> Value {
         let ticket = self.runtime.begin_status_snapshot();
-        let mut snapshot = self
+        let snapshot = self
             .runtime
             .status_snapshot_unordered_typed(StatusAdapterKind::Rpc)
             .await;
+        self.status_snapshot_value(ticket, snapshot)
+    }
+
+    fn status_snapshot_value(
+        &self,
+        ticket: crate::snapshot_order::SnapshotTicket,
+        mut snapshot: StatusSnapshot,
+    ) -> Value {
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
         self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
+    }
+
+    fn status_command_error_response(
+        &self,
+        id: Value,
+        ticket: crate::snapshot_order::SnapshotTicket,
+        mut error: StatusCommandError,
+    ) -> Value {
+        if let (Some(service_probes), Some(snapshot)) =
+            (&self.service_probes, error.reconciliation.as_mut())
+        {
+            service_probes.overlay(snapshot);
+        }
+        if let Some(snapshot) = error.reconciliation.as_mut() {
+            self.runtime.stamp_status_snapshot(ticket, snapshot);
+        }
+        status_command_error_response(id, error)
     }
 
     async fn status_snapshot_with_capture(
@@ -789,13 +814,16 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .set_routing_mode(params.mode, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.selectGroupChild" => {
@@ -809,13 +837,16 @@ async fn handle_message(
                     }
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .select_group_child(params.group_id, params.child_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.startGroupDelayTest" => {
@@ -824,13 +855,16 @@ async fn handle_message(
                     Ok(params) if valid_identifier(&params.group_id) => params,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .start_group_delay_test(params.group_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.cancelGroupDelayTest" => {
@@ -839,13 +873,16 @@ async fn handle_message(
                     Ok(params) if valid_identifier(&params.test_id) => params,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .cancel_group_delay_test(params.test_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
-                Err(error) => return Some(status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.upsertServiceMonitor" => {
@@ -2068,12 +2105,11 @@ fn status_command_error_response(id: Value, error: StatusCommandError) -> Value 
         StatusCommandErrorKind::VersionDrift => -32052,
         StatusCommandErrorKind::InconsistentObservation => -32053,
     };
-    error_response(
-        id,
-        code,
-        error.to_string().as_str(),
-        Some(json!({"kind": error.kind})),
-    )
+    let data = match error.reconciliation.as_ref() {
+        Some(snapshot) => json!({"kind": error.kind, "snapshot": snapshot}),
+        None => json!({"kind": error.kind}),
+    };
+    error_response(id, code, error.to_string().as_str(), Some(data))
 }
 
 fn profile_capability_error(id: Value) -> Value {
@@ -2316,4 +2352,36 @@ fn capture_error_response(id: Value, error: CaptureTransitionError) -> Value {
         "System Proxy reconciliation failed",
         Some(json!({"kind": error.kind})),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mish_runtime::{CorePhase, CoreStatus, StatusSnapshot};
+
+    #[test]
+    fn runtime_replaced_status_errors_include_authoritative_rpc_reconciliation() {
+        let snapshot = StatusSnapshot::lifecycle_only(
+            &CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: Some(42),
+                version: Some("v1.19.29".into()),
+            },
+            StatusAdapterKind::Rpc,
+        );
+
+        let response = status_command_error_response(
+            json!(7),
+            StatusCommandError::runtime_replaced().with_reconciliation(snapshot),
+        );
+
+        assert_eq!(response["error"]["code"], -32054);
+        assert_eq!(response["error"]["data"]["kind"], "runtime-replaced");
+        assert_eq!(response["error"]["data"]["snapshot"]["adapterKind"], "rpc");
+        assert_eq!(
+            response["error"]["data"]["snapshot"]["activeProfileId"],
+            "local"
+        );
+    }
 }
