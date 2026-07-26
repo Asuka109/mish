@@ -83,11 +83,113 @@ async function createRpcSnapshot(): Promise<StatusSnapshotDto> {
   return snapshot;
 }
 
+function recentSnapshot(
+  snapshot: StatusSnapshotDto,
+  revision: number,
+  downloadedBytes: number,
+  authorityId = "rpc-status-authority",
+) {
+  const next = structuredClone(snapshot);
+  next.recentTraffic = {
+    authorityId,
+    revision,
+    phase: "active",
+    sessionId: `${authorityId}-session-1`,
+    profileId: next.activeProfileId,
+    cadenceMilliseconds: 1_000,
+    windowMilliseconds: 60_000,
+    downloadedBytes,
+    uploadedBytes: downloadedBytes / 2,
+    downloadBytesPerSecond: 12,
+    uploadBytesPerSecond: 6,
+    samples: [
+      {
+        sequence: 1,
+        offsetMilliseconds: 1_000,
+        downloadBytesPerSecond: 12,
+        uploadBytesPerSecond: 6,
+      },
+    ],
+  };
+  return next;
+}
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe("RpcStatusClient", () => {
+  it("rejects stale and duplicate Recent Traffic revisions without synthesizing authority", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+    const received: StatusSnapshotDto[] = [];
+    client.subscribeSnapshots((snapshot) => received.push(snapshot));
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    const base = recentSnapshot(await createRpcSnapshot(), 5, 500);
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: base, subscriptionId: "recent-subscription" },
+    });
+    await flushMicrotasks();
+
+    for (const stale of [recentSnapshot(base, 5, 5_000), recentSnapshot(base, 4, 4_000)]) {
+      transport.respond({
+        jsonrpc: "2.0",
+        method: "status.snapshot",
+        params: { snapshot: stale, subscriptionId: "recent-subscription" },
+      });
+    }
+    expect(received.at(-1)?.recentTraffic).toEqual(base.recentTraffic);
+
+    const newer = recentSnapshot(base, 6, 600);
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "status.snapshot",
+      params: { snapshot: newer, subscriptionId: "recent-subscription" },
+    });
+    expect(received.at(-1)?.recentTraffic).toEqual(newer.recentTraffic);
+
+    const requestPromise = client.getSnapshot();
+    const request = await waitForRequest(transport, 2);
+    transport.respond({
+      id: request.id,
+      jsonrpc: "2.0",
+      result: recentSnapshot(base, 5, 5_000),
+    });
+    await expect(requestPromise).resolves.toMatchObject({
+      recentTraffic: { authorityId: "rpc-status-authority", downloadedBytes: 600, revision: 6 },
+    });
+
+    const replacement = structuredClone(base);
+    replacement.recentTraffic = {
+      ...replacement.recentTraffic,
+      authorityId: "replacement-process-authority",
+      revision: 0,
+      phase: "idle",
+      sessionId: null,
+      profileId: null,
+      downloadedBytes: 0,
+      uploadedBytes: 0,
+      downloadBytesPerSecond: 0,
+      uploadBytesPerSecond: 0,
+      samples: [],
+    };
+    transport.respond({
+      jsonrpc: "2.0",
+      method: "status.snapshot",
+      params: { snapshot: replacement, subscriptionId: "recent-subscription" },
+    });
+    expect(received.at(-1)?.recentTraffic).toEqual(replacement.recentTraffic);
+    client.dispose();
+  });
+
   it("discovers only Controller-backed routing and group capabilities", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({
@@ -110,7 +212,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 23,
+        protocolVersion: 24,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -148,7 +250,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 23,
+        protocolVersion: 24,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -175,7 +277,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 23,
+        protocolVersion: 24,
         statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: {
           closeAllActive: false,
@@ -350,13 +452,19 @@ describe("RpcStatusClient", () => {
       method: "status.snapshot",
       params: { snapshot, subscriptionId: "subscription-1" },
     });
+    const preReconnect = recentSnapshot(snapshot, 6, 600);
+    transports[0].respond({
+      jsonrpc: "2.0",
+      method: "status.snapshot",
+      params: { snapshot: preReconnect, subscriptionId: "subscription-1" },
+    });
     expect(receivedSnapshots.at(-1)?.profiles[0].label).toBe("配置 🌏");
     expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: false });
     const snapshotsBeforeReconnect = receivedSnapshots.length;
 
     const getSnapshot = client.getSnapshot();
     const snapshotRequest = await waitForRequest(transports[0], 2);
-    transports[0].respond({ id: snapshotRequest.id, jsonrpc: "2.0", result: snapshot });
+    transports[0].respond({ id: snapshotRequest.id, jsonrpc: "2.0", result: preReconnect });
     await expect(getSnapshot).resolves.toMatchObject({ adapterKind: "rpc" });
 
     const command = client.setRoutingMode("global");
@@ -399,11 +507,18 @@ describe("RpcStatusClient", () => {
     transports[1].respond({
       id: resubscribeRequest.id,
       jsonrpc: "2.0",
-      result: { snapshot, subscriptionId: "subscription-2" },
+      result: {
+        snapshot: recentSnapshot(snapshot, 2, 200),
+        subscriptionId: "subscription-2",
+      },
     });
     await flushMicrotasks();
 
     expect(receivedSnapshots).toHaveLength(snapshotsBeforeReconnect + 1);
+    expect(receivedSnapshots.at(-1)?.recentTraffic).toMatchObject({
+      downloadedBytes: 600,
+      revision: 6,
+    });
     expect(client.getConnectionState()).toMatchObject({ phase: "connected", stale: false });
     expect(connectionStates).toContain("reconnecting:true");
     unsubscribeSnapshot();

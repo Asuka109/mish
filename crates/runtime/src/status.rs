@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CaptureRuntimeStatus, CorePhase, CoreStatus, SystemProxyRuntimeStatus, TunRuntimeStatus,
+    CaptureRuntimeStatus, CorePhase, CoreStatus, RecentTrafficSnapshot, SystemProxyRuntimeStatus,
+    TunRuntimeStatus,
 };
 
 pub const STATUS_TRAFFIC_SERIES_LIMIT: usize = 512;
@@ -304,6 +305,7 @@ pub struct StatusSnapshot {
     pub nodes: Vec<ProxyNode>,
     pub probe_results: Vec<ServiceProbeResult>,
     pub profiles: Vec<ProfileSummary>,
+    pub recent_traffic: RecentTrafficSnapshot,
     pub routing_mode: RoutingMode,
     pub runtime: RuntimeStatus,
     pub service_probe_policy: ServiceProbePolicy,
@@ -332,6 +334,7 @@ impl StatusSnapshot {
                 id: "local".into(),
                 label: "Local Mihomo".into(),
             }],
+            recent_traffic: RecentTrafficSnapshot::detached(),
             routing_mode: RoutingMode::Rule,
             runtime: RuntimeStatus::from_core(
                 core,

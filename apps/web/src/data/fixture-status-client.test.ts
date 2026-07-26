@@ -14,6 +14,12 @@ describe("FixtureStatusClient", () => {
     expect(second.adapterKind).toBe("fixture");
     expect(second.runtime.systemProxy.phase).toBe("off");
     expect(second.runtime.captureSelection.systemProxy).toBe(false);
+    expect(second.recentTraffic).toMatchObject({
+      authorityId: "fixture-status-authority",
+      phase: "idle",
+      revision: 0,
+      sessionId: null,
+    });
   });
 
   it("uses the accepted six lightweight endpoints by default", async () => {
@@ -149,6 +155,7 @@ describe("FixtureStatusClient", () => {
     expect(stopped.runtime.phase).toBe("inactive");
     expect(stopped.runtime.captureSelection).toEqual(selection);
     expect(stopped.capabilities.systemProxy).toBe("fixture-only");
+    expect(stopped.recentTraffic.phase).toBe("idle");
 
     const started = await client.setCapture(selection, true);
     expect(started.runtime).toMatchObject({
@@ -156,6 +163,15 @@ describe("FixtureStatusClient", () => {
       systemProxyEnabled: true,
       tunEnabled: false,
     });
+    expect(started.recentTraffic).toMatchObject({
+      authorityId: "fixture-status-authority",
+      phase: "active",
+      profileId: "home",
+      revision: 2,
+      sessionId: "fixture-status-session-1",
+    });
+    expect(started.traffic.downloadedBytes).toBe(13_781_123_072);
+    expect(started.recentTraffic.downloadedBytes).toBe(0);
   });
 
   it("does not enable System Proxy when a profile is selected", async () => {

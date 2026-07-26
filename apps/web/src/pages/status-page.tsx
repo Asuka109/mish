@@ -19,7 +19,6 @@ import { PolicyGroupSummaryRow } from "../components/policy-browser";
 import { ServiceMonitorSection } from "../components/service-monitor-section";
 import { TrafficCaptureControl } from "../components/traffic-capture-control";
 import { TrafficSparkline } from "../components/traffic-sparkline";
-import { emptyStatusSessionTraffic, useStatusSessionTraffic } from "./status-session";
 import { useCaptureCommand } from "../data/capture-command";
 import { useConfiguredRouteCatalog } from "../data/configured-route-catalog";
 import { useProduct } from "../data/product-provider";
@@ -177,10 +176,16 @@ export function StatusPage() {
   const captureActive = Boolean(
     snapshot?.runtime.systemProxyEnabled || snapshot?.runtime.tunEnabled,
   );
-  const sessionTraffic = useStatusSessionTraffic(
-    snapshot?.traffic ?? emptyStatusSessionTraffic,
-    captureActive,
-  );
+  const recentTrafficVisible = Boolean(snapshot && snapshot.recentTraffic.phase !== "idle");
+  const sessionTraffic = snapshot
+    ? {
+        ...snapshot.recentTraffic,
+        downloadSeries: snapshot.recentTraffic.samples.map(
+          (sample) => sample.downloadBytesPerSecond,
+        ),
+        uploadSeries: snapshot.recentTraffic.samples.map((sample) => sample.uploadBytesPerSecond),
+      }
+    : null;
   const configuredRoutes = useConfiguredRouteCatalog(snapshot);
   const groups = configuredRoutes?.groups ?? snapshot?.groups ?? [];
   const nodes = configuredRoutes?.nodes ?? snapshot?.nodes ?? [];
@@ -354,7 +359,9 @@ export function StatusPage() {
                     <span className={statusStyles().trafficCopy()}>
                       <span>{LL.status.downloaded()}</span>
                       <small>
-                        {captureActive ? formatBytes(sessionTraffic.downloadedBytes, locale) : "-"}
+                        {recentTrafficVisible && sessionTraffic
+                          ? formatBytes(sessionTraffic.downloadedBytes, locale)
+                          : "-"}
                       </small>
                     </span>
                   </span>
@@ -363,7 +370,9 @@ export function StatusPage() {
                     <span className={statusStyles().trafficCopy()}>
                       <span>{LL.status.uploaded()}</span>
                       <small>
-                        {captureActive ? formatBytes(sessionTraffic.uploadedBytes, locale) : "-"}
+                        {recentTrafficVisible && sessionTraffic
+                          ? formatBytes(sessionTraffic.uploadedBytes, locale)
+                          : "-"}
                       </small>
                     </span>
                   </span>
@@ -374,12 +383,14 @@ export function StatusPage() {
                   })}
                 >
                   <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
-                    {captureActive
+                    {recentTrafficVisible && sessionTraffic
                       ? formatRate(sessionTraffic.downloadBytesPerSecond, locale)
                       : null}
                   </strong>
                   <strong className={statusStyles().trafficRate({ className: "tabular-nums" })}>
-                    {captureActive ? formatRate(sessionTraffic.uploadBytesPerSecond, locale) : null}
+                    {recentTrafficVisible && sessionTraffic
+                      ? formatRate(sessionTraffic.uploadBytesPerSecond, locale)
+                      : null}
                   </strong>
                 </div>
                 <div
@@ -393,13 +404,13 @@ export function StatusPage() {
                     <div className={statusStyles().trafficChartCell()}>
                       <TrafficSparkline
                         color="var(--color-traffic-download)"
-                        data={sessionTraffic.downloadSeries}
+                        data={sessionTraffic?.downloadSeries ?? []}
                       />
                     </div>
                     <div className={statusStyles().trafficChartCell()}>
                       <TrafficSparkline
                         color="var(--color-traffic-upload)"
-                        data={sessionTraffic.uploadSeries}
+                        data={sessionTraffic?.uploadSeries ?? []}
                       />
                     </div>
                   </div>

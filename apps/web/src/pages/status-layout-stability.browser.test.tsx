@@ -170,6 +170,25 @@ beforeAll(async () => {
   snapshot.adapterKind = "rpc";
   snapshot.capabilities = { systemProxy: "supported", tun: "supported" };
   snapshot.runtime.phase = "healthy";
+  snapshot.recentTraffic = {
+    authorityId: "browser-remount-authority",
+    revision: 7,
+    phase: "active",
+    sessionId: "browser-remount-session",
+    profileId: snapshot.activeProfileId,
+    cadenceMilliseconds: 1_000,
+    windowMilliseconds: 60_000,
+    downloadedBytes: 2_048,
+    uploadedBytes: 1_024,
+    downloadBytesPerSecond: 1_024,
+    uploadBytesPerSecond: 512,
+    samples: [1, 2, 3].map((sequence) => ({
+      sequence,
+      offsetMilliseconds: sequence * 1_000,
+      downloadBytesPerSecond: sequence * 1_024,
+      uploadBytesPerSecond: sequence * 512,
+    })),
+  };
   const container = document.getElementById("status-layout-stability-root");
   if (!container) throw new Error("Missing status layout browser root");
   client = new StatusLayoutClient(snapshot);
@@ -248,6 +267,39 @@ describe("primary-page status layout stability", () => {
     );
     expect(document.querySelector(".status-context-slot")).toBeNull();
     expect(document.querySelector('a[href="/events?diagnostics=1"]')).toBeNull();
+  });
+
+  test("renders the same authoritative Recent Traffic after a React remount", async () => {
+    await page.viewport(1024, 720);
+    client.setScenario("happy");
+    renderPage("status", "en");
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll(".traffic-session-copy > small")).toHaveLength(2),
+    );
+    const renderedTraffic = () => ({
+      rates: [...document.querySelectorAll(".traffic-rate-value")].map((node) => node.textContent),
+      totals: [...document.querySelectorAll(".traffic-session-copy > small")].map(
+        (node) => node.textContent,
+      ),
+      charts: document.querySelectorAll(".traffic-sparkline .recharts-wrapper").length,
+    });
+    expect(renderedTraffic()).toEqual({
+      rates: ["1 KB/s", "512 B/s"],
+      totals: ["2 KB", "1 KB"],
+      charts: 2,
+    });
+
+    root.unmount();
+    const container = document.getElementById("status-layout-stability-root");
+    if (!container) throw new Error("Missing Status layout browser root after remount");
+    root = createRoot(container);
+    renderPage("status", "en");
+    await vi.waitFor(() => expect(renderedTraffic().charts).toBe(2));
+    expect(renderedTraffic()).toEqual({
+      rates: ["1 KB/s", "512 B/s"],
+      totals: ["2 KB", "1 KB"],
+      charts: 2,
+    });
   });
 
   test("keeps the Routes search control fixed through stale and recovery", async () => {

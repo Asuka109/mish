@@ -11,9 +11,13 @@ interface Evidence {
 
 const evidence: readonly Evidence[] = [
   {
-    file: "apps/web/src/pages/status-session.ts",
-    includes: ["useRef<SessionState>", ".slice(-60)", "baseline:"],
-    meaning: "React owns the current Status capture-session baseline and 60-sample history",
+    file: "crates/runtime/src/recent_traffic.rs",
+    includes: [
+      "pub struct RecentTrafficSnapshot",
+      "pub enum RecentTrafficContinuity",
+      "RECENT_TRAFFIC_SAMPLE_LIMIT: usize = 60",
+    ],
+    meaning: "Rust owns the current Status capture-session authority and bounded paired history",
   },
   {
     file: "crates/runtime/src/status.rs",
@@ -81,8 +85,8 @@ const contractFile = "docs/architecture/runtime-state-ownership.md";
 const contractSections = [
   "## Ownership taxonomy",
   "## Evidence-backed ownership matrix",
-  "## Current recent-Traffic divergence",
-  "## Target recent capture-session Traffic Interface",
+  "## Resolved recent-Traffic divergence",
+  "## Implemented recent capture-session Traffic Interface",
   "### Identity, revision, and order",
   "### Cadence and bounded window",
   "### Totals and baselines",

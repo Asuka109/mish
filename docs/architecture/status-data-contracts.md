@@ -170,19 +170,22 @@ unconfirmed pending, failed, or drift states cannot extend a session. A Core
 restart does not reset an otherwise continuously confirmed capture session; an
 ordinary proxy stop does, even when the managed Core remains running.
 
-Status currently treats traffic totals and sparkline samples as
-presentation-owned session telemetry. It renders them only while either capture
-mode is authoritatively applied. A mounted React client clears its local
-baseline when both modes are inactive, establishes a fresh cumulative byte
-baseline when capture is confirmed again, and retains at most 60
-post-boundary samples. This is current implementation evidence, not the target
-authority: remounts, reconnect timing, and simultaneous clients can establish
-different baselines and histories. The canonical inventory and target
-Rust-authoritative capture-session contract are defined in
+Status protocol version 24 publishes `recentTraffic`, the Rust-authoritative
+process-memory capture-session snapshot. It contains process `authorityId`,
+monotonic `revision`, capture `sessionId`, bound Profile identity,
+idle/active/suspended phase, monotonic session totals, current paired rates,
+the fixed one-second cadence and 60-second window, and at most 60 aligned paired
+samples. Remounts, reconnects, and simultaneous clients consume the same
+snapshot; stale or duplicate same-authority revisions cannot regress the Web
+projection. React derives only sparkline arrays and local animation.
+
+The canonical ownership, lifecycle, privacy, and retention contract is defined in
 [`runtime-state-ownership.md`](runtime-state-ownership.md). The detailed Traffic
 workspace deliberately retains its independent Controller source session and
-history semantics. Status preserves the chart layout but does not instantiate a
-curve until the fresh presentation session contains at least three samples.
+history semantics. The low-level `StatusSnapshot.traffic` field remains
+unchanged for the protocol version 24 compatibility window. Status preserves
+the chart layout but does not instantiate a curve until the authoritative
+session contains at least three samples.
 
 The toolbar profile value is configuration selection, not a Core-health claim.
 It remains visible while the runtime is safely stopped and identifies the

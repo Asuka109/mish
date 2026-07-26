@@ -97,12 +97,6 @@ jobs:
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
-      MISH_APPLE_CERTIFICATE_BASE64: ${{ secrets.MISH_APPLE_CERTIFICATE_BASE64 }}
-      MISH_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MISH_APPLE_CERTIFICATE_PASSWORD }}
-      MISH_APPLE_SIGNING_IDENTITY: ${{ secrets.MISH_APPLE_SIGNING_IDENTITY }}
-      MISH_APPLE_NOTARY_API_ISSUER_ID: ${{ secrets.MISH_APPLE_NOTARY_API_ISSUER_ID }}
-      MISH_APPLE_NOTARY_API_KEY_ID: ${{ secrets.MISH_APPLE_NOTARY_API_KEY_ID }}
-      MISH_APPLE_NOTARY_API_PRIVATE_KEY: ${{ secrets.MISH_APPLE_NOTARY_API_PRIVATE_KEY }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -126,61 +120,6 @@ jobs:
           cache-on-failure: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Configure Apple signing
-        id: apple-signing
-        shell: bash
-        run: |
-          set -euo pipefail
-          values=(
-            MISH_APPLE_CERTIFICATE_BASE64
-            MISH_APPLE_CERTIFICATE_PASSWORD
-            MISH_APPLE_SIGNING_IDENTITY
-            MISH_APPLE_NOTARY_API_ISSUER_ID
-            MISH_APPLE_NOTARY_API_KEY_ID
-            MISH_APPLE_NOTARY_API_PRIVATE_KEY
-          )
-          present=0
-          for name in "${values[@]}"; do
-            if [[ -n "${!name}" ]]; then
-              present=$((present + 1))
-            fi
-          done
-          if [[ "$present" -ne 0 && "$present" -ne "${#values[@]}" ]]; then
-            echo "Apple signing secrets must be configured as one complete set" >&2
-            exit 1
-          fi
-          if [[ "$present" -eq 0 ]]; then
-            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
-            echo "mode=ad-hoc" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          command -v trash > /dev/null || brew install trash
-          umask 077
-          keychain="$RUNNER_TEMP/mish-signing.keychain-db"
-          keychain_password="$(openssl rand -hex 24)"
-          certificate="$RUNNER_TEMP/mish-developer-id.p12"
-          notary_key="$RUNNER_TEMP/AuthKey_${MISH_APPLE_NOTARY_API_KEY_ID}.p8"
-          echo "::add-mask::$keychain_password"
-          printf '%s' "$MISH_APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
-          printf '%s' "$MISH_APPLE_NOTARY_API_PRIVATE_KEY" > "$notary_key"
-          chmod 600 "$certificate" "$notary_key"
-          security create-keychain -p "$keychain_password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$keychain_password" "$keychain"
-          security list-keychains -d user -s "$keychain"
-          security default-keychain -d user -s "$keychain"
-          security import "$certificate" -k "$keychain" -P "$MISH_APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
-          security find-identity -v -p codesigning "$keychain" | grep -F -- "\"$MISH_APPLE_SIGNING_IDENTITY\"" > /dev/null
-          {
-            echo "APPLE_SIGNING_IDENTITY=$MISH_APPLE_SIGNING_IDENTITY"
-            echo "APPLE_API_ISSUER=$MISH_APPLE_NOTARY_API_ISSUER_ID"
-            echo "APPLE_API_KEY=$MISH_APPLE_NOTARY_API_KEY_ID"
-            echo "APPLE_API_KEY_PATH=$notary_key"
-            echo "MISH_SIGNING_KEYCHAIN=$keychain"
-          } >> "$GITHUB_ENV"
-          echo "mode=developer-id" >> "$GITHUB_OUTPUT"
       - name: Build and verify application bundle
         run: pnpm desktop:build:macos
       - name: Create app archive
@@ -217,13 +156,8 @@ jobs:
           ARTIFACT_ID: ${{ steps.package-upload.outputs.artifact-id }}
           ARTIFACT_NAME: ${{ steps.revision.outputs.artifact_name }}
           SHORT_SHA: ${{ steps.revision.outputs.short_sha }}
-          SIGNING_MODE: ${{ steps.apple-signing.outputs.mode }}
         run: |
           set -euo pipefail
-          notarized="no"
-          if [[ "$SIGNING_MODE" == "developer-id" ]]; then
-            notarized="yes"
-          fi
           {
             echo "## macOS ARM64 test package"
             echo
@@ -235,21 +169,12 @@ jobs:
             echo "| App ID | \`com.asuka109.mish\` |"
             echo "| Architecture | \`arm64\` |"
             echo "| Mihomo version | \`v1.19.29\` |"
-            echo "| Signing mode | \`$SIGNING_MODE\` |"
-            echo "| Notarized | \`$notarized\` |"
+            echo "| Release profile | \`alpha-ad-hoc\` |"
+            echo "| Signing mode | \`ad-hoc\` |"
+            echo "| Notarized | \`no\` |"
             echo "| Archive SHA-256 | \`$ARCHIVE_SHA256\` |"
             echo "| Retention | 14 days |"
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Remove temporary signing material
-        if: always()
-        shell: bash
-        run: |
-          if [[ -n "${MISH_SIGNING_KEYCHAIN:-}" ]]; then
-            security delete-keychain "$MISH_SIGNING_KEYCHAIN" || true
-          fi
-          find "$RUNNER_TEMP" -maxdepth 1 \
-            \( -name 'mish-developer-id.p12' -o -name 'AuthKey_*.p8' \) \
-            -exec trash {} + 2>/dev/null || true
 
   package-android:
     name: Package Android test APKs

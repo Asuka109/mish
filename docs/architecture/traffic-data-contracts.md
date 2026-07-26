@@ -14,6 +14,13 @@ bounded stable-ID set matching the current filter, and close all connections
 active in the current authoritative snapshot. All three commands are unavailable
 in the browser fixture, which never reports desktop mutation success.
 
+The detailed Traffic workspace authority remains independent from Status
+`recentTraffic`. Its `profileId + sessionId + sequence` identifies one
+Controller observation session and command target. `recentTraffic` instead
+identifies one aggregate capture session and contains only numeric totals,
+rates, and paired monotonic samples. Neither identity substitutes for the
+other, and protocol version 24 leaves this detailed Interface unchanged.
+
 ## Snapshot shape
 
 `TrafficDataSnapshotDto` contains:

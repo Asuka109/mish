@@ -15,6 +15,7 @@ mod events;
 mod lifecycle;
 mod notifications;
 mod provider;
+mod recent_traffic;
 mod status;
 mod traffic;
 mod tun_helper;
@@ -26,6 +27,7 @@ pub use lifecycle::*;
 pub use mish_presentation_contract::*;
 pub use notifications::*;
 pub use provider::*;
+pub use recent_traffic::*;
 pub use status::*;
 pub use traffic::*;
 pub use tun_helper::*;
@@ -114,6 +116,7 @@ pub enum RuntimeShutdownFailure {
 }
 
 struct RuntimeStatusEvents {
+    recent_traffic_observer: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     updates: broadcast::Sender<CoreStatus>,
 }
 
@@ -146,6 +149,14 @@ impl CoreStatusEventSink {
         let Some(events) = self.events.upgrade() else {
             return;
         };
+        if let Some(observer) = events
+            .recent_traffic_observer
+            .lock()
+            .expect("recent Traffic observer lock poisoned")
+            .clone()
+        {
+            observer();
+        }
         let _ = events.updates.send(status);
     }
 }
@@ -195,6 +206,12 @@ pub trait CoreRuntime: Send + Sync {
 pub trait StatusDataSource: Send + Sync {
     fn attach_status_event_sink(&self, _sink: CoreStatusEventSink) {}
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot;
+    fn profile_id(&self) -> Option<String> {
+        None
+    }
+    fn recent_traffic_observation(&self) -> Option<RecentTrafficObservation> {
+        None
+    }
     fn shutdown(&self) -> BoxFuture<'_, ()> {
         Box::pin(std::future::ready(()))
     }
@@ -391,6 +408,10 @@ impl StatusDataSource for LifecycleStatusDataSource {
     fn snapshot(&self, core: &CoreStatus, adapter_kind: StatusAdapterKind) -> StatusSnapshot {
         StatusSnapshot::lifecycle_only(core, adapter_kind)
     }
+
+    fn profile_id(&self) -> Option<String> {
+        Some("local".into())
+    }
 }
 
 impl TrafficDataSource for LifecycleStatusDataSource {
@@ -430,6 +451,7 @@ pub struct MishRuntime {
     events: Arc<RuntimeStatusEvents>,
     events_source: Arc<dyn EventsDataSource>,
     notifications: NotificationCenter,
+    recent_traffic: RecentTraffic,
     status_source: Arc<dyn StatusDataSource>,
     traffic_source: Arc<dyn TrafficDataSource>,
     uptime: Arc<Mutex<ProxySessionUptime>>,
@@ -518,24 +540,31 @@ impl MishRuntime {
         capture: Option<Arc<CaptureReconciler>>,
     ) -> Self {
         let (updates, _) = broadcast::channel(32);
-        let events = Arc::new(RuntimeStatusEvents { updates });
+        let events = Arc::new(RuntimeStatusEvents {
+            recent_traffic_observer: Mutex::new(None),
+            updates,
+        });
         core.attach_status_event_sink(CoreStatusEventSink {
             events: Arc::downgrade(&events),
         });
         status_source.attach_status_event_sink(CoreStatusEventSink {
             events: Arc::downgrade(&events),
         });
-        Self {
+        let runtime = Self {
             capture,
             core,
             events,
             events_source,
             notifications: NotificationCenter::new(),
+            recent_traffic: RecentTraffic::new(),
             status_source,
             traffic_source,
             uptime: Arc::new(Mutex::new(ProxySessionUptime { started_at: None })),
             identity: Arc::new(()),
-        }
+        };
+        runtime.install_recent_traffic_source_observer();
+        runtime.install_recent_traffic_capture_observer();
+        runtime
     }
 
     pub fn core_configured(&self) -> bool {
@@ -551,8 +580,107 @@ impl MishRuntime {
         self.notifications.clone()
     }
 
+    pub fn recent_traffic(&self) -> RecentTraffic {
+        self.recent_traffic.clone()
+    }
+
+    pub fn with_recent_traffic(mut self, recent_traffic: RecentTraffic) -> Self {
+        self.recent_traffic = recent_traffic;
+        self.install_recent_traffic_source_observer();
+        self.install_recent_traffic_capture_observer();
+        self
+    }
+
+    fn install_recent_traffic_source_observer(&self) {
+        let recent_traffic = self.recent_traffic.clone();
+        let status_source = self.status_source.clone();
+        *self
+            .events
+            .recent_traffic_observer
+            .lock()
+            .expect("recent Traffic observer lock poisoned") = Some(Arc::new(move || {
+            if recent_traffic.snapshot().phase == RecentTrafficPhase::Active
+                && let Some(observation) = status_source.recent_traffic_observation()
+            {
+                recent_traffic.observe(observation);
+            }
+        }));
+    }
+
+    fn install_recent_traffic_capture_observer(&self) {
+        let Some(capture) = &self.capture else {
+            return;
+        };
+        let recent_traffic = self.recent_traffic.clone();
+        let status_source = self.status_source.clone();
+        capture.set_confirmed_observer(Arc::new(move |capture_status| {
+            let active = capture_status.system_proxy_enabled || capture_status.tun_enabled;
+            if active {
+                if recent_traffic.snapshot().phase == RecentTrafficPhase::Idle {
+                    let observation = status_source.recent_traffic_observation();
+                    let profile_id = observation
+                        .as_ref()
+                        .map(|value| value.profile_id.clone())
+                        .or_else(|| status_source.profile_id());
+                    if let Some(profile_id) = profile_id {
+                        recent_traffic.capture_applied(&profile_id, observation);
+                    }
+                }
+            } else if capture_status.capture_selection.system_proxy
+                || capture_status.capture_selection.tun
+            {
+                recent_traffic.suspend();
+            } else {
+                recent_traffic.stop();
+            }
+        }));
+    }
+
+    pub fn active_profile_identity(&self) -> Option<String> {
+        self.status_source.profile_id()
+    }
+
+    pub fn suspend_recent_traffic(&self) -> RecentTrafficSnapshot {
+        self.recent_traffic.suspend()
+    }
+
+    pub fn discontinue_recent_traffic(&self) -> RecentTrafficSnapshot {
+        self.recent_traffic.stop()
+    }
+
+    pub fn resume_recent_traffic(
+        &self,
+        continuity: RecentTrafficContinuity,
+    ) -> RecentTrafficSnapshot {
+        if continuity == RecentTrafficContinuity::Discontinue {
+            return self.recent_traffic.stop();
+        }
+        let Some(capture) = &self.capture else {
+            return self.recent_traffic.stop();
+        };
+        let capture = capture.status();
+        if !capture.system_proxy_enabled && !capture.tun_enabled {
+            if !capture.capture_selection.system_proxy && !capture.capture_selection.tun {
+                return self.recent_traffic.stop();
+            }
+            return self.recent_traffic.snapshot();
+        }
+        let observation = self.status_source.recent_traffic_observation();
+        let profile_id = observation
+            .as_ref()
+            .map(|value| value.profile_id.clone())
+            .or_else(|| self.status_source.profile_id());
+        self.recent_traffic
+            .resume(continuity, profile_id.as_deref(), observation)
+    }
+
     pub async fn core_status(&self) -> CoreStatus {
         self.core.status().await
+    }
+
+    pub async fn publish_current_status(&self) {
+        let status = self.core.status().await;
+        self.publish_status(&status);
     }
 
     pub async fn start_core(&self) -> Result<CoreStatus, CoreError> {
@@ -589,10 +717,16 @@ impl MishRuntime {
         };
         let core = self.core.status().await;
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let explicit_active = request.active;
         let result = capture.reconcile(request, healthy).await;
         if let Err(error) = result {
             self.record_capture_failure(&error);
             return Err(error);
+        }
+        let recent_revision = self.recent_traffic.snapshot().revision;
+        self.reconcile_recent_traffic_after_capture(explicit_active);
+        if self.recent_traffic.snapshot().revision != recent_revision {
+            self.publish_status(&core);
         }
         self.notifications.resolve_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
@@ -629,12 +763,18 @@ impl MishRuntime {
         };
         let core = self.core.status().await;
         let healthy = self.core.configured() && matches!(core.phase, CorePhase::Running);
+        let explicit_active = request.active;
         let result = capture
             .reconcile_with_preflight(request, healthy, preflight)
             .await;
         if let Err(error) = result {
             self.record_capture_failure(&error);
             return Err(error);
+        }
+        let recent_revision = self.recent_traffic.snapshot().revision;
+        self.reconcile_recent_traffic_after_capture(explicit_active);
+        if self.recent_traffic.snapshot().revision != recent_revision {
+            self.publish_status(&core);
         }
         self.notifications.resolve_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
@@ -680,6 +820,11 @@ impl MishRuntime {
         if let Err(error) = result {
             self.record_capture_failure(&error);
             return Err(error);
+        }
+        let recent_revision = self.recent_traffic.snapshot().revision;
+        self.reconcile_recent_traffic_after_capture(true);
+        if self.recent_traffic.snapshot().revision != recent_revision {
+            self.publish_status(&core);
         }
         self.notifications.resolve_by_dedupe_key("capture.failure");
         Ok(self.snapshot_from_status(&core, adapter_kind))
@@ -742,9 +887,6 @@ impl MishRuntime {
                 .await
         };
         let after = capture.status();
-        if before != after {
-            self.publish_status(&core);
-        }
         match result {
             Ok(_) => Ok(before != after),
             Err(error) => {
@@ -1018,6 +1160,7 @@ impl MishRuntime {
                 .expect("proxy session uptime state poisoned")
                 .observe(None, Instant::now());
         }
+        snapshot.recent_traffic = self.recent_traffic.snapshot();
         snapshot
     }
 
@@ -1076,6 +1219,26 @@ impl MishRuntime {
 
     fn publish_status(&self, status: &CoreStatus) {
         let _ = self.events.updates.send(status.clone());
+    }
+
+    fn reconcile_recent_traffic_after_capture(&self, explicit_active: bool) {
+        let Some(capture) = &self.capture else {
+            return;
+        };
+        let status = capture.status();
+        if status.system_proxy_enabled || status.tun_enabled {
+            let observation = self.status_source.recent_traffic_observation();
+            let profile_id = observation
+                .as_ref()
+                .map(|value| value.profile_id.clone())
+                .or_else(|| self.status_source.profile_id());
+            if let Some(profile_id) = profile_id {
+                self.recent_traffic
+                    .capture_applied(&profile_id, observation);
+            }
+        } else if !explicit_active {
+            self.recent_traffic.stop();
+        }
     }
 }
 

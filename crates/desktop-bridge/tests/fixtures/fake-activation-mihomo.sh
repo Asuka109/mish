@@ -34,6 +34,11 @@ if [ "$validate" = true ]; then
   exit 0
 fi
 
+if grep -q "activation-test-invalid: true" "$config_file"; then
+  echo "private startup detail from $config_file" >&2
+  exit 17
+fi
+
 if grep -q "activation-test-early-exit: true" "$config_file"; then
   sleep 1
   exit 23

@@ -24,10 +24,11 @@ use mish_runtime::{
     ProviderCapabilityAvailability, ProviderCommandExecution, ProviderCommandOperation,
     ProviderHealth, ProviderKind, ProviderSnapshot, ProviderSourceType, ProviderUpdateFailure,
     ProviderUpdatePhase, ProviderUpdateState, ProxyDiagnosticFailure, ProxyDiagnosticObservation,
-    RoutingMode, RuntimeObservationPauseReason, RuntimePhase, RuntimeProvider, StatusAdapterKind,
-    StatusCommand, StatusCommandError, StatusCommandErrorKind, StatusDataSource, StatusSnapshot,
-    TrafficCommandAuthority, TrafficCommandExecution, TrafficCommandFailureKind,
-    TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+    RecentTrafficObservation, RoutingMode, RuntimeObservationPauseReason, RuntimePhase,
+    RuntimeProvider, StatusAdapterKind, StatusCommand, StatusCommandError, StatusCommandErrorKind,
+    StatusDataSource, StatusSnapshot, TrafficCommandAuthority, TrafficCommandExecution,
+    TrafficCommandFailureKind, TrafficCommandOperation, TrafficDataPhase, TrafficDataSnapshot,
+    TrafficDataSource,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -119,6 +120,7 @@ struct SourceState {
     events: VecDeque<EventRecord>,
     group_delay_test: GroupDelayTest,
     traffic_reconnect_count: u64,
+    recent_traffic_sequence: u64,
     traffic_sequence: u64,
     traffic_session_id: Option<String>,
     traffic_session_number: u64,
@@ -139,6 +141,7 @@ impl SourceState {
             events: VecDeque::with_capacity(EVENTS_BUFFER_LIMIT),
             group_delay_test: GroupDelayTest::idle(),
             traffic_reconnect_count: 0,
+            recent_traffic_sequence: 0,
             traffic_sequence: 0,
             traffic_session_id: None,
             traffic_session_number: 0,
@@ -432,6 +435,31 @@ impl StatusDataSource for ControllerStatusSource {
         };
         snapshot.group_delay_test = state.group_delay_test.clone();
         snapshot
+    }
+
+    fn profile_id(&self) -> Option<String> {
+        Some(self.inner.profile.profile_id().to_owned())
+    }
+
+    fn recent_traffic_observation(&self) -> Option<RecentTrafficObservation> {
+        let state = self
+            .inner
+            .state
+            .lock()
+            .expect("controller source state poisoned");
+        if !self.inner.observations_active.load(Ordering::Acquire)
+            || state.initial_observation != ControllerInitialObservation::Ready
+            || state.diagnostics.contains_key(&ObservationChannel::Traffic)
+            || state.diagnostics.contains_key(&ObservationChannel::Session)
+        {
+            return None;
+        }
+        state.mapper.as_ref().map(|mapper| {
+            mapper.recent_traffic_observation(
+                self.inner.observation_generation.load(Ordering::Acquire),
+                state.recent_traffic_sequence,
+            )
+        })
     }
 
     fn shutdown(&self) -> BoxFuture<'_, ()> {
@@ -2671,6 +2699,7 @@ async fn apply_observations_guarded(
     new_session: bool,
     generation: Option<u64>,
 ) -> Result<(), StatusMappingError> {
+    let recent_traffic_changed = batch.traffic.is_some();
     let traffic_changed = batch.connections.is_some() || batch.rules.is_some();
     {
         let mut state = inner
@@ -2697,6 +2726,9 @@ async fn apply_observations_guarded(
         }
         if traffic_changed {
             state.traffic_sequence = state.traffic_sequence.saturating_add(1);
+        }
+        if recent_traffic_changed {
+            state.recent_traffic_sequence = state.recent_traffic_sequence.saturating_add(1);
         }
         state.mapper = Some(mapper);
     }

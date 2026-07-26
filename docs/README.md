@@ -36,6 +36,9 @@ of treating an implementation accident as intent.
 - [`launch-proxy-critical-path.md`](architecture/launch-proxy-critical-path.md)
   — Rust launch authority, Profile/Core and System Proxy timing DAG,
   cancellation, revalidation, and privacy-safe timing evidence.
+- [`candidate-home-isolation.md`](architecture/candidate-home-isolation.md) —
+  private candidate lifecycle DAG, mutation analysis, reproducible storage and
+  pinned-Core measurements, and the retained-isolation decision.
 - [`state-lifecycle-race-audit.md`](architecture/state-lifecycle-race-audit.md)
   — repository-wide state scope, transition, race, optimistic-state, cleanup,
   and bounded state-machine adoption decisions.

@@ -218,7 +218,12 @@ async fn normal_preflight_summarizes_and_classifies_without_silent_platform_enab
 
 #[tokio::test]
 async fn unsafe_provider_paths_are_hard_rejected_with_safe_field_identity() {
-    for path in ["/private/device/rules.yaml", "../../private/rules.yaml"] {
+    for path in [
+        "/private/device/rules.yaml",
+        "../../private/rules.yaml",
+        "C:/private/rules.yaml",
+        r"C:\private\rules.yaml",
+    ] {
         let yaml = format!(
             "rule-providers:\n  private-provider:\n    type: file\n    path: {path}\nrules: [MATCH,DIRECT]\n"
         );
