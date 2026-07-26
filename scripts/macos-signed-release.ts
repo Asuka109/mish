@@ -238,8 +238,16 @@ function sha256(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+function sha1(content: Buffer): string {
+  return createHash("sha1").update(content).digest("hex");
+}
+
 function fileSha256(file: string): string {
   return sha256(readFileSync(file));
+}
+
+function fileSha1(file: string): string {
+  return sha1(readFileSync(file));
 }
 
 function boundedDetail(value: string): string {
@@ -771,19 +779,28 @@ function developerIdRequirement(identity: string, identifier: string): string {
   return `anchor apple generic and identifier "${identifier}" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${parsed.teamIdentifier}"`;
 }
 
-function collectSbomFiles(root: string, directory = root): Array<{ name: string; sha256: string }> {
-  const result: Array<{ name: string; sha256: string }> = [];
+function collectSbomFiles(
+  root: string,
+  directory = root,
+): Array<{ name: string; sha1: string; sha256: string }> {
+  const result: Array<{ name: string; sha1: string; sha256: string }> = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const absolute = path.join(directory, entry.name);
     const relative = path.relative(root, absolute).split(path.sep).join("/");
     if (entry.isDirectory()) {
       result.push(...collectSbomFiles(root, absolute));
     } else if (entry.isFile()) {
-      result.push({ name: `Mish.app/${relative}`, sha256: fileSha256(absolute) });
-    } else if (entry.isSymbolicLink()) {
       result.push({
-        name: `Mish.app/${relative} -> ${readlinkSync(absolute)}`,
-        sha256: sha256(Buffer.from(readlinkSync(absolute))),
+        name: `Mish.app/${relative}`,
+        sha1: fileSha1(absolute),
+        sha256: fileSha256(absolute),
+      });
+    } else if (entry.isSymbolicLink()) {
+      const target = Buffer.from(readlinkSync(absolute));
+      result.push({
+        name: `Mish.app/${relative} -> ${target.toString()}`,
+        sha1: sha1(target),
+        sha256: sha256(target),
       });
     }
   }
@@ -794,25 +811,29 @@ function spdxId(prefix: string, value: string): string {
   return `SPDXRef-${prefix}-${createHash("sha256").update(value).digest("hex").slice(0, 16)}`;
 }
 
-function generateSignedReleaseSbom(
+export function generateSignedReleaseSbom(
   application: string,
   dmg: string,
   identity: SignedReleaseIdentity,
   output: string,
 ): void {
   const dmgDigest = fileSha256(dmg);
-  const files = [
-    { name: identity.dmgName, sha256: dmgDigest },
+  const fileDigests = [
+    { name: identity.dmgName, sha1: fileSha1(dmg), sha256: dmgDigest },
     ...collectSbomFiles(application),
-  ].map((entry) => ({
-    checksums: [{ algorithm: "SHA256", checksumValue: entry.sha256 }],
+  ];
+  const files = fileDigests.map((entry) => ({
+    checksums: [
+      { algorithm: "SHA1", checksumValue: entry.sha1 },
+      { algorithm: "SHA256", checksumValue: entry.sha256 },
+    ],
     fileName: entry.name,
     SPDXID: spdxId("File", entry.name),
   }));
   const packageVerificationCode = createHash("sha1")
     .update(
-      files
-        .map(({ checksums }) => checksums[0].checksumValue)
+      fileDigests
+        .map(({ sha1: digest }) => digest)
         .sort()
         .join(""),
     )

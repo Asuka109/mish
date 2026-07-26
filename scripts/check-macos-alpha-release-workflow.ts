@@ -249,6 +249,11 @@ invariant(
   freeze.outputs?.tooling_sha === "${{ steps.source.outputs.main_sha }}",
   "Release tooling must freeze to the same main commit used for reachability.",
 );
+invariant(
+  String(freeze.outputs?.signed_candidate_artifact_name).endsWith("-${{ github.run_attempt }}") &&
+    String(freeze.outputs?.signed_protected_artifact_name).endsWith("-${{ github.run_attempt }}"),
+  "Signed artifacts must be unique to each workflow run attempt.",
+);
 const alphaPreflight = step(freeze, "Fail fast on conflicting tag or Release");
 const signedPreflight = step(freeze, "Fail fast on conflicting signed tag or Release");
 invariant(

@@ -48,8 +48,8 @@ jobs:
       base_version: ${{ steps.source.outputs.base_version }}
       candidate_artifact_name: mish-alpha-candidate-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}
       profile: ${{ inputs.profile }}
-      signed_candidate_artifact_name: mish-signed-candidate-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}
-      signed_protected_artifact_name: mish-signed-protected-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}
+      signed_candidate_artifact_name: mish-signed-candidate-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}-${{ github.run_attempt }}
+      signed_protected_artifact_name: mish-signed-protected-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}-${{ github.run_attempt }}
       source_sha: ${{ steps.source.outputs.source_sha }}
       tag: ${{ steps.source.outputs.tag }}
       tooling_sha: ${{ steps.source.outputs.main_sha }}

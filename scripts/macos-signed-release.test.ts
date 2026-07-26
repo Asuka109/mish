@@ -15,6 +15,7 @@ import {
   SignedReleaseRecorder,
   cleanupSigningMaterials,
   finalizeSignedReleaseCandidate,
+  generateSignedReleaseSbom,
   planSignedReleaseStaging,
   readSignedReleaseCandidate,
   runSignedReleaseFixture,
@@ -339,6 +340,46 @@ test("final candidate binds the exact DMG, SBOM, attestations, and checksum mani
   } finally {
     candidate.dispose();
   }
+});
+
+test("SPDX package verification uses the sorted SHA-1 digest set", () => {
+  using temporary = mkdtempDisposableSync(path.join(tmpdir(), "mish-signed-sbom-"));
+  const application = path.join(temporary.path, "Mish.app");
+  const dmg = path.join(temporary.path, signedReleaseDmgName(version));
+  const output = path.join(temporary.path, signedReleaseSbomName);
+  mkdirSync(application);
+  writeFileSync(path.join(application, "fixture"), "signed application fixture\n");
+  writeFileSync(dmg, "signed dmg fixture\n");
+  generateSignedReleaseSbom(
+    application,
+    dmg,
+    validateSignedReleasePlanningBoundary(boundary(), "Asuka109/mish"),
+    output,
+  );
+  const sbom = JSON.parse(readFileSync(output, "utf8")) as {
+    files: Array<{
+      checksums: Array<{ algorithm: string; checksumValue: string }>;
+    }>;
+    packages: Array<{
+      name: string;
+      packageVerificationCode?: { packageVerificationCodeValue?: string };
+    }>;
+  };
+  const sha1Digests = sbom.files.map((file) => {
+    const checksum = file.checksums.find(({ algorithm }) => algorithm === "SHA1");
+    assert.match(checksum?.checksumValue ?? "", /^[0-9a-f]{40}$/u);
+    assert.match(
+      file.checksums.find(({ algorithm }) => algorithm === "SHA256")?.checksumValue ?? "",
+      /^[0-9a-f]{64}$/u,
+    );
+    return checksum?.checksumValue as string;
+  });
+  const expected = createHash("sha1").update(sha1Digests.sort().join("")).digest("hex");
+  assert.equal(
+    sbom.packages.find(({ name }) => name === "Mish")?.packageVerificationCode
+      ?.packageVerificationCodeValue,
+    expected,
+  );
 });
 
 test("checksum, assessment, and Draft gating fail closed", () => {
