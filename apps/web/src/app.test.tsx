@@ -167,6 +167,7 @@ class DeferredServiceProbeClient extends FixtureStatusClient {
     if (!result) throw new Error(`Missing probe result for ${monitorId}`);
     result.latencyMilliseconds = latencyMilliseconds;
     result.status = "healthy";
+    snapshot.applicationOrder.order += 1;
     this.resolveProbe?.(snapshot);
   }
 }
@@ -2231,6 +2232,7 @@ describe("desktop RPC experience", () => {
       expect(profileClient.activateProfile).toHaveBeenCalledWith(
         expect.any(String),
         "fixture-profile-travel",
+        { signal: expect.any(AbortSignal) },
       ),
     );
     expect(
@@ -2274,6 +2276,7 @@ describe("desktop RPC experience", () => {
     ).toBeEnabled();
     expect(profileClient.selectProfile).toHaveBeenLastCalledWith("fixture-profile-studio", {
       expectedSelection: { profileId: "fixture-profile-travel", revision: 2 },
+      signal: expect.any(AbortSignal),
     });
   });
 

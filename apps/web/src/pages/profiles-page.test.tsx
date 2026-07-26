@@ -256,10 +256,14 @@ describe("profiles page", () => {
       screen.getByRole("button", { name: "Set update interval for studio-route-set.yaml" }),
     );
     await user.click(await screen.findByRole("menuitemradio", { name: "Every 6 hours" }));
-    expect(client.setRefreshPolicy).toHaveBeenCalledWith("profile-subscription", "six-hours");
+    expect(client.setRefreshPolicy).toHaveBeenCalledWith("profile-subscription", "six-hours", {
+      signal: expect.any(AbortSignal),
+    });
 
     await user.click(screen.getByRole("button", { name: "Update Subscription" }));
-    expect(client.refreshProfile).toHaveBeenCalledWith("profile-subscription");
+    expect(client.refreshProfile).toHaveBeenCalledWith("profile-subscription", {
+      signal: expect.any(AbortSignal),
+    });
 
     const cardFolderButton = screen.getAllByRole("button", { name: "Open Folder" })[1];
     expect(cardFolderButton).toHaveTextContent("");
@@ -267,7 +271,9 @@ describe("profiles page", () => {
     expect(client.openProfileDirectory).toHaveBeenCalledOnce();
 
     await user.click(screen.getByRole("button", { name: "Detach the Subscription" }));
-    expect(client.detachSubscription).toHaveBeenCalledWith("profile-subscription");
+    expect(client.detachSubscription).toHaveBeenCalledWith("profile-subscription", {
+      signal: expect.any(AbortSignal),
+    });
 
     const localCard = screen.getByText("home").closest("article");
     expect(localCard).not.toBeNull();
@@ -294,7 +300,11 @@ describe("profiles page", () => {
     await user.type(screen.getByLabelText("Local file name"), "travel.YML");
     await user.click(screen.getByRole("button", { name: "New Profile" }));
 
-    await waitFor(() => expect(client.createProfile).toHaveBeenCalledWith("travel.yml"));
+    await waitFor(() =>
+      expect(client.createProfile).toHaveBeenCalledWith("travel.yml", {
+        signal: expect.any(AbortSignal),
+      }),
+    );
     await waitFor(() => expect(screen.queryByText("Create local profile")).not.toBeInTheDocument());
   });
 
@@ -315,6 +325,7 @@ describe("profiles page", () => {
       expect(client.preflightHttps).toHaveBeenCalledWith(
         "https://profiles.example/office?token=visible",
         "office-route-set.yaml",
+        { signal: expect.any(AbortSignal) },
       ),
     );
     expect(await screen.findByText("Ready to save")).toBeVisible();

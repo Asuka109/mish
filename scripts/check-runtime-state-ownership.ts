@@ -54,11 +54,39 @@ const evidence: readonly Evidence[] = [
     file: "apps/web/src/data/profile-provider.tsx",
     includes: [
       "nextSnapshot.selection.revision < current.selection.revision",
-      "selectionOperation.current",
+      "selectionProjection",
+      "useCommandFeedback",
       "expectedSelection",
     ],
     meaning:
       "Web keeps only an ordered confirmed snapshot, temporary optimistic projection, and revision-bound rollback",
+  },
+  {
+    file: "apps/web/src/data/command-feedback.ts",
+    includes: [
+      "export function commandFeedbackReducer",
+      '"cancelled"',
+      '"disconnected"',
+      '"superseded"',
+      "matchesPendingOperation",
+    ],
+    meaning:
+      "one Web Module owns operation/domain/scope identity, legal terminal phases, and exact cleanup",
+  },
+  {
+    file: "apps/web/src/data/product-provider.tsx",
+    includes: ["useCommandFeedback", "captureCommandAuthority", "isCurrentCommandFeedback"],
+    meaning: "Product feedback composes application and Capture identities",
+  },
+  {
+    file: "apps/web/src/data/traffic-provider.tsx",
+    includes: ["useCommandFeedback", "trafficCommandScope", "latestTrafficOperation"],
+    meaning: "Traffic feedback keeps target payloads outside exact operation and scope state",
+  },
+  {
+    file: "apps/web/src/data/events-provider.tsx",
+    includes: ["useCommandFeedback", "eventsCommandScope", "diagnosticPending"],
+    meaning: "Events diagnostics and support-bundle commands share exact operation feedback",
   },
   {
     file: "crates/runtime/src/notifications.rs",

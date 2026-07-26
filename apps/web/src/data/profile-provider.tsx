@@ -28,6 +28,12 @@ import {
   ApplicationSnapshotAcceptance,
   type SnapshotDelivery,
 } from "./application-snapshot-acceptance";
+import {
+  applicationCommandAuthority,
+  applicationCommandScope,
+  useCommandFeedback,
+  type CommandFeedbackOperation,
+} from "./command-feedback";
 import { createFixtureProfileClient } from "./fixture-profile-client";
 
 export type ProfileOperation =
@@ -110,6 +116,23 @@ interface ProfileProviderProps {
   client?: ProfileClient;
 }
 
+interface ProfileCommand {
+  controller: AbortController;
+  operation: CommandFeedbackOperation;
+}
+
+interface ProfileSelectionProjection {
+  baseRevision: number;
+  operation: CommandFeedbackOperation;
+  profileId: string;
+}
+
+function profileCommandScope(snapshot: ProfileSnapshotDto | null) {
+  return snapshot
+    ? applicationCommandScope(snapshot.applicationOrder, "profile")
+    : "profile:unconfirmed";
+}
+
 export function ProfileProvider({ children, client }: ProfileProviderProps) {
   const resolvedClient = useMemo<ProfileClient>(
     () => client ?? createFixtureProfileClient(),
@@ -120,15 +143,22 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
     resolvedClient.getConnectionState(),
   );
   const [error, setError] = useState<ProfileClientError | null>(null);
-  const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const pending = useRef(false);
+  const [selectionProjection, setSelectionProjection] = useState<ProfileSelectionProjection | null>(
+    null,
+  );
+  const {
+    begin: beginCommandFeedback,
+    confirmAuthority: confirmCommandAuthority,
+    isCurrent: isCurrentCommandFeedback,
+    reset: resetCommandFeedback,
+    resetPending: resetPendingCommandFeedback,
+    state: commandFeedbackState,
+    transition: transitionCommandFeedback,
+  } = useCommandFeedback();
   const latestSnapshot = useRef<ProfileSnapshotDto | null>(null);
-  const selectionOperation = useRef<{
-    baseRevision: number;
-    id: string;
-    profileId: string;
-  } | null>(null);
+  const profileCommand = useRef<ProfileCommand | null>(null);
+  const profileOperationKey = useRef<{ key: string; operationId: string } | null>(null);
+  const selectionProjectionRef = useRef<ProfileSelectionProjection | null>(null);
   const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<ProfileSnapshotDto>());
   const activationWaiters = useRef(
     new Map<
@@ -139,6 +169,11 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       }
     >(),
   );
+
+  const updateSelectionProjection = useCallback((projection: ProfileSelectionProjection | null) => {
+    selectionProjectionRef.current = projection;
+    setSelectionProjection(projection);
+  }, []);
 
   const acceptSnapshot = useCallback(
     (nextSnapshot: ProfileSnapshotDto, delivery: SnapshotDelivery) => {
@@ -165,13 +200,35 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         return false;
       }
       nextSnapshot = result.snapshot;
+      const command = profileCommand.current;
+      if (command) {
+        const nextScope = profileCommandScope(nextSnapshot);
+        if (command.operation.scopeKey !== nextScope) {
+          command.controller.abort();
+          transitionCommandFeedback(command.operation, "superseded");
+          if (profileCommand.current?.operation.operationId === command.operation.operationId) {
+            profileCommand.current = null;
+          }
+        } else if (delivery !== "command") {
+          if (
+            confirmCommandAuthority(
+              command.operation,
+              applicationCommandAuthority(nextSnapshot.applicationOrder),
+            )
+          ) {
+            command.controller.abort();
+            if (profileCommand.current?.operation.operationId === command.operation.operationId) {
+              profileCommand.current = null;
+            }
+          }
+        }
+      }
       latestSnapshot.current = nextSnapshot;
       setSnapshot(nextSnapshot);
       setError(null);
-      const operation = selectionOperation.current;
-      if (!operation || acceptedSelection.revision > operation.baseRevision) {
-        selectionOperation.current = null;
-        setSelectedProfileId(acceptedSelection.profileId);
+      const projection = selectionProjectionRef.current;
+      if (!projection || acceptedSelection.revision > projection.baseRevision) {
+        updateSelectionProjection(null);
       }
       const activation = nextSnapshot.activation;
       if (activation.phase === "pending" || !activation.commandId) return true;
@@ -181,16 +238,33 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       waiter.resolve(activation);
       return true;
     },
-    [],
+    [confirmCommandAuthority, transitionCommandFeedback, updateSelectionProjection],
   );
 
   useEffect(() => {
     const controller = new AbortController();
     snapshotAcceptance.current.clear();
+    resetCommandFeedback("cancelled");
+    profileCommand.current = null;
+    profileOperationKey.current = null;
+    updateSelectionProjection(null);
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
       if (nextConnection.phase === "connected") {
         if (nextConnection.stale) snapshotAcceptance.current.armReconnect();
         else snapshotAcceptance.current.confirmReconnect();
+      }
+      if (
+        nextConnection.phase !== "connected" &&
+        nextConnection.phase !== "fixture" &&
+        nextConnection.stale
+      ) {
+        profileCommand.current?.controller.abort();
+        profileCommand.current = null;
+        resetPendingCommandFeedback("disconnected");
+        for (const waiter of activationWaiters.current.values()) {
+          waiter.reject(new ProfileClientError("disconnected", "Profile connection was lost"));
+        }
+        activationWaiters.current.clear();
       }
       setConnection(nextConnection);
     });
@@ -206,6 +280,9 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       });
     return () => {
       controller.abort();
+      profileCommand.current?.controller.abort();
+      profileCommand.current = null;
+      resetPendingCommandFeedback("cancelled");
       unsubscribeConnection();
       unsubscribeSnapshots();
       for (const waiter of activationWaiters.current.values()) {
@@ -213,89 +290,166 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       }
       activationWaiters.current.clear();
     };
-  }, [acceptSnapshot, resolvedClient]);
+  }, [
+    acceptSnapshot,
+    resetCommandFeedback,
+    resetPendingCommandFeedback,
+    resolvedClient,
+    updateSelectionProjection,
+  ]);
+
+  const beginProfileCommand = useCallback(
+    (key: string) => {
+      const current = latestSnapshot.current;
+      const operation = beginCommandFeedback({
+        confirmedAuthority: current
+          ? applicationCommandAuthority(current.applicationOrder)
+          : undefined,
+        domainKey: "profile",
+        scopeKey: profileCommandScope(current),
+      });
+      if (!operation) return null;
+      const command = { controller: new AbortController(), operation };
+      profileCommand.current = command;
+      profileOperationKey.current = { key, operationId: operation.operationId };
+      setError(null);
+      return command;
+    },
+    [beginCommandFeedback],
+  );
+
+  const finishProfileCommand = useCallback((command: ProfileCommand) => {
+    if (profileCommand.current?.operation.operationId === command.operation.operationId) {
+      profileCommand.current = null;
+    }
+  }, []);
 
   const runMutation = useCallback(
     async (
       operation: Exclude<ProfileOperation, "preflight">,
       profileId: string | undefined,
-      mutate: () => Promise<ProfileSnapshotDto>,
+      mutate: (signal: AbortSignal) => Promise<ProfileSnapshotDto>,
     ): Promise<ProfileOperationResult> => {
-      if (pending.current) return conflict();
-      pending.current = true;
-      setPendingKey(operationKey(operation, profileId));
-      setError(null);
+      const command = beginProfileCommand(operationKey(operation, profileId));
+      if (!command) return conflict();
       try {
-        acceptSnapshot(await mutate(), "command");
+        const nextSnapshot = await mutate(command.controller.signal);
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          if (
+            latestSnapshot.current &&
+            hasSameApplicationOrder(latestSnapshot.current, nextSnapshot)
+          ) {
+            return { ok: true };
+          }
+          return cancelledResult();
+        }
+        acceptSnapshot(nextSnapshot, "command");
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          transitionCommandFeedback(command.operation, "success");
+        }
         return { ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
-        setError(typedError);
-        if (operation === "refresh") {
+        if (operation === "refresh" && isCurrentCommandFeedback(command.operation, "pending")) {
           try {
-            acceptSnapshot(await resolvedClient.getSnapshot(), "request");
+            const nextSnapshot = await resolvedClient.getSnapshot();
+            if (isCurrentCommandFeedback(command.operation, "pending")) {
+              acceptSnapshot(nextSnapshot, "request");
+            }
           } catch {
             // Keep the previous safe snapshot when reconciliation also fails.
           }
         }
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          setError(typedError);
+          transitionCommandFeedback(command.operation, "failure");
+        }
         return { error: typedError, ok: false };
       } finally {
-        pending.current = false;
-        setPendingKey(null);
+        finishProfileCommand(command);
       }
     },
-    [acceptSnapshot, resolvedClient],
+    [
+      acceptSnapshot,
+      beginProfileCommand,
+      finishProfileCommand,
+      isCurrentCommandFeedback,
+      resolvedClient,
+      transitionCommandFeedback,
+    ],
   );
 
   const runPreflight = useCallback(
-    async (preflight: () => Promise<ProfilePreviewDto | null>): Promise<ProfilePreviewResult> => {
-      if (pending.current) return conflict();
-      pending.current = true;
-      setPendingKey(operationKey("preflight"));
-      setError(null);
+    async (
+      preflight: (signal: AbortSignal) => Promise<ProfilePreviewDto | null>,
+    ): Promise<ProfilePreviewResult> => {
+      const command = beginProfileCommand(operationKey("preflight"));
+      if (!command) return conflict();
       try {
-        return { ok: true, preview: await preflight() };
+        const preview = await preflight(command.controller.signal);
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          return cancelledPreview();
+        }
+        transitionCommandFeedback(command.operation, "success");
+        return { ok: true, preview };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
-        setError(typedError);
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          setError(typedError);
+          transitionCommandFeedback(command.operation, "failure");
+        }
         return { error: typedError, ok: false };
       } finally {
-        pending.current = false;
-        setPendingKey(null);
+        finishProfileCommand(command);
       }
     },
-    [],
+    [
+      beginProfileCommand,
+      finishProfileCommand,
+      isCurrentCommandFeedback,
+      transitionCommandFeedback,
+    ],
   );
 
   const runProviderMutation = useCallback(
     async (
       providerId: string | undefined,
-      mutate: () => ReturnType<ProfileClient["updateProvider"]>,
+      mutate: (signal: AbortSignal) => ReturnType<ProfileClient["updateProvider"]>,
     ): Promise<ProfileOperationResult> => {
-      if (pending.current) return conflict();
-      pending.current = true;
-      setPendingKey(operationKey("provider-update", providerId));
-      setError(null);
+      const command = beginProfileCommand(operationKey("provider-update", providerId));
+      if (!command) return conflict();
       try {
-        const result = await mutate();
+        const result = await mutate(command.controller.signal);
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          return cancelledResult();
+        }
         setSnapshot((current) => (current ? { ...current, providers: result.snapshot } : current));
         if (result.phase !== "success") {
+          transitionCommandFeedback(command.operation, "failure");
           return {
             error: new ProfileClientError("remote", "Provider update failed", true),
             ok: false,
           };
         }
+        transitionCommandFeedback(command.operation, "success");
         return { ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
-        setError(typedError);
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          setError(typedError);
+          transitionCommandFeedback(command.operation, "failure");
+        }
         return { error: typedError, ok: false };
       } finally {
-        pending.current = false;
-        setPendingKey(null);
+        finishProfileCommand(command);
       }
     },
-    [],
+    [
+      beginProfileCommand,
+      finishProfileCommand,
+      isCurrentCommandFeedback,
+      transitionCommandFeedback,
+    ],
   );
 
   const loadPatches = useCallback(
@@ -358,40 +512,67 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       authority: ProfilePatchAuthorityDto,
       patches: ProfilePatchDto[],
     ): Promise<ProfilePatchEditorResult> => {
-      if (pending.current) return conflict();
-      pending.current = true;
-      setPendingKey(operationKey("patch-save", authority.profileId));
-      setError(null);
+      const command = beginProfileCommand(operationKey("patch-save", authority.profileId));
+      if (!command) return conflict();
       try {
-        const editor = await resolvedClient.replacePatches(authority, patches);
-        acceptSnapshot(await resolvedClient.getSnapshot(), "request");
+        const editor = await resolvedClient.replacePatches(authority, patches, {
+          signal: command.controller.signal,
+        });
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          return cancelledPatchEditor();
+        }
+        const nextSnapshot = await resolvedClient.getSnapshot({
+          signal: command.controller.signal,
+        });
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          return cancelledPatchEditor();
+        }
+        acceptSnapshot(nextSnapshot, "command");
+        transitionCommandFeedback(command.operation, "success");
         return { editor, ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
-        setError(typedError);
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          setError(typedError);
+          transitionCommandFeedback(command.operation, "failure");
+        }
         return { error: typedError, ok: false };
       } finally {
-        pending.current = false;
-        setPendingKey(null);
+        finishProfileCommand(command);
       }
     },
-    [acceptSnapshot, resolvedClient],
+    [
+      acceptSnapshot,
+      beginProfileCommand,
+      finishProfileCommand,
+      isCurrentCommandFeedback,
+      resolvedClient,
+      transitionCommandFeedback,
+    ],
   );
 
   const runActivation = useCallback(
     async (
       operation: "activate" | "stop",
-      mutate: () => Promise<ProfileActivationSnapshotDto>,
+      mutate: (signal: AbortSignal) => Promise<ProfileActivationSnapshotDto>,
       allowPending = false,
     ): Promise<ProfileOperationResult> => {
-      if (pending.current || (!allowPending && snapshot?.activation.phase === "pending")) {
+      if (!allowPending && snapshot?.activation.phase === "pending") {
         return conflict();
       }
-      pending.current = true;
-      setPendingKey(operationKey(operation));
-      setError(null);
+      const command = beginProfileCommand(operationKey(operation));
+      if (!command) return conflict();
       try {
-        const activation = await mutate();
+        const activation = await mutate(command.controller.signal);
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          if (
+            activation.commandId &&
+            latestSnapshot.current?.activation.commandId === activation.commandId
+          ) {
+            return { ok: true };
+          }
+          return cancelledResult();
+        }
         const current = latestSnapshot.current;
         const alreadyCompleted =
           current?.activation.commandId === activation.commandId &&
@@ -401,17 +582,26 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
           latestSnapshot.current = optimistic;
           setSnapshot(optimistic);
         }
+        transitionCommandFeedback(command.operation, "success");
         return { ok: true };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
-        setError(typedError);
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          setError(typedError);
+          transitionCommandFeedback(command.operation, "failure");
+        }
         return { error: typedError, ok: false };
       } finally {
-        pending.current = false;
-        setPendingKey(null);
+        finishProfileCommand(command);
       }
     },
-    [acceptSnapshot, snapshot?.activation.phase],
+    [
+      beginProfileCommand,
+      finishProfileCommand,
+      isCurrentCommandFeedback,
+      snapshot?.activation.phase,
+      transitionCommandFeedback,
+    ],
   );
 
   const waitForProfileActivation = useCallback(
@@ -461,77 +651,121 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
       if (
         !expectedSelection &&
         current.selection.profileId === profileId &&
-        !selectionOperation.current
+        !profileCommand.current
       ) {
         return { ok: true, selection: current.selection };
       }
-      if (pending.current) return conflict();
-      const operation = {
+      const command = beginProfileCommand(operationKey("select", profileId));
+      if (!command) return conflict();
+      const projection = {
         baseRevision: current.selection.revision,
-        id: crypto.randomUUID(),
+        operation: command.operation,
         profileId,
       };
-      pending.current = true;
-      selectionOperation.current = expectedSelection ? null : operation;
-      setPendingKey(operationKey("select", profileId));
-      if (!expectedSelection) setSelectedProfileId(profileId);
-      setError(null);
+      if (!expectedSelection) updateSelectionProjection(projection);
       try {
         const confirmed = await resolvedClient.selectProfile(profileId, {
           expectedSelection,
+          signal: command.controller.signal,
         });
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          const authoritativeSelection = latestSnapshot.current?.selection;
+          if (
+            authoritativeSelection?.profileId === profileId &&
+            authoritativeSelection.revision > current.selection.revision
+          ) {
+            return { ok: true, selection: authoritativeSelection };
+          }
+          return cancelledSelection();
+        }
         acceptSnapshot(confirmed, "command");
+        if (!isCurrentCommandFeedback(command.operation, "pending")) {
+          return cancelledSelection();
+        }
         if (expectedSelection && confirmed.selection.profileId !== profileId) {
+          transitionCommandFeedback(command.operation, "failure");
           return conflict();
         }
+        transitionCommandFeedback(command.operation, "success");
         return { ok: true, selection: confirmed.selection };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
-        setError(typedError);
-        if (selectionOperation.current?.id === operation.id) {
-          selectionOperation.current = null;
-          setSelectedProfileId(latestSnapshot.current?.selection.profileId ?? null);
+        if (isCurrentCommandFeedback(command.operation, "pending")) {
+          setError(typedError);
+          transitionCommandFeedback(command.operation, "failure");
         }
         return { error: typedError, ok: false };
       } finally {
-        if (selectionOperation.current?.id === operation.id) {
-          selectionOperation.current = null;
+        if (
+          selectionProjectionRef.current?.operation.operationId === command.operation.operationId
+        ) {
+          updateSelectionProjection(null);
         }
-        pending.current = false;
-        setPendingKey(null);
+        finishProfileCommand(command);
       }
     },
-    [acceptSnapshot, resolvedClient],
+    [
+      acceptSnapshot,
+      beginProfileCommand,
+      finishProfileCommand,
+      isCurrentCommandFeedback,
+      resolvedClient,
+      transitionCommandFeedback,
+      updateSelectionProjection,
+    ],
   );
+
+  const pendingFeedback = commandFeedbackState.operations.get("profile");
+  const pendingKey =
+    pendingFeedback?.phase === "pending" &&
+    profileOperationKey.current?.operationId === pendingFeedback.operationId
+      ? profileOperationKey.current.key
+      : null;
+  const selectedProfileId =
+    selectionProjection &&
+    pendingFeedback?.phase === "pending" &&
+    selectionProjection.operation.operationId === pendingFeedback.operationId
+      ? selectionProjection.profileId
+      : (snapshot?.selection.profileId ?? null);
 
   const value = useMemo<ProfileContextValue>(
     () => ({
       activateProfile: async (profileId) => {
         const selected = await selectProfile(profileId);
         if (!selected.ok) return selected;
-        return runActivation("activate", () =>
-          resolvedClient.activateProfile(crypto.randomUUID(), profileId),
+        return runActivation("activate", (signal) =>
+          resolvedClient.activateProfile(crypto.randomUUID(), profileId, { signal }),
         );
       },
       cancelActivation: () => {
         const commandId = snapshot?.activation.commandId;
         if (!commandId) return Promise.resolve(conflict());
-        return runActivation("activate", () => resolvedClient.cancelActivation(commandId), true);
+        return runActivation(
+          "activate",
+          (signal) => resolvedClient.cancelActivation(commandId, { signal }),
+          true,
+        );
       },
       connection,
       createProfile: (fileName) =>
         resolvedClient.createProfile
-          ? runMutation("create", undefined, () => resolvedClient.createProfile!(fileName))
+          ? runMutation("create", undefined, (signal) =>
+              resolvedClient.createProfile!(fileName, { signal }),
+            )
           : Promise.resolve({
               error: new ProfileClientError("unsupported", "Profile creation is unavailable"),
               ok: false as const,
             }),
       createProfileAvailable: Boolean(resolvedClient.createProfile),
       deleteProfile: (profileId) =>
-        runMutation("delete", profileId, () => resolvedClient.deleteProfile(profileId)),
+        runMutation("delete", profileId, (signal) =>
+          resolvedClient.deleteProfile(profileId, { signal }),
+        ),
       detachSubscription: (profileId) =>
         resolvedClient.detachSubscription
-          ? runMutation("detach", profileId, () => resolvedClient.detachSubscription!(profileId))
+          ? runMutation("detach", profileId, (signal) =>
+              resolvedClient.detachSubscription!(profileId, { signal }),
+            )
           : Promise.resolve({
               error: new ProfileClientError(
                 "unsupported",
@@ -561,27 +795,38 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
             ? () => resolvedClient.openProfileDirectory!()
             : undefined,
         ),
-      preflightHttps: (url, label) => runPreflight(() => resolvedClient.preflightHttps(url, label)),
+      preflightHttps: (url, label) =>
+        runPreflight((signal) => resolvedClient.preflightHttps(url, label, { signal })),
       preflightLocal: (label) => runPreflight(() => resolvedClient.preflightLocal(label)),
       refreshProfile: (profileId) =>
-        runMutation("refresh", profileId, () => resolvedClient.refreshProfile(profileId)),
+        runMutation("refresh", profileId, (signal) =>
+          resolvedClient.refreshProfile(profileId, { signal }),
+        ),
       replacePatches,
       setRefreshPolicy: (profileId, policy) =>
-        runMutation("schedule", profileId, () =>
-          resolvedClient.setRefreshPolicy(profileId, policy),
+        runMutation("schedule", profileId, (signal) =>
+          resolvedClient.setRefreshPolicy(profileId, policy, { signal }),
         ),
       savePreview: (previewId) =>
-        runMutation("save", undefined, () => resolvedClient.savePreview(previewId)),
+        runMutation("save", undefined, (signal) =>
+          resolvedClient.savePreview(previewId, { signal }),
+        ),
       selectedProfileId,
       selectedProfileRevision: snapshot?.selection.revision ?? 0,
       selectProfile,
       snapshot,
       stopActiveProfile: () =>
-        runActivation("stop", () => resolvedClient.stopActiveProfile(crypto.randomUUID())),
+        runActivation("stop", (signal) =>
+          resolvedClient.stopActiveProfile(crypto.randomUUID(), { signal }),
+        ),
       updateAllProviders: (authority, kind) =>
-        runProviderMutation(kind, () => resolvedClient.updateAllProviders(authority, kind)),
+        runProviderMutation(kind, (signal) =>
+          resolvedClient.updateAllProviders(authority, kind, { signal }),
+        ),
       updateProvider: (authority, providerId) =>
-        runProviderMutation(providerId, () => resolvedClient.updateProvider(authority, providerId)),
+        runProviderMutation(providerId, (signal) =>
+          resolvedClient.updateProvider(authority, providerId, { signal }),
+        ),
       waitForProfileActivation,
     }),
     [
@@ -626,6 +871,38 @@ function conflict() {
     error: new ProfileClientError("conflict", "Another profile operation is already pending", true),
     ok: false,
   } as const;
+}
+
+function cancelledResult(): ProfileOperationResult {
+  return { error: cancelledError(), ok: false };
+}
+
+function cancelledSelection(): ProfileSelectionOperationResult {
+  return { error: cancelledError(), ok: false };
+}
+
+function cancelledPreview(): ProfilePreviewResult {
+  return { error: cancelledError(), ok: false };
+}
+
+function cancelledPatchEditor(): ProfilePatchEditorResult {
+  return { error: cancelledError(), ok: false };
+}
+
+function cancelledError() {
+  return new ProfileClientError(
+    "cancelled",
+    "The Profile operation was replaced before it completed",
+    true,
+  );
+}
+
+function hasSameApplicationOrder(left: ProfileSnapshotDto, right: ProfileSnapshotDto) {
+  return (
+    left.applicationOrder.authorityId === right.applicationOrder.authorityId &&
+    left.applicationOrder.epoch === right.applicationOrder.epoch &&
+    left.applicationOrder.order === right.applicationOrder.order
+  );
 }
 
 function activationFailure(

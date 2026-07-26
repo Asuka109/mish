@@ -3,6 +3,8 @@ import type {
   TrafficCommandAuthorityDto,
   TrafficCommandOperation,
   TrafficCommandResultDto,
+  TrafficConnectionState,
+  TrafficDataSnapshotDto,
 } from "@mish/contracts";
 import { describe, expect, it } from "vitest";
 import { FixtureTrafficClient } from "./fixture-traffic-client";
@@ -42,6 +44,97 @@ class CommandTrafficClient extends FixtureTrafficClient {
       status: "success",
       targetCount: 1,
     };
+  }
+}
+
+class DelayedTrafficClient extends FixtureTrafficClient {
+  private readonly localConnectionListeners = new Set<(state: TrafficConnectionState) => void>();
+  private readonly requests: Array<{
+    connectionId: string;
+    resolve(result: TrafficCommandResultDto): void;
+  }> = [];
+  private readonly localSnapshotListeners = new Set<
+    (snapshot: TrafficDataSnapshotDto, delivery?: "baseline" | "update") => void
+  >();
+  private connectionState: TrafficConnectionState = {
+    attempt: 0,
+    phase: "fixture",
+    stale: false,
+  };
+  private snapshotState!: TrafficDataSnapshotDto;
+
+  async initialize() {
+    this.snapshotState = await super.getSnapshot();
+  }
+
+  override closeConnection(
+    _authority: TrafficCommandAuthorityDto,
+    connectionId: string,
+  ): Promise<TrafficCommandResultDto> {
+    return new Promise((resolve) => {
+      this.requests.push({ connectionId, resolve });
+    });
+  }
+
+  override getConnectionState() {
+    return this.connectionState;
+  }
+
+  override async getSnapshot() {
+    return structuredClone(this.snapshotState);
+  }
+
+  override supportsCommand(command: TrafficCommandOperation) {
+    return command === "close-connection";
+  }
+
+  override subscribeConnection(listener: (state: TrafficConnectionState) => void) {
+    this.localConnectionListeners.add(listener);
+    listener(this.connectionState);
+    return () => this.localConnectionListeners.delete(listener);
+  }
+
+  override subscribeSnapshots(
+    listener: (snapshot: TrafficDataSnapshotDto, delivery?: "baseline" | "update") => void,
+  ) {
+    this.localSnapshotListeners.add(listener);
+    return () => this.localSnapshotListeners.delete(listener);
+  }
+
+  emitConnection(state: TrafficConnectionState) {
+    this.connectionState = state;
+    for (const listener of this.localConnectionListeners) listener(state);
+  }
+
+  publishBaseline() {
+    for (const listener of this.localSnapshotListeners) {
+      listener(structuredClone(this.snapshotState), "baseline");
+    }
+  }
+
+  publishUpdate(snapshot: TrafficDataSnapshotDto) {
+    this.snapshotState = structuredClone(snapshot);
+    for (const listener of this.localSnapshotListeners) {
+      listener(structuredClone(snapshot), "update");
+    }
+  }
+
+  resolve(index: number, snapshot: TrafficDataSnapshotDto, commit = false) {
+    const request = this.requests[index];
+    if (!request) throw new Error(`Missing Traffic request ${index}`);
+    if (commit) this.snapshotState = structuredClone(snapshot);
+    request.resolve({
+      failure: null,
+      operation: "close-connection",
+      remainingConnectionIds: [],
+      snapshot: structuredClone(snapshot),
+      status: "success",
+      targetCount: 1,
+    });
+  }
+
+  requestCount() {
+    return this.requests.length;
   }
 }
 
@@ -141,6 +234,118 @@ describe("TrafficProvider displayed snapshot", () => {
 
     expect(traffic?.snapshot?.activeConnections.map(({ id }) => id)).not.toContain(
       initial.activeConnections[0]!.id,
+    );
+  });
+
+  it("isolates disconnect, reconnect, duplicate, and remount feedback by operation identity", async () => {
+    const client = new DelayedTrafficClient();
+    await client.initialize();
+    const initial = await client.getSnapshot();
+    const rendered = renderProvider(client);
+    await waitFor(() => expect(traffic?.snapshot?.sessionId).toBe(initial.sessionId));
+    const firstId = initial.activeConnections[0]!.id;
+
+    let duplicate: TrafficCommandResultDto | null | undefined;
+    await act(async () => {
+      void traffic?.closeConnection(firstId);
+      duplicate = await traffic?.closeConnection(firstId);
+    });
+    expect(client.requestCount()).toBe(1);
+    expect(duplicate).toBeNull();
+    expect(traffic?.isCloseConnectionPending(firstId)).toBe(true);
+
+    act(() => client.emitConnection({ attempt: 1, phase: "disconnected", stale: true }));
+    await waitFor(() => expect(traffic?.isCloseConnectionPending(firstId)).toBe(false));
+
+    act(() => {
+      client.emitConnection({ attempt: 1, phase: "connected", stale: true });
+      client.emitConnection({ attempt: 0, phase: "connected", stale: false });
+      client.publishBaseline();
+    });
+    await waitFor(() => expect(traffic?.connection.stale).toBe(false));
+
+    act(() => {
+      void traffic?.closeConnection(firstId);
+    });
+    expect(client.requestCount()).toBe(2);
+    expect(traffic?.isCloseConnectionPending(firstId)).toBe(true);
+
+    const retired = {
+      ...structuredClone(initial),
+      activeConnections: initial.activeConnections.filter(({ id }) => id !== firstId),
+      applicationOrder: { ...initial.applicationOrder, order: initial.applicationOrder.order + 1 },
+      sequence: initial.sequence + 1,
+    };
+    await act(async () => client.resolve(0, retired));
+    expect(traffic?.isCloseConnectionPending(firstId)).toBe(true);
+    expect(traffic?.authoritativeSnapshot?.activeConnections.map(({ id }) => id)).toContain(
+      firstId,
+    );
+
+    const current = {
+      ...structuredClone(initial),
+      activeConnections: initial.activeConnections.filter(({ id }) => id !== firstId),
+      applicationOrder: { ...initial.applicationOrder, order: initial.applicationOrder.order + 2 },
+      sequence: initial.sequence + 2,
+    };
+    await act(async () => client.resolve(1, current, true));
+    await waitFor(() => expect(traffic?.isCloseConnectionPending(firstId)).toBe(false));
+    expect(traffic?.authoritativeSnapshot?.activeConnections.map(({ id }) => id)).not.toContain(
+      firstId,
+    );
+
+    const secondId = current.activeConnections[0]!.id;
+    act(() => {
+      void traffic?.closeConnection(secondId);
+    });
+    expect(client.requestCount()).toBe(3);
+    const authoritativeCorrection = {
+      ...structuredClone(current),
+      applicationOrder: { ...current.applicationOrder, order: current.applicationOrder.order + 1 },
+      sequence: current.sequence + 1,
+    };
+    act(() => client.publishUpdate(authoritativeCorrection));
+    await waitFor(() => expect(traffic?.isCloseConnectionPending(secondId)).toBe(false));
+
+    const staleAfterCorrection = {
+      ...structuredClone(authoritativeCorrection),
+      activeConnections: authoritativeCorrection.activeConnections.filter(
+        ({ id }) => id !== secondId,
+      ),
+      applicationOrder: {
+        ...authoritativeCorrection.applicationOrder,
+        order: authoritativeCorrection.applicationOrder.order + 1,
+      },
+      sequence: authoritativeCorrection.sequence + 1,
+    };
+    await act(async () => client.resolve(2, staleAfterCorrection));
+    expect(traffic?.authoritativeSnapshot?.activeConnections.map(({ id }) => id)).toContain(
+      secondId,
+    );
+
+    act(() => {
+      void traffic?.closeConnection(secondId);
+    });
+    expect(client.requestCount()).toBe(4);
+    rendered.unmount();
+    const staleAfterUnmount = {
+      ...structuredClone(authoritativeCorrection),
+      activeConnections: authoritativeCorrection.activeConnections.filter(
+        ({ id }) => id !== secondId,
+      ),
+      applicationOrder: {
+        ...authoritativeCorrection.applicationOrder,
+        order: authoritativeCorrection.applicationOrder.order + 1,
+      },
+      sequence: authoritativeCorrection.sequence + 1,
+    };
+    await act(async () => client.resolve(3, staleAfterUnmount));
+
+    renderProvider(client);
+    await waitFor(() =>
+      expect(traffic?.authoritativeSnapshot?.activeConnections.map(({ id }) => id)).toContain(
+        secondId,
+      ),
     );
   });
 });

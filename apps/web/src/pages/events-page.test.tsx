@@ -288,7 +288,9 @@ describe("Events page", () => {
     });
     confirmSave.focus();
     await user.keyboard("{Enter}");
-    expect(support.save).toHaveBeenCalledWith("preview-support-bundle-1");
+    expect(support.save).toHaveBeenCalledWith("preview-support-bundle-1", {
+      signal: expect.any(AbortSignal),
+    });
     expect(await screen.findByText("Support bundle saved locally.")).toBeVisible();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
