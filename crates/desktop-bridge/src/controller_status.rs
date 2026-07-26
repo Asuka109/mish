@@ -280,6 +280,7 @@ impl ControllerStatusMapper {
         TrafficDataSnapshot {
             active_connections: self.active_connections.clone(),
             adapter_kind,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             phase,
             profile_id: self.context.profile_id.clone(),
             reconnect_count,

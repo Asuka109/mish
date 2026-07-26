@@ -179,6 +179,18 @@ samples. Remounts, reconnects, and simultaneous clients consume the same
 snapshot; stale or duplicate same-authority revisions cannot regress the Web
 projection. React derives only sparkline arrays and local animation.
 
+Protocol version 25 adds `applicationOrder` to complete Status, Profile,
+Events, and detailed Traffic snapshots. Its process `authorityId`, runtime
+`epoch`, and per-stream monotonic `order` are allocated by one Rust application
+snapshot authority. Reads reserve their order before crossing an asynchronous
+seam, runtime replacement advances the epoch, and identical content reuses its
+canonical order for simultaneous clients. Request results, command results,
+subscription updates, and reconnect baselines pass the same Web acceptance
+module. Only a reconnect baseline may replace a process authority; lower
+epochs/orders are stale, exact duplicates are idempotent, and equal order with
+different content is a contract conflict. The parent envelope composes with,
+and never redefines, `recentTraffic.authorityId/sessionId/revision`.
+
 The canonical ownership, lifecycle, privacy, and retention contract is defined in
 [`runtime-state-ownership.md`](runtime-state-ownership.md). The detailed Traffic
 workspace deliberately retains its independent Controller source session and

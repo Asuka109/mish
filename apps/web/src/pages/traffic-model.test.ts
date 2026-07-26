@@ -50,6 +50,7 @@ function snapshot(
   return {
     activeConnections,
     adapterKind: "fixture",
+    applicationOrder: { authorityId: "traffic-model-application", epoch: 1, order: sequence },
     phase: "ready",
     profileId: "fixture-profile",
     reconnectCount: 0,

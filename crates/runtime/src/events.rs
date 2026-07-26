@@ -14,7 +14,8 @@ use mish_presentation_contract::{
 use serde::Serialize;
 
 use crate::{
-    CaptureFailureKind, CaptureTransitionError, StatusAdapterKind, SystemProxyObservationStage,
+    ApplicationSnapshotOrder, CaptureFailureKind, CaptureTransitionError, StatusAdapterKind,
+    SystemProxyObservationStage,
 };
 
 pub const EVENTS_BUFFER_LIMIT: usize = 1_024;
@@ -227,6 +228,7 @@ pub struct EventSourceStatus {
 #[serde(rename_all = "camelCase")]
 pub struct EventsSnapshot {
     pub adapter_kind: StatusAdapterKind,
+    pub application_order: ApplicationSnapshotOrder,
     pub events: Vec<EventRecord>,
     pub phase: EventsDataPhase,
     pub profile_id: String,
@@ -240,6 +242,7 @@ impl EventsSnapshot {
     pub fn unavailable(adapter_kind: StatusAdapterKind) -> Self {
         Self {
             adapter_kind,
+            application_order: ApplicationSnapshotOrder::detached(),
             events: Vec::new(),
             phase: EventsDataPhase::Unavailable,
             profile_id: "local".into(),
@@ -345,6 +348,7 @@ impl ApplicationEventBuffer {
         }
         EventsSnapshot {
             adapter_kind,
+            application_order: ApplicationSnapshotOrder::detached(),
             events: self.events.iter().cloned().collect(),
             phase: EventsDataPhase::Ready,
             profile_id: "local".into(),

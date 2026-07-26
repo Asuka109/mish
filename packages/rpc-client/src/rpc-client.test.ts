@@ -63,6 +63,11 @@ function createSnapshot() {
   return StatusSnapshotSchema.parse({
     activeProfileId: "配置-α",
     adapterKind: "rpc",
+    applicationOrder: {
+      authorityId: "rpc-client-test-application",
+      epoch: 1,
+      order: 1,
+    },
     capabilities: { systemProxy: "supported", tun: "unavailable" },
     groups: [],
     groupDelayPolicy: {

@@ -71,13 +71,15 @@ pub(crate) struct ProtocolState {
 
 impl ProtocolState {
     async fn status_snapshot(&self) -> Value {
+        let ticket = self.runtime.begin_status_snapshot();
         let mut snapshot = self
             .runtime
-            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .status_snapshot_unordered_typed(StatusAdapterKind::Rpc)
             .await;
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
+        self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
     }
 
@@ -85,16 +87,25 @@ impl ProtocolState {
         &self,
         capture_status: mish_runtime::CaptureRuntimeStatus,
     ) -> Value {
-        let runtime = self.runtime.current();
+        let ticket = self.runtime.begin_status_snapshot();
+        let mut changes = self.runtime.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
         let core = runtime.core_status().await;
         let mut snapshot = runtime.snapshot_typed_with_capture_status(
             &core,
             StatusAdapterKind::Rpc,
             capture_status,
         );
+        if changes.has_changed().unwrap_or(true)
+            || !runtime.is_same_instance(&changes.borrow_and_update())
+        {
+            // The publisher retired while this projection was in flight.
+            return self.status_snapshot().await;
+        }
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
+        self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
     }
 }
@@ -742,7 +753,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 24,
+            "protocolVersion": 25,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -2119,14 +2130,16 @@ fn profile_activation_capability_error(id: Value) -> Value {
 }
 
 async fn profile_rpc_snapshot(state: &ProtocolState) -> Result<Value, ProfileServiceError> {
+    let ticket = state.runtime.begin_profile_snapshot();
     let Some(service) = &state.profile_service else {
         return Err(ProfileServiceError::Repository(RepositoryError::NotFound));
     };
-    let snapshot = if let Some(activation) = &state.profile_activation {
+    let mut snapshot = if let Some(activation) = &state.profile_activation {
         activation.managed_profile_snapshot().await?
     } else {
         crate::ManagedProfileSnapshot::unavailable(service.snapshot()?)
     };
+    state.runtime.stamp_profile_snapshot(ticket, &mut snapshot);
     Ok(serde_json::to_value(snapshot).expect("serializable managed profile snapshot"))
 }
 

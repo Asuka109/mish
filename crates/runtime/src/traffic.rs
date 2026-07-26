@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::StatusAdapterKind;
+use crate::{ApplicationSnapshotOrder, StatusAdapterKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -60,6 +60,7 @@ pub struct EffectiveRule {
 pub struct TrafficDataSnapshot {
     pub active_connections: Vec<TrafficConnection>,
     pub adapter_kind: StatusAdapterKind,
+    pub application_order: ApplicationSnapshotOrder,
     pub phase: TrafficDataPhase,
     pub profile_id: String,
     pub reconnect_count: u64,
@@ -73,6 +74,7 @@ impl TrafficDataSnapshot {
         Self {
             active_connections: Vec::new(),
             adapter_kind,
+            application_order: ApplicationSnapshotOrder::detached(),
             phase: TrafficDataPhase::Unavailable,
             profile_id: "local".into(),
             reconnect_count: 0,

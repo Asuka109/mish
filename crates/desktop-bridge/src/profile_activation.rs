@@ -128,6 +128,7 @@ pub struct ProfileActivationSnapshot {
 pub struct ManagedProfileSnapshot {
     pub activation: ProfileActivationSnapshot,
     pub adapter_kind: ProfileAdapterKind,
+    pub application_order: mish_runtime::ApplicationSnapshotOrder,
     pub capabilities: ProfileCapabilities,
     pub profiles: Vec<ProfileListItem>,
     pub providers: ProviderSnapshot,
@@ -139,6 +140,7 @@ impl ManagedProfileSnapshot {
         Self {
             activation: ProfileActivationSnapshot::unavailable(),
             adapter_kind: snapshot.adapter_kind,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
             providers: ProviderSnapshot::unavailable(),
@@ -1056,6 +1058,7 @@ impl ProfileActivationCoordinator {
         Ok(ManagedProfileSnapshot {
             activation,
             adapter_kind: snapshot.adapter_kind,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
             providers: self.host.provider_snapshot(),
