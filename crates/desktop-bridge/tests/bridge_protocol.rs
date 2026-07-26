@@ -1698,7 +1698,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 24);
+    assert_eq!(info["result"]["protocolVersion"], 25);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
@@ -2486,6 +2486,7 @@ async fn capture_pending_is_shared_and_rejects_a_second_client_command() {
         .unwrap();
     platform.apply_started.notified().await;
 
+    let mut pending_operations = Vec::new();
     for socket in [&mut first, &mut second] {
         let Message::Text(message) = socket.next().await.unwrap().unwrap() else {
             panic!("expected pending status notification")
@@ -2495,7 +2496,10 @@ async fn capture_pending_is_shared_and_rejects_a_second_client_command() {
             notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
             "pending"
         );
+        pending_operations
+            .push(notification["params"]["snapshot"]["runtime"]["captureOperation"].clone());
     }
+    assert_eq!(pending_operations[0], pending_operations[1]);
 
     let duplicate = request(
         &mut second,
@@ -2547,6 +2551,18 @@ async fn capture_pending_is_shared_and_rejects_a_second_client_command() {
         }
     };
     assert_eq!(second_applied["runtime"]["systemProxy"]["phase"], "applied");
+    assert_eq!(
+        first_applied["runtime"]["captureOperation"],
+        second_applied["runtime"]["captureOperation"]
+    );
+    assert_eq!(
+        first_applied["runtime"]["captureOperation"]["operationId"],
+        pending_operations[0]["operationId"]
+    );
+    assert_eq!(
+        first_applied["runtime"]["captureOperation"]["phase"],
+        "applied"
+    );
     assert_eq!(
         first_applied["recentTraffic"],
         second_applied["recentTraffic"]
@@ -2707,6 +2723,15 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
         .await
         .unwrap();
 
+    let Message::Text(audit_pending_notification) = ws.next().await.unwrap().unwrap() else {
+        panic!("expected audit pending status notification")
+    };
+    let audit_pending_notification: Value =
+        serde_json::from_str(&audit_pending_notification).unwrap();
+    assert_eq!(
+        audit_pending_notification["params"]["snapshot"]["runtime"]["captureOperation"]["phase"],
+        "pending"
+    );
     let Message::Text(drift_notification) = ws.next().await.unwrap().unwrap() else {
         panic!("expected drift status notification")
     };
@@ -2714,6 +2739,14 @@ async fn capture_recovery_rpc_exposes_drift_and_honors_leave_as_is() {
     assert_eq!(
         drift_notification["params"]["snapshot"]["runtime"]["systemProxy"]["phase"],
         "drift"
+    );
+    assert_eq!(
+        drift_notification["params"]["snapshot"]["runtime"]["captureOperation"]["phase"],
+        "recovery-required"
+    );
+    assert_eq!(
+        drift_notification["params"]["snapshot"]["runtime"]["captureOperation"]["operationId"],
+        audit_pending_notification["params"]["snapshot"]["runtime"]["captureOperation"]["operationId"]
     );
     assert!(
         !drift_notification

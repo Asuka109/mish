@@ -179,6 +179,20 @@ samples. Remounts, reconnects, and simultaneous clients consume the same
 snapshot; stale or duplicate same-authority revisions cannot regress the Web
 projection. React derives only sparkline arrays and local animation.
 
+Status protocol version 25 adds `RuntimeStatusDto.captureOperation` as the
+aggregate capture transition envelope. Rust allocates a non-zero, bounded
+decimal `operationId` when an aggregate command is admitted and binds it to one
+opaque `scopeEpoch` owned by the capture reconciler. The envelope publishes
+`idle`, `pending`, `applied`, `failed`, or `recovery-required`; the same
+operation ID remains attached from pending through its terminal projection and
+is retained for reconnect baselines. A terminal ID is retired only when the
+same scope admits its next operation; replacing the capture scope starts a new
+epoch in idle state. Native and RPC adapters project this envelope unchanged,
+and Web readers compare IDs only within one epoch, reject a delayed pending or
+older terminal projection, and reject projections from a retired epoch.
+`captureOperation` is transition identity only and does not alter the nested
+`recentTraffic` authority, session, totals, cadence, retention, or revision.
+
 The canonical ownership, lifecycle, privacy, and retention contract is defined in
 [`runtime-state-ownership.md`](runtime-state-ownership.md). The detailed Traffic
 workspace deliberately retains its independent Controller source session and

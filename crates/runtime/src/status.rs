@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CaptureRuntimeStatus, CorePhase, CoreStatus, RecentTrafficSnapshot, SystemProxyRuntimeStatus,
-    TunRuntimeStatus,
+    CaptureOperationStatus, CaptureRuntimeStatus, CorePhase, CoreStatus, RecentTrafficSnapshot,
+    SystemProxyRuntimeStatus, TunRuntimeStatus,
 };
 
 pub const STATUS_TRAFFIC_SERIES_LIMIT: usize = 512;
@@ -137,6 +137,7 @@ pub struct CaptureSelection {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {
+    pub capture_operation: CaptureOperationStatus,
     pub capture_selection: CaptureSelection,
     pub message: String,
     pub phase: RuntimePhase,
@@ -157,6 +158,7 @@ impl RuntimeStatus {
         };
         let capture = CaptureRuntimeStatus::off();
         Self {
+            capture_operation: capture.capture_operation,
             capture_selection,
             message: core
                 .error

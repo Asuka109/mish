@@ -105,6 +105,11 @@ function createSnapshot() {
     },
     routingMode: "rule",
     runtime: {
+      captureOperation: {
+        operationId: null,
+        phase: "idle",
+        scopeEpoch: "rpc-client-test-capture-scope",
+      },
       captureSelection: { systemProxy: false, tun: false },
       message: "Ready",
       phase: "healthy",

@@ -721,6 +721,11 @@ async function createRpcSnapshot(sparse = false) {
   snapshot.adapterKind = "rpc";
   snapshot.capabilities = { systemProxy: "unavailable", tun: "unavailable" };
   snapshot.runtime = {
+    captureOperation: {
+      operationId: "1",
+      phase: "applied",
+      scopeEpoch: "app-test-capture-scope",
+    },
     captureSelection: { systemProxy: true, tun: false },
     message: "Mihomo is stopped",
     phase: "inactive",

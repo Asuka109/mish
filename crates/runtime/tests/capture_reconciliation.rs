@@ -6,15 +6,89 @@ use std::{
 use futures_util::future::{BoxFuture, ready};
 use mish_runtime::{
     CapabilityAvailability, CaptureAuditReason, CaptureConfirmationWindow, CaptureJournal,
-    CaptureJournalStore, CapturePlatform, CaptureReconciler, CaptureRecoveryAction, CaptureRequest,
-    CaptureSelection, CaptureTransitionError, LocalProxyTestPhase, LoopbackProxyEndpoint,
-    ManualProxyState, NetworkServiceProxyState, SystemProxyObservedState, SystemProxyPhase,
-    SystemProxyTakeoverPolicy, SystemProxyTakeoverRejection, TUN_HELPER_EXPECTED_VERSION,
-    TunHelperAvailability, TunHelperController, TunHelperError, TunHelperFailureKind,
-    TunHelperHealth, TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation,
-    TunHelperPlatform, TunHelperSnapshot, TunNetworkObservation, TunObservationComponentState,
-    TunObservedState, TunPhase, tun_observation_now,
+    CaptureJournalStore, CaptureOperationPhase, CapturePlatform, CaptureReconciler,
+    CaptureRecoveryAction, CaptureRequest, CaptureSelection, CaptureTransitionError,
+    LocalProxyTestPhase, LoopbackProxyEndpoint, ManualProxyState, NetworkServiceProxyState,
+    SystemProxyObservedState, SystemProxyPhase, SystemProxyTakeoverPolicy,
+    SystemProxyTakeoverRejection, TUN_HELPER_EXPECTED_VERSION, TunHelperAvailability,
+    TunHelperController, TunHelperError, TunHelperFailureKind, TunHelperHealth,
+    TunHelperLifecycleOperation, TunHelperLifecyclePhase, TunHelperObservation, TunHelperPlatform,
+    TunHelperSnapshot, TunNetworkObservation, TunObservationComponentState, TunObservedState,
+    TunPhase, tun_observation_now,
 };
+
+#[tokio::test]
+async fn aggregate_operations_publish_one_scope_order_from_pending_through_terminal() {
+    let reconciler = CaptureReconciler::new(
+        Arc::new(FakePlatform::new(disabled_service())),
+        Arc::new(MemoryJournalStore::default()),
+        LoopbackProxyEndpoint::managed(),
+    );
+    let mut updates = reconciler.subscribe();
+    let scope_epoch = reconciler.status().capture_operation.scope_epoch;
+    assert_eq!(
+        reconciler.status().capture_operation.phase,
+        CaptureOperationPhase::Idle
+    );
+
+    let applied = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let pending = updates.recv().await.unwrap();
+    let terminal = updates.recv().await.unwrap();
+    assert_eq!(
+        pending.capture_operation.phase,
+        CaptureOperationPhase::Pending
+    );
+    assert_eq!(
+        terminal.capture_operation.phase,
+        CaptureOperationPhase::Applied
+    );
+    assert_eq!(pending.capture_operation.scope_epoch, scope_epoch);
+    assert_eq!(
+        pending.capture_operation.operation_id,
+        terminal.capture_operation.operation_id
+    );
+    assert_eq!(applied.capture_operation, terminal.capture_operation);
+
+    let stopped = reconciler
+        .reconcile(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let next_pending = updates.recv().await.unwrap();
+    let next_terminal = updates.recv().await.unwrap();
+    assert_eq!(
+        next_pending.capture_operation.operation_id.as_deref(),
+        Some("2")
+    );
+    assert_eq!(
+        next_terminal.capture_operation.operation_id,
+        next_pending.capture_operation.operation_id
+    );
+    assert_eq!(
+        stopped.capture_operation.phase,
+        CaptureOperationPhase::Applied
+    );
+}
 
 struct FakeTunHelper {
     fail_enable: Mutex<bool>,
@@ -1025,6 +1099,10 @@ async fn rollback_failure_is_persisted_as_explicit_recoverable_drift() {
         .unwrap_err();
 
     assert_eq!(error.kind, mish_runtime::CaptureFailureKind::RollbackFailed);
+    assert_eq!(
+        reconciler.status().capture_operation.phase,
+        CaptureOperationPhase::RecoveryRequired
+    );
     assert_eq!(
         reconciler.status().system_proxy.phase,
         SystemProxyPhase::Drift

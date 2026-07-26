@@ -572,13 +572,16 @@ async fn failed_restart_recovery_is_typed_and_never_published_as_applied() {
 async fn pending_aggregate_launch_does_not_commit_a_transient_capture_failure() {
     let fixture = fixture(Arc::new(RecordingSource::new()));
     fixture.platform.set_listener_ready(false);
-    fixture.runtime.publish_capture_pending(&CaptureRequest {
-        active: true,
-        selection: CaptureSelection {
-            system_proxy: true,
-            tun: false,
-        },
-    });
+    let _operation = fixture
+        .runtime
+        .publish_capture_pending(&CaptureRequest {
+            active: true,
+            selection: CaptureSelection {
+                system_proxy: true,
+                tun: false,
+            },
+        })
+        .unwrap();
 
     let error = fixture
         .coordinator
@@ -586,9 +589,16 @@ async fn pending_aggregate_launch_does_not_commit_a_transient_capture_failure() 
         .await
         .unwrap_err();
 
+    assert_eq!(error.capture_failure, CaptureFailureKind::RuntimeTransition);
     assert_eq!(
-        error.capture_failure,
-        CaptureFailureKind::ListenerUnavailable
+        fixture
+            .runtime
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await
+            .runtime
+            .capture_operation
+            .phase,
+        mish_runtime::CaptureOperationPhase::Pending
     );
     assert!(
         fixture
