@@ -274,19 +274,32 @@ Controller secrets. The manager then:
 7. records only profile ID, fingerprint, outcome, and a closed failure category,
    and publishes a bounded application diagnostic built from that category.
 
-The coordinator publishes a typed idle, pending, success, or failure snapshot.
-Command IDs are idempotent, concurrent requests for the same target are
-deduplicated, and pending activation supports explicit cancellation plus the
-manager readiness deadline. Capture restoration has its own `capture` failure
-category so the Web client does not discard that notification or replace it
-with a generic activation error. Diagnostic guidance is selected from closed
-failure categories and never includes a source URL, profile label, generated
+The coordinator owns one data-bearing Rust activation enum. Its legal variants
+cover idle, pending, success, typed failure, cancellation, rollback
+success/failure, retry, and shutdown. Pending and terminal command variants
+always carry the command ID, target Profile, coordinator authority scope, and
+monotonic command revision. The pending variant owns its cancellation token;
+typed terminal variants own their matching evidence. A completion must match
+the complete command scope, so a stale terminal result cannot replace a newer
+retry even if a command ID is reused.
+
+One exhaustive Adapter projects the enum into the existing public idle,
+pending, success, or failure DTO. Shared contract refinements reject missing
+pending identity, success with failure evidence, mismatched GeoData or listener
+evidence, and inconsistent active/safe-stopped identity. This strengthening
+does not change the public field shape or protocol version. Command IDs remain
+idempotent, concurrent requests for the same target are deduplicated, and
+pending activation supports explicit cancellation plus the manager readiness
+deadline. Capture restoration has its own `capture` failure category so the Web
+client does not discard that notification or replace it with a generic
+activation error. Diagnostic guidance is selected from closed failure
+categories and never includes a source URL, profile label, generated
 configuration, Controller credential, or arbitrary backend error text.
-`DesktopRuntimeHost` replaces the active
-`MishRuntime` only after the managed activation transaction commits, so Status,
-Traffic, and the active-profile projection cross the same boundary. Status,
-Traffic, and Profiles subscriptions all resample authoritative state after a
-runtime change or reconnect.
+`DesktopRuntimeHost` replaces the active `MishRuntime` and the manager completes
+the runtime handoff before the activation success variant is published, so
+Status, Traffic, and the active-profile projection cross the same boundary.
+Status, Traffic, and Profiles subscriptions all resample authoritative state
+after a runtime change or reconnect.
 
 The desktop starts with the recorded `safe-stopped` policy. It does not infer,
 import, or automatically restore a private profile, and activation never enables

@@ -2889,6 +2889,31 @@ async fn duplicate_profile_activation_is_deduplicated_and_cancellable() {
         Some(mish_bridge::ProfileActivationFailure::Cancelled)
     );
     assert!(completed.safe_stopped);
+
+    let retry_command = Uuid::new_v4().to_string();
+    let retry = coordinator
+        .activate(&retry_command, record.metadata.id.as_str())
+        .await
+        .unwrap();
+    assert_eq!(retry.phase, ProfileActivationPhase::Pending);
+    assert_eq!(retry.command_id.as_deref(), Some(retry_command.as_str()));
+    assert_eq!(retry.target_profile_id, first.target_profile_id);
+    assert_eq!(retry.failure, None);
+    coordinator.cancel(&retry_command).await.unwrap();
+    let retry_completed = loop {
+        updates.recv().await.unwrap();
+        let snapshot = coordinator.activation_snapshot().await;
+        if snapshot.command_id.as_deref() == Some(retry_command.as_str())
+            && snapshot.phase != ProfileActivationPhase::Pending
+        {
+            break snapshot;
+        }
+    };
+    assert_eq!(
+        retry_completed.failure,
+        Some(mish_bridge::ProfileActivationFailure::Cancelled)
+    );
+    coordinator.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -3269,6 +3294,83 @@ async fn cancellation_stops_the_candidate_without_committing_a_profile() {
     );
     assert_eq!(candidate_count(&root), 0);
     assert!(root.join("runtime/mihomo/home").is_dir());
+}
+
+#[tokio::test]
+async fn cancellation_before_state_commit_restores_the_previous_runtime() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-commit-cancelled-{}", Uuid::new_v4()));
+    let platform = Arc::new(CommitBarrierCapturePlatform::default());
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(5)),
+        Some(capture),
+    ));
+    let prior = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    let candidate = profile_record(b"proxies: []\nrules: [MATCH,REJECT]\n");
+    let policy =
+        ManagedRuntimePolicy::new(controller.address, "commit-cancellation-secret").unwrap();
+
+    manager.activate(&prior, &policy).await.unwrap();
+    manager
+        .active_runtime()
+        .await
+        .unwrap()
+        .set_capture(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        )
+        .await
+        .unwrap();
+
+    platform.block_next_resume();
+    let cancellation = CancellationToken::new();
+    let activating_manager = manager.clone();
+    let activating_policy =
+        ManagedRuntimePolicy::new(controller.address, "commit-cancellation-secret").unwrap();
+    let activating_cancellation = cancellation.clone();
+    let activation = tokio::spawn(async move {
+        activating_manager
+            .activate_cancellable(&candidate, &activating_policy, activating_cancellation)
+            .await
+    });
+    timeout(Duration::from_secs(5), platform.resume_started.notified())
+        .await
+        .expect("candidate capture resume did not reach the pre-commit barrier");
+    cancellation.cancel();
+    platform.release_resume.notify_waiters();
+
+    assert_eq!(
+        activation.await.unwrap().unwrap_err(),
+        MihomoActivationError::Cancelled
+    );
+    let managed = manager.managed_state().await;
+    assert_eq!(
+        managed.active_profile_id(),
+        Some(prior.metadata.id.as_str())
+    );
+    assert_eq!(
+        managed.last_attempt().unwrap().failure(),
+        Some(ActivationFailureKind::Cancelled)
+    );
+    assert_eq!(candidate_count(&root), 1);
+
+    manager.shutdown().await.unwrap();
+    controller.shutdown().await;
 }
 
 #[tokio::test]
@@ -3864,6 +3966,61 @@ impl CapturePlatform for MemoryCapturePlatform {
     ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
         *self.0.lock().unwrap() = target;
         Box::pin(ready(Ok(())))
+    }
+}
+
+struct CommitBarrierCapturePlatform {
+    block_resume: AtomicBool,
+    release_resume: Notify,
+    resume_started: Notify,
+    state: std::sync::Mutex<NetworkServiceProxyState>,
+}
+
+impl Default for CommitBarrierCapturePlatform {
+    fn default() -> Self {
+        Self {
+            block_resume: AtomicBool::new(false),
+            release_resume: Notify::new(),
+            resume_started: Notify::new(),
+            state: std::sync::Mutex::new(disabled_capture_service()),
+        }
+    }
+}
+
+impl CommitBarrierCapturePlatform {
+    fn block_next_resume(&self) {
+        self.block_resume.store(true, Ordering::Release);
+    }
+}
+
+impl CapturePlatform for CommitBarrierCapturePlatform {
+    fn observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn observe_service(
+        &self,
+        _service_id: &str,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        Box::pin(ready(Ok(self.state.lock().unwrap().clone())))
+    }
+
+    fn apply_service(
+        &self,
+        target: NetworkServiceProxyState,
+    ) -> BoxFuture<'_, Result<(), CaptureTransitionError>> {
+        Box::pin(async move {
+            if target.is_mish_endpoint(&LoopbackProxyEndpoint::managed())
+                && self.block_resume.swap(false, Ordering::AcqRel)
+            {
+                self.resume_started.notify_one();
+                self.release_resume.notified().await;
+            }
+            *self.state.lock().unwrap() = target;
+            Ok(())
+        })
     }
 }
 

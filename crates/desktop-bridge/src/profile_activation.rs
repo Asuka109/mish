@@ -153,22 +153,636 @@ impl ManagedProfileSnapshot {
 
 impl ProfileActivationSnapshot {
     pub fn unavailable() -> Self {
+        ProfileActivationState::Shutdown {
+            scope: ProfileActivationScope::new(),
+        }
+        .to_snapshot(ProfileActivationAvailability::Unavailable)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ProfileActivationScope {
+    authority_id: Uuid,
+    revision: u64,
+}
+
+impl ProfileActivationScope {
+    fn new() -> Self {
         Self {
-            active_fingerprint: None,
-            active_profile_id: None,
+            authority_id: Uuid::new_v4(),
+            revision: 0,
+        }
+    }
+
+    fn next(&self) -> Self {
+        Self {
+            authority_id: self.authority_id,
+            revision: self
+                .revision
+                .checked_add(1)
+                .expect("Profile activation revision exhausted"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ProfileActivationRuntime {
+    SafeStopped,
+    Active {
+        fingerprint: String,
+        profile_id: String,
+    },
+}
+
+impl ProfileActivationRuntime {
+    fn active_profile_id(&self) -> Option<&str> {
+        match self {
+            Self::SafeStopped => None,
+            Self::Active { profile_id, .. } => Some(profile_id),
+        }
+    }
+
+    fn fingerprint(&self) -> Option<&str> {
+        match self {
+            Self::SafeStopped => None,
+            Self::Active { fingerprint, .. } => Some(fingerprint),
+        }
+    }
+
+    fn is_safe_stopped(&self) -> bool {
+        matches!(self, Self::SafeStopped)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ProfileActivationCommand {
+    attempted_at: u64,
+    command_id: String,
+    operation: ProfileActivationOperation,
+    scope: ProfileActivationScope,
+    target_profile_id: String,
+}
+
+#[derive(Clone, Debug)]
+struct ProfileActivationPending {
+    cancellation: CancellationToken,
+    command: ProfileActivationCommand,
+    evidence: Option<ProfileActivationEvidence>,
+    runtime: ProfileActivationRuntime,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ProfileActivationFailureEvidence {
+    InvalidProfile,
+    MissingBinary,
+    UnsafeRuntime,
+    Staging,
+    Validation,
+    GeodataFailed(crate::GeodataAsset),
+    GeodataTimeout(crate::GeodataAsset),
+    Start,
+    EarlyExit,
+    ManagedListenerConflict(String),
+    VersionMismatch,
+    Controller,
+    Timeout,
+    Capture,
+    PriorStop,
+    StateCommit,
+}
+
+impl ProfileActivationFailureEvidence {
+    fn failure(&self) -> ProfileActivationFailure {
+        match self {
+            Self::InvalidProfile => ProfileActivationFailure::InvalidProfile,
+            Self::MissingBinary => ProfileActivationFailure::MissingBinary,
+            Self::UnsafeRuntime => ProfileActivationFailure::UnsafeRuntime,
+            Self::Staging => ProfileActivationFailure::Staging,
+            Self::Validation => ProfileActivationFailure::Validation,
+            Self::GeodataFailed(_) => ProfileActivationFailure::GeodataFailed,
+            Self::GeodataTimeout(_) => ProfileActivationFailure::GeodataTimeout,
+            Self::Start => ProfileActivationFailure::Start,
+            Self::EarlyExit => ProfileActivationFailure::EarlyExit,
+            Self::ManagedListenerConflict(_) => ProfileActivationFailure::ManagedListenerConflict,
+            Self::VersionMismatch => ProfileActivationFailure::VersionMismatch,
+            Self::Controller => ProfileActivationFailure::Controller,
+            Self::Timeout => ProfileActivationFailure::Timeout,
+            Self::Capture => ProfileActivationFailure::Capture,
+            Self::PriorStop => ProfileActivationFailure::PriorStop,
+            Self::StateCommit => ProfileActivationFailure::StateCommit,
+        }
+    }
+
+    fn evidence(&self) -> Option<ProfileActivationEvidence> {
+        match self {
+            Self::GeodataFailed(asset) => Some(ProfileActivationEvidence {
+                asset: *asset,
+                kind: ProfileActivationEvidenceKind::GeodataFailed,
+            }),
+            Self::GeodataTimeout(asset) => Some(ProfileActivationEvidence {
+                asset: *asset,
+                kind: ProfileActivationEvidenceKind::GeodataTimeout,
+            }),
+            _ => None,
+        }
+    }
+
+    fn failure_endpoint(&self) -> Option<&str> {
+        match self {
+            Self::ManagedListenerConflict(endpoint) => Some(endpoint),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ProfileActivationRetryEvidence {
+    Failure(ProfileActivationFailureEvidence),
+    Cancelled,
+    RollbackSucceeded,
+    RollbackFailed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProfileActivationStateKind {
+    Idle,
+    Pending,
+    Succeeded,
+    Failed,
+    Cancelled,
+    RollbackSucceeded,
+    RollbackFailed,
+    Retrying,
+    ShuttingDown,
+    Shutdown,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ProfileActivationTransition {
+    Begin,
+    Retry,
+    Succeed,
+    Fail,
+    Cancel,
+    RollbackSucceed,
+    RollbackFail,
+    Shutdown,
+    ShutdownComplete,
+    ShutdownFail,
+}
+
+#[derive(Clone, Debug)]
+enum ProfileActivationState {
+    Idle {
+        scope: ProfileActivationScope,
+    },
+    Pending(ProfileActivationPending),
+    Succeeded {
+        command: ProfileActivationCommand,
+        runtime: ProfileActivationRuntime,
+    },
+    Failed {
+        command: ProfileActivationCommand,
+        evidence: ProfileActivationFailureEvidence,
+        runtime: ProfileActivationRuntime,
+    },
+    Cancelled {
+        command: ProfileActivationCommand,
+        runtime: ProfileActivationRuntime,
+    },
+    RollbackSucceeded {
+        command: ProfileActivationCommand,
+    },
+    RollbackFailed {
+        command: ProfileActivationCommand,
+        runtime: ProfileActivationRuntime,
+    },
+    Retrying {
+        pending: ProfileActivationPending,
+        previous: ProfileActivationRetryEvidence,
+    },
+    ShuttingDown {
+        command: ProfileActivationCommand,
+        runtime: ProfileActivationRuntime,
+        terminal: bool,
+    },
+    ShuttingDownIdle {
+        scope: ProfileActivationScope,
+        terminal: bool,
+    },
+    Shutdown {
+        scope: ProfileActivationScope,
+    },
+}
+
+impl ProfileActivationState {
+    fn idle() -> Self {
+        Self::Idle {
+            scope: ProfileActivationScope::new(),
+        }
+    }
+
+    fn kind(&self) -> ProfileActivationStateKind {
+        match self {
+            Self::Idle { .. } => ProfileActivationStateKind::Idle,
+            Self::Pending(_) => ProfileActivationStateKind::Pending,
+            Self::Succeeded { .. } => ProfileActivationStateKind::Succeeded,
+            Self::Failed { .. } => ProfileActivationStateKind::Failed,
+            Self::Cancelled { .. } => ProfileActivationStateKind::Cancelled,
+            Self::RollbackSucceeded { .. } => ProfileActivationStateKind::RollbackSucceeded,
+            Self::RollbackFailed { .. } => ProfileActivationStateKind::RollbackFailed,
+            Self::Retrying { .. } => ProfileActivationStateKind::Retrying,
+            Self::ShuttingDown { .. } | Self::ShuttingDownIdle { .. } => {
+                ProfileActivationStateKind::ShuttingDown
+            }
+            Self::Shutdown { .. } => ProfileActivationStateKind::Shutdown,
+        }
+    }
+
+    fn allows(&self, transition: ProfileActivationTransition) -> bool {
+        use ProfileActivationStateKind as State;
+        use ProfileActivationTransition as Transition;
+
+        matches!(
+            (self.kind(), transition),
+            (
+                State::Idle | State::Succeeded,
+                Transition::Begin | Transition::Shutdown
+            ) | (
+                State::Failed | State::Cancelled | State::RollbackSucceeded | State::RollbackFailed,
+                Transition::Begin | Transition::Retry | Transition::Shutdown
+            ) | (
+                State::Pending | State::Retrying,
+                Transition::Succeed | Transition::Fail | Transition::Cancel
+            ) | (
+                State::Succeeded,
+                Transition::RollbackSucceed | Transition::RollbackFail
+            ) | (
+                State::ShuttingDown,
+                Transition::ShutdownComplete | Transition::ShutdownFail
+            )
+        )
+    }
+
+    fn scope(&self) -> &ProfileActivationScope {
+        match self {
+            Self::Idle { scope }
+            | Self::ShuttingDownIdle { scope, .. }
+            | Self::Shutdown { scope } => scope,
+            Self::Pending(pending) => &pending.command.scope,
+            Self::Succeeded { command, .. }
+            | Self::Failed { command, .. }
+            | Self::Cancelled { command, .. }
+            | Self::RollbackSucceeded { command }
+            | Self::RollbackFailed { command, .. }
+            | Self::ShuttingDown { command, .. } => &command.scope,
+            Self::Retrying { pending, .. } => &pending.command.scope,
+        }
+    }
+
+    fn runtime(&self) -> ProfileActivationRuntime {
+        match self {
+            Self::Idle { .. }
+            | Self::RollbackSucceeded { .. }
+            | Self::ShuttingDownIdle { .. }
+            | Self::Shutdown { .. } => ProfileActivationRuntime::SafeStopped,
+            Self::Pending(pending) | Self::Retrying { pending, .. } => pending.runtime.clone(),
+            Self::Succeeded { runtime, .. }
+            | Self::Failed { runtime, .. }
+            | Self::Cancelled { runtime, .. }
+            | Self::RollbackFailed { runtime, .. }
+            | Self::ShuttingDown { runtime, .. } => runtime.clone(),
+        }
+    }
+
+    fn pending(&self) -> Option<&ProfileActivationPending> {
+        match self {
+            Self::Pending(pending) | Self::Retrying { pending, .. } => Some(pending),
+            _ => None,
+        }
+    }
+
+    fn is_pending(&self) -> bool {
+        self.pending().is_some()
+    }
+
+    fn retry_evidence(
+        &self,
+        operation: ProfileActivationOperation,
+        target_profile_id: &str,
+    ) -> Option<ProfileActivationRetryEvidence> {
+        let matches_target = |command: &ProfileActivationCommand| {
+            command.operation == operation && command.target_profile_id == target_profile_id
+        };
+        match self {
+            Self::Failed {
+                command, evidence, ..
+            } if matches_target(command) => {
+                Some(ProfileActivationRetryEvidence::Failure(evidence.clone()))
+            }
+            Self::Cancelled { command, .. } if matches_target(command) => {
+                Some(ProfileActivationRetryEvidence::Cancelled)
+            }
+            Self::RollbackSucceeded { command } if matches_target(command) => {
+                Some(ProfileActivationRetryEvidence::RollbackSucceeded)
+            }
+            Self::RollbackFailed { command, .. } if matches_target(command) => {
+                Some(ProfileActivationRetryEvidence::RollbackFailed)
+            }
+            _ => None,
+        }
+    }
+
+    fn begin(
+        &mut self,
+        command_id: &str,
+        operation: ProfileActivationOperation,
+        target_profile_id: &str,
+        attempted_at: u64,
+        cancellation: CancellationToken,
+    ) -> Result<ProfileActivationCommand, ()> {
+        let retry = self.retry_evidence(operation, target_profile_id);
+        let transition = if retry.is_some() {
+            ProfileActivationTransition::Retry
+        } else {
+            ProfileActivationTransition::Begin
+        };
+        if !self.allows(transition) {
+            return Err(());
+        }
+        let command = ProfileActivationCommand {
+            attempted_at,
+            command_id: command_id.to_owned(),
+            operation,
+            scope: self.scope().next(),
+            target_profile_id: target_profile_id.to_owned(),
+        };
+        let pending = ProfileActivationPending {
+            cancellation,
+            command: command.clone(),
+            evidence: None,
+            runtime: self.runtime(),
+        };
+        *self = match retry {
+            Some(previous) => Self::Retrying { pending, previous },
+            None => Self::Pending(pending),
+        };
+        Ok(command)
+    }
+
+    fn complete(
+        &mut self,
+        expected: &ProfileActivationCommand,
+        completion: ProfileActivationCompletion,
+    ) -> bool {
+        let Some(pending) = self.pending() else {
+            return false;
+        };
+        if pending.command != *expected {
+            return false;
+        }
+        let transition = completion.transition();
+        if !self.allows(transition) {
+            return false;
+        }
+        let command = pending.command.clone();
+        *self = match completion {
+            ProfileActivationCompletion::Succeeded(runtime) => {
+                if !success_matches_command(&command, &runtime) {
+                    return false;
+                }
+                Self::Succeeded { command, runtime }
+            }
+            ProfileActivationCompletion::Failed { evidence, runtime } => Self::Failed {
+                command,
+                evidence,
+                runtime,
+            },
+            ProfileActivationCompletion::Cancelled(runtime) => Self::Cancelled { command, runtime },
+        };
+        true
+    }
+
+    fn complete_rollback(
+        &mut self,
+        command_id: &str,
+        runtime: Option<ProfileActivationRuntime>,
+    ) -> bool {
+        let Self::Succeeded {
+            command,
+            runtime: _,
+        } = self
+        else {
+            return false;
+        };
+        if command.command_id != command_id
+            || command.operation != ProfileActivationOperation::Activate
+        {
+            return false;
+        }
+        let command = command.clone();
+        let transition = if runtime.is_some() {
+            ProfileActivationTransition::RollbackFail
+        } else {
+            ProfileActivationTransition::RollbackSucceed
+        };
+        if !self.allows(transition) {
+            return false;
+        }
+        *self = match runtime {
+            Some(runtime) => Self::RollbackFailed { command, runtime },
+            None => Self::RollbackSucceeded { command },
+        };
+        true
+    }
+
+    fn begin_shutdown(
+        &mut self,
+        terminal: bool,
+        attempted_at: u64,
+    ) -> Result<ProfileActivationState, ()> {
+        if !self.allows(ProfileActivationTransition::Shutdown) {
+            return Err(());
+        }
+        let previous = self.clone();
+        let scope = self.scope().next();
+        *self = match self.runtime() {
+            ProfileActivationRuntime::SafeStopped => Self::ShuttingDownIdle { scope, terminal },
+            ProfileActivationRuntime::Active {
+                fingerprint,
+                profile_id,
+            } => Self::ShuttingDown {
+                command: ProfileActivationCommand {
+                    attempted_at,
+                    command_id: Uuid::new_v4().to_string(),
+                    operation: ProfileActivationOperation::Stop,
+                    scope,
+                    target_profile_id: profile_id.clone(),
+                },
+                runtime: ProfileActivationRuntime::Active {
+                    fingerprint,
+                    profile_id,
+                },
+                terminal,
+            },
+        };
+        Ok(previous)
+    }
+
+    fn complete_shutdown(&mut self) -> bool {
+        if !self.allows(ProfileActivationTransition::ShutdownComplete) {
+            return false;
+        }
+        let (scope, terminal) = match self {
+            Self::ShuttingDown {
+                command, terminal, ..
+            } => (command.scope.clone(), *terminal),
+            Self::ShuttingDownIdle { scope, terminal } => (scope.clone(), *terminal),
+            _ => return false,
+        };
+        if !matches!(
+            self,
+            Self::ShuttingDown { .. } | Self::ShuttingDownIdle { .. }
+        ) {
+            return false;
+        }
+        *self = if terminal {
+            Self::Shutdown { scope }
+        } else {
+            Self::Idle { scope }
+        };
+        true
+    }
+
+    fn fail_shutdown(
+        &mut self,
+        previous: ProfileActivationState,
+        evidence: ProfileActivationFailureEvidence,
+        runtime: ProfileActivationRuntime,
+    ) -> bool {
+        if !self.allows(ProfileActivationTransition::ShutdownFail) {
+            return false;
+        }
+        *self = match self {
+            Self::ShuttingDown { command, .. } => Self::Failed {
+                command: command.clone(),
+                evidence,
+                runtime,
+            },
+            Self::ShuttingDownIdle { .. } => previous,
+            _ => return false,
+        };
+        true
+    }
+
+    fn to_snapshot(
+        &self,
+        availability: ProfileActivationAvailability,
+    ) -> ProfileActivationSnapshot {
+        let runtime = self.runtime();
+        let mut snapshot = ProfileActivationSnapshot {
+            active_fingerprint: runtime.fingerprint().map(str::to_owned),
+            active_profile_id: runtime.active_profile_id().map(str::to_owned),
             attempted_at: None,
-            availability: ProfileActivationAvailability::Unavailable,
+            availability,
             command_id: None,
             evidence: None,
             failure: None,
             failure_endpoint: None,
             operation: None,
             phase: ProfileActivationPhase::Idle,
-            safe_stopped: true,
+            safe_stopped: runtime.is_safe_stopped(),
             startup_policy: ProfileStartupPolicy::SafeStopped,
             target_profile_id: None,
+        };
+        match self {
+            Self::Idle { .. } => {}
+            Self::Pending(pending) => {
+                project_command(&mut snapshot, &pending.command);
+                snapshot.evidence = pending.evidence;
+                snapshot.phase = ProfileActivationPhase::Pending;
+            }
+            Self::Retrying { pending, previous } => {
+                let _retry_boundary = previous;
+                project_command(&mut snapshot, &pending.command);
+                snapshot.evidence = pending.evidence;
+                snapshot.phase = ProfileActivationPhase::Pending;
+            }
+            Self::Succeeded { command, .. } => {
+                project_command(&mut snapshot, command);
+                snapshot.phase = ProfileActivationPhase::Success;
+            }
+            Self::Failed {
+                command, evidence, ..
+            } => {
+                project_command(&mut snapshot, command);
+                snapshot.evidence = evidence.evidence();
+                snapshot.failure = Some(evidence.failure());
+                snapshot.failure_endpoint = evidence.failure_endpoint().map(str::to_owned);
+                snapshot.phase = ProfileActivationPhase::Failure;
+            }
+            Self::Cancelled { command, .. } => {
+                project_command(&mut snapshot, command);
+                snapshot.failure = Some(ProfileActivationFailure::Cancelled);
+                snapshot.phase = ProfileActivationPhase::Failure;
+            }
+            Self::RollbackSucceeded { command } | Self::RollbackFailed { command, .. } => {
+                project_command(&mut snapshot, command);
+                snapshot.failure = Some(ProfileActivationFailure::Capture);
+                snapshot.phase = ProfileActivationPhase::Failure;
+            }
+            Self::ShuttingDown { command, .. } => {
+                project_command(&mut snapshot, command);
+                snapshot.availability = ProfileActivationAvailability::Unavailable;
+                snapshot.phase = ProfileActivationPhase::Pending;
+            }
+            Self::ShuttingDownIdle { .. } | Self::Shutdown { .. } => {
+                snapshot.availability = ProfileActivationAvailability::Unavailable;
+            }
+        }
+        snapshot
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ProfileActivationCompletion {
+    Succeeded(ProfileActivationRuntime),
+    Failed {
+        evidence: ProfileActivationFailureEvidence,
+        runtime: ProfileActivationRuntime,
+    },
+    Cancelled(ProfileActivationRuntime),
+}
+
+impl ProfileActivationCompletion {
+    fn transition(&self) -> ProfileActivationTransition {
+        match self {
+            Self::Succeeded(_) => ProfileActivationTransition::Succeed,
+            Self::Failed { .. } => ProfileActivationTransition::Fail,
+            Self::Cancelled(_) => ProfileActivationTransition::Cancel,
         }
     }
+}
+
+fn success_matches_command(
+    command: &ProfileActivationCommand,
+    runtime: &ProfileActivationRuntime,
+) -> bool {
+    match (command.operation, runtime) {
+        (
+            ProfileActivationOperation::Activate,
+            ProfileActivationRuntime::Active { profile_id, .. },
+        ) => command.target_profile_id == *profile_id,
+        (ProfileActivationOperation::Stop, ProfileActivationRuntime::SafeStopped) => true,
+        _ => false,
+    }
+}
+
+fn project_command(snapshot: &mut ProfileActivationSnapshot, command: &ProfileActivationCommand) {
+    snapshot.attempted_at = Some(command.attempted_at);
+    snapshot.command_id = Some(command.command_id.clone());
+    snapshot.operation = Some(command.operation);
+    snapshot.target_profile_id = Some(command.target_profile_id.clone());
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -200,8 +814,7 @@ pub enum ProfileActivationShutdownFailure {
 
 struct CoordinatorState {
     busy_profiles: HashSet<String>,
-    cancellation: Option<CancellationToken>,
-    snapshot: ProfileActivationSnapshot,
+    activation: ProfileActivationState,
 }
 
 struct ProxyPreparationCancellation {
@@ -226,6 +839,7 @@ type PolicyFactory =
     dyn Fn() -> Result<ManagedRuntimePolicy, RuntimeConfigGenerationError> + Send + Sync;
 
 pub struct ProfileActivationCoordinator {
+    availability: ProfileActivationAvailability,
     authority: StateMutationAuthority,
     host: DesktopRuntimeHost,
     manager: Arc<MihomoActivationManager>,
@@ -259,6 +873,7 @@ impl ProfileActivationCoordinator {
         let availability = map_availability(manager.availability());
         let (updates, _) = broadcast::channel(32);
         Self {
+            availability,
             authority: profiles.mutation_authority(),
             host,
             manager,
@@ -273,22 +888,7 @@ impl ProfileActivationCoordinator {
             shutting_down: AtomicBool::new(false),
             state: Mutex::new(CoordinatorState {
                 busy_profiles: HashSet::new(),
-                cancellation: None,
-                snapshot: ProfileActivationSnapshot {
-                    active_fingerprint: None,
-                    active_profile_id: None,
-                    attempted_at: None,
-                    availability,
-                    command_id: None,
-                    evidence: None,
-                    failure: None,
-                    failure_endpoint: None,
-                    operation: None,
-                    phase: ProfileActivationPhase::Idle,
-                    safe_stopped: true,
-                    startup_policy: ProfileStartupPolicy::SafeStopped,
-                    target_profile_id: None,
-                },
+                activation: ProfileActivationState::idle(),
             }),
             updates,
         }
@@ -301,13 +901,14 @@ impl ProfileActivationCoordinator {
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
         let state = self.state.lock().await;
-        if state.snapshot.command_id.as_deref() == Some(command_id)
-            || (state.snapshot.phase == ProfileActivationPhase::Pending
-                && state.snapshot.target_profile_id.as_deref() == Some(profile_id))
+        let snapshot = state.activation.to_snapshot(self.availability);
+        if snapshot.command_id.as_deref() == Some(command_id)
+            || (snapshot.phase == ProfileActivationPhase::Pending
+                && snapshot.target_profile_id.as_deref() == Some(profile_id))
         {
-            return Ok(state.snapshot.clone());
+            return Ok(snapshot);
         }
-        if state.snapshot.phase == ProfileActivationPhase::Pending {
+        if snapshot.phase == ProfileActivationPhase::Pending {
             return Err(ProfileActivationCoordinatorError::Conflict);
         }
         drop(state);
@@ -326,7 +927,7 @@ impl ProfileActivationCoordinator {
         permit: Option<StateMutationPermit>,
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
-        let availability = self.activation_snapshot().await.availability;
+        let availability = self.availability;
         if availability != ProfileActivationAvailability::Available {
             self.reject_unavailable_activation(command_id, profile_id, availability)
                 .await;
@@ -334,49 +935,53 @@ impl ProfileActivationCoordinator {
         }
         {
             let state = self.state.lock().await;
-            if state.snapshot.command_id.as_deref() == Some(command_id)
-                || (state.snapshot.phase == ProfileActivationPhase::Pending
-                    && state.snapshot.target_profile_id.as_deref() == Some(profile_id))
+            let snapshot = state.activation.to_snapshot(self.availability);
+            if snapshot.command_id.as_deref() == Some(command_id)
+                || (snapshot.phase == ProfileActivationPhase::Pending
+                    && snapshot.target_profile_id.as_deref() == Some(profile_id))
             {
-                return Ok(state.snapshot.clone());
+                return Ok(snapshot);
             }
-            if state.snapshot.phase == ProfileActivationPhase::Pending {
+            if snapshot.phase == ProfileActivationPhase::Pending {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
         }
         let cancellation = CancellationToken::new();
-        let pending = {
+        let (command, pending) = {
             let mut state = self.state.lock().await;
-            if state.snapshot.command_id.as_deref() == Some(command_id) {
-                return Ok(state.snapshot.clone());
+            let snapshot = state.activation.to_snapshot(self.availability);
+            if snapshot.command_id.as_deref() == Some(command_id) {
+                return Ok(snapshot);
             }
-            if state.snapshot.phase == ProfileActivationPhase::Pending {
-                if state.snapshot.target_profile_id.as_deref() == Some(profile_id) {
-                    return Ok(state.snapshot.clone());
+            if snapshot.phase == ProfileActivationPhase::Pending {
+                if snapshot.target_profile_id.as_deref() == Some(profile_id) {
+                    return Ok(snapshot);
                 }
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
             if !state.busy_profiles.insert(profile_id.to_owned()) {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
-            state.cancellation = Some(cancellation.clone());
-            state.snapshot.command_id = Some(command_id.to_owned());
-            state.snapshot.attempted_at = Some(now_unix_milliseconds());
-            state.snapshot.failure = None;
-            state.snapshot.evidence = None;
-            state.snapshot.failure_endpoint = None;
-            state.snapshot.operation = Some(ProfileActivationOperation::Activate);
-            state.snapshot.phase = ProfileActivationPhase::Pending;
-            state.snapshot.target_profile_id = Some(profile_id.to_owned());
-            state.snapshot.clone()
+            let command = state
+                .activation
+                .begin(
+                    command_id,
+                    ProfileActivationOperation::Activate,
+                    profile_id,
+                    now_unix_milliseconds(),
+                    cancellation.clone(),
+                )
+                .map_err(|()| ProfileActivationCoordinatorError::Conflict)?;
+            let pending = state.activation.to_snapshot(self.availability);
+            (command, pending)
         };
         let _ = self.updates.send(pending.clone());
         let record = match self.profiles.activation_record(profile_id) {
             Ok(record) => record,
             Err(error) => {
                 self.finish_preflight_activation(
-                    command_id,
-                    ProfileActivationFailure::InvalidProfile,
+                    &command,
+                    ProfileActivationFailureEvidence::InvalidProfile,
                 )
                 .await;
                 return Err(error.into());
@@ -387,19 +992,21 @@ impl ProfileActivationCoordinator {
         let policy = match policy {
             Ok(policy) => policy,
             Err(error) => {
-                self.finish_preflight_activation(command_id, ProfileActivationFailure::StateCommit)
-                    .await;
+                self.finish_preflight_activation(
+                    &command,
+                    ProfileActivationFailureEvidence::StateCommit,
+                )
+                .await;
                 return Err(error);
             }
         };
         let coordinator = self.clone();
-        let command_id = command_id.to_owned();
         tokio::spawn(async move {
             let result = coordinator
                 .manager
                 .activate_cancellable(&record, &policy, cancellation)
                 .await;
-            coordinator.finish_activation(&command_id, result).await;
+            coordinator.finish_activation(&command, result).await;
             drop(permit);
         });
         Ok(pending)
@@ -411,24 +1018,37 @@ impl ProfileActivationCoordinator {
         profile_id: &str,
         availability: ProfileActivationAvailability,
     ) {
-        let failure = match availability {
-            ProfileActivationAvailability::MissingBinary => ProfileActivationFailure::MissingBinary,
-            ProfileActivationAvailability::Unavailable => ProfileActivationFailure::UnsafeRuntime,
+        let evidence = match availability {
+            ProfileActivationAvailability::MissingBinary => {
+                ProfileActivationFailureEvidence::MissingBinary
+            }
+            ProfileActivationAvailability::Unavailable => {
+                ProfileActivationFailureEvidence::UnsafeRuntime
+            }
             ProfileActivationAvailability::Available => return,
         };
+        let failure = evidence.failure();
         let mut state = self.state.lock().await;
-        if state.snapshot.phase == ProfileActivationPhase::Pending {
+        if state.activation.is_pending() {
             return;
         }
-        state.snapshot.command_id = Some(command_id.to_owned());
-        state.snapshot.attempted_at = Some(now_unix_milliseconds());
-        state.snapshot.evidence = None;
-        state.snapshot.failure = Some(failure);
-        state.snapshot.failure_endpoint = None;
-        state.snapshot.operation = Some(ProfileActivationOperation::Activate);
-        state.snapshot.phase = ProfileActivationPhase::Failure;
-        state.snapshot.target_profile_id = Some(profile_id.to_owned());
-        let _ = self.updates.send(state.snapshot.clone());
+        let runtime = state.activation.runtime();
+        let Ok(command) = state.activation.begin(
+            command_id,
+            ProfileActivationOperation::Activate,
+            profile_id,
+            now_unix_milliseconds(),
+            CancellationToken::new(),
+        ) else {
+            return;
+        };
+        let completed = state.activation.complete(
+            &command,
+            ProfileActivationCompletion::Failed { evidence, runtime },
+        );
+        debug_assert!(completed);
+        let snapshot = state.activation.to_snapshot(self.availability);
+        let _ = self.updates.send(snapshot);
         drop(state);
         self.host
             .record_application_event(ApplicationDiagnosticEvent::profile_activation_failure(
@@ -450,15 +1070,15 @@ impl ProfileActivationCoordinator {
     ) -> Result<ProfileActivationSnapshot, ProfileActivationCoordinatorError> {
         validate_command_id(command_id)?;
         let state = self.state.lock().await;
-        if state.snapshot.phase != ProfileActivationPhase::Pending
-            || state.snapshot.command_id.as_deref() != Some(command_id)
-        {
-            return Ok(state.snapshot.clone());
+        let snapshot = state.activation.to_snapshot(self.availability);
+        let Some(pending) = state.activation.pending() else {
+            return Ok(snapshot);
+        };
+        if pending.command.command_id != command_id {
+            return Ok(snapshot);
         }
-        if let Some(cancellation) = &state.cancellation {
-            cancellation.cancel();
-        }
-        Ok(state.snapshot.clone())
+        pending.cancellation.cancel();
+        Ok(snapshot)
     }
 
     pub async fn reactivate_active(
@@ -825,7 +1445,7 @@ impl ProfileActivationCoordinator {
                 && activation.phase == ProfileActivationPhase::Success
                 && !activation.safe_stopped
             {
-                match self.rollback_failed_aggregate_activation().await {
+                match self.rollback_failed_aggregate_activation(command_id).await {
                     Ok(()) => {
                         if let Some(error) = result.as_ref().err() {
                             self.host.record_application_event(
@@ -909,23 +1529,21 @@ impl ProfileActivationCoordinator {
             .record_application_event(ApplicationDiagnosticEvent::proxy_launch_timing(data));
     }
 
-    async fn rollback_failed_aggregate_activation(&self) -> Result<(), CaptureTransitionError> {
+    async fn rollback_failed_aggregate_activation(
+        &self,
+        command_id: &str,
+    ) -> Result<(), CaptureTransitionError> {
         let shutdown = self.manager.shutdown().await;
         let managed = self.manager.managed_state().await;
         let active_runtime = self.manager.active_runtime().await;
         let mut state = self.state.lock().await;
-        state.cancellation = None;
         state.busy_profiles.clear();
-        state.snapshot.evidence = None;
-        state.snapshot.failure = Some(ProfileActivationFailure::Capture);
-        state.snapshot.failure_endpoint = None;
-        state.snapshot.phase = ProfileActivationPhase::Failure;
         match shutdown {
             Ok(()) => {
                 self.host.replace(self.safe_runtime.clone());
-                state.snapshot.active_fingerprint = None;
-                state.snapshot.active_profile_id = None;
-                state.snapshot.safe_stopped = true;
+                if !state.activation.complete_rollback(command_id, None) {
+                    return Ok(());
+                }
             }
             Err(_) => {
                 if managed.is_safe_stopped() {
@@ -933,17 +1551,27 @@ impl ProfileActivationCoordinator {
                 } else if let Some(runtime) = active_runtime {
                     self.host.replace(runtime);
                 }
-                state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
-                state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
-                state.snapshot.safe_stopped = managed.is_safe_stopped();
-                let _ = self.updates.send(state.snapshot.clone());
+                let runtime = activation_runtime(
+                    managed.is_safe_stopped(),
+                    managed.active_profile_id(),
+                    managed.active_fingerprint(),
+                );
+                if !state
+                    .activation
+                    .complete_rollback(command_id, Some(runtime))
+                {
+                    return Ok(());
+                }
+                let snapshot = state.activation.to_snapshot(self.availability);
+                let _ = self.updates.send(snapshot);
                 return Err(CaptureTransitionError::new(
                     CaptureFailureKind::RollbackFailed,
                     "Capture failed and the newly started Mihomo core could not be stopped safely",
                 ));
             }
         }
-        let _ = self.updates.send(state.snapshot.clone());
+        let snapshot = state.activation.to_snapshot(self.availability);
+        let _ = self.updates.send(snapshot);
         Ok(())
     }
 
@@ -982,9 +1610,10 @@ impl ProfileActivationCoordinator {
             self.cancel_proxy_preparation();
             let pending_command = {
                 let state = self.state.lock().await;
-                (state.snapshot.phase == ProfileActivationPhase::Pending)
-                    .then(|| state.snapshot.command_id.clone())
-                    .flatten()
+                state
+                    .activation
+                    .pending()
+                    .map(|pending| pending.command.command_id.clone())
             };
             if let Some(command_id) = pending_command {
                 let _ = self.cancel(&command_id).await;
@@ -1084,41 +1713,53 @@ impl ProfileActivationCoordinator {
         validate_command_id(command_id)?;
         {
             let state = self.state.lock().await;
-            if state.snapshot.command_id.as_deref() == Some(command_id) {
-                return Ok(state.snapshot.clone());
+            let snapshot = state.activation.to_snapshot(self.availability);
+            if snapshot.command_id.as_deref() == Some(command_id) {
+                return Ok(snapshot);
             }
-            if state.snapshot.phase == ProfileActivationPhase::Pending {
+            if snapshot.phase == ProfileActivationPhase::Pending {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
         }
         let permit = self.acquire_mutation()?;
-        let pending = {
+        let (command, pending) = {
             let mut state = self.state.lock().await;
-            if state.snapshot.command_id.as_deref() == Some(command_id) {
-                return Ok(state.snapshot.clone());
+            let snapshot = state.activation.to_snapshot(self.availability);
+            if snapshot.command_id.as_deref() == Some(command_id) {
+                return Ok(snapshot);
             }
-            if state.snapshot.phase == ProfileActivationPhase::Pending {
+            if snapshot.phase == ProfileActivationPhase::Pending {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
-            let active_profile_id = state.snapshot.active_profile_id.clone();
-            if active_profile_id.is_some_and(|profile_id| !state.busy_profiles.insert(profile_id)) {
+            let Some(active_profile_id) = state
+                .activation
+                .runtime()
+                .active_profile_id()
+                .map(str::to_owned)
+            else {
+                return Ok(snapshot);
+            };
+            if !state.busy_profiles.insert(active_profile_id.clone()) {
                 return Err(ProfileActivationCoordinatorError::Conflict);
             }
-            state.snapshot.command_id = Some(command_id.to_owned());
-            state.snapshot.attempted_at = Some(now_unix_milliseconds());
-            state.snapshot.failure = None;
-            state.snapshot.evidence = None;
-            state.snapshot.operation = Some(ProfileActivationOperation::Stop);
-            state.snapshot.phase = ProfileActivationPhase::Pending;
-            state.snapshot.target_profile_id = state.snapshot.active_profile_id.clone();
-            state.snapshot.clone()
+            let command = state
+                .activation
+                .begin(
+                    command_id,
+                    ProfileActivationOperation::Stop,
+                    &active_profile_id,
+                    now_unix_milliseconds(),
+                    CancellationToken::new(),
+                )
+                .map_err(|()| ProfileActivationCoordinatorError::Conflict)?;
+            let pending = state.activation.to_snapshot(self.availability);
+            (command, pending)
         };
         let _ = self.updates.send(pending.clone());
         let coordinator = self.clone();
-        let command_id = command_id.to_owned();
         tokio::spawn(async move {
             let result = coordinator.manager.shutdown().await;
-            coordinator.finish_stop(&command_id, result).await;
+            coordinator.finish_stop(&command, result).await;
             drop(permit);
         });
         Ok(pending)
@@ -1130,12 +1771,13 @@ impl ProfileActivationCoordinator {
     ) -> Result<ProfileSnapshot, ProfileActivationCoordinatorError> {
         let permit = self.acquire_mutation()?;
         let state = self.state.lock().await;
-        if state.snapshot.phase == ProfileActivationPhase::Pending
-            || state.snapshot.active_profile_id.as_deref() == Some(profile_id)
+        let snapshot = state.activation.to_snapshot(self.availability);
+        if snapshot.phase == ProfileActivationPhase::Pending
+            || snapshot.active_profile_id.as_deref() == Some(profile_id)
         {
             return Err(ProfileActivationCoordinatorError::Conflict);
         }
-        let active_profile_id = state.snapshot.active_profile_id.clone();
+        let active_profile_id = snapshot.active_profile_id;
         drop(state);
         let snapshot =
             self.profiles
@@ -1171,7 +1813,11 @@ impl ProfileActivationCoordinator {
     }
 
     pub async fn activation_snapshot(&self) -> ProfileActivationSnapshot {
-        self.state.lock().await.snapshot.clone()
+        self.state
+            .lock()
+            .await
+            .activation
+            .to_snapshot(self.availability)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ProfileActivationSnapshot> {
@@ -1363,7 +2009,14 @@ impl ProfileActivationCoordinator {
         self.authority
             .validate(permit)
             .map_err(|_| ProfileActivationCoordinatorError::Busy)?;
-        Ok(self.state.lock().await.snapshot.active_profile_id.clone())
+        Ok(self
+            .state
+            .lock()
+            .await
+            .activation
+            .runtime()
+            .active_profile_id()
+            .map(str::to_owned))
     }
 
     fn acquire_mutation(&self) -> Result<StateMutationPermit, ProfileActivationCoordinatorError> {
@@ -1418,8 +2071,8 @@ impl ProfileActivationCoordinator {
             self.shutting_down.store(false, Ordering::Release);
             return Err(ProfileActivationShutdownFailure::BackgroundTask);
         }
-        if let Some(cancellation) = &self.state.lock().await.cancellation {
-            cancellation.cancel();
+        if let Some(pending) = self.state.lock().await.activation.pending() {
+            pending.cancellation.cancel();
         }
         let _proxy_operation = self.proxy_operation.lock().await;
         let permit = match self.authority.try_acquire() {
@@ -1429,7 +2082,41 @@ impl ProfileActivationCoordinator {
                 return Err(ProfileActivationShutdownFailure::MutationBusy);
             }
         };
+        let previous = {
+            let mut state = self.state.lock().await;
+            match state
+                .activation
+                .begin_shutdown(terminal, now_unix_milliseconds())
+            {
+                Ok(previous) => previous,
+                Err(()) => {
+                    self.shutting_down.store(false, Ordering::Release);
+                    return Err(ProfileActivationShutdownFailure::MutationBusy);
+                }
+            }
+        };
         if let Err(error) = self.manager.shutdown().await {
+            let managed = self.manager.managed_state().await;
+            let active_runtime = self.manager.active_runtime().await;
+            if managed.is_safe_stopped() {
+                self.host.replace(self.safe_runtime.clone());
+            } else if let Some(runtime) = active_runtime {
+                self.host.replace(runtime);
+            }
+            let runtime = activation_runtime(
+                managed.is_safe_stopped(),
+                managed.active_profile_id(),
+                managed.active_fingerprint(),
+            );
+            let mut state = self.state.lock().await;
+            let failed = state.activation.fail_shutdown(
+                previous,
+                activation_failure_evidence(error),
+                runtime,
+            );
+            debug_assert!(failed);
+            let snapshot = state.activation.to_snapshot(self.availability);
+            let _ = self.updates.send(snapshot);
             self.shutting_down.store(false, Ordering::Release);
             return Err(match error {
                 MihomoActivationError::CaptureFailed => {
@@ -1441,12 +2128,11 @@ impl ProfileActivationCoordinator {
         }
         self.host.replace(self.safe_runtime.clone());
         let mut state = self.state.lock().await;
-        state.cancellation = None;
-        state.snapshot.evidence = None;
-        state.snapshot.active_profile_id = None;
-        state.snapshot.active_fingerprint = None;
-        state.snapshot.safe_stopped = true;
         state.busy_profiles.clear();
+        let completed = state.activation.complete_shutdown();
+        debug_assert!(completed);
+        let snapshot = state.activation.to_snapshot(self.availability);
+        let _ = self.updates.send(snapshot);
         if terminal {
             self.authority.make_unavailable_until_restart();
         } else {
@@ -1462,28 +2148,34 @@ impl ProfileActivationCoordinator {
 
     async fn finish_preflight_activation(
         &self,
-        command_id: &str,
-        failure: ProfileActivationFailure,
+        command: &ProfileActivationCommand,
+        evidence: ProfileActivationFailureEvidence,
     ) {
         let mut state = self.state.lock().await;
-        if state.snapshot.command_id.as_deref() != Some(command_id) {
+        let Some(pending) = state.activation.pending() else {
+            return;
+        };
+        if pending.command != *command {
             return;
         }
-        if let Some(profile_id) = state.snapshot.target_profile_id.clone() {
-            state.busy_profiles.remove(&profile_id);
-        }
-        state.cancellation = None;
-        state.snapshot.failure = Some(failure);
-        state.snapshot.phase = ProfileActivationPhase::Failure;
-        let _ = self.updates.send(state.snapshot.clone());
+        state.busy_profiles.remove(&command.target_profile_id);
+        let runtime = state.activation.runtime();
+        let failure = evidence.failure();
+        let completed = state.activation.complete(
+            command,
+            ProfileActivationCompletion::Failed { evidence, runtime },
+        );
+        debug_assert!(completed);
+        let snapshot = state.activation.to_snapshot(self.availability);
+        let _ = self.updates.send(snapshot);
         drop(state);
-        resolve_geodata_notifications(&self.host, command_id, None);
+        resolve_geodata_notifications(&self.host, &command.command_id, None);
         self.host
             .record_application_event(ApplicationDiagnosticEvent::profile_activation_failure(
                 profile_activation_failure_id(failure),
             ));
         let _ = self.host.publish_notification(NotificationPublication {
-            dedupe_key: format!("profile.activation-failure:{command_id}"),
+            dedupe_key: format!("profile.activation-failure:{}", command.command_id),
             pinned: false,
             presentation: profile_activation_failure_notification(failure),
             replaces: Vec::new(),
@@ -1494,45 +2186,59 @@ impl ProfileActivationCoordinator {
 
     async fn finish_activation(
         &self,
-        command_id: &str,
+        command: &ProfileActivationCommand,
         result: Result<crate::ActivationCommit, MihomoActivationError>,
     ) {
         let managed = self.manager.managed_state().await;
         let active_runtime = self.manager.active_runtime().await;
         let mut state = self.state.lock().await;
-        if state.snapshot.command_id.as_deref() != Some(command_id) {
+        let Some(pending) = state.activation.pending() else {
+            return;
+        };
+        if pending.command != *command {
             return;
         }
-        if let Some(profile_id) = state.snapshot.target_profile_id.clone() {
-            state.busy_profiles.remove(&profile_id);
-        }
-        state.cancellation = None;
+        state.busy_profiles.remove(&command.target_profile_id);
         match result {
             Ok(commit) => {
                 let Some(runtime) = active_runtime else {
-                    state.snapshot.failure = Some(ProfileActivationFailure::StateCommit);
-                    state.snapshot.phase = ProfileActivationPhase::Failure;
-                    let _ = self.updates.send(state.snapshot.clone());
+                    self.manager.complete_runtime_handoff().await;
+                    let runtime = activation_runtime(
+                        managed.is_safe_stopped(),
+                        managed.active_profile_id(),
+                        managed.active_fingerprint(),
+                    );
+                    let completed = state.activation.complete(
+                        command,
+                        ProfileActivationCompletion::Failed {
+                            evidence: ProfileActivationFailureEvidence::StateCommit,
+                            runtime,
+                        },
+                    );
+                    debug_assert!(completed);
+                    let snapshot = state.activation.to_snapshot(self.availability);
+                    let _ = self.updates.send(snapshot);
                     drop(state);
                     self.host.record_application_event(activation_failure_event(
                         MihomoActivationError::StateCommitFailed,
                     ));
                     publish_activation_failure_notification(
                         &self.host,
-                        command_id,
+                        &command.command_id,
                         MihomoActivationError::StateCommitFailed,
                     );
                     return;
                 };
                 self.host.replace(runtime);
                 self.manager.complete_runtime_handoff().await;
-                state.snapshot.active_fingerprint = Some(commit.fingerprint().to_owned());
-                state.snapshot.active_profile_id = Some(commit.profile_id().to_owned());
-                state.snapshot.failure = None;
-                state.snapshot.evidence = None;
-                state.snapshot.failure_endpoint = None;
-                state.snapshot.phase = ProfileActivationPhase::Success;
-                state.snapshot.safe_stopped = false;
+                let completed = state.activation.complete(
+                    command,
+                    ProfileActivationCompletion::Succeeded(ProfileActivationRuntime::Active {
+                        fingerprint: commit.fingerprint().to_owned(),
+                        profile_id: commit.profile_id().to_owned(),
+                    }),
+                );
+                debug_assert!(completed);
             }
             Err(error) => {
                 if managed.is_safe_stopped() {
@@ -1541,46 +2247,59 @@ impl ProfileActivationCoordinator {
                     self.host.replace(runtime);
                 }
                 self.manager.complete_runtime_handoff().await;
-                state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
-                state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
-                state.snapshot.failure = Some(map_failure(error));
-                state.snapshot.evidence = terminal_geodata_evidence(error);
-                state.snapshot.failure_endpoint = managed_listener_endpoint(error);
-                state.snapshot.phase = ProfileActivationPhase::Failure;
-                state.snapshot.safe_stopped = managed.is_safe_stopped();
+                let runtime = activation_runtime(
+                    managed.is_safe_stopped(),
+                    managed.active_profile_id(),
+                    managed.active_fingerprint(),
+                );
+                let completion = if error == MihomoActivationError::Cancelled {
+                    ProfileActivationCompletion::Cancelled(runtime)
+                } else {
+                    ProfileActivationCompletion::Failed {
+                        evidence: activation_failure_evidence(error),
+                        runtime,
+                    }
+                };
+                let completed = state.activation.complete(command, completion);
+                debug_assert!(completed);
                 let diagnostic = activation_failure_event(error);
-                let snapshot = state.snapshot.clone();
+                let snapshot = state.activation.to_snapshot(self.availability);
                 let _ = self.updates.send(snapshot);
                 drop(state);
                 self.host.record_application_event(diagnostic);
-                publish_activation_failure_notification(&self.host, command_id, error);
+                publish_activation_failure_notification(&self.host, &command.command_id, error);
                 return;
             }
         }
-        let _ = self.updates.send(state.snapshot.clone());
+        let snapshot = state.activation.to_snapshot(self.availability);
+        let _ = self.updates.send(snapshot);
         drop(state);
-        resolve_geodata_notifications(&self.host, command_id, None);
+        resolve_geodata_notifications(&self.host, &command.command_id, None);
     }
 
-    async fn finish_stop(&self, command_id: &str, result: Result<(), MihomoActivationError>) {
+    async fn finish_stop(
+        &self,
+        command: &ProfileActivationCommand,
+        result: Result<(), MihomoActivationError>,
+    ) {
         let managed = self.manager.managed_state().await;
         let active_runtime = self.manager.active_runtime().await;
         let mut state = self.state.lock().await;
-        if state.snapshot.command_id.as_deref() != Some(command_id) {
+        let Some(pending) = state.activation.pending() else {
+            return;
+        };
+        if pending.command != *command {
             return;
         }
-        if let Some(profile_id) = state.snapshot.target_profile_id.clone() {
-            state.busy_profiles.remove(&profile_id);
-        }
+        state.busy_profiles.remove(&command.target_profile_id);
         match result {
             Ok(()) => {
                 self.host.replace(self.safe_runtime.clone());
-                state.snapshot.active_fingerprint = None;
-                state.snapshot.active_profile_id = None;
-                state.snapshot.failure = None;
-                state.snapshot.evidence = None;
-                state.snapshot.phase = ProfileActivationPhase::Success;
-                state.snapshot.safe_stopped = true;
+                let completed = state.activation.complete(
+                    command,
+                    ProfileActivationCompletion::Succeeded(ProfileActivationRuntime::SafeStopped),
+                );
+                debug_assert!(completed);
             }
             Err(error) => {
                 if managed.is_safe_stopped() {
@@ -1588,15 +2307,25 @@ impl ProfileActivationCoordinator {
                 } else if let Some(runtime) = active_runtime {
                     self.host.replace(runtime);
                 }
-                state.snapshot.active_fingerprint = managed.active_fingerprint().map(str::to_owned);
-                state.snapshot.active_profile_id = managed.active_profile_id().map(str::to_owned);
-                state.snapshot.failure = Some(map_failure(error));
-                state.snapshot.evidence = terminal_geodata_evidence(error);
-                state.snapshot.phase = ProfileActivationPhase::Failure;
-                state.snapshot.safe_stopped = managed.is_safe_stopped();
+                let runtime = activation_runtime(
+                    managed.is_safe_stopped(),
+                    managed.active_profile_id(),
+                    managed.active_fingerprint(),
+                );
+                let completion = if error == MihomoActivationError::Cancelled {
+                    ProfileActivationCompletion::Cancelled(runtime)
+                } else {
+                    ProfileActivationCompletion::Failed {
+                        evidence: activation_failure_evidence(error),
+                        runtime,
+                    }
+                };
+                let completed = state.activation.complete(command, completion);
+                debug_assert!(completed);
             }
         }
-        let _ = self.updates.send(state.snapshot.clone());
+        let snapshot = state.activation.to_snapshot(self.availability);
+        let _ = self.updates.send(snapshot);
     }
 }
 
@@ -1761,6 +2490,674 @@ mod capture_selection_tests {
     }
 }
 
+#[cfg(test)]
+mod activation_snapshot_golden_tests {
+    use serde_json::{Value, json};
+    use tokio_util::sync::CancellationToken;
+
+    use super::{
+        ProfileActivationAvailability, ProfileActivationCompletion, ProfileActivationEvidence,
+        ProfileActivationEvidenceKind, ProfileActivationFailureEvidence,
+        ProfileActivationOperation, ProfileActivationRuntime, ProfileActivationScope,
+        ProfileActivationState, ProfileActivationStateKind, ProfileActivationTransition,
+    };
+
+    const ACTIVE_FINGERPRINT: &str =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const COMMAND_ID: &str = "11111111-1111-4111-8111-111111111111";
+    const NEXT_COMMAND_ID: &str = "22222222-2222-4222-8222-222222222222";
+    const PROFILE_ID: &str = "33333333-3333-4333-8333-333333333333";
+
+    fn serialized(
+        state: &ProfileActivationState,
+        availability: ProfileActivationAvailability,
+    ) -> Value {
+        serde_json::to_value(state.to_snapshot(availability))
+            .expect("activation snapshot should serialize")
+    }
+
+    #[test]
+    fn public_activation_dto_legal_variants_have_stable_golden_snapshots() {
+        let idle = ProfileActivationState::idle();
+
+        let mut pending = idle.clone();
+        let pending_command = pending
+            .begin(
+                COMMAND_ID,
+                ProfileActivationOperation::Activate,
+                PROFILE_ID,
+                1_721_296_000_000,
+                CancellationToken::new(),
+            )
+            .unwrap();
+
+        let mut preparing = pending.clone();
+        let ProfileActivationState::Pending(preparation) = &mut preparing else {
+            panic!("activation should be pending");
+        };
+        preparation.evidence = Some(ProfileActivationEvidence {
+            asset: crate::GeodataAsset::GeoSite,
+            kind: ProfileActivationEvidenceKind::GeodataPreparing,
+        });
+
+        let active_runtime = ProfileActivationRuntime::Active {
+            fingerprint: ACTIVE_FINGERPRINT.into(),
+            profile_id: PROFILE_ID.into(),
+        };
+        let mut succeeded = pending.clone();
+        assert!(succeeded.complete(
+            &pending_command,
+            ProfileActivationCompletion::Succeeded(active_runtime.clone()),
+        ));
+
+        let mut failed = pending.clone();
+        assert!(failed.complete(
+            &pending_command,
+            ProfileActivationCompletion::Failed {
+                evidence: ProfileActivationFailureEvidence::Validation,
+                runtime: ProfileActivationRuntime::SafeStopped,
+            },
+        ));
+
+        let mut cancelled = pending.clone();
+        assert!(cancelled.complete(
+            &pending_command,
+            ProfileActivationCompletion::Cancelled(ProfileActivationRuntime::SafeStopped),
+        ));
+
+        let mut rollback_succeeded = succeeded.clone();
+        assert!(rollback_succeeded.complete_rollback(COMMAND_ID, None));
+
+        let mut rollback_failed = succeeded.clone();
+        assert!(rollback_failed.complete_rollback(COMMAND_ID, Some(active_runtime.clone())));
+
+        let mut retrying = failed.clone();
+        retrying
+            .begin(
+                NEXT_COMMAND_ID,
+                ProfileActivationOperation::Activate,
+                PROFILE_ID,
+                1_721_296_001_000,
+                CancellationToken::new(),
+            )
+            .unwrap();
+
+        let mut stop_pending = succeeded.clone();
+        let stop_command = stop_pending
+            .begin(
+                COMMAND_ID,
+                ProfileActivationOperation::Stop,
+                PROFILE_ID,
+                1_721_296_000_000,
+                CancellationToken::new(),
+            )
+            .unwrap();
+
+        let mut stop_succeeded = stop_pending.clone();
+        assert!(stop_succeeded.complete(
+            &stop_command,
+            ProfileActivationCompletion::Succeeded(ProfileActivationRuntime::SafeStopped),
+        ));
+
+        let mut stop_failed = stop_pending.clone();
+        assert!(stop_failed.complete(
+            &stop_command,
+            ProfileActivationCompletion::Failed {
+                evidence: ProfileActivationFailureEvidence::PriorStop,
+                runtime: active_runtime,
+            },
+        ));
+
+        let shutdown = ProfileActivationState::Shutdown {
+            scope: ProfileActivationScope::new(),
+        };
+
+        assert_eq!(
+            [
+                (
+                    "idle",
+                    serialized(&idle, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "pending",
+                    serialized(&pending, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "preparing",
+                    serialized(&preparing, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "succeeded",
+                    serialized(&succeeded, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "failed",
+                    serialized(&failed, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "cancelled",
+                    serialized(&cancelled, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "rollback-succeeded",
+                    serialized(
+                        &rollback_succeeded,
+                        ProfileActivationAvailability::Available,
+                    ),
+                ),
+                (
+                    "rollback-failed",
+                    serialized(&rollback_failed, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "retrying",
+                    serialized(&retrying, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "stop-pending",
+                    serialized(&stop_pending, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "stop-succeeded",
+                    serialized(&stop_succeeded, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "stop-failed",
+                    serialized(&stop_failed, ProfileActivationAvailability::Available),
+                ),
+                (
+                    "shutdown",
+                    serialized(&shutdown, ProfileActivationAvailability::Unavailable),
+                ),
+            ],
+            [
+                (
+                    "idle",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": null,
+                        "availability": "available",
+                        "commandId": null,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": null,
+                        "phase": "idle",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": null,
+                    }),
+                ),
+                (
+                    "pending",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "pending",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "preparing",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": { "asset": "geo-site", "kind": "geodata-preparing" },
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "pending",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "succeeded",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "success",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "failed",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "validation",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "cancelled",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "cancelled",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "rollback-succeeded",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "capture",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "rollback-failed",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "capture",
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "failure",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "retrying",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_001_000_u64,
+                        "availability": "available",
+                        "commandId": NEXT_COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "activate",
+                        "phase": "pending",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "stop-pending",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "stop",
+                        "phase": "pending",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "stop-succeeded",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": "stop",
+                        "phase": "success",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "stop-failed",
+                    json!({
+                        "activeFingerprint": ACTIVE_FINGERPRINT,
+                        "activeProfileId": PROFILE_ID,
+                        "attemptedAt": 1_721_296_000_000_u64,
+                        "availability": "available",
+                        "commandId": COMMAND_ID,
+                        "evidence": null,
+                        "failure": "prior-stop",
+                        "failureEndpoint": null,
+                        "operation": "stop",
+                        "phase": "failure",
+                        "safeStopped": false,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": PROFILE_ID,
+                    }),
+                ),
+                (
+                    "shutdown",
+                    json!({
+                        "activeFingerprint": null,
+                        "activeProfileId": null,
+                        "attemptedAt": null,
+                        "availability": "unavailable",
+                        "commandId": null,
+                        "evidence": null,
+                        "failure": null,
+                        "failureEndpoint": null,
+                        "operation": null,
+                        "phase": "idle",
+                        "safeStopped": true,
+                        "startupPolicy": "safe-stopped",
+                        "targetProfileId": null,
+                    }),
+                ),
+            ],
+        );
+    }
+
+    #[test]
+    fn activation_state_transition_table_is_complete() {
+        use ProfileActivationStateKind as State;
+        use ProfileActivationTransition as Transition;
+
+        let states = [
+            State::Idle,
+            State::Pending,
+            State::Succeeded,
+            State::Failed,
+            State::Cancelled,
+            State::RollbackSucceeded,
+            State::RollbackFailed,
+            State::Retrying,
+            State::ShuttingDown,
+            State::Shutdown,
+        ];
+        let transitions = [
+            Transition::Begin,
+            Transition::Retry,
+            Transition::Succeed,
+            Transition::Fail,
+            Transition::Cancel,
+            Transition::RollbackSucceed,
+            Transition::RollbackFail,
+            Transition::Shutdown,
+            Transition::ShutdownComplete,
+            Transition::ShutdownFail,
+        ];
+
+        for state in states {
+            let activation = state_fixture(state);
+            for transition in transitions {
+                let expected = matches!(
+                    (state, transition),
+                    (
+                        State::Idle | State::Succeeded,
+                        Transition::Begin | Transition::Shutdown
+                    ) | (
+                        State::Failed
+                            | State::Cancelled
+                            | State::RollbackSucceeded
+                            | State::RollbackFailed,
+                        Transition::Begin | Transition::Retry | Transition::Shutdown
+                    ) | (
+                        State::Pending | State::Retrying,
+                        Transition::Succeed | Transition::Fail | Transition::Cancel
+                    ) | (
+                        State::Succeeded,
+                        Transition::RollbackSucceed | Transition::RollbackFail
+                    ) | (
+                        State::ShuttingDown,
+                        Transition::ShutdownComplete | Transition::ShutdownFail
+                    )
+                );
+                assert_eq!(
+                    activation.allows(transition),
+                    expected,
+                    "{state:?} -> {transition:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stale_terminal_completion_cannot_replace_a_newer_retry_scope() {
+        let mut state = ProfileActivationState::idle();
+        let first = state
+            .begin(
+                COMMAND_ID,
+                ProfileActivationOperation::Activate,
+                PROFILE_ID,
+                1,
+                CancellationToken::new(),
+            )
+            .unwrap();
+        assert!(state.complete(
+            &first,
+            ProfileActivationCompletion::Failed {
+                evidence: ProfileActivationFailureEvidence::Validation,
+                runtime: ProfileActivationRuntime::SafeStopped,
+            },
+        ));
+        let retry = state
+            .begin(
+                COMMAND_ID,
+                ProfileActivationOperation::Activate,
+                PROFILE_ID,
+                2,
+                CancellationToken::new(),
+            )
+            .unwrap();
+        assert!(retry.scope.revision > first.scope.revision);
+
+        assert!(!state.complete(
+            &first,
+            ProfileActivationCompletion::Succeeded(ProfileActivationRuntime::Active {
+                fingerprint: ACTIVE_FINGERPRINT.into(),
+                profile_id: PROFILE_ID.into(),
+            }),
+        ));
+        assert_eq!(
+            state
+                .to_snapshot(ProfileActivationAvailability::Available)
+                .attempted_at,
+            Some(2)
+        );
+        assert!(state.complete(
+            &retry,
+            ProfileActivationCompletion::Succeeded(ProfileActivationRuntime::Active {
+                fingerprint: ACTIVE_FINGERPRINT.into(),
+                profile_id: PROFILE_ID.into(),
+            }),
+        ));
+    }
+
+    #[test]
+    fn shutdown_failure_is_typed_and_idle_shutdown_can_restore() {
+        let mut state = state_fixture(ProfileActivationStateKind::Succeeded);
+        let previous = state.begin_shutdown(false, 2).unwrap();
+        assert_eq!(state.kind(), ProfileActivationStateKind::ShuttingDown);
+        let active = ProfileActivationRuntime::Active {
+            fingerprint: ACTIVE_FINGERPRINT.into(),
+            profile_id: PROFILE_ID.into(),
+        };
+        assert!(state.fail_shutdown(
+            previous,
+            ProfileActivationFailureEvidence::StateCommit,
+            active,
+        ));
+        let failed = state.to_snapshot(ProfileActivationAvailability::Available);
+        assert_eq!(failed.phase, super::ProfileActivationPhase::Failure);
+        assert_eq!(
+            failed.failure,
+            Some(super::ProfileActivationFailure::StateCommit)
+        );
+
+        let mut idle = ProfileActivationState::idle();
+        let prior = idle.clone();
+        let previous = idle.begin_shutdown(false, 2).unwrap();
+        assert!(idle.fail_shutdown(
+            previous,
+            ProfileActivationFailureEvidence::StateCommit,
+            ProfileActivationRuntime::SafeStopped,
+        ));
+        assert_eq!(
+            idle.to_snapshot(ProfileActivationAvailability::Available),
+            prior.to_snapshot(ProfileActivationAvailability::Available)
+        );
+
+        let previous = state.begin_shutdown(true, 3).unwrap();
+        assert!(state.complete_shutdown());
+        assert_eq!(state.kind(), ProfileActivationStateKind::Shutdown);
+        assert!(!state.fail_shutdown(
+            previous,
+            ProfileActivationFailureEvidence::StateCommit,
+            ProfileActivationRuntime::SafeStopped,
+        ));
+    }
+
+    fn state_fixture(kind: ProfileActivationStateKind) -> ProfileActivationState {
+        let mut pending = ProfileActivationState::idle();
+        let command = pending
+            .begin(
+                COMMAND_ID,
+                ProfileActivationOperation::Activate,
+                PROFILE_ID,
+                1,
+                CancellationToken::new(),
+            )
+            .unwrap();
+        let active = ProfileActivationRuntime::Active {
+            fingerprint: ACTIVE_FINGERPRINT.into(),
+            profile_id: PROFILE_ID.into(),
+        };
+        match kind {
+            ProfileActivationStateKind::Idle => ProfileActivationState::idle(),
+            ProfileActivationStateKind::Pending => pending,
+            ProfileActivationStateKind::Succeeded => {
+                assert!(
+                    pending.complete(&command, ProfileActivationCompletion::Succeeded(active),)
+                );
+                pending
+            }
+            ProfileActivationStateKind::Failed => {
+                assert!(pending.complete(
+                    &command,
+                    ProfileActivationCompletion::Failed {
+                        evidence: ProfileActivationFailureEvidence::Validation,
+                        runtime: ProfileActivationRuntime::SafeStopped,
+                    },
+                ));
+                pending
+            }
+            ProfileActivationStateKind::Cancelled => {
+                assert!(pending.complete(
+                    &command,
+                    ProfileActivationCompletion::Cancelled(ProfileActivationRuntime::SafeStopped,),
+                ));
+                pending
+            }
+            ProfileActivationStateKind::RollbackSucceeded => {
+                assert!(
+                    pending.complete(&command, ProfileActivationCompletion::Succeeded(active),)
+                );
+                assert!(pending.complete_rollback(COMMAND_ID, None));
+                pending
+            }
+            ProfileActivationStateKind::RollbackFailed => {
+                assert!(pending.complete(
+                    &command,
+                    ProfileActivationCompletion::Succeeded(active.clone()),
+                ));
+                assert!(pending.complete_rollback(COMMAND_ID, Some(active)));
+                pending
+            }
+            ProfileActivationStateKind::Retrying => {
+                assert!(pending.complete(
+                    &command,
+                    ProfileActivationCompletion::Failed {
+                        evidence: ProfileActivationFailureEvidence::Validation,
+                        runtime: ProfileActivationRuntime::SafeStopped,
+                    },
+                ));
+                pending
+                    .begin(
+                        NEXT_COMMAND_ID,
+                        ProfileActivationOperation::Activate,
+                        PROFILE_ID,
+                        2,
+                        CancellationToken::new(),
+                    )
+                    .unwrap();
+                pending
+            }
+            ProfileActivationStateKind::ShuttingDown => {
+                assert!(
+                    pending.complete(&command, ProfileActivationCompletion::Succeeded(active),)
+                );
+                pending.begin_shutdown(false, 2).unwrap();
+                pending
+            }
+            ProfileActivationStateKind::Shutdown => ProfileActivationState::Shutdown {
+                scope: ProfileActivationScope::new(),
+            },
+        }
+    }
+}
+
 fn map_availability(availability: Result<(), MihomoResolveError>) -> ProfileActivationAvailability {
     match availability {
         Ok(()) => ProfileActivationAvailability::Available,
@@ -1768,6 +3165,58 @@ fn map_availability(availability: Result<(), MihomoResolveError>) -> ProfileActi
         Err(MihomoResolveError::UnsafeManagedPath | MihomoResolveError::RuntimeRootUnavailable) => {
             ProfileActivationAvailability::Unavailable
         }
+    }
+}
+
+fn activation_runtime(
+    safe_stopped: bool,
+    active_profile_id: Option<&str>,
+    active_fingerprint: Option<&str>,
+) -> ProfileActivationRuntime {
+    if safe_stopped {
+        return ProfileActivationRuntime::SafeStopped;
+    }
+    match (active_profile_id, active_fingerprint) {
+        (Some(profile_id), Some(fingerprint)) => ProfileActivationRuntime::Active {
+            fingerprint: fingerprint.to_owned(),
+            profile_id: profile_id.to_owned(),
+        },
+        _ => ProfileActivationRuntime::SafeStopped,
+    }
+}
+
+fn activation_failure_evidence(error: MihomoActivationError) -> ProfileActivationFailureEvidence {
+    match error {
+        MihomoActivationError::InvalidArtifact | MihomoActivationError::InvalidTiming => {
+            ProfileActivationFailureEvidence::InvalidProfile
+        }
+        MihomoActivationError::Resolve(MihomoResolveError::BinaryMissing) => {
+            ProfileActivationFailureEvidence::MissingBinary
+        }
+        MihomoActivationError::Resolve(_) => ProfileActivationFailureEvidence::UnsafeRuntime,
+        MihomoActivationError::StagingFailed => ProfileActivationFailureEvidence::Staging,
+        MihomoActivationError::ValidationFailed => ProfileActivationFailureEvidence::Validation,
+        MihomoActivationError::GeodataFailed(asset) => {
+            ProfileActivationFailureEvidence::GeodataFailed(asset)
+        }
+        MihomoActivationError::GeodataTimeout(asset) => {
+            ProfileActivationFailureEvidence::GeodataTimeout(asset)
+        }
+        MihomoActivationError::StartFailed => ProfileActivationFailureEvidence::Start,
+        MihomoActivationError::EarlyExit => ProfileActivationFailureEvidence::EarlyExit,
+        MihomoActivationError::ManagedListenerConflict(endpoint) => {
+            ProfileActivationFailureEvidence::ManagedListenerConflict(endpoint.to_string())
+        }
+        MihomoActivationError::VersionMismatch => ProfileActivationFailureEvidence::VersionMismatch,
+        MihomoActivationError::ControllerFailure => ProfileActivationFailureEvidence::Controller,
+        MihomoActivationError::ReadinessTimeout => ProfileActivationFailureEvidence::Timeout,
+        MihomoActivationError::CaptureFailed => ProfileActivationFailureEvidence::Capture,
+        MihomoActivationError::PriorStopFailed => ProfileActivationFailureEvidence::PriorStop,
+        MihomoActivationError::Cancelled
+        | MihomoActivationError::StateCommitFailed
+        | MihomoActivationError::RollbackFailedSafeStopped
+        | MihomoActivationError::ShutdownFailed
+        | MihomoActivationError::OwnershipFailed => ProfileActivationFailureEvidence::StateCommit,
     }
 }
 
@@ -1799,27 +3248,6 @@ fn map_failure(error: MihomoActivationError) -> ProfileActivationFailure {
         | MihomoActivationError::RollbackFailedSafeStopped
         | MihomoActivationError::ShutdownFailed
         | MihomoActivationError::OwnershipFailed => ProfileActivationFailure::StateCommit,
-    }
-}
-
-fn managed_listener_endpoint(error: MihomoActivationError) -> Option<String> {
-    match error {
-        MihomoActivationError::ManagedListenerConflict(endpoint) => Some(endpoint.to_string()),
-        _ => None,
-    }
-}
-
-fn terminal_geodata_evidence(error: MihomoActivationError) -> Option<ProfileActivationEvidence> {
-    match error {
-        MihomoActivationError::GeodataFailed(asset) => Some(ProfileActivationEvidence {
-            asset,
-            kind: ProfileActivationEvidenceKind::GeodataFailed,
-        }),
-        MihomoActivationError::GeodataTimeout(asset) => Some(ProfileActivationEvidence {
-            asset,
-            kind: ProfileActivationEvidenceKind::GeodataTimeout,
-        }),
-        _ => None,
     }
 }
 

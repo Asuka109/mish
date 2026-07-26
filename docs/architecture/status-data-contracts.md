@@ -149,11 +149,15 @@ be published as applied.
 Protocol version 20 adds the Rust-authoritative filtered-visible Traffic close
 command and capability without changing Status or Traffic subscription ordering.
 
-Profile activation has an independent typed snapshot with idle, pending,
-success, and failure phases. The profile subscription uses the same snapshot
-ordering barrier and authoritative resubscription rule as Status. A committed
-activation replaces the runtime host before the profile success snapshot is
-published, so subsequent Status and Traffic reads use the same active profile.
+Profile activation has one internal data-bearing Rust state and an exhaustive
+Adapter into the existing idle, pending, success, and failure DTO phases.
+Pending and terminal commands carry a target Profile and an internal authority
+scope/revision; shared refinements reject contradictory public field
+combinations. The profile subscription uses the same parent snapshot ordering
+barrier and authoritative resubscription rule as Status. A committed activation
+replaces the runtime host and completes the runtime handoff before the profile
+success snapshot is published, so subsequent Status and Traffic reads use the
+same active profile.
 
 Capture selection is device-level intent and is distinct from confirmed runtime
 state. The capture command carries the complete selection plus an aggregate
