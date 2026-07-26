@@ -75,11 +75,18 @@ async function flushMicrotasks() {
   for (let index = 0; index < 5; index += 1) await Promise.resolve();
 }
 
+let statusSnapshotOrder = 0;
+
 async function createRpcSnapshot(): Promise<StatusSnapshotDto> {
   const snapshot = await new FixtureStatusClient().getSnapshot();
   snapshot.adapterKind = "rpc";
   snapshot.profiles[0].label = "配置 🌏";
   snapshot.capabilities = { systemProxy: "supported", tun: "permission-required" };
+  snapshot.applicationOrder = {
+    authorityId: "status-application",
+    epoch: 1,
+    order: ++statusSnapshotOrder,
+  };
   return snapshot;
 }
 
@@ -90,6 +97,7 @@ function recentSnapshot(
   authorityId = "rpc-status-authority",
 ) {
   const next = structuredClone(snapshot);
+  next.applicationOrder.order = ++statusSnapshotOrder;
   next.recentTraffic = {
     authorityId,
     revision,
@@ -115,6 +123,7 @@ function recentSnapshot(
 }
 
 afterEach(() => {
+  statusSnapshotOrder = 0;
   vi.useRealTimers();
 });
 
@@ -128,7 +137,11 @@ describe("RpcStatusClient", () => {
     });
     const client = new RpcStatusClient(rpc);
     const received: StatusSnapshotDto[] = [];
-    client.subscribeSnapshots((snapshot) => received.push(snapshot));
+    const deliveries: Array<string | undefined> = [];
+    client.subscribeSnapshots((snapshot, delivery) => {
+      received.push(snapshot);
+      deliveries.push(delivery);
+    });
     await authenticate(transport);
     const subscribe = await waitForRequest(transport, 1);
     const base = recentSnapshot(await createRpcSnapshot(), 5, 500);
@@ -138,6 +151,7 @@ describe("RpcStatusClient", () => {
       result: { snapshot: base, subscriptionId: "recent-subscription" },
     });
     await flushMicrotasks();
+    expect(deliveries).toEqual(["baseline"]);
 
     for (const stale of [recentSnapshot(base, 5, 5_000), recentSnapshot(base, 4, 4_000)]) {
       transport.respond({
@@ -155,6 +169,8 @@ describe("RpcStatusClient", () => {
       params: { snapshot: newer, subscriptionId: "recent-subscription" },
     });
     expect(received.at(-1)?.recentTraffic).toEqual(newer.recentTraffic);
+    expect(deliveries[0]).toBe("baseline");
+    expect(deliveries.slice(1)).toEqual(["update", "update", "update"]);
 
     const requestPromise = client.getSnapshot();
     const request = await waitForRequest(transport, 2);
@@ -168,6 +184,7 @@ describe("RpcStatusClient", () => {
     });
 
     const replacement = structuredClone(base);
+    replacement.applicationOrder.order = ++statusSnapshotOrder;
     replacement.recentTraffic = {
       ...replacement.recentTraffic,
       authorityId: "replacement-process-authority",
@@ -212,7 +229,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 24,
+        protocolVersion: 25,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -250,7 +267,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 24,
+        protocolVersion: 25,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
@@ -263,6 +280,7 @@ describe("RpcStatusClient", () => {
     expect(client.supportsCommand("group")).toBe(true);
 
     const nextSnapshot = structuredClone(firstSnapshot);
+    nextSnapshot.applicationOrder.order = ++statusSnapshotOrder;
     nextSnapshot.activeProfileId = "profile-replacement";
     nextSnapshot.profiles = [{ id: "profile-replacement", label: "Replacement" }];
     const nextRequestPromise = client.getSnapshot();
@@ -277,7 +295,7 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 24,
+        protocolVersion: 25,
         statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: {
           closeAllActive: false,

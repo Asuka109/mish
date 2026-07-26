@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::broadcast;
 
+mod application_order;
 mod capture;
 mod diagnostics;
 mod events;
@@ -20,6 +21,7 @@ mod status;
 mod traffic;
 mod tun_helper;
 
+pub use application_order::*;
 pub use capture::*;
 pub use diagnostics::*;
 pub use events::*;

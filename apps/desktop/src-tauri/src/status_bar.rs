@@ -11,7 +11,8 @@ use mish_native_i18n::{NativeMessage, translate};
 use mish_platform_macos::{open_browser_url, show_browser_open_error, show_proxy_launch_error};
 use mish_presentation_contract::{Locale, NativeActionId};
 use mish_runtime::{
-    CaptureRequest, StatusAdapterKind, StatusSnapshot, TrafficDataPhase, TrafficSnapshot,
+    CaptureRequest, CaptureSelection, StatusAdapterKind, StatusSnapshot, TrafficDataPhase,
+    TrafficSnapshot,
 };
 use mish_settings::{LanguagePreference, SettingsAdapterKind, SettingsService, SettingsSnapshot};
 use tauri::{
@@ -457,24 +458,25 @@ async fn run_native_command(app: &tauri::AppHandle, state: &StatusBarState, id: 
             )
             .await
     } else {
-        let remembered_selection = state
-            .settings
-            .snapshot(SettingsAdapterKind::Rpc)
-            .preferences
-            .capture_selection
-            .into();
         state
             .activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
                 None,
-                remembered_selection,
+                system_proxy_only_capture_selection(),
                 StatusAdapterKind::Native,
             )
             .await
     };
     if result.is_err() {
         let _ = app.run_on_main_thread(show_proxy_launch_error);
+    }
+}
+
+fn system_proxy_only_capture_selection() -> CaptureSelection {
+    CaptureSelection {
+        system_proxy: true,
+        tun: false,
     }
 }
 
@@ -879,7 +881,8 @@ mod tests {
         AUTO_START_PROXY_LABEL, Locale, MENU_SECTIONS, NativeMessage, NativeTrafficObservations,
         STATUS_BAR_MENU_ACCELERATORS, StatusBarModel, StatusLabels, StatusMenuModel,
         TOGGLE_PROXY_ID, format_bytes, is_newer_language_revision, is_quit_menu_command,
-        is_status_destination, rate_title, status_bar_icon, status_bar_update, translate,
+        is_status_destination, rate_title, status_bar_icon, status_bar_update,
+        system_proxy_only_capture_selection, translate,
     };
     use crate::native_menu::APPLICATION_MENU_ACCELERATORS;
     use futures_util::future::BoxFuture;
@@ -976,6 +979,7 @@ mod tests {
                     upload_bytes: "0".into(),
                 }],
                 adapter_kind,
+                application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
                 phase: TrafficDataPhase::Ready,
                 profile_id: "private-profile".into(),
                 reconnect_count: 0,
@@ -1242,6 +1246,13 @@ mod tests {
                 || *id == "status-bar.quit"
                 || *id == "status-bar.open-settings"
         }));
+    }
+
+    #[test]
+    fn native_proxy_launch_is_system_proxy_only() {
+        let selection = system_proxy_only_capture_selection();
+        assert!(selection.system_proxy);
+        assert!(!selection.tun);
     }
 
     #[test]

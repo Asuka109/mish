@@ -1,4 +1,5 @@
 import {
+  type ApplicationSnapshotDelivery,
   type EventRecordDto,
   type EventsClient,
   type EventsConnectionState,
@@ -47,9 +48,12 @@ const fixtureEvents: EventRecordDto[] = [
 
 export class FixtureEventsClient implements EventsClient {
   private readonly connectionListeners = new Set<(state: EventsConnectionState) => void>();
-  private readonly snapshotListeners = new Set<(snapshot: EventsSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: EventsSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
   private snapshot: EventsSnapshotDto = {
     adapterKind: "fixture",
+    applicationOrder: { authorityId: "fixture-events-application", epoch: 1, order: 1 },
     events: fixtureEvents.map((event) => ({ ...event })),
     phase: "ready",
     profileId: "fixture-profile",
@@ -77,8 +81,21 @@ export class FixtureEventsClient implements EventsClient {
   }
 
   publishSnapshot(snapshot: EventsSnapshotDto) {
-    this.snapshot = structuredClone(snapshot);
-    for (const listener of this.snapshotListeners) listener(structuredClone(this.snapshot));
+    const next = structuredClone(snapshot);
+    if (
+      next.applicationOrder.authorityId === this.snapshot.applicationOrder.authorityId &&
+      next.applicationOrder.epoch === this.snapshot.applicationOrder.epoch &&
+      next.applicationOrder.order <= this.snapshot.applicationOrder.order &&
+      (next.sessionId !== this.snapshot.sessionId ||
+        next.profileId !== this.snapshot.profileId ||
+        next.sequence >= this.snapshot.sequence)
+    ) {
+      next.applicationOrder.order = this.snapshot.applicationOrder.order + 1;
+    }
+    this.snapshot = next;
+    for (const listener of this.snapshotListeners) {
+      listener(structuredClone(this.snapshot), "update");
+    }
   }
 
   subscribeConnection(listener: (state: EventsConnectionState) => void) {
@@ -87,7 +104,9 @@ export class FixtureEventsClient implements EventsClient {
     return () => this.connectionListeners.delete(listener);
   }
 
-  subscribeSnapshots(listener: (snapshot: EventsSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: EventsSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
     return () => this.snapshotListeners.delete(listener);
   }

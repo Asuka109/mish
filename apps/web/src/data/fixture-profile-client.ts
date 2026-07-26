@@ -1,5 +1,6 @@
 import {
   ProfileClientError,
+  type ApplicationSnapshotDelivery,
   type ProfileClient,
   type ProfileConnectionState,
   type ProfilePatchAuthorityDto,
@@ -28,6 +29,7 @@ const fixtureSnapshot = {
     targetProfileId: null,
   },
   adapterKind: "fixture",
+  applicationOrder: { authorityId: "fixture-profile-application", epoch: 1, order: 1 },
   capabilities: {
     activation: "unavailable",
     deletion: "fixture-only",
@@ -293,7 +295,9 @@ export class FixtureProfileClient implements ProfileClient {
     return () => undefined;
   }
 
-  subscribeSnapshots(_listener: (snapshot: ProfileSnapshotDto) => void): () => void {
+  subscribeSnapshots(
+    _listener: (snapshot: ProfileSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ): () => void {
     return () => undefined;
   }
 }

@@ -225,6 +225,7 @@ impl TrafficDataSource for ProcessIconDataSource {
                 upload_bytes: "0".into(),
             }],
             adapter_kind,
+            application_order: mish_runtime::ApplicationSnapshotOrder::detached(),
             phase: TrafficDataPhase::Ready,
             profile_id: "local".into(),
             reconnect_count: 0,
@@ -637,6 +638,8 @@ fn customized_service_probe_config(root: &Path) -> ServiceProbeConfig {
 }
 
 fn assert_customized_service_probe_overlay(snapshot: &Value) {
+    assert_ne!(snapshot["applicationOrder"]["authorityId"], "detached");
+    assert!(snapshot["applicationOrder"]["order"].as_u64().unwrap() > 0);
     assert_eq!(snapshot["serviceProbePolicy"]["intervalSeconds"], 10);
     assert_eq!(snapshot["services"].as_array().unwrap().len(), 1);
     assert_eq!(snapshot["services"][0]["id"], "custom-probe");
@@ -1820,7 +1823,7 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 24);
+    assert_eq!(info["result"]["protocolVersion"], 25);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})

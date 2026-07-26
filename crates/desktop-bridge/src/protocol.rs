@@ -71,25 +71,39 @@ pub(crate) struct ProtocolState {
 
 impl ProtocolState {
     async fn status_snapshot(&self) -> Value {
+        let ticket = self.runtime.begin_status_snapshot();
         let snapshot = self
             .runtime
-            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .status_snapshot_unordered_typed(StatusAdapterKind::Rpc)
             .await;
-        self.status_snapshot_value(snapshot)
+        self.status_snapshot_value(ticket, snapshot)
     }
 
-    fn status_snapshot_value(&self, mut snapshot: StatusSnapshot) -> Value {
+    fn status_snapshot_value(
+        &self,
+        ticket: crate::snapshot_order::SnapshotTicket,
+        mut snapshot: StatusSnapshot,
+    ) -> Value {
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
+        self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
     }
 
-    fn status_command_error_response(&self, id: Value, mut error: StatusCommandError) -> Value {
+    fn status_command_error_response(
+        &self,
+        id: Value,
+        ticket: crate::snapshot_order::SnapshotTicket,
+        mut error: StatusCommandError,
+    ) -> Value {
         if let (Some(service_probes), Some(snapshot)) =
             (&self.service_probes, error.reconciliation.as_mut())
         {
             service_probes.overlay(snapshot);
+        }
+        if let Some(snapshot) = error.reconciliation.as_mut() {
+            self.runtime.stamp_status_snapshot(ticket, snapshot);
         }
         status_command_error_response(id, error)
     }
@@ -98,16 +112,25 @@ impl ProtocolState {
         &self,
         capture_status: mish_runtime::CaptureRuntimeStatus,
     ) -> Value {
-        let runtime = self.runtime.current();
+        let ticket = self.runtime.begin_status_snapshot();
+        let mut changes = self.runtime.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
         let core = runtime.core_status().await;
         let mut snapshot = runtime.snapshot_typed_with_capture_status(
             &core,
             StatusAdapterKind::Rpc,
             capture_status,
         );
+        if changes.has_changed().unwrap_or(true)
+            || !runtime.is_same_instance(&changes.borrow_and_update())
+        {
+            // The publisher retired while this projection was in flight.
+            return self.status_snapshot().await;
+        }
         if let Some(service_probes) = &self.service_probes {
             service_probes.overlay(&mut snapshot);
         }
+        self.runtime.stamp_status_snapshot(ticket, &mut snapshot);
         serde_json::to_value(snapshot).expect("Status state must serialize")
     }
 }
@@ -755,7 +778,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 24,
+            "protocolVersion": 25,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -785,13 +808,16 @@ async fn handle_message(
                 Ok(params) => params,
                 Err(_) => return Some(error_response(id, -32602, "Invalid params", None)),
             };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .set_routing_mode(params.mode, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => state.status_snapshot_value(snapshot),
-                Err(error) => return Some(state.status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.selectGroupChild" => {
@@ -805,13 +831,16 @@ async fn handle_message(
                     }
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .select_group_child(params.group_id, params.child_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => state.status_snapshot_value(snapshot),
-                Err(error) => return Some(state.status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.startGroupDelayTest" => {
@@ -820,13 +849,16 @@ async fn handle_message(
                     Ok(params) if valid_identifier(&params.group_id) => params,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .start_group_delay_test(params.group_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => state.status_snapshot_value(snapshot),
-                Err(error) => return Some(state.status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.cancelGroupDelayTest" => {
@@ -835,13 +867,16 @@ async fn handle_message(
                     Ok(params) if valid_identifier(&params.test_id) => params,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
+            let ticket = state.runtime.begin_status_snapshot();
             match state
                 .runtime
                 .cancel_group_delay_test(params.test_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(snapshot) => state.status_snapshot_value(snapshot),
-                Err(error) => return Some(state.status_command_error_response(id, error)),
+                Ok(snapshot) => state.status_snapshot_value(ticket, snapshot),
+                Err(error) => {
+                    return Some(state.status_command_error_response(id, ticket, error));
+                }
             }
         }
         "status.upsertServiceMonitor" => {
@@ -2131,14 +2166,16 @@ fn profile_activation_capability_error(id: Value) -> Value {
 }
 
 async fn profile_rpc_snapshot(state: &ProtocolState) -> Result<Value, ProfileServiceError> {
+    let ticket = state.runtime.begin_profile_snapshot();
     let Some(service) = &state.profile_service else {
         return Err(ProfileServiceError::Repository(RepositoryError::NotFound));
     };
-    let snapshot = if let Some(activation) = &state.profile_activation {
+    let mut snapshot = if let Some(activation) = &state.profile_activation {
         activation.managed_profile_snapshot().await?
     } else {
         crate::ManagedProfileSnapshot::unavailable(service.snapshot()?)
     };
+    state.runtime.stamp_profile_snapshot(ticket, &mut snapshot);
     Ok(serde_json::to_value(snapshot).expect("serializable managed profile snapshot"))
 }
 

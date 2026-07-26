@@ -34,6 +34,7 @@ function snapshot(
 ): EventsSnapshotDto {
   return {
     adapterKind: "fixture",
+    applicationOrder: { authorityId: "events-model-application", epoch: 1, order: sequence },
     events,
     phase: "ready",
     profileId: "profile-a",

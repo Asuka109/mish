@@ -3,6 +3,7 @@ import {
   StatusCommandErrorDataSchema,
   mishRpcMethods,
   statusRpcNotifications,
+  type ApplicationSnapshotDelivery,
   type CaptureSelectionDto,
   type CaptureRecoveryAction,
   type LocalProxyTestResultDto,
@@ -28,12 +29,15 @@ import {
   type RpcConnectionState,
   type RpcRequestOptions,
 } from "@mish/rpc-client";
+import { ApplicationSnapshotAcceptance } from "./application-snapshot-acceptance";
 
 export type StatusRpcClient = RpcClient<typeof mishRpcMethods>;
 
 export class RpcStatusClient implements StatusClient {
   private readonly connectionListeners = new Set<(state: StatusConnectionState) => void>();
-  private readonly snapshotListeners = new Set<(snapshot: StatusSnapshotDto) => void>();
+  private readonly snapshotListeners = new Set<
+    (snapshot: StatusSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void
+  >();
   private connectionState: StatusConnectionState;
   private disposed = false;
   private remoteSubscriptionId: string | null = null;
@@ -46,6 +50,7 @@ export class RpcStatusClient implements StatusClient {
   private capabilityProfileId: string | null = null;
   private capabilitiesLoaded = false;
   private acceptedRecentTraffic: RecentTrafficSnapshotDto | null = null;
+  private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<StatusSnapshotDto>();
   private readonly supportedCommands = new Set<StatusCommand>();
 
   constructor(
@@ -149,7 +154,9 @@ export class RpcStatusClient implements StatusClient {
     return () => this.connectionListeners.delete(listener);
   }
 
-  subscribeSnapshots(listener: (snapshot: StatusSnapshotDto) => void) {
+  subscribeSnapshots(
+    listener: (snapshot: StatusSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
+  ) {
     this.snapshotListeners.add(listener);
     void this.ensureRemoteSubscription();
     return () => {
@@ -191,7 +198,7 @@ export class RpcStatusClient implements StatusClient {
           return;
         }
         this.remoteSubscriptionId = subscriptionId;
-        this.receiveSnapshot({ snapshot, subscriptionId });
+        this.receiveSnapshot({ snapshot, subscriptionId }, "baseline");
       })
       .catch(() => {
         if (this.connectionState.phase === "connected") {
@@ -222,11 +229,20 @@ export class RpcStatusClient implements StatusClient {
     this.emitConnectionState(mapped);
   }
 
-  private receiveSnapshot(notification: StatusSnapshotNotificationDto) {
+  private receiveSnapshot(
+    notification: StatusSnapshotNotificationDto,
+    delivery: ApplicationSnapshotDelivery = "update",
+  ) {
     if (notification.subscriptionId !== this.remoteSubscriptionId) return;
-    const snapshot = this.acceptRecentTraffic(notification.snapshot);
+    const result = this.snapshotAcceptance.accept(notification.snapshot, delivery);
+    if (result.kind === "conflict") {
+      this.emitConnectionState({ ...this.connectionState, stale: true });
+      return;
+    }
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
-    for (const listener of this.snapshotListeners) listener(snapshot);
+    if (result.kind !== "accepted") return;
+    const snapshot = this.acceptRecentTraffic(result.snapshot);
+    for (const listener of this.snapshotListeners) listener(snapshot, delivery);
     void this.ensureCommandCapabilities(snapshot.activeProfileId);
   }
 
@@ -311,9 +327,15 @@ export class RpcStatusClient implements StatusClient {
     options?: RpcRequestOptions,
   ): Promise<StatusSnapshotDto> {
     try {
-      const snapshot = this.acceptRecentTraffic(
+      const delivery = method === "status.getSnapshot" ? "request" : "command";
+      const result = this.snapshotAcceptance.accept(
         await this.rpc.request(method, params as never, options),
+        delivery,
       );
+      if (result.kind === "conflict") {
+        throw new StatusClientError("validation", "Status snapshot order conflict");
+      }
+      const snapshot = this.acceptRecentTraffic(result.snapshot);
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
@@ -340,6 +362,7 @@ function mapConnectionState(state: RpcConnectionState): StatusConnectionState {
 }
 
 export function mapRpcError(error: unknown) {
+  if (error instanceof StatusClientError) return error;
   if (error instanceof RpcCancelledError) {
     return new StatusClientError("cancelled", error.message);
   }
