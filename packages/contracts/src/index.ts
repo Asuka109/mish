@@ -2093,7 +2093,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(27),
+    protocolVersion: z.literal(28),
     statusCommands: z
       .object({
         group: z.boolean(),
@@ -2102,6 +2102,7 @@ export const BridgeInfoSchema = z
         services: z.boolean(),
       })
       .strict(),
+    updaterConfigured: z.boolean(),
     trafficCommands: z
       .object({
         closeAllActive: z.boolean(),
@@ -2112,6 +2113,116 @@ export const BridgeInfoSchema = z
   })
   .strict();
 export interface BridgeInfoDto extends z.infer<typeof BridgeInfoSchema> {}
+
+export const UpdateChannelSchema = z.enum(["alpha", "stable"]);
+export type UpdateChannel = z.infer<typeof UpdateChannelSchema>;
+
+export const UpdatePhaseSchema = z.enum([
+  "idle",
+  "checking",
+  "available",
+  "downloading",
+  "verifying",
+  "ready",
+  "failed",
+  "cancelled",
+]);
+export type UpdatePhase = z.infer<typeof UpdatePhaseSchema>;
+const UpdaterOperationIdSchema = z.string().regex(/^[A-Za-z0-9_.-]{1,128}$/u);
+
+export const UpdateCandidateIdentitySchema = z
+  .object({
+    artifactName: z.string().regex(/^Mish-[0-9A-Za-z.-]+-aarch64\.app\.tar\.gz$/u),
+    artifactSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    artifactSignatureSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    artifactSize: z.number().int().positive(),
+    channel: UpdateChannelSchema,
+    metadataSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    sourceSha: z.string().regex(/^[a-f0-9]{40}$/u),
+    version: z.string().min(1).max(128),
+  })
+  .strict();
+export interface UpdateCandidateIdentityDto extends z.infer<typeof UpdateCandidateIdentitySchema> {}
+
+export const UpdateProgressSchema = z
+  .object({
+    downloadedBytes: NonNegativeIntegerSchema,
+    totalBytes: z.number().int().positive(),
+  })
+  .strict()
+  .refine(
+    (progress) => progress.downloadedBytes <= progress.totalBytes,
+    "Updater progress cannot exceed the authenticated candidate size",
+  );
+export interface UpdateProgressDto extends z.infer<typeof UpdateProgressSchema> {}
+
+export const UpdaterSnapshotSchema = z
+  .object({
+    authorityId: IdentifierSchema,
+    revision: NonNegativeIntegerSchema,
+    configured: z.boolean(),
+    phase: UpdatePhaseSchema,
+    operationId: UpdaterOperationIdSchema.nullable(),
+    channel: UpdateChannelSchema.nullable(),
+    candidate: UpdateCandidateIdentitySchema.nullable(),
+    progress: UpdateProgressSchema.nullable(),
+    resumable: z.boolean(),
+    terminalReason: z.string().min(1).max(128).nullable(),
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    const idle = snapshot.phase === "idle";
+    if (
+      (!snapshot.configured && !idle) ||
+      (idle &&
+        (snapshot.operationId !== null ||
+          snapshot.channel !== null ||
+          snapshot.candidate !== null ||
+          snapshot.progress !== null ||
+          snapshot.resumable ||
+          snapshot.terminalReason !== null))
+    ) {
+      context.addIssue({ code: "custom", message: "Idle updater state must be empty" });
+    }
+    if (!idle && (snapshot.operationId === null || snapshot.channel === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Active and terminal updater states require operation and channel identity",
+      });
+    }
+    if (
+      ["available", "downloading", "verifying", "ready"].includes(snapshot.phase) &&
+      snapshot.candidate === null
+    ) {
+      context.addIssue({ code: "custom", message: "Candidate-bearing phase requires identity" });
+    }
+    if (
+      snapshot.candidate &&
+      (snapshot.channel !== snapshot.candidate.channel ||
+        (snapshot.progress !== null &&
+          snapshot.progress.totalBytes !== snapshot.candidate.artifactSize))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Updater channel, candidate, and progress identity must agree",
+      });
+    }
+    if (
+      snapshot.phase === "ready" &&
+      (snapshot.progress?.downloadedBytes !== snapshot.candidate?.artifactSize ||
+        snapshot.terminalReason !== null ||
+        snapshot.resumable)
+    ) {
+      context.addIssue({ code: "custom", message: "Ready updater candidate must be complete" });
+    }
+    if (["failed", "cancelled"].includes(snapshot.phase) !== (snapshot.terminalReason !== null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Only terminal failure states carry a terminal reason",
+      });
+    }
+  });
+export interface UpdaterSnapshotDto extends z.infer<typeof UpdaterSnapshotSchema> {}
 
 export const ProfileSourceTypeSchema = z.enum(["local-file", "https"]);
 export type ProfileSourceType = z.infer<typeof ProfileSourceTypeSchema>;
@@ -3217,6 +3328,53 @@ export const settingsRpcMethods = {
   },
 } as const;
 
+export const UpdaterOperationCommandSchema = z
+  .object({ operationId: UpdaterOperationIdSchema })
+  .strict();
+export const UpdaterCheckCommandSchema = UpdaterOperationCommandSchema.extend({
+  channel: UpdateChannelSchema,
+}).strict();
+export const UpdaterSubscriptionIdSchema = z.object({ subscriptionId: IdentifierSchema }).strict();
+export const UpdaterSubscriptionSchema = UpdaterSubscriptionIdSchema.extend({
+  snapshot: UpdaterSnapshotSchema,
+}).strict();
+export const UpdaterSnapshotNotificationSchema = z
+  .object({
+    snapshot: UpdaterSnapshotSchema,
+    subscriptionId: IdentifierSchema,
+  })
+  .strict();
+export interface UpdaterSnapshotNotificationDto extends z.infer<
+  typeof UpdaterSnapshotNotificationSchema
+> {}
+
+export const updaterRpcMethods = {
+  "updater.cancel": {
+    params: UpdaterOperationCommandSchema,
+    result: UpdaterSnapshotSchema,
+  },
+  "updater.check": {
+    params: UpdaterCheckCommandSchema,
+    result: UpdaterSnapshotSchema,
+  },
+  "updater.download": {
+    params: UpdaterOperationCommandSchema,
+    result: UpdaterSnapshotSchema,
+  },
+  "updater.getSnapshot": {
+    params: EmptyCommandSchema,
+    result: UpdaterSnapshotSchema,
+  },
+  "updater.subscribe": {
+    params: EmptyCommandSchema,
+    result: UpdaterSubscriptionSchema,
+  },
+  "updater.unsubscribe": {
+    params: UpdaterSubscriptionIdSchema,
+    result: z.boolean(),
+  },
+} as const;
+
 export const mishRpcMethods = {
   ...bridgeRpcMethods,
   ...diagnosticsRpcMethods,
@@ -3226,6 +3384,7 @@ export const mishRpcMethods = {
   ...settingsRpcMethods,
   ...statusRpcMethods,
   ...trafficRpcMethods,
+  ...updaterRpcMethods,
 } as const;
 
 export const statusRpcNotifications = {
@@ -3250,6 +3409,10 @@ export const notificationRpcNotifications = {
 
 export const settingsRpcNotifications = {
   "settings.snapshot": SettingsSnapshotNotificationSchema,
+} as const;
+
+export const updaterRpcNotifications = {
+  "updater.snapshot": UpdaterSnapshotNotificationSchema,
 } as const;
 
 export type StatusConnectionPhase =
@@ -3598,6 +3761,42 @@ export interface EventsClient {
   subscribeSnapshots(
     listener: (snapshot: EventsSnapshotDto, delivery?: ApplicationSnapshotDelivery) => void,
   ): () => void;
+}
+
+export type UpdaterConnectionState = StatusConnectionState;
+
+export class UpdaterClientError extends Error {
+  readonly code: StatusClientErrorCode;
+  readonly kind: string | null;
+  readonly retryable: boolean;
+
+  constructor(
+    code: StatusClientErrorCode,
+    message: string,
+    retryable = false,
+    kind: string | null = null,
+  ) {
+    super(message);
+    this.name = "UpdaterClientError";
+    this.code = code;
+    this.retryable = retryable;
+    this.kind = kind;
+  }
+}
+
+export interface UpdaterClient {
+  cancel(operationId: string, options?: { signal?: AbortSignal }): Promise<UpdaterSnapshotDto>;
+  check(
+    operationId: string,
+    channel: UpdateChannel,
+    options?: { signal?: AbortSignal },
+  ): Promise<UpdaterSnapshotDto>;
+  dispose(): void;
+  download(operationId: string, options?: { signal?: AbortSignal }): Promise<UpdaterSnapshotDto>;
+  getConnectionState(): UpdaterConnectionState;
+  getSnapshot(options?: { signal?: AbortSignal }): Promise<UpdaterSnapshotDto>;
+  subscribeConnection(listener: (state: UpdaterConnectionState) => void): () => void;
+  subscribeSnapshots(listener: (snapshot: UpdaterSnapshotDto) => void): () => void;
 }
 
 export interface NotificationClient {

@@ -53,6 +53,7 @@ async fn main() -> Result<(), String> {
             process_icon_resolver: None,
             service_probes: Some(ServiceProbeConfig { state_path: None }),
             settings_service: None,
+            updater_service: None,
         },
         runtime,
     )

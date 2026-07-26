@@ -75,7 +75,8 @@ of treating an implementation accident as intent.
   ownership, native Core ABI, artifact identity, and lifecycle.
 - [`updater-contract.md`](architecture/updater-contract.md) — strict macOS
   updater channel, SemVer, metadata, signature, artifact identity, provenance,
-  redaction, and not-yet-live boundaries.
+  bounded download/resume, private candidate staging, redaction, and
+  not-yet-installing boundaries.
 
 ### Operations and quality
 

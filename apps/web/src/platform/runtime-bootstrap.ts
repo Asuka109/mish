@@ -16,6 +16,7 @@ import {
   type StatusClient,
   type SupportBundleClient,
   type TrafficClient,
+  type UpdaterClient,
 } from "@mish/contracts";
 import { RpcClient } from "@mish/rpc-client";
 import { RpcProfileClient } from "../data/rpc-profile-client";
@@ -27,6 +28,7 @@ import { FixtureNotificationClient } from "../data/fixture-notification-client";
 import { FixtureSettingsClient } from "../data/fixture-settings-client";
 import { RpcSettingsClient } from "../data/rpc-settings-client";
 import { RpcTrafficClient } from "../data/rpc-traffic-client";
+import { RpcUpdaterClient } from "../data/rpc-updater-client";
 import { DesktopSupportBundleClient, UnavailableSupportBundleClient } from "./support-bundle";
 import { DesktopLocalBackupClient, UnavailableLocalBackupClient } from "./local-backup";
 import type { MobileVpnClient } from "./mobile-vpn-client";
@@ -73,6 +75,7 @@ export interface StartupStatusClient {
   eventsClient?: EventsClient;
   diagnosticsClient?: DiagnosticsClient;
   trafficClient?: TrafficClient;
+  updaterClient?: UpdaterClient;
   dispose(): void;
   profileClient?: ProfileClient;
   settingsClient: SettingsClient;
@@ -183,6 +186,7 @@ function createRpcStartup(
   );
   const trafficClient = new RpcTrafficClient(rpc);
   const notificationClient = new RpcNotificationClient(rpc);
+  const updaterClient = new RpcUpdaterClient(rpc);
   const settingsClient = new RpcSettingsClient(rpc, runtime === "desktop");
   const settingsSnapshot = bootstrap.settingsSnapshot;
   return {
@@ -210,6 +214,7 @@ function createRpcStartup(
         })
       : new UnavailableSupportBundleClient(),
     trafficClient,
+    updaterClient,
     dispose: () => {
       profileClient.dispose();
       diagnosticsClient.dispose();
@@ -217,6 +222,7 @@ function createRpcStartup(
       eventsClient.dispose();
       notificationClient.dispose();
       trafficClient.dispose();
+      updaterClient.dispose();
       client.dispose();
     },
     runtime,

@@ -1,4 +1,6 @@
-use std::{cmp::Ordering, collections::BTreeMap, fmt};
+mod service;
+
+use std::{cmp::Ordering, collections::BTreeMap, fmt, fs::File, io::Read, path::Path};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use minisign_verify::{PublicKey, Signature};
@@ -6,6 +8,11 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use url::Url;
+
+pub use service::{
+    UpdateCandidateIdentity, UpdateOperationError, UpdatePhase, UpdateProgress, UpdaterLimits,
+    UpdaterService, UpdaterSnapshot,
+};
 
 pub const DARWIN_AARCH64_TARGET: &str = "darwin-aarch64";
 pub const UPDATER_SCHEMA_VERSION: u8 = 1;
@@ -55,6 +62,21 @@ pub struct UpdateSelection {
 pub struct VerifiedUpdate {
     pub artifact_name: String,
     pub artifact_sha256: String,
+    pub channel: UpdateChannel,
+    pub channel_switch: bool,
+    pub metadata_sha256: String,
+    pub skipped_version: bool,
+    pub source_sha: String,
+    pub version: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedMetadata {
+    pub artifact_name: String,
+    pub artifact_sha256: String,
+    pub artifact_signature: String,
+    pub artifact_size: u64,
+    pub artifact_url: String,
     pub channel: UpdateChannel,
     pub channel_switch: bool,
     pub metadata_sha256: String,
@@ -142,6 +164,35 @@ impl UpdaterAdapter {
         &self,
         request: VerifyCandidateRequest<'_>,
     ) -> Result<VerifiedUpdate, UpdaterError> {
+        let metadata = self.verify_metadata(VerifyMetadataRequest {
+            accepted_metadata_sha256: request.accepted_metadata_sha256,
+            metadata: request.metadata,
+            metadata_signature: request.metadata_signature,
+            policy: request.policy,
+        })?;
+        self.verify_payload_bytes(
+            &metadata,
+            request.artifact_name,
+            request.artifact,
+            request.artifact_signature,
+        )?;
+
+        Ok(VerifiedUpdate {
+            artifact_name: metadata.artifact_name,
+            artifact_sha256: metadata.artifact_sha256,
+            channel: metadata.channel,
+            channel_switch: metadata.channel_switch,
+            metadata_sha256: metadata.metadata_sha256,
+            skipped_version: metadata.skipped_version,
+            source_sha: metadata.source_sha,
+            version: metadata.version,
+        })
+    }
+
+    pub fn verify_metadata(
+        &self,
+        request: VerifyMetadataRequest<'_>,
+    ) -> Result<VerifiedMetadata, UpdaterError> {
         if request.metadata_signature.is_empty() {
             return Err(UpdaterError::MissingMetadataSignature);
         }
@@ -162,27 +213,21 @@ impl UpdaterAdapter {
         let metadata: TauriStaticMetadata =
             serde_json::from_slice(request.metadata).map_err(|_| UpdaterError::InvalidMetadata)?;
         let selection = evaluate_update(&request.policy, &metadata.version, metadata.mish.channel)?;
-        validate_metadata_identity(&metadata, request.artifact_name, request.artifact)?;
-
+        validate_metadata_contract(&metadata)?;
         let platform = metadata
             .platforms
             .get(DARWIN_AARCH64_TARGET)
             .ok_or(UpdaterError::ArtifactIdentityMismatch)?;
-        if request.artifact_signature.is_empty() {
+        if platform.signature.is_empty() {
             return Err(UpdaterError::MissingArtifactSignature);
         }
-        if platform.signature != request.artifact_signature {
-            return Err(UpdaterError::ArtifactSignatureMismatch);
-        }
-        self.verify_signature(
-            request.artifact,
-            request.artifact_signature,
-            UpdaterError::ArtifactSignatureInvalid,
-        )?;
 
-        Ok(VerifiedUpdate {
+        Ok(VerifiedMetadata {
             artifact_name: metadata.mish.artifact_name,
             artifact_sha256: metadata.mish.artifact_sha256,
+            artifact_signature: platform.signature.clone(),
+            artifact_size: metadata.mish.artifact_size,
+            artifact_url: platform.url.clone(),
             channel: metadata.mish.channel,
             channel_switch: selection.channel_switch,
             metadata_sha256,
@@ -190,6 +235,81 @@ impl UpdaterAdapter {
             source_sha: metadata.mish.source_sha,
             version: metadata.version,
         })
+    }
+
+    pub fn verify_payload_bytes(
+        &self,
+        metadata: &VerifiedMetadata,
+        artifact_name: &str,
+        artifact: &[u8],
+        artifact_signature: &str,
+    ) -> Result<(), UpdaterError> {
+        validate_payload_identity(
+            metadata,
+            artifact_name,
+            artifact.len() as u64,
+            &sha256(artifact),
+            artifact_signature,
+        )?;
+        self.verify_signature(
+            artifact,
+            artifact_signature,
+            UpdaterError::ArtifactSignatureInvalid,
+        )
+    }
+
+    pub fn verify_payload_file(
+        &self,
+        metadata: &VerifiedMetadata,
+        artifact_name: &str,
+        artifact_path: &Path,
+        artifact_signature: &str,
+    ) -> Result<(), UpdaterError> {
+        if artifact_signature.is_empty() {
+            return Err(UpdaterError::MissingArtifactSignature);
+        }
+        if metadata.artifact_signature != artifact_signature {
+            return Err(UpdaterError::ArtifactSignatureMismatch);
+        }
+        let decoded =
+            decode_tauri_text(artifact_signature, UpdaterError::ArtifactSignatureInvalid)?;
+        let signature =
+            Signature::decode(&decoded).map_err(|_| UpdaterError::ArtifactSignatureInvalid)?;
+        let mut verifier = self
+            .public_key
+            .verify_stream(&signature)
+            .map_err(|_| UpdaterError::ArtifactSignatureInvalid)?;
+        let mut digest = Sha256::new();
+        let mut artifact =
+            File::open(artifact_path).map_err(|_| UpdaterError::ArtifactSizeMismatch)?;
+        let mut size = 0_u64;
+        let mut buffer = [0_u8; 64 * 1024];
+        loop {
+            let read = artifact
+                .read(&mut buffer)
+                .map_err(|_| UpdaterError::ArtifactSizeMismatch)?;
+            if read == 0 {
+                break;
+            }
+            size = size
+                .checked_add(read as u64)
+                .ok_or(UpdaterError::ArtifactSizeMismatch)?;
+            if size > metadata.artifact_size {
+                return Err(UpdaterError::ArtifactSizeMismatch);
+            }
+            digest.update(&buffer[..read]);
+            verifier.update(&buffer[..read]);
+        }
+        validate_payload_identity(
+            metadata,
+            artifact_name,
+            size,
+            &format!("{:x}", digest.finalize()),
+            artifact_signature,
+        )?;
+        verifier
+            .finalize()
+            .map_err(|_| UpdaterError::ArtifactSignatureInvalid)
     }
 
     fn verify_signature(
@@ -211,6 +331,13 @@ pub struct VerifyCandidateRequest<'a> {
     pub artifact: &'a [u8],
     pub artifact_name: &'a str,
     pub artifact_signature: &'a str,
+    pub metadata: &'a [u8],
+    pub metadata_signature: &'a str,
+    pub policy: UpdatePolicy,
+}
+
+pub struct VerifyMetadataRequest<'a> {
+    pub accepted_metadata_sha256: &'a [String],
     pub metadata: &'a [u8],
     pub metadata_signature: &'a str,
     pub policy: UpdatePolicy,
@@ -292,11 +419,7 @@ fn alpha_sequence(version: &Version) -> Option<u64> {
     version.pre.as_str().strip_prefix("alpha.")?.parse().ok()
 }
 
-fn validate_metadata_identity(
-    metadata: &TauriStaticMetadata,
-    artifact_name: &str,
-    artifact: &[u8],
-) -> Result<(), UpdaterError> {
+fn validate_metadata_contract(metadata: &TauriStaticMetadata) -> Result<(), UpdaterError> {
     if metadata.mish.schema_version != UPDATER_SCHEMA_VERSION
         || metadata.platforms.len() != 1
         || !valid_source_sha(&metadata.mish.source_sha)
@@ -309,14 +432,18 @@ fn validate_metadata_identity(
     }
 
     let expected_name = format!("Mish-{}-aarch64.app.tar.gz", metadata.version);
-    if metadata.mish.artifact_name != expected_name || artifact_name != expected_name {
+    if metadata.mish.artifact_name != expected_name {
         return Err(UpdaterError::ArtifactIdentityMismatch);
     }
-    if metadata.mish.artifact_size != artifact.len() as u64 {
-        return Err(UpdaterError::ArtifactSizeMismatch);
-    }
-    if metadata.mish.artifact_sha256 != sha256(artifact) {
-        return Err(UpdaterError::ArtifactDigestMismatch);
+    if metadata.mish.artifact_size == 0
+        || metadata.mish.artifact_sha256.len() != 64
+        || !metadata
+            .mish
+            .artifact_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(UpdaterError::InvalidMetadata);
     }
 
     let platform = metadata
@@ -338,6 +465,63 @@ fn validate_metadata_identity(
         return Err(UpdaterError::InvalidArtifactUrl);
     }
     Ok(())
+}
+
+fn validate_payload_identity(
+    metadata: &VerifiedMetadata,
+    artifact_name: &str,
+    artifact_size: u64,
+    artifact_sha256: &str,
+    artifact_signature: &str,
+) -> Result<(), UpdaterError> {
+    if artifact_name != metadata.artifact_name {
+        return Err(UpdaterError::ArtifactIdentityMismatch);
+    }
+    if artifact_size != metadata.artifact_size {
+        return Err(UpdaterError::ArtifactSizeMismatch);
+    }
+    if artifact_sha256 != metadata.artifact_sha256 {
+        return Err(UpdaterError::ArtifactDigestMismatch);
+    }
+    if artifact_signature.is_empty() {
+        return Err(UpdaterError::MissingArtifactSignature);
+    }
+    if artifact_signature != metadata.artifact_signature {
+        return Err(UpdaterError::ArtifactSignatureMismatch);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn validate_metadata_identity(
+    metadata: &TauriStaticMetadata,
+    artifact_name: &str,
+    artifact: &[u8],
+) -> Result<(), UpdaterError> {
+    validate_metadata_contract(metadata)?;
+    let platform = metadata
+        .platforms
+        .get(DARWIN_AARCH64_TARGET)
+        .ok_or(UpdaterError::ArtifactIdentityMismatch)?;
+    validate_payload_identity(
+        &VerifiedMetadata {
+            artifact_name: metadata.mish.artifact_name.clone(),
+            artifact_sha256: metadata.mish.artifact_sha256.clone(),
+            artifact_signature: platform.signature.clone(),
+            artifact_size: metadata.mish.artifact_size,
+            artifact_url: platform.url.clone(),
+            channel: metadata.mish.channel,
+            channel_switch: false,
+            metadata_sha256: String::new(),
+            skipped_version: false,
+            source_sha: metadata.mish.source_sha.clone(),
+            version: metadata.version.clone(),
+        },
+        artifact_name,
+        artifact.len() as u64,
+        &sha256(artifact),
+        &platform.signature,
+    )
 }
 
 fn valid_source_sha(value: &str) -> bool {

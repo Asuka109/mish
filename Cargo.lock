@@ -2593,6 +2593,7 @@ dependencies = [
  "mish-runtime",
  "mish-settings",
  "mish-state-authority",
+ "mish-updater",
  "nix",
  "regex",
  "reqwest",
@@ -2762,13 +2763,21 @@ dependencies = [
 name = "mish-updater"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "base64 0.22.1",
+ "futures-util",
+ "libc",
  "minisign-verify",
+ "reqwest",
  "semver",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
  "url",
+ "uuid",
 ]
 
 [[package]]

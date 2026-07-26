@@ -170,8 +170,10 @@ Issue #174's credential-free updater foundation adds a separate
 The signed-direct planning job runs its deterministic fixture after validating
 the #173 boundary. That fixture proves the exact Tauri static JSON and
 versioned `.app.tar.gz` asset set without reading a private key or making a
-network request. It does not add updater assets to the protected candidate,
-enable an endpoint or plugin, or claim download and installation.
+network request. Stage 2A separately proves bounded loopback discovery,
+download, resume, verification, and private candidate staging. Neither adds
+updater assets to the protected release candidate, enables a production key or
+endpoint, or claims installation.
 
 ## Draft release staging
 

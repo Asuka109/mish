@@ -450,13 +450,14 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 27,
+        protocolVersion: 28,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
           closeConnection: true,
           closeFilteredVisible: true,
         },
+        updaterConfigured: false,
       },
     });
     await flushMicrotasks();
@@ -488,13 +489,14 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: true,
-        protocolVersion: 27,
+        protocolVersion: 28,
         statusCommands: { group: true, groupDelay: true, routing: true, services: true },
         trafficCommands: {
           closeAllActive: true,
           closeConnection: true,
           closeFilteredVisible: true,
         },
+        updaterConfigured: false,
       },
     });
     await flushMicrotasks();
@@ -516,13 +518,14 @@ describe("RpcStatusClient", () => {
       result: {
         bridgeVersion: "test",
         coreConfigured: false,
-        protocolVersion: 27,
+        protocolVersion: 28,
         statusCommands: { group: false, groupDelay: false, routing: false, services: false },
         trafficCommands: {
           closeAllActive: false,
           closeConnection: false,
           closeFilteredVisible: false,
         },
+        updaterConfigured: false,
       },
     });
     await flushMicrotasks();

@@ -1144,6 +1144,9 @@ fn initialize(
                     state_path: Some(profile_root.join("service-monitors.json")),
                 }),
                 settings_service: Some(settings_service.clone()),
+                updater_service: Some(Arc::new(mish_updater::UpdaterService::unconfigured(
+                    format!("updater-{}", Uuid::new_v4()),
+                ))),
             },
             runtime_host.clone(),
             lifecycle_source,

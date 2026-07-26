@@ -524,6 +524,7 @@ fn config() -> LoopbackServerConfig {
         process_icon_resolver: None,
         service_probes: None,
         settings_service: None,
+        updater_service: None,
     }
 }
 
@@ -1841,7 +1842,8 @@ async fn authenticates_and_serves_contract_compatible_status() {
         json!({"jsonrpc":"2.0", "id":2, "method":"bridge.getInfo", "params":{}}),
     )
     .await;
-    assert_eq!(info["result"]["protocolVersion"], 27);
+    assert_eq!(info["result"]["protocolVersion"], 28);
+    assert_eq!(info["result"]["updaterConfigured"], false);
     assert_eq!(
         info["result"]["statusCommands"],
         json!({"group": false, "groupDelay": false, "routing": false, "services": false})
@@ -1856,6 +1858,26 @@ async fn authenticates_and_serves_contract_compatible_status() {
     );
     assert_eq!(info["result"]["bridgeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(info["result"]["coreConfigured"], false);
+
+    let updater = request(
+        &mut ws,
+        json!({"jsonrpc":"2.0", "id":31, "method":"updater.getSnapshot", "params":{}}),
+    )
+    .await;
+    assert_eq!(updater["result"]["configured"], false);
+    assert_eq!(updater["result"]["phase"], "idle");
+    assert_eq!(updater["result"]["revision"], 0);
+    assert!(updater["result"]["authorityId"].is_string());
+    let unavailable = request(
+        &mut ws,
+        json!({
+            "jsonrpc":"2.0", "id":32, "method":"updater.check",
+            "params":{"channel":"alpha","operationId":"rpc-operation"}
+        }),
+    )
+    .await;
+    assert_eq!(unavailable["error"]["code"], -32020);
+    assert_eq!(unavailable["error"]["data"]["kind"], "not-configured");
 
     let snapshot = request(
         &mut ws,
@@ -2012,6 +2034,56 @@ async fn authenticates_and_serves_contract_compatible_status() {
     )
     .await;
     assert_eq!(unavailable["error"]["code"], -32010);
+    bridge.shutdown().await;
+}
+
+#[tokio::test]
+async fn updater_snapshot_authority_is_shared_across_webview_browser_and_reconnect_clients() {
+    let bridge = start_loopback_server(config(), runtime(no_core()))
+        .await
+        .unwrap();
+    let mut first = socket(bridge.address).await;
+    let mut second = socket(bridge.address).await;
+    authenticate(&mut first).await;
+    authenticate(&mut second).await;
+
+    let first_subscription = request(
+        &mut first,
+        json!({"jsonrpc":"2.0","id":2,"method":"updater.subscribe","params":{}}),
+    )
+    .await;
+    let second_subscription = request(
+        &mut second,
+        json!({"jsonrpc":"2.0","id":2,"method":"updater.subscribe","params":{}}),
+    )
+    .await;
+    assert_eq!(
+        first_subscription["result"]["snapshot"],
+        second_subscription["result"]["snapshot"]
+    );
+    assert_eq!(
+        bridge.updater_service().snapshot().authority_id,
+        first_subscription["result"]["snapshot"]["authorityId"]
+    );
+    assert_eq!(first_subscription["result"]["snapshot"]["phase"], "idle");
+    assert_ne!(
+        first_subscription["result"]["subscriptionId"],
+        second_subscription["result"]["subscriptionId"]
+    );
+
+    drop(first);
+    let mut reconnected = socket(bridge.address).await;
+    authenticate(&mut reconnected).await;
+    let reconnected_snapshot = request(
+        &mut reconnected,
+        json!({"jsonrpc":"2.0","id":3,"method":"updater.getSnapshot","params":{}}),
+    )
+    .await;
+    assert_eq!(
+        reconnected_snapshot["result"],
+        second_subscription["result"]["snapshot"]
+    );
+
     bridge.shutdown().await;
 }
 
