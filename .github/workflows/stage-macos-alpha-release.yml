@@ -1,10 +1,18 @@
-name: Stage macOS Alpha Draft
+name: Stage macOS Draft
 
-run-name: Stage macOS Alpha ${{ inputs.version }}${{ inputs.dry_run && ' (dry run)' || '' }}
+run-name: Stage macOS ${{ inputs.profile }} ${{ inputs.version }}${{ inputs.dry_run && ' (dry run)' || '' }}
 
 on:
   workflow_dispatch:
     inputs:
+      profile:
+        description: Explicit release profile; never inferred from Apple credentials
+        required: true
+        default: alpha-ad-hoc
+        type: choice
+        options:
+          - alpha-ad-hoc
+          - signed-direct
       version:
         description: Prerelease SemVer matching the desktop base version (for example 0.1.0-alpha.1)
         required: true
@@ -23,7 +31,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: macos-alpha-draft-${{ inputs.version }}
+  group: macos-draft-${{ inputs.profile }}-${{ inputs.version }}
   cancel-in-progress: false
 
 env:
@@ -39,6 +47,9 @@ jobs:
       artifact_name: ${{ steps.source.outputs.artifact_name }}
       base_version: ${{ steps.source.outputs.base_version }}
       candidate_artifact_name: mish-alpha-candidate-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}
+      profile: ${{ inputs.profile }}
+      signed_candidate_artifact_name: mish-signed-candidate-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}
+      signed_protected_artifact_name: mish-signed-protected-${{ steps.source.outputs.version }}-${{ steps.source.outputs.source_sha }}
       source_sha: ${{ steps.source.outputs.source_sha }}
       tag: ${{ steps.source.outputs.tag }}
       tooling_sha: ${{ steps.source.outputs.main_sha }}
@@ -72,6 +83,7 @@ jobs:
           fi
           node scripts/macos-alpha-release.ts "${arguments[@]}"
       - name: Fail fast on conflicting tag or Release
+        if: ${{ inputs.profile == 'alpha-ad-hoc' }}
         id: preflight
         env:
           GH_TOKEN: ${{ github.token }}
@@ -82,9 +94,22 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --version "$RELEASE_VERSION" \
             --source-sha "$SOURCE_SHA"
+      - name: Fail fast on conflicting signed tag or Release
+        if: ${{ inputs.profile == 'signed-direct' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          RELEASE_VERSION: ${{ steps.source.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+        run: |
+          node scripts/macos-signed-release.ts preflight \
+            --repository "$GITHUB_REPOSITORY" \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA"
 
   verify-candidate:
     name: Verify macOS Alpha candidate
+    if: ${{ inputs.profile == 'alpha-ad-hoc' }}
     needs: freeze-source
     permissions:
       contents: read
@@ -152,6 +177,7 @@ jobs:
 
   staging-decision:
     name: Dry-run staging decision
+    if: ${{ inputs.profile == 'alpha-ad-hoc' }}
     needs:
       - freeze-source
       - verify-candidate
@@ -217,7 +243,7 @@ jobs:
 
   stage-draft:
     name: Create immutable tag and Draft Pre-release
-    if: ${{ inputs.dry_run == false }}
+    if: ${{ inputs.profile == 'alpha-ad-hoc' && inputs.dry_run == false }}
     needs:
       - freeze-source
       - verify-candidate
@@ -270,6 +296,417 @@ jobs:
         run: |
           {
             echo "## Draft Pre-release staged"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`$RELEASE_VERSION\` |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            printf '%s\n' "| Draft URL | ${RELEASE_URL} |"
+            echo "| Published | \`no\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-signed-plan:
+    name: Verify credential-free signed-direct plan
+    if: ${{ inputs.profile == 'signed-direct' }}
+    needs: freeze-source
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-signed-release-plan
+          cache-on-failure: true
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run complete repository validation
+        run: pnpm check:all
+      - name: Validate signed release boundary plan
+        env:
+          CONTENTS_PERMISSION: read
+          DRY_RUN: ${{ inputs.dry_run }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          RELEASE_ENVIRONMENT: macos-developer-id
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_PROFILE: ${{ inputs.profile }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          node .release-tooling/scripts/macos-signed-release.ts plan-boundary \
+            --profile "$RELEASE_PROFILE" \
+            --event-name "$RELEASE_EVENT_NAME" \
+            --ref "$RELEASE_REF" \
+            --repository "$RELEASE_REPOSITORY" \
+            --expected-repository "$EXPECTED_REPOSITORY" \
+            --environment "$RELEASE_ENVIRONMENT" \
+            --contents-permission "$CONTENTS_PERMISSION" \
+            --dry-run "$DRY_RUN" \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA"
+      - name: Write credential-free signed plan summary
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          if [[ "$DRY_RUN" == "false" ]]; then
+            protected_execution="yes"
+          else
+            protected_execution="no"
+          fi
+          {
+            echo "## signed-direct Stage 1 plan"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`$RELEASE_VERSION\` |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            echo "| Profile | \`signed-direct\` |"
+            echo "| Credential-free contract | \`verified\` |"
+            echo "| Protected execution requested | \`$protected_execution\` |"
+            echo "| Live Developer ID / notarization result | \`not observed by this job\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  execute-signed-release:
+    name: Execute protected signed-direct release
+    if: ${{ inputs.profile == 'signed-direct' && inputs.dry_run == false }}
+    needs:
+      - freeze-source
+      - verify-signed-plan
+    environment:
+      name: macos-developer-id
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.13.1
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Cache Rust dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: macos-signed-release
+          cache-on-failure: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Execute protected signed release
+        id: signed-release
+        env:
+          CONTENTS_PERMISSION: read
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          MISH_APPLE_CERTIFICATE_BASE64: ${{ secrets.MISH_APPLE_CERTIFICATE_BASE64 }}
+          MISH_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MISH_APPLE_CERTIFICATE_PASSWORD }}
+          MISH_APPLE_NOTARY_API_ISSUER_ID: ${{ secrets.MISH_APPLE_NOTARY_API_ISSUER_ID }}
+          MISH_APPLE_NOTARY_API_KEY_ID: ${{ secrets.MISH_APPLE_NOTARY_API_KEY_ID }}
+          MISH_APPLE_NOTARY_API_PRIVATE_KEY: ${{ secrets.MISH_APPLE_NOTARY_API_PRIVATE_KEY }}
+          MISH_APPLE_SIGNING_IDENTITY: ${{ secrets.MISH_APPLE_SIGNING_IDENTITY }}
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          RELEASE_ENVIRONMENT: macos-developer-id
+          RELEASE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_PROFILE: ${{ inputs.profile }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SIGNED_OUTPUT_DIRECTORY: target/signed-release-candidate
+          SIGNED_SCRATCH_ROOT: ${{ runner.temp }}/mish-signed-release-${{ github.run_id }}-${{ github.run_attempt }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          node .release-tooling/scripts/macos-signed-release.ts execute \
+            --profile "$RELEASE_PROFILE" \
+            --event-name "$RELEASE_EVENT_NAME" \
+            --ref "$RELEASE_REF" \
+            --repository "$RELEASE_REPOSITORY" \
+            --expected-repository "$EXPECTED_REPOSITORY" \
+            --environment "$RELEASE_ENVIRONMENT" \
+            --contents-permission "$CONTENTS_PERMISSION" \
+            --dry-run false \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --output-directory "$SIGNED_OUTPUT_DIRECTORY" \
+            --scratch-root "$SIGNED_SCRATCH_ROOT"
+      - name: Guarantee temporary signing cleanup
+        if: ${{ always() && steps.signed-release.outcome != 'skipped' }}
+        env:
+          SIGNED_SCRATCH_ROOT: ${{ runner.temp }}/mish-signed-release-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          node .release-tooling/scripts/macos-signed-release.ts cleanup \
+            --scratch-root "$SIGNED_SCRATCH_ROOT"
+      - name: Upload protected signed evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.freeze-source.outputs.signed_protected_artifact_name }}
+          path: target/signed-release-candidate/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  attest-signed-candidate:
+    name: Attest exact signed-direct candidate
+    if: ${{ inputs.profile == 'signed-direct' && inputs.dry_run == false }}
+    needs:
+      - freeze-source
+      - execute-signed-release
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      candidate_artifact_id: ${{ steps.signed-candidate-upload.outputs.artifact-id }}
+      dmg_sha256: ${{ steps.final.outputs.dmg_sha256 }}
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Download protected signed evidence
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.freeze-source.outputs.signed_protected_artifact_name }}
+          path: target/signed-release-candidate
+      - name: Generate exact DMG provenance
+        id: provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: target/signed-release-candidate/${{ needs.freeze-source.outputs.artifact_name }}
+      - name: Generate exact DMG SBOM attestation
+        id: sbom
+        uses: actions/attest@v4
+        with:
+          sbom-path: target/signed-release-candidate/macos-sbom.spdx.json
+          subject-path: target/signed-release-candidate/${{ needs.freeze-source.outputs.artifact_name }}
+      - name: Finalize attested candidate identity
+        id: final
+        env:
+          ARTIFACT_DIRECTORY: target/signed-release-candidate
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          PROVENANCE_ID: ${{ steps.provenance.outputs.attestation-id }}
+          PROVENANCE_URL: ${{ steps.provenance.outputs.attestation-url }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+          SBOM_ID: ${{ steps.sbom.outputs.attestation-id }}
+          SBOM_URL: ${{ steps.sbom.outputs.attestation-url }}
+        run: |
+          node .release-tooling/scripts/macos-signed-release.ts finalize-attestations \
+            --artifact-directory "$ARTIFACT_DIRECTORY" \
+            --provenance-bundle "$PROVENANCE_BUNDLE" \
+            --provenance-id "$PROVENANCE_ID" \
+            --provenance-url "$PROVENANCE_URL" \
+            --sbom-bundle "$SBOM_BUNDLE" \
+            --sbom-id "$SBOM_ID" \
+            --sbom-url "$SBOM_URL"
+      - name: Upload exact signed staging candidate
+        id: signed-candidate-upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ needs.freeze-source.outputs.signed_candidate_artifact_name }}
+          path: target/signed-release-candidate/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  signed-staging-decision:
+    name: Decide signed-direct Draft staging
+    if: ${{ inputs.profile == 'signed-direct' && inputs.dry_run == false }}
+    needs:
+      - freeze-source
+      - attest-signed-candidate
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      action: ${{ steps.decision.outputs.action }}
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Download exact signed staging candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.freeze-source.outputs.signed_candidate_artifact_name }}
+          path: target/signed-release-candidate
+      - name: Verify downloaded DMG attestations
+        env:
+          CANDIDATE_ARTIFACT_ID: ${{ needs.attest-signed-candidate.outputs.candidate_artifact_id }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+        run: |
+          dmg="target/signed-release-candidate/Mish-${RELEASE_VERSION}-arm64.dmg"
+          gh attestation verify "$dmg" --repo "$GITHUB_REPOSITORY"
+          gh attestation verify "$dmg" \
+            --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://spdx.dev/Document/v2.3
+      - name: Validate signed candidate and decide staging
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          node .release-tooling/scripts/macos-signed-release.ts plan \
+            --repository "$GITHUB_REPOSITORY" \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --candidate-artifact-id "$CANDIDATE_ARTIFACT_ID" \
+            --artifact-directory target/signed-release-candidate
+      - name: Write signed staging summary
+        env:
+          DECISION: ${{ steps.decision.outputs.action }}
+          DMG_SHA256: ${{ needs.attest-signed-candidate.outputs.dmg_sha256 }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          {
+            echo "## signed-direct staging decision"
+            echo
+            echo "| Property | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`$RELEASE_VERSION\` |"
+            echo "| Source SHA | \`$SOURCE_SHA\` |"
+            echo "| Final DMG SHA-256 | \`$DMG_SHA256\` |"
+            echo "| Decision | \`$DECISION\` |"
+            echo "| Live evidence | \`observed in protected workflow\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  stage-signed-draft:
+    name: Create immutable signed-direct Draft Pre-release
+    if: ${{ inputs.profile == 'signed-direct' && inputs.dry_run == false }}
+    needs:
+      - freeze-source
+      - attest-signed-candidate
+      - signed-staging-decision
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out frozen source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.source_sha }}
+      - name: Check out frozen release tooling
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          path: .release-tooling
+          persist-credentials: false
+          ref: ${{ needs.freeze-source.outputs.tooling_sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Download exact signed staging candidate
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.freeze-source.outputs.signed_candidate_artifact_name }}
+          path: target/signed-release-candidate
+      - name: Stage immutable signed tag and Draft Pre-release
+        id: staging
+        env:
+          CANDIDATE_ARTIFACT_ID: ${{ needs.attest-signed-candidate.outputs.candidate_artifact_id }}
+          GH_TOKEN: ${{ github.token }}
+          MISH_RELEASE_REPOSITORY_ROOT: ${{ github.workspace }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          node .release-tooling/scripts/macos-signed-release.ts stage \
+            --repository "$GITHUB_REPOSITORY" \
+            --version "$RELEASE_VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --candidate-artifact-id "$CANDIDATE_ARTIFACT_ID" \
+            --artifact-directory target/signed-release-candidate
+      - name: Write signed Draft summary
+        env:
+          RELEASE_URL: ${{ steps.staging.outputs.release_url }}
+          RELEASE_VERSION: ${{ needs.freeze-source.outputs.version }}
+          SOURCE_SHA: ${{ needs.freeze-source.outputs.source_sha }}
+        run: |
+          {
+            echo "## signed-direct Draft Pre-release staged"
             echo
             echo "| Property | Value |"
             echo "| --- | --- |"
