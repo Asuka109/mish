@@ -120,6 +120,7 @@ within the managed layout.
 
 ```text
 <app-local-root>/
+  selected-profile.json
   profiles/
     <user-visible-name>.yaml
   profile-store/

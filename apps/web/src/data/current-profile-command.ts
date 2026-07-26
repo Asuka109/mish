@@ -20,7 +20,12 @@ export function useCurrentProfileCommand() {
       const previousProfileId = profiles.selectedProfileId;
       if (profileId === previousProfileId) return { ok: true };
 
-      profiles.selectProfile(profileId);
+      const selected = await profiles.selectProfile(profileId);
+      if (!selected.ok) return selected;
+      const rollbackSelection = () =>
+        previousProfileId
+          ? profiles.selectProfile(previousProfileId, selected.selection)
+          : Promise.resolve({ ok: true, selection: selected.selection } as const);
 
       const runtime = product.snapshot?.runtime;
       const proxyRunning = Boolean(runtime?.systemProxyEnabled || runtime?.tunEnabled);
@@ -32,7 +37,7 @@ export function useCurrentProfileCommand() {
         profiles.snapshot.capabilities.activation === "supported" &&
         profiles.snapshot.activation.availability === "available";
       if (!canSwitchRuntime) {
-        if (previousProfileId) profiles.selectProfile(previousProfileId);
+        await rollbackSelection();
         return {
           error: new ProfileClientError(
             "unsupported",
@@ -46,12 +51,12 @@ export function useCurrentProfileCommand() {
       try {
         const activation = await profiles.activateProfile(profileId);
         if (!activation.ok) {
-          if (previousProfileId) profiles.selectProfile(previousProfileId);
+          await rollbackSelection();
           return activation;
         }
 
         const completed = await profiles.waitForProfileActivation(profileId);
-        if (!completed.ok && previousProfileId) profiles.selectProfile(previousProfileId);
+        if (!completed.ok) await rollbackSelection();
         return completed;
       } finally {
         setSwitching(false);
@@ -61,7 +66,10 @@ export function useCurrentProfileCommand() {
   );
 
   return {
-    pending: switching || (profiles?.isPending("activate") ?? false),
+    pending:
+      switching ||
+      (profiles?.isPending("activate") ?? false) ||
+      (profiles?.isPending("select") ?? false),
     selectCurrentProfile,
   };
 }

@@ -148,6 +148,7 @@ function desktopSnapshot(): ProfileSnapshotDto {
       providers: [],
       remotelyCancellable: false,
     },
+    selection: { profileId: "profile-home", revision: 1 },
   };
 }
 
@@ -182,6 +183,7 @@ function createDesktopClient() {
     replacePatches: vi.fn(async () => emptyPatches),
     setRefreshPolicy: vi.fn(async () => snapshot),
     savePreview: vi.fn(async () => snapshot),
+    selectProfile: vi.fn(async () => snapshot),
     stopActiveProfile: vi.fn(async () => snapshot.activation),
     subscribeConnection: vi.fn(() => () => undefined),
     subscribeSnapshots: vi.fn(() => () => undefined),

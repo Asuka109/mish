@@ -1982,7 +1982,6 @@ export interface SetRoutingModeCommand extends z.infer<typeof SetRoutingModeComm
 export const SetCaptureCommandSchema = z
   .object({
     active: z.boolean(),
-    profileId: IdentifierSchema.optional(),
     selection: CaptureSelectionSchema,
   })
   .strict();
@@ -2400,6 +2399,16 @@ export const ProviderCommandResultSchema = z
   .strict();
 export interface ProviderCommandResultDto extends z.infer<typeof ProviderCommandResultSchema> {}
 
+export const ProfileSelectionSnapshotSchema = z
+  .object({
+    profileId: IdentifierSchema.nullable(),
+    revision: NonNegativeIntegerSchema,
+  })
+  .strict();
+export interface ProfileSelectionSnapshotDto extends z.infer<
+  typeof ProfileSelectionSnapshotSchema
+> {}
+
 export const ProfileSnapshotSchema = z
   .object({
     activation: ProfileActivationSnapshotSchema,
@@ -2408,8 +2417,23 @@ export const ProfileSnapshotSchema = z
     capabilities: ProfileCapabilitiesSchema,
     profiles: z.array(ProfileListItemSchema),
     providers: ProviderSnapshotSchema,
+    selection: ProfileSelectionSnapshotSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((snapshot, context) => {
+    const validProfiles = snapshot.profiles.filter((profile) => profile.status.valid);
+    const selected = validProfiles.some((profile) => profile.id === snapshot.selection.profileId);
+    if (
+      (validProfiles.length === 0 && snapshot.selection.profileId !== null) ||
+      (validProfiles.length > 0 && !selected)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "The selected Profile must be one of the valid stored Profiles",
+        path: ["selection", "profileId"],
+      });
+    }
+  });
 export interface ProfileSnapshotDto extends z.infer<typeof ProfileSnapshotSchema> {}
 
 export const ProfileRouteCatalogSchema = z
@@ -2423,7 +2447,7 @@ export const ProfileRouteCatalogSchema = z
   .strict();
 export interface ProfileRouteCatalogDto extends z.infer<typeof ProfileRouteCatalogSchema> {}
 
-export const RpcProfileSnapshotSchema = ProfileSnapshotSchema.extend({
+export const RpcProfileSnapshotSchema = ProfileSnapshotSchema.safeExtend({
   adapterKind: z.literal("rpc"),
 });
 
@@ -2647,6 +2671,12 @@ export const ProfileCreateCommandSchema = z
   .strict();
 export const ProfileSaveCommandSchema = z.object({ previewId: IdentifierSchema }).strict();
 export const ProfileIdCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
+export const ProfileSelectionCommandSchema = z
+  .object({
+    expectedSelection: ProfileSelectionSnapshotSchema.optional(),
+    profileId: IdentifierSchema,
+  })
+  .strict();
 export const ProfileRefreshPolicyCommandSchema = z
   .object({ profileId: IdentifierSchema, policy: ProfileRefreshPolicySchema })
   .strict();
@@ -2797,6 +2827,7 @@ export const profileRpcMethods = {
     result: RpcProfileSnapshotSchema,
   },
   "profiles.save": { params: ProfileSaveCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.select": { params: ProfileSelectionCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.stop": {
     params: ProfileActivationControlCommandSchema,
     result: ProfileActivationSnapshotSchema,
@@ -3155,7 +3186,6 @@ export interface StatusClient {
   setCapture(
     selection: CaptureSelectionDto,
     active: boolean,
-    profileId?: string,
     options?: { signal?: AbortSignal },
   ): Promise<StatusSnapshotDto>;
   setRoutingMode(mode: RoutingMode, options?: { signal?: AbortSignal }): Promise<StatusSnapshotDto>;
@@ -3325,6 +3355,10 @@ export interface ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto>;
   savePreview(previewId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  selectProfile(
+    profileId: string,
+    options?: { expectedSelection?: ProfileSelectionSnapshotDto; signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto>;
   stopActiveProfile(
     commandId: string,
     options?: { signal?: AbortSignal },
