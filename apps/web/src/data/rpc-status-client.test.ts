@@ -181,6 +181,54 @@ describe("RpcStatusClient", () => {
     client.dispose();
   });
 
+  it("keeps repeated no-op audit snapshots terminal until a real drift operation", async () => {
+    const transport = new FakeTransport();
+    const rpc = new RpcClient({
+      authentication: () => ({ clientName: "web", clientVersion: "test", token: "secret" }),
+      methods: mishRpcMethods,
+      transportFactory: () => transport,
+    });
+    const client = new RpcStatusClient(rpc);
+    const received: StatusSnapshotDto[] = [];
+    client.subscribeSnapshots((snapshot) => received.push(snapshot));
+    await authenticate(transport);
+    const subscribe = await waitForRequest(transport, 1);
+    const terminal = captureSnapshot(await createRpcSnapshot(), "7", "applied");
+    transport.respond({
+      id: subscribe.id,
+      jsonrpc: "2.0",
+      result: { snapshot: terminal, subscriptionId: "capture-audit-subscription" },
+    });
+    await flushMicrotasks();
+
+    const publish = (snapshot: StatusSnapshotDto) =>
+      transport.respond({
+        jsonrpc: "2.0",
+        method: "status.snapshot",
+        params: { snapshot, subscriptionId: "capture-audit-subscription" },
+      });
+    for (let audit = 0; audit < 3; audit += 1) {
+      publish(structuredClone(terminal));
+      expect(received.at(-1)?.runtime.captureOperation).toEqual({
+        operationId: "7",
+        phase: "applied",
+        scopeEpoch: "capture-scope-a",
+      });
+    }
+
+    publish(captureSnapshot(terminal, "8", "pending"));
+    expect(received.at(-1)?.runtime.captureOperation).toMatchObject({
+      operationId: "8",
+      phase: "pending",
+    });
+    publish(captureSnapshot(terminal, "8", "recovery-required"));
+    expect(received.at(-1)?.runtime.captureOperation).toMatchObject({
+      operationId: "8",
+      phase: "recovery-required",
+    });
+    client.dispose();
+  });
+
   it("rejects stale and duplicate Recent Traffic revisions without synthesizing authority", async () => {
     const transport = new FakeTransport();
     const rpc = new RpcClient({

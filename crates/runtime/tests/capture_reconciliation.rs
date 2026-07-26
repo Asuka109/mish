@@ -90,6 +90,69 @@ async fn aggregate_operations_publish_one_scope_order_from_pending_through_termi
     );
 }
 
+#[tokio::test]
+async fn periodic_audit_preserves_terminal_identity_until_authoritative_drift() {
+    let platform = Arc::new(FakePlatform::new(disabled_service()));
+    let reconciler = CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryJournalStore::default()),
+        LoopbackProxyEndpoint::managed(),
+    );
+    reconciler
+        .reconcile(
+            CaptureRequest {
+                active: true,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let terminal = reconciler.status().capture_operation;
+    let mut updates = reconciler.subscribe();
+
+    for _ in 0..3 {
+        let audited = reconciler
+            .audit(CaptureAuditReason::Periodic, true)
+            .await
+            .unwrap();
+        assert_eq!(audited.capture_operation, terminal);
+        assert_eq!(
+            updates.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        );
+    }
+
+    let mut drifted = platform.service("service-a");
+    drifted.http.host = "external.proxy.example".into();
+    drifted.https.host = "external.proxy.example".into();
+    platform.replace_service(drifted);
+
+    let drift = reconciler
+        .audit(CaptureAuditReason::Periodic, true)
+        .await
+        .unwrap();
+    let pending = updates.recv().await.unwrap();
+    let recovery_required = updates.recv().await.unwrap();
+    assert_eq!(
+        pending.capture_operation.phase,
+        CaptureOperationPhase::Pending
+    );
+    assert_eq!(
+        recovery_required.capture_operation.phase,
+        CaptureOperationPhase::RecoveryRequired
+    );
+    assert_eq!(pending.capture_operation.operation_id.as_deref(), Some("2"));
+    assert_eq!(
+        pending.capture_operation.operation_id,
+        recovery_required.capture_operation.operation_id
+    );
+    assert_eq!(drift.capture_operation, recovery_required.capture_operation);
+}
+
 struct FakeTunHelper {
     fail_enable: Mutex<bool>,
     enabled: Mutex<bool>,

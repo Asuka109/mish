@@ -1127,15 +1127,25 @@ impl SystemProxyReconciler {
 
     pub async fn audit(
         &self,
-        _reason: CaptureAuditReason,
+        reason: CaptureAuditReason,
         core_healthy: bool,
     ) -> Result<CaptureRuntimeStatus, CaptureTransitionError> {
+        self.audit_with_mutation(reason, core_healthy)
+            .await
+            .map(|(status, _)| status)
+    }
+
+    async fn audit_with_mutation(
+        &self,
+        _reason: CaptureAuditReason,
+        core_healthy: bool,
+    ) -> Result<(CaptureRuntimeStatus, bool), CaptureTransitionError> {
         if self.runtime_transition.load(Ordering::Acquire) {
-            return Ok(self.status());
+            return Ok((self.status(), false));
         }
         let _operation = self.operation.lock().await;
         if self.runtime_transition.load(Ordering::Acquire) {
-            return Ok(self.status());
+            return Ok((self.status(), false));
         }
         let current = self.status();
         let journal = match self.load_validated_journal() {
@@ -1157,7 +1167,7 @@ impl SystemProxyReconciler {
                 self.record_unknown_drift(current, error.kind);
                 return Err(error);
             }
-            return Ok(current);
+            return Ok((current, false));
         }
         if journal.is_some()
             && current.system_proxy.desired
@@ -1169,7 +1179,10 @@ impl SystemProxyReconciler {
             return Err(error);
         }
         if journal.is_some() && (!core_healthy || !current.system_proxy.desired) {
-            return self.restore(current.capture_selection).await;
+            return self
+                .restore(current.capture_selection)
+                .await
+                .map(|status| (status, true));
         }
         let observed = match self.platform.observe_active().await {
             Ok(observed) => observed,
@@ -1189,7 +1202,7 @@ impl SystemProxyReconciler {
             failed.system_proxy.recovery_actions.clear();
             failed.system_proxy_enabled = false;
             *self.status.lock().unwrap() = failed.clone();
-            return Ok(failed);
+            return Ok((failed, false));
         }
         if current.system_proxy.desired
             && journal
@@ -1203,14 +1216,16 @@ impl SystemProxyReconciler {
             confirmed.system_proxy.recovery_actions.clear();
             confirmed.system_proxy_enabled = true;
             *self.status.lock().unwrap() = confirmed.clone();
-            return Ok(confirmed);
+            return Ok((confirmed, false));
         }
         if current.system_proxy.desired {
             if let Some(journal) = journal
                 && journal.prior.service_id != observed.service_id
             {
                 if let Err(error) = self.restore_exact_prior(&journal.prior).await {
-                    return self.mark_drift(current, &observed, Some(error.kind));
+                    return self
+                        .mark_drift(current, &observed, Some(error.kind))
+                        .map(|status| (status, true));
                 }
                 if let Err(error) = self.journal.clear() {
                     self.mark_drift(current, &observed, Some(error.kind))?;
@@ -1240,14 +1255,16 @@ impl SystemProxyReconciler {
                 if let Err(error) = self.platform.apply_service(target.clone()).await {
                     return self
                         .rollback_after_failure(&current.capture_selection, &observed, error)
-                        .await;
+                        .await
+                        .map(|status| (status, true));
                 }
                 let _confirmed = match self.confirm_active_target(&observed, &target).await {
                     Ok(confirmed) => confirmed,
                     Err(error) => {
                         return self
                             .rollback_after_failure(&current.capture_selection, &observed, error)
-                            .await;
+                            .await
+                            .map(|status| (status, true));
                     }
                 };
                 let status = CaptureRuntimeStatus {
@@ -1265,9 +1282,11 @@ impl SystemProxyReconciler {
                     tun_enabled: false,
                 };
                 *self.status.lock().unwrap() = status.clone();
-                return Ok(status);
+                return Ok((status, true));
             }
-            return self.mark_drift(current, &observed, None);
+            return self
+                .mark_drift(current, &observed, None)
+                .map(|status| (status, false));
         }
         let mut confirmed = current;
         confirmed.system_proxy.failure = None;
@@ -1276,7 +1295,7 @@ impl SystemProxyReconciler {
         confirmed.system_proxy.recovery_actions.clear();
         confirmed.system_proxy_enabled = false;
         *self.status.lock().unwrap() = confirmed.clone();
-        Ok(confirmed)
+        Ok((confirmed, false))
     }
 
     pub async fn recover(
@@ -1766,7 +1785,10 @@ impl TunReconciler {
         }
     }
 
-    async fn audit(&self, core_healthy: bool) -> Result<TunRuntimeStatus, CaptureTransitionError> {
+    async fn audit(
+        &self,
+        core_healthy: bool,
+    ) -> Result<(TunRuntimeStatus, bool), CaptureTransitionError> {
         let current = self.status();
         if current.desired && !core_healthy {
             return self.reconcile(false, false).await.map(|mut status| {
@@ -1774,7 +1796,7 @@ impl TunReconciler {
                 status.failure = Some(TunFailureKind::CoreUnhealthy);
                 status.phase = TunPhase::Failed;
                 *self.status.lock().expect("TUN status lock poisoned") = status.clone();
-                status
+                (status, true)
             });
         }
         if self.availability() != CapabilityAvailability::Supported {
@@ -1783,7 +1805,7 @@ impl TunReconciler {
                 self.record_drift(failure);
                 return Err(capture_error_from_tun_failure(failure));
             }
-            return Ok(current);
+            return Ok((current, false));
         }
         let observed = self.helper.observe_tun().await.map_err(|error| {
             let failure = map_helper_failure(error.kind);
@@ -1809,7 +1831,7 @@ impl TunReconciler {
                 },
             };
             *self.status.lock().expect("TUN status lock poisoned") = status.clone();
-            return Ok(status);
+            return Ok((status, false));
         }
         let failure = map_helper_failure(observed.failure_kind_at(crate::tun_observation_now()));
         self.record_observed_drift(failure, observed);
@@ -2424,37 +2446,46 @@ impl CaptureReconciler {
             return Ok(self.status());
         }
         let _operation = self.operation.lock().await;
-        let selection = self.confirmed_status().capture_selection;
+        if self.runtime_transition.load(Ordering::Acquire) || self.has_pending_operation() {
+            return Ok(self.status());
+        }
+        let previous = self.confirmed_status();
+        let selection = previous.capture_selection.clone();
         let request = CaptureRequest {
-            active: self.confirmed_status().system_proxy.desired
-                || self.confirmed_status().tun.desired,
+            active: previous.system_proxy.desired || previous.tun.desired,
             selection: selection.clone(),
         };
-        let operation = self.admit_operation(&request)?;
-        let system_result = self.system_proxy.audit(reason, core_healthy).await;
+        let system_result = self
+            .system_proxy
+            .audit_with_mutation(reason, core_healthy)
+            .await;
         let tun_result = match &self.tun {
             Some(tun) => tun.audit(core_healthy).await,
-            None => Ok(TunRuntimeStatus::off()),
+            None => Ok((TunRuntimeStatus::off(), false)),
         };
+        let mutated =
+            matches!(&system_result, Ok((_, true))) || matches!(&tun_result, Ok((_, true)));
         let status = self.combined_status(selection);
-        match system_result.and(tun_result.map(|_| ())) {
-            Ok(()) => {
-                let phase = if status.system_proxy.phase == SystemProxyPhase::Drift
-                    || status.tun.phase == TunPhase::Drift
-                {
-                    CaptureOperationPhase::RecoveryRequired
-                } else {
-                    CaptureOperationPhase::Applied
-                };
-                Ok(self
-                    .finish_operation(&operation, status, phase)
-                    .unwrap_or_else(|| self.status()))
-            }
-            Err(error) => {
-                self.finish_operation_for_error(&operation, status, &error);
-                Err(error)
-            }
+        let authoritative_transition = !same_authoritative_capture_state(&previous, &status);
+        let error = system_result.err().or_else(|| tun_result.err());
+        if !mutated && !authoritative_transition {
+            return error.map_or(Ok(previous), Err);
         }
+        let operation = self.admit_operation(&request)?;
+        if let Some(error) = error {
+            self.finish_operation_for_error(&operation, status, &error);
+            return Err(error);
+        }
+        let phase = if status.system_proxy.phase == SystemProxyPhase::Drift
+            || status.tun.phase == TunPhase::Drift
+        {
+            CaptureOperationPhase::RecoveryRequired
+        } else {
+            CaptureOperationPhase::Applied
+        };
+        Ok(self
+            .finish_operation(&operation, status, phase)
+            .unwrap_or_else(|| self.status()))
     }
 
     pub async fn recover(
@@ -2496,6 +2527,14 @@ impl CaptureReconciler {
                         == Some(operation.operation_id.as_str())
                     && status.capture_operation.phase == CaptureOperationPhase::Pending
             })
+    }
+
+    fn has_pending_operation(&self) -> bool {
+        self.state
+            .lock()
+            .expect("aggregate capture state lock poisoned")
+            .pending_projection
+            .is_some()
     }
 
     fn finish_operation_for_error(
@@ -2695,6 +2734,41 @@ fn tun_observed_state(observation: &crate::TunNetworkObservation) -> TunObserved
         return TunObservedState::Foreign;
     }
     TunObservedState::Partial
+}
+
+fn same_authoritative_capture_state(
+    left: &CaptureRuntimeStatus,
+    right: &CaptureRuntimeStatus,
+) -> bool {
+    left.capture_selection == right.capture_selection
+        && left.system_proxy == right.system_proxy
+        && left.system_proxy_enabled == right.system_proxy_enabled
+        && left.tun.desired == right.tun.desired
+        && left.tun.failure == right.tun.failure
+        && left.tun.observed == right.tun.observed
+        && left.tun.phase == right.tun.phase
+        && same_tun_observation_state(
+            left.tun.observation.as_ref(),
+            right.tun.observation.as_ref(),
+        )
+        && left.tun_enabled == right.tun_enabled
+}
+
+fn same_tun_observation_state(
+    left: Option<&crate::TunNetworkObservation>,
+    right: Option<&crate::TunNetworkObservation>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.core == right.core
+                && left.dns == right.dns
+                && left.interface == right.interface
+                && left.routes == right.routes
+                && left.schema_version == right.schema_version
+        }
+        _ => false,
+    }
 }
 
 fn observed_state(

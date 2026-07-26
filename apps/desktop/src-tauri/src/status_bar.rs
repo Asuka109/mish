@@ -1178,6 +1178,45 @@ mod tests {
     }
 
     #[test]
+    fn native_controls_preserve_terminal_audit_truth_until_a_real_drift_operation() {
+        let core = running_core_status();
+        let mut status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);
+        let mut activation = ProfileActivationSnapshot::unavailable();
+        activation.availability = ProfileActivationAvailability::Available;
+        status.runtime.capture_operation.operation_id = Some("7".into());
+        status.runtime.capture_operation.phase = CaptureOperationPhase::Applied;
+        status.runtime.system_proxy_enabled = true;
+        status.runtime.system_proxy.phase = SystemProxyPhase::Applied;
+
+        for repeated_audit in [status.clone(), status.clone(), status.clone()] {
+            let model = StatusMenuModel::new(&repeated_audit, &activation, false, Locale::En);
+            assert_eq!(model.proxy_title, "Stop Proxy");
+            assert!(model.proxy_enabled);
+            assert_eq!(
+                repeated_audit
+                    .runtime
+                    .capture_operation
+                    .operation_id
+                    .as_deref(),
+                Some("7")
+            );
+        }
+
+        status.runtime.capture_operation.operation_id = Some("8".into());
+        status.runtime.capture_operation.phase = CaptureOperationPhase::Pending;
+        let pending = StatusMenuModel::new(&status, &activation, false, Locale::En);
+        assert_eq!(pending.proxy_title, "Stop Proxy");
+        assert!(!pending.proxy_enabled);
+
+        status.runtime.capture_operation.phase = CaptureOperationPhase::RecoveryRequired;
+        status.runtime.system_proxy_enabled = false;
+        status.runtime.system_proxy.phase = SystemProxyPhase::Drift;
+        let drift = StatusMenuModel::new(&status, &activation, false, Locale::En);
+        assert_eq!(drift.proxy_title, "Launch Proxy — Failed");
+        assert!(drift.proxy_enabled);
+    }
+
+    #[test]
     fn native_projection_localizes_copy_but_preserves_user_labels_and_command_identity() {
         let core = running_core_status();
         let status = StatusSnapshot::lifecycle_only(&core, StatusAdapterKind::Native);

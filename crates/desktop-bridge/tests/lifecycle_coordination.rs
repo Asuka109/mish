@@ -9,12 +9,13 @@ use std::{
 use futures_util::future::{BoxFuture, ready};
 use mish_bridge::{DesktopLifecycleCoordinator, DesktopRuntimeHost, LifecycleEventDisposition};
 use mish_runtime::{
-    CaptureFailureKind, CaptureJournal, CaptureJournalStore, CapturePlatform, CaptureReconciler,
-    CaptureRequest, CaptureSelection, CaptureTransitionError, CoreError, CorePhase, CoreRuntime,
-    CoreStatus, LoopbackProxyEndpoint, ManualProxyState, MishRuntime, NetworkServiceProxyState,
-    PlatformLifecycleEvent, PlatformLifecycleEventKind, PlatformLifecycleEventSource,
-    RuntimeObservationPauseReason, StatusAdapterKind, StatusDataSource, StatusSnapshot,
-    SystemProxyPhase, TrafficDataPhase, TrafficDataSnapshot, TrafficDataSource,
+    CaptureFailureKind, CaptureJournal, CaptureJournalStore, CaptureOperationPhase,
+    CapturePlatform, CaptureReconciler, CaptureRequest, CaptureSelection, CaptureTransitionError,
+    CoreError, CorePhase, CoreRuntime, CoreStatus, LoopbackProxyEndpoint, ManualProxyState,
+    MishRuntime, NetworkServiceProxyState, PlatformLifecycleEvent, PlatformLifecycleEventKind,
+    PlatformLifecycleEventSource, RuntimeObservationPauseReason, StatusAdapterKind,
+    StatusDataSource, StatusSnapshot, SystemProxyPhase, TrafficDataPhase, TrafficDataSnapshot,
+    TrafficDataSource,
 };
 use mish_settings::{
     DnsObservation, FileSettingsRepository, NetworkDnsObservation, NetworkDnsObservationError,
@@ -229,6 +230,13 @@ impl FakeCapturePlatform {
 
     fn switch_service(&self, service: NetworkServiceProxyState) {
         *self.active_service.lock().unwrap() = service.service_id.clone();
+        self.services
+            .lock()
+            .unwrap()
+            .insert(service.service_id.clone(), service);
+    }
+
+    fn replace_service(&self, service: NetworkServiceProxyState) {
         self.services
             .lock()
             .unwrap()
@@ -606,6 +614,53 @@ async fn pending_aggregate_launch_does_not_commit_a_transient_capture_failure() 
             .notification_snapshot()
             .notifications
             .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn periodic_lifecycle_audits_publish_only_a_real_capture_transition() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    enable_capture(&fixture.runtime).await;
+    let terminal = fixture
+        .runtime
+        .status_snapshot_typed(StatusAdapterKind::Rpc)
+        .await
+        .runtime
+        .capture_operation;
+    let mut updates = fixture.runtime.subscribe_capture().unwrap();
+
+    for _ in 0..3 {
+        fixture.coordinator.periodic_audit().await.unwrap();
+        let audited = fixture
+            .runtime
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await;
+        assert_eq!(audited.runtime.capture_operation, terminal);
+        assert_eq!(
+            updates.try_recv(),
+            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+        );
+    }
+
+    let mut drifted = fixture.platform.service("service-a");
+    drifted.http.host = "external.proxy.example".into();
+    drifted.https.host = "external.proxy.example".into();
+    fixture.platform.replace_service(drifted);
+    fixture.coordinator.periodic_audit().await.unwrap();
+
+    let pending = updates.recv().await.unwrap();
+    let recovery_required = updates.recv().await.unwrap();
+    assert_eq!(
+        pending.capture_operation.phase,
+        CaptureOperationPhase::Pending
+    );
+    assert_eq!(
+        recovery_required.capture_operation.phase,
+        CaptureOperationPhase::RecoveryRequired
+    );
+    assert_ne!(
+        recovery_required.capture_operation.operation_id,
+        terminal.operation_id
     );
 }
 

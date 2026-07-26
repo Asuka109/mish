@@ -190,6 +190,9 @@ same scope admits its next operation; replacing the capture scope starts a new
 epoch in idle state. Native and RPC adapters project this envelope unchanged,
 and Web readers compare IDs only within one epoch, reject a delayed pending or
 older terminal projection, and reject projections from a retired epoch.
+Read-only periodic audits preserve the retained terminal envelope and publish
+nothing when authoritative capture semantics are unchanged; only an actual
+platform mutation or a detected authoritative transition admits a new operation.
 `captureOperation` is transition identity only and does not alter the nested
 `recentTraffic` authority, session, totals, cadence, retention, or revision.
 
