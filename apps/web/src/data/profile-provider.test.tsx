@@ -108,7 +108,7 @@ function SelectionProbe() {
 }
 
 describe("ProfileProvider selected Profile authority", () => {
-  it("lets a newer confirmed revision supersede an optimistic and delayed stale result", async () => {
+  it("lets a newer confirmed revision supersede optimism and rejects a delayed stale result", async () => {
     localStorage.removeItem("mish.selected-profile-id");
     const client = new SelectionRaceClient();
     await client.initialize();
@@ -126,7 +126,7 @@ describe("ProfileProvider selected Profile authority", () => {
     expect(await screen.findByTestId("selection")).toHaveTextContent("fixture-profile-travel:3");
     client.resolvePending("fixture-profile-home", 2);
 
-    await waitFor(() => expect(screen.getByTestId("result")).toHaveTextContent("success"));
+    await waitFor(() => expect(screen.getByTestId("result")).toHaveTextContent("failure"));
     expect(screen.getByTestId("selection")).toHaveTextContent("fixture-profile-travel:3");
     expect(localStorage.getItem("mish.selected-profile-id")).toBeNull();
 

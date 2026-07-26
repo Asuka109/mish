@@ -21,6 +21,12 @@ import {
   ApplicationSnapshotAcceptance,
   type SnapshotDelivery,
 } from "./application-snapshot-acceptance";
+import {
+  applicationCommandAuthority,
+  applicationCommandScope,
+  useCommandFeedback,
+  type CommandFeedbackOperation,
+} from "./command-feedback";
 import { createFixtureTrafficClient } from "./fixture-traffic-client";
 import {
   clearClosedHistory,
@@ -63,6 +69,38 @@ interface TrafficProviderProps {
   client?: TrafficClient;
 }
 
+interface TrafficCommand {
+  controller: AbortController;
+  operation: CommandFeedbackOperation;
+}
+
+interface TrafficFailurePayload {
+  domainKey: string;
+  failure: TrafficCommandFailure;
+  operationId: string;
+}
+
+function trafficCommandScope(
+  snapshot: TrafficDataSnapshotDto,
+  authority: TrafficCommandAuthorityDto,
+) {
+  return applicationCommandScope(
+    snapshot.applicationOrder,
+    "traffic",
+    authority.profileId,
+    authority.sessionId,
+  );
+}
+
+function trafficSnapshotScope(snapshot: TrafficDataSnapshotDto) {
+  return applicationCommandScope(
+    snapshot.applicationOrder,
+    "traffic",
+    snapshot.profileId,
+    snapshot.sessionId ?? "",
+  );
+}
+
 export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const resolvedClient = useMemo(() => client ?? createFixtureTrafficClient(), [client]);
   // `latestSnapshot` is the sole Web-side copy of current RPC authority. The optional
@@ -76,17 +114,49 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
   const [connection, setConnection] = useState(() => resolvedClient.getConnectionState());
   const [history, setHistory] = useState(createTrafficHistoryState);
   const [error, setError] = useState<string | null>(null);
-  const [commandFailure, setCommandFailure] = useState<TrafficCommandFailure | null>(null);
-  const [isCloseAllPending, setCloseAllPending] = useState(false);
-  const [isCloseFilteredVisiblePending, setCloseFilteredVisiblePending] = useState(false);
-  const [pendingConnectionIds, setPendingConnectionIds] = useState<Set<string>>(() => new Set());
-  const closeAllPendingRef = useRef(false);
-  const closeFilteredVisiblePendingRef = useRef(false);
-  const pendingConnectionIdsRef = useRef(new Set<string>());
+  const [failurePayload, setFailurePayload] = useState<TrafficFailurePayload | null>(null);
+  const {
+    begin: beginCommandFeedback,
+    cleanup: cleanupCommandFeedback,
+    confirmAuthority: confirmCommandAuthority,
+    isCurrent: isCurrentCommandFeedback,
+    reset: resetCommandFeedback,
+    resetPending: resetPendingCommandFeedback,
+    state: commandFeedbackState,
+    transition: transitionCommandFeedback,
+  } = useCommandFeedback();
+  const trafficCommands = useRef(new Map<string, TrafficCommand>());
+  const latestTrafficOperation = useRef<CommandFeedbackOperation | null>(null);
   const processIconCacheRef = useRef(new Map<string, string>());
   const processIconRequestsRef = useRef(new Map<string, Promise<string | null>>());
   const latestSnapshotRef = useRef<TrafficDataSnapshotDto | null>(null);
   const snapshotAcceptance = useRef(new ApplicationSnapshotAcceptance<TrafficDataSnapshotDto>());
+
+  const reconcileCommandScopes = useCallback(
+    (nextSnapshot: TrafficDataSnapshotDto, confirmAuthority: boolean) => {
+      const nextScope = trafficSnapshotScope(nextSnapshot);
+      for (const [domainKey, command] of trafficCommands.current) {
+        const scopeReplaced = command.operation.scopeKey !== nextScope;
+        const authorityConfirmed =
+          !scopeReplaced &&
+          confirmAuthority &&
+          confirmCommandAuthority(
+            command.operation,
+            applicationCommandAuthority(nextSnapshot.applicationOrder),
+          );
+        if (!scopeReplaced && !authorityConfirmed) continue;
+        command.controller.abort();
+        if (scopeReplaced) transitionCommandFeedback(command.operation, "superseded");
+        if (
+          trafficCommands.current.get(domainKey)?.operation.operationId ===
+          command.operation.operationId
+        ) {
+          trafficCommands.current.delete(domainKey);
+        }
+      }
+    },
+    [confirmCommandAuthority, transitionCommandFeedback],
+  );
 
   const acceptSnapshot = useCallback(
     (nextSnapshot: TrafficDataSnapshotDto, delivery: SnapshotDelivery) => {
@@ -97,6 +167,7 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
         return false;
       }
       nextSnapshot = result.snapshot;
+      reconcileCommandScopes(nextSnapshot, delivery !== "command");
       latestSnapshotRef.current = nextSnapshot;
       setLatestSnapshot(nextSnapshot);
       setPausedView((current) =>
@@ -110,13 +181,17 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       setError(null);
       return true;
     },
-    [],
+    [reconcileCommandScopes],
   );
 
   useEffect(() => {
     processIconCacheRef.current.clear();
     processIconRequestsRef.current.clear();
     snapshotAcceptance.current.clear();
+    resetCommandFeedback("cancelled");
+    trafficCommands.current.clear();
+    latestTrafficOperation.current = null;
+    setFailurePayload(null);
     const controller = new AbortController();
     const unsubscribeConnection = resolvedClient.subscribeConnection((nextConnection) => {
       if (nextConnection.phase === "connected") {
@@ -125,6 +200,11 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       }
       setConnection(nextConnection);
       if (!nextConnection.stale) return;
+      for (const command of trafficCommands.current.values()) {
+        command.controller.abort();
+      }
+      trafficCommands.current.clear();
+      resetPendingCommandFeedback("disconnected");
       setHistory((current) => ({ ...current, baseline: null }));
       // A transport gap invalidates the observation session boundary. Do not leave
       // a paused capture looking current through reconnect or runtime replacement.
@@ -143,10 +223,15 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
 
     return () => {
       controller.abort();
+      for (const command of trafficCommands.current.values()) {
+        command.controller.abort();
+      }
+      trafficCommands.current.clear();
+      resetPendingCommandFeedback("cancelled");
       unsubscribeConnection();
       unsubscribeSnapshots();
     };
-  }, [acceptSnapshot, resolvedClient]);
+  }, [acceptSnapshot, resetCommandFeedback, resetPendingCommandFeedback, resolvedClient]);
 
   useEffect(() => {
     if (
@@ -198,106 +283,192 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     };
   }, [connection.stale, latestSnapshot]);
 
+  const beginTrafficCommand = useCallback(
+    (domainKey: string, authority: TrafficCommandAuthorityDto) => {
+      const currentSnapshot = latestSnapshotRef.current;
+      if (!currentSnapshot) return null;
+      const previous = latestTrafficOperation.current;
+      if (previous) cleanupCommandFeedback(previous);
+      const operation = beginCommandFeedback({
+        confirmedAuthority: applicationCommandAuthority(currentSnapshot.applicationOrder),
+        domainKey,
+        scopeKey: trafficCommandScope(currentSnapshot, authority),
+      });
+      if (!operation) return null;
+      const command = { controller: new AbortController(), operation };
+      trafficCommands.current.set(domainKey, command);
+      latestTrafficOperation.current = operation;
+      setFailurePayload(null);
+      return command;
+    },
+    [beginCommandFeedback, cleanupCommandFeedback],
+  );
+
+  const finishTrafficCommand = useCallback(
+    (command: TrafficCommand) => {
+      const current = trafficCommands.current.get(command.operation.domainKey);
+      if (current?.operation.operationId === command.operation.operationId) {
+        trafficCommands.current.delete(command.operation.domainKey);
+      }
+      if (latestTrafficOperation.current?.operationId !== command.operation.operationId) {
+        cleanupCommandFeedback(command.operation);
+      }
+    },
+    [cleanupCommandFeedback],
+  );
+
+  const publishTrafficFailure = useCallback(
+    (command: TrafficCommand, failure: TrafficCommandFailure) => {
+      if (!isCurrentCommandFeedback(command.operation, "pending")) return;
+      if (latestTrafficOperation.current?.operationId === command.operation.operationId) {
+        setFailurePayload({
+          domainKey: command.operation.domainKey,
+          failure,
+          operationId: command.operation.operationId,
+        });
+      }
+      transitionCommandFeedback(command.operation, "failure");
+    },
+    [isCurrentCommandFeedback, transitionCommandFeedback],
+  );
+
   const closeAllActive = useCallback(async () => {
     const authority = commandAuthority();
-    if (
-      !authority ||
-      closeAllPendingRef.current ||
-      !resolvedClient.supportsCommand("close-all-active")
-    ) {
+    if (!authority || !resolvedClient.supportsCommand("close-all-active")) {
       return null;
     }
-    closeAllPendingRef.current = true;
-    setCloseAllPending(true);
-    setCommandFailure(null);
+    const command = beginTrafficCommand("traffic:close-all", authority);
+    if (!command) return null;
     try {
-      const result = await resolvedClient.closeAllActive(authority);
+      const result = await resolvedClient.closeAllActive(authority, {
+        signal: command.controller.signal,
+      });
+      if (!isCurrentCommandFeedback(command.operation, "pending")) return result;
       acceptSnapshot(result.snapshot, "command");
-      setCommandFailure(result.failure);
+      if (result.failure) {
+        publishTrafficFailure(command, result.failure);
+      } else if (isCurrentCommandFeedback(command.operation, "pending")) {
+        transitionCommandFeedback(command.operation, "success");
+      }
       return result;
     } catch {
-      setCommandFailure("disconnected");
+      if (!isCurrentCommandFeedback(command.operation, "pending")) return null;
       try {
-        acceptSnapshot(await resolvedClient.getSnapshot(), "request");
+        acceptSnapshot(
+          await resolvedClient.getSnapshot({ signal: command.controller.signal }),
+          "request",
+        );
       } catch {
         // Retain the last authoritative snapshot when the refresh also fails.
       }
+      publishTrafficFailure(command, "disconnected");
       return null;
     } finally {
-      closeAllPendingRef.current = false;
-      setCloseAllPending(false);
+      finishTrafficCommand(command);
     }
-  }, [acceptSnapshot, commandAuthority, resolvedClient]);
+  }, [
+    acceptSnapshot,
+    beginTrafficCommand,
+    commandAuthority,
+    finishTrafficCommand,
+    isCurrentCommandFeedback,
+    publishTrafficFailure,
+    resolvedClient,
+    transitionCommandFeedback,
+  ]);
 
   const closeConnection = useCallback(
     async (connectionId: string) => {
       const authority = commandAuthority();
-      if (
-        !authority ||
-        pendingConnectionIdsRef.current.has(connectionId) ||
-        !resolvedClient.supportsCommand("close-connection")
-      ) {
+      if (!authority || !resolvedClient.supportsCommand("close-connection")) {
         return null;
       }
-      pendingConnectionIdsRef.current.add(connectionId);
-      setPendingConnectionIds((current) => new Set(current).add(connectionId));
-      setCommandFailure(null);
+      const command = beginTrafficCommand(`traffic:close:${connectionId}`, authority);
+      if (!command) return null;
       try {
-        const result = await resolvedClient.closeConnection(authority, connectionId);
+        const result = await resolvedClient.closeConnection(authority, connectionId, {
+          signal: command.controller.signal,
+        });
+        if (!isCurrentCommandFeedback(command.operation, "pending")) return result;
         acceptSnapshot(result.snapshot, "command");
-        setCommandFailure(result.failure);
+        if (result.failure) {
+          publishTrafficFailure(command, result.failure);
+        } else if (isCurrentCommandFeedback(command.operation, "pending")) {
+          transitionCommandFeedback(command.operation, "success");
+        }
         return result;
       } catch {
-        setCommandFailure("disconnected");
+        if (!isCurrentCommandFeedback(command.operation, "pending")) return null;
         try {
-          acceptSnapshot(await resolvedClient.getSnapshot(), "request");
+          acceptSnapshot(
+            await resolvedClient.getSnapshot({ signal: command.controller.signal }),
+            "request",
+          );
         } catch {
           // Retain the last authoritative snapshot when the refresh also fails.
         }
+        publishTrafficFailure(command, "disconnected");
         return null;
       } finally {
-        pendingConnectionIdsRef.current.delete(connectionId);
-        setPendingConnectionIds((current) => {
-          const next = new Set(current);
-          next.delete(connectionId);
-          return next;
-        });
+        finishTrafficCommand(command);
       }
     },
-    [acceptSnapshot, commandAuthority, resolvedClient],
+    [
+      acceptSnapshot,
+      beginTrafficCommand,
+      commandAuthority,
+      finishTrafficCommand,
+      isCurrentCommandFeedback,
+      publishTrafficFailure,
+      resolvedClient,
+      transitionCommandFeedback,
+    ],
   );
 
   const closeFilteredVisible = useCallback(
     async (authority: TrafficCommandAuthorityDto, connectionIds: string[]) => {
-      if (
-        connectionIds.length === 0 ||
-        closeFilteredVisiblePendingRef.current ||
-        !resolvedClient.supportsCommand("close-filtered-visible")
-      ) {
+      if (connectionIds.length === 0 || !resolvedClient.supportsCommand("close-filtered-visible")) {
         return null;
       }
-      closeFilteredVisiblePendingRef.current = true;
-      setCloseFilteredVisiblePending(true);
-      setCommandFailure(null);
+      const command = beginTrafficCommand("traffic:close-filtered", authority);
+      if (!command) return null;
       try {
-        const result = await resolvedClient.closeFilteredVisible(authority, connectionIds);
+        const result = await resolvedClient.closeFilteredVisible(authority, connectionIds, {
+          signal: command.controller.signal,
+        });
+        if (!isCurrentCommandFeedback(command.operation, "pending")) return result;
         acceptSnapshot(result.snapshot, "command");
-        setCommandFailure(result.failure);
+        if (result.failure) {
+          publishTrafficFailure(command, result.failure);
+        } else if (isCurrentCommandFeedback(command.operation, "pending")) {
+          transitionCommandFeedback(command.operation, "success");
+        }
         return result;
       } catch {
-        setCommandFailure("disconnected");
+        if (!isCurrentCommandFeedback(command.operation, "pending")) return null;
         try {
-          acceptSnapshot(await resolvedClient.getSnapshot(), "request");
+          acceptSnapshot(
+            await resolvedClient.getSnapshot({ signal: command.controller.signal }),
+            "request",
+          );
         } catch {
           // Retain the last authoritative snapshot when the refresh also fails.
         }
+        publishTrafficFailure(command, "disconnected");
         return null;
       } finally {
-        closeFilteredVisiblePendingRef.current = false;
-        setCloseFilteredVisiblePending(false);
+        finishTrafficCommand(command);
       }
     },
-    [acceptSnapshot, resolvedClient],
+    [
+      acceptSnapshot,
+      beginTrafficCommand,
+      finishTrafficCommand,
+      isCurrentCommandFeedback,
+      publishTrafficFailure,
+      resolvedClient,
+      transitionCommandFeedback,
+    ],
   );
 
   const getProcessIcon = useCallback(
@@ -326,6 +497,23 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
     [resolvedClient],
   );
 
+  const latestFeedback = latestTrafficOperation.current
+    ? commandFeedbackState.operations.get(latestTrafficOperation.current.domainKey)
+    : undefined;
+  const commandFailure =
+    failurePayload &&
+    latestFeedback?.operationId === failurePayload.operationId &&
+    latestFeedback.domainKey === failurePayload.domainKey &&
+    latestFeedback.phase === "failure"
+      ? failurePayload.failure
+      : latestFeedback?.phase === "disconnected"
+        ? "disconnected"
+        : null;
+  const isCloseAllPending =
+    commandFeedbackState.operations.get("traffic:close-all")?.phase === "pending";
+  const isCloseFilteredVisiblePending =
+    commandFeedbackState.operations.get("traffic:close-filtered")?.phase === "pending";
+
   const value = useMemo<TrafficContextValue>(
     () => ({
       authoritativeSnapshot: latestSnapshot,
@@ -341,7 +529,8 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       isCurrent: snapshot?.phase === "ready" && !connection.stale,
       isLoading: latestSnapshot === null && error === null,
       isCloseAllPending,
-      isCloseConnectionPending: (connectionId) => pendingConnectionIds.has(connectionId),
+      isCloseConnectionPending: (connectionId) =>
+        commandFeedbackState.operations.get(`traffic:close:${connectionId}`)?.phase === "pending",
       isCloseFilteredVisiblePending,
       isCommandSupported: (command) =>
         latestSnapshot?.adapterKind === "rpc" &&
@@ -359,13 +548,13 @@ export function TrafficProvider({ children, client }: TrafficProviderProps) {
       closeConnection,
       closeFilteredVisible,
       commandFailure,
+      commandFeedbackState,
       connection,
       error,
       closed,
       getProcessIcon,
       isCloseAllPending,
       isCloseFilteredVisiblePending,
-      pendingConnectionIds,
       resolvedClient,
       latestSnapshot,
       pausedUpdateCount,
