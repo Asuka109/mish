@@ -153,7 +153,7 @@ evidence only.
 
 Credential-free Stage 1 verification does not produce a live Developer ID
 artifact, DMG, notarization submission, stapled ticket, Gatekeeper acceptance,
-release, updater, Intel binary, or production TUN capability. The repository
+release, live updater, Intel binary, or production TUN capability. The repository
 contains an unexecuted real path for after #171: it creates a headless signed
 DMG, submits that exact DMG with `notarytool`, requires an accepted terminal
 result and issue-free log, staples and validates the ticket, reruns strict
@@ -161,6 +161,14 @@ Developer ID and disk-image Gatekeeper assessments, generates an SPDX 2.3 SBOM,
 and binds GitHub provenance and SBOM attestations to the unchanged final DMG.
 Any unsupported attestation capability or failed Apple/GitHub operation stops
 before Draft staging.
+
+Issue #174's credential-free updater foundation adds a separate
+[`application-owned updater contract`](../architecture/updater-contract.md).
+The signed-direct planning job runs its deterministic fixture after validating
+the #173 boundary. That fixture proves the exact Tauri static JSON and
+versioned `.app.tar.gz` asset set without reading a private key or making a
+network request. It does not add updater assets to the protected candidate,
+enable an endpoint or plugin, or claim download and installation.
 
 ## Draft release staging
 
@@ -228,6 +236,19 @@ attestation or upload failure, changed artifact, changed checksum, conflicting
 tag, or non-Draft remote state stops the workflow. It never moves an existing
 tag or publishes a Release.
 
+After the separately reviewed live updater-signing boundary exists, the same
+signed-direct release must additionally publish the four assets fixed by the
+updater contract:
+
+- `Mish-<version>-aarch64.app.tar.gz`
+- `Mish-<version>-aarch64.app.tar.gz.sig`
+- `mish-<channel>.json`
+- `mish-<channel>.json.sig`
+
+Those future additions must remain bound to the same source, version, and
+candidate evidence. Stage 1 deliberately leaves this live publication step
+unavailable.
+
 All source, validation, build, and decision jobs retain `contents: read`.
 GitHub attestation receives only the narrowly required OIDC and attestation
 permissions. Only the final profile-specific staging job has `contents: write`.
@@ -241,6 +262,7 @@ reading secrets, contacting Apple, creating a tag, or creating a Release:
 ```sh
 pnpm release:macos:fixture
 pnpm release:macos:signed:fixture
+pnpm release:macos:updater:fixture
 pnpm test:macos:release
 pnpm test:macos:signed-release
 pnpm check:macos:release-workflow

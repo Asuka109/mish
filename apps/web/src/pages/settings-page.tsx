@@ -56,8 +56,9 @@ type PromiseButtonAction =
 const settingsStyles = tv({
   slots: {
     page: cx(
-      "@container/settings-page mx-auto w-full max-w-page-narrow px-8 pt-8 pb-12",
-      "max-page-compact:p-6 max-shell-mobile:px-4 max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
+      "@container/settings-page mx-auto w-full max-w-page-narrow px-page-gutter pt-xxl pb-12",
+      "max-page-compact:px-page-gutter-compact max-page-compact:py-xl",
+      "max-shell-mobile:px-page-gutter-mobile max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
       "[&>header+section]:mt-6",
     ),
     header: cx(

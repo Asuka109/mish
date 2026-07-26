@@ -68,6 +68,9 @@ spacing:
   lg: "16px"
   xl: "24px"
   xxl: "32px"
+  page-gutter: "32px"
+  page-gutter-compact: "24px"
+  page-gutter-mobile: "16px"
 components:
   app-shell:
     backgroundColor: "{colors.surface-soft}"
@@ -297,8 +300,10 @@ and responsive thresholds use named theme tokens instead of raw CSS-variable or
 arbitrary-value utilities. The navigation is 164px wide: large enough for plain
 task labels but much smaller than a proxy-dashboard sidebar. Navigation rows
 are 36px high. Inset the foreground workspace 10px from the top, right, and
-bottom. Content gutters are 24–32px. Keep the Status page below 1080px wide so
-related values remain visually connected on large windows.
+bottom. Page content uses the `page-gutter` token (32px), compacts to
+`page-gutter-compact` (24px) at the 900px breakpoint, and uses
+`page-gutter-mobile` (16px) in the mobile shell. Keep the Status page below
+1080px wide so related values remain visually connected on large windows.
 
 Responsive breakpoints follow available viewport width rather than platform
 names. At 900px, content columns and gutters compact. The 800px minimum Tauri

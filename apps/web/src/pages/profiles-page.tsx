@@ -52,7 +52,9 @@ const refreshPolicies: ProfileRefreshPolicy[] = [
 const profileStyles = tv({
   slots: {
     page: cx(
-      "mx-auto w-full max-w-page-medium p-8 max-page-compact:p-6 max-shell-mobile:px-4",
+      "mx-auto w-full max-w-page-medium px-page-gutter py-xxl",
+      "max-page-compact:px-page-gutter-compact max-page-compact:py-xl",
+      "max-shell-mobile:px-page-gutter-mobile",
       "max-shell-mobile:pt-4.5 max-shell-mobile:pb-6",
     ),
     header: cx(

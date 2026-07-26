@@ -266,9 +266,13 @@ if (signedDirect || signedDirectFixture) {
   const runtimeEvidence = JSON.parse(command(executable, ["--release-profile-evidence"])) as {
     profile?: unknown;
     tun?: unknown;
+    updater?: unknown;
   };
   if (runtimeEvidence.profile !== "signed-direct") {
     throw new Error("signed-direct executable reports an unexpected release profile");
+  }
+  if (runtimeEvidence.updater !== "contract-only") {
+    throw new Error("signed-direct executable must report the updater as contract-only");
   }
   const signatures = [
     collectSignedDirectSignature(bundledMihomo, signedDirectMihomoExecutable),

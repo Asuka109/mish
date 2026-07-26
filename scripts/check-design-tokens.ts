@@ -162,6 +162,9 @@ const requiredThemeTokens = [
   "ease-proxy-crossfade",
   "animate-spinner-reduced",
   "spacing",
+  "spacing-page-gutter",
+  "spacing-page-gutter-compact",
+  "spacing-page-gutter-mobile",
 ];
 
 for (const token of requiredThemeTokens) {

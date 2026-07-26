@@ -140,11 +140,11 @@ const en = {
     managedPortsFindAndRetry: "Find Ports and Retry",
     managedPortsConflict: "Mish could not use {endpoint}.",
     managedPortsSave: "Save Ports",
-    systemProxyTakeoverPolicy: "Existing proxy policy",
+    systemProxyTakeoverPolicy: "System proxy configuration",
     systemProxyTakeoverPolicyDescription:
-      "Protect existing PAC and automatic-discovery settings by default. The advanced choice is temporary and only replaces a fully captured state that Mish can restore exactly.",
-    systemProxyTakeoverPolicyProtected: "Protect existing",
-    systemProxyTakeoverPolicyAdvanced: "Advanced reversible replacement",
+      'By default, existing PAC and automatic-discovery settings are not overwritten. The "Overwrite and restore" option temporarily replaces only settings Mish has fully captured and can restore exactly.',
+    systemProxyTakeoverPolicyProtected: "Don't overwrite",
+    systemProxyTakeoverPolicyAdvanced: "Overwrite and restore",
     systemProxyTakeoverPolicyWarning:
       "Authenticated, incomplete, invalid, and unrecoverable proxy settings are always left unchanged.",
     systemProxyTakeoverRejected:

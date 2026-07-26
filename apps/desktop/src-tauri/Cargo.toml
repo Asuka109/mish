@@ -20,6 +20,7 @@ mish-presentation-contract = { path = "../../../crates/presentation-contract" }
 mish-runtime = { path = "../../../crates/runtime" }
 mish-settings = { path = "../../../crates/settings" }
 mish-state-authority = { path = "../../../crates/state-authority" }
+mish-updater = { path = "../../../crates/updater" }
 rfd = "0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
