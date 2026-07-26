@@ -249,12 +249,8 @@ impl DesktopRuntimeHost {
         let mut changes = self.subscribe_changes();
         let runtime = changes.borrow_and_update().clone();
         let result = runtime.set_routing_mode(mode, adapter_kind).await;
-        if changes.has_changed().unwrap_or(true)
-            || !runtime.is_same_instance(&changes.borrow_and_update())
-        {
-            return Err(StatusCommandError::runtime_replaced());
-        }
-        result
+        self.finish_status_command(runtime, result, adapter_kind, changes)
+            .await
     }
 
     pub async fn select_group_child(
@@ -263,8 +259,12 @@ impl DesktopRuntimeHost {
         child_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
-        self.current()
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let result = runtime
             .select_group_child(group_id, child_id, adapter_kind)
+            .await;
+        self.finish_status_command(runtime, result, adapter_kind, changes)
             .await
     }
 
@@ -273,8 +273,10 @@ impl DesktopRuntimeHost {
         group_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
-        self.current()
-            .start_group_delay_test(group_id, adapter_kind)
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let result = runtime.start_group_delay_test(group_id, adapter_kind).await;
+        self.finish_status_command(runtime, result, adapter_kind, changes)
             .await
     }
 
@@ -283,8 +285,10 @@ impl DesktopRuntimeHost {
         test_id: String,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, StatusCommandError> {
-        self.current()
-            .cancel_group_delay_test(test_id, adapter_kind)
+        let mut changes = self.subscribe_changes();
+        let runtime = changes.borrow_and_update().clone();
+        let result = runtime.cancel_group_delay_test(test_id, adapter_kind).await;
+        self.finish_status_command(runtime, result, adapter_kind, changes)
             .await
     }
 
@@ -499,6 +503,29 @@ impl DesktopRuntimeHost {
                 return result;
             }
             runtime_replaced = true;
+        }
+    }
+
+    async fn finish_status_command(
+        &self,
+        runtime: MishRuntime,
+        result: Result<Value, StatusCommandError>,
+        adapter_kind: StatusAdapterKind,
+        mut changes: watch::Receiver<MishRuntime>,
+    ) -> Result<Value, StatusCommandError> {
+        let mut runtime_replaced = changes.has_changed().unwrap_or(true);
+        let current = changes.borrow_and_update().clone();
+        runtime_replaced |= !runtime.is_same_instance(&current);
+        if !runtime_replaced {
+            return result;
+        }
+
+        loop {
+            let current = changes.borrow_and_update().clone();
+            let snapshot = current.status_snapshot_typed(adapter_kind).await;
+            if !changes.has_changed().unwrap_or(true) {
+                return Err(StatusCommandError::runtime_replaced().with_reconciliation(snapshot));
+            }
         }
     }
 

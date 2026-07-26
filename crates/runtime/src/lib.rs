@@ -310,12 +310,17 @@ pub enum StatusCommandErrorKind {
 #[derive(Clone, Debug)]
 pub struct StatusCommandError {
     pub kind: StatusCommandErrorKind,
+    pub reconciliation: Option<StatusSnapshot>,
     message: &'static str,
 }
 
 impl StatusCommandError {
     pub const fn new(kind: StatusCommandErrorKind, message: &'static str) -> Self {
-        Self { kind, message }
+        Self {
+            kind,
+            reconciliation: None,
+            message,
+        }
     }
 
     pub const fn unsupported() -> Self {
@@ -330,6 +335,11 @@ impl StatusCommandError {
             StatusCommandErrorKind::RuntimeReplaced,
             "The Status runtime was replaced before the command completed",
         )
+    }
+
+    pub fn with_reconciliation(mut self, snapshot: StatusSnapshot) -> Self {
+        self.reconciliation = Some(snapshot);
+        self
     }
 }
 

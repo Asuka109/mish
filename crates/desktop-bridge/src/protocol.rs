@@ -777,7 +777,7 @@ async fn handle_message(
                 .set_routing_mode(params.mode, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
+                Ok(snapshot) => snapshot,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
         }
@@ -797,7 +797,7 @@ async fn handle_message(
                 .select_group_child(params.group_id, params.child_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
+                Ok(snapshot) => snapshot,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
         }
@@ -812,7 +812,7 @@ async fn handle_message(
                 .start_group_delay_test(params.group_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
+                Ok(snapshot) => snapshot,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
         }
@@ -827,7 +827,7 @@ async fn handle_message(
                 .cancel_group_delay_test(params.test_id, StatusAdapterKind::Rpc)
                 .await
             {
-                Ok(_) => state.status_snapshot().await,
+                Ok(snapshot) => snapshot,
                 Err(error) => return Some(status_command_error_response(id, error)),
             }
         }
@@ -2031,12 +2031,11 @@ fn status_command_error_response(id: Value, error: StatusCommandError) -> Value 
         StatusCommandErrorKind::VersionDrift => -32052,
         StatusCommandErrorKind::InconsistentObservation => -32053,
     };
-    error_response(
-        id,
-        code,
-        error.to_string().as_str(),
-        Some(json!({"kind": error.kind})),
-    )
+    let data = match error.reconciliation.as_ref() {
+        Some(snapshot) => json!({"kind": error.kind, "snapshot": snapshot}),
+        None => json!({"kind": error.kind}),
+    };
+    error_response(id, code, error.to_string().as_str(), Some(data))
 }
 
 fn profile_capability_error(id: Value) -> Value {
@@ -2277,4 +2276,36 @@ fn capture_error_response(id: Value, error: CaptureTransitionError) -> Value {
         "System Proxy reconciliation failed",
         Some(json!({"kind": error.kind})),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mish_runtime::{CorePhase, CoreStatus, StatusSnapshot};
+
+    #[test]
+    fn runtime_replaced_status_errors_include_authoritative_rpc_reconciliation() {
+        let snapshot = StatusSnapshot::lifecycle_only(
+            &CoreStatus {
+                error: None,
+                phase: CorePhase::Running,
+                pid: Some(42),
+                version: Some("v1.19.29".into()),
+            },
+            StatusAdapterKind::Rpc,
+        );
+
+        let response = status_command_error_response(
+            json!(7),
+            StatusCommandError::runtime_replaced().with_reconciliation(snapshot),
+        );
+
+        assert_eq!(response["error"]["code"], -32054);
+        assert_eq!(response["error"]["data"]["kind"], "runtime-replaced");
+        assert_eq!(response["error"]["data"]["snapshot"]["adapterKind"], "rpc");
+        assert_eq!(
+            response["error"]["data"]["snapshot"]["activeProfileId"],
+            "local"
+        );
+    }
 }

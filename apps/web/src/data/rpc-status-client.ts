@@ -1,5 +1,6 @@
 import {
   StatusClientError,
+  StatusCommandErrorDataSchema,
   mishRpcMethods,
   statusRpcNotifications,
   type CaptureSelectionDto,
@@ -317,7 +318,12 @@ export class RpcStatusClient implements StatusClient {
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
     } catch (error) {
-      throw mapRpcError(error);
+      const mapped = mapRpcError(error);
+      if (mapped.snapshot === null) throw mapped;
+      const snapshot = this.acceptRecentTraffic(mapped.snapshot);
+      this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
+      void this.ensureCommandCapabilities(snapshot.activeProfileId);
+      throw new StatusClientError(mapped.code, mapped.message, mapped.retryable, snapshot);
     }
   }
 }
@@ -347,6 +353,7 @@ export function mapRpcError(error: unknown) {
     return new StatusClientError("protocol", error.message);
   }
   if (error instanceof RpcRemoteError) {
+    const parsed = StatusCommandErrorDataSchema.safeParse(error.data);
     const kind =
       error.data && typeof error.data === "object" && "kind" in error.data
         ? (error.data as { kind?: unknown }).kind
@@ -366,7 +373,12 @@ export function mapRpcError(error: unknown) {
     if (kind === "cancelled") return new StatusClientError("cancelled", error.message);
     if (kind === "rejected") return new StatusClientError("rejected", error.message);
     if (kind === "runtime-replaced") {
-      return new StatusClientError("runtime-replaced", error.message, true);
+      return new StatusClientError(
+        "runtime-replaced",
+        error.message,
+        true,
+        parsed.success ? (parsed.data.snapshot ?? null) : null,
+      );
     }
     if (kind === "stale-membership") {
       return new StatusClientError("stale-membership", error.message, true);
