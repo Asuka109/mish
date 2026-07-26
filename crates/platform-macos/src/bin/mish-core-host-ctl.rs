@@ -31,6 +31,7 @@ async fn main() {
                 })),
                 "helperVersion": status.helper_version,
                 "installationId": status.installation_id,
+                "observation": status.observation,
                 "ok": true,
             })),
             Err(code) => fail(code),

@@ -1361,6 +1361,38 @@ rules: [MATCH,DIRECT]
 }
 
 #[test]
+fn tart_tun_policy_uses_fixed_public_dns_only_when_explicit() {
+    let helper = TunHelperSnapshot {
+        availability: TunHelperAvailability::Available,
+        expected_version: mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned(),
+        health: TunHelperHealth::Healthy,
+        installation_id: None,
+        installed_version: Some(mish_runtime::TUN_HELPER_EXPECTED_VERSION.to_owned()),
+        last_failure: None,
+        phase: TunHelperLifecyclePhase::Idle,
+    };
+    let policy = ManagedRuntimePolicy::new(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 43125),
+        "application-controller-secret",
+    )
+    .unwrap()
+    .with_tart_tun_dns(true)
+    .with_tun_enabled(&helper, true)
+    .unwrap();
+    let generated = RuntimeConfigGenerator::generate(b"rules: [MATCH,DIRECT]\n", &policy).unwrap();
+    let document: Value = serde_norway::from_slice(&generated).unwrap();
+
+    assert_eq!(document["dns"]["enable"].as_bool(), Some(true));
+    assert_eq!(document["dns"]["enhanced-mode"].as_str(), Some("fake-ip"));
+    assert_eq!(
+        document["dns"]["fake-ip-range"].as_str(),
+        Some("198.18.0.1/16")
+    );
+    assert_eq!(document["dns"]["nameserver"][0].as_str(), Some("1.1.1.1"));
+    assert!(document["tun"].get("route-address").is_none());
+}
+
+#[test]
 fn generated_runtime_config_rejects_provider_path_escape_without_echoing_it() {
     let normalized = br#"
 proxy-providers:

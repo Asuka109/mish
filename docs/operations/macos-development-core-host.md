@@ -10,6 +10,45 @@ macOS System Proxy, install `SMAppService`, or add anything to a release bundle.
 All product UIs remain System Proxy-only. The service is installed only by the
 explicit commands below.
 
+Issue acceptance may additionally exercise the complete development TUN path
+inside a uniquely named disposable Tart clone. That path is documented in
+[the helper contract](../architecture/macos-tun-helper.md#disposable-tart-tun-acceptance).
+It does not weaken this Stage 1 command: ordinary development continues to
+reject `tun.enable: true`.
+
+## Disposable Tart TUN journey
+
+Never run these commands on the host Mac or on a reusable VM. Clone a stopped
+acceptance/base image, keep all administrator and network operations inside the
+clone, and use only repository-owned fictional profiles:
+
+```sh
+pnpm prepare:mihomo
+pnpm macos:tun:prepare:tart
+pnpm macos:tun:install:tart
+pnpm desktop:dev:tart-tun
+```
+
+The authenticated acceptance harness may then activate only
+`fictional-tart.yaml`. Before considering activation Applied, require a
+root-owned pinned Core plus a correlated Mish-owned `utun`, the complete
+managed route partition, and the fixed DNS effect. Confirm public HTTP traffic
+through Mish with System Proxy disabled.
+
+Exercise disable, normal Quit, forced app termination, helper and Core exit,
+sleep/wake, network change, and one failed activation. Each case must clean up
+or expose bounded recoverable drift; desired state alone must never appear idle
+or Applied. Capture a redacted report, then remove the service:
+
+```sh
+pnpm macos:tun:uninstall:tart
+pnpm macos:tun:status
+```
+
+Verify the prior DNS and System Proxy state are restored and that no Mish-owned
+interface, route, Core, helper socket, receipt, or installed privileged file
+remains. Finally stop and delete only the disposable clone.
+
 ## Machine checks
 
 Run the repository-owned automated checks first:

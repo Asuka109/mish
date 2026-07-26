@@ -55,6 +55,8 @@ const plist = path.join(installerRoot, `${label}.plist`);
 const resultReceipt = path.join(installerRoot, "last-result.json");
 
 type ToolchainEnvironment = Record<string, string | undefined>;
+const tartTunAcceptanceArgument = "--tart-tun-acceptance";
+const tartTerminalAuthorizationArgument = "--tart-terminal-authorization";
 
 export type ToolchainDiscovery = {
   cargo: string;
@@ -68,7 +70,39 @@ export type ToolchainDiscoveryOptions = {
   isExecutable?: (candidate: string) => boolean;
 };
 
-const action = process.argv[2];
+export function parseDevelopmentServiceArguments(arguments_: string[]) {
+  const [requestedAction, ...options] = arguments_;
+  const knownOptions = new Set([tartTunAcceptanceArgument, tartTerminalAuthorizationArgument]);
+  const unknown = options.filter((option) => !knownOptions.has(option));
+  const tartTunAcceptance = options.includes(tartTunAcceptanceArgument);
+  const tartTerminalAuthorization = options.includes(tartTerminalAuthorizationArgument);
+  if (
+    !new Set(["install", "prepare", "repair", "status", "uninstall"]).has(requestedAction ?? "") ||
+    unknown.length > 0 ||
+    options.some((option, index) => options.indexOf(option) !== index) ||
+    (tartTerminalAuthorization &&
+      (!tartTunAcceptance ||
+        !new Set(["install", "repair", "uninstall"]).has(requestedAction ?? "")))
+  ) {
+    throw new Error(
+      "Usage: node scripts/manage-macos-tun-service.ts <install|prepare|repair|status|uninstall> [--tart-tun-acceptance [--tart-terminal-authorization]]",
+    );
+  }
+  return {
+    action: requestedAction as "install" | "prepare" | "repair" | "status" | "uninstall",
+    tartTerminalAuthorization,
+    tartTunAcceptance,
+  };
+}
+
+const invocation = import.meta.main
+  ? parseDevelopmentServiceArguments(process.argv.slice(2))
+  : ({
+      action: "status",
+      tartTerminalAuthorization: false,
+      tartTunAcceptance: false,
+    } as const);
+const action = invocation.action;
 
 function installerEnvironment(environment: ToolchainEnvironment): ToolchainEnvironment {
   const allowed = ["HOME", "PATH", "CARGO_HOME", "RUSTUP_HOME", "TMPDIR"] as const;
@@ -205,7 +239,18 @@ function authorizedCommand(executable: string, args: string[]) {
   return [executable, ...args].map(quoteShellArgument).join(" ");
 }
 
-function runAuthorized(script: string) {
+function runAuthorized(script: string, terminalAuthorization = false) {
+  if (terminalAuthorization) {
+    try {
+      execFileSync("/usr/bin/sudo", ["/bin/sh", "-c", script], {
+        env: installerEnvironment(process.env),
+        stdio: "inherit",
+      });
+      return;
+    } catch {
+      throw new InstallerFailure("installation-failed", "terminal-authorization", "sudo-failed");
+    }
+  }
   let response: string;
   try {
     response = execFileSync(
@@ -327,7 +372,7 @@ function printResult(result: InstallerResult) {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-async function prepare(uid: number) {
+async function prepare(uid: number, allowTun: boolean) {
   await mkdir(runtimeRoot, { recursive: true, mode: 0o700 });
   await chmod(runtimeRoot, 0o700);
   await mkdir(installerRoot, { recursive: true, mode: 0o700 });
@@ -413,6 +458,7 @@ async function prepare(uid: number) {
   <key>EnvironmentVariables</key>
   <dict>
     <key>MISH_TUN_SERVICE_ALLOWED_UID</key><string>${uid}</string>
+    <key>MISH_TUN_SERVICE_ALLOW_TUN</key><string>${allowTun ? "1" : "0"}</string>
     <key>MISH_TUN_SERVICE_CORE_BINARY</key><string>${coreTarget}</string>
     <key>MISH_TUN_SERVICE_INSTALLATION_ID</key><string>${installationIdPlaceholder}</string>
     <key>MISH_TUN_SERVICE_RUNTIME_ROOT</key><string>${escapeXml(runtimeRoot)}</string>
@@ -469,7 +515,10 @@ async function main() {
       ".Trash",
       `Mish Core Host Uninstall ${Date.now()} ${randomUUID()}`,
     );
-    runAuthorized(buildDevelopmentServiceUninstallScript(uid, gid, quarantine));
+    runAuthorized(
+      buildDevelopmentServiceUninstallScript(uid, gid, quarantine),
+      invocation.tartTerminalAuthorization,
+    );
     try {
       await moveInstallerReceiptToTrash(quarantine);
     } catch {
@@ -483,7 +532,7 @@ async function main() {
     return;
   }
 
-  const prepared = await prepare(uid);
+  const prepared = await prepare(uid, invocation.tartTunAcceptance);
   if (action === "prepare") {
     await report({ ok: true, stage: "prepared" });
     return;
@@ -534,16 +583,11 @@ async function main() {
     authorizedCommand("/bin/launchctl", ["bootstrap", "system", plistTarget]),
     authorizedCommand("/bin/launchctl", ["kickstart", `system/${label}`]),
   ];
-  runAuthorized(installCommands.join(" &&\n"));
+  runAuthorized(installCommands.join(" &&\n"), invocation.tartTerminalAuthorization);
   await report({ ok: true, stage: "completed" });
 }
 
 if (import.meta.main) {
-  if (!new Set(["install", "prepare", "repair", "status", "uninstall"]).has(action)) {
-    throw new Error(
-      "Usage: node scripts/manage-macos-tun-service.ts <install|prepare|repair|status|uninstall>",
-    );
-  }
   try {
     await main();
   } catch (error) {

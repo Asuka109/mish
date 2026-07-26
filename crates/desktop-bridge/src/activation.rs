@@ -2064,6 +2064,7 @@ pub struct ManagedRuntimePolicy {
     controller_secret: String,
     proxy_endpoint: LoopbackProxyEndpoint,
     process_discovery_mode: mish_settings::ProcessDiscoveryMode,
+    tart_tun_dns: bool,
     tun_enabled: bool,
 }
 
@@ -2084,6 +2085,7 @@ impl ManagedRuntimePolicy {
             controller_secret,
             proxy_endpoint: LoopbackProxyEndpoint::managed(),
             process_discovery_mode: mish_settings::ProcessDiscoveryMode::default(),
+            tart_tun_dns: false,
             tun_enabled: false,
         })
     }
@@ -2098,6 +2100,11 @@ impl ManagedRuntimePolicy {
         }
         self.tun_enabled = explicitly_selected;
         Ok(self)
+    }
+
+    pub fn with_tart_tun_dns(mut self, enabled: bool) -> Self {
+        self.tart_tun_dns = enabled;
+        self
     }
 
     pub fn with_proxy_endpoint(mut self, proxy_endpoint: LoopbackProxyEndpoint) -> Self {
@@ -2233,6 +2240,9 @@ impl RuntimeConfigGenerator {
                 RuntimeConfigGenerationError::InvalidArtifact
             }
         })?;
+        if policy.tun_enabled && policy.tart_tun_dns {
+            apply_tart_tun_dns(&mut document)?;
+        }
         if let Some(profile_id) = profile_id {
             namespace_explicit_provider_paths(&mut document, profile_id)?;
         }
@@ -2245,6 +2255,28 @@ impl RuntimeConfigGenerator {
             classifications,
         })
     }
+}
+
+fn apply_tart_tun_dns(document: &mut Value) -> Result<(), RuntimeConfigGenerationError> {
+    let root = document
+        .as_mapping_mut()
+        .ok_or(RuntimeConfigGenerationError::InvalidArtifact)?;
+    let mut dns = serde_norway::Mapping::new();
+    dns.insert(Value::String("enable".to_owned()), Value::Bool(true));
+    dns.insert(
+        Value::String("enhanced-mode".to_owned()),
+        Value::String("fake-ip".to_owned()),
+    );
+    dns.insert(
+        Value::String("fake-ip-range".to_owned()),
+        Value::String("198.18.0.1/16".to_owned()),
+    );
+    dns.insert(
+        Value::String("nameserver".to_owned()),
+        Value::Sequence(vec![Value::String("1.1.1.1".to_owned())]),
+    );
+    root.insert(Value::String("dns".to_owned()), Value::Mapping(dns));
+    Ok(())
 }
 
 fn namespace_explicit_provider_paths(

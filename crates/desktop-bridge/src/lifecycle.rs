@@ -167,6 +167,9 @@ impl DesktopLifecycleCoordinator {
     ) -> Result<(), LifecycleCoordinationError> {
         let runtime = self.host.current();
         self.host.invalidate_diagnostics();
+        if runtime.capture_operation_pending() {
+            return Ok(());
+        }
         let recent_revision = runtime.recent_traffic().snapshot().revision;
         self.host.suspend_recent_traffic();
         if runtime.recent_traffic().snapshot().revision != recent_revision {

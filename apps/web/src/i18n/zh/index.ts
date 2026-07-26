@@ -136,7 +136,7 @@ const zh = {
     managedPortsConflict: "Mish 无法使用 {endpoint}。",
     systemProxyTakeoverPolicy: "覆盖系统代理",
     systemProxyTakeoverPolicyDescription:
-      "默认保护已有 PAC 与自动发现。高级选项只会临时替换 Mish 已完整捕获且可精确恢复的状态。",
+      "默认不覆盖已有 PAC 与自动发现。选择“覆盖并恢复”后，只会临时替换 Mish 已完整捕获且可精确恢复的状态。",
     systemProxyTakeoverPolicyProtected: "不覆盖",
     systemProxyTakeoverPolicyAdvanced: "覆盖并恢复",
     systemProxyTakeoverPolicyWarning: "带认证、不完整、无效或无法恢复的代理设置始终不会被更改。",

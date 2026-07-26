@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    ffi::OsStr,
     fs,
     io::{Read, Write},
     net::IpAddr,
@@ -8,7 +9,7 @@ use std::{
         unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     },
     path::{Path, PathBuf},
-    process::Stdio,
+    process::{Command as StdCommand, Stdio},
     sync::Arc,
     time::Duration,
 };
@@ -61,11 +62,14 @@ const BOUNDED_STEP_TIMEOUT: Duration = Duration::from_secs(5);
 const FORCED_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const CLIENT_RESPONSE_SLACK: Duration = Duration::from_secs(1);
 const STARTUP_SETTLE_TIME: Duration = Duration::from_millis(150);
+const TUN_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(5);
 const TUN_INTERFACE_LIMIT: usize = 128;
 const TUN_ROUTE_LIMIT: usize = 512;
 const TUN_DNS_RESOLVER_LIMIT: usize = 64;
 const TUN_DNS_NAMESERVER_LIMIT: usize = 8;
 const TUN_OWNED_INTERFACE_LIMIT: usize = 4;
+const TART_MANAGED_DNS_ADDRESS: &str = "198.18.0.1";
+const TART_NETWORK_SERVICE: &str = "Ethernet";
 #[cfg(target_os = "macos")]
 const PROCESS_FD_LIMIT: usize = 4_096;
 
@@ -102,6 +106,7 @@ enum ServiceCommand {
         expected_version: String,
         launch_token: String,
     },
+    Enable,
     Stop {
         launch_token: String,
     },
@@ -697,12 +702,14 @@ pub struct DevelopmentCoreHostStatus {
     pub core: Option<PrivilegedCoreProcess>,
     pub helper_version: String,
     pub installation_id: String,
+    pub observation: TunNetworkObservation,
 }
 
 #[derive(Clone, Debug)]
 struct DevelopmentTunLifecycle {
     repository_root: PathBuf,
     script_path: PathBuf,
+    tart_tun_acceptance: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -727,10 +734,22 @@ impl MacOsTunServiceClient {
     }
 
     pub fn development_with_lifecycle(repository_root: PathBuf) -> Self {
+        Self::development_with_lifecycle_boundary(repository_root, false)
+    }
+
+    pub fn development_with_tart_tun_acceptance(repository_root: PathBuf) -> Self {
+        Self::development_with_lifecycle_boundary(repository_root, true)
+    }
+
+    fn development_with_lifecycle_boundary(
+        repository_root: PathBuf,
+        tart_tun_acceptance: bool,
+    ) -> Self {
         let mut client = Self::development();
         client.lifecycle = Some(DevelopmentTunLifecycle {
             script_path: repository_root.join("scripts/manage-macos-tun-service.ts"),
             repository_root,
+            tart_tun_acceptance,
         });
         client
     }
@@ -814,6 +833,7 @@ impl MacOsTunServiceClient {
                 core: status.core.map(Into::into),
                 helper_version: status.helper_version,
                 installation_id: status.installation_id,
+                observation: status.observation,
             })
             .map_err(|error| match error {
                 ServiceClientError::Unavailable => "core-host-unavailable",
@@ -879,6 +899,7 @@ fn service_request_timeout(command: &ServiceCommand) -> Duration {
     let server_budget = match command {
         ServiceCommand::Health
         | ServiceCommand::Status
+        | ServiceCommand::Enable
         | ServiceCommand::Observe { .. }
         | ServiceCommand::OwnsListener { .. } => BOUNDED_STEP_TIMEOUT,
         ServiceCommand::Start { .. } => BOUNDED_STEP_TIMEOUT * 3 + STARTUP_SETTLE_TIME,
@@ -1064,9 +1085,12 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                     "The development helper installer could not locate a trusted Node executable",
                 )
             })?;
-            let output = Command::new(node)
-                .arg(script_path)
-                .arg(action)
+            let mut command = Command::new(node);
+            command.arg(script_path).arg(action);
+            if lifecycle.tart_tun_acceptance {
+                command.arg("--tart-tun-acceptance");
+            }
+            let output = command
                 .current_dir(repository_root)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -1114,8 +1138,8 @@ impl TunHelperPlatform for MacOsTunServiceClient {
 
     fn set_tun_enabled(&self, enabled: bool) -> BoxFuture<'_, Result<(), TunHelperError>> {
         Box::pin(async move {
-            let status = if enabled {
-                self.health().await
+            let mut status = if enabled {
+                self.request(ServiceCommand::Enable).await
             } else {
                 self.request(ServiceCommand::Disable).await
             }
@@ -1125,17 +1149,38 @@ impl TunHelperPlatform for MacOsTunServiceClient {
                     "The development TUN service operation failed",
                 )
             })?;
-            if enabled
-                && !status
-                    .observation
-                    .confirms_enabled_at(tun_observation_now())
-            {
-                return Err(TunHelperError::new(
-                    status.observation.failure_kind_at(tun_observation_now()),
-                    "The privileged Mihomo Core did not enable TUN",
-                ));
+            let deadline = tokio::time::Instant::now() + TUN_CONFIRMATION_TIMEOUT;
+            loop {
+                let confirmed = if enabled {
+                    status
+                        .observation
+                        .confirms_enabled_at(tun_observation_now())
+                } else {
+                    status
+                        .observation
+                        .confirms_disabled_at(tun_observation_now())
+                };
+                if confirmed {
+                    return Ok(());
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(TunHelperError::new(
+                        status.observation.failure_kind_at(tun_observation_now()),
+                        if enabled {
+                            "The privileged Mihomo Core did not enable TUN"
+                        } else {
+                            "The privileged Mihomo Core did not clean up TUN"
+                        },
+                    ));
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                status = self.health().await.map_err(|_| {
+                    TunHelperError::new(
+                        TunHelperFailureKind::OperationFailed,
+                        "The development TUN service operation failed",
+                    )
+                })?;
             }
-            Ok(())
         })
     }
 }
@@ -1220,7 +1265,9 @@ impl TunServiceConfig {
         Ok(Self {
             allowed_binary: required_path("MISH_TUN_SERVICE_CORE_BINARY")?,
             allowed_uid,
-            allow_tun: false,
+            allow_tun: development_tun_allowed(
+                std::env::var_os("MISH_TUN_SERVICE_ALLOW_TUN").as_deref(),
+            )?,
             installation_id,
             pinned_binary_sha256: manifest.binary_sha256,
             pinned_version: manifest.version,
@@ -1230,6 +1277,15 @@ impl TunServiceConfig {
             spawn_watchdog: true,
             observer: Arc::new(MacOsTunSystemObserver::new()),
         })
+    }
+}
+
+fn development_tun_allowed(value: Option<&OsStr>) -> Result<bool, &'static str> {
+    match value {
+        None => Ok(false),
+        Some(value) if value == OsStr::new("0") => Ok(false),
+        Some(value) if value == OsStr::new("1") => Ok(true),
+        Some(_) => Err("invalid development TUN boundary"),
     }
 }
 
@@ -1246,7 +1302,11 @@ struct ServiceProcess {
     owner_pid: u32,
     pid: u32,
     sealed_config: PathBuf,
-    watchdog: Option<Child>,
+    watchdog: Option<ServiceWatchdog>,
+}
+
+struct ServiceWatchdog {
+    launchd_label: String,
 }
 
 #[derive(Clone)]
@@ -1257,7 +1317,14 @@ struct OwnedTunInterface {
 
 struct ServiceTunOwnership {
     baseline_interfaces: Vec<String>,
+    dns: Option<ManagedDnsState>,
+    dns_applied: bool,
     interface: Option<OwnedTunInterface>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManagedDnsState {
+    prior_servers: Vec<IpAddr>,
 }
 
 #[derive(Default)]
@@ -1281,6 +1348,7 @@ struct ServiceContext {
     pinned_binary_sha256: String,
     pinned_version: String,
     request_gate: Arc<Mutex<ServiceRequestGate>>,
+    manage_tart_dns: bool,
     runtime_root: PathBuf,
     sealed_root: PathBuf,
     spawn_watchdog: bool,
@@ -1355,6 +1423,7 @@ pub async fn run_tun_service(config: TunServiceConfig) -> Result<(), &'static st
         pinned_binary_sha256: config.pinned_binary_sha256,
         pinned_version: config.pinned_version,
         request_gate: Arc::new(Mutex::new(ServiceRequestGate::default())),
+        manage_tart_dns: config.allow_tun && config.require_root,
         runtime_root,
         sealed_root,
         spawn_watchdog: config.spawn_watchdog,
@@ -1465,6 +1534,7 @@ async fn execute_request(
     let allowed_uid = context.allowed_uid;
     let allow_tun = context.allow_tun;
     let installation_id = context.installation_id.as_ref();
+    let manage_tart_dns = context.manage_tart_dns;
     let observer = &context.observer;
     let pinned_binary_sha256 = context.pinned_binary_sha256.as_str();
     let pinned_version = context.pinned_version.as_str();
@@ -1532,6 +1602,7 @@ async fn execute_request(
                     allowed_binary,
                     runtime_root,
                     allowed_uid,
+                    allow_tun,
                 )
                 .is_err()
             {
@@ -1595,6 +1666,21 @@ async fn execute_request(
                     installation_id,
                 );
             }
+            let managed_dns = if tun_requested && manage_tart_dns {
+                match observe_tart_dns() {
+                    Ok(state) => Some(state),
+                    Err(()) => {
+                        return ServiceResponse::error(
+                            ServiceDiagnosticCode::SpawnFailed,
+                            None,
+                            unknown_tun_observation(),
+                            installation_id,
+                        );
+                    }
+                }
+            } else {
+                None
+            };
             let mut service_state = state.lock().await;
             reap_if_exited(&mut service_state);
             let correlation = current_tun_correlation(&service_state, observer.as_ref());
@@ -1680,7 +1766,7 @@ async fn execute_request(
                 );
             }
             let watchdog = if spawn_watchdog {
-                match spawn_core_watchdog(pid) {
+                match spawn_core_watchdog(pid, managed_dns.as_ref()) {
                     Ok(watchdog) => Some(watchdog),
                     Err(()) => {
                         let _ = child.start_kill();
@@ -1716,8 +1802,41 @@ async fn execute_request(
                     .collect();
                 service_state.tun = Some(ServiceTunOwnership {
                     baseline_interfaces,
+                    dns: managed_dns,
+                    dns_applied: false,
                     interface: None,
                 });
+            }
+            drop(service_state);
+            status_response(state, installation_id, observer).await
+        }
+        ServiceCommand::Enable => {
+            let mut service_state = state.lock().await;
+            reap_if_exited(&mut service_state);
+            if service_state
+                .process
+                .as_ref()
+                .is_none_or(|process| process.owner_pid != peer_pid)
+                || service_state.tun.is_none()
+            {
+                return ServiceResponse::error(
+                    ServiceDiagnosticCode::OwnerMismatch,
+                    service_state.status(),
+                    unknown_tun_observation(),
+                    installation_id,
+                );
+            }
+            let tun = service_state.tun.as_mut().expect("checked TUN ownership");
+            if tun.dns.is_some() && !tun.dns_applied {
+                if apply_tart_dns().is_err() {
+                    return ServiceResponse::error(
+                        ServiceDiagnosticCode::SpawnFailed,
+                        service_state.status(),
+                        unknown_tun_observation(),
+                        installation_id,
+                    );
+                }
+                tun.dns_applied = true;
             }
             drop(service_state);
             status_response(state, installation_id, observer).await
@@ -1997,7 +2116,11 @@ impl ServiceState {
             count if count == expected_routes => TunObservationComponentState::Confirmed,
             _ => TunObservationComponentState::Partial,
         };
-        let dns = dns_observation_state(system, &owned.name);
+        let dns = if ownership.dns_applied && current.is_none() {
+            TunObservationComponentState::Partial
+        } else {
+            dns_observation_state(system, &owned.name)
+        };
         TunNetworkObservation::new(core, interface, routes, dns, tun_observation_now())
     }
 }
@@ -2010,7 +2133,7 @@ const REQUIRED_IPV4_ROUTES: &[&[&str]] = &[
     &["16/4", "16.0.0.0/4"],
     &["32/3", "32.0.0.0/3"],
     &["64/2", "64.0.0.0/2"],
-    &["128/1", "128.0.0.0/1"],
+    &["128/1", "128.0/1", "128.0.0.0/1"],
 ];
 const REQUIRED_IPV6_ROUTES: &[&[&str]] = &[
     &["100::/8"],
@@ -2024,15 +2147,18 @@ const REQUIRED_IPV6_ROUTES: &[&[&str]] = &[
 ];
 
 fn required_route_count(system: &TunSystemSnapshot, interface: &str, ipv6: bool) -> usize {
-    REQUIRED_IPV4_ROUTES
-        .iter()
-        .chain(ipv6.then_some(REQUIRED_IPV6_ROUTES).into_iter().flatten())
-        .filter(|destinations| {
-            system.routes.iter().any(|route| {
-                route.interface == interface && destinations.contains(&route.destination.as_str())
+    let count = |required: &[&[&str]]| {
+        required
+            .iter()
+            .filter(|destinations| {
+                system.routes.iter().any(|route| {
+                    route.interface == interface
+                        && destinations.contains(&route.destination.as_str())
+                })
             })
-        })
-        .count()
+            .count()
+    };
+    count(REQUIRED_IPV4_ROUTES) + usize::from(ipv6) * count(REQUIRED_IPV6_ROUTES)
 }
 
 fn is_utun(value: &str) -> bool {
@@ -2108,7 +2234,13 @@ async fn status_response(
             observation
         }
     };
-    if observation.confirms_disabled_at(tun_observation_now()) && state.process.is_none() {
+    if observation.confirms_disabled_at(tun_observation_now())
+        && state.process.is_none()
+        && state
+            .tun
+            .as_ref()
+            .is_none_or(|ownership| !ownership.dns_applied)
+    {
         state.tun = None;
     }
     ServiceResponse::ok(state.status(), observation, installation_id)
@@ -2154,28 +2286,63 @@ fn reap_if_exited(state: &mut ServiceState) {
         .as_mut()
         .is_some_and(|process| !matches!(process.child.try_wait(), Ok(None)))
     {
-        let mut process = state.process.take().expect("exited process must exist");
-        if let Some(watchdog) = process.watchdog.as_mut() {
-            let _ = watchdog.start_kill();
+        let process = state.process.take().expect("exited process must exist");
+        if let Some(ownership) = state.tun.as_mut()
+            && ownership.dns_applied
+            && let Some(dns) = ownership.dns.as_ref()
+            && restore_tart_dns(dns).is_ok()
+        {
+            ownership.dns_applied = false;
+        }
+        if let Some(watchdog) = process.watchdog.as_ref() {
+            remove_core_watchdog(watchdog);
         }
         let _ = fs::remove_file(process.sealed_config);
     }
 }
 
-fn spawn_core_watchdog(core_pid: u32) -> Result<Child, ()> {
+fn spawn_core_watchdog(
+    core_pid: u32,
+    managed_dns: Option<&ManagedDnsState>,
+) -> Result<ServiceWatchdog, ()> {
     let executable = std::env::current_exe().map_err(|_| ())?;
-    Command::new(executable)
+    let launchd_label = format!("com.asuka109.mish.tun-watchdog.{core_pid}");
+    let mut command = StdCommand::new("/bin/launchctl");
+    command
+        .arg("submit")
+        .arg("-l")
+        .arg(&launchd_label)
+        .arg("--")
+        .arg(executable)
         .arg("--watch-parent")
         .arg(std::process::id().to_string())
-        .arg(core_pid.to_string())
+        .arg(core_pid.to_string());
+    if let Some(managed_dns) = managed_dns {
+        command
+            .arg("--restore-tart-dns")
+            .arg(encode_watchdog_dns(managed_dns));
+    }
+    let output = command.output().map_err(|_| ())?;
+    if !output.status.success() || output.stdout.len() > 4_096 || output.stderr.len() > 4_096 {
+        return Err(());
+    }
+    Ok(ServiceWatchdog { launchd_label })
+}
+
+fn remove_core_watchdog(watchdog: &ServiceWatchdog) {
+    let _ = StdCommand::new("/bin/launchctl")
+        .args(["remove", &watchdog.launchd_label])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| ())
+        .status();
 }
 
-pub async fn run_core_watchdog(expected_parent: u32, core_pid: u32) -> Result<(), &'static str> {
+pub async fn run_core_watchdog(
+    expected_parent: u32,
+    core_pid: u32,
+    managed_dns: Option<ManagedDnsState>,
+) -> Result<(), &'static str> {
     if expected_parent <= 1
         || core_pid == 0
         || expected_parent == core_pid
@@ -2185,10 +2352,15 @@ pub async fn run_core_watchdog(expected_parent: u32, core_pid: u32) -> Result<()
     }
     loop {
         if !process_alive(core_pid) {
+            if let Some(managed_dns) = &managed_dns {
+                restore_tart_dns_with_retry(managed_dns).await?;
+            }
             return Ok(());
         }
-        // SAFETY: getppid has no preconditions and detects reparenting after helper exit.
-        if unsafe { libc::getppid() } as u32 != expected_parent {
+        if !process_alive(expected_parent) {
+            if let Some(managed_dns) = &managed_dns {
+                restore_tart_dns_with_retry(managed_dns).await?;
+            }
             // SAFETY: signal is sent only to the positive Core PID supplied by the helper.
             let _ = unsafe { libc::kill(core_pid as i32, libc::SIGTERM) };
             let deadline = tokio::time::Instant::now() + FORCED_STOP_TIMEOUT;
@@ -2214,6 +2386,13 @@ async fn stop_process_with_timeouts(
     graceful_timeout: Duration,
     forced_timeout: Duration,
 ) -> Result<(), ()> {
+    if let Some(ownership) = state.tun.as_mut()
+        && ownership.dns_applied
+        && let Some(dns) = ownership.dns.as_ref()
+    {
+        restore_tart_dns(dns)?;
+        ownership.dns_applied = false;
+    }
     let Some(mut process) = state.process.take() else {
         return Ok(());
     };
@@ -2235,9 +2414,8 @@ async fn stop_process_with_timeouts(
             return Err(());
         }
     }
-    if let Some(mut watchdog) = process.watchdog.take() {
-        let _ = watchdog.start_kill();
-        let _ = timeout(forced_timeout, watchdog.wait()).await;
+    if let Some(watchdog) = process.watchdog.take() {
+        remove_core_watchdog(&watchdog);
     }
     match fs::remove_file(&process.sealed_config) {
         Ok(()) => {}
@@ -2245,6 +2423,108 @@ async fn stop_process_with_timeouts(
         Err(_) => return Err(()),
     }
     Ok(())
+}
+
+fn observe_tart_dns() -> Result<ManagedDnsState, ()> {
+    let output = StdCommand::new("/usr/sbin/networksetup")
+        .args(["-getdnsservers", TART_NETWORK_SERVICE])
+        .output()
+        .map_err(|_| ())?;
+    if !output.status.success() || output.stdout.len() > 4_096 || !output.stderr.is_empty() {
+        return Err(());
+    }
+    parse_tart_dns_output(&String::from_utf8(output.stdout).map_err(|_| ())?)
+        .map(|prior_servers| ManagedDnsState { prior_servers })
+}
+
+fn parse_tart_dns_output(output: &str) -> Result<Vec<IpAddr>, ()> {
+    let output = output.trim();
+    if output == format!("There aren't any DNS Servers set on {TART_NETWORK_SERVICE}.") {
+        return Ok(Vec::new());
+    }
+    let servers = output
+        .lines()
+        .map(str::trim)
+        .map(str::parse::<IpAddr>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ())?;
+    if servers.is_empty() || servers.len() > TUN_DNS_NAMESERVER_LIMIT {
+        return Err(());
+    }
+    Ok(servers)
+}
+
+fn apply_tart_dns() -> Result<(), ()> {
+    set_tart_dns(&[TART_MANAGED_DNS_ADDRESS
+        .parse()
+        .expect("fixed Tart DNS address is valid")])
+}
+
+fn restore_tart_dns(state: &ManagedDnsState) -> Result<(), ()> {
+    set_tart_dns(&state.prior_servers)
+}
+
+fn set_tart_dns(servers: &[IpAddr]) -> Result<(), ()> {
+    if servers.len() > TUN_DNS_NAMESERVER_LIMIT {
+        return Err(());
+    }
+    let mut command = StdCommand::new("/usr/sbin/networksetup");
+    command.arg("-setdnsservers").arg(TART_NETWORK_SERVICE);
+    if servers.is_empty() {
+        command.arg("Empty");
+    } else {
+        command.args(servers.iter().map(IpAddr::to_string));
+    }
+    let output = command.output().map_err(|_| ())?;
+    if !output.status.success() || output.stdout.len() > 4_096 || output.stderr.len() > 4_096 {
+        return Err(());
+    }
+    let observed = observe_tart_dns()?;
+    if observed.prior_servers == servers {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+async fn restore_tart_dns_with_retry(state: &ManagedDnsState) -> Result<(), &'static str> {
+    for _ in 0..5 {
+        if restore_tart_dns(state).is_ok() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    Err("managed Tart DNS restoration failed")
+}
+
+fn encode_watchdog_dns(state: &ManagedDnsState) -> String {
+    if state.prior_servers.is_empty() {
+        "automatic".to_owned()
+    } else {
+        state
+            .prior_servers
+            .iter()
+            .map(IpAddr::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+pub fn parse_watchdog_dns(value: &str) -> Result<ManagedDnsState, &'static str> {
+    if value == "automatic" {
+        return Ok(ManagedDnsState {
+            prior_servers: Vec::new(),
+        });
+    }
+    let prior_servers = value
+        .split(',')
+        .map(str::parse::<IpAddr>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "invalid managed Tart DNS restoration state")?;
+    if prior_servers.is_empty() || prior_servers.len() > TUN_DNS_NAMESERVER_LIMIT {
+        return Err("invalid managed Tart DNS restoration state");
+    }
+    Ok(ManagedDnsState { prior_servers })
 }
 
 fn validate_regular_file(
@@ -2284,12 +2564,19 @@ fn validate_launch_paths(
     allowed_binary: &Path,
     runtime_root: &Path,
     allowed_uid: u32,
+    allow_managed_runtime_layout: bool,
 ) -> Result<(), ()> {
     if validate_regular_file(binary, allowed_uid, false).map_err(|_| ())? != allowed_binary {
         return Err(());
     }
     let directory = validate_owned_private_path(config_directory, allowed_uid, true)?;
     let file = validate_owned_private_path(config_file, allowed_uid, false)?;
+    if allow_managed_runtime_layout
+        && validate_managed_runtime_launch_paths(&directory, &file, runtime_root, allowed_uid)
+            .is_ok()
+    {
+        return Ok(());
+    }
     let candidates =
         validate_owned_private_path(&runtime_root.join("candidates"), allowed_uid, true)?;
     let candidate = directory.parent().ok_or(())?;
@@ -2301,6 +2588,29 @@ fn validate_launch_paths(
             .file_name()
             .and_then(|name| name.to_str())
             .is_none_or(|name| uuid::Uuid::parse_str(name).is_err())
+    {
+        return Err(());
+    }
+    Ok(())
+}
+
+fn validate_managed_runtime_launch_paths(
+    directory: &Path,
+    file: &Path,
+    runtime_root: &Path,
+    allowed_uid: u32,
+) -> Result<(), ()> {
+    let mihomo = validate_owned_private_path(&runtime_root.join("mihomo"), allowed_uid, true)?;
+    let home = validate_owned_private_path(&mihomo.join("home"), allowed_uid, true)?;
+    let configs = validate_owned_private_path(&mihomo.join("configs"), allowed_uid, true)?;
+    let config_id = file
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|_| file.extension().and_then(|extension| extension.to_str()) == Some("yaml"))
+        .ok_or(())?;
+    if directory != home
+        || file.parent() != Some(configs.as_path())
+        || uuid::Uuid::parse_str(config_id).is_err()
     {
         return Err(());
     }
@@ -2586,6 +2896,76 @@ mod tests {
         }
     }
 
+    #[test]
+    fn development_tun_service_requires_an_exact_explicit_boundary() {
+        assert_eq!(development_tun_allowed(None), Ok(false));
+        assert_eq!(development_tun_allowed(Some(OsStr::new("0"))), Ok(false));
+        assert_eq!(development_tun_allowed(Some(OsStr::new("1"))), Ok(true));
+        for value in ["", "true", "yes", " 1", "1 "] {
+            assert_eq!(
+                development_tun_allowed(Some(OsStr::new(value))),
+                Err("invalid development TUN boundary")
+            );
+        }
+    }
+
+    #[test]
+    fn tart_dns_state_is_bounded_and_round_trips_through_the_watchdog_boundary() {
+        assert_eq!(
+            parse_tart_dns_output("There aren't any DNS Servers set on Ethernet.\n").unwrap(),
+            Vec::<IpAddr>::new()
+        );
+        assert_eq!(
+            parse_tart_dns_output("192.0.2.53\n2001:db8::53\n").unwrap(),
+            [
+                "192.0.2.53".parse::<IpAddr>().unwrap(),
+                "2001:db8::53".parse::<IpAddr>().unwrap()
+            ]
+        );
+        for invalid in ["", "not-an-address", "192.0.2.1 extra"] {
+            assert!(parse_tart_dns_output(invalid).is_err());
+        }
+
+        let automatic = parse_watchdog_dns("automatic").unwrap();
+        assert!(automatic.prior_servers.is_empty());
+        let explicit = parse_watchdog_dns("192.0.2.53,2001:db8::53").unwrap();
+        assert_eq!(encode_watchdog_dns(&explicit), "192.0.2.53,2001:db8::53");
+        for invalid in ["", "automatic,192.0.2.53", "not-an-address"] {
+            assert!(parse_watchdog_dns(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn managed_runtime_launch_layout_requires_the_explicit_tart_boundary() {
+        let temporary = tempfile::tempdir().unwrap();
+        let binary = write_fixture_binary(temporary.path());
+        let runtime_root = temporary.path().join("runtime");
+        let mihomo = runtime_root.join("mihomo");
+        let home = mihomo.join("home");
+        let configs = mihomo.join("configs");
+        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(&configs).unwrap();
+        for directory in [&runtime_root, &mihomo, &home, &configs] {
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let config = configs.join("11111111-1111-4111-8111-111111111111.yaml");
+        fs::write(&config, "tun:\n  enable: true\n").unwrap();
+        fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+        // SAFETY: getuid has no preconditions and only returns the real user ID.
+        let uid = unsafe { libc::getuid() };
+        let binary = binary.canonicalize().unwrap();
+        let runtime_root = runtime_root.canonicalize().unwrap();
+
+        assert!(
+            validate_launch_paths(&binary, &home, &config, &binary, &runtime_root, uid, true,)
+                .is_ok()
+        );
+        assert!(
+            validate_launch_paths(&binary, &home, &config, &binary, &runtime_root, uid, false,)
+                .is_err()
+        );
+    }
+
     fn baseline_snapshot() -> TunSystemSnapshot {
         TunSystemSnapshot {
             dns_resolvers: vec![TunSystemDnsResolver {
@@ -2641,6 +3021,8 @@ mod tests {
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
+                dns: None,
+                dns_applied: false,
                 interface: Some(OwnedTunInterface {
                     addresses: vec!["198.18.0.1".into()],
                     name: "utun1".into(),
@@ -2683,6 +3065,27 @@ mod tests {
         );
         assert_eq!(resolvers[0].port, 53);
         assert_eq!(resolvers[1].port, 5353);
+    }
+
+    #[test]
+    fn parses_the_complete_macos_dual_stack_managed_route_set() {
+        let routes = parse_tun_routes(
+            "Routing tables\n\nInternet:\nDestination Gateway Flags Netif Expire\n1 198.18.0.1 UGSc utun4\n2/7 198.18.0.1 UGSc utun4\n4/6 198.18.0.1 UGSc utun4\n8/5 198.18.0.1 UGSc utun4\n16/4 198.18.0.1 UGSc utun4\n32/3 198.18.0.1 UGSc utun4\n64/2 198.18.0.1 UGSc utun4\n128.0/1 198.18.0.1 UGSc utun4\n\nInternet6:\nDestination Gateway Flags Netif Expire\n100::/8 fdfe:dcba:9876::1 UGSc utun4\n200::/7 fdfe:dcba:9876::1 UGSc utun4\n400::/6 fdfe:dcba:9876::1 UGSc utun4\n800::/5 fdfe:dcba:9876::1 UGSc utun4\n1000::/4 fdfe:dcba:9876::1 UGSc utun4\n2000::/3 fdfe:dcba:9876::1 UGSc utun4\n4000::/2 fdfe:dcba:9876::1 UGSc utun4\n8000::/1 fdfe:dcba:9876::1 UGSc utun4\n",
+        )
+        .unwrap();
+
+        let snapshot = TunSystemSnapshot {
+            dns_resolvers: Vec::new(),
+            interfaces: Vec::new(),
+            routes,
+        };
+        assert_eq!(required_route_count(&snapshot, "utun4", false), 8);
+        assert_eq!(
+            required_route_count(&snapshot, "utun4", true),
+            16,
+            "{:?}",
+            snapshot.routes
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -2823,6 +3226,8 @@ mod tests {
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
+                dns: None,
+                dns_applied: false,
                 interface: None,
             }),
         };
@@ -2851,6 +3256,8 @@ mod tests {
             process: None,
             tun: Some(ServiceTunOwnership {
                 baseline_interfaces: vec!["utun0".into()],
+                dns: None,
+                dns_applied: false,
                 interface: None,
             }),
         };
@@ -2928,20 +3335,15 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let binary = write_fixture_binary(temporary.path());
         let runtime_root = temporary.path().join("runtime");
-        let candidate = runtime_root
-            .join("candidates")
-            .join("11111111-1111-4111-8111-111111111111");
-        let home = candidate.join("home");
+        let mihomo = runtime_root.join("mihomo");
+        let home = mihomo.join("home");
+        let configs = mihomo.join("configs");
         fs::create_dir_all(&home).unwrap();
-        fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::set_permissions(
-            runtime_root.join("candidates"),
-            fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
-        fs::set_permissions(&candidate, fs::Permissions::from_mode(0o700)).unwrap();
-        fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
-        let config_file = candidate.join("config.yaml");
+        fs::create_dir_all(&configs).unwrap();
+        for directory in [&runtime_root, &mihomo, &home, &configs] {
+            fs::set_permissions(directory, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let config_file = configs.join("11111111-1111-4111-8111-111111111111.yaml");
         fs::write(&config_file, "tun:\n  enable: true\n").unwrap();
         fs::set_permissions(&config_file, fs::Permissions::from_mode(0o600)).unwrap();
         let socket_path = temporary.path().join("helper.sock");
@@ -3590,6 +3992,7 @@ mod tests {
             lifecycle: Some(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
+                tart_tun_acceptance: false,
             }),
             socket_path: repository.path().join("unused.sock"),
         };
@@ -3608,6 +4011,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tart_lifecycle_preserves_the_explicit_installer_boundary() {
+        let repository = tempfile::tempdir().unwrap();
+        let scripts = repository.path().join("scripts");
+        fs::create_dir(&scripts).unwrap();
+        let installer = scripts.join("manage-macos-tun-service.ts");
+        fs::write(
+            &installer,
+            "import { writeFileSync } from 'node:fs';\nwriteFileSync('observed-action.txt', process.argv.slice(2).join(','));\nprocess.stdout.write(JSON.stringify({ ok: true }));\n",
+        )
+        .unwrap();
+        fs::set_permissions(&installer, fs::Permissions::from_mode(0o644)).unwrap();
+        let client = MacOsTunServiceClient {
+            lifecycle: Some(DevelopmentTunLifecycle {
+                repository_root: repository.path().to_path_buf(),
+                script_path: installer,
+                tart_tun_acceptance: true,
+            }),
+            socket_path: repository.path().join("unused.sock"),
+        };
+
+        client
+            .run_lifecycle(TunHelperLifecycleOperation::Repair)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(repository.path().join("observed-action.txt")).unwrap(),
+            "repair,--tart-tun-acceptance"
+        );
+    }
+
+    #[tokio::test]
     async fn development_lifecycle_preserves_the_installer_failure_kind() {
         let repository = tempfile::tempdir().unwrap();
         let scripts = repository.path().join("scripts");
@@ -3623,6 +4058,7 @@ mod tests {
             lifecycle: Some(DevelopmentTunLifecycle {
                 repository_root: repository.path().to_path_buf(),
                 script_path: installer,
+                tart_tun_acceptance: false,
             }),
             socket_path: repository.path().join("unused.sock"),
         };

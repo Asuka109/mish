@@ -150,7 +150,7 @@ const en = {
     managedPortsConflict: "Mish could not use {endpoint}.",
     systemProxyTakeoverPolicy: "Override System Proxy",
     systemProxyTakeoverPolicyDescription:
-      "Protect existing PAC and automatic-discovery settings by default. The advanced choice is temporary and only replaces a fully captured state that Mish can restore exactly.",
+      'By default, existing PAC and automatic-discovery settings are not overridden. The "Override and restore" option temporarily replaces only settings Mish has fully captured and can restore exactly.',
     systemProxyTakeoverPolicyProtected: "Do not override",
     systemProxyTakeoverPolicyAdvanced: "Override and restore",
     systemProxyTakeoverPolicyWarning:

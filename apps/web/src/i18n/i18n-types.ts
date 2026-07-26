@@ -464,7 +464,7 @@ type RootTranslation = {
 		 */
 		systemProxyTakeoverPolicy: string
 		/**
-		 * P​r​o​t​e​c​t​ ​e​x​i​s​t​i​n​g​ ​P​A​C​ ​a​n​d​ ​a​u​t​o​m​a​t​i​c​-​d​i​s​c​o​v​e​r​y​ ​s​e​t​t​i​n​g​s​ ​b​y​ ​d​e​f​a​u​l​t​.​ ​T​h​e​ ​a​d​v​a​n​c​e​d​ ​c​h​o​i​c​e​ ​i​s​ ​t​e​m​p​o​r​a​r​y​ ​a​n​d​ ​o​n​l​y​ ​r​e​p​l​a​c​e​s​ ​a​ ​f​u​l​l​y​ ​c​a​p​t​u​r​e​d​ ​s​t​a​t​e​ ​t​h​a​t​ ​M​i​s​h​ ​c​a​n​ ​r​e​s​t​o​r​e​ ​e​x​a​c​t​l​y​.
+		 * B​y​ ​d​e​f​a​u​l​t​,​ ​e​x​i​s​t​i​n​g​ ​P​A​C​ ​a​n​d​ ​a​u​t​o​m​a​t​i​c​-​d​i​s​c​o​v​e​r​y​ ​s​e​t​t​i​n​g​s​ ​a​r​e​ ​n​o​t​ ​o​v​e​r​r​i​d​d​e​n​.​ ​T​h​e​ ​"​O​v​e​r​r​i​d​e​ ​a​n​d​ ​r​e​s​t​o​r​e​"​ ​o​p​t​i​o​n​ ​t​e​m​p​o​r​a​r​i​l​y​ ​r​e​p​l​a​c​e​s​ ​o​n​l​y​ ​s​e​t​t​i​n​g​s​ ​M​i​s​h​ ​h​a​s​ ​f​u​l​l​y​ ​c​a​p​t​u​r​e​d​ ​a​n​d​ ​c​a​n​ ​r​e​s​t​o​r​e​ ​e​x​a​c​t​l​y​.
 		 */
 		systemProxyTakeoverPolicyDescription: string
 		/**
@@ -5124,7 +5124,7 @@ export type TranslationFunctions = {
 		 */
 		systemProxyTakeoverPolicy: () => LocalizedString
 		/**
-		 * Protect existing PAC and automatic-discovery settings by default. The advanced choice is temporary and only replaces a fully captured state that Mish can restore exactly.
+		 * By default, existing PAC and automatic-discovery settings are not overridden. The "Override and restore" option temporarily replaces only settings Mish has fully captured and can restore exactly.
 		 */
 		systemProxyTakeoverPolicyDescription: () => LocalizedString
 		/**
