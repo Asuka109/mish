@@ -252,15 +252,7 @@ where
     }
 
     pub fn snapshot(&self) -> Result<ProfileSnapshot, ProfileServiceError> {
-        let profiles = self
-            .repository
-            .list_metadata_with_effective_fingerprints()?
-            .into_iter()
-            .map(|(metadata, effective_fingerprint)| {
-                let source = self.repository.load(&metadata.id)?.source.display_summary();
-                Ok(profile_list_item(metadata, effective_fingerprint, source))
-            })
-            .collect::<Result<Vec<_>, RepositoryError>>()?;
+        let profiles = self.profile_list()?;
         let selection = self.selection.reconcile(&profiles)?;
         Ok(ProfileSnapshot {
             adapter_kind: ProfileAdapterKind::Rpc,
@@ -283,9 +275,40 @@ where
         Ok(self.snapshot()?.selection)
     }
 
+    pub fn confirmed_selection_authorized(
+        &self,
+        permit: &StateMutationPermit,
+    ) -> Result<ProfileSelectionSnapshot, ProfileServiceError> {
+        self.validate_permit(permit)?;
+        self.confirmed_selection()
+    }
+
+    pub async fn initialize_selection(
+        &self,
+        preferred_profile_id: Option<&str>,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        let permit = self
+            .authority
+            .acquire()
+            .await
+            .map_err(|_| ProfileServiceError::Busy)?;
+        self.validate_permit(&permit)?;
+        let profiles = self.profile_list()?;
+        self.selection.initialize(&profiles, preferred_profile_id)?;
+        self.snapshot()
+    }
+
     pub async fn select_profile(
         &self,
         profile_id: &str,
+    ) -> Result<ProfileSnapshot, ProfileServiceError> {
+        self.select_profile_if_current(profile_id, None).await
+    }
+
+    pub async fn select_profile_if_current(
+        &self,
+        profile_id: &str,
+        expected: Option<&ProfileSelectionSnapshot>,
     ) -> Result<ProfileSnapshot, ProfileServiceError> {
         let permit = self
             .authority
@@ -294,7 +317,7 @@ where
             .map_err(|_| ProfileServiceError::Busy)?;
         self.validate_permit(&permit)?;
         let profiles = self.snapshot()?.profiles;
-        self.selection.select(&profiles, profile_id)?;
+        self.selection.select(&profiles, profile_id, expected)?;
         self.snapshot()
     }
 
@@ -890,6 +913,18 @@ where
         self.repository.delete(&id)?;
         remove_materialized_file(&materialized_path)?;
         self.snapshot()
+    }
+
+    fn profile_list(&self) -> Result<Vec<ProfileListItem>, ProfileServiceError> {
+        Ok(self
+            .repository
+            .list_metadata_with_effective_fingerprints()?
+            .into_iter()
+            .map(|(metadata, effective_fingerprint)| {
+                let source = self.repository.load(&metadata.id)?.source.display_summary();
+                Ok(profile_list_item(metadata, effective_fingerprint, source))
+            })
+            .collect::<Result<Vec<_>, RepositoryError>>()?)
     }
 
     fn validate_permit(&self, permit: &StateMutationPermit) -> Result<(), ProfileServiceError> {

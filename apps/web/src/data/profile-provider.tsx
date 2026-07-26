@@ -8,6 +8,7 @@ import {
   type ProfilePatchEditorDto,
   type ProfileRefreshPolicy,
   type ProfileRouteCatalogDto,
+  type ProfileSelectionSnapshotDto,
   type ProviderAuthorityDto,
   type ProviderKind,
   type ProfilePreviewDto,
@@ -39,6 +40,9 @@ export type ProfileOperation =
   | "save"
   | "stop";
 export type ProfileOperationResult = { ok: true } | { error: ProfileClientError; ok: false };
+export type ProfileSelectionOperationResult =
+  | { ok: true; selection: ProfileSelectionSnapshotDto }
+  | { error: ProfileClientError; ok: false };
 export type ProfilePreviewResult =
   | { ok: true; preview: ProfilePreviewDto | null }
   | { error: ProfileClientError; ok: false };
@@ -78,7 +82,10 @@ interface ProfileContextValue {
   savePreview(previewId: string): Promise<ProfileOperationResult>;
   selectedProfileId: string | null;
   selectedProfileRevision: number;
-  selectProfile(profileId: string): Promise<ProfileOperationResult>;
+  selectProfile(
+    profileId: string,
+    expectedSelection?: ProfileSelectionSnapshotDto,
+  ): Promise<ProfileSelectionOperationResult>;
   snapshot: ProfileSnapshotDto | null;
   stopActiveProfile(): Promise<ProfileOperationResult>;
   updateAllProviders(
@@ -408,7 +415,10 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
   );
 
   const selectProfile = useCallback(
-    async (profileId: string): Promise<ProfileOperationResult> => {
+    async (
+      profileId: string,
+      expectedSelection?: ProfileSelectionSnapshotDto,
+    ): Promise<ProfileSelectionOperationResult> => {
       const current = latestSnapshot.current;
       if (!current?.profiles.some((profile) => profile.id === profileId && profile.status.valid)) {
         return {
@@ -416,8 +426,12 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
           ok: false,
         };
       }
-      if (current.selection.profileId === profileId && !selectionOperation.current) {
-        return { ok: true };
+      if (
+        !expectedSelection &&
+        current.selection.profileId === profileId &&
+        !selectionOperation.current
+      ) {
+        return { ok: true, selection: current.selection };
       }
       if (pending.current) return conflict();
       const operation = {
@@ -426,13 +440,19 @@ export function ProfileProvider({ children, client }: ProfileProviderProps) {
         profileId,
       };
       pending.current = true;
-      selectionOperation.current = operation;
+      selectionOperation.current = expectedSelection ? null : operation;
       setPendingKey(operationKey("select", profileId));
-      setSelectedProfileId(profileId);
+      if (!expectedSelection) setSelectedProfileId(profileId);
       setError(null);
       try {
-        acceptSnapshot(await resolvedClient.selectProfile(profileId));
-        return { ok: true };
+        const confirmed = await resolvedClient.selectProfile(profileId, {
+          expectedSelection,
+        });
+        acceptSnapshot(confirmed);
+        if (expectedSelection && confirmed.selection.profileId !== profileId) {
+          return conflict();
+        }
+        return { ok: true, selection: confirmed.selection };
       } catch (failure) {
         const typedError = toProfileClientError(failure);
         setError(typedError);

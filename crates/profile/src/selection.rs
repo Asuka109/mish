@@ -11,7 +11,7 @@ use crate::{AtomicWriter, ProfileListItem, RepositoryError, StdAtomicWriter};
 const PROFILE_SELECTION_SCHEMA_VERSION: u8 = 1;
 const PROFILE_SELECTION_MAX_BYTES: u64 = 4_096;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProfileSelectionSnapshot {
     pub profile_id: Option<String>,
@@ -28,17 +28,46 @@ struct StoredProfileSelection {
 
 pub(crate) struct ProfileSelectionAuthority {
     path: PathBuf,
-    state: Mutex<ProfileSelectionSnapshot>,
+    state: Mutex<ProfileSelectionState>,
+}
+
+struct ProfileSelectionState {
+    migration_pending: bool,
+    snapshot: ProfileSelectionSnapshot,
 }
 
 impl ProfileSelectionAuthority {
     pub(crate) fn load(root: &Path) -> Self {
         let path = root.join("selected-profile.json");
-        let state = load_selection(&path).unwrap_or_default();
+        let stored = load_selection(&path);
         Self {
             path,
-            state: Mutex::new(state),
+            state: Mutex::new(ProfileSelectionState {
+                migration_pending: stored.is_none(),
+                snapshot: stored.unwrap_or_default(),
+            }),
         }
+    }
+
+    pub(crate) fn initialize(
+        &self,
+        profiles: &[ProfileListItem],
+        preferred_profile_id: Option<&str>,
+    ) -> Result<ProfileSelectionSnapshot, RepositoryError> {
+        let mut state = self
+            .state
+            .lock()
+            .expect("Profile selection state lock poisoned");
+        if !state.migration_pending {
+            return reconcile_selection(&self.path, &mut state, profiles);
+        }
+        let next = preferred_profile_id
+            .filter(|profile_id| valid_profile(profiles, profile_id))
+            .map(str::to_owned)
+            .or_else(|| first_valid_profile_id(profiles));
+        commit_selection(&self.path, &mut state.snapshot, next)?;
+        state.migration_pending = false;
+        Ok(state.snapshot.clone())
     }
 
     pub(crate) fn reconcile(
@@ -49,23 +78,14 @@ impl ProfileSelectionAuthority {
             .state
             .lock()
             .expect("Profile selection state lock poisoned");
-        let next = state
-            .profile_id
-            .as_ref()
-            .filter(|profile_id| valid_profile(profiles, profile_id))
-            .cloned()
-            .or_else(|| first_valid_profile_id(profiles));
-        if next == state.profile_id {
-            return Ok(state.clone());
-        }
-        commit_selection(&self.path, &mut state, next)?;
-        Ok(state.clone())
+        reconcile_selection(&self.path, &mut state, profiles)
     }
 
     pub(crate) fn select(
         &self,
         profiles: &[ProfileListItem],
         profile_id: &str,
+        expected: Option<&ProfileSelectionSnapshot>,
     ) -> Result<ProfileSelectionSnapshot, RepositoryError> {
         if !valid_profile(profiles, profile_id) {
             return Err(RepositoryError::NotFound);
@@ -74,12 +94,36 @@ impl ProfileSelectionAuthority {
             .state
             .lock()
             .expect("Profile selection state lock poisoned");
-        if state.profile_id.as_deref() == Some(profile_id) {
-            return Ok(state.clone());
+        if expected.is_some_and(|expected| expected != &state.snapshot) {
+            return Ok(state.snapshot.clone());
         }
-        commit_selection(&self.path, &mut state, Some(profile_id.to_owned()))?;
-        Ok(state.clone())
+        if state.snapshot.profile_id.as_deref() == Some(profile_id) {
+            return Ok(state.snapshot.clone());
+        }
+        commit_selection(&self.path, &mut state.snapshot, Some(profile_id.to_owned()))?;
+        state.migration_pending = false;
+        Ok(state.snapshot.clone())
     }
+}
+
+fn reconcile_selection(
+    path: &Path,
+    state: &mut ProfileSelectionState,
+    profiles: &[ProfileListItem],
+) -> Result<ProfileSelectionSnapshot, RepositoryError> {
+    let next = state
+        .snapshot
+        .profile_id
+        .as_ref()
+        .filter(|profile_id| valid_profile(profiles, profile_id))
+        .cloned()
+        .or_else(|| first_valid_profile_id(profiles));
+    if next == state.snapshot.profile_id {
+        return Ok(state.snapshot.clone());
+    }
+    commit_selection(path, &mut state.snapshot, next)?;
+    state.migration_pending = false;
+    Ok(state.snapshot.clone())
 }
 
 fn valid_profile(profiles: &[ProfileListItem], profile_id: &str) -> bool {

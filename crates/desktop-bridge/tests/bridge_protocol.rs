@@ -2220,6 +2220,23 @@ async fn simultaneous_profile_clients_observe_one_confirmed_selection_revision_o
         confirmed["result"]["selection"],
         ordered[1]["result"]["selection"]
     );
+    let stale_rollback = request(
+        &mut first,
+        json!({
+            "jsonrpc":"2.0",
+            "id":4,
+            "method":"profiles.select",
+            "params":{
+                "expectedSelection":ordered[0]["result"]["selection"],
+                "profileId":initial_id
+            }
+        }),
+    )
+    .await;
+    assert_eq!(
+        stale_rollback["result"]["selection"],
+        ordered[1]["result"]["selection"]
+    );
 
     bridge.shutdown().await;
 }

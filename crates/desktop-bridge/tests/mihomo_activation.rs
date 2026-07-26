@@ -1873,20 +1873,47 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
         coordinator.activation_snapshot().await.phase,
         ProfileActivationPhase::Success
     );
-    profiles
+    let launch_selection = profiles
         .select_profile(replacement.metadata.id.as_str())
         .await
-        .unwrap();
+        .unwrap()
+        .selection;
 
     let mut capture_updates = safe_runtime.subscribe_capture().unwrap();
     let command_id = Uuid::new_v4().to_string();
-    let launch = coordinator.launch_proxy(
-        &command_id,
-        CaptureSelection {
-            system_proxy: true,
-            tun: false,
-        },
-        StatusAdapterKind::Rpc,
+    let launch_coordinator = coordinator.clone();
+    let launch_command_id = command_id.clone();
+    let launch = tokio::spawn(async move {
+        launch_coordinator
+            .launch_proxy(
+                &launch_command_id,
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+    loop {
+        let activation = activation_updates.recv().await.unwrap();
+        if activation.command_id.as_deref() == Some(command_id.as_str())
+            && activation.phase == ProfileActivationPhase::Pending
+        {
+            break;
+        }
+    }
+    let selecting_profiles = profiles.clone();
+    let concurrent_profile_id = record.metadata.id.as_str().to_owned();
+    let concurrent_selection = tokio::spawn(async move {
+        selecting_profiles
+            .select_profile(&concurrent_profile_id)
+            .await
+    });
+    tokio::task::yield_now().await;
+    assert!(
+        !concurrent_selection.is_finished(),
+        "selection committed while aggregate launch still owned the activation transaction"
     );
     let observe = async {
         let mut phases = Vec::new();
@@ -1898,13 +1925,28 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
             }
         }
     };
-    let (result, phases) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(launch, observe)
-    })
-    .await
-    .unwrap();
+    let phases = tokio::time::timeout(Duration::from_secs(10), observe)
+        .await
+        .unwrap();
 
-    result.unwrap();
+    launch.await.unwrap().unwrap();
+    let confirmed_after_launch = concurrent_selection.await.unwrap().unwrap();
+    assert_eq!(
+        confirmed_after_launch.selection.profile_id.as_deref(),
+        Some(record.metadata.id.as_str())
+    );
+    assert_eq!(
+        confirmed_after_launch.selection.revision,
+        launch_selection.revision + 1
+    );
+    assert_eq!(
+        coordinator
+            .activation_snapshot()
+            .await
+            .active_profile_id
+            .as_deref(),
+        Some(replacement.metadata.id.as_str())
+    );
     let events = host.events_snapshot(StatusAdapterKind::Rpc);
     let timing_event = events["events"]
         .as_array()

@@ -289,11 +289,12 @@ describe("RpcProfileClient", () => {
     transport.respond({ id: create.id, jsonrpc: "2.0", result: profileSnapshot(null) });
     await createPromise;
 
-    const selectPromise = client.selectProfile("profile-a");
+    const expectedSelection = { profileId: "profile-b", revision: 4 };
+    const selectPromise = client.selectProfile("profile-a", { expectedSelection });
     const select = await waitForRequest(transport, 8);
     expect(select).toMatchObject({
       method: "profiles.select",
-      params: { profileId: "profile-a" },
+      params: { expectedSelection, profileId: "profile-a" },
     });
     const selected = profileSnapshot(null);
     selected.selection.revision = 2;

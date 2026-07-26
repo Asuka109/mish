@@ -2626,6 +2626,12 @@ export const ProfileCreateCommandSchema = z
   .strict();
 export const ProfileSaveCommandSchema = z.object({ previewId: IdentifierSchema }).strict();
 export const ProfileIdCommandSchema = z.object({ profileId: IdentifierSchema }).strict();
+export const ProfileSelectionCommandSchema = z
+  .object({
+    expectedSelection: ProfileSelectionSnapshotSchema.optional(),
+    profileId: IdentifierSchema,
+  })
+  .strict();
 export const ProfileRefreshPolicyCommandSchema = z
   .object({ profileId: IdentifierSchema, policy: ProfileRefreshPolicySchema })
   .strict();
@@ -2776,7 +2782,7 @@ export const profileRpcMethods = {
     result: RpcProfileSnapshotSchema,
   },
   "profiles.save": { params: ProfileSaveCommandSchema, result: RpcProfileSnapshotSchema },
-  "profiles.select": { params: ProfileIdCommandSchema, result: RpcProfileSnapshotSchema },
+  "profiles.select": { params: ProfileSelectionCommandSchema, result: RpcProfileSnapshotSchema },
   "profiles.stop": {
     params: ProfileActivationControlCommandSchema,
     result: ProfileActivationSnapshotSchema,
@@ -3302,7 +3308,10 @@ export interface ProfileClient {
     options?: { signal?: AbortSignal },
   ): Promise<ProfileSnapshotDto>;
   savePreview(previewId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
-  selectProfile(profileId: string, options?: { signal?: AbortSignal }): Promise<ProfileSnapshotDto>;
+  selectProfile(
+    profileId: string,
+    options?: { expectedSelection?: ProfileSelectionSnapshotDto; signal?: AbortSignal },
+  ): Promise<ProfileSnapshotDto>;
   stopActiveProfile(
     commandId: string,
     options?: { signal?: AbortSignal },

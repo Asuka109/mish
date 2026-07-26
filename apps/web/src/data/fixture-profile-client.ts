@@ -276,10 +276,20 @@ export class FixtureProfileClient implements ProfileClient {
 
   async selectProfile(
     profileId: string,
-    options?: { signal?: AbortSignal },
+    options?: {
+      expectedSelection?: ProfileSnapshotDto["selection"];
+      signal?: AbortSignal;
+    },
   ): Promise<ProfileSnapshotDto> {
     if (options?.signal?.aborted) throw cancelled();
     if (!this.snapshot.profiles.some((profile) => profile.id === profileId)) throw unsupported();
+    if (
+      options?.expectedSelection &&
+      (options.expectedSelection.profileId !== this.snapshot.selection.profileId ||
+        options.expectedSelection.revision !== this.snapshot.selection.revision)
+    ) {
+      return structuredClone(this.snapshot);
+    }
     if (this.snapshot.selection.profileId !== profileId) {
       this.snapshot.selection = {
         profileId,

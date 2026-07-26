@@ -55,9 +55,10 @@ const evidence: readonly Evidence[] = [
     includes: [
       "nextSnapshot.selection.revision < current.selection.revision",
       "selectionOperation.current",
-      "resolvedClient.selectProfile(profileId)",
+      "expectedSelection",
     ],
-    meaning: "Web keeps only an ordered confirmed snapshot and temporary optimistic projection",
+    meaning:
+      "Web keeps only an ordered confirmed snapshot, temporary optimistic projection, and revision-bound rollback",
   },
   {
     file: "crates/runtime/src/notifications.rs",

@@ -11,8 +11,8 @@ use serde_json::{Value, json};
 use subtle::ConstantTimeEq;
 
 use mish_profile::{
-    ImportError, ProfilePatch, ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError,
-    RepositoryError,
+    ImportError, ProfilePatch, ProfileRefreshPolicy, ProfileRefreshTrigger,
+    ProfileSelectionSnapshot, ProfileServiceError, RepositoryError,
 };
 use mish_runtime::{
     ApplicationDiagnosticEvent, ApplicationNotification, ApplicationNotificationContent,
@@ -116,6 +116,14 @@ struct ProfileCreateParams {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ProfileIdParams {
+    profile_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ProfileSelectParams {
+    #[serde(default)]
+    expected_selection: Option<ProfileSelectionSnapshot>,
     profile_id: String,
 }
 
@@ -1316,12 +1324,15 @@ async fn handle_message(
             let Some(service) = &state.profile_service else {
                 return Some(profile_capability_error(id));
             };
-            let params: ProfileIdParams =
-                match serde_json::from_value::<ProfileIdParams>(request.params) {
+            let params: ProfileSelectParams =
+                match serde_json::from_value::<ProfileSelectParams>(request.params) {
                     Ok(params) if valid_identifier(&params.profile_id) => params,
                     _ => return Some(error_response(id, -32602, "Invalid params", None)),
                 };
-            if let Err(error) = service.select_profile(&params.profile_id).await {
+            if let Err(error) = service
+                .select_profile_if_current(&params.profile_id, params.expected_selection.as_ref())
+                .await
+            {
                 return Some(profile_error_response(id, error));
             }
             publish_profile_update(state).await;

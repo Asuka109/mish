@@ -530,6 +530,7 @@ function createActivationProfileClient() {
 async function createCompletingActivationProfileClient(
   includeTravelProfile = false,
   initialManagedListenerConflict = false,
+  concurrentSelectionOnFailure?: string,
 ) {
   const fixture = new FixtureProfileClient();
   let snapshot = await managedProfileSnapshot();
@@ -538,6 +539,14 @@ async function createCompletingActivationProfileClient(
       ...structuredClone(snapshot.profiles[0]),
       id: "fixture-profile-travel",
       label: "Travel route set",
+      status: { ...snapshot.profiles[0].status, active: false },
+    });
+  }
+  if (concurrentSelectionOnFailure) {
+    snapshot.profiles.push({
+      ...structuredClone(snapshot.profiles[0]),
+      id: concurrentSelectionOnFailure,
+      label: "Concurrent route set",
       status: { ...snapshot.profiles[0].status, active: false },
     });
   }
@@ -569,6 +578,23 @@ async function createCompletingActivationProfileClient(
       },
     };
     queueMicrotask(() => {
+      if (concurrentSelectionOnFailure) {
+        snapshot = {
+          ...snapshot,
+          activation: {
+            ...snapshot.activation,
+            failure: "state-commit",
+            phase: "failure",
+            safeStopped: false,
+          },
+          selection: {
+            profileId: concurrentSelectionOnFailure,
+            revision: snapshot.selection.revision + 1,
+          },
+        };
+        publish();
+        return;
+      }
       snapshot = {
         ...snapshot,
         activation: {
@@ -582,6 +608,26 @@ async function createCompletingActivationProfileClient(
       publish();
     });
     return structuredClone(snapshot.activation);
+  });
+  const selectProfile = vi.fn(async (selectedProfileId, options) => {
+    if (!snapshot.profiles.some((profile) => profile.id === selectedProfileId)) {
+      throw new ProfileClientError("not-found", "Profile not found");
+    }
+    if (
+      options?.expectedSelection &&
+      (options.expectedSelection.profileId !== snapshot.selection.profileId ||
+        options.expectedSelection.revision !== snapshot.selection.revision)
+    ) {
+      return structuredClone(snapshot);
+    }
+    if (snapshot.selection.profileId !== selectedProfileId) {
+      snapshot.selection = {
+        profileId: selectedProfileId,
+        revision: snapshot.selection.revision + 1,
+      };
+      publish();
+    }
+    return structuredClone(snapshot);
   });
   return {
     activateProfile,
@@ -597,19 +643,7 @@ async function createCompletingActivationProfileClient(
     replacePatches: fixture.replacePatches.bind(fixture),
     setRefreshPolicy: fixture.setRefreshPolicy.bind(fixture),
     savePreview: fixture.savePreview.bind(fixture),
-    selectProfile: async (selectedProfileId) => {
-      if (!snapshot.profiles.some((profile) => profile.id === selectedProfileId)) {
-        throw new ProfileClientError("not-found", "Profile not found");
-      }
-      if (snapshot.selection.profileId !== selectedProfileId) {
-        snapshot.selection = {
-          profileId: selectedProfileId,
-          revision: snapshot.selection.revision + 1,
-        };
-        publish();
-      }
-      return structuredClone(snapshot);
-    },
+    selectProfile,
     stopActiveProfile: fixture.stopActiveProfile.bind(fixture),
     subscribeConnection: (listener) => {
       listener({ attempt: 0, phase: "connected", stale: false });
@@ -2186,6 +2220,43 @@ describe("desktop RPC experience", () => {
         name: "Switch profile. Current profile: Travel route set",
       }),
     ).toBeEnabled();
+  });
+
+  it("does not roll a failed switch over a concurrently confirmed Profile selection", async () => {
+    const user = userEvent.setup();
+    const snapshot = await createRpcSnapshot();
+    snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
+    snapshot.runtime.phase = "healthy";
+    snapshot.runtime.systemProxyEnabled = true;
+    snapshot.runtime.systemProxy = {
+      desired: true,
+      failure: null,
+      observed: "mish",
+      phase: "applied",
+      recoveryActions: [],
+    };
+    const profileClient = await createCompletingActivationProfileClient(
+      true,
+      false,
+      "fixture-profile-concurrent",
+    );
+    renderRoute("/status", "en", new SnapshotStatusClient(snapshot), profileClient);
+
+    await user.click(
+      await screen.findByRole("combobox", {
+        name: "Switch profile. Current profile: Studio route set",
+      }),
+    );
+    await user.click(await screen.findByRole("option", { name: "Travel route set" }));
+
+    expect(
+      await screen.findByRole("combobox", {
+        name: "Switch profile. Current profile: Concurrent route set",
+      }),
+    ).toBeEnabled();
+    expect(profileClient.selectProfile).toHaveBeenLastCalledWith("fixture-profile-studio", {
+      expectedSelection: { profileId: "fixture-profile-travel", revision: 2 },
+    });
   });
 
   it("opens the Profile menu when its only managed profile is already active", async () => {

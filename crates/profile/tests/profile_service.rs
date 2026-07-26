@@ -320,6 +320,104 @@ async fn selected_profile_is_revisioned_persisted_and_reconciled_after_deletion(
 }
 
 #[tokio::test]
+async fn missing_selection_migrates_the_prior_successful_profile_before_repository_fallback() {
+    let temp = TestDir::new();
+    let root = temp.path().to_path_buf();
+    let initial = service(
+        root.clone(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+        ]),
+    );
+    for (path, label) in [
+        ("/fictional/first.yaml", "First profile"),
+        ("/fictional/second.yaml", "Second profile"),
+    ] {
+        let preview = initial
+            .preflight_local(path.into(), Some(label.into()))
+            .await
+            .unwrap();
+        initial.save_preview(&preview.preview_id).await.unwrap();
+    }
+    let stored = initial.snapshot().unwrap();
+    let prior_successful_id = stored
+        .profiles
+        .iter()
+        .find(|profile| Some(profile.id.as_str()) != stored.selection.profile_id.as_deref())
+        .unwrap()
+        .id
+        .clone();
+    fs::remove_file(root.join("selected-profile.json")).unwrap();
+
+    let upgraded = service(
+        root.clone(),
+        SequencedReader::new(std::iter::empty::<Vec<u8>>()),
+    );
+    let migrated = upgraded
+        .initialize_selection(Some(&prior_successful_id))
+        .await
+        .unwrap();
+    assert_eq!(
+        migrated.selection,
+        mish_profile::ProfileSelectionSnapshot {
+            profile_id: Some(prior_successful_id.clone()),
+            revision: 1,
+        }
+    );
+
+    let restarted = service(root, SequencedReader::new(std::iter::empty::<Vec<u8>>()));
+    assert_eq!(
+        restarted.snapshot().unwrap().selection.profile_id,
+        Some(prior_successful_id)
+    );
+}
+
+#[tokio::test]
+async fn conditional_profile_selection_does_not_replace_a_newer_confirmation() {
+    let temp = TestDir::new();
+    let profile_service = service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+        ]),
+    );
+    for (path, label) in [
+        ("/fictional/first.yaml", "First profile"),
+        ("/fictional/second.yaml", "Second profile"),
+        ("/fictional/third.yaml", "Third profile"),
+    ] {
+        let preview = profile_service
+            .preflight_local(path.into(), Some(label.into()))
+            .await
+            .unwrap();
+        profile_service
+            .save_preview(&preview.preview_id)
+            .await
+            .unwrap();
+    }
+    let initial = profile_service.snapshot().unwrap();
+    let original_id = initial.selection.profile_id.clone().unwrap();
+    let targets = initial
+        .profiles
+        .iter()
+        .map(|profile| profile.id.clone())
+        .filter(|profile_id| profile_id != &original_id)
+        .collect::<Vec<_>>();
+    let selected = profile_service.select_profile(&targets[0]).await.unwrap();
+    let concurrently_confirmed = profile_service.select_profile(&targets[1]).await.unwrap();
+
+    let rollback = profile_service
+        .select_profile_if_current(&original_id, Some(&selected.selection))
+        .await
+        .unwrap();
+    assert_eq!(rollback.selection, concurrently_confirmed.selection);
+    assert_eq!(rollback.selection.revision, selected.selection.revision + 1);
+}
+
+#[tokio::test]
 async fn simultaneous_profile_selection_commands_receive_one_revision_order() {
     let temp = TestDir::new();
     let service = Arc::new(service(
