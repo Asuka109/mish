@@ -151,8 +151,9 @@ invariant(
 invariant(
   packageJson.scripts?.["test:unit"]?.includes("pnpm test:scripts") &&
     packageJson.scripts?.["test:scripts"]?.includes("macos-signed-direct-policy.test.ts") &&
-    packageJson.scripts?.["test:scripts"]?.includes("macos-signed-release.test.ts"),
-  "The Fast PR gate must execute the credential-free signed-direct package and release fixtures.",
+    packageJson.scripts?.["test:scripts"]?.includes("macos-signed-release.test.ts") &&
+    packageJson.scripts?.["test:scripts"]?.includes("macos-updater-contract.test.ts"),
+  "The Fast PR gate must execute the credential-free signed-direct package, release, and updater fixtures.",
 );
 
 const inspectMain = job("inspect-main");

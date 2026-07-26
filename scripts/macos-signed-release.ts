@@ -31,6 +31,7 @@ import {
   signedDirectMihomoIdentifier,
   signedDirectProfile,
 } from "./macos-signed-direct-policy.ts";
+import { runUpdaterContractFixture } from "./macos-updater-contract.ts";
 
 const apiVersion = "2026-03-10";
 const architecture = "arm64";
@@ -1544,6 +1545,7 @@ export function runSignedReleaseFixture(): Record<string, string> {
   );
   const recorder = new SignedReleaseRecorder(identity);
   for (const stage of signedReleaseStages) recorder.confirm(stage, `fixture ${stage}`);
+  const updater = runUpdaterContractFixture();
   const failures: Record<string, string> = {};
   for (const [name, operation] of [
     [
@@ -1597,6 +1599,8 @@ export function runSignedReleaseFixture(): Record<string, string> {
     ...failures,
     profile: identity.profile,
     stages: recorder.stages.map(({ stage }) => stage).join(","),
+    updaterArtifacts: updater.artifacts,
+    updaterStage: updater.stage,
   };
 }
 

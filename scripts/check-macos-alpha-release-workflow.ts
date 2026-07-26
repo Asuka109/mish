@@ -55,6 +55,10 @@ const signedReleaseScript = readFileSync(
   resolve(repositoryRoot, "scripts/macos-signed-release.ts"),
   "utf8",
 );
+const updaterContractScript = readFileSync(
+  resolve(repositoryRoot, "scripts/macos-updater-contract.ts"),
+  "utf8",
+);
 const alphaDmgVerifier = readFileSync(
   resolve(repositoryRoot, "scripts/verify-macos-alpha-ad-hoc-dmg.ts"),
   "utf8",
@@ -357,8 +361,20 @@ invariant(
   step(signedPlan, "Run complete repository validation").run === "pnpm check:all" &&
     step(signedPlan, "Validate signed release boundary plan").run?.includes(
       "macos-signed-release.ts plan-boundary",
-    ),
+    ) &&
+    step(signedPlan, "Verify updater artifact contract fixture").run ===
+      "node .release-tooling/scripts/macos-updater-contract.ts fixture",
   "Signed planning must run complete validation and the credential-free boundary contract.",
+);
+assertOrdered(
+  signedPlan,
+  [
+    "Run complete repository validation",
+    "Validate signed release boundary plan",
+    "Verify updater artifact contract fixture",
+    "Write credential-free signed plan summary",
+  ],
+  "Signed planning and updater fixture verification are out of order.",
 );
 invariant(
   !jobSource(signedPlan).includes("${{ secrets.") &&
@@ -519,6 +535,7 @@ for (const command of orderedCommands) {
 }
 for (const required of [
   "signedReleaseStages",
+  "runUpdaterContractFixture",
   "temporary locked keychain created",
   "Apple notarization failed closed",
   "failed without exposing command arguments",
@@ -531,6 +548,20 @@ for (const required of [
   invariant(
     signedReleaseScript.includes(required),
     `Signed release contract is missing ${required}.`,
+  );
+}
+for (const required of [
+  "Mish-${version}-aarch64.app.tar.gz",
+  "mish-${channel}.json",
+  "darwin-aarch64",
+  "artifact_sha256",
+  "source_sha",
+  'privateKey: "not-present"',
+  'network: "not-used"',
+]) {
+  invariant(
+    updaterContractScript.includes(required),
+    `Updater artifact contract is missing ${required}.`,
   );
 }
 invariant(
@@ -571,10 +602,13 @@ invariant(
 invariant(
   packageJson.scripts?.["release:macos:signed:fixture"] ===
     "node scripts/macos-signed-release.ts fixture" &&
+    packageJson.scripts?.["release:macos:updater:fixture"] ===
+      "node scripts/macos-updater-contract.ts fixture" &&
     packageJson.scripts?.["test:macos:signed-release"] ===
       "node --test scripts/macos-signed-release.test.ts" &&
-    packageJson.scripts?.["test:scripts"]?.includes("macos-signed-release.test.ts"),
-  "Credential-free signed release fixtures must run in the Fast PR gate.",
+    packageJson.scripts?.["test:scripts"]?.includes("macos-signed-release.test.ts") &&
+    packageJson.scripts?.["test:scripts"]?.includes("macos-updater-contract.test.ts"),
+  "Credential-free signed release and updater fixtures must run in the Fast PR gate.",
 );
 invariant(
   packageJson.scripts?.["check:macos:release-workflow"] ===
@@ -583,5 +617,5 @@ invariant(
 );
 
 console.log(
-  "macOS release workflow contract valid: explicit profiles, unchanged Alpha path, protected signed-direct execution, ordered evidence, cleanup, attestation, and Draft-only writes.",
+  "macOS release workflow contract valid: explicit profiles, unchanged Alpha path, credential-free updater fixtures, protected signed-direct execution, ordered evidence, cleanup, attestation, and Draft-only writes.",
 );
