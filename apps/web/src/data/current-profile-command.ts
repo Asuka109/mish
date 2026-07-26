@@ -20,7 +20,8 @@ export function useCurrentProfileCommand() {
       const previousProfileId = profiles.selectedProfileId;
       if (profileId === previousProfileId) return { ok: true };
 
-      profiles.selectProfile(profileId);
+      const selected = await profiles.selectProfile(profileId);
+      if (!selected.ok) return selected;
 
       const runtime = product.snapshot?.runtime;
       const proxyRunning = Boolean(runtime?.systemProxyEnabled || runtime?.tunEnabled);
@@ -32,7 +33,7 @@ export function useCurrentProfileCommand() {
         profiles.snapshot.capabilities.activation === "supported" &&
         profiles.snapshot.activation.availability === "available";
       if (!canSwitchRuntime) {
-        if (previousProfileId) profiles.selectProfile(previousProfileId);
+        if (previousProfileId) await profiles.selectProfile(previousProfileId);
         return {
           error: new ProfileClientError(
             "unsupported",
@@ -46,12 +47,12 @@ export function useCurrentProfileCommand() {
       try {
         const activation = await profiles.activateProfile(profileId);
         if (!activation.ok) {
-          if (previousProfileId) profiles.selectProfile(previousProfileId);
+          if (previousProfileId) await profiles.selectProfile(previousProfileId);
           return activation;
         }
 
         const completed = await profiles.waitForProfileActivation(profileId);
-        if (!completed.ok && previousProfileId) profiles.selectProfile(previousProfileId);
+        if (!completed.ok && previousProfileId) await profiles.selectProfile(previousProfileId);
         return completed;
       } finally {
         setSwitching(false);
@@ -61,7 +62,10 @@ export function useCurrentProfileCommand() {
   );
 
   return {
-    pending: switching || (profiles?.isPending("activate") ?? false),
+    pending:
+      switching ||
+      (profiles?.isPending("activate") ?? false) ||
+      (profiles?.isPending("select") ?? false),
     selectCurrentProfile,
   };
 }

@@ -203,8 +203,6 @@ struct SetServiceProbeIntervalParams {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SetCaptureParams {
     active: bool,
-    #[serde(default)]
-    profile_id: Option<String>,
     selection: CaptureSelection,
 }
 
@@ -742,7 +740,7 @@ async fn handle_message(
         "bridge.getInfo" => json!({
             "bridgeVersion": env!("CARGO_PKG_VERSION"),
             "coreConfigured": state.runtime.core_configured(),
-            "protocolVersion": 24,
+            "protocolVersion": 25,
             "statusCommands": {
                 "group": state.runtime.supports_status_command(StatusCommand::Group),
                 "groupDelay": state.runtime.supports_status_command(StatusCommand::GroupDelay),
@@ -1312,6 +1310,24 @@ async fn handle_message(
                     serde_json::to_value(editor).expect("serializable patch editor")
                 }
                 Err(response) => return Some(response),
+            }
+        }
+        "profiles.select" => {
+            let Some(service) = &state.profile_service else {
+                return Some(profile_capability_error(id));
+            };
+            let params: ProfileIdParams =
+                match serde_json::from_value::<ProfileIdParams>(request.params) {
+                    Ok(params) if valid_identifier(&params.profile_id) => params,
+                    _ => return Some(error_response(id, -32602, "Invalid params", None)),
+                };
+            if let Err(error) = service.select_profile(&params.profile_id).await {
+                return Some(profile_error_response(id, error));
+            }
+            publish_profile_update(state).await;
+            match profile_rpc_snapshot(state).await {
+                Ok(snapshot) => snapshot,
+                Err(error) => return Some(profile_error_response(id, error)),
             }
         }
         "profiles.subscribe" => {
@@ -1898,7 +1914,6 @@ async fn set_aggregate_capture(
         return activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
-                params.profile_id.as_deref(),
                 selection,
                 StatusAdapterKind::Rpc,
             )

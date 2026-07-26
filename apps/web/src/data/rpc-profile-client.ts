@@ -161,6 +161,12 @@ export class RpcProfileClient implements ProfileClient {
     );
   }
 
+  selectProfile(profileId: string, options?: RpcRequestOptions) {
+    return this.request("profiles.select", { profileId }, options).then((snapshot) =>
+      this.normalizeSnapshot(snapshot),
+    );
+  }
+
   stopActiveProfile(commandId: string, options?: RpcRequestOptions) {
     return this.request("profiles.stop", { commandId }, options);
   }

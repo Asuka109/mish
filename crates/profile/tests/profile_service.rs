@@ -126,6 +126,11 @@ async fn profile_directory_reconciliation_tracks_direct_yaml_files_and_preserves
     let imported = service.snapshot().unwrap();
     assert_eq!(imported.profiles.len(), 1);
     assert_eq!(imported.profiles[0].file_name, "studio.yaml");
+    assert_eq!(
+        imported.selection.profile_id.as_deref(),
+        Some(imported.profiles[0].id.as_str())
+    );
+    assert_eq!(imported.selection.revision, 1);
 
     fs::write(&profile_path, "proxies: [malformed").unwrap();
     assert!(service.reconcile_profile_directory().await.unwrap());
@@ -135,7 +140,10 @@ async fn profile_directory_reconciliation_tracks_direct_yaml_files_and_preserves
 
     fs::remove_file(&profile_path).unwrap();
     assert!(service.reconcile_profile_directory().await.unwrap());
-    assert!(service.snapshot().unwrap().profiles.is_empty());
+    let removed = service.snapshot().unwrap();
+    assert!(removed.profiles.is_empty());
+    assert_eq!(removed.selection.profile_id, None);
+    assert_eq!(removed.selection.revision, 2);
 }
 
 #[derive(Clone)]
@@ -231,6 +239,132 @@ async fn route_catalog_is_available_without_activating_the_profile() {
         Some(catalog.nodes[2].id.clone())
     );
     assert_eq!(catalog.nodes[2].label, "fictional-node");
+}
+
+#[tokio::test]
+async fn selected_profile_is_revisioned_persisted_and_reconciled_after_deletion() {
+    let temp = TestDir::new();
+    let root = temp.path().to_path_buf();
+    let profile_service = service(
+        root.clone(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+        ]),
+    );
+    let first = profile_service
+        .preflight_local("/fictional/first.yaml".into(), Some("First profile".into()))
+        .await
+        .unwrap();
+    let first_snapshot = profile_service
+        .save_preview(&first.preview_id)
+        .await
+        .unwrap();
+    let first_id = first_snapshot.profiles[0].id.clone();
+    assert_eq!(
+        first_snapshot.selection,
+        mish_profile::ProfileSelectionSnapshot {
+            profile_id: Some(first_id.clone()),
+            revision: 1,
+        }
+    );
+
+    let second = profile_service
+        .preflight_local(
+            "/fictional/second.yaml".into(),
+            Some("Second profile".into()),
+        )
+        .await
+        .unwrap();
+    let saved = profile_service
+        .save_preview(&second.preview_id)
+        .await
+        .unwrap();
+    let second_id = saved
+        .profiles
+        .iter()
+        .find(|profile| profile.id != first_id)
+        .unwrap()
+        .id
+        .clone();
+    let selected = profile_service.select_profile(&second_id).await.unwrap();
+    assert_eq!(
+        selected.selection.profile_id.as_deref(),
+        Some(second_id.as_str())
+    );
+    assert_eq!(selected.selection.revision, 2);
+    assert!(
+        selected
+            .profiles
+            .iter()
+            .all(|profile| !profile.status.active)
+    );
+
+    let reloaded = service(root, SequencedReader::new(std::iter::empty::<Vec<u8>>()));
+    assert_eq!(reloaded.snapshot().unwrap().selection, selected.selection);
+
+    let reconciled = reloaded.delete(&second_id).unwrap();
+    assert_eq!(
+        reconciled.selection,
+        mish_profile::ProfileSelectionSnapshot {
+            profile_id: Some(first_id),
+            revision: 3,
+        }
+    );
+    assert!(
+        reconciled
+            .profiles
+            .iter()
+            .all(|profile| !profile.status.active)
+    );
+}
+
+#[tokio::test]
+async fn simultaneous_profile_selection_commands_receive_one_revision_order() {
+    let temp = TestDir::new();
+    let service = Arc::new(service(
+        temp.path().to_path_buf(),
+        SequencedReader::new([
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+            VALID_PROFILE.as_bytes().to_vec(),
+        ]),
+    ));
+    for (path, label) in [
+        ("/fictional/first.yaml", "First profile"),
+        ("/fictional/second.yaml", "Second profile"),
+        ("/fictional/third.yaml", "Third profile"),
+    ] {
+        let preview = service
+            .preflight_local(path.into(), Some(label.into()))
+            .await
+            .unwrap();
+        service.save_preview(&preview.preview_id).await.unwrap();
+    }
+    let snapshot = service.snapshot().unwrap();
+    let selected_id = snapshot.selection.profile_id.unwrap();
+    let targets = snapshot
+        .profiles
+        .into_iter()
+        .map(|profile| profile.id)
+        .filter(|profile_id| profile_id != &selected_id)
+        .collect::<Vec<_>>();
+    let first_id = targets[0].clone();
+    let second_id = targets[1].clone();
+    let first_service = service.clone();
+    let first_target = first_id.clone();
+    let first = tokio::spawn(async move { first_service.select_profile(&first_target).await });
+    let second_service = service.clone();
+    let second_target = second_id.clone();
+    let second = tokio::spawn(async move { second_service.select_profile(&second_target).await });
+    let (first, second) = tokio::join!(first, second);
+    let first = first.unwrap().unwrap().selection;
+    let second = second.unwrap().unwrap().selection;
+
+    assert_eq!([first.revision, second.revision], [2, 3]);
+    assert_eq!(first.profile_id.as_deref(), Some(first_id.as_str()));
+    assert_eq!(second.profile_id.as_deref(), Some(second_id.as_str()));
+    assert_eq!(service.snapshot().unwrap().selection, second);
 }
 
 #[tokio::test]

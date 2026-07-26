@@ -570,7 +570,6 @@ async fn system_proxy_to_dual_capture_reactivates_core_with_tun_policy() {
     let relaunched = coordinator
         .launch_proxy(
             &Uuid::new_v4().to_string(),
-            Some(record.metadata.id.as_str()),
             CaptureSelection {
                 system_proxy: true,
                 tun: true,
@@ -1580,7 +1579,7 @@ async fn repository_backed_activation_atomically_replaces_the_profile_context() 
     let host = DesktopRuntimeHost::new(safe_runtime.clone());
     let address = controller.address;
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
-        profiles,
+        profiles.clone(),
         manager,
         host.clone(),
         safe_runtime,
@@ -1855,7 +1854,7 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
     let host = DesktopRuntimeHost::new(safe_runtime.clone());
     let address = controller.address;
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
-        profiles,
+        profiles.clone(),
         manager,
         host.clone(),
         safe_runtime.clone(),
@@ -1874,12 +1873,15 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
         coordinator.activation_snapshot().await.phase,
         ProfileActivationPhase::Success
     );
+    profiles
+        .select_profile(replacement.metadata.id.as_str())
+        .await
+        .unwrap();
 
     let mut capture_updates = safe_runtime.subscribe_capture().unwrap();
     let command_id = Uuid::new_v4().to_string();
     let launch = coordinator.launch_proxy(
         &command_id,
-        Some(replacement.metadata.id.as_str()),
         CaptureSelection {
             system_proxy: true,
             tun: false,
@@ -2039,12 +2041,10 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
     let command_id = Uuid::new_v4().to_string();
     let launch_coordinator = coordinator.clone();
     let launch_command_id = command_id.clone();
-    let profile_id = record.metadata.id.as_str().to_owned();
     let launch = tokio::spawn(async move {
         launch_coordinator
             .launch_proxy(
                 &launch_command_id,
-                Some(&profile_id),
                 CaptureSelection {
                     system_proxy: true,
                     tun: false,
@@ -2062,7 +2062,6 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
     let duplicate = coordinator
         .launch_proxy(
             &Uuid::new_v4().to_string(),
-            Some(record.metadata.id.as_str()),
             CaptureSelection {
                 system_proxy: true,
                 tun: false,
@@ -2103,12 +2102,10 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
     let (mut notification_updates, _) = host.subscribe_notifications_with_snapshot();
     let failed_command_id = Uuid::new_v4().to_string();
     let failed_coordinator = coordinator.clone();
-    let failed_profile_id = record.metadata.id.as_str().to_owned();
     let failed_launch = tokio::spawn(async move {
         failed_coordinator
             .launch_proxy(
                 &failed_command_id,
-                Some(&failed_profile_id),
                 CaptureSelection {
                     system_proxy: true,
                     tun: false,
@@ -2149,12 +2146,10 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
     platform.allow_observations();
     let quit_command_id = Uuid::new_v4().to_string();
     let quit_coordinator = coordinator.clone();
-    let quit_profile_id = record.metadata.id.as_str().to_owned();
     let launch = tokio::spawn(async move {
         quit_coordinator
             .launch_proxy(
                 &quit_command_id,
-                Some(&quit_profile_id),
                 CaptureSelection {
                     system_proxy: true,
                     tun: false,
@@ -2224,7 +2219,6 @@ async fn failed_cold_aggregate_launch_stops_the_new_core_and_returns_safe_stoppe
     let error = coordinator
         .launch_proxy(
             &Uuid::new_v4().to_string(),
-            Some(record.metadata.id.as_str()),
             CaptureSelection {
                 system_proxy: true,
                 tun: false,
@@ -2329,7 +2323,6 @@ async fn failed_warm_aggregate_launch_retains_the_preexisting_core() {
     let error = coordinator
         .launch_proxy(
             &Uuid::new_v4().to_string(),
-            Some(record.metadata.id.as_str()),
             CaptureSelection {
                 system_proxy: true,
                 tun: false,

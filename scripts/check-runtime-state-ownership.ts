@@ -42,13 +42,22 @@ const evidence: readonly Evidence[] = [
     meaning: "detailed Traffic has Rust source identity and order",
   },
   {
+    file: "crates/profile/src/selection.rs",
+    includes: [
+      "pub struct ProfileSelectionSnapshot",
+      'root.join("selected-profile.json")',
+      "commit_selection",
+    ],
+    meaning: "Rust owns persisted selected Profile identity and revision",
+  },
+  {
     file: "apps/web/src/data/profile-provider.tsx",
     includes: [
-      'const selectedProfileStorageKey = "mish.selected-profile-id";',
-      "window.localStorage.getItem(selectedProfileStorageKey)",
-      "window.localStorage.setItem(selectedProfileStorageKey, profileId)",
+      "nextSnapshot.selection.revision < current.selection.revision",
+      "selectionOperation.current",
+      "resolvedClient.selectProfile(profileId)",
     ],
-    meaning: "the next-launch selected Profile is currently Web localStorage authority",
+    meaning: "Web keeps only an ordered confirmed snapshot and temporary optimistic projection",
   },
   {
     file: "crates/runtime/src/notifications.rs",

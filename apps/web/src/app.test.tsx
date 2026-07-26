@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@mish/ui";
 import {
   SERVICE_ICON_URLS,
+  ProfileClientError,
   StatusClientError,
   type AppearancePreference,
   type CaptureSelectionDto,
@@ -514,6 +515,7 @@ function createActivationProfileClient() {
     replacePatches: fixture.replacePatches.bind(fixture),
     setRefreshPolicy: fixture.setRefreshPolicy.bind(fixture),
     savePreview: fixture.savePreview.bind(fixture),
+    selectProfile: fixture.selectProfile.bind(fixture),
     stopActiveProfile: fixture.stopActiveProfile.bind(fixture),
     updateAllProviders: fixture.updateAllProviders.bind(fixture),
     updateProvider: fixture.updateProvider.bind(fixture),
@@ -595,6 +597,19 @@ async function createCompletingActivationProfileClient(
     replacePatches: fixture.replacePatches.bind(fixture),
     setRefreshPolicy: fixture.setRefreshPolicy.bind(fixture),
     savePreview: fixture.savePreview.bind(fixture),
+    selectProfile: async (selectedProfileId) => {
+      if (!snapshot.profiles.some((profile) => profile.id === selectedProfileId)) {
+        throw new ProfileClientError("not-found", "Profile not found");
+      }
+      if (snapshot.selection.profileId !== selectedProfileId) {
+        snapshot.selection = {
+          profileId: selectedProfileId,
+          revision: snapshot.selection.revision + 1,
+        };
+        publish();
+      }
+      return structuredClone(snapshot);
+    },
     stopActiveProfile: fixture.stopActiveProfile.bind(fixture),
     subscribeConnection: (listener) => {
       listener({ attempt: 0, phase: "connected", stale: false });
@@ -1316,7 +1331,6 @@ describe("production routes", () => {
       expect(statusClient.setCapture).toHaveBeenCalledWith(
         { systemProxy: true, tun: false },
         true,
-        "fixture-profile-studio",
         expect.objectContaining({ signal: expect.any(AbortSignal) }),
       ),
     );
@@ -2093,17 +2107,7 @@ describe("desktop RPC experience", () => {
   it("allows selecting any saved Profile while Core is stopped and marks the choice", async () => {
     const user = userEvent.setup();
     const statusClient = new SnapshotStatusClient(await createRpcSnapshot(true));
-    const profileClient = createActivationProfileClient();
-    profileClient.getSnapshot = async () => {
-      const snapshot = await managedProfileSnapshot();
-      snapshot.profiles.push({
-        ...structuredClone(snapshot.profiles[0]),
-        id: "fixture-profile-travel",
-        label: "Travel route set",
-        status: { ...snapshot.profiles[0].status, active: false },
-      });
-      return snapshot;
-    };
+    const profileClient = await createCompletingActivationProfileClient(true);
     renderRoute("/status", "en", statusClient, profileClient);
 
     await user.click(
@@ -2607,7 +2611,7 @@ describe("Status fixture experience", () => {
     ).toBeInTheDocument();
   });
 
-  it("delegates selected-profile capture launch to the aggregate command", async () => {
+  it("delegates capture launch without sending Web-selected Profile authority", async () => {
     const user = userEvent.setup();
     const snapshot = await createRpcSnapshot();
     snapshot.capabilities = { systemProxy: "supported", tun: "unavailable" };
@@ -2624,7 +2628,6 @@ describe("Status fixture experience", () => {
     expect(statusClient.setCapture).toHaveBeenCalledWith(
       { systemProxy: true, tun: false },
       true,
-      "fixture-profile-studio",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(profileClient.activateProfile).not.toHaveBeenCalled();

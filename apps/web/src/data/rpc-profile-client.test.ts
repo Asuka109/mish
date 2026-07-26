@@ -125,6 +125,7 @@ function profileSnapshot(activeProfileId: string | null): ProfileSnapshotDto {
       providers: [],
       remotelyCancellable: false,
     },
+    selection: { profileId, revision: 1 },
   };
 }
 
@@ -288,6 +289,17 @@ describe("RpcProfileClient", () => {
     transport.respond({ id: create.id, jsonrpc: "2.0", result: profileSnapshot(null) });
     await createPromise;
 
+    const selectPromise = client.selectProfile("profile-a");
+    const select = await waitForRequest(transport, 8);
+    expect(select).toMatchObject({
+      method: "profiles.select",
+      params: { profileId: "profile-a" },
+    });
+    const selected = profileSnapshot(null);
+    selected.selection.revision = 2;
+    transport.respond({ id: select.id, jsonrpc: "2.0", result: selected });
+    expect((await selectPromise).selection).toEqual({ profileId: "profile-a", revision: 2 });
+
     client.dispose();
     rpc.dispose();
   });
@@ -323,14 +335,17 @@ describe("RpcProfileClient", () => {
     await vi.advanceTimersByTimeAsync(5);
     await authenticate(transports[1]);
     const secondSubscribe = await waitForRequest(transports[1], 1);
+    const reconnectSnapshot = profileSnapshot("profile-b");
+    reconnectSnapshot.selection.revision = 4;
     transports[1].respond({
       id: secondSubscribe.id,
       jsonrpc: "2.0",
-      result: { snapshot: profileSnapshot("profile-b"), subscriptionId: "profiles-2" },
+      result: { snapshot: reconnectSnapshot, subscriptionId: "profiles-2" },
     });
     await flushMicrotasks();
 
     expect(snapshots.at(-1)?.activation.activeProfileId).toBe("profile-b");
+    expect(snapshots.at(-1)?.selection).toEqual({ profileId: "profile-b", revision: 4 });
     expect(states.at(-1)).toBe("connected:false");
     client.dispose();
     rpc.dispose();

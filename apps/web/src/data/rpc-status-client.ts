@@ -112,13 +112,8 @@ export class RpcStatusClient implements StatusClient {
     return this.requestSnapshot("status.setActiveProfile", { profileId }, options);
   }
 
-  setCapture(
-    selection: CaptureSelectionDto,
-    active: boolean,
-    profileId?: string,
-    options?: RpcRequestOptions,
-  ) {
-    return this.requestSnapshot("status.setCapture", { active, profileId, selection }, options);
+  setCapture(selection: CaptureSelectionDto, active: boolean, options?: RpcRequestOptions) {
+    return this.requestSnapshot("status.setCapture", { active, selection }, options);
   }
 
   setRoutingMode(mode: RoutingMode, options?: RpcRequestOptions) {

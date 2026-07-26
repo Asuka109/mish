@@ -9,7 +9,8 @@ use std::{
 
 use mish_profile::{
     ProfileAdapterKind, ProfileCapabilities, ProfileListItem, ProfilePatch, ProfilePatchEditor,
-    ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileServiceError, ProfileSnapshot, Timestamp,
+    ProfileRefreshPolicy, ProfileRefreshTrigger, ProfileSelectionSnapshot, ProfileServiceError,
+    ProfileSnapshot, Timestamp,
 };
 use mish_runtime::{
     ApplicationActionId, ApplicationDiagnosticEvent, ApplicationNotification,
@@ -131,6 +132,7 @@ pub struct ManagedProfileSnapshot {
     pub capabilities: ProfileCapabilities,
     pub profiles: Vec<ProfileListItem>,
     pub providers: ProviderSnapshot,
+    pub selection: ProfileSelectionSnapshot,
 }
 
 impl ManagedProfileSnapshot {
@@ -142,6 +144,7 @@ impl ManagedProfileSnapshot {
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
             providers: ProviderSnapshot::unavailable(),
+            selection: snapshot.selection,
         }
     }
 }
@@ -478,13 +481,12 @@ impl ProfileActivationCoordinator {
 
     /// Transport-neutral aggregate proxy launch authority.
     ///
-    /// Interactive callers may supply a selected Profile; startup and future native callers pass
-    /// `None` to resume the last successful Profile.  Profile activation and the single Capture
-    /// mutation deliberately share this lifecycle so no transport can become a second authority.
+    /// Every caller uses the confirmed Rust-selected Profile. Profile activation and the single
+    /// Capture mutation deliberately share this lifecycle so no transport can become a second
+    /// authority.
     pub async fn launch_proxy(
         self: &Arc<Self>,
         command_id: &str,
-        profile_id: Option<&str>,
         selection: CaptureSelection,
         adapter_kind: StatusAdapterKind,
     ) -> Result<Value, CaptureTransitionError> {
@@ -533,6 +535,13 @@ impl ProfileActivationCoordinator {
             );
             return result;
         }
+        let selected = self
+            .profiles
+            .confirmed_selection()
+            .map_err(|_| profile_launch_error(ProfileActivationCoordinatorError::Unavailable))?;
+        let profile_id = selected
+            .profile_id
+            .ok_or_else(|| profile_launch_error(ProfileActivationCoordinatorError::Unavailable))?;
         let request = CaptureRequest {
             active: true,
             selection,
@@ -542,23 +551,12 @@ impl ProfileActivationCoordinator {
         let mut activation_started_for_launch = false;
         let current = self.activation_snapshot().await;
         let activation = if current.phase == ProfileActivationPhase::Success
-            && profile_id
-                .is_none_or(|profile_id| current.active_profile_id.as_deref() == Some(profile_id))
+            && current.active_profile_id.as_deref() == Some(profile_id.as_str())
         {
             Ok(current)
-        } else if let Some(profile_id) = profile_id {
-            let activation = self
-                .activate(command_id, profile_id)
-                .await
-                .map_err(profile_launch_error);
-            if let Ok(activation) = &activation {
-                activation_started_for_launch =
-                    activation.command_id.as_deref() == Some(command_id);
-            }
-            activation
         } else {
             let activation = self
-                .activate_last_successful_profile(command_id)
+                .activate(command_id, &profile_id)
                 .await
                 .map_err(profile_launch_error);
             if let Ok(activation) = &activation {
@@ -1059,6 +1057,7 @@ impl ProfileActivationCoordinator {
             capabilities: snapshot.capabilities,
             profiles: snapshot.profiles,
             providers: self.host.provider_snapshot(),
+            selection: snapshot.selection,
         })
     }
 

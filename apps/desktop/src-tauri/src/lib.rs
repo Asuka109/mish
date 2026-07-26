@@ -1227,7 +1227,6 @@ fn launch_proxy_on_application_start(
         let _ = activation
             .launch_proxy(
                 &Uuid::new_v4().to_string(),
-                None,
                 selection,
                 RuntimeStatusAdapterKind::Rpc,
             )
