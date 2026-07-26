@@ -618,6 +618,44 @@ async fn pending_aggregate_launch_does_not_commit_a_transient_capture_failure() 
 }
 
 #[tokio::test]
+async fn self_induced_network_change_does_not_interrupt_a_pending_capture_operation() {
+    let fixture = fixture(Arc::new(RecordingSource::new()));
+    let _operation = fixture
+        .runtime
+        .publish_capture_pending(&CaptureRequest {
+            active: true,
+            selection: CaptureSelection {
+                system_proxy: false,
+                tun: true,
+            },
+        })
+        .unwrap();
+
+    assert_eq!(
+        fixture
+            .coordinator
+            .handle_platform_event(PlatformLifecycleEvent {
+                kind: PlatformLifecycleEventKind::NetworkChanged,
+                sequence: 1,
+            })
+            .await
+            .unwrap(),
+        LifecycleEventDisposition::Applied
+    );
+    assert!(fixture.source.pauses().is_empty());
+    assert_eq!(
+        fixture
+            .runtime
+            .status_snapshot_typed(StatusAdapterKind::Rpc)
+            .await
+            .runtime
+            .capture_operation
+            .phase,
+        mish_runtime::CaptureOperationPhase::Pending
+    );
+}
+
+#[tokio::test]
 async fn periodic_lifecycle_audits_publish_only_a_real_capture_transition() {
     let fixture = fixture(Arc::new(RecordingSource::new()));
     enable_capture(&fixture.runtime).await;

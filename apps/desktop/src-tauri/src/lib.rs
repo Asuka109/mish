@@ -34,7 +34,7 @@ use mish_profile::{ProfilePreview, ProfileServiceError};
 use mish_runtime::{
     CaptureAuditReason, CaptureReconciler, CaptureSelection, LoopbackProxyEndpoint,
     PlatformLifecycleEventSource, StatusAdapterKind as RuntimeStatusAdapterKind,
-    TunHelperController,
+    TunHelperController, TunHelperPlatform,
 };
 use mish_settings::{
     FileSettingsRepository, LoginLaunchBehavior, ManagedPortPreferences, SettingsAdapterKind,
@@ -61,6 +61,7 @@ const DEV_ORIGIN: &str = "http://127.0.0.1:4173";
 const DEV_ORIGIN_ENV: &str = "MISH_DEV_ORIGIN";
 const DESKTOP_DEMO_ENV: &str = "MISH_DESKTOP_DEMO";
 const DEVTOOLS_ENV: &str = "MISH_DEVTOOLS";
+const TART_TUN_ACCEPTANCE_ENV: &str = "MISH_TART_TUN_ACCEPTANCE";
 const DEVTOOLS_ARGUMENT: &str = "--devtools";
 const RELEASE_PROFILE_EVIDENCE_ARGUMENT: &str = "--release-profile-evidence";
 const PRODUCTION_ORIGINS: [&str; 2] = ["tauri://localhost", "https://tauri.localhost"];
@@ -69,6 +70,7 @@ const LOGIN_STARTUP_ARGUMENT: &str = "--mish-login-startup";
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct StartupOptions {
     devtools: DevtoolsStartup,
+    tart_tun_acceptance: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -87,6 +89,7 @@ enum DevtoolsStartupSource {
 enum StartupOptionsError {
     MalformedDevtoolsArgument,
     MalformedDevtoolsEnvironment,
+    MalformedTartTunAcceptanceEnvironment,
 }
 
 impl std::fmt::Display for StartupOptionsError {
@@ -98,6 +101,9 @@ impl std::fmt::Display for StartupOptionsError {
             Self::MalformedDevtoolsEnvironment => formatter.write_str(
                 "MISH_DEVTOOLS must be exactly 1 or 0; the WebView Inspector remains disabled",
             ),
+            Self::MalformedTartTunAcceptanceEnvironment => formatter.write_str(
+                "MISH_TART_TUN_ACCEPTANCE must be exactly 1 or 0; development TUN remains disabled",
+            ),
         }
     }
 }
@@ -108,6 +114,7 @@ impl StartupOptions {
     fn parse<I, S>(
         arguments: I,
         devtools_environment: Option<&OsStr>,
+        tart_tun_acceptance_environment: Option<&OsStr>,
     ) -> Result<Self, StartupOptionsError>
     where
         I: IntoIterator<Item = S>,
@@ -133,6 +140,10 @@ impl StartupOptions {
         if devtools_argument {
             return Ok(Self {
                 devtools: DevtoolsStartup::Enabled(DevtoolsStartupSource::CommandLine),
+                tart_tun_acceptance: exact_process_opt_in(
+                    tart_tun_acceptance_environment,
+                    StartupOptionsError::MalformedTartTunAcceptanceEnvironment,
+                )?,
             });
         }
 
@@ -144,11 +155,33 @@ impl StartupOptions {
             }
             Some(_) => return Err(StartupOptionsError::MalformedDevtoolsEnvironment),
         };
-        Ok(Self { devtools })
+        Ok(Self {
+            devtools,
+            tart_tun_acceptance: exact_process_opt_in(
+                tart_tun_acceptance_environment,
+                StartupOptionsError::MalformedTartTunAcceptanceEnvironment,
+            )?,
+        })
     }
 
     fn devtools_enabled(self) -> bool {
         matches!(self.devtools, DevtoolsStartup::Enabled(_))
+    }
+
+    fn tart_tun_acceptance_enabled(self, is_dev: bool) -> bool {
+        is_dev && self.tart_tun_acceptance
+    }
+}
+
+fn exact_process_opt_in(
+    value: Option<&OsStr>,
+    malformed: StartupOptionsError,
+) -> Result<bool, StartupOptionsError> {
+    match value {
+        None => Ok(false),
+        Some(value) if value == OsStr::new("0") => Ok(false),
+        Some(value) if value == OsStr::new("1") => Ok(true),
+        Some(_) => Err(malformed),
     }
 }
 
@@ -631,11 +664,15 @@ pub fn run() -> Result<i32, String> {
         );
         return Ok(0);
     }
-    let startup_options =
-        StartupOptions::parse(arguments, std::env::var_os(DEVTOOLS_ENV).as_deref())
-            .map_err(|error| error.to_string())?;
+    let startup_options = StartupOptions::parse(
+        arguments,
+        std::env::var_os(DEVTOOLS_ENV).as_deref(),
+        std::env::var_os(TART_TUN_ACCEPTANCE_ENV).as_deref(),
+    )
+    .map_err(|error| error.to_string())?;
     let mut context = tauri::generate_context!();
     let open_devtools = configure_main_webview(&mut context, startup_options)?;
+    let tart_tun_acceptance = startup_options.tart_tun_acceptance_enabled(tauri::is_dev());
     if desktop_demo_requested(
         tauri::is_dev(),
         std::env::var(DESKTOP_DEMO_ENV).ok().as_deref(),
@@ -664,7 +701,7 @@ pub fn run() -> Result<i32, String> {
         )
         .manage(graceful_exit::GracefulExitCoordinator::new())
         .manage(bridge_state.clone())
-        .setup(move |app| initialize(app, requested_mihomo, open_devtools))
+        .setup(move |app| initialize(app, requested_mihomo, open_devtools, tart_tun_acceptance))
         .on_menu_event(native_menu::handle_menu_event)
         .invoke_handler(tauri::generate_handler![
             runtime_bootstrap,
@@ -837,6 +874,7 @@ fn initialize(
     app: &mut tauri::App,
     requested_mihomo: Option<PathBuf>,
     open_devtools: bool,
+    tart_tun_acceptance: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let auth_token = generate_auth_token().map_err(io::Error::other)?;
     let profile_root = app.path().app_data_dir()?;
@@ -856,24 +894,35 @@ fn initialize(
     let mutation_authority = StateMutationAuthority::new();
     #[cfg(feature = "development-core-host")]
     let development_tun_service = (cfg!(target_os = "macos") && tauri::is_dev()).then(|| {
-        Arc::new(MacOsTunServiceClient::development_with_lifecycle(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.."),
-        ))
+        let repository_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+        Arc::new(if tart_tun_acceptance {
+            MacOsTunServiceClient::development_with_tart_tun_acceptance(repository_root)
+        } else {
+            MacOsTunServiceClient::development_with_lifecycle(repository_root)
+        })
     });
     #[cfg(not(feature = "development-core-host"))]
     let development_tun_service: Option<Arc<MacOsTunServiceClient>> = None;
-    let tun_helper = Arc::new(TunHelperController::new(
-        match production_team_identifier() {
-            Some(team_identifier) if cfg!(target_os = "macos") => {
-                Arc::new(MacOsProductionTunHelperPlatform::system(team_identifier))
-            }
-            _ => Arc::new(MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
-                MacOsTunHelperBoundary::UnsupportedSystem
-            } else {
-                MacOsTunHelperBoundary::Unpackaged
-            })),
-        },
-    ));
+    let tun_helper_platform: Arc<dyn TunHelperPlatform> = match production_team_identifier() {
+        Some(team_identifier) if cfg!(target_os = "macos") => {
+            Arc::new(MacOsProductionTunHelperPlatform::system(team_identifier))
+        }
+        _ if tart_tun_acceptance => development_tun_service
+            .as_ref()
+            .cloned()
+            .map(|service| service as Arc<dyn TunHelperPlatform>)
+            .unwrap_or_else(|| {
+                Arc::new(MacOsTunHelperPlatform::new(
+                    MacOsTunHelperBoundary::Unpackaged,
+                ))
+            }),
+        _ => Arc::new(MacOsTunHelperPlatform::new(if !cfg!(target_os = "macos") {
+            MacOsTunHelperBoundary::UnsupportedSystem
+        } else {
+            MacOsTunHelperBoundary::Unpackaged
+        })),
+    };
+    let tun_helper = Arc::new(TunHelperController::new(tun_helper_platform));
     let settings_service = Arc::new(
         SettingsService::load_with_platforms_and_authority_and_build(
             Arc::new(FileSettingsRepository::new(
@@ -1058,6 +1107,7 @@ fn initialize(
                     .preferences;
                 ephemeral_runtime_policy(preferences.managed_ports)?
                     .with_process_discovery_mode(preferences.process_discovery_mode)
+                    .with_tart_tun_dns(tart_tun_acceptance)
                     .with_tun_enabled(
                         &policy_helper.snapshot(),
                         policy_capture.status().capture_selection.tun,
@@ -1817,25 +1867,28 @@ mod tests {
     #[test]
     fn devtools_startup_defaults_off_and_accepts_only_exact_environment_values() {
         assert_eq!(
-            StartupOptions::parse(["mish"], None).unwrap(),
+            StartupOptions::parse(["mish"], None, None).unwrap(),
             StartupOptions {
                 devtools: DevtoolsStartup::Disabled,
+                tart_tun_acceptance: false,
             }
         );
         assert_eq!(
-            StartupOptions::parse(["mish"], Some("0".as_ref())).unwrap(),
+            StartupOptions::parse(["mish"], Some("0".as_ref()), None).unwrap(),
             StartupOptions {
                 devtools: DevtoolsStartup::Disabled,
+                tart_tun_acceptance: false,
             }
         );
         assert_eq!(
-            StartupOptions::parse(["mish"], Some("1".as_ref())).unwrap(),
+            StartupOptions::parse(["mish"], Some("1".as_ref()), None).unwrap(),
             StartupOptions {
                 devtools: DevtoolsStartup::Enabled(DevtoolsStartupSource::Environment),
+                tart_tun_acceptance: false,
             }
         );
         for value in ["", "true", "TRUE", "yes", " 1", "1 "] {
-            let error = StartupOptions::parse(["mish"], Some(value.as_ref()))
+            let error = StartupOptions::parse(["mish"], Some(value.as_ref()), None)
                 .expect_err("non-allowlisted values must fail closed")
                 .to_string();
             assert!(error.contains("must be exactly 1 or 0"));
@@ -1847,16 +1900,18 @@ mod tests {
     fn devtools_command_line_flag_has_deterministic_environment_precedence() {
         for environment in [None, Some("0".as_ref()), Some("invalid".as_ref())] {
             assert_eq!(
-                StartupOptions::parse(["mish", "--devtools"], environment).unwrap(),
+                StartupOptions::parse(["mish", "--devtools"], environment, None).unwrap(),
                 StartupOptions {
                     devtools: DevtoolsStartup::Enabled(DevtoolsStartupSource::CommandLine),
+                    tart_tun_acceptance: false,
                 }
             );
         }
         assert_eq!(
-            StartupOptions::parse(["mish", "--", "--devtools"], Some("0".as_ref())).unwrap(),
+            StartupOptions::parse(["mish", "--", "--devtools"], Some("0".as_ref()), None,).unwrap(),
             StartupOptions {
                 devtools: DevtoolsStartup::Disabled,
+                tart_tun_acceptance: false,
             }
         );
     }
@@ -1864,7 +1919,7 @@ mod tests {
     #[test]
     fn malformed_devtools_command_line_values_fail_closed() {
         for argument in ["--devtools=1", "--devtools=true", "--devtools=0"] {
-            let error = StartupOptions::parse(["mish", argument], Some("1".as_ref()))
+            let error = StartupOptions::parse(["mish", argument], Some("1".as_ref()), None)
                 .expect_err("the flag must not accept values")
                 .to_string();
             assert!(error.contains("does not accept a value"));
@@ -1874,16 +1929,34 @@ mod tests {
 
     #[test]
     fn devtools_opt_in_is_process_local_and_is_not_reused_by_later_parses() {
-        let opted_in = StartupOptions::parse(["mish", "--devtools"], None).unwrap();
-        let later_launch = StartupOptions::parse(["mish"], None).unwrap();
+        let opted_in = StartupOptions::parse(["mish", "--devtools"], None, None).unwrap();
+        let later_launch = StartupOptions::parse(["mish"], None, None).unwrap();
 
         assert!(opted_in.devtools_enabled());
         assert!(!later_launch.devtools_enabled());
     }
 
     #[test]
+    fn tart_tun_acceptance_requires_an_exact_development_process_opt_in() {
+        let opted_in =
+            StartupOptions::parse(["mish"], None, Some("1".as_ref())).expect("exact opt-in");
+        let ordinary = StartupOptions::parse(["mish"], None, None).unwrap();
+
+        assert!(opted_in.tart_tun_acceptance_enabled(true));
+        assert!(!opted_in.tart_tun_acceptance_enabled(false));
+        assert!(!ordinary.tart_tun_acceptance_enabled(true));
+        for value in ["", "true", "TRUE", "yes", " 1", "1 "] {
+            let error = StartupOptions::parse(["mish"], None, Some(value.as_ref()))
+                .expect_err("non-allowlisted values must fail closed")
+                .to_string();
+            assert!(error.contains("MISH_TART_TUN_ACCEPTANCE"));
+            assert!(error.contains("remains disabled"));
+        }
+    }
+
+    #[test]
     fn unsupported_platforms_return_a_bounded_diagnostic() {
-        let requested = StartupOptions::parse(["mish", "--devtools"], None).unwrap();
+        let requested = StartupOptions::parse(["mish", "--devtools"], None, None).unwrap();
         let error = resolve_devtools_behavior(
             requested,
             DesktopWebviewInspectorSupport::UnsupportedPlatform,
@@ -1897,8 +1970,8 @@ mod tests {
 
     #[test]
     fn supported_platform_behavior_tracks_only_the_current_startup_options() {
-        let enabled = StartupOptions::parse(["mish"], Some("1".as_ref())).unwrap();
-        let disabled = StartupOptions::parse(["mish"], None).unwrap();
+        let enabled = StartupOptions::parse(["mish"], Some("1".as_ref()), None).unwrap();
+        let disabled = StartupOptions::parse(["mish"], None, None).unwrap();
 
         assert_eq!(
             resolve_devtools_behavior(enabled, DesktopWebviewInspectorSupport::Supported),

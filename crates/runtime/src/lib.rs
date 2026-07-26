@@ -1283,6 +1283,12 @@ impl MishRuntime {
         self.capture.as_ref().map(|capture| capture.subscribe())
     }
 
+    pub fn capture_operation_pending(&self) -> bool {
+        self.capture.as_ref().is_some_and(|capture| {
+            capture.status().capture_operation.phase == CaptureOperationPhase::Pending
+        })
+    }
+
     pub fn publish_capture_pending(
         &self,
         request: &CaptureRequest,

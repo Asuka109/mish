@@ -65,11 +65,13 @@ test("forwards pnpm pass-through options to the Tauri CLI", () => {
     application: [],
     demo: false,
     forwarded: ["--no-watch"],
+    tartTunAcceptance: false,
   });
   assert.deepEqual(parseTauriDevelopmentArguments(["--demo", "--verbose"]), {
     application: [],
     demo: true,
     forwarded: ["--verbose"],
+    tartTunAcceptance: false,
   });
 });
 
@@ -78,12 +80,27 @@ test("separates the process-local DevTools flag from Tauri CLI options", () => {
     application: ["--devtools"],
     demo: false,
     forwarded: ["--no-watch"],
+    tartTunAcceptance: false,
   });
   assert.deepEqual(parseTauriDevelopmentArguments(["--devtools=true"]), {
     application: ["--devtools=true"],
     demo: false,
     forwarded: [],
+    tartTunAcceptance: false,
   });
+});
+
+test("consumes the explicit Tart TUN acceptance opt-in without forwarding it", () => {
+  assert.deepEqual(parseTauriDevelopmentArguments(["--tart-tun-acceptance", "--no-watch"]), {
+    application: [],
+    demo: false,
+    forwarded: ["--no-watch"],
+    tartTunAcceptance: true,
+  });
+  assert.equal(
+    parseTauriDevelopmentArguments(["--demo", "--tart-tun-acceptance"]).tartTunAcceptance,
+    true,
+  );
 });
 
 test("keeps the checked-in main WebView Inspector configuration default-off", () => {
