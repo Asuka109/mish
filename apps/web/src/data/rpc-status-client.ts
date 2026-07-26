@@ -4,6 +4,7 @@ import {
   statusRpcNotifications,
   type ApplicationSnapshotDelivery,
   type CaptureSelectionDto,
+  type CaptureOperationStatusDto,
   type CaptureRecoveryAction,
   type LocalProxyTestResultDto,
   type RecentTrafficSnapshotDto,
@@ -49,6 +50,9 @@ export class RpcStatusClient implements StatusClient {
   private capabilityProfileId: string | null = null;
   private capabilitiesLoaded = false;
   private acceptedRecentTraffic: RecentTrafficSnapshotDto | null = null;
+  private acceptedCaptureOperation: CaptureOperationStatusDto | null = null;
+  private acceptedCaptureProjection: StatusSnapshotDto["runtime"] | null = null;
+  private readonly retiredCaptureScopes: string[] = [];
   private readonly snapshotAcceptance = new ApplicationSnapshotAcceptance<StatusSnapshotDto>();
   private readonly supportedCommands = new Set<StatusCommand>();
 
@@ -235,7 +239,7 @@ export class RpcStatusClient implements StatusClient {
     }
     this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
     if (result.kind !== "accepted") return;
-    const snapshot = this.acceptRecentTraffic(result.snapshot);
+    const snapshot = this.acceptSnapshot(result.snapshot);
     for (const listener of this.snapshotListeners) listener(snapshot, delivery);
     void this.ensureCommandCapabilities(snapshot.activeProfileId);
   }
@@ -252,6 +256,58 @@ export class RpcStatusClient implements StatusClient {
       return snapshot;
     }
     return { ...snapshot, recentTraffic: structuredClone(accepted) };
+  }
+
+  private acceptSnapshot(snapshot: StatusSnapshotDto): StatusSnapshotDto {
+    return this.acceptCaptureOperation(this.acceptRecentTraffic(snapshot));
+  }
+
+  private acceptCaptureOperation(snapshot: StatusSnapshotDto): StatusSnapshotDto {
+    const incoming = snapshot.runtime.captureOperation;
+    const accepted = this.acceptedCaptureOperation;
+    if (!accepted) {
+      this.rememberCaptureProjection(snapshot);
+      return snapshot;
+    }
+
+    if (incoming.scopeEpoch !== accepted.scopeEpoch) {
+      if (this.retiredCaptureScopes.includes(incoming.scopeEpoch)) {
+        return this.withAcceptedCaptureProjection(snapshot);
+      }
+      this.retiredCaptureScopes.push(accepted.scopeEpoch);
+      if (this.retiredCaptureScopes.length > 8) this.retiredCaptureScopes.shift();
+      this.rememberCaptureProjection(snapshot);
+      return snapshot;
+    }
+
+    const incomingId = captureOperationId(incoming);
+    const acceptedId = captureOperationId(accepted);
+    if (incomingId > acceptedId) {
+      this.rememberCaptureProjection(snapshot);
+      return snapshot;
+    }
+    if (incomingId < acceptedId) return this.withAcceptedCaptureProjection(snapshot);
+
+    const incomingRank = captureOperationPhaseRank(incoming.phase);
+    const acceptedRank = captureOperationPhaseRank(accepted.phase);
+    if (
+      incomingRank > acceptedRank ||
+      (incomingRank === acceptedRank && incoming.phase === accepted.phase)
+    ) {
+      this.rememberCaptureProjection(snapshot);
+      return snapshot;
+    }
+    return this.withAcceptedCaptureProjection(snapshot);
+  }
+
+  private rememberCaptureProjection(snapshot: StatusSnapshotDto) {
+    this.acceptedCaptureOperation = structuredClone(snapshot.runtime.captureOperation);
+    this.acceptedCaptureProjection = structuredClone(snapshot.runtime);
+  }
+
+  private withAcceptedCaptureProjection(snapshot: StatusSnapshotDto): StatusSnapshotDto {
+    if (!this.acceptedCaptureProjection) return snapshot;
+    return { ...snapshot, runtime: structuredClone(this.acceptedCaptureProjection) };
   }
 
   private async ensureCommandCapabilities(profileId: string) {
@@ -329,13 +385,31 @@ export class RpcStatusClient implements StatusClient {
       if (result.kind === "conflict") {
         throw new StatusClientError("validation", "Status snapshot order conflict");
       }
-      const snapshot = this.acceptRecentTraffic(result.snapshot);
+      const snapshot = this.acceptSnapshot(result.snapshot);
       this.emitConnectionState({ attempt: 0, phase: "connected", stale: false });
       void this.ensureCommandCapabilities(snapshot.activeProfileId);
       return snapshot;
     } catch (error) {
       throw mapRpcError(error);
     }
+  }
+}
+
+function captureOperationId(operation: CaptureOperationStatusDto) {
+  return operation.operationId === null ? 0n : BigInt(operation.operationId);
+}
+
+function captureOperationPhaseRank(phase: CaptureOperationStatusDto["phase"]) {
+  switch (phase) {
+    case "idle":
+      return 0;
+    case "pending":
+      return 1;
+    case "applied":
+    case "failed":
+      return 2;
+    case "recovery-required":
+      return 3;
   }
 }
 

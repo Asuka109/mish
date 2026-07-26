@@ -1916,20 +1916,26 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
         "selection committed while aggregate launch still owned the activation transaction"
     );
     let observe = async {
-        let mut phases = Vec::new();
+        let mut projections = Vec::new();
         loop {
             let status = capture_updates.recv().await.unwrap();
-            phases.push(status.system_proxy.phase);
+            projections.push((
+                status.system_proxy.phase,
+                status.capture_operation.operation_id.clone(),
+                status.capture_operation.scope_epoch.clone(),
+            ));
             if status.system_proxy.phase == SystemProxyPhase::Applied {
-                break phases;
+                break projections;
             }
         }
     };
-    let phases = tokio::time::timeout(Duration::from_secs(10), observe)
-        .await
-        .unwrap();
+    let (result, projections) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(launch, observe)
+    })
+    .await
+    .unwrap();
 
-    launch.await.unwrap().unwrap();
+    result.unwrap().unwrap();
     let confirmed_after_launch = concurrent_selection.await.unwrap().unwrap();
     assert_eq!(
         confirmed_after_launch.selection.profile_id.as_deref(),
@@ -1975,8 +1981,18 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
     coordinator.shutdown().await.unwrap();
     controller.shutdown().await;
 
+    let phases = projections
+        .iter()
+        .map(|(phase, _, _)| *phase)
+        .collect::<Vec<_>>();
     assert_eq!(phases.first(), Some(&SystemProxyPhase::Pending));
     assert_eq!(phases.last(), Some(&SystemProxyPhase::Applied));
+    assert!(
+        projections
+            .windows(2)
+            .all(|pair| pair[0].1 == pair[1].1 && pair[0].2 == pair[1].2),
+        "runtime handoff changed the admitted aggregate operation: {projections:?}"
+    );
     assert!(
         !phases.contains(&SystemProxyPhase::Off),
         "aggregate launch regressed from Pending to Off before Applied: {phases:?}"
@@ -1985,19 +2001,27 @@ async fn aggregate_launch_stays_pending_during_profile_runtime_handoff() {
 
 struct LaunchPreflightPlatform {
     applies: AtomicUsize,
+    block_preflight: AtomicBool,
     fail_observations: AtomicBool,
     observations: AtomicUsize,
     observed: Notify,
+    preflight_polled: Notify,
 }
 
 impl LaunchPreflightPlatform {
     fn new() -> Self {
         Self {
             applies: AtomicUsize::new(0),
+            block_preflight: AtomicBool::new(false),
             fail_observations: AtomicBool::new(false),
             observations: AtomicUsize::new(0),
             observed: Notify::new(),
+            preflight_polled: Notify::new(),
         }
+    }
+
+    fn block_preflight(&self) {
+        self.block_preflight.store(true, Ordering::Relaxed);
     }
 
     fn fail_observations(&self) {
@@ -2010,6 +2034,26 @@ impl LaunchPreflightPlatform {
 }
 
 impl CapturePlatform for LaunchPreflightPlatform {
+    fn preflight_observe_active(
+        &self,
+    ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
+        self.observations.fetch_add(1, Ordering::Relaxed);
+        self.observed.notify_one();
+        Box::pin(async move {
+            self.preflight_polled.notify_one();
+            if self.block_preflight.load(Ordering::Relaxed) {
+                std::future::pending::<()>().await;
+            }
+            if self.fail_observations.load(Ordering::Relaxed) {
+                return Err(CaptureTransitionError::new(
+                    CaptureFailureKind::ObservationFailed,
+                    "Synthetic launch preflight observation failure",
+                ));
+            }
+            Ok(disabled_capture_service())
+        })
+    }
+
     fn observe_active(
         &self,
     ) -> BoxFuture<'_, Result<NetworkServiceProxyState, CaptureTransitionError>> {
@@ -2042,6 +2086,7 @@ impl CapturePlatform for LaunchPreflightPlatform {
 
 #[tokio::test]
 async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile_preparation() {
+    let controller = FakeController::start("v1.19.29").await;
     let root = std::env::temp_dir().join(format!("mish-launch-preflight-{}", Uuid::new_v4()));
     let profile_root = root.join("profile-store");
     let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
@@ -2071,14 +2116,14 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
         })),
         capture,
     );
-    let unavailable = unused_loopback_address();
+    let address = controller.address;
     let host = DesktopRuntimeHost::new(safe_runtime.clone());
     let coordinator = Arc::new(ProfileActivationCoordinator::new(
         profiles,
         manager,
         host.clone(),
         safe_runtime,
-        move || ManagedRuntimePolicy::new(unavailable, "synthetic-preflight-secret"),
+        move || ManagedRuntimePolicy::new(address, "synthetic-preflight-secret"),
     ));
     let command_id = Uuid::new_v4().to_string();
     let launch_coordinator = coordinator.clone();
@@ -2099,6 +2144,12 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
     timeout(Duration::from_secs(1), platform.observed.notified())
         .await
         .expect("read-only System Proxy preflight did not overlap Profile preparation");
+    let admitted = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(admitted["runtime"]["captureOperation"]["phase"], "pending");
+    let launch_operation_id = admitted["runtime"]["captureOperation"]["operationId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     assert_eq!(platform.observations.load(Ordering::Relaxed), 1);
     assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
     let duplicate = coordinator
@@ -2113,6 +2164,10 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
         .await
         .unwrap_err();
     assert_eq!(duplicate.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(
+        host.status_snapshot(StatusAdapterKind::Native).await["runtime"]["captureOperation"]["operationId"],
+        launch_operation_id
+    );
     assert_eq!(platform.observations.load(Ordering::Relaxed), 1);
 
     let stop = timeout(
@@ -2132,6 +2187,11 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
     .expect("Stop during Pending did not cancel and join the launch")
     .unwrap();
     assert_eq!(stop["runtime"]["systemProxy"]["phase"], "off");
+    assert_eq!(stop["runtime"]["captureOperation"]["phase"], "applied");
+    assert_ne!(
+        stop["runtime"]["captureOperation"]["operationId"],
+        launch_operation_id
+    );
     let error = timeout(Duration::from_secs(5), launch)
         .await
         .expect("stopped aggregate launch did not join")
@@ -2214,6 +2274,152 @@ async fn aggregate_launch_starts_read_only_system_proxy_preflight_during_profile
         .unwrap_err();
     assert_eq!(error.kind, CaptureFailureKind::RuntimeTransition);
     assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
+    controller.shutdown().await;
+}
+
+#[tokio::test]
+async fn stop_and_quit_cancel_and_join_blocked_preflight_after_profile_success() {
+    let controller = FakeController::start("v1.19.29").await;
+    let root = std::env::temp_dir().join(format!("mish-cancel-preflight-{}", Uuid::new_v4()));
+    let profile_root = root.join("profile-store");
+    let record = profile_record(b"proxies: []\nrules: [MATCH,DIRECT]\n");
+    FileProfileRepository::new(profile_root.join("profile-store"))
+        .save(&record)
+        .unwrap();
+    let profiles = Arc::new(ReqwestHttpsSourceReader::profile_service(profile_root).unwrap());
+    let platform = Arc::new(LaunchPreflightPlatform::new());
+    platform.block_preflight();
+    let capture = Arc::new(CaptureReconciler::new(
+        platform.clone(),
+        Arc::new(MemoryCaptureJournal::default()),
+        LoopbackProxyEndpoint::managed(),
+    ));
+    let manager = Arc::new(MihomoActivationManager::new_with_capture(
+        ManagedMihomoResolver::development(
+            fixture("fake-activation-mihomo.sh"),
+            root.join("runtime"),
+        ),
+        activation_timing(Duration::from_secs(5)),
+        Some(capture.clone()),
+    ));
+    let safe_runtime = MishRuntime::with_capture(
+        Arc::new(DesktopMihomoProcess::new(DesktopMihomoProcessConfig {
+            binary: None,
+            config_directory: None,
+            config_file: None,
+        })),
+        capture,
+    );
+    let host = DesktopRuntimeHost::new(safe_runtime.clone());
+    let address = controller.address;
+    let coordinator = Arc::new(ProfileActivationCoordinator::new(
+        profiles,
+        manager,
+        host.clone(),
+        safe_runtime,
+        move || ManagedRuntimePolicy::new(address, "synthetic-cancel-preflight-secret"),
+    ));
+    let launch_coordinator = coordinator.clone();
+    let launch = tokio::spawn(async move {
+        launch_coordinator
+            .launch_proxy(
+                &Uuid::new_v4().to_string(),
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+    timeout(Duration::from_secs(1), platform.preflight_polled.notified())
+        .await
+        .expect("blocked read-only preflight was not polled");
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let activation = coordinator.activation_snapshot().await;
+            if activation.phase != ProfileActivationPhase::Pending {
+                assert_eq!(activation.phase, ProfileActivationPhase::Success);
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("Profile preparation did not finish while preflight remained blocked");
+    let pending = host.status_snapshot(StatusAdapterKind::Native).await;
+    let operation_id = pending["runtime"]["captureOperation"]["operationId"].clone();
+    assert_eq!(pending["runtime"]["captureOperation"]["phase"], "pending");
+
+    let stopped = timeout(
+        Duration::from_secs(5),
+        coordinator.set_capture(
+            CaptureRequest {
+                active: false,
+                selection: CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+            },
+            StatusAdapterKind::Rpc,
+        ),
+    )
+    .await
+    .expect("Stop did not cancel and join blocked preflight")
+    .unwrap();
+    assert_eq!(stopped["runtime"]["captureOperation"]["phase"], "applied");
+    assert_ne!(
+        stopped["runtime"]["captureOperation"]["operationId"],
+        operation_id
+    );
+    let error = timeout(Duration::from_secs(5), launch)
+        .await
+        .expect("blocked preflight outlived Stop")
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
+
+    let quit_coordinator = coordinator.clone();
+    let quit_launch = tokio::spawn(async move {
+        quit_coordinator
+            .launch_proxy(
+                &Uuid::new_v4().to_string(),
+                CaptureSelection {
+                    system_proxy: true,
+                    tun: false,
+                },
+                StatusAdapterKind::Rpc,
+            )
+            .await
+    });
+    timeout(Duration::from_secs(1), platform.preflight_polled.notified())
+        .await
+        .expect("second blocked preflight was not polled before graceful quit");
+    let quit_pending = host.status_snapshot(StatusAdapterKind::Native).await;
+    let quit_operation_id = quit_pending["runtime"]["captureOperation"]["operationId"].clone();
+    assert_eq!(
+        quit_pending["runtime"]["captureOperation"]["phase"],
+        "pending"
+    );
+    timeout(Duration::from_secs(5), coordinator.shutdown_for_exit())
+        .await
+        .expect("graceful quit did not cancel and join blocked preflight")
+        .unwrap();
+    let error = timeout(Duration::from_secs(5), quit_launch)
+        .await
+        .expect("blocked preflight outlived graceful quit")
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.kind, CaptureFailureKind::RuntimeTransition);
+    assert_eq!(platform.applies.load(Ordering::Relaxed), 0);
+    let terminal = host.status_snapshot(StatusAdapterKind::Rpc).await;
+    assert_eq!(
+        terminal["runtime"]["captureOperation"]["operationId"],
+        quit_operation_id
+    );
+    assert_eq!(terminal["runtime"]["captureOperation"]["phase"], "failed");
+    controller.shutdown().await;
 }
 
 #[tokio::test]

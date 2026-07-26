@@ -15,6 +15,7 @@ export function useCaptureCommand() {
   return {
     pending:
       product.isCommandPending("capture") ||
+      product.snapshot?.runtime.captureOperation.phase === "pending" ||
       product.snapshot?.runtime.systemProxy.phase === "pending" ||
       product.snapshot?.runtime.tun.phase === "pending" ||
       false,

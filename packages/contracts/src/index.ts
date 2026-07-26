@@ -176,15 +176,43 @@ export const CaptureFailureKindSchema = z.enum([
   "core-unhealthy",
   "external-drift",
   "invalid-recovery",
+  "listener-unavailable",
   "observation-failed",
   "permission-denied",
   "persistence-failed",
   "rollback-failed",
+  "runtime-transition",
   "takeover-rejected",
   "unsafe-existing-configuration",
   "unsupported-selection",
 ]);
 export type CaptureFailureKind = z.infer<typeof CaptureFailureKindSchema>;
+
+export const CaptureOperationPhaseSchema = z.enum([
+  "idle",
+  "pending",
+  "applied",
+  "failed",
+  "recovery-required",
+]);
+export type CaptureOperationPhase = z.infer<typeof CaptureOperationPhaseSchema>;
+
+export const CaptureOperationStatusSchema = z
+  .object({
+    operationId: DecimalIntegerSchema.max(20).nullable(),
+    phase: CaptureOperationPhaseSchema,
+    scopeEpoch: z.string().min(1).max(64),
+  })
+  .strict()
+  .superRefine((operation, context) => {
+    if ((operation.phase === "idle") !== (operation.operationId === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Only an idle Capture scope may omit its aggregate operation ID",
+      });
+    }
+  });
+export interface CaptureOperationStatusDto extends z.infer<typeof CaptureOperationStatusSchema> {}
 
 export const SystemProxyPhaseSchema = z.enum(["off", "pending", "applied", "failed", "drift"]);
 export type SystemProxyPhase = z.infer<typeof SystemProxyPhaseSchema>;
@@ -340,6 +368,7 @@ export interface TunRuntimeStatusDto extends z.infer<typeof TunRuntimeStatusSche
 
 export const RuntimeStatusSchema = z
   .object({
+    captureOperation: CaptureOperationStatusSchema,
     captureSelection: CaptureSelectionSchema.default({ systemProxy: false, tun: false }),
     message: z.string(),
     phase: RuntimePhaseSchema,
@@ -2034,7 +2063,7 @@ export const BridgeInfoSchema = z
   .object({
     bridgeVersion: z.string().min(1),
     coreConfigured: z.boolean(),
-    protocolVersion: z.literal(25),
+    protocolVersion: z.literal(26),
     statusCommands: z
       .object({
         group: z.boolean(),
